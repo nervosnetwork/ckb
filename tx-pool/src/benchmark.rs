@@ -69,6 +69,7 @@ fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
         recent_reject: Default::default(),
         expiry_hours: 24,
         verify_ordering: VerifyOrdering::ArrivalTime,
+        max_verify_queue_tx_size: 256_000_000,
     }
 }
 

@@ -64,6 +64,104 @@ pub struct TxPoolServiceBuilder {
     pub(crate) recent_reject: Option<Arc<RecentReject>>,
 }
 
+/// Exponential backoff for monitor/worker respawn loops.
+///
+/// A fixed delay is wrong at both ends: transient crashes want a fast
+/// first retry (pipeline availability), while a persistent start-time
+/// failure (a panic that fires immediately on every run) must not become a
+/// hot spin with log spam. The delay therefore doubles per consecutive
+/// failure (100ms → 25.6s, capped at 30s) and resets to the base after any
+/// run that stayed up for at least `HEALTHY_RUN`.
+struct RespawnBackoff {
+    failures: u32,
+}
+
+impl RespawnBackoff {
+    /// First retry delay after a failure.
+    const BASE: Duration = Duration::from_millis(100);
+    /// Maximum delay between respawns.
+    const MAX: Duration = Duration::from_secs(30);
+    /// A run lasting at least this long counts as healthy and resets the
+    /// backoff to `BASE`.
+    const HEALTHY_RUN: Duration = Duration::from_secs(60);
+
+    fn new() -> Self {
+        Self { failures: 0 }
+    }
+
+    /// Delay before the next respawn, given how long the previous run
+    /// lasted.
+    fn delay_for(&mut self, ran_for: Duration) -> Duration {
+        if ran_for >= Self::HEALTHY_RUN {
+            self.failures = 0;
+        }
+        let delay = Self::BASE.saturating_mul(2u32.saturating_pow(self.failures.min(10)));
+        self.failures = self.failures.saturating_add(1);
+        delay.min(Self::MAX)
+    }
+}
+
+/// Shared construction of the pipeline queues and a bare [`TxPoolService`],
+/// used by both [`TxPoolServiceBuilder::start`] (production) and
+/// [`TxPoolServiceBuilder::build_bench_service`] (internal benchmarks).
+/// Spawning the background workers the service depends on is left to the
+/// callers.
+#[allow(clippy::too_many_arguments)]
+fn assemble_service(
+    tx_pool: TxPool,
+    consensus: Arc<ckb_chain_spec::consensus::Consensus>,
+    block_assembler: Option<BlockAssembler>,
+    callbacks: Callbacks,
+    network: TxPoolNetworkHandle,
+    txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
+    recent_reject: Option<Arc<RecentReject>>,
+    fee_estimator: FeeEstimator,
+    tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+    block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
+    deferred_sender: mpsc::Sender<DeferredTask>,
+    chunk_rx: watch::Receiver<ChunkCommand>,
+    pre_check_cancel: CancellationToken,
+) -> (
+    TxPoolService,
+    Arc<crate::component::pipeline_queues::PipelineQueues>,
+) {
+    // One `Arc` shared by the service and every worker: the queue fields
+    // inside are plain locks, not per-queue `Arc`s.
+    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+        ordered_resolve_queue: RwLock::new(
+            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+        ),
+        verify_queue: RwLock::new(VerifyQueue::new(
+            tx_pool.config.max_tx_verify_cycles,
+            tx_pool.config.verify_ordering,
+            tx_pool.config.verify_queue_tx_size_budget(),
+        )),
+        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
+        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+    });
+
+    let service = TxPoolService {
+        tx_pool_config: Arc::new(tx_pool.config.clone()),
+        tx_pool: Arc::new(RwLock::new(tx_pool)),
+        orphan: Arc::new(RwLock::new(OrphanPool::new())),
+        block_assembler,
+        callbacks: Arc::new(callbacks),
+        tx_relay_sender,
+        block_assembler_sender,
+        network,
+        consensus,
+        aux: crate::service::AuxServices {
+            txs_verify_cache,
+            recent_reject,
+            fee_estimator,
+        },
+        queues: Arc::clone(&queues),
+        chunk_rx,
+        deferred_sender,
+    };
+    (service, queues)
+}
+
 impl TxPoolServiceBuilder {
     /// Creates a new TxPoolServiceBuilder.
     pub fn new(
@@ -223,6 +321,13 @@ impl TxPoolServiceBuilder {
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start<N: TxPoolNetwork>(self, network: N) {
+        if self.tx_pool_config.max_verify_queue_tx_size < self.tx_pool_config.max_tx_pool_size {
+            warn!(
+                "max_verify_queue_tx_size ({}) < max_tx_pool_size ({}): clamping the verify-queue \
+                 budget up to max_tx_pool_size so persisted-pool reload cannot hit Reject::Full",
+                self.tx_pool_config.max_verify_queue_tx_size, self.tx_pool_config.max_tx_pool_size
+            );
+        }
         let network: TxPoolNetworkHandle = Arc::new(network);
 
         // Move all builder fields into locals so the rest of the startup sequence
@@ -249,21 +354,6 @@ impl TxPoolServiceBuilder {
 
         let consensus = snapshot.cloned_consensus();
         let pre_check_cancel = signal_receiver.child_token();
-        // One `Arc` shared by the service and every worker: the queue fields
-        // inside are plain locks, not per-queue `Arc`s.
-        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-            ordered_resolve_queue: RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            ),
-            verify_queue: RwLock::new(VerifyQueue::new(
-                tx_pool_config.max_tx_verify_cycles,
-                tx_pool_config.verify_ordering,
-            )),
-            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
-                pre_check_cancel.clone(),
-            ),
-            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-        });
 
         let tx_pool = TxPool::new(tx_pool_config, snapshot);
         let txs = match tx_pool.load_from_file() {
@@ -286,25 +376,21 @@ impl TxPoolServiceBuilder {
         let (deferred_sender, deferred_receiver) =
             mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
 
-        let service = TxPoolService {
-            tx_pool_config: Arc::new(tx_pool.config.clone()),
-            tx_pool: Arc::new(RwLock::new(tx_pool)),
-            orphan: Arc::new(RwLock::new(OrphanPool::new())),
+        let (service, queues) = assemble_service(
+            tx_pool,
+            consensus,
             block_assembler,
-            callbacks: Arc::new(callbacks),
+            callbacks,
+            network,
+            txs_verify_cache,
+            recent_reject,
+            fee_estimator,
             tx_relay_sender,
             block_assembler_sender,
-            network,
-            consensus,
-            aux: crate::service::AuxServices {
-                txs_verify_cache,
-                recent_reject,
-                fee_estimator,
-            },
-            queues: Arc::clone(&queues),
-            chunk_rx: chunk_rx.clone(),
             deferred_sender,
-        };
+            chunk_rx.clone(),
+            pre_check_cancel.clone(),
+        );
 
         let deferred_handle = spawn_deferred_worker(
             &handle,
@@ -319,7 +405,7 @@ impl TxPoolServiceBuilder {
             pre_check_cancel,
             pre_check_workers,
         );
-        let verify_mgr_handle = Self::spawn_verify_mgr(
+        let verify_mgr_handle = Self::spawn_verify_mgr_monitor(
             &handle,
             service.clone(),
             chunk_rx.clone(),
@@ -382,8 +468,10 @@ impl TxPoolServiceBuilder {
             let svc = service.clone();
             let cancel = pre_check_cancel.child_token();
             let handle = handle.spawn(async move {
+                let mut backoff = RespawnBackoff::new();
                 loop {
                     let svc = svc.clone();
+                    let started = std::time::Instant::now();
                     let worker = async move {
                         while let Some(job) = svc.queues.pre_check_queue.pop().await {
                             let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
@@ -405,6 +493,7 @@ impl TxPoolServiceBuilder {
                         }
                         crate::resolve_mgr::ResolveExit::Panicked { message } => {
                             error!("tx-pool pre-check worker panicked: {}; respawning", message);
+                            tokio::time::sleep(backoff.delay_for(started.elapsed())).await;
                         }
                     }
                 }
@@ -414,17 +503,45 @@ impl TxPoolServiceBuilder {
         handles
     }
 
-    /// Spawn the verification manager that supervises verify workers.  Returns
-    /// the spawned task handle so the shutdown path can quiesce it before
-    /// persisting.
-    fn spawn_verify_mgr(
+    /// Spawn the verification manager monitor with panic-respawn protection,
+    /// mirroring [`Self::spawn_resolver_monitor`]. The manager supervises its
+    /// verify workers internally, but nothing watched the manager task
+    /// itself: without this loop, a manager-level exit (panic or unexpected
+    /// stop) would silently stall the whole verification stage — the verify
+    /// queue would fill up and every new transaction would eventually be
+    /// rejected as `Reject::Full`, with no log at all. Returns the spawned
+    /// task handle so the shutdown path can quiesce it before persisting.
+    fn spawn_verify_mgr_monitor(
         handle: &Handle,
         service: TxPoolService,
         chunk_rx: watch::Receiver<ChunkCommand>,
         signal: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
-        let mut verify_mgr = VerifyMgr::new(service, chunk_rx, signal);
-        handle.spawn(async move { verify_mgr.run().await })
+        handle.spawn(async move {
+            let mut backoff = RespawnBackoff::new();
+            loop {
+                let mut verify_mgr =
+                    VerifyMgr::new(service.clone(), chunk_rx.clone(), signal.clone());
+                let started = std::time::Instant::now();
+                let outcome = AssertUnwindSafe(verify_mgr.run()).catch_unwind().await;
+                match outcome {
+                    Ok(()) => {
+                        if signal.is_cancelled() {
+                            break;
+                        }
+                        error!("tx-pool verify manager stopped unexpectedly, respawning");
+                    }
+                    Err(payload) => {
+                        error!(
+                            "tx-pool verify manager panicked: {}; respawning",
+                            crate::util::panic_payload_to_string(payload.as_ref())
+                        );
+                    }
+                }
+                tokio::time::sleep(backoff.delay_for(started.elapsed())).await;
+            }
+            info!("TxPool verify manager monitor exited");
+        })
     }
 
     /// Spawn the ordered resolver monitor with panic-respawn protection.
@@ -437,6 +554,7 @@ impl TxPoolServiceBuilder {
         resolver_exit_signal: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
         handle.spawn(async move {
+            let mut backoff = RespawnBackoff::new();
             loop {
                 let resolver = crate::resolve_mgr::OrderedResolver::new(
                     service.clone(),
@@ -445,6 +563,7 @@ impl TxPoolServiceBuilder {
                 );
                 let (exit_tx, mut exit_rx) = tokio::sync::mpsc::unbounded_channel();
                 let handle = resolver.start(exit_tx);
+                let started = std::time::Instant::now();
 
                 tokio::select! {
                     _ = resolver_exit_signal.cancelled() => {
@@ -464,6 +583,7 @@ impl TxPoolServiceBuilder {
                                 error!("tx-pool ordered resolver panicked: {}; respawning", message);
                             }
                         }
+                        tokio::time::sleep(backoff.delay_for(started.elapsed())).await;
                     }
                 }
             }
@@ -667,56 +787,35 @@ impl TxPoolServiceBuilder {
     /// spawning any background workers (pre-check pool, [`VerifyMgr`],
     /// [`OrderedResolver`]).
     ///
-    /// This is the single source of truth for service construction used by
-    /// both [`Self::start`] (production) and the benchmark harness.  The
-    /// caller is responsible for spawning the background workers that the
-    /// returned service depends on.
+    /// Shares the exact same construction as [`Self::start`] via
+    /// `assemble_service`; the caller is responsible for spawning the
+    /// background workers that the returned service depends on.
     #[cfg(feature = "internal")]
     pub(crate) fn build_bench_service(self, network: TxPoolNetworkHandle) -> BenchServiceParts {
         let consensus = self.snapshot.cloned_consensus();
-
         let signal = self.signal_receiver;
         let pre_check_cancel = signal.child_token();
-        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-            ordered_resolve_queue: RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            ),
-            verify_queue: RwLock::new(VerifyQueue::new(
-                self.tx_pool_config.max_tx_verify_cycles,
-                self.tx_pool_config.verify_ordering,
-            )),
-            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
-                pre_check_cancel,
-            ),
-            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-        });
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
-        let recent_reject = self.recent_reject;
         let (block_assembler_sender, _) = self.block_assembler_channel;
-
         let (deferred_sender, deferred_receiver) =
             mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
 
-        let service = TxPoolService {
-            tx_pool_config: Arc::new(tx_pool.config.clone()),
-            tx_pool: Arc::new(RwLock::new(tx_pool)),
-            orphan: Arc::new(RwLock::new(OrphanPool::new())),
-            block_assembler: self.block_assembler,
-            callbacks: Arc::new(self.callbacks),
-            tx_relay_sender: self.tx_relay_sender,
-            block_assembler_sender,
-            network,
+        let (service, _queues) = assemble_service(
+            tx_pool,
             consensus,
-            aux: crate::service::AuxServices {
-                txs_verify_cache: self.txs_verify_cache,
-                recent_reject,
-                fee_estimator: self.fee_estimator,
-            },
-            queues,
-            chunk_rx: self.chunk_rx,
+            self.block_assembler,
+            self.callbacks,
+            network,
+            self.txs_verify_cache,
+            self.recent_reject,
+            self.fee_estimator,
+            self.tx_relay_sender,
+            block_assembler_sender,
             deferred_sender,
-        };
+            self.chunk_rx,
+            pre_check_cancel,
+        );
 
         BenchServiceParts {
             service,
@@ -812,5 +911,33 @@ async fn enqueue_recover_txs(
                 reject
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn respawn_backoff_progresses_caps_and_resets() {
+        let mut backoff = RespawnBackoff::new();
+        let crash = Duration::from_millis(5);
+
+        // Consecutive crashes: 100ms, 200ms, 400ms, ...
+        assert_eq!(backoff.delay_for(crash), Duration::from_millis(100));
+        assert_eq!(backoff.delay_for(crash), Duration::from_millis(200));
+        assert_eq!(backoff.delay_for(crash), Duration::from_millis(400));
+
+        // Capped at 30s under a persistent failure.
+        for _ in 0..20 {
+            backoff.delay_for(crash);
+        }
+        assert_eq!(backoff.delay_for(crash), Duration::from_secs(30));
+
+        // A healthy run (>= HEALTHY_RUN) resets the backoff to the base.
+        assert_eq!(
+            backoff.delay_for(Duration::from_secs(120)),
+            Duration::from_millis(100)
+        );
     }
 }

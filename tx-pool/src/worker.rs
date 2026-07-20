@@ -56,6 +56,13 @@ pub(crate) trait JobHandler: Clone + Send + Sync + 'static {
     /// Process a single popped job to completion.
     fn process_one(&mut self, job: Self::Job) -> impl Future<Output = ()> + Send;
 
+    /// The next time this stage has time-based work (e.g. a delayed job
+    /// becoming due). The default returns `None`, meaning the stage only
+    /// reacts to queue notifications and command changes.
+    fn next_deadline(&self) -> impl Future<Output = Option<tokio::time::Instant>> + Send {
+        std::future::ready(None)
+    }
+
     /// Build the exit payload reported to the monitor loop.
     fn make_exit(&self, outcome: WorkerOutcome) -> Self::Exit;
 }
@@ -116,6 +123,15 @@ impl<H: JobHandler> WorkerRunner<H> {
         let queue_ready = self.handler.queue_ready().await;
         self.refresh_status();
         loop {
+            let deadline = self.handler.next_deadline().await;
+            // Recomputed every loop iteration: the deadline future is dropped
+            // (cancel-safe) whenever another branch wins first.
+            let deadline_fired = async {
+                match deadline {
+                    Some(d) => tokio::time::sleep_until(d).await,
+                    None => std::future::pending().await,
+                }
+            };
             tokio::select! {
                 _ = self.exit_signal.cancelled() => break,
                 _ = self.command_rx.changed() => {
@@ -123,6 +139,7 @@ impl<H: JobHandler> WorkerRunner<H> {
                     self.process_loop().await;
                 }
                 _ = queue_ready.notified() => self.process_loop().await,
+                _ = deadline_fired => self.process_loop().await,
             }
         }
     }

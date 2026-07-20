@@ -2,6 +2,8 @@
 
 mod builder;
 mod candidate_uncles;
+mod cell_liveness;
+mod dao;
 mod json;
 mod notify;
 mod process;
@@ -13,11 +15,11 @@ mod tests;
 use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
+use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate as JsonBlockTemplate;
-use ckb_logger::{debug, error, trace, warn};
+use ckb_logger::{debug, trace, warn};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -26,17 +28,14 @@ use ckb_types::{
     bytes,
     core::{
         Capacity, EpochExt, ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
-        cell::{CellChecker, TransactionsChecker},
     },
     packed::{
-        self, Byte32, Bytes, CellInput, CellOutput, CellbaseWitness, OutPoint, ProposalShortId,
-        Script, Transaction,
+        self, Bytes, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Script, Transaction,
     },
     prelude::*,
 };
 use http_body_util::Full;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
-use std::collections::{HashMap, HashSet};
 use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicU64, Ordering},
@@ -49,63 +48,6 @@ use crate::TxPool;
 pub(crate) use builder::BlockTemplateBuilder;
 pub(crate) use process::process;
 pub(crate) use state::{CurrentTemplate, TemplateSize};
-
-type FailedTxs = (ProposalShortId, Option<OutPoint>);
-type CalcDaoResult = Result<(Byte32, Vec<TxEntry>, Vec<FailedTxs>), AnyError>;
-
-/// Per-tip memo of chain-cell liveness results, shared across block-template
-/// updates.
-///
-/// `calc_dao` checks every candidate transaction's inputs against the chain
-/// snapshot on every template update, and those lookups can hit RocksDB. The
-/// snapshot is immutable within a tip, so the results are memoized here and
-/// reused until the tip changes (detected automatically via the tip-hash
-/// stamp, no explicit invalidation is required).
-///
-/// Only the chain-snapshot fallback is memoized: the in-block overlay
-/// (`TransactionsChecker`) changes on every update and is always evaluated
-/// fresh.
-#[derive(Default)]
-struct CellLivenessMemo {
-    tip_hash: Option<Byte32>,
-    inner: HashMap<OutPoint, Option<bool>>,
-}
-
-impl CellLivenessMemo {
-    fn get_or_load(&mut self, snapshot: &Snapshot, out_point: &OutPoint) -> Option<bool> {
-        let tip_hash = snapshot.tip_hash();
-        if self.tip_hash.as_ref() != Some(&tip_hash) {
-            self.tip_hash = Some(tip_hash);
-            self.inner.clear();
-        }
-        if let Some(&live) = self.inner.get(out_point) {
-            return live;
-        }
-        let live = snapshot.is_live(out_point);
-        self.inner.insert(out_point.clone(), live);
-        live
-    }
-}
-
-/// Cell checker that memoizes the chain-snapshot fallback per tip while
-/// evaluating the in-block overlay fresh on every call.
-struct MemoizedChecker<'a> {
-    transactions_checker: &'a TransactionsChecker,
-    snapshot: &'a Snapshot,
-    memo: &'a StdMutex<CellLivenessMemo>,
-}
-
-impl CellChecker for MemoizedChecker<'_> {
-    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        // Overlay first, matching `OverlayCellChecker` semantics: in-block
-        // producers/consumers change on every update and are never memoized.
-        if let Some(live) = self.transactions_checker.is_live(out_point) {
-            return Some(live);
-        }
-        let mut memo = self.memo.lock().expect("cell liveness memo poisoned");
-        memo.get_or_load(self.snapshot, out_point)
-    }
-}
 
 /// Block generator
 #[derive(Clone)]
@@ -740,62 +682,5 @@ impl BlockAssembler {
             sum.checked_add(tx.size)
                 .ok_or(BlockAssemblerError::Overflow)
         })
-    }
-
-    fn calc_dao(
-        snapshot: &Snapshot,
-        current_epoch: &EpochExt,
-        cellbase: TransactionView,
-        entries: Vec<TxEntry>,
-        memo: &StdMutex<CellLivenessMemo>,
-    ) -> CalcDaoResult {
-        let tip_header = snapshot.tip_header();
-        let consensus = snapshot.consensus();
-        let mut seen_inputs = HashSet::new();
-        let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
-
-        let mut checked_failed_txs = vec![];
-        let checked_entries: Vec<_> = block_in_place(|| {
-            entries
-                .into_iter()
-                .filter_map(|entry| {
-                    // The chain-snapshot fallback goes through the per-tip
-                    // memo; only the in-block overlay is rebuilt per entry.
-                    let checker = MemoizedChecker {
-                        transactions_checker: &transactions_checker,
-                        snapshot,
-                        memo,
-                    };
-                    if let Err(err) = entry.rtx.check(&mut seen_inputs, &checker, snapshot) {
-                        error!(
-                            "Resolving transactions while building block template, \
-                             tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
-                            tip_header.number(),
-                            tip_header.hash(),
-                            entry.transaction().hash(),
-                            err
-                        );
-                        // Returning the out_point makes debugging easier and provides better logs.
-                        checked_failed_txs
-                            .push((entry.proposal_short_id(), err.out_point().cloned()));
-                        None
-                    } else {
-                        transactions_checker.insert(entry.transaction());
-                        Some(entry)
-                    }
-                })
-                .collect()
-        });
-
-        let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase, 0, Capacity::zero(), 0);
-        let entries_iter = iter::once(&dummy_cellbase_entry)
-            .chain(checked_entries.iter())
-            .map(|entry| entry.rtx.as_ref());
-
-        // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, &snapshot.borrow_as_data_loader())
-            .dao_field_with_current_epoch(entries_iter, tip_header, current_epoch)?;
-
-        Ok((dao, checked_entries, checked_failed_txs))
     }
 }

@@ -2,7 +2,7 @@ use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
-use crate::component::tests::util::build_tx;
+use crate::component::tests::util::{TEST_MAX_VERIFY_QUEUE_TX_SIZE, build_tx};
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
@@ -67,7 +67,11 @@ async fn verify_queue_basic() {
 
     let id = tx.proposal_short_id();
     let (exit_tx, mut exit_rx) = watch::channel(());
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
     let queue_rx = queue.subscribe();
     let count = tokio::spawn(async move {
         let mut count = 0;
@@ -158,7 +162,11 @@ async fn verify_queue_basic() {
 #[tokio::test]
 async fn test_verify_different_cycles() {
     let (exit_tx, mut exit_rx) = watch::channel(());
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
     let queue_rx = queue.subscribe();
     let count = tokio::spawn(async move {
         let mut count = 0;
@@ -283,7 +291,11 @@ async fn test_verify_different_cycles() {
 
 #[tokio::test]
 async fn verify_queue_renotify_does_not_store_permit() {
-    let queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+    let queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
     let queue_rx = queue.subscribe();
 
     queue.re_notify();
@@ -307,7 +319,11 @@ async fn verify_queue_renotify_does_not_store_permit() {
 
 #[tokio::test]
 async fn verify_queue_pops_proposals_by_arrival_order() {
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
     let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
     assert!(
         queue
@@ -417,7 +433,11 @@ async fn verify_queue_remove() {
     );
     let entry4_id = entry4.tx.proposal_short_id();
 
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
 
     assert!(queue.add_tx(entry1.clone()).unwrap());
     assert!(queue.add_tx(entry2.clone()).unwrap());
@@ -459,7 +479,11 @@ fn dummy_resolved_tx_with_fee(
 
 #[tokio::test]
 async fn verify_queue_peek_arrival_time_ordering() {
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
 
     // Add txs with different fees — in arrival-time mode, fee should NOT matter.
     let tx_high_fee = TransactionBuilder::default()
@@ -490,7 +514,11 @@ async fn verify_queue_peek_arrival_time_ordering() {
 
 #[tokio::test]
 async fn verify_queue_peek_fee_rate_ordering() {
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::FeeRate,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
 
     // Add a low-fee tx first, then a high-fee tx.
     // tx_size is roughly the same for both, so fee_rate ∝ fee.
@@ -519,7 +547,11 @@ async fn verify_queue_peek_fee_rate_ordering() {
 
 #[tokio::test]
 async fn verify_queue_fee_rate_pop_order() {
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::FeeRate,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
 
     // Add 3 txs with increasing fees.
     let fees = [500u64, 5000, 50_000];
@@ -560,7 +592,11 @@ async fn verify_queue_fee_rate_pop_order() {
 
 #[tokio::test]
 async fn verify_queue_proposal_always_first_in_fee_rate_mode() {
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::FeeRate,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
 
     // Add a high-fee non-proposal tx first.
     let tx_high = TransactionBuilder::default()
@@ -595,7 +631,11 @@ async fn verify_queue_proposal_always_first_in_fee_rate_mode() {
 
 #[tokio::test]
 async fn verify_queue_fee_rate_remove_and_repeek() {
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::FeeRate,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
 
     let tx1 = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("fee-1000").pack()])
@@ -657,6 +697,7 @@ fn tx_pool_config() -> TxPoolConfig {
         recent_reject: Default::default(),
         expiry_hours: 24,
         verify_ordering: VerifyOrdering::ArrivalTime,
+        max_verify_queue_tx_size: 256_000_000,
     }
 }
 
@@ -704,6 +745,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         verify_queue: RwLock::new(VerifyQueue::new(
             config.max_tx_verify_cycles,
             config.verify_ordering,
+            config.verify_queue_tx_size_budget(),
         )),
         pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
         rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
@@ -774,11 +816,11 @@ async fn seed_parent_and_nearly_fill_queue(
     parent: ckb_types::core::TransactionView,
 ) {
     let mut ordered = service.queues.ordered_resolve_queue.write().await;
-    ordered.set_total_tx_size_for_test(256_000_000 - 1_000);
+    ordered.set_total_tx_size_for_test(crate::constants::MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE - 1_000);
     ordered
         .add_tx(ResolveJob::new(parent, TxSource::Local))
         .unwrap();
-    ordered.set_total_tx_size_for_test(256_000_000 - 1);
+    ordered.set_total_tx_size_for_test(crate::constants::MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE - 1);
 }
 
 #[tokio::test]

@@ -83,11 +83,19 @@ pub(crate) struct VerifyQueue {
     flight: FlightTracker,
     /// Ordering strategy: arrival time (FIFO) or fee rate.
     ordering: VerifyOrdering,
+    /// Maximum total serialized size this queue may hold, from
+    /// `pool_config.verify_queue_tx_size_budget()` (clamped up to
+    /// `max_tx_pool_size` so persisted-pool reload never hits `Reject::Full`).
+    max_tx_size: usize,
 }
 
 impl VerifyQueue {
     /// Create a new VerifyQueue
-    pub(crate) fn new(large_cycle_threshold: u64, ordering: VerifyOrdering) -> Self {
+    pub(crate) fn new(
+        large_cycle_threshold: u64,
+        ordering: VerifyOrdering,
+        max_tx_size: usize,
+    ) -> Self {
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             ready_rx: Arc::new(Notify::new()),
@@ -95,6 +103,7 @@ impl VerifyQueue {
             large_cycle_threshold,
             flight: FlightTracker::new(),
             ordering,
+            max_tx_size,
         }
     }
 
@@ -225,6 +234,10 @@ impl PipelineQueue for VerifyQueue {
 
     fn ready_rx(&self) -> &Arc<Notify> {
         &self.ready_rx
+    }
+
+    fn max_queue_tx_size(&self) -> usize {
+        self.max_tx_size
     }
 
     fn is_empty(&self) -> bool {

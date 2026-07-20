@@ -7,7 +7,6 @@
 
 use crate::component::flight_tracker::FlightTracker;
 use crate::component::saturating_counter::SaturatingCounter;
-use crate::constants::DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE;
 use crate::error::Reject;
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
@@ -28,10 +27,17 @@ pub(crate) trait PipelineQueue {
     /// Notification handle used by workers to wait for new items.
     fn ready_rx(&self) -> &Arc<Notify>;
 
+    /// Maximum total serialized size this queue may hold.
+    ///
+    /// Each queue defines its own budget (see `constants.rs`): drain rate,
+    /// residence time and per-item memory overhead differ too much between
+    /// the stages for a single shared limit to make sense.
+    fn max_queue_tx_size(&self) -> usize;
+
     /// Returns `true` if adding `add_tx_size` would reach or exceed the queue
     /// size limit.
     fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size().get().saturating_add(add_tx_size) >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
+        self.total_tx_size().get().saturating_add(add_tx_size) >= self.max_queue_tx_size()
     }
 
     /// Returns `true` if `tx` spends an output produced by another tx that is

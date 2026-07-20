@@ -7,7 +7,7 @@
 
 use crate::component::flight_tracker::FlightTracker;
 use crate::component::saturating_counter::SaturatingCounter;
-use crate::constants::DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE;
+use crate::constants::MAX_PRE_CHECK_QUEUE_TX_SIZE;
 use crate::error::Reject;
 use crate::tx_source::TxSource;
 use ckb_network::PeerIndex;
@@ -70,7 +70,7 @@ impl PreCheckQueue {
     /// Must be called while holding the queue lock so the size check is
     /// consistent with concurrent modifications.
     fn is_full_locked(&self, state: &PreCheckQueueState, add_tx_size: usize) -> bool {
-        state.total_tx_size.get().saturating_add(add_tx_size) >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
+        state.total_tx_size.get().saturating_add(add_tx_size) >= MAX_PRE_CHECK_QUEUE_TX_SIZE
     }
 
     /// Returns true if the given tx spends or references an output produced by

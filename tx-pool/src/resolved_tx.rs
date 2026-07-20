@@ -23,8 +23,10 @@ pub struct ResolveJob {
     pub source: TxSource,
     /// Number of times this local transaction has been retried because its
     /// inputs were not yet available. Used to bound retries for orphans that
-    /// are not satisfiable.
-    pub attempts: u8,
+    /// are not satisfiable (`MAX_LOCAL_ORPHAN_ATTEMPTS`) and for orphans whose
+    /// parents stay in flight indefinitely
+    /// (`MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS`).
+    pub attempts: u16,
 }
 
 impl ResolveJob {

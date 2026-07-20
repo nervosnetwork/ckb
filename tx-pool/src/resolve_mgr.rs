@@ -28,7 +28,30 @@ use tokio::task::JoinHandle;
 /// This bounds the work we do for genuinely unsatisfiable orphans while still
 /// giving us enough slack to recover from the small race window between a
 /// parent leaving the verify queue and being committed to the pool.
-pub(crate) const MAX_LOCAL_ORPHAN_ATTEMPTS: u8 = 5;
+pub(crate) const MAX_LOCAL_ORPHAN_ATTEMPTS: u16 = 5;
+
+/// Maximum number of times a local orphan transaction is re-enqueued for
+/// retry while all of its missing parents are still in the pipeline.
+///
+/// Skipping the attempt counter entirely in this case assumes "in flight"
+/// implies "will land soon", but a submitter can keep parents in the
+/// pipeline indefinitely (or a parent may simply be stuck), turning the
+/// 50 ms re-enqueue loop into unbounded per-transaction churn. 2400 attempts
+/// at `LOCAL_ORPHAN_RETRY_DELAY` (50 ms) gives a total budget of about 120
+/// seconds per orphan: generous for legitimate dependency chains (each link
+/// only waits for its own parent to verify), while still bounding the work
+/// any single transaction can cause. The counter is shared with
+/// `MAX_LOCAL_ORPHAN_ATTEMPTS`, so a job alternating between the two
+/// branches is bounded by the smaller limit once any parent is permanently
+/// missing.
+///
+/// Tests use a small cap so the bounded-retry behaviour can be exercised
+/// end-to-end in real time.
+#[cfg(not(test))]
+pub(crate) const MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS: u16 = 2400;
+/// Test value of `MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS`, see above.
+#[cfg(test)]
+pub(crate) const MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS: u16 = 30;
 
 /// Delay before re-enqueueing a local orphan whose missing parents are still
 /// in flight. Without this delay the single ordered resolver would retry the
@@ -130,6 +153,16 @@ impl JobHandler for ResolveHandler {
             .pop_front()
     }
 
+    async fn next_deadline(&self) -> Option<tokio::time::Instant> {
+        self.service
+            .queues
+            .ordered_resolve_queue
+            .read()
+            .await
+            .next_deadline()
+            .map(tokio::time::Instant::from_std)
+    }
+
     async fn process_one(&mut self, job: ResolveJob) {
         match resolve_job(&self.service, job.clone()).await {
             ResolveStageResult::Ready(resolved) => {
@@ -197,32 +230,33 @@ impl ResolveHandler {
         let all_missing_parents_in_flight =
             self.service.all_missing_parents_in_flight(&parents).await;
 
-        if all_missing_parents_in_flight {
+        if all_missing_parents_in_flight && job.attempts < MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS {
             // The parents are still in flight, so this orphan will resolve
-            // once they land. Re-enqueue it after a short delay instead of
-            // retrying immediately: the single ordered resolver would
-            // otherwise spin on this job until the parent is accepted.
+            // once they land. Park it in the queue's delayed section instead
+            // of retrying immediately: the single ordered resolver would
+            // otherwise spin on this job until the parent is accepted. The
+            // job stays visible to `remove_tx` and RPC the whole time.
             //
-            // Note: during the delay window the job lives only in this spawned
-            // task, so `remove_tx` cannot see it and it may be re-added after
-            // an explicit removal. The window is small (50ms) and harmless —
-            // the re-added tx goes through the normal pipeline again.
+            // The attempt counter advances here too (bounded by
+            // `MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS`): "in flight" does not
+            // guarantee "will land soon", and without a bound a submitter
+            // could keep parents in the pipeline forever and turn this loop
+            // into unbounded per-transaction churn.
+            let mut job = job;
+            job.attempts += 1;
             debug!(
-                "ordered resolve stage local orphan {} delayed re-enqueue (parents in flight)",
-                id
+                "ordered resolve stage local orphan {} delayed re-enqueue (parents in flight, attempt {})",
+                id, job.attempts
             );
-            let queues = Arc::clone(&self.service.queues);
-            let service = self.service.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(LOCAL_ORPHAN_RETRY_DELAY).await;
-                let tx = job.tx.clone();
-                let source = job.source;
-                let mut ordered = queues.ordered_resolve_queue.write().await;
-                if let Err(reject) = ordered.add_tx(job) {
-                    drop(ordered);
-                    service.reject_with_after_process(tx, source, reject).await;
-                }
-            });
+            let tx = job.tx.clone();
+            let source = job.source;
+            let mut ordered = self.service.queues.ordered_resolve_queue.write().await;
+            if let Err(reject) = ordered.add_tx_delayed(job, LOCAL_ORPHAN_RETRY_DELAY) {
+                drop(ordered);
+                self.service
+                    .reject_with_after_process(tx, source, reject)
+                    .await;
+            }
         } else if job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
             let mut job = job;
             job.attempts += 1;

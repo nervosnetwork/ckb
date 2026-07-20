@@ -59,6 +59,28 @@ pub struct TxPoolConfig {
     /// Verify queue ordering strategy: arrival_time (FIFO) or fee_rate.
     #[serde(default = "default_verify_ordering")]
     pub verify_ordering: VerifyOrdering,
+    /// Max total serialized size (in bytes) of transactions queued in the
+    /// verify queue.
+    ///
+    /// The verify queue is the slowest tx-pool pipeline stage (VM execution)
+    /// and the one whose entries carry the most completed work, so it gets a
+    /// larger budget than the other pipeline queues. The budget must be at
+    /// least `max_tx_pool_size`: `load_persisted_data` re-submits the whole
+    /// persisted pool through this queue after a restart with a cold
+    /// verification cache, and a smaller budget would silently drop
+    /// transactions with `Reject::Full` during reload. The effective budget
+    /// is therefore clamped up to `max_tx_pool_size`, see
+    /// [`TxPoolConfig::verify_queue_tx_size_budget`].
+    pub max_verify_queue_tx_size: usize,
+}
+
+impl TxPoolConfig {
+    /// Effective verify-queue budget in bytes: `max_verify_queue_tx_size`
+    /// clamped up to `max_tx_pool_size` so that reloading a full persisted
+    /// pool after a restart can never hit `Reject::Full`.
+    pub fn verify_queue_tx_size_budget(&self) -> usize {
+        self.max_verify_queue_tx_size.max(self.max_tx_pool_size)
+    }
 }
 
 /// default max tx verify workers is 3/4 of cpu cores

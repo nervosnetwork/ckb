@@ -1,21 +1,13 @@
 //! End-to-end tests for the tx-pool resolve -> verify -> submit pipeline.
 
-use crate::callback::Callbacks;
-use crate::component::orphan::OrphanPool;
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
-use crate::component::verify_queue::VerifyQueue;
-use crate::pool::TxPool;
 use crate::process::PreCheckedTx;
-use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use crate::tx_source::TxSource;
-use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_crypto::secp::Privkey;
-use ckb_fee_estimator::FeeEstimator;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
@@ -34,15 +26,15 @@ use ckb_types::{
     prelude::*,
     utilities::difficulty_to_compact,
 };
-use ckb_verification::{TxVerifyEnv, cache::init_cache};
+use ckb_verification::TxVerifyEnv;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::watch;
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ISSUE_OUTPUT_CAPACITY: u64 = 5_000;
 
-fn tx_pool_config() -> TxPoolConfig {
+pub(crate) fn tx_pool_config() -> TxPoolConfig {
     TxPoolConfig {
         max_tx_pool_size: 180_000_000,
         min_fee_rate: ckb_types::core::FeeRate::zero(),
@@ -56,10 +48,11 @@ fn tx_pool_config() -> TxPoolConfig {
         recent_reject: Default::default(),
         expiry_hours: 24,
         verify_ordering: VerifyOrdering::ArrivalTime,
+        max_verify_queue_tx_size: 256_000_000,
     }
 }
 
-fn test_consensus(issue_outputs: usize) -> (Consensus, Vec<OutPoint>) {
+pub(crate) fn test_consensus(issue_outputs: usize) -> (Consensus, Vec<OutPoint>) {
     let (always_success_cell, always_success_data, always_success_script) = always_success_cell();
 
     let always_success_tx = TransactionBuilder::default()
@@ -100,7 +93,7 @@ fn test_consensus(issue_outputs: usize) -> (Consensus, Vec<OutPoint>) {
     (consensus, issue_out_points)
 }
 
-fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>) {
+pub(crate) fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>) {
     let store = MockStore::default();
     let genesis = consensus.genesis_block();
     let epoch_ext = consensus.genesis_epoch_ext().clone();
@@ -164,7 +157,8 @@ fn service_with_pipeline(
     MockStore,
     Vec<OutPoint>,
 ) {
-    service_with_pipeline_workers(issue_outputs, 2)
+    let h = super::harness::harness(issue_outputs).build();
+    (h.service, h.relay_rx, h.cancel, h.store, h.out_points)
 }
 
 fn service_with_pipeline_workers(
@@ -177,104 +171,10 @@ fn service_with_pipeline_workers(
     MockStore,
     Vec<OutPoint>,
 ) {
-    let (consensus, issue_out_points) = test_consensus(issue_outputs);
-    let consensus = Arc::new(consensus);
-    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
-    let mut config = tx_pool_config();
-    config.max_tx_verify_workers = max_workers;
-    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    let (block_assembler_sender, _) = mpsc::channel(1);
-
-    let max_workers = config.max_tx_verify_workers.max(1);
-    let pre_check_workers =
-        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-        ordered_resolve_queue: RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ),
-        verify_queue: RwLock::new(VerifyQueue::new(
-            config.max_tx_verify_cycles,
-            config.verify_ordering,
-        )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
-        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-    });
-    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
-    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config),
-        block_assembler: None,
-        callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::dummy_network(),
-        tx_relay_sender,
-        block_assembler_sender,
-        aux: crate::service::AuxServices {
-            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-            recent_reject: None,
-            fee_estimator: FeeEstimator::new_dummy(),
-        },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
-    };
-
-    // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
-    {
-        let queues = Arc::clone(&queues);
-        let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
-        tokio::spawn(async move {
-            while let Some(task) = deferred_receiver.recv().await {
-                match task {
-                    crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = queues.ordered_resolve_queue.write().await;
-                        for (tx, source) in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
-                        }
-                    }
-                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                        let mut guard = txs_verify_cache.write().await;
-                        guard.put(wtx_hash, verified);
-                    }
-                }
-            }
-        });
-    }
-
-    {
-        for _ in 0..pre_check_workers {
-            let svc = service.clone();
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            });
-        }
-    }
-
-    let signal = CancellationToken::new();
-    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
-    tokio::spawn(async move { verify_mgr.run().await });
-
-    let ordered_resolver =
-        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
-    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    tokio::spawn(async move {
-        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
-            panic!("tx-pool ordered resolver panicked: {message}");
-        }
-        let _ = resolver_handle.await;
-    });
-
-    (service, tx_relay_receiver, signal, _store, issue_out_points)
+    let h = super::harness::harness(issue_outputs)
+        .max_workers(max_workers)
+        .build();
+    (h.service, h.relay_rx, h.cancel, h.store, h.out_points)
 }
 
 fn build_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
@@ -367,7 +267,9 @@ fn secp_cell_deps(system_tx: &TransactionView) -> Vec<CellDep> {
     ]
 }
 
-fn secp_test_consensus(issue_outputs: usize) -> (Consensus, Vec<OutPoint>, Vec<CellDep>) {
+pub(crate) fn secp_test_consensus(
+    issue_outputs: usize,
+) -> (Consensus, Vec<OutPoint>, Vec<CellDep>) {
     let system_tx = create_secp_system_tx();
     let cell_deps = secp_cell_deps(&system_tx);
     let lock = secp_script();
@@ -414,110 +316,17 @@ fn secp_service_with_pipeline_workers(
     Vec<OutPoint>,
     Vec<CellDep>,
 ) {
-    let (consensus, issue_out_points, cell_deps) = secp_test_consensus(issue_outputs);
-    let consensus = Arc::new(consensus);
-    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
-    let mut config = tx_pool_config();
-    config.max_tx_verify_workers = max_workers;
-    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    let (block_assembler_sender, _) = mpsc::channel(1);
-
-    let max_workers = config.max_tx_verify_workers.max(1);
-    let pre_check_workers =
-        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-        ordered_resolve_queue: RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ),
-        verify_queue: RwLock::new(VerifyQueue::new(
-            config.max_tx_verify_cycles,
-            config.verify_ordering,
-        )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
-        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-    });
-    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
-    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config),
-        block_assembler: None,
-        callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::dummy_network(),
-        tx_relay_sender,
-        block_assembler_sender,
-        aux: crate::service::AuxServices {
-            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-            recent_reject: None,
-            fee_estimator: FeeEstimator::new_dummy(),
-        },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
-    };
-
-    // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
-    {
-        let queues = Arc::clone(&queues);
-        let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
-        tokio::spawn(async move {
-            while let Some(task) = deferred_receiver.recv().await {
-                match task {
-                    crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = queues.ordered_resolve_queue.write().await;
-                        for (tx, source) in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
-                        }
-                    }
-                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                        let mut guard = txs_verify_cache.write().await;
-                        guard.put(wtx_hash, verified);
-                    }
-                }
-            }
-        });
-    }
-
-    {
-        for _ in 0..pre_check_workers {
-            let svc = service.clone();
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            });
-        }
-    }
-
-    let signal = CancellationToken::new();
-    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
-    tokio::spawn(async move { verify_mgr.run().await });
-
-    let ordered_resolver =
-        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
-    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    tokio::spawn(async move {
-        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
-            panic!("tx-pool ordered resolver panicked: {message}");
-        }
-        let _ = resolver_handle.await;
-    });
-
+    let h = super::harness::harness(issue_outputs)
+        .secp(true)
+        .max_workers(max_workers)
+        .build();
     (
-        service,
-        tx_relay_receiver,
-        signal,
-        _store,
-        issue_out_points,
-        cell_deps,
+        h.service,
+        h.relay_rx,
+        h.cancel,
+        h.store,
+        h.out_points,
+        h.cell_deps.expect("secp harness provides cell deps"),
     )
 }
 
@@ -1229,7 +1038,7 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
 
 /// Same as `service_with_pipeline` but enables RBF by setting `min_rbf_rate`
 /// above `min_fee_rate`.
-fn service_with_rbf(
+pub(crate) fn service_with_rbf(
     issue_outputs: usize,
 ) -> (
     TxPoolService,
@@ -1238,103 +1047,8 @@ fn service_with_rbf(
     MockStore,
     Vec<OutPoint>,
 ) {
-    let (consensus, issue_out_points) = test_consensus(issue_outputs);
-    let consensus = Arc::new(consensus);
-    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
-    let mut config = tx_pool_config();
-    config.min_rbf_rate = ckb_types::core::FeeRate::from_u64(1000);
-    let max_workers = config.max_tx_verify_workers.max(1);
-    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    let (block_assembler_sender, _) = mpsc::channel(1);
-
-    let pre_check_workers =
-        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-        ordered_resolve_queue: RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ),
-        verify_queue: RwLock::new(VerifyQueue::new(
-            config.max_tx_verify_cycles,
-            config.verify_ordering,
-        )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
-        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-    });
-    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
-    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config),
-        block_assembler: None,
-        callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::dummy_network(),
-        tx_relay_sender,
-        block_assembler_sender,
-        aux: crate::service::AuxServices {
-            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-            recent_reject: None,
-            fee_estimator: FeeEstimator::new_dummy(),
-        },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
-    };
-
-    {
-        let queues = Arc::clone(&queues);
-        let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
-        tokio::spawn(async move {
-            while let Some(task) = deferred_receiver.recv().await {
-                match task {
-                    crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = queues.ordered_resolve_queue.write().await;
-                        for (tx, source) in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
-                        }
-                    }
-                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                        let mut guard = txs_verify_cache.write().await;
-                        guard.put(wtx_hash, verified);
-                    }
-                }
-            }
-        });
-    }
-
-    {
-        for _ in 0..pre_check_workers {
-            let svc = service.clone();
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            });
-        }
-    }
-
-    let signal = CancellationToken::new();
-    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
-    tokio::spawn(async move { verify_mgr.run().await });
-
-    let ordered_resolver =
-        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
-    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    tokio::spawn(async move {
-        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
-            panic!("tx-pool ordered resolver panicked: {message}");
-        }
-        let _ = resolver_handle.await;
-    });
-
-    (service, tx_relay_receiver, signal, _store, issue_out_points)
+    let h = super::harness::harness(issue_outputs).rbf(true).build();
+    (h.service, h.relay_rx, h.cancel, h.store, h.out_points)
 }
 
 /// Same as `service_with_rbf` but with a custom `max_tx_pool_size`. Used to
@@ -1351,104 +1065,11 @@ fn service_with_rbf_and_max_size(
     MockStore,
     Vec<OutPoint>,
 ) {
-    let (consensus, issue_out_points) = test_consensus(issue_outputs);
-    let consensus = Arc::new(consensus);
-    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
-    let mut config = tx_pool_config();
-    config.min_rbf_rate = ckb_types::core::FeeRate::from_u64(1000);
-    config.max_tx_pool_size = max_tx_pool_size;
-    let max_workers = config.max_tx_verify_workers.max(1);
-    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    let (block_assembler_sender, _) = mpsc::channel(1);
-
-    let pre_check_workers =
-        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-        ordered_resolve_queue: RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ),
-        verify_queue: RwLock::new(VerifyQueue::new(
-            config.max_tx_verify_cycles,
-            config.verify_ordering,
-        )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
-        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-    });
-    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
-    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config),
-        block_assembler: None,
-        callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::dummy_network(),
-        tx_relay_sender,
-        block_assembler_sender,
-        aux: crate::service::AuxServices {
-            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-            recent_reject: None,
-            fee_estimator: FeeEstimator::new_dummy(),
-        },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
-    };
-
-    {
-        let queues = Arc::clone(&queues);
-        let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
-        tokio::spawn(async move {
-            while let Some(task) = deferred_receiver.recv().await {
-                match task {
-                    crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = queues.ordered_resolve_queue.write().await;
-                        for (tx, source) in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
-                        }
-                    }
-                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                        let mut guard = txs_verify_cache.write().await;
-                        guard.put(wtx_hash, verified);
-                    }
-                }
-            }
-        });
-    }
-
-    {
-        for _ in 0..pre_check_workers {
-            let svc = service.clone();
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            });
-        }
-    }
-
-    let signal = CancellationToken::new();
-    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
-    tokio::spawn(async move { verify_mgr.run().await });
-
-    let ordered_resolver =
-        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
-    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    tokio::spawn(async move {
-        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
-            panic!("tx-pool ordered resolver panicked: {message}");
-        }
-        let _ = resolver_handle.await;
-    });
-
-    (service, tx_relay_receiver, signal, _store, issue_out_points)
+    let h = super::harness::harness(issue_outputs)
+        .rbf(true)
+        .max_tx_pool_size(max_tx_pool_size)
+        .build();
+    (h.service, h.relay_rx, h.cancel, h.store, h.out_points)
 }
 
 /// Same as `secp_service_with_pipeline_workers` but also returns
@@ -1466,110 +1087,19 @@ fn secp_service_with_pipeline_workers_and_chunk(
     Vec<CellDep>,
     watch::Sender<ChunkCommand>,
 ) {
-    let (consensus, issue_out_points, cell_deps) = secp_test_consensus(issue_outputs);
-    let consensus = Arc::new(consensus);
-    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
-    let mut config = tx_pool_config();
-    config.max_tx_verify_workers = max_workers;
-    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    let (block_assembler_sender, _) = mpsc::channel(1);
-
-    let max_workers = config.max_tx_verify_workers.max(1);
-    let pre_check_workers =
-        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-        ordered_resolve_queue: RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ),
-        verify_queue: RwLock::new(VerifyQueue::new(
-            config.max_tx_verify_cycles,
-            config.verify_ordering,
-        )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
-        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-    });
-    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
-    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config),
-        block_assembler: None,
-        callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::dummy_network(),
-        tx_relay_sender,
-        block_assembler_sender,
-        aux: crate::service::AuxServices {
-            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-            recent_reject: None,
-            fee_estimator: FeeEstimator::new_dummy(),
-        },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
-    };
-
-    {
-        let queues = Arc::clone(&queues);
-        let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
-        tokio::spawn(async move {
-            while let Some(task) = deferred_receiver.recv().await {
-                match task {
-                    crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = queues.ordered_resolve_queue.write().await;
-                        for (tx, source) in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
-                        }
-                    }
-                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                        let mut guard = txs_verify_cache.write().await;
-                        guard.put(wtx_hash, verified);
-                    }
-                }
-            }
-        });
-    }
-
-    {
-        for _ in 0..pre_check_workers {
-            let svc = service.clone();
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            });
-        }
-    }
-
-    let signal = CancellationToken::new();
-    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
-    tokio::spawn(async move { verify_mgr.run().await });
-
-    let ordered_resolver =
-        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
-    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    tokio::spawn(async move {
-        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
-            panic!("tx-pool ordered resolver panicked: {message}");
-        }
-        let _ = resolver_handle.await;
-    });
-
+    let h = super::harness::harness(issue_outputs)
+        .secp(true)
+        .max_workers(max_workers)
+        .with_chunk_sender(true)
+        .build();
     (
-        service,
-        tx_relay_receiver,
-        signal,
-        _store,
-        issue_out_points,
-        cell_deps,
-        chunk_tx,
+        h.service,
+        h.relay_rx,
+        h.cancel,
+        h.store,
+        h.out_points,
+        h.cell_deps.expect("secp harness provides cell deps"),
+        h.chunk_tx.expect("chunk sender requested"),
     )
 }
 

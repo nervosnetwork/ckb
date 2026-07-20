@@ -3,6 +3,7 @@ use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::pool::TxPool;
+use crate::pool::rbf::RbfCheck;
 use crate::service::TxPoolService;
 use crate::util::{time_relative_verify, verify_rtx};
 use ckb_logger::{debug, info, warn};
@@ -44,7 +45,14 @@ impl TxPoolService {
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Result<(Vec<TxEntry>, RecoveredTxs, Status), Reject> {
         // check_rbf must be invoked in `write` lock to avoid concurrent issues.
-        let conflicts = if tx_pool.enable_rbf() {
+        // It returns the direct conflicts plus their shared conflict closure
+        // (post-ordered removal plan + membership set), computed in one
+        // traversal.
+        let RbfCheck {
+            conflicts,
+            removal,
+            removal_set,
+        } = if tx_pool.enable_rbf() {
             tx_pool.check_rbf(snapshot, entry)?
         } else {
             // RBF is disabled but we found conflicts, return error here
@@ -53,15 +61,35 @@ impl TxPoolService {
             if let Some(outpoint) = conflicted_outpoint {
                 return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
             }
-            HashSet::new()
+            RbfCheck {
+                conflicts: HashSet::new(),
+                removal: Vec::new(),
+                removal_set: HashSet::new(),
+            }
         };
+
+        // Pre-validate that committing the entry can actually succeed
+        // *before* removing the conflicts it replaces. `process_rbf`
+        // removes the conflicts and their descendants; if the entry is
+        // certain to fail the ancestor-count limit even after that
+        // removal, the removal would only churn the pool —
+        // evict-then-restore the whole conflict cluster on every attempt —
+        // for a replacement that never had a chance to commit (a failed
+        // replacement pays no fee, so the churn is free to repeat).
+        // Rejecting here leaves the pool untouched; borderline cases still
+        // fall through to the normal remove-and-recover path.
+        if !conflicts.is_empty() {
+            tx_pool
+                .pool_map
+                .validate_ancestor_capacity(entry.transaction(), &removal_set)?;
+        }
 
         // Remove conflicting transactions *before* re-checking the resolved
         // transaction. `check_rtx` uses `PoolCell` in non-RBF mode, so any
         // input still consumed by an in-pool conflict would be reported as
         // `Dead`. Removing the conflicts first keeps a tip change from
         // incorrectly rejecting a valid RBF replacement.
-        let removed_old_txs = self.process_rbf(tx_pool, entry, &conflicts, reject_events);
+        let removed_old_txs = self.process_rbf(tx_pool, entry, &removal, reject_events);
 
         // if snapshot changed by context switch we need redo time_relative verify
         let tip_hash = snapshot.tip_hash();
@@ -509,8 +537,18 @@ fn commit_entry_to_pool(
         Status::Proposed => (TxPool::add_proposed, Callbacks::call_proposed),
     };
     let (succ, evicts) = add(tx_pool, entry.clone())?;
-    if succ {
-        callback(callbacks, entry);
+    if !succ {
+        // `add` returns `succ == false` when the entry's short-id slot is
+        // already occupied. The pipeline-wide duplicate checks (classify
+        // scans every queue, `check_txid_collision` scans the pool, and each
+        // queue dedups internally) make this unreachable today. If it ever
+        // does fire, the conflicts removed by `process_rbf` above must be
+        // recovered through the normal `Err` path instead of being left
+        // evicted while this entry is silently dropped. `Duplicated` is the
+        // one reject exempt from recent-reject recording, so surfacing it
+        // does not punish a later legitimate resubmission.
+        return Err(Reject::Duplicated(tx_hash));
     }
+    callback(callbacks, entry);
     Ok(evicts)
 }

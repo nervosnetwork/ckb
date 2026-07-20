@@ -18,6 +18,10 @@ const DEFAULT_MAX_ANCESTORS_COUNT: usize = 1_000;
 const DEFAULT_EXPIRY_HOURS: u8 = 12;
 // Default max_tx_pool_size 180mb
 const DEFAULT_MAX_TX_POOL_SIZE: usize = 180_000_000;
+// Default max total serialized size of transactions in the verify queue.
+// Must stay >= max_tx_pool_size so persisted-pool reload never hits
+// `Reject::Full`, see `crate::TxPoolConfig::verify_queue_tx_size_budget`.
+const DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE: usize = 256_000_000;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -50,6 +54,8 @@ pub(crate) struct TxPoolConfig {
     expiry_hours: u8,
     #[serde(default = "default_verify_ordering")]
     verify_ordering: VerifyOrdering,
+    #[serde(default = "default_max_verify_queue_tx_size")]
+    max_verify_queue_tx_size: usize,
 }
 
 fn default_keep_rejected_tx_hashes_days() -> u8 {
@@ -70,6 +76,10 @@ fn default_verify_ordering() -> VerifyOrdering {
 
 fn default_max_tx_pool_size() -> usize {
     DEFAULT_MAX_TX_POOL_SIZE
+}
+
+fn default_max_verify_queue_tx_size() -> usize {
+    DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE
 }
 
 fn default_min_rbf_rate() -> FeeRate {
@@ -102,6 +112,7 @@ impl Default for TxPoolConfig {
             recent_reject: Default::default(),
             expiry_hours: DEFAULT_EXPIRY_HOURS,
             verify_ordering: VerifyOrdering::ArrivalTime,
+            max_verify_queue_tx_size: DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE,
         }
     }
 }
@@ -126,6 +137,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             recent_reject,
             expiry_hours,
             verify_ordering,
+            max_verify_queue_tx_size,
         } = input;
 
         Self {
@@ -141,6 +153,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             recent_reject,
             expiry_hours,
             verify_ordering,
+            max_verify_queue_tx_size,
         }
     }
 }

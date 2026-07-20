@@ -1,6 +1,8 @@
 //! Tx-pool message dispatching.
 
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
+use crate::pool_cell::PoolCell;
 use crate::service::{
     AsyncRequest, BlockTemplateArgs, BlockTemplateResult, FeeEstimatesResult,
     FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
@@ -8,14 +10,16 @@ use crate::service::{
     TxPoolService, map_pool_status, respond,
 };
 use crate::tx_source::TxSource;
+use ckb_error::AnyError;
 use ckb_snapshot::Snapshot;
+use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         EstimateMode, TransactionView, UncleBlockView,
-        cell::CellStatus,
+        cell::{CellProvider, CellStatus, OverlayCellProvider},
         tx_pool::{
-            PoolTxDetailInfo, TransactionWithStatus, TxPoolEntryInfo, TxPoolIds, TxPoolInfo,
-            TxStatus,
+            PoolTxDetailInfo, TRANSACTION_SIZE_LIMIT, TransactionWithStatus, TxPoolEntryInfo,
+            TxPoolIds, TxPoolInfo, TxStatus,
         },
     },
     packed::{Byte32, OutPoint, ProposalShortId},
@@ -404,5 +408,244 @@ impl TxPoolService {
             total_recent_reject_num,
             "total_recent_reject_num",
         );
+    }
+
+    /// Search the pipeline queues for a transaction by short id.
+    pub(crate) async fn find_tx_in_pipeline(
+        &self,
+        id: &ProposalShortId,
+    ) -> Option<PipelineTxLocation> {
+        if let Some(tx) = self.queues.pre_check_queue.get_tx(id) {
+            return Some(PipelineTxLocation::PreChecking { tx });
+        }
+        {
+            let ordered = self.queues.ordered_resolve_queue.read().await;
+            if let Some(tx) = ordered.get_tx(id) {
+                return Some(PipelineTxLocation::Ordered { tx: tx.clone() });
+            }
+        }
+        {
+            let verify_queue = self.queues.verify_queue.read().await;
+            if let Some(resolved) = verify_queue.get_tx_by_id(id) {
+                return Some(PipelineTxLocation::Verifying {
+                    tx: resolved.tx.clone(),
+                    fee: resolved.fee,
+                    status: resolved.status,
+                });
+            }
+        }
+        {
+            let orphan = self.orphan.read().await;
+            if let Some(entry) = orphan.get(id) {
+                return Some(PipelineTxLocation::Orphan {
+                    tx: entry.tx.clone(),
+                    cycle: entry.source.cycles().unwrap_or(0),
+                });
+            }
+        }
+        None
+    }
+
+    /// Tx-pool information
+    pub(crate) async fn info(&self) -> TxPoolInfo {
+        // Read each lock in isolation to avoid holding multiple locks at once.
+        // TxPoolInfo is best-effort, so a consistent snapshot is not required.
+        let (
+            tip_hash,
+            tip_number,
+            pending_size,
+            proposed_size,
+            total_tx_size,
+            total_tx_cycles,
+            last_txs_updated_at,
+        ) = {
+            let tx_pool = self.tx_pool.read().await;
+            let tip_header = tx_pool.snapshot.tip_header();
+            (
+                tip_header.hash(),
+                tip_header.number(),
+                tx_pool.pool_map.pending_size(),
+                tx_pool.pool_map.proposed_size(),
+                tx_pool.pool_map.stats.total_tx_size.get(),
+                tx_pool.pool_map.stats.total_tx_cycles.get(),
+                tx_pool.pool_map.get_max_update_time(),
+            )
+        };
+        let orphan_size = {
+            let orphan = self.orphan.read().await;
+            orphan.len()
+        };
+        let verify_queue_size = {
+            let verify_queue = self.queues.verify_queue.read().await;
+            verify_queue.len()
+        };
+        TxPoolInfo {
+            tip_hash,
+            tip_number,
+            pending_size,
+            proposed_size,
+            orphan_size,
+            total_tx_size,
+            total_tx_cycles,
+            min_fee_rate: self.tx_pool_config.min_fee_rate,
+            min_rbf_rate: self.tx_pool_config.min_rbf_rate,
+            last_txs_updated_at,
+            tx_size_limit: TRANSACTION_SIZE_LIMIT,
+            max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
+            verify_queue_size,
+        }
+    }
+
+    pub(crate) fn get_total_recent_reject_num(&self) -> Option<u64> {
+        self.aux
+            .recent_reject
+            .as_ref()
+            .map(|r| r.get_estimate_total_keys_num())
+    }
+
+    /// Look up a transaction hash in the recent-reject database.
+    ///
+    /// Returns `on_rejected(record)` if the tx was recently rejected,
+    /// `on_unknown()` if it is unknown or there is no recent-reject db.
+    pub(crate) async fn lookup_recent_reject<T>(
+        &self,
+        hash: &Byte32,
+        on_rejected: impl FnOnce(String) -> T,
+        on_unknown: impl FnOnce() -> T,
+    ) -> Result<T, AnyError> {
+        if let Some(ref db) = self.aux.recent_reject {
+            match db.get(hash) {
+                Ok(Some(record)) => Ok(on_rejected(record)),
+                Ok(_) => Ok(on_unknown()),
+                Err(err) => Err(err),
+            }
+        } else {
+            Ok(on_unknown())
+        }
+    }
+
+    /// Get Live Cell Status
+    pub(crate) async fn get_live_cell(&self, out_point: OutPoint, eager_load: bool) -> CellStatus {
+        let tx_pool = self.tx_pool.read().await;
+        let snapshot = tx_pool.snapshot();
+        let pool_cell = PoolCell::new(&tx_pool.pool_map, false);
+        let provider = OverlayCellProvider::new(&pool_cell, snapshot);
+
+        match provider.cell(&out_point, false) {
+            CellStatus::Live(mut cell_meta) => {
+                if eager_load && let Some((data, data_hash)) = snapshot.get_cell_data(&out_point) {
+                    cell_meta.mem_cell_data = Some(data);
+                    cell_meta.mem_cell_data_hash = Some(data_hash);
+                }
+                CellStatus::live_cell(cell_meta)
+            }
+            _ => CellStatus::Unknown,
+        }
+    }
+
+    /// Excludes proposals that already exist in the tx-pool or any pipeline queue.
+    ///
+    /// Any proposal that appears in any of the following structures is considered
+    /// "already exists" and will be filtered out:
+    /// - already accepted and stored in the main pool (`pool_map`),
+    /// - waiting for missing parents in the `orphan` pool,
+    /// - waiting for resolution/verification in the `ordered_resolve_queue`,
+    /// - undergoing pre-check in the `pre_check_queue`,
+    /// - currently being verified (`verify_queue`).
+    ///
+    /// These locations are exactly the same stages searched by
+    /// [`Self::get_tx_for_compact_block`], so filtering them out here is safe:
+    /// a proposal marked as "known" can always be retrieved later for compact
+    /// block reconstruction.
+    ///
+    /// # Returns
+    ///
+    /// A new `Vec<ProposalShortId>` containing only the proposals that are **completely new**.
+    pub async fn exclude_existing_proposal(
+        &self,
+        mut proposals: Vec<ProposalShortId>,
+    ) -> Vec<ProposalShortId> {
+        {
+            let ordered = self.queues.ordered_resolve_queue.read().await;
+            proposals.retain(|id| !ordered.contains_key(id));
+        }
+        proposals.retain(|id| !self.queues.pre_check_queue.contains_key(id));
+        {
+            let verify_queue = self.queues.verify_queue.read().await;
+            proposals.retain(|id| !verify_queue.contains_key(id));
+        }
+        {
+            let orphan = self.orphan.read().await;
+            proposals.retain(|id| !orphan.contains_key(id));
+        }
+        {
+            let tx_pool = self.tx_pool.read().await;
+            proposals.retain(|id| !tx_pool.contains_proposal_id(id));
+        }
+        proposals
+    }
+
+    /// Retrieves transactions required for compact block reconstruction.
+    ///
+    /// During compact block relay, a node may receive a block that contains transactions
+    /// still being verified and not yet present in the main mempool. This method searches
+    /// all locations where a transaction can reside when its short ID is known:
+    ///
+    /// 1. `ordered_resolve_queue` – transactions waiting for parent resolution
+    /// 2. `pre_check_queue` – transactions awaiting pre-check by workers
+    /// 3. `verify_queue` – transactions currently undergoing background validation
+    /// 4. `orphan_pool` – orphan transactions waiting for missing parents
+    /// 5. `pool_map` – the main mempool (already accepted transactions)
+    ///
+    /// # Returns
+    /// A map containing only the transactions that were found, keyed by their short ID.
+    /// Missing entries are simply omitted (caller should treat absence as "need to request")
+    /// Returning a `HashMap` allows the caller (compact block reconstructor) to:
+    /// - Immediately obtain all locally-available transactions in a single call
+    /// - Quickly identify which short IDs are missing
+    pub async fn get_tx_for_compact_block(
+        &self,
+        short_ids: HashSet<ProposalShortId>,
+    ) -> HashMap<ProposalShortId, TransactionView> {
+        let mut txs = HashMap::with_capacity(short_ids.len());
+        {
+            let ordered = self.queues.ordered_resolve_queue.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                ordered
+                    .get_tx(short_id)
+                    .map(|tx| (short_id.to_owned(), tx.clone()))
+            }));
+        }
+        txs.extend(short_ids.iter().filter_map(|short_id| {
+            self.queues
+                .pre_check_queue
+                .get_tx(short_id)
+                .map(|tx| (short_id.to_owned(), tx))
+        }));
+        {
+            let verify_queue = self.queues.verify_queue.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                verify_queue
+                    .get_tx_by_id(short_id)
+                    .map(|resolved| (short_id.to_owned(), resolved.tx.to_owned()))
+            }));
+        }
+        {
+            let orphan = self.orphan.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                orphan
+                    .get(short_id)
+                    .map(|entry| (short_id.to_owned(), entry.tx.to_owned()))
+            }));
+        }
+        {
+            let tx_pool = self.tx_pool.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                tx_pool
+                    .get_tx_from_pool_or_store(short_id)
+                    .map(|tx| (short_id.to_owned(), tx))
+            }));
+        }
+        txs
     }
 }

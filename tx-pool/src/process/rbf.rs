@@ -104,16 +104,19 @@ impl super::TxPoolService {
         &self,
         tx_pool: &mut TxPool,
         entry: &TxEntry,
-        conflicts: &HashSet<ProposalShortId>,
+        removal: &[ProposalShortId],
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Vec<TxEntry> {
-        if conflicts.is_empty() {
+        if removal.is_empty() {
             return Vec::new();
         }
 
-        let all_removed: Vec<_> = conflicts
+        // Apply the caller's removal plan (conflicts + descendants, already
+        // post-ordered by `PoolMap::conflict_closure`) instead of
+        // re-walking the descendants of every conflict here.
+        let all_removed: Vec<_> = removal
             .iter()
-            .flat_map(|id| tx_pool.pool_map.remove_entry_and_descendants(id))
+            .filter_map(|id| tx_pool.pool_map.remove_entry(id))
             .collect();
 
         for old in &all_removed {

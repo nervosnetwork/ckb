@@ -1,11 +1,14 @@
 mod chunk;
 mod entry;
 mod estimate;
+mod harness;
 mod links;
+mod ordered_retry_cap;
 mod orphan;
 mod pending;
 mod pipeline;
 mod proposed;
+mod rbf_prevalidation;
 mod recent_reject;
 mod score_key;
-mod util;
+pub(crate) mod util;

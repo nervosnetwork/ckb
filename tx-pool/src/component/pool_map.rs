@@ -38,6 +38,21 @@ impl std::fmt::Display for Status {
     }
 }
 
+/// The result of [`PoolMap::conflict_closure`].
+pub(crate) enum ConflictClosure {
+    /// The union did not exceed the limit: the complete closure, with the
+    /// post-ordered removal plan and the membership set.
+    Complete {
+        removal: Vec<ProposalShortId>,
+        removal_set: HashSet<ProposalShortId>,
+    },
+    /// The union exceeded the limit and the traversal aborted early, so the
+    /// caller's cap is the hard bound on traversal cost regardless of pool
+    /// population. Carries the exact number of unique entries discovered
+    /// when the traversal stopped (limit + 1).
+    Exceeded { count_lower_bound: usize },
+}
+
 #[derive(Copy, Clone)]
 enum EntryOp {
     Add,
@@ -432,6 +447,56 @@ impl PoolMap {
             .collect()
     }
 
+    /// Compute the conflict closure of `roots` in a single multi-source
+    /// traversal that both collects the set and emits it post-ordered
+    /// (children before parents, as `remove_entry` requires for index
+    /// weights to be subtracted against still-valid links).
+    ///
+    /// The traversal aborts as soon as the union exceeds `limit` unique
+    /// entries, so the caller's cap (RBF rule #5's
+    /// `MAX_REPLACEMENT_CANDIDATES`) is the hard bound on cost regardless
+    /// of pool population. Earlier versions first computed every root's
+    /// descendants separately (shared subtrees walked once per root) and
+    /// then re-walked the union for ordering.
+    pub(crate) fn conflict_closure(
+        &self,
+        roots: &HashSet<ProposalShortId>,
+        limit: usize,
+    ) -> ConflictClosure {
+        let mut removal_set: HashSet<ProposalShortId> = HashSet::new();
+        let mut ordered = Vec::new();
+        let mut visited: HashSet<ProposalShortId> = HashSet::new();
+        let mut stack: Vec<(ProposalShortId, bool)> =
+            roots.iter().cloned().map(|id| (id, false)).collect();
+
+        while let Some((id, processed)) = stack.pop() {
+            if processed {
+                ordered.push(id);
+                continue;
+            }
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            removal_set.insert(id.clone());
+            if removal_set.len() > limit {
+                return ConflictClosure::Exceeded {
+                    count_lower_bound: removal_set.len(),
+                };
+            }
+            stack.push((id.clone(), true));
+            if let Some(children) = self.links.get_children(&id) {
+                for child in children {
+                    stack.push((child.clone(), false));
+                }
+            }
+        }
+
+        ConflictClosure::Complete {
+            removal: ordered,
+            removal_set,
+        }
+    }
+
     pub(crate) fn resolve_conflict_header_dep(
         &mut self,
         headers: &HashSet<Byte32>,
@@ -770,12 +835,57 @@ impl PoolMap {
         Ok(())
     }
 
-    /// Check ancestors and record for entry
-    // TODO: In the scenario that a transaction passed all RBF rules, and then removed the conflicted
-    // transaction in txpool, then failed with max ancestor limits, we now need to rollback the removing.
-    // This is not an issue currently, because RBF has a rule that does not allow any unknown inputs
-    // except the conflicted inputs, so the new transaction cannot be in a long transaction chain.
-    // But it's still safer to report an error before any write operation.
+    /// Read-only pre-validation of `check_and_record_ancestors`' failure
+    /// condition, evaluated as if the `excluded` entries had already been
+    /// removed from the pool.
+    ///
+    /// RBF replacements remove their conflicts (and the conflicts'
+    /// descendants) before the new entry is committed. When committing the
+    /// new entry is *certain* to hit the ancestor-count limit even after
+    /// that removal, the removal must not happen at all: otherwise an
+    /// attacker can repeat remove-then-restore of the whole victim cluster
+    /// on every attempt with replacements that never had a chance to
+    /// commit, at no cost (a failed replacement pays no fee).
+    ///
+    /// The check mirrors `check_and_record_ancestors` exactly, including
+    /// the cell-ref eviction escape hatch: failure is only certain when
+    /// evicting every surviving `cell_ref_parent` still cannot bring the
+    /// count under the limit. Borderline cases the approximate eviction
+    /// loop might handle differently fall through to the caller's normal
+    /// remove-and-recover path, so this pre-validation is conservative and
+    /// can never reject a committable entry.
+    pub(crate) fn validate_ancestor_capacity(
+        &self,
+        tx: &TransactionView,
+        excluded: &HashSet<ProposalShortId>,
+    ) -> Result<(), Reject> {
+        let (ancestors, _parents, cell_ref_parents) = self.get_tx_ancestors(tx);
+        let effective: HashSet<&ProposalShortId> = ancestors.difference(excluded).collect();
+        let evictable = cell_ref_parents
+            .iter()
+            .filter(|id| effective.contains(id))
+            .count();
+        // Mirrors `check_and_record_ancestors`: it fails when
+        // `ancestors_count - cell_ref_parents.len() > max_ancestors_count`,
+        // where `ancestors_count` is `effective.len() + 1` once the removed
+        // entries are gone.
+        if effective.len() + 1 > self.max_ancestors_count + evictable {
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+        Ok(())
+    }
+
+    /// Check ancestors and record for entry.
+    ///
+    /// This can fail with `ExceededMaximumAncestorsCount` *after* an RBF
+    /// replacement has already removed its conflicts. That failure is
+    /// pre-validated in `prepare_rbf_replacement` via
+    /// [`Self::validate_ancestor_capacity`] before any removal, so the
+    /// remove-and-recover rollback is only needed for cases the
+    /// pre-validation cannot decide. Note the ancestry can be arbitrarily
+    /// long even under the RBF rules: rule #2 only restricts the
+    /// replacement's *inputs*, not its cell deps, so "a replacement cannot
+    /// be in a long transaction chain" is not a safe assumption.
     fn check_and_record_ancestors(
         &mut self,
         entry: &mut TxEntry,
