@@ -18,7 +18,7 @@ use ckb_types::{
     core::{
         BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
         TransactionBuilder, TransactionInfo, TransactionView, capacity_bytes,
-        cell::{CellMetaBuilder, ResolvedTransaction},
+        cell::{CellMeta, CellMetaBuilder, ResolvedTransaction},
         hardfork::HardForks,
     },
     h256,
@@ -921,6 +921,129 @@ fn build_consensus_with_dao_limiting_block(block_number: u64) -> (Arc<Consensus>
         .build();
 
     (Arc::new(consensus), dao_type_script)
+}
+
+fn build_normal_cell_output() -> CellOutput {
+    CellOutput::new_builder()
+        .capacity(capacity_bytes!(200))
+        .build()
+}
+
+fn build_dao_cell_output(dao_type_script: &Script) -> CellOutput {
+    CellOutput::new_builder()
+        .capacity(capacity_bytes!(200))
+        .lock(Script::new_builder().args(Bytes::new()).build())
+        .type_(Some(dao_type_script.clone()))
+        .build()
+}
+
+fn build_input_cell_meta(cell_output: CellOutput, data: Bytes) -> CellMeta {
+    CellMetaBuilder::from_cell_output(cell_output, data)
+        .transaction_info(mock_transaction_info(
+            20011,
+            EpochNumberWithFraction::new(10, 0, 10),
+            0,
+        ))
+        .build()
+}
+
+#[test]
+fn test_dao_rejects_withdrawing_mask_alias_output() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    let mut outputs = vec![build_normal_cell_output(); 33];
+    outputs[0] = build_dao_cell_output(&dao_type_script);
+    outputs[32] = build_dao_cell_output(&dao_type_script);
+
+    let mut outputs_data = vec![Bytes::new().into(); 33];
+    outputs_data[0] = Bytes::from(vec![1; 8]).into();
+    outputs_data[32] = Bytes::from(vec![1; 8]).into();
+
+    let transaction = TransactionBuilder::default()
+        .outputs(outputs)
+        .outputs_data(outputs_data)
+        .build();
+
+    let mut resolved_inputs =
+        vec![build_input_cell_meta(build_normal_cell_output(), Bytes::new()); 33];
+    resolved_inputs[32] = build_input_cell_meta(
+        build_dao_cell_output(&dao_type_script),
+        Bytes::from(vec![0; 8]),
+    );
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs,
+        resolved_dep_groups: vec![],
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, EmptyDataProvider {});
+
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::DaoOutputDataMismatch { index: 0 },
+    );
+}
+
+#[test]
+fn test_dao_allows_same_index_withdrawing_output_data() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    let mut outputs = vec![build_normal_cell_output(); 33];
+    outputs[32] = build_dao_cell_output(&dao_type_script);
+
+    let mut outputs_data = vec![Bytes::new().into(); 33];
+    outputs_data[32] = Bytes::from(vec![1; 8]).into();
+
+    let transaction = TransactionBuilder::default()
+        .outputs(outputs)
+        .outputs_data(outputs_data)
+        .build();
+
+    let mut resolved_inputs =
+        vec![build_input_cell_meta(build_normal_cell_output(), Bytes::new()); 33];
+    resolved_inputs[32] = build_input_cell_meta(
+        build_dao_cell_output(&dao_type_script),
+        Bytes::from(vec![0; 8]),
+    );
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs,
+        resolved_dep_groups: vec![],
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, EmptyDataProvider {});
+
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+fn test_dao_allows_new_deposit_output_data() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    let mut outputs = vec![build_normal_cell_output(); 2];
+    outputs[0] = build_dao_cell_output(&dao_type_script);
+
+    let mut outputs_data = vec![Bytes::new().into(); 2];
+    outputs_data[0] = Bytes::from(vec![0; 8]).into();
+
+    let transaction = TransactionBuilder::default()
+        .outputs(outputs)
+        .outputs_data(outputs_data)
+        .build();
+
+    let resolved_inputs = vec![
+        build_input_cell_meta(build_normal_cell_output(), Bytes::new()),
+        build_input_cell_meta(build_normal_cell_output(), Bytes::new()),
+    ];
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs,
+        resolved_dep_groups: vec![],
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, EmptyDataProvider {});
+
+    assert!(verifier.verify().is_ok());
 }
 
 #[test]

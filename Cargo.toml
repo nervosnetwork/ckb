@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.207.0"
+version = "0.208.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -266,10 +266,10 @@ merkle-cbt = "0.3"
 minstant = "0.1.4"
 molecule = { version = "0.9.0", default-features = false }
 multi_index_map = "0.15.0"
-multiaddr = { version = "0.3.6", package = "tentacle-multiaddr" }
+multiaddr = { version = "0.3.7", package = "tentacle-multiaddr" }
 num_cpus = "1.16.0"
 numext-fixed-uint = "0.1"
-p2p = { version = "0.7.1", package = "tentacle", default-features = false }
+p2p = { version = "0.7.6", package = "tentacle", default-features = false }
 parking_lot = "0.12"
 paste = "1.0"
 path-clean = "0.1.0"
@@ -287,7 +287,7 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
 rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"
-secio = { version = "0.6.6", package = "tentacle-secio" }
+secio = { version = "0.6.8", package = "tentacle-secio" }
 secp256k1 = "0.30"
 semver = "1.0"
 sentry = "0.34.0"
@@ -300,6 +300,7 @@ sled = "0.34.7"
 snap = "1"
 sql-builder = "3.1"
 sqlx = "0.8.2"
+subtle = "2.6"
 syn = "2.0"
 tera = "1"
 thiserror = "1.0.22"
