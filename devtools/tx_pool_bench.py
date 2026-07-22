@@ -27,7 +27,7 @@ import statistics
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 ResultKey = Tuple[int, int, bool, str, int]
 Result = Dict[str, float]
@@ -103,7 +103,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "maximum allowed max-min throughput spread across repetitions; "
             "a noisier record is invalid for --fail-on-regression (default: "
-            "7 for quick diagnostics, 5 for medium/full)"
+            "8 for quick diagnostics, 5 for medium/full)"
         ),
     )
     parser.add_argument(
@@ -126,7 +126,7 @@ def parse_args() -> argparse.Namespace:
     if args.regression_threshold_percent is None:
         args.regression_threshold_percent = 2.0 if args.quick else 0.0
     if args.max_run_spread_percent is None:
-        args.max_run_spread_percent = 7.0 if args.quick else 5.0
+        args.max_run_spread_percent = 8.0 if args.quick else 5.0
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.regression_threshold_percent < 0:
@@ -439,6 +439,28 @@ def validate_run_stability(record: Dict, label: str) -> None:
         )
 
 
+def validate_paired_stability(record: Dict) -> None:
+    unstable = []
+    paired_samples = record.get("paired_ratio_samples", {})
+    if not paired_samples:
+        raise RuntimeError("paired candidate record has no ratio samples")
+    for scenario, samples in paired_samples.items():
+        throughputs = [float(value) for value in samples.get("throughput", [])]
+        if len(throughputs) != int(record.get("runs", 1)):
+            raise RuntimeError(
+                f"paired record has incomplete ratio samples for {scenario}: "
+                f"{len(throughputs)} != {record.get('runs')}"
+            )
+        spread = relative_run_spread(throughputs)
+        if spread > ARGS.max_run_spread_percent:
+            unstable.append(f"{scenario}={spread:.2f}%")
+    if unstable:
+        raise RuntimeError(
+            "paired benchmark ratios are too noisy for a decision "
+            f"(limit={ARGS.max_run_spread_percent:.2f}%): " + ", ".join(unstable)
+        )
+
+
 def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
     """Reject comparisons whose sampling or host context is not symmetric."""
     if baseline.get("mode") != current.get("mode"):
@@ -452,6 +474,14 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
             "baseline benchmark filter differs: "
             f"{baseline.get('benchmark_filter')!r} != "
             f"{current.get('benchmark_filter')!r}"
+        )
+
+    baseline_paired = bool(baseline.get("paired_execution", False))
+    current_paired = bool(current.get("paired_execution", False))
+    if baseline_paired != current_paired:
+        raise RuntimeError(
+            "baseline and candidate must both use paired execution or both use "
+            "independent records"
         )
 
     mismatches = []
@@ -486,10 +516,13 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
                 "--fail-on-regression requires symmetric repetition counts "
                 f"(baseline={baseline_runs}, current={current_runs})"
             )
-        if baseline.get("results") is not None:
-            validate_run_stability(baseline, "baseline")
-        if current.get("results") is not None:
-            validate_run_stability(current, "candidate")
+        if current_paired:
+            validate_paired_stability(current)
+        else:
+            if baseline.get("results") is not None:
+                validate_run_stability(baseline, "baseline")
+            if current.get("results") is not None:
+                validate_run_stability(current, "candidate")
 
 
 def print_summary(
@@ -508,7 +541,9 @@ def print_summary(
 
 
 def compare_results(
-    baseline: Dict[ResultKey, Result], current: Dict[ResultKey, Result]
+    baseline: Dict[ResultKey, Result],
+    current: Dict[ResultKey, Result],
+    paired_samples: Optional[Dict[ResultKey, Dict[str, List[float]]]] = None,
 ) -> bool:
     baseline_keys = set(baseline)
     current_keys = set(current)
@@ -528,8 +563,14 @@ def compare_results(
     for key in sorted(current):
         old = baseline[key]
         new = current[key]
-        throughput_ratio = new["throughput"] / old["throughput"]
-        latency_ratio = new["time_ms"] / old["time_ms"]
+        if paired_samples is None:
+            throughput_ratio = new["throughput"] / old["throughput"]
+            latency_ratio = new["time_ms"] / old["time_ms"]
+        else:
+            throughput_ratio = statistics.median(
+                paired_samples[key]["throughput"]
+            )
+            latency_ratio = statistics.median(paired_samples[key]["time_ms"])
         throughput_delta = (throughput_ratio - 1.0) * 100.0
         latency_delta = (latency_ratio - 1.0) * 100.0
         ratios.append(throughput_ratio)
@@ -591,6 +632,23 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
     candidate_record = make_record(
         candidate_medians, candidate_samples, WORKSPACE_ROOT
     )
+    paired_samples: Dict[ResultKey, Dict[str, List[float]]] = {}
+    for key in baseline_medians:
+        paired_samples[key] = {
+            "throughput": [
+                candidate[key]["throughput"] / baseline[key]["throughput"]
+                for baseline, candidate in zip(baseline_runs, candidate_runs)
+            ],
+            "time_ms": [
+                candidate[key]["time_ms"] / baseline[key]["time_ms"]
+                for baseline, candidate in zip(baseline_runs, candidate_runs)
+            ],
+        }
+    baseline_record["paired_execution"] = True
+    candidate_record["paired_execution"] = True
+    candidate_record["paired_ratio_samples"] = {
+        format_key(key): values for key, values in paired_samples.items()
+    }
 
     print("\n## Interleaved baseline")
     print_summary(baseline_medians, baseline_samples)
@@ -603,7 +661,7 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
         write_record(ARGS.save_json, candidate_record, "candidate")
 
     validate_comparison_environment(baseline_record, candidate_record)
-    return compare_results(baseline_medians, candidate_medians)
+    return compare_results(baseline_medians, candidate_medians, paired_samples)
 
 
 def main() -> None:

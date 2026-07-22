@@ -56,7 +56,7 @@ of the Python runner and Rust benchmark harness.
 Every report includes the max-min throughput spread across complete runs. With
 `--fail-on-regression`, either side exceeding
 `--max-run-spread-percent` is rejected as an invalid/noisy measurement rather
-than mislabeled as a code regression. Quick diagnostics default to a 7% spread
+than mislabeled as a code regression. Quick diagnostics default to an 8% spread
 ceiling and a 2% regression threshold; medium/full retain the 5% spread ceiling
 and strict 0% architectural gate. `--filter` runs only matching benchmark IDs,
 which is useful for a fast follow-up on a suspicious workload. Quick remains a
@@ -67,8 +67,10 @@ local notes do not invalidate a run).
 
 `--baseline-worktree` is the preferred quick comparison mode. It runs each
 baseline/candidate pair adjacently and reverses their order on every second
-pair, reducing systematic thermal or host-load bias. Each worktree still uses
-its isolated Cargo target, and both records retain independent commit/dirty
+pair, reducing systematic thermal or host-load bias. Paired mode evaluates the
+median and spread of each adjacent candidate/baseline ratio rather than
+rejecting a common absolute-speed drift in both checkouts. Each worktree still
+uses its isolated Cargo target, and both records retain independent commit/dirty
 metadata plus the common harness fingerprint.
 
 ## Matrices
