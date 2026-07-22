@@ -101,9 +101,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help=(
-            "maximum allowed max-min throughput spread across repetitions; "
-            "a noisier record is invalid for --fail-on-regression (default: "
-            "8 for quick diagnostics, 5 for medium/full)"
+            "maximum allowed throughput noise across repetitions (max-min "
+            "spread for independent records; maximum deviation from the "
+            "median ratio for paired records); a noisier record is invalid "
+            "for --fail-on-regression (default: 8 for quick diagnostics, "
+            "5 for medium/full)"
         ),
     )
     parser.add_argument(

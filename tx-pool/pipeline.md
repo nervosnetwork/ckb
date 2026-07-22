@@ -261,12 +261,16 @@ on unrelated absolute host-speed movement. The paired stability bound is the
 maximum relative deviation from the median ratio, matching the estimator used
 for the verdict instead of double-counting both sides of a symmetric range.
 
-Current measurement status: isolated one-run quick diagnostics are not release
-evidence. An adjacent same-binary quick rerun changed the always-success median
-by roughly 11%, exceeding the 5% record limit, so that attempted record was
-discarded. No performance conclusion is drawn from its provisional deltas. A
-clean, isolated, repeated medium/full checkpoint A/B is still required before
-the coordinator enters the production hot path.
+Current measurement status: the old isolated quick harness was invalid as
+release evidence: an adjacent same-binary rerun changed the always-success
+median by roughly 11%. After the event-driven completion, readiness, larger
+batch, isolated-target, and paired-execution fixes, a three-pair focused quick
+A/B against checkpoint `3ece94af1` measured cold/warm always-success throughput
+deltas of `+1.26%`/`+1.56%`. The maximum deviations from each median paired
+ratio were `2.46%`/`2.15%`, below the quick diagnostic ceiling. This validates
+quick as a fast directional regression check; it does not promote quick to a
+release gate. A clean, isolated, repeated medium/full checkpoint A/B is still
+required before the coordinator enters the production hot path.
 
 The numbers below are historical reference values from the original pipeline
 benchmark run; they are not a substitute for the checkpoint A/B record.
@@ -447,17 +451,26 @@ becomes the default.
 # smoke
 python3 devtools/tx_pool_bench.py --quick
 
-# repeatable baseline
-python3 devtools/tx_pool_bench.py --runs 3 --save-json /tmp/tx-pool-baseline.json
+# fast focused, interleaved A/B diagnostic (three adjacent pairs)
+python3 devtools/tx_pool_bench.py --quick --runs 3 \
+  --filter always_success_100 \
+  --baseline-worktree /path/to/checkpoint-worktree \
+  --save-baseline-json /tmp/tx-pool-quick-baseline.json \
+  --save-json /tmp/tx-pool-quick-candidate.json \
+  --fail-on-regression
 
-# strict candidate gate
+# strict medium candidate gate; omit --filter for the complete matrix
 python3 devtools/tx_pool_bench.py --runs 3 \
-  --compare-json /tmp/tx-pool-baseline.json \
+  --baseline-worktree /path/to/checkpoint-worktree \
+  --save-baseline-json /tmp/tx-pool-baseline.json \
   --save-json /tmp/tx-pool-candidate.json \
   --fail-on-regression
 ```
 
-Matrix selection: `QUICK_BENCH=1` for fast validation, `FULL_BENCH=1` for comprehensive coverage, default is MEDIUM.
+Matrix selection: `QUICK_BENCH=1` for fast validation, `FULL_BENCH=1` for
+comprehensive coverage, default is MEDIUM. Prefer `--baseline-worktree` for
+performance decisions because it interleaves both checkouts; `--compare-json`
+remains useful for non-gating historical inspection.
 
 ---
 
