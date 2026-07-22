@@ -1,7 +1,7 @@
 use crate::component::lifecycle_store::{
     LifecycleBatchOp, LifecycleBatchResult, LifecycleError, LifecycleLimits, LifecycleLocation,
-    LifecycleLocationKind, LifecycleStore, LifecycleTransition, PipelineStage, PoolStage,
-    Residency, TerminalOutcome,
+    LifecycleLocationKind, LifecycleStore, LifecycleTransition, PipelineStage, Residency,
+    TerminalOutcome,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, ProposalShortId};
@@ -29,7 +29,7 @@ fn roomy_store() -> LifecycleStore<Payload> {
 }
 
 #[test]
-fn one_owner_flows_through_every_stage_with_consistent_indexes() {
+fn one_owner_flows_through_every_pre_pool_stage_then_hands_off() {
     let mut store = roomy_store();
     let tx_hash = hash(1);
     let peer: PeerIndex = 7.into();
@@ -94,44 +94,22 @@ fn one_owner_flows_through_every_stage_with_consistent_indexes() {
             LifecycleLocation::Committing,
         )
         .unwrap();
-    version = store
-        .transition(
-            &tx_hash,
-            version,
-            &LifecycleLocation::Committing,
-            LifecycleLocation::Pool(PoolStage::Pending),
-        )
-        .unwrap();
-    version = store
-        .transition(
-            &tx_hash,
-            version,
-            &LifecycleLocation::Pool(PoolStage::Pending),
-            LifecycleLocation::Pool(PoolStage::Gap),
-        )
-        .unwrap();
-    version = store
-        .transition(
-            &tx_hash,
-            version,
-            &LifecycleLocation::Pool(PoolStage::Gap),
-            LifecycleLocation::Pool(PoolStage::Proposed),
-        )
-        .unwrap();
-
     assert_eq!(
         store.view(&tx_hash).unwrap().location,
-        LifecycleLocation::Pool(PoolStage::Proposed)
+        LifecycleLocation::Committing
     );
-    assert_eq!(store.location_len(LifecycleLocationKind::PoolProposed), 1);
+    assert_eq!(store.location_len(LifecycleLocationKind::Committing), 1);
     assert_eq!(*store.payload(&tx_hash).unwrap(), Payload("resolved"));
     store.audit().unwrap();
 
+    // Pool acceptance is an ownership handoff, not another mirrored live
+    // location. `TxPool` becomes authoritative before this terminal payload is
+    // published to callbacks/effects.
     let terminal = store
         .terminalize(
             &tx_hash,
             version,
-            &LifecycleLocation::Pool(PoolStage::Proposed),
+            &LifecycleLocation::Committing,
             TerminalOutcome::Committed,
         )
         .unwrap();
@@ -354,11 +332,11 @@ fn illegal_transition_leaves_state_and_indexes_unchanged() {
             &tx_hash,
             version,
             &LifecycleLocation::Queued(PipelineStage::PreCheck),
-            LifecycleLocation::Pool(PoolStage::Pending),
+            LifecycleLocation::ReadyToCommit,
         ),
         Err(LifecycleError::IllegalTransition {
             from: LifecycleLocation::Queued(PipelineStage::PreCheck),
-            to: LifecycleLocation::Pool(PoolStage::Pending),
+            to: LifecycleLocation::ReadyToCommit,
         })
     );
     assert_eq!(store.view(&tx_hash).unwrap(), before);
@@ -376,7 +354,7 @@ fn batch_transition_is_all_or_nothing() {
             hash_a.clone(),
             short(50),
             Payload("a"),
-            LifecycleLocation::Pool(PoolStage::Pending),
+            LifecycleLocation::WaitingParents,
             None,
             10,
         )
@@ -386,7 +364,7 @@ fn batch_transition_is_all_or_nothing() {
             hash_b.clone(),
             short(51),
             Payload("b"),
-            LifecycleLocation::Pool(PoolStage::Pending),
+            LifecycleLocation::WaitingParents,
             None,
             10,
         )
@@ -400,14 +378,14 @@ fn batch_transition_is_all_or_nothing() {
         LifecycleTransition {
             hash: hash_a.clone(),
             version: version_a,
-            expected: LifecycleLocation::Pool(PoolStage::Pending),
-            next: LifecycleLocation::Pool(PoolStage::Gap),
+            expected: LifecycleLocation::WaitingParents,
+            next: LifecycleLocation::Queued(PipelineStage::Resolve),
         },
         LifecycleTransition {
             hash: hash_b.clone(),
             version: stale_b,
-            expected: LifecycleLocation::Pool(PoolStage::Pending),
-            next: LifecycleLocation::Pool(PoolStage::Gap),
+            expected: LifecycleLocation::WaitingParents,
+            next: LifecycleLocation::Queued(PipelineStage::Resolve),
         },
     ];
     assert!(matches!(
@@ -416,44 +394,44 @@ fn batch_transition_is_all_or_nothing() {
     ));
     assert_eq!(
         store.view(&hash_a).unwrap().location,
-        LifecycleLocation::Pool(PoolStage::Pending)
+        LifecycleLocation::WaitingParents
     );
     assert_eq!(
         store.view(&hash_b).unwrap().location,
-        LifecycleLocation::Pool(PoolStage::Pending)
+        LifecycleLocation::WaitingParents
     );
 
     let valid_batch = [
         LifecycleTransition {
             hash: hash_a.clone(),
             version: version_a,
-            expected: LifecycleLocation::Pool(PoolStage::Pending),
-            next: LifecycleLocation::Pool(PoolStage::Gap),
+            expected: LifecycleLocation::WaitingParents,
+            next: LifecycleLocation::Queued(PipelineStage::Resolve),
         },
         LifecycleTransition {
             hash: hash_b.clone(),
             version: version_b,
-            expected: LifecycleLocation::Pool(PoolStage::Pending),
-            next: LifecycleLocation::Pool(PoolStage::Gap),
+            expected: LifecycleLocation::WaitingParents,
+            next: LifecycleLocation::Queued(PipelineStage::Resolve),
         },
     ];
     let next_versions = store.transition_batch(&valid_batch).unwrap();
     assert_eq!(next_versions.len(), 2);
-    assert_eq!(store.location_len(LifecycleLocationKind::PoolPending), 0);
-    assert_eq!(store.location_len(LifecycleLocationKind::PoolGap), 2);
+    assert_eq!(store.location_len(LifecycleLocationKind::WaitingParents), 0);
+    assert_eq!(store.location_len(LifecycleLocationKind::QueuedResolve), 2);
 
     let duplicate_batch = [
         LifecycleTransition {
             hash: hash_a.clone(),
             version: next_versions[0],
-            expected: LifecycleLocation::Pool(PoolStage::Gap),
-            next: LifecycleLocation::Pool(PoolStage::Proposed),
+            expected: LifecycleLocation::Queued(PipelineStage::Resolve),
+            next: LifecycleLocation::Active(PipelineStage::Resolve),
         },
         LifecycleTransition {
             hash: hash_a.clone(),
             version: next_versions[0],
-            expected: LifecycleLocation::Pool(PoolStage::Gap),
-            next: LifecycleLocation::Pool(PoolStage::Proposed),
+            expected: LifecycleLocation::Queued(PipelineStage::Resolve),
+            next: LifecycleLocation::Active(PipelineStage::Resolve),
         },
     ];
     assert_eq!(
@@ -462,13 +440,13 @@ fn batch_transition_is_all_or_nothing() {
     );
     assert_eq!(
         store.view(&hash_a).unwrap().location,
-        LifecycleLocation::Pool(PoolStage::Gap)
+        LifecycleLocation::Queued(PipelineStage::Resolve)
     );
     store.audit().unwrap();
 }
 
 #[test]
-fn rbf_winner_and_victims_commit_in_one_lifecycle_batch() {
+fn rbf_pool_handoff_and_speculative_victims_terminalize_atomically() {
     let mut store = roomy_store();
     let winner_hash = hash(55);
     let victim_a_hash = hash(56);
@@ -497,70 +475,96 @@ fn rbf_winner_and_victims_commit_in_one_lifecycle_batch() {
         )
         .unwrap();
 
-    let victim_a_version = store
+    store
         .admit(
             victim_a_hash.clone(),
             short(56),
             Payload("victim-a"),
-            LifecycleLocation::Pool(PoolStage::Pending),
+            LifecycleLocation::Queued(PipelineStage::Verify),
             None,
             10,
         )
         .unwrap();
-    let victim_b_version = store
+    let victim_a_lease = store
+        .checkout(&victim_a_hash, PipelineStage::Verify)
+        .unwrap();
+    let victim_a_waiting = store
+        .complete(
+            &victim_a_lease,
+            LifecycleLocation::WaitingConflict {
+                winner: winner_hash.clone(),
+            },
+            None,
+        )
+        .unwrap();
+
+    store
         .admit(
             victim_b_hash.clone(),
             short(57),
             Payload("victim-b"),
-            LifecycleLocation::Pool(PoolStage::Proposed),
+            LifecycleLocation::Queued(PipelineStage::Verify),
             None,
             10,
         )
         .unwrap();
+    let victim_b_lease = store
+        .checkout(&victim_b_hash, PipelineStage::Verify)
+        .unwrap();
+    let victim_b_waiting = store
+        .complete(
+            &victim_b_lease,
+            LifecycleLocation::WaitingConflict {
+                winner: winner_hash.clone(),
+            },
+            None,
+        )
+        .unwrap();
 
     let operations = [
-        LifecycleBatchOp::Transition(LifecycleTransition {
+        LifecycleBatchOp::Terminalize {
             hash: winner_hash.clone(),
             version: winner_committing,
             expected: LifecycleLocation::Committing,
-            next: LifecycleLocation::Pool(PoolStage::Pending),
-        }),
+            outcome: TerminalOutcome::Committed,
+        },
         LifecycleBatchOp::Terminalize {
             hash: victim_a_hash.clone(),
-            version: victim_a_version,
-            expected: LifecycleLocation::Pool(PoolStage::Pending),
+            version: victim_a_waiting,
+            expected: LifecycleLocation::WaitingConflict {
+                winner: winner_hash.clone(),
+            },
             outcome: TerminalOutcome::Rejected,
         },
         LifecycleBatchOp::Terminalize {
             hash: victim_b_hash.clone(),
-            version: victim_b_version,
-            expected: LifecycleLocation::Pool(PoolStage::Proposed),
+            version: victim_b_waiting,
+            expected: LifecycleLocation::WaitingConflict {
+                winner: winner_hash.clone(),
+            },
             outcome: TerminalOutcome::Rejected,
         },
     ];
     let results = store.apply_batch(&operations).unwrap();
 
     assert_eq!(results.len(), 3);
-    assert!(matches!(
-        &results[0],
-        LifecycleBatchResult::Transitioned { hash, .. } if hash == &winner_hash
-    ));
-    for (result, expected_hash) in results[1..].iter().zip([&victim_a_hash, &victim_b_hash]) {
+    for (result, (expected_hash, outcome)) in results.iter().zip([
+        (&winner_hash, TerminalOutcome::Committed),
+        (&victim_a_hash, TerminalOutcome::Rejected),
+        (&victim_b_hash, TerminalOutcome::Rejected),
+    ]) {
         assert!(matches!(
             result,
             LifecycleBatchResult::Terminalized(entry)
                 if &entry.hash == expected_hash
-                    && entry.outcome == TerminalOutcome::Rejected
+                    && entry.outcome == outcome
         ));
     }
-    assert_eq!(store.len(), 1);
-    assert_eq!(
-        store.view(&winner_hash).unwrap().location,
-        LifecycleLocation::Pool(PoolStage::Pending)
-    );
+    assert!(store.is_empty());
+    assert!(store.view(&winner_hash).is_none());
     assert!(store.view(&victim_a_hash).is_none());
     assert!(store.view(&victim_b_hash).is_none());
-    assert_eq!(store.usage(), Residency::new(1, 10));
+    assert_eq!(store.usage(), Residency::default());
     store.audit().unwrap();
 }
 

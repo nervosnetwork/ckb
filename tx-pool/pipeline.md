@@ -285,13 +285,18 @@ yet. It establishes these integration contracts before queue replacement:
 
 - the full transaction hash is the authoritative identity, while proposal
   short IDs are a collision-checked secondary index;
-- one immutable payload record moves through queued, active, waiting, commit,
-  and pool locations; worker leases carry incarnation/revision tokens, so a
+- one immutable payload record moves through queued, active, waiting, and
+  committing locations; worker leases carry incarnation/revision tokens, so a
   stale completion cannot mutate a removed and re-admitted transaction;
 - global and per-peer count/byte charges remain live across every location and
   payload recharge is transactional;
 - multi-transaction transitions validate completely before mutation, including
-  an RBF commit batch that moves the winner while terminalizing its victims;
+  an RBF handoff batch that terminalizes the committed winner and its
+  speculative pre-pool victims;
+- `Committed` is an ownership handoff: `LifecycleStore` then contains no live
+  record for the transaction, and the existing `TxPool` is the sole authority
+  for accepted `Pending`/`Gap`/`Proposed` state. There is no shadow pool state,
+  duplicated payload, or hot-path status double-write;
 - callbacks consume terminalized records only after the store mutation, which
   creates an explicit stable-state side-effect boundary.
 
@@ -330,9 +335,44 @@ while only authoritative commit success terminalizes direct conflicts.
 
 Candidate count, total conflict edges and per-candidate edges are separately
 bounded. Production integration must retain the current pool write-lock fee
-calculation as the proof source and combine a successful pool mutation with the
-LifecycleStore winner/victim batch before replacing `RbfCandidates` and
-`RaceLost`.
+calculation as the proof source. A successful pool mutation transfers the
+winner out of `LifecycleStore`; it does not mirror the winner as a pool
+location. Direct speculative losers are terminalized in the same coordinator
+finalization before replacing `RbfCandidates` and `RaceLost`.
+
+### 5.4 Authoritative commit transaction
+
+Production integration uses one explicit prepare/apply/finalize/publish
+protocol. It keeps the existing parallel verification workers and the existing
+serialized `TxPool` write section; it does not add an actor hop or a second pool
+representation to the hot path.
+
+1. **Prepare (coordinator metadata only).** Validate the lifecycle lease and
+   conflict-generation ticket and build an immutable commit intent. This phase
+   does not mutate `TxPool`.
+2. **Apply (coordinator → `TxPool` lock order).** Perform every fallible pool
+   validation before destructive mutation wherever possible. The remaining
+   mutation phase must either be infallible or carry an exact journal containing
+   each removed `TxEntry` and its original `Status`. On failure, that journal is
+   restored while the same `TxPool` write guard is still held; competing
+   candidates can never observe temporarily free inputs.
+3. **Finalize pre-pool ownership.** After successful pool apply, atomically
+   terminalize the lifecycle winner as `Committed` and its direct speculative
+   losers as `Rejected`. On failure, abort/requeue/terminalize from an explicit
+   disposition. No callback, relay, miner notification, or asynchronous
+   recovery runs in this phase.
+4. **Publish effects.** After all internal locks are released, dispatch a typed
+   effect journal: callbacks, relay, cache update, miner notification, and
+   opportunistic dependency wakes. Effects are consequences of an already
+   stable state and cannot decide or repair ownership.
+
+The coordinator lock protects only lifecycle IDs, generations, bounded
+accounting, and scheduler metadata. Queue leases and transitions are batched;
+payload verification remains on the fixed worker pools. Consequently the
+design removes legacy cross-queue lock choreography without serializing script
+verification or copying accepted pool state. Medium/full A/B gates must confirm
+that coordinator and journal costs do not reduce throughput before the new path
+becomes the default.
 
 ---
 

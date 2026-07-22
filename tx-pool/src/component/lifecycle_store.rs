@@ -1,4 +1,4 @@
-//! Authoritative transaction-lifecycle ownership.
+//! Authoritative pre-pool transaction-lifecycle ownership.
 //!
 //! This module is intentionally introduced before it is wired into the hot
 //! path.  It defines the state and atomicity contract that the coordinator and
@@ -20,15 +20,9 @@ pub(crate) enum PipelineStage {
     Verify,
 }
 
-/// Proposal-window status of an accepted pool transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum PoolStage {
-    Pending,
-    Gap,
-    Proposed,
-}
-
-/// The one authoritative location of a live transaction.
+/// The one authoritative location of a transaction before pool acceptance.
+/// A successful commit terminalizes this record and transfers ownership to
+/// `TxPool`; accepted proposal-window state is never mirrored here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LifecycleLocation {
     Queued(PipelineStage),
@@ -38,7 +32,6 @@ pub(crate) enum LifecycleLocation {
     WaitingConflict { winner: Byte32 },
     ReadyToCommit,
     Committing,
-    Pool(PoolStage),
 }
 
 /// A normalized location used by indexes and accounting.  Conflict winners
@@ -57,9 +50,6 @@ pub(crate) enum LifecycleLocationKind {
     WaitingConflict,
     ReadyToCommit,
     Committing,
-    PoolPending,
-    PoolGap,
-    PoolProposed,
 }
 
 impl LifecycleLocation {
@@ -76,9 +66,6 @@ impl LifecycleLocation {
             Self::WaitingConflict { .. } => LifecycleLocationKind::WaitingConflict,
             Self::ReadyToCommit => LifecycleLocationKind::ReadyToCommit,
             Self::Committing => LifecycleLocationKind::Committing,
-            Self::Pool(PoolStage::Pending) => LifecycleLocationKind::PoolPending,
-            Self::Pool(PoolStage::Gap) => LifecycleLocationKind::PoolGap,
-            Self::Pool(PoolStage::Proposed) => LifecycleLocationKind::PoolProposed,
         }
     }
 }
@@ -196,7 +183,7 @@ pub(crate) struct LifecycleTransition {
     pub(crate) next: LifecycleLocation,
 }
 
-/// One operation in an atomic commit/reorg batch.
+/// One operation in an atomic ownership commit batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LifecycleBatchOp {
     Transition(LifecycleTransition),
@@ -508,9 +495,9 @@ impl<P> LifecycleStore<P> {
     }
 
     /// Apply location moves and terminal removals as one all-or-nothing
-    /// lifecycle operation.  This is the ownership-side commit primitive for
-    /// an RBF swap: the winner enters the pool in the same batch that victims
-    /// leave the live store.
+    /// lifecycle operation. This is the ownership-side commit primitive for
+    /// an RBF swap: the winner is terminalized as handed to `TxPool` in the
+    /// same batch that speculative victims are terminalized as rejected.
     pub(crate) fn apply_batch(
         &mut self,
         operations: &[LifecycleBatchOp],
@@ -854,7 +841,6 @@ impl<P> LifecycleStore<P> {
             LifecycleLocation::Queued(_)
                 | LifecycleLocation::WaitingParents
                 | LifecycleLocation::WaitingInputs
-                | LifecycleLocation::Pool(_)
         )
     }
 
@@ -875,8 +861,7 @@ impl<P> LifecycleStore<P> {
             (L::WaitingInputs, L::Queued(S::Resolve | S::Verify)) => true,
             (L::WaitingConflict { .. }, L::Queued(S::Verify)) => true,
             (L::ReadyToCommit, L::Committing) => true,
-            (L::Committing, L::Pool(_) | L::Queued(S::Verify)) => true,
-            (L::Pool(left), L::Pool(right)) => left != right,
+            (L::Committing, L::Queued(S::Verify)) => true,
             _ => false,
         }
     }
