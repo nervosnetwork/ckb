@@ -124,7 +124,7 @@ Dependent chains are measured in both directions because they exercise different
 
 - `SharedBench` owns the genesis snapshot, network controller, and tokio runtime, and is reused across all benchmark iterations.
 - `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
-- `ServiceHandle::drop` cancels the local `CancellationToken` so the tx-pool actor and background tasks stop cleanly after each iteration, and drops the `tx_relay_sender` clone so the background relay-drain thread exits.
+- `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration.
 - Criterion uses `iter_batched_ref`, so that complete service shutdown (worker quiescence, pool save and relay-drain join) happens after the measurement interval rather than being charged to transaction latency.
 - `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the deferred task worker.  It is used only for cycle measurement.
 - Both `start_controller` and `start_service` spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.

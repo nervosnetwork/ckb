@@ -290,6 +290,23 @@ impl TxPoolServiceBuilder {
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start<N: TxPoolNetwork>(self, network: N) {
+        // Production keeps the historical detached-service semantics. The
+        // benchmark-only variant below retains this handle to await teardown.
+        drop(self.start_inner(network));
+    }
+
+    /// Benchmark-only start variant that exposes the main dispatcher handle.
+    /// Awaiting it after cancellation proves all message handlers and
+    /// background workers have quiesced before the next benchmark iteration.
+    #[cfg(feature = "internal")]
+    pub(crate) fn start_with_handle<N: TxPoolNetwork>(
+        self,
+        network: N,
+    ) -> tokio::task::JoinHandle<()> {
+        self.start_inner(network)
+    }
+
+    fn start_inner<N: TxPoolNetwork>(self, network: N) -> tokio::task::JoinHandle<()> {
         if self.tx_pool_config.max_verify_queue_tx_size < self.tx_pool_config.max_tx_pool_size {
             warn!(
                 "max_verify_queue_tx_size ({}) < max_tx_pool_size ({}): clamping the verify-queue \
@@ -403,7 +420,7 @@ impl TxPoolServiceBuilder {
             signal_receiver.clone(),
         );
 
-        Self::spawn_message_dispatcher(
+        let dispatcher_handle = Self::spawn_message_dispatcher(
             &handle,
             service,
             receiver,
@@ -422,6 +439,7 @@ impl TxPoolServiceBuilder {
             error!("Failed to import persistent txs, cause: {}", err);
         }
         started.store(true, Ordering::Release);
+        dispatcher_handle
     }
 
     /// Spawn the main message dispatcher with bounded concurrency.

@@ -274,9 +274,9 @@ impl SharedBench {
     /// Start a full tx-pool service (with controller) for benchmark iterations.
     ///
     /// The returned [`ServiceHandle`] owns a clone of `tx_relay_sender` so that
-    /// dropping it closes the relay channel, allowing the background drain task
-    /// to exit cleanly.  The drain task handle is awaited on drop to avoid
-    /// leaking threads between iterations.
+    /// dropping it closes the relay channel. It also owns the production main
+    /// dispatcher handle; awaiting both handles on drop proves every message
+    /// handler and worker has quiesced before the next iteration begins.
     fn start_controller(&self, max_workers: usize) -> ServiceHandle {
         let config = tx_pool_config(max_workers);
         let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
@@ -305,12 +305,13 @@ impl SharedBench {
         // does not affect other benchmark iterations.
         let local_signal = CancellationToken::new();
         builder.signal_receiver = local_signal.clone();
-        builder.start(Arc::clone(&self.network));
+        let dispatcher_handle = builder.start_with_handle(Arc::clone(&self.network));
         ServiceHandle {
             controller,
             signal: local_signal,
             tx_relay_sender: Some(tx_relay_sender),
             drain_handle: Some(drain_handle),
+            dispatcher_handle: Some(dispatcher_handle),
             runtime: self.ckb_handle.clone(),
             completion,
         }
@@ -343,8 +344,8 @@ fn await_handles(
 ///
 /// On drop it cancels the [`CancellationToken`] (shutting down all spawned
 /// workers), drops the `tx_relay_sender` clone so the relay channel closes,
-/// and awaits the drain task handle so the blocking thread is released before
-/// the next iteration starts.
+/// and awaits the dispatcher plus drain handles so no worker or blocking
+/// thread overlaps the next iteration.
 struct ServiceHandle {
     controller: crate::TxPoolController,
     signal: CancellationToken,
@@ -353,7 +354,9 @@ struct ServiceHandle {
     tx_relay_sender: Option<ckb_channel::Sender<crate::service::TxVerificationResult>>,
     /// Handle for the blocking relay-drain task.
     drain_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Runtime used to await the drain task on drop.
+    /// Main dispatcher owns and quiesces every production worker handle.
+    dispatcher_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Runtime used to await service teardown on drop.
     runtime: ckb_async_runtime::Handle,
     /// Stable-state completion event used instead of controller polling.
     completion: Arc<BenchCompletion>,
@@ -365,9 +368,18 @@ impl Drop for ServiceHandle {
         // Drop the sender explicitly so the relay drain task (spawn_blocking)
         // sees a closed channel and exits instead of leaking.
         self.tx_relay_sender.take();
-        if let Some(handle) = self.drain_handle.take() {
-            await_handles(&self.runtime, vec![handle], Duration::from_secs(5));
+        let mut handles = Vec::with_capacity(2);
+        if let Some(handle) = self.dispatcher_handle.take() {
+            handles.push(handle);
         }
+        if let Some(handle) = self.drain_handle.take() {
+            handles.push(handle);
+        }
+        await_handles(
+            &self.runtime,
+            handles,
+            Duration::from_secs(crate::constants::PIPELINE_SHUTDOWN_TIMEOUT_SECONDS + 5),
+        );
     }
 }
 
