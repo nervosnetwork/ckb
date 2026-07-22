@@ -415,6 +415,10 @@ async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock(
         }),
         "restored entries must not emit terminal reject callbacks"
     );
+    assert!(matches!(
+        outcome.reject_events.as_slice(),
+        [(entry, Reject::Full(_))] if entry.proposal_short_id() == replacement_id
+    ));
 }
 
 /// The escape-hatch eviction journal must also cover the case where

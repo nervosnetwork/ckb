@@ -68,7 +68,7 @@ Status meanings:
 | 29 | Covered | `remove_expired_cascades_to_descendants` | I10 |
 | 30 | Covered | On-chain reconcile includes cell deps. | I10 |
 | 31 | Covered | `counter_drift_is_recovered_by_recompute` and saturating-counter tests. | I5, I10 |
-| 32 | Open | Add deterministic eviction metric/event assertion; warnings alone are insufficient observability. | I4, I5 |
+| 32 | Covered | `failed_commit_restores_all_size_evictions_with_original_status_in_lock` asserts the one terminal `Full` event for the rejected candidate and no terminal event for entries restored from the eviction journal. | I4, I5 |
 | 33 | Covered | `parent_parked_in_waiting_room_counts_as_in_flight` | I6 |
 | 34 | Covered | `dropped_verify_mgr_cancels_its_worker_generation` | I1, I4 |
 | 35 | Covered | `save_pool_waits_for_recovery_lock` | I7 |
