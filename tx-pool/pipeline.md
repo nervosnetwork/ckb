@@ -249,7 +249,10 @@ Quick keeps only one peer/worker combination but uses 100-transaction
 independent batches, 20-transaction dependency chains, and 20 Criterion samples.
 Each fresh service completes a dispatcher readiness round-trip plus one short
 scheduler interval before timing, so worker startup jitter is not mistaken for
-pipeline latency.
+pipeline latency. Its diagnostic defaults are a 7% cross-run spread ceiling and
+a 2% directional regression threshold; medium/full keep the 5%/0% release gate.
+The runner can filter benchmark IDs for a fast focused retest without weakening
+the recorded harness/environment checks.
 
 Current measurement status: isolated one-run quick diagnostics are not release
 evidence. An adjacent same-binary quick rerun changed the always-success median

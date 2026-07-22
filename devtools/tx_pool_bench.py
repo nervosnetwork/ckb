@@ -71,22 +71,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--regression-threshold-percent",
         type=float,
-        default=0.0,
+        default=None,
         help=(
-            "allowed per-scenario regression before failure; the architectural "
-            "acceptance gate uses the strict default of 0"
+            "allowed per-scenario regression before failure (default: 2 for "
+            "quick diagnostics, strict 0 for medium/full)"
         ),
     )
     parser.add_argument(
         "--max-run-spread-percent",
         type=float,
-        default=5.0,
+        default=None,
         help=(
             "maximum allowed max-min throughput spread across repetitions; "
-            "a noisier record is invalid for --fail-on-regression"
+            "a noisier record is invalid for --fail-on-regression (default: "
+            "7 for quick diagnostics, 5 for medium/full)"
+        ),
+    )
+    parser.add_argument(
+        "--filter",
+        dest="benchmark_filter",
+        help=(
+            "run only benchmark IDs containing this text (for example "
+            "'always_success_100' or 'child_first_20')"
         ),
     )
     args = parser.parse_args()
+    if args.regression_threshold_percent is None:
+        args.regression_threshold_percent = 2.0 if args.quick else 0.0
+    if args.max_run_spread_percent is None:
+        args.max_run_spread_percent = 7.0 if args.quick else 5.0
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.regression_threshold_percent < 0:
@@ -135,6 +148,8 @@ def run_cargo_bench(run: int) -> str:
         "--bench",
         "pipeline",
     ]
+    if ARGS.benchmark_filter:
+        cmd.extend(["--", ARGS.benchmark_filter])
     print(
         f"\n>>> Run {run}/{ARGS.runs}: {' '.join(cmd)} ({matrix_mode()} matrix)",
         flush=True,
@@ -301,6 +316,7 @@ def environment_metadata() -> Dict:
         "python": platform.python_version(),
         "benchmark_harness_sha256": files_sha256(HARNESS_FILES),
         "benchmark_target_dir": str(BENCH_TARGET_DIR),
+        "benchmark_filter": ARGS.benchmark_filter,
     }
 
 
@@ -396,6 +412,13 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         raise RuntimeError(
             "baseline matrix mode differs: "
             f"{baseline.get('mode')} != {current.get('mode')}"
+        )
+
+    if baseline.get("benchmark_filter") != current.get("benchmark_filter"):
+        raise RuntimeError(
+            "baseline benchmark filter differs: "
+            f"{baseline.get('benchmark_filter')!r} != "
+            f"{current.get('benchmark_filter')!r}"
         )
 
     mismatches = []

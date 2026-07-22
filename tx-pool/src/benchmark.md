@@ -19,6 +19,9 @@ python3 devtools/tx_pool_bench.py
 # small quick matrix (~5 minutes)
 python3 devtools/tx_pool_bench.py --quick
 
+# focused quick diagnosis (one matching scenario family)
+python3 devtools/tx_pool_bench.py --quick --filter always_success_100
+
 # full matrix (~1 hour)
 python3 devtools/tx_pool_bench.py --full
 
@@ -44,11 +47,14 @@ of the Python runner and Rust benchmark harness.
 
 Every report includes the max-min throughput spread across complete runs. With
 `--fail-on-regression`, either side exceeding
-`--max-run-spread-percent` (5% by default) is rejected as an invalid/noisy
-measurement rather than mislabeled as a code regression. Quick mode is a smoke
-and development diagnostic; medium/full repeated records are the architectural
-acceptance evidence. Strict records must also come from clean tracked trees, so
-the exact measured source can be reconstructed from `git_commit` (untracked
+`--max-run-spread-percent` is rejected as an invalid/noisy measurement rather
+than mislabeled as a code regression. Quick diagnostics default to a 7% spread
+ceiling and a 2% regression threshold; medium/full retain the 5% spread ceiling
+and strict 0% architectural gate. `--filter` runs only matching benchmark IDs,
+which is useful for a fast follow-up on a suspicious workload. Quick remains a
+development diagnostic; medium/full repeated records are the architectural
+acceptance evidence. Strict records must also come from clean tracked trees,
+so the exact measured source can be reconstructed from `git_commit` (untracked
 local notes do not invalidate a run).
 
 ## Matrices
