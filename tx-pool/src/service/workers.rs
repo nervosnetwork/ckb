@@ -59,6 +59,70 @@ impl RespawnBackoff {
     }
 }
 
+/// Retain one ordered state-transition message until it completes or the
+/// service is shutting down. A deterministic panic is backoff-limited but can
+/// never turn into an acknowledged/dropped message.
+async fn retry_retained_message<T, F, Fut>(
+    worker_name: &'static str,
+    item: T,
+    cancel: &CancellationToken,
+    mut handler: F,
+) -> bool
+where
+    T: Clone,
+    F: FnMut(T) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut backoff = RespawnBackoff::new();
+    loop {
+        if cancel.is_cancelled() {
+            return false;
+        }
+        let started = std::time::Instant::now();
+        match crate::worker::catch_job_panic(handler(item.clone())).await {
+            Ok(()) => return true,
+            Err(message) => {
+                let delay = backoff.delay_for(started.elapsed());
+                error!(
+                    "{} panicked; retaining head message and retrying in {:?}: {}",
+                    worker_name, delay, message
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {}
+                    _ = cancel.cancelled() => return false,
+                }
+            }
+        }
+    }
+}
+
+/// Consume an ordered channel without acknowledging the head item until its
+/// handler succeeds. Later messages stay in the bounded channel, providing
+/// backpressure and preserving transition order.
+async fn run_retained_receiver<T, F, Fut>(
+    worker_name: &'static str,
+    mut receiver: mpsc::Receiver<T>,
+    cancel: &CancellationToken,
+    mut handler: F,
+) where
+    T: Clone,
+    F: FnMut(T) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    loop {
+        let item = tokio::select! {
+            item = receiver.recv() => item,
+            _ = cancel.cancelled() => None,
+        };
+        let Some(item) = item else {
+            break;
+        };
+        if !retry_retained_message(worker_name, item, cancel, &mut handler).await {
+            break;
+        }
+    }
+}
+
 /// The pre-check worker body: pop → classify → finish, with a per-job
 /// panic guard. Shared by the production worker pool and the test/bench
 /// harnesses so the `finish` contract (and the per-job panic semantics)
@@ -250,74 +314,56 @@ pub(crate) fn spawn_resolver_monitor(
     })
 }
 
-/// Spawn the reorg handler with panic-respawn protection.
+/// Spawn the ordered, retained reorg handler.
 pub(crate) fn spawn_reorg_handler(
     handle: &Handle,
     service: TxPoolService,
-    mut reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
+    reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
     signal_receiver: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     handle.spawn(async move {
-        loop {
-            let service = service.clone();
-            let keep_running = tokio::select! {
-                Some(message) = reorg_receiver.recv() => {
-                    let Notify {
-                        arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-                    } = message;
+        // Reorg deltas are ordered state transitions. Keep the received head
+        // message until it succeeds; receiving the next delta first would let
+        // a panic create a permanent tip/pool mismatch. Authoritative updates
+        // are convergence-idempotent: repeated removals/status transitions are
+        // no-ops, retained transactions re-add independently, fee-estimator
+        // commits ignore an already-seen height, and template updates rebuild
+        // from the current snapshot. User callbacks contain their own panics,
+        // so external side effects cannot trap this retry loop.
+        run_retained_receiver(
+            "tx-pool reorg handler",
+            reorg_receiver,
+            &signal_receiver,
+            |Notify {
+                 arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
+             }| {
+                let service = service.clone();
+                async move {
+                    service
+                        .update_block_assembler_before_tx_pool_reorg(
+                            detached_blocks.clone(),
+                            Arc::clone(&snapshot),
+                        )
+                        .await;
 
-                    // One bounded retry: every step of reorg processing is
-                    // idempotent — the write-lock section (snapshot swap,
-                    // committed/detached-proposal removal, status
-                    // migration, expiry, size limit) is a no-op when
-                    // repeated, and the lock-free retain recovery re-adds
-                    // each tx independently (duplicates return Ok(false)).
-                    // Without the retry a single panic would silently drop
-                    // the whole reorg: detached transactions would never
-                    // be re-added and the pool would stay half-updated
-                    // against the new tip.
-                    let outcome = crate::worker::run_with_one_retry(|| {
-                        let service = service.clone();
-                        let detached_blocks = detached_blocks.clone();
-                        let attached_blocks = attached_blocks.clone();
-                        let detached_proposal_id = detached_proposal_id.clone();
-                        let snapshot = Arc::clone(&snapshot);
-                        async move {
-                            service.update_block_assembler_before_tx_pool_reorg(
-                                detached_blocks.clone(),
-                                Arc::clone(&snapshot),
-                            ).await;
+                    service
+                        .update_tx_pool_for_reorg(
+                            detached_blocks,
+                            attached_blocks,
+                            detached_proposal_id,
+                            snapshot,
+                        )
+                        .await;
 
-                            service
-                                .update_tx_pool_for_reorg(
-                                    detached_blocks,
-                                    attached_blocks,
-                                    detached_proposal_id,
-                                    snapshot,
-                                )
-                                .await;
-
-                            service.update_block_assembler_after_tx_pool_reorg().await;
-                        }
-                    })
-                    .await;
-                    if let Err(message) = outcome {
-                        error!(
-                            "tx-pool reorg handler panicked twice; dropping reorg message: {}",
-                            message
-                        );
-                    }
-                    true
-                },
-                _ = signal_receiver.cancelled() => {
-                    info!("TxPool reorg process service received exit signal, exit now");
-                    false
-                },
-                else => false,
-            };
-            if !keep_running {
-                break;
-            }
+                    service.update_block_assembler_after_tx_pool_reorg().await;
+                }
+            },
+        )
+        .await;
+        if signal_receiver.is_cancelled() {
+            info!("TxPool reorg process service received exit signal, exit now");
+        } else {
+            info!("TxPool reorg process service exited because its channel closed");
         }
     })
 }
@@ -467,6 +513,83 @@ mod tests {
             backoff.delay_for(Duration::from_secs(120)),
             Duration::from_millis(100)
         );
+    }
+
+    /// A received reorg delta must survive more than the historical single
+    /// retry. The same head item remains selected until one attempt succeeds.
+    #[tokio::test]
+    async fn retained_message_retries_until_success() {
+        let cancel = CancellationToken::new();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let attempts_for_handler = Arc::clone(&attempts);
+        let completed =
+            retry_retained_message("test retained worker", 7usize, &cancel, move |item| {
+                let attempts = Arc::clone(&attempts_for_handler);
+                async move {
+                    assert_eq!(item, 7);
+                    if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3 {
+                        panic!("injected deterministic transition panic");
+                    }
+                }
+            })
+            .await;
+
+        assert!(completed);
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 4);
+    }
+
+    /// Persistent failure must be cancel-aware while retaining the item; it
+    /// must neither hot-spin nor report success/drop.
+    #[tokio::test]
+    async fn retained_message_cancellation_interrupts_backoff() {
+        let cancel = CancellationToken::new();
+        let cancel_for_task = cancel.clone();
+        let task = tokio::spawn(async move {
+            retry_retained_message(
+                "test retained worker",
+                1usize,
+                &cancel_for_task,
+                |_| async { panic!("persistent injected panic") },
+            )
+            .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        cancel.cancel();
+        let completed = tokio::time::timeout(Duration::from_millis(200), task)
+            .await
+            .expect("cancellation must interrupt retry backoff")
+            .expect("retry task joins");
+        assert!(!completed, "cancelled retained work is not acknowledged");
+    }
+
+    /// Later chain deltas must never overtake a retained/panicking head delta.
+    #[tokio::test]
+    async fn retained_receiver_preserves_fifo_across_panics() {
+        let (sender, receiver) = mpsc::channel(2);
+        sender.send(1usize).await.unwrap();
+        sender.send(2usize).await.unwrap();
+        drop(sender);
+
+        let cancel = CancellationToken::new();
+        let first_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let processed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let attempts_for_handler = Arc::clone(&first_attempts);
+        let processed_for_handler = Arc::clone(&processed);
+        run_retained_receiver("test retained receiver", receiver, &cancel, move |item| {
+            let attempts = Arc::clone(&attempts_for_handler);
+            let processed = Arc::clone(&processed_for_handler);
+            async move {
+                if item == 1 && attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+                    panic!("injected head transition panic");
+                }
+                processed.lock().unwrap().push(item);
+            }
+        })
+        .await;
+
+        assert_eq!(processed.lock().unwrap().as_slice(), &[1, 2]);
+        assert_eq!(first_attempts.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 
     /// Cancel during backoff sleep must exit immediately (bug #40):

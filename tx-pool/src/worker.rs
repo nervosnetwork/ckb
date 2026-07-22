@@ -33,27 +33,6 @@ pub(crate) async fn catch_job_panic<F: Future<Output = ()>>(fut: F) -> Result<()
     }
 }
 
-/// Run the future produced by `make`, retrying exactly once after a panic.
-///
-/// `make` is called per attempt so each attempt gets fresh inputs. The
-/// first panic is logged before the retry; the returned `Err` carries the
-/// final (second) panic payload when both attempts fail. Only use this for
-/// work that is *idempotent* — re-running it after a partial first attempt
-/// must be safe.
-pub(crate) async fn run_with_one_retry<F, Make>(mut make: Make) -> Result<(), String>
-where
-    F: Future<Output = ()>,
-    Make: FnMut() -> F,
-{
-    match catch_job_panic(make()).await {
-        Ok(()) => Ok(()),
-        Err(first) => {
-            error!("job panicked: {}; retrying once (idempotent work)", first);
-            catch_job_panic(make()).await
-        }
-    }
-}
-
 /// Outcome of a worker run loop.
 pub(crate) enum WorkerOutcome {
     /// The worker exited cleanly because the cancellation token fired or the
@@ -239,33 +218,6 @@ mod tests {
         .await;
         assert!(ok.is_ok());
         assert_eq!(completed, vec![1]);
-    }
-
-    #[tokio::test]
-    async fn run_with_one_retry_retries_once_then_gives_up() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        // First attempt panics, second succeeds.
-        let attempts = AtomicUsize::new(0);
-        let result = run_with_one_retry(|| {
-            let attempt = attempts.fetch_add(1, Ordering::SeqCst);
-            async move {
-                assert!(attempt > 0, "first attempt panics deterministically");
-            }
-        })
-        .await;
-        assert!(result.is_ok());
-        assert_eq!(attempts.load(Ordering::SeqCst), 2);
-
-        // Both attempts panic: bounded to exactly two, error returned.
-        let attempts = AtomicUsize::new(0);
-        let result = run_with_one_retry(|| {
-            attempts.fetch_add(1, Ordering::SeqCst);
-            async { panic!("always panics") }
-        })
-        .await;
-        assert!(result.is_err());
-        assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
     #[derive(Clone)]

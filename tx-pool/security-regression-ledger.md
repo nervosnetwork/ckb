@@ -52,7 +52,7 @@ Status meanings:
 | 13 | Covered | `recover_gives_up_terminally_after_bounded_retries` | I4 |
 | 14 | Covered | `local_orphan_with_stuck_parent_is_eventually_rejected` | I4, I6 |
 | 15 | Partial | The target `DependencyScheduler` model covers ready-parent + downstream-full capacity wake-up; production routing and ordered/verify queue integration remain mandatory. | I4, I6 |
-| 16 | Partial | Panic guards are tested; add injected panic from resolve/verify/commit through final relay and ownership cleanup. | I1, I4 |
+| 16 | Partial | Worker panic guards and callback-panic containment are tested; add injected panic from resolve/verify/commit through final relay and ownership cleanup. | I1, I4 |
 | 17 | Covered | `remove_tx_reports_in_progress_for_worker_active_job` | I1 |
 | 18 | Covered | `banned_peer_job_is_dropped_by_pre_check_worker` | I4, I5 |
 | 19 | Covered | `remove_tx_clears_double_parked_transaction_from_both_rooms` | I1 |
@@ -119,7 +119,7 @@ Status meanings:
 | C-racelost-budget | Reportable, fixed at checkpoint | Resolved lifecycle permit, active-job budget test, independent displacement cap. The target models now keep payloads in LifecycleStore and bound conflict edges separately. | Integrate the models, then run independent-input, large-loser/small-winner, slow-winner, and multi-peer memory stress before deleting RaceLost. |
 | C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the current size-fee registration prerequisite; rejected-RBF recovery passes. The target `ReplacementFeeGate` negative test makes under-fee scheduling unconstructible. | Source the typed eligibility proof from the authoritative pool calculation and keep rollback as a commit barrier during integration. |
 | Reorg Gap/uncle proposal exclusion | Confirmed, fixed | Gap transition unit tests plus normal `get_block_template` dependent-tree integration. | Reorg delta sequencing and template revision model must preserve the same integration test without manual proposal blocks. |
-| Reorg delta dropped after repeated panic | Confirmed open gap | Channel-full delivery now applies backpressure, but the handler still logs and drops an already-received delta after two panics. | Retain the head delta until success or a verified full rebuild; add panic/fault injection and FIFO tip-sequence tests. |
+| Reorg delta dropped after repeated panic | Confirmed, fixed | Bounded delivery applies backpressure; `retained_message_retries_until_success` and `retained_receiver_preserves_fifo_across_panics` prove the head survives repeated panics and later deltas cannot overtake it. Callback panics are contained separately. | Preserve retained/FIFO delivery while replacing convergence retries with explicit prepare/commit/publish progress in the commit sequencer. |
 
 ## Migration and performance gates
 

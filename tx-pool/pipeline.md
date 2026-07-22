@@ -134,7 +134,14 @@ This separation enables IO/compute isolation, parallel verification, configurabl
 
 **Reorg** — `update_tx_pool_for_reorg` runs under `recovery_lock` for its whole duration (write-lock section, callbacks, and retained-transaction recovery), so `save_pool` cannot intentionally run in the middle of recovery. Detached transactions are re-added per-transaction through `process_tx_direct_outcome` in topological order: `Committed` and `Duplicated` count as success, `Superseded` skips cascading (the transaction is merely held), and only a definitive failure cascade-removes dependents. Transactions committed in attached blocks leave every pipeline structure through the full terminal sequence. Callbacks are outside the tx-pool write lock, but the current implementation still holds `recovery_lock` while dispatching and directly recovering transactions.
 
-The controller now applies backpressure instead of dropping a reorg delta when the bounded channel is full. **Known gap:** the handler still drops the already-received delta if the same processing attempt panics twice. The target sequencer must retain a delta until success (or perform a verified full rebuild) and must not run external callbacks while holding recovery state.
+The controller applies backpressure instead of dropping a reorg delta when the
+bounded channel is full. The handler retains the received head delta across
+panics, retries it with cancel-aware exponential backoff, and never receives a
+later delta first. Authoritative reorg operations converge when repeated;
+registered callbacks are panic-contained at the side-effect boundary so they
+cannot trap the retry loop. The target sequencer still replaces the coarse
+`recovery_lock` with explicit prepare/commit/publish stages and must not run
+external callbacks while holding recovery state.
 
 **Block assembler** — the template lives behind a version counter; partial updates (`update_proposals`, `update_transactions`, `update_uncles`) swap via CAS while `update_full` and `reset_template` serialize under `template_lock` (with `update_uncles` joining that lock so a full update cannot revert a concurrent uncle update). Template byte accounting uses the consensus `serialized_size_without_uncle_proposals` basis throughout; uncle candidates that do not fit are truncated to the longest fitting prefix instead of dropped wholesale; embedded or stale candidates are removed eagerly. Pending proposals take priority over optional uncles: an uncle carrying a selected proposal id (and any descendant that loses its only valid parent) is filtered atomically from that template, so miners may omit optional uncles without stranding the transaction. Management-triggered resets (e.g. `clear_pool`) notify miners immediately, like the reorg path.
 
@@ -186,7 +193,7 @@ A newly submitted transaction wakes the ordered resolver and orphan waiters dire
 
 ### 3.11 Reorg Recovery Under recovery_lock
 
-The whole reorg (write-lock section + retained-transaction re-add) holds `recovery_lock`; `save_pool` and `clear_pool` take the same lock, so normal completion is observed atomically by persistence and administration. Retained transactions re-enter through `process_tx_direct_outcome` with per-outcome handling (`Committed` / `Superseded` / `Duplicated` / failure), avoiding both write-lock stalls and false failure cascades. This lock is a legacy safety barrier rather than the target design: callbacks/direct recovery run while it is held, and a twice-panicking handler can still abandon a partially applied delta.
+The whole reorg (write-lock section + retained-transaction re-add) holds `recovery_lock`; `save_pool` and `clear_pool` take the same lock, so normal completion is observed atomically by persistence and administration. Retained transactions re-enter through `process_tx_direct_outcome` with per-outcome handling (`Committed` / `Superseded` / `Duplicated` / failure), avoiding both write-lock stalls and false failure cascades. The ordered handler retains the head delta until success or shutdown and retries with backoff; callback panics are contained outside the authoritative mutation. This lock is still a legacy safety barrier rather than the target design because callbacks and direct recovery run while it is held.
 
 ### 3.12 Unified Verify-and-Submit Core
 
@@ -327,13 +334,13 @@ LifecycleStore winner/victim batch before replacing `RbfCandidates` and
 
 - **Double-spend safety**: `submit_entry` runs inside the tx_pool write lock; concurrently verified double-spends cannot both commit.
 - **Lock ordering**: `ordered_resolve_queue → rbf_candidates → verify_queue → waiting_room → tx_pool`, with `recovery_lock` outermost (before `tx_pool`) and the synchronous `pre_check_queue` mutex never held across `.await`.
-- **Transaction no-silent-loss contract**: every admitted transaction leaving a normal pipeline worker reaches a defined terminal state — relayed, recorded, restored, parked, or explicitly routed to an internal terminal sink. The twice-panicking reorg handler described above is a known exception and blocks final migration acceptance.
+- **Transaction no-silent-loss contract**: every admitted transaction leaving a normal pipeline worker reaches a defined terminal state — relayed, recorded, restored, parked, or explicitly routed to an internal terminal sink. Ordered chain deltas remain at the channel head until success or shutdown; a panic cannot acknowledge/drop one or allow a later delta to overtake it.
 - **Speculative RBF is reversible**: displacement is hold-and-restore; only a committed replacement makes a rejection real, and a commit that replaced nothing aborts instead of finalizing. Speculative paths never write recent_reject, so an unverified candidate cannot censor an honest transaction.
 - **No ghost state**: removal paths converge on full coverage (queues, registrations, both waiting rooms, conflict cache, pool); attached blocks finalize what they held; the reconcile's removals feed the same registration cleanup. Links/entries consistency is guarded: traversal filters ghost ids, ancestor links are committed only after all fallible checks, and eviction cascades purge removed ids from parent sets.
 - **No panics in the write lock**: fallible paths inside the tx_pool write lock return defensive errors instead of asserting, so unwind can never strand the eviction journal or side-effect records.
 - **Dependency correctness**: `FlightTracker` tracks in-flight outputs across all pipeline stages; the orphan flight heuristic counts queued, active, and parked parents as in flight.
-- **Callbacks outside the tx-pool write lock**: submit and reorg callbacks are collected before dispatch. The target architecture strengthens this to "outside every internal transition/recovery lock" and adds callback-reentry tests.
-- **Worker reliability**: per-job panic guards, monitor respawn with cancel-aware backoff, per-generation cancellation for the verify manager, and clean stop on command-channel drop.
+- **Callbacks outside the tx-pool write lock**: submit and reorg callbacks are collected before dispatch, and callback panics are contained at that side-effect boundary. The target architecture strengthens this to "outside every internal transition/recovery lock" and adds callback-reentry tests.
+- **Worker reliability**: per-job panic guards, monitor respawn with cancel-aware backoff, retained/FIFO chain transitions, per-generation cancellation for the verify manager, and clean stop on command-channel drop.
 
 ---
 
@@ -379,7 +386,7 @@ Unit tests (`cargo test -p ckb-tx-pool --features internal`) cover, among others
 - Pool invariants: child-before-parent weight folding, escape-hatch eviction without ghost parents, conflict closure ghost filtering, zombie reconciliation (inputs and cell deps), expiry cascade.
 - RBF: hold-and-restore (displace, supersede-at-submit, abort/finalize, no-replacement abort), capacity pre-validation, recovery of the full removed cascade, speculative gates bypassing recent_reject.
 - Reorg: retained-transaction outcome matrix (no cascade on `Duplicated`/`Superseded`), attached orphans skipped from routing, attached winners finalizing held candidates, `save_pool` blocking on `recovery_lock`.
-- Lifecycle: worker stop on command-channel drop, panic guards with terminal outcomes, VerifyMgr generation cancellation, deferred-worker drain on shutdown.
+- Lifecycle: worker stop on command-channel drop, panic guards with terminal outcomes, callback-panic containment, retained/FIFO reorg deltas, VerifyMgr generation cancellation, deferred-worker drain on shutdown.
 - Terminal semantics: pre-check Full notified to the relayer, bounded recovery ending in a terminal reject, banned peers' in-flight jobs dropped, administrative removal tri-state and double-park cleanup.
 
 Integration tests (`make integration`, full ckb-test suite) cover the end-to-end behavior, including the RBF family (`RbfBasic`, `RbfRejectReplaceProposed`, `RbfReplaceProposedSuccess`, `RbfConcurrency`, `RbfCyclingAttack`, `RbfOrphanRecovery`), conflict/removal flows (`RemoveConflictFromPending`, `RemoveTx`), and orphan handling.

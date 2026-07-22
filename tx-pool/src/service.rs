@@ -108,6 +108,7 @@ impl<R, A> Request<R, A> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Notify<A> {
     pub arguments: A,
 }
