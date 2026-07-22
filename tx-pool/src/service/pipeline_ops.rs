@@ -21,6 +21,25 @@ use ckb_types::packed::{Byte32, ProposalShortId};
 use std::collections::HashSet;
 
 impl TxPoolService {
+    pub(crate) fn current_pipeline_epoch(&self) -> Result<u64, crate::error::Reject> {
+        self.pipeline.epoch.current().ok_or_else(|| {
+            crate::error::Reject::Internal("tx-pool pipeline epoch exhausted".to_string())
+        })
+    }
+
+    pub(crate) fn is_pipeline_epoch_current(&self, epoch: u64) -> bool {
+        self.pipeline.epoch.is_current(epoch)
+    }
+
+    /// Invalidate every pipeline job admitted before this call.
+    pub(crate) fn advance_pipeline_epoch(&self) {
+        if self.pipeline.epoch.advance().is_none() {
+            ckb_logger::error!(
+                "tx-pool pipeline epoch exhausted; future pipeline work is fail-closed"
+            );
+        }
+    }
+
     /// Returns true if the id is known to any of the three pipeline queues,
     /// counting worker-active (popped but unfinished) jobs as present.
     ///
@@ -287,15 +306,15 @@ impl TxPoolService {
 
     /// Clear all pipeline queues without touching the already-accepted pool.
     ///
-    /// Locks are acquired one at a time in the documented hierarchy
+    /// This is the structural drain primitive; callers that expose an
+    /// administrative clear must use [`Self::clear_pipeline`] so the epoch is
+    /// advanced before this pass. Locks are acquired one at a time in the
+    /// documented hierarchy
     /// (`ordered_resolve_queue → rbf_candidates → verify_queue → orphan`),
     /// with the synchronous `pre_check_queue` mutex last. Each guard is
     /// released immediately after its `clear()`, so there is no deadlock
-    /// risk, but the operation is *not* atomic: workers may keep moving
-    /// transactions between queues while the clear is in progress, and
-    /// transactions already popped by a worker are unaffected. Callers that
-    /// need a guaranteed-empty pipeline must additionally quiesce the
-    /// pipeline workers (not implemented here).
+    /// risk. Epoch checks at every later ownership boundary ensure a worker
+    /// cannot insert old work behind this pass.
     pub(crate) async fn clear_pipeline_queues(&self) {
         self.pipeline
             .queues
@@ -310,6 +329,20 @@ impl TxPoolService {
         // lock hierarchy; keep it last so it can never be held across an
         // `.await`.
         self.pipeline.queues.pre_check_queue.clear();
+    }
+
+    /// Linearizably clear queued and active pipeline work without touching
+    /// transactions that already committed to the main pool.
+    pub(crate) async fn clear_pipeline(&self) {
+        self.advance_pipeline_epoch();
+        // A submit that acquired the pool write lock and validated its epoch
+        // before the generation advance is allowed to finish. Waiting on the
+        // same lock makes that ordering explicit before this method returns;
+        // later submitters observe the stale generation and cannot commit.
+        {
+            let _commit_barrier = self.pool.tx_pool.write().await;
+        }
+        self.clear_pipeline_queues().await;
     }
 
     /// Search the pipeline queues for a transaction by short id.

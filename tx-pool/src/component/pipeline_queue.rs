@@ -34,10 +34,10 @@ pub(crate) trait PipelineQueue {
     /// the stages for a single shared limit to make sense.
     fn max_queue_tx_size(&self) -> usize;
 
-    /// Returns `true` if adding `add_tx_size` would reach or exceed the queue
-    /// size limit.
+    /// Returns `true` if adding `add_tx_size` would exceed the queue size
+    /// limit. Exact fit is valid and keeps usage within the configured cap.
     fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size().get().saturating_add(add_tx_size) >= self.max_queue_tx_size()
+        self.total_tx_size().get().saturating_add(add_tx_size) > self.max_queue_tx_size()
     }
 
     /// Returns `true` if `tx` spends an output produced by another tx that is

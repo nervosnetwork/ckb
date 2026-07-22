@@ -112,6 +112,19 @@ Status meanings:
 | 73 | Partial | Selector cache budget tests exist; add adversarial CPFP graph RSS/allocation benchmark. | I5, I12 |
 | 74 | Covered | Hold/restore/finalize tests; target replaces this with single-owner conflict scheduling and repeats the attack regression. | I1, I5, I9 |
 | 75 | Covered | `failed_commit_restores_all_size_evictions_with_original_status_in_lock` proves a rejected commit restores RBF victims plus unrelated prior size evictions, with exact status, before releasing the pool write guard. | I2, I3, I10 |
+| 76 | Covered | Reorg attached/detached identity is compared by raw tx hash, not witness hash; `attached_raw_hash_suppresses_detached_witness_variant`. | I4, I7 |
+| 77 | Covered | Block-assembler updates use a level-triggered dirty journal before the bounded wake edge; `block_assembler_dirty_journal_is_level_triggered_and_coalesced`. | I11 |
+| 78 | Covered | A valid lower RBF candidate arriving behind an unverified winner is held by that winner rather than stranded as `InputsBlocked`; `register_time_loser_is_restored_when_unverified_winner_aborts`. | I1, I9 |
+| 79 | Covered | Reorg callbacks are RAII-deferred until `recovery_lock` is released; the injected callback in `reorg_status_transition_failure_has_no_false_reject_and_replay_converges` successfully `try_lock`s recovery state. | I7, I8 |
+| 80 | Covered | Queue admission includes active jobs, preventing duplicate CPU work and ActiveSet overwrite. Pop leases use monotonic tokens, and the superseded-at-submit regression proves an old same-epoch finish cannot erase a restored lease. | I1, I4, I5 |
+| 81 | Covered | `PipelineEpoch` plus the final in-lock commit check makes clear a linearizable cancellation barrier. `clear_pipeline_cancels_active_commit_without_active_aba`, `stale_deferred_recovery_cannot_resurrect_after_clear`, and epoch-exhaustion coverage lock the boundary. | I1, I2, I4, I7 |
+| 82 | Covered | `Completed` verification ownership travels inside held `ResolvedTx`; the superseded restore regression proves recovery is independent of the lossy cache-update channel. | I1, I9, I12 |
+| 83 | Covered | Escape-hatch ancestry is recomputed from the surviving graph after a cascade instead of decrementing one; `escape_hatch_stops_after_one_cascade_makes_ancestry_fit`. | I10 |
+| 84 | Covered | Dependency tickets receive a fresh generation on every dispatch/return/capacity transition and lazy physical queues compact under churn; stale-ticket and bounded-slot tests cover ABA and memory growth. | I1, I5, I6 |
+| 85 | Covered | Conflict registration/abort preflight generation capacity before mutation; exhaustion tests prove no partial indexes or rebalance. | I1, I9 |
+| 86 | Covered | Dispatcher closes and drains the receiver before waiting for permits, so callback/controller re-entry cannot keep shutdown alive indefinitely; channel-close persistence remains the end-to-end anchor. | I4, I8 |
+| 87 | Covered | Queue byte limits accept an exact fit (`>` rather than `>=`); queue boundary tests retain the configured budget semantics. | I5 |
+| 88 | Covered | Ordered-resolver retry is an atomic active-lease-to-queued handoff; orphan delayed/removal regressions prove active duplicate protection cannot consume the worker's own retry. | I1, I4, I6 |
 
 ## Validated security candidates
 

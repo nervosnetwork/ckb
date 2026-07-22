@@ -108,6 +108,7 @@ fn assemble_service(
             tx_pool_config: Arc::new(tx_pool_config),
         },
         pipeline: crate::service::PipelineState {
+            epoch: Arc::new(crate::service::PipelineEpoch::default()),
             queues: Arc::clone(&queues),
             waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
             chunk_rx,
@@ -117,6 +118,7 @@ fn assemble_service(
             network,
             tx_relay_sender,
             block_assembler_sender,
+            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(callbacks),
             banned_peers: Default::default(),
         },
@@ -385,6 +387,7 @@ impl TxPoolServiceBuilder {
             deferred_receiver,
             signal_receiver.child_token(),
             service.relay.clone(),
+            Arc::clone(&service.pipeline.epoch),
         );
         let pre_check_handles = workers::spawn_pre_check_workers(
             &handle,
@@ -506,6 +509,15 @@ impl TxPoolServiceBuilder {
             // Idempotent for explicit cancellation; also covers every
             // defensive dispatcher exit such as a closed semaphore.
             signal_receiver.cancel();
+            // Stop accepting controller re-entry before waiting for active
+            // handlers. A handler may invoke a user callback that
+            // synchronously sends another controller request and waits for
+            // its response; if the receiver stayed open while the dispatcher
+            // no longer polled it, shutdown would wait forever for that
+            // handler. Drop already-buffered requests too so their responders
+            // fail promptly instead of waiting until persistence completes.
+            receiver.close();
+            while receiver.try_recv().is_ok() {}
             info!("TxPool is draining in-flight tasks...");
             // The semaphore bounds concurrent handlers, so acquiring every
             // permit proves all dispatched messages reached a stable outcome.
@@ -544,8 +556,13 @@ impl TxPoolServiceBuilder {
                 loop {
                     tokio::select! {
                         Some(message) = block_assembler_receiver.recv() => {
-                            let service_clone = service.clone();
-                            block_assembler::process(service_clone, &message).await;
+                            let mut updates = LinkedHashSet::new();
+                            updates.insert(message);
+                            updates.extend(service.relay.take_block_assembler_dirty());
+                            for update in &updates {
+                                let service_clone = service.clone();
+                                block_assembler::process(service_clone, update).await;
+                            }
                         },
                         _ = signal_receiver.cancelled() => {
                             info!("TxPool block_assembler process service received exit signal, exit now");
@@ -571,6 +588,7 @@ impl TxPoolServiceBuilder {
                             }
                         },
                         _ = interval.tick() => {
+                            queue.extend(service.relay.take_block_assembler_dirty());
                             for message in &queue {
                                 let service_clone = service.clone();
                                 block_assembler::process(service_clone, message).await;

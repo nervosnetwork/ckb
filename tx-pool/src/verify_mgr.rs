@@ -1,5 +1,5 @@
 use crate::component::pipeline_queue::PipelineQueue;
-use crate::resolved_tx::ResolvedTx;
+use crate::component::verify_queue::VerifyWork;
 use crate::service::TxPoolService;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
 use ckb_logger::{debug, error, info};
@@ -32,7 +32,7 @@ struct VerifyHandler {
 }
 
 impl JobHandler for VerifyHandler {
-    type Job = ResolvedTx;
+    type Job = VerifyWork;
     type Exit = WorkerExit;
 
     fn worker_name(&self) -> &'static str {
@@ -59,10 +59,10 @@ impl JobHandler for VerifyHandler {
             .subscribe()
     }
 
-    async fn pop_one(&mut self) -> Option<ResolvedTx> {
+    async fn pop_one(&mut self) -> Option<VerifyWork> {
         let mut tasks = self.service.pipeline.queues.verify_queue.write().await;
-        match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
-            Some(resolved) => Some(resolved),
+        match tasks.pop_front_work(self.role == WorkerRole::OnlySmallCycleTx) {
+            Some(work) => Some(work),
             None => {
                 if !tasks.is_empty() {
                     tasks.re_notify();
@@ -76,7 +76,11 @@ impl JobHandler for VerifyHandler {
         }
     }
 
-    async fn process_one(&mut self, resolved: ResolvedTx) {
+    async fn process_one(&mut self, work: VerifyWork) {
+        let VerifyWork {
+            resolved,
+            active_token,
+        } = work;
         let id = resolved.tx.proposal_short_id();
         // Guard each job individually: a panicking job must neither kill the
         // worker nor strand its bookkeeping. In particular its in-flight RBF
@@ -85,11 +89,8 @@ impl JobHandler for VerifyHandler {
         // replacement for the same inputs.
         let tx = resolved.tx.clone();
         let source = resolved.source;
-        if self.service.is_recently_banned(source) {
-            // The peer was banned after this job was popped: drop it (and
-            // its in-flight registration) instead of letting it into the
-            // pool.
-            self.service.abort_rbf_candidate(&id).await;
+        let epoch = resolved.epoch;
+        if !self.service.is_pipeline_epoch_current(epoch) {
             self.service.terminal_internal(tx, source).await;
             self.service
                 .pipeline
@@ -97,7 +98,22 @@ impl JobHandler for VerifyHandler {
                 .verify_queue
                 .write()
                 .await
-                .finish(&id);
+                .finish_work(&id, active_token);
+            return;
+        }
+        if self.service.is_recently_banned(source) {
+            // The peer was banned after this job was popped: drop it (and
+            // its in-flight registration) instead of letting it into the
+            // pool.
+            self.service.abort_rbf_candidate_at(&id, epoch).await;
+            self.service.terminal_internal(tx, source).await;
+            self.service
+                .pipeline
+                .queues
+                .verify_queue
+                .write()
+                .await
+                .finish_work(&id, active_token);
             return;
         }
         let outcome = crate::worker::catch_job_panic(async {
@@ -108,7 +124,7 @@ impl JobHandler for VerifyHandler {
             {
                 Ok(crate::process::submit::VerifySubmitOutcome::Committed(completed)) => {
                     self.service
-                        .after_process(tx.clone(), source, &Ok(completed))
+                        .after_process_at(tx.clone(), source, &Ok(completed), epoch)
                         .await;
                 }
                 Ok(crate::process::submit::VerifySubmitOutcome::Superseded) => {
@@ -118,9 +134,14 @@ impl JobHandler for VerifyHandler {
                     // what happens next.
                     debug!("verify worker: tx {} held as superseded candidate", id);
                 }
+                Ok(crate::process::submit::VerifySubmitOutcome::Cleared) => {
+                    // Administrative cancellation is not a transaction
+                    // rejection; only close the remote relay lifecycle.
+                    self.service.terminal_internal(tx.clone(), source).await;
+                }
                 Err(reject) => {
                     self.service
-                        .after_process(tx.clone(), source, &Err(reject))
+                        .after_process_at(tx.clone(), source, &Err(reject), epoch)
                         .await;
                 }
             }
@@ -131,7 +152,7 @@ impl JobHandler for VerifyHandler {
                 "tx-pool verify worker panicked on job {}: {}; aborting its RBF registration",
                 id, message
             );
-            self.service.abort_rbf_candidate(&id).await;
+            self.service.abort_rbf_candidate_at(&id, epoch).await;
             // Close the loop with the relayer as well: nothing is recorded
             // (this was an internal failure, not the transaction's fault),
             // but the peer's filter entry must not wait forever.
@@ -145,7 +166,7 @@ impl JobHandler for VerifyHandler {
             .verify_queue
             .write()
             .await
-            .finish(&id);
+            .finish_work(&id, active_token);
     }
 
     fn make_exit(&self, outcome: WorkerOutcome) -> WorkerExit {

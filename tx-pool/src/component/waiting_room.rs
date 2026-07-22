@@ -586,6 +586,8 @@ mod tests {
             pre_resolve_tip: Default::default(),
             snapshot: test_snapshot(),
             source: TxSource::Local,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         }
     }

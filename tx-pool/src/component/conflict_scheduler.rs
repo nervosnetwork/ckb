@@ -292,12 +292,18 @@ impl ConflictScheduler {
         if next_edges > self.limits.max_edges {
             return Err(ConflictError::EdgeLimitExceeded);
         }
-        let generation = self.allocate_generation()?;
         let arrival = self.next_arrival;
-        self.next_arrival = self
+        let next_arrival = self
             .next_arrival
             .checked_add(1)
             .ok_or(ConflictError::ArrivalSequenceExhausted)?;
+        // Rebalancing may activate every candidate and preempt each prior
+        // active owner once. Reserve a conservative bound before the first
+        // index mutation, so generation exhaustion can never expose a
+        // half-registered candidate.
+        self.ensure_rebalance_generation_capacity(next_len)?;
+        let generation = self.allocate_generation_infallible();
+        self.next_arrival = next_arrival;
 
         let hash = candidate.hash;
         for input in &candidate.inputs {
@@ -320,7 +326,7 @@ impl ConflictScheduler {
                 generation,
             },
         );
-        self.rebalance(HashSet::from([hash]))
+        Ok(self.rebalance(HashSet::from([hash])))
     }
 
     /// Freeze an active candidate for the authoritative pool commit. A
@@ -330,7 +336,8 @@ impl ConflictScheduler {
         ticket: &ConflictTicket,
     ) -> Result<ConflictCommitTicket, ConflictError> {
         self.validate_ticket(ticket, &RecordState::Active, "active")?;
-        let generation = self.allocate_generation()?;
+        self.ensure_generation_capacity(1)?;
+        let generation = self.allocate_generation_infallible();
         let record = self
             .records
             .get_mut(&ticket.hash)
@@ -351,12 +358,13 @@ impl ConflictScheduler {
         ticket: &ConflictTicket,
     ) -> Result<ConflictChanges, ConflictError> {
         self.validate_ticket(ticket, &RecordState::Active, "active")?;
+        self.ensure_rebalance_generation_capacity(self.records.len().saturating_sub(1))?;
         let affected = self
             .waiters_by_blocker
             .remove(&ticket.hash)
             .unwrap_or_default();
         self.remove_present(&ticket.hash);
-        self.rebalance(affected)
+        Ok(self.rebalance(affected))
     }
 
     pub(crate) fn abort_commit(
@@ -364,12 +372,13 @@ impl ConflictScheduler {
         ticket: &ConflictCommitTicket,
     ) -> Result<ConflictChanges, ConflictError> {
         self.validate_commit_ticket(ticket)?;
+        self.ensure_rebalance_generation_capacity(self.records.len().saturating_sub(1))?;
         let affected = self
             .waiters_by_blocker
             .remove(&ticket.hash)
             .unwrap_or_default();
         self.remove_present(&ticket.hash);
-        self.rebalance(affected)
+        Ok(self.rebalance(affected))
     }
 
     /// Complete an authoritative pool commit. Only now do direct conflicting
@@ -425,6 +434,7 @@ impl ConflictScheduler {
             .ok_or_else(|| ConflictError::Missing(hash.clone()))?
             .state
             .clone();
+        self.ensure_rebalance_generation_capacity(self.records.len().saturating_sub(1))?;
         let affected = match state {
             RecordState::Active | RecordState::Committing => {
                 self.waiters_by_blocker.remove(hash).unwrap_or_default()
@@ -433,7 +443,7 @@ impl ConflictScheduler {
         };
         self.remove_waiter_links(hash);
         self.remove_present(hash);
-        self.rebalance(affected)
+        Ok(self.rebalance(affected))
     }
 
     pub(crate) fn clear(&mut self) {
@@ -511,10 +521,7 @@ impl ConflictScheduler {
         Ok(())
     }
 
-    fn rebalance(
-        &mut self,
-        mut pending: HashSet<Byte32>,
-    ) -> Result<ConflictChanges, ConflictError> {
+    fn rebalance(&mut self, mut pending: HashSet<Byte32>) -> ConflictChanges {
         let mut changes = ConflictChanges::default();
         while !pending.is_empty() {
             let mut round: Vec<_> = pending.drain().collect();
@@ -529,7 +536,7 @@ impl ConflictScheduler {
                 self.remove_waiter_links(&hash);
                 let blockers = self.active_blockers(&hash);
                 if blockers.is_empty() {
-                    changes.activated.push(self.activate(&hash)?);
+                    changes.activated.push(self.activate(&hash));
                     continue;
                 }
                 let can_preempt = blockers.iter().all(|blocker| {
@@ -547,7 +554,7 @@ impl ConflictScheduler {
                     let inherited = self.waiters_by_blocker.remove(&blocker).unwrap_or_default();
                     pending.extend(inherited);
                     self.release_claims(&blocker);
-                    let generation = self.allocate_generation()?;
+                    let generation = self.allocate_generation_infallible();
                     let record = self.records.get_mut(&blocker).expect("active blocker");
                     record.state = RecordState::Waiting {
                         blockers: HashSet::new(),
@@ -556,13 +563,13 @@ impl ConflictScheduler {
                     changes.preempted.push(blocker.clone());
                     pending.insert(blocker);
                 }
-                changes.activated.push(self.activate(&hash)?);
+                changes.activated.push(self.activate(&hash));
             }
         }
-        Ok(changes)
+        changes
     }
 
-    fn activate(&mut self, hash: &Byte32) -> Result<ConflictTicket, ConflictError> {
+    fn activate(&mut self, hash: &Byte32) -> ConflictTicket {
         let inputs = self
             .records
             .get(hash)
@@ -574,14 +581,14 @@ impl ConflictScheduler {
                 .iter()
                 .all(|input| !self.active_by_input.contains_key(input))
         );
-        let generation = self.allocate_generation()?;
+        let generation = self.allocate_generation_infallible();
         let record = self.records.get_mut(hash).expect("candidate exists");
         record.state = RecordState::Active;
         record.generation = generation;
         for input in inputs {
             self.active_by_input.insert(input, hash.clone());
         }
-        Ok(record.ticket(hash))
+        record.ticket(hash)
     }
 
     fn set_waiting(&mut self, hash: &Byte32, blockers: HashSet<Byte32>) {
@@ -720,11 +727,37 @@ impl ConflictScheduler {
     }
 
     fn allocate_generation(&mut self) -> Result<u64, ConflictError> {
-        let generation = self.next_generation;
-        self.next_generation = self
-            .next_generation
-            .checked_add(1)
+        self.ensure_generation_capacity(1)?;
+        Ok(self.allocate_generation_infallible())
+    }
+
+    fn ensure_rebalance_generation_capacity(&self, candidates: usize) -> Result<(), ConflictError> {
+        let bound = candidates
+            .checked_mul(2)
+            // One generation may be consumed by the public transition that
+            // precedes rebalance (registration/begin state), plus one slack
+            // keeps the infallible apply phase strictly below u64::MAX.
+            .and_then(|count| count.checked_add(2))
             .ok_or(ConflictError::GenerationExhausted)?;
-        Ok(generation)
+        self.ensure_generation_capacity(bound)
+    }
+
+    fn ensure_generation_capacity(&self, count: usize) -> Result<(), ConflictError> {
+        let count = u64::try_from(count).map_err(|_| ConflictError::GenerationExhausted)?;
+        self.next_generation
+            .checked_add(count)
+            .ok_or(ConflictError::GenerationExhausted)?;
+        Ok(())
+    }
+
+    fn allocate_generation_infallible(&mut self) -> u64 {
+        let generation = self.next_generation;
+        self.next_generation += 1;
+        generation
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_next_generation_for_test(&mut self, next: u64) {
+        self.next_generation = next;
     }
 }

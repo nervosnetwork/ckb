@@ -100,6 +100,11 @@ pub(crate) struct VerifyQueue {
     proposal_count: usize,
 }
 
+pub(crate) struct VerifyWork {
+    pub(crate) resolved: ResolvedTx,
+    pub(crate) active_token: u64,
+}
+
 impl VerifyQueue {
     /// A count cap is required in addition to serialized bytes because every
     /// resolved entry owns vectors of `CellMeta` and snapshot/provider state.
@@ -175,14 +180,29 @@ impl VerifyQueue {
     ///
     /// The popped id is moved into `active` and stays visible to
     /// `contains_or_active` until the worker calls [`Self::finish`].
-    pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<ResolvedTx> {
+    fn pop_front_with_lease(&mut self, only_small_cycle: bool) -> Option<VerifyWork> {
         if let Some(short_id) = self.peek(only_small_cycle) {
+            let active_token = self.active.reserve_token()?;
             let resolved = <Self as PipelineQueue>::remove_tx(self, &short_id)?;
-            self.active.insert(short_id, resolved.clone());
-            Some(resolved)
+            self.active
+                .insert_reserved(short_id, resolved.clone(), active_token);
+            Some(VerifyWork {
+                resolved,
+                active_token,
+            })
         } else {
             None
         }
+    }
+
+    #[cfg(test)]
+    pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<ResolvedTx> {
+        self.pop_front_with_lease(only_small_cycle)
+            .map(|work| work.resolved)
+    }
+
+    pub(crate) fn pop_front_work(&mut self, only_small_cycle: bool) -> Option<VerifyWork> {
+        self.pop_front_with_lease(only_small_cycle)
     }
 
     /// Returns true if the given proposal id is either queued or currently
@@ -196,11 +216,8 @@ impl VerifyQueue {
     /// mid-flight. The read-only pipeline query paths use it for the same
     /// visibility.
     ///
-    /// Deliberately *not* used for duplicate detection (`contains_key`): if
-    /// a worker panics between `pop_front` and `finish`, the id stays in
-    /// `active` until the queue is cleared. That only makes orphans wait out
-    /// their bounded retry budget; it must never block a genuine
-    /// resubmission.
+    /// Duplicate admission also consults active state; worker panic guards
+    /// guarantee the slot is eventually finished.
     pub fn contains_or_active(&self, id: &ProposalShortId) -> bool {
         self.inner.get_by_id(id).is_some() || self.active.contains(id)
     }
@@ -216,8 +233,25 @@ impl VerifyQueue {
     /// Every verify worker must call this exactly once per popped tx, after
     /// the tx has landed in its terminal state (submitted to the pool or
     /// rejected).
-    pub fn finish(&mut self, id: &ProposalShortId) {
-        self.active.finish(id);
+    #[cfg(test)]
+    pub fn finish(&mut self, id: &ProposalShortId, epoch: u64) {
+        self.active.finish_if(id, |active| active.epoch == epoch);
+    }
+
+    pub(crate) fn finish_work(&mut self, id: &ProposalShortId, active_token: u64) {
+        self.active.finish_token(id, active_token);
+    }
+
+    /// Transfer a worker-active tx into another lifecycle owner (currently
+    /// `RaceLost`) without waiting for the worker's trailing finish call.
+    pub(crate) fn release_active_for_transition(
+        &mut self,
+        id: &ProposalShortId,
+        epoch: u64,
+    ) -> bool {
+        self.active
+            .remove_if(id, |active| active.epoch == epoch)
+            .is_some()
     }
 
     /// Returns the first entry in the queue.
@@ -362,6 +396,9 @@ impl PipelineQueue for VerifyQueue {
 
     fn add_tx(&mut self, mut resolved: ResolvedTx) -> Result<bool, Reject> {
         let id = resolved.tx.proposal_short_id();
+        if self.active.contains(&id) {
+            return Ok(false);
+        }
         if self.contains_key(&id) {
             if resolved.source.is_proposal_tx() {
                 // If the existing entry is not yet a proposal tx, promote it

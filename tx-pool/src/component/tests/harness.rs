@@ -189,6 +189,7 @@ impl HarnessBuilder {
                 tx_pool_config: Arc::new(config),
             },
             pipeline: crate::service::PipelineState {
+                epoch: Arc::new(crate::service::PipelineEpoch::default()),
                 queues: Arc::clone(&queues),
                 waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
                 chunk_rx: service_chunk_rx,
@@ -198,6 +199,7 @@ impl HarnessBuilder {
                 network: super::chunk::dummy_network(),
                 tx_relay_sender,
                 block_assembler_sender,
+                block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
                 callbacks: Arc::new(Callbacks::new()),
                 banned_peers: Default::default(),
             },
@@ -214,14 +216,16 @@ impl HarnessBuilder {
         {
             let queues = Arc::clone(&queues);
             let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
+            let epoch = Arc::clone(&service.pipeline.epoch);
             tokio::spawn(async move {
                 while let Some(task) = deferred_receiver.recv().await {
                     match task {
                         crate::service::DeferredTask::RecoverTxs(txs) => {
                             let mut queue = queues.ordered_resolve_queue.write().await;
-                            for (tx, source) in txs {
-                                let _ =
-                                    queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
+                            for job in txs {
+                                if epoch.is_current(job.epoch) {
+                                    let _ = queue.add_tx(job);
+                                }
                             }
                         }
                         crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {

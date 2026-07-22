@@ -60,7 +60,7 @@ pub(crate) struct OrderedResolveQueue {
     live_count: usize,
     /// Jobs that have been popped by the resolver but have not reached a
     /// terminal state yet; see [`OrderedResolveQueue::contains_or_active`].
-    active: ActiveSet<TransactionView>,
+    active: ActiveSet<ResolveJob>,
     /// Subscribe this notify to get notified when an item is added.
     ready_rx: Arc<Notify>,
     /// Total tx size in the queue; new txs are rejected if this would exceed the limit.
@@ -75,6 +75,11 @@ pub(crate) struct OrderedResolveQueue {
 struct LookupEntry {
     job: ResolveJob,
     generation: u64,
+}
+
+pub(crate) struct ResolveWork {
+    pub(crate) job: ResolveJob,
+    pub(crate) active_token: u64,
 }
 
 impl OrderedResolveQueue {
@@ -137,7 +142,7 @@ impl OrderedResolveQueue {
     /// Returns the transaction currently being processed by the resolver
     /// (popped but not yet finished), if any.
     pub fn get_active_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
-        self.active.get(id).cloned()
+        self.active.get(id).map(|job| job.tx.clone())
     }
 
     /// Mark a previously popped job as terminally processed.
@@ -146,8 +151,9 @@ impl OrderedResolveQueue {
     /// job has landed in its terminal state (forwarded to the verify queue,
     /// re-enqueued, or rejected). Re-enqueueing first and calling `finish`
     /// second keeps the id continuously visible to `contains_or_active`.
-    pub fn finish(&mut self, id: &ProposalShortId) {
-        self.active.finish(id);
+    #[cfg(test)]
+    pub fn finish(&mut self, id: &ProposalShortId, epoch: u64) {
+        self.active.finish_if(id, |active| active.epoch == epoch);
     }
 
     fn shrink_to_fit(&mut self) {
@@ -203,9 +209,13 @@ impl OrderedResolveQueue {
     /// respectively.
     fn insert_job(&mut self, job: ResolveJob) -> Result<(ProposalShortId, bool), Reject> {
         let id = job.tx.proposal_short_id();
-        if self.lookup.contains_key(&id) {
+        if self.lookup.contains_key(&id) || self.active.contains(&id) {
             return Ok((id, false));
         }
+        let generation = self.next_generation;
+        let next_generation = generation
+            .checked_add(1)
+            .ok_or_else(|| Reject::Internal("ordered resolve generation exhausted".to_string()))?;
         let tx_size = Self::tx_size(&job);
         let tx_hash = job.tx.hash();
         if self.is_full(tx_size) {
@@ -224,14 +234,9 @@ impl OrderedResolveQueue {
                 })?,
         );
         self.flight.insert(id.clone(), &job.tx);
-        self.lookup.insert(
-            id.clone(),
-            LookupEntry {
-                job,
-                generation: self.next_generation,
-            },
-        );
-        self.next_generation += 1;
+        self.lookup
+            .insert(id.clone(), LookupEntry { job, generation });
+        self.next_generation = next_generation;
         // Drop any stale tombstone left for this id by an earlier removal.
         // Tombstones are keyed by id, not by slot: a leftover bit would
         // otherwise drain this freshly added live slot in `pop_front` and
@@ -252,12 +257,13 @@ impl OrderedResolveQueue {
     ///
     /// The popped id is moved into `active` and stays visible to
     /// `contains_or_active` until the resolver calls [`Self::finish`].
-    pub fn pop_front(&mut self) -> Option<ResolveJob> {
+    fn pop_front_with_lease(&mut self) -> Option<ResolveWork> {
         self.drain_tombstones();
         while let Some(id) = self.inner.pop_front() {
+            let active_token = self.active.reserve_token()?;
             if let Some(job) = self.remove_live(&id, "pop_front") {
-                self.active.insert(id, job.tx.clone());
-                return Some(job);
+                self.active.insert_reserved(id, job.clone(), active_token);
+                return Some(ResolveWork { job, active_token });
             }
             // Ghost slot: one id can occupy several FIFO slots while `removed`
             // holds only a single tombstone bit for it (remove → re-add →
@@ -290,11 +296,55 @@ impl OrderedResolveQueue {
                 }
                 continue;
             }
+            let active_token = self.active.reserve_token()?;
             let job = self
                 .remove_live(&id, "pop_front delayed")
                 .expect("generation matched");
-            self.active.insert(id, job.tx.clone());
-            return Some(job);
+            self.active.insert_reserved(id, job.clone(), active_token);
+            return Some(ResolveWork { job, active_token });
+        }
+    }
+
+    #[cfg(test)]
+    pub fn pop_front(&mut self) -> Option<ResolveJob> {
+        self.pop_front_with_lease().map(|work| work.job)
+    }
+
+    pub(crate) fn pop_front_work(&mut self) -> Option<ResolveWork> {
+        self.pop_front_with_lease()
+    }
+
+    pub(crate) fn finish_work(&mut self, id: &ProposalShortId, active_token: u64) {
+        self.active.finish_token(id, active_token);
+    }
+
+    pub(crate) fn requeue_active(
+        &mut self,
+        job: ResolveJob,
+        active_token: u64,
+        delay: Option<Duration>,
+    ) -> Result<bool, Reject> {
+        let id = job.tx.proposal_short_id();
+        let Some(previous_active) = self.active.remove_token(&id, active_token) else {
+            return Ok(false);
+        };
+        match self.insert_job(job) {
+            Ok((id, true)) => {
+                if let Some(delay) = delay {
+                    let generation = self.lookup[&id].generation;
+                    self.delayed
+                        .push(std::cmp::Reverse((Instant::now() + delay, generation, id)));
+                } else {
+                    self.inner.push_back(id);
+                }
+                Ok(true)
+            }
+            Ok((_id, false)) => Ok(false),
+            Err(reject) => {
+                self.active
+                    .insert_reserved(id, previous_active, active_token);
+                Err(reject)
+            }
         }
     }
 
@@ -611,7 +661,7 @@ mod tests {
             Some(popped.tx.hash())
         );
 
-        queue.finish(&id_a);
+        queue.finish(&id_a, 0);
         assert!(!queue.contains_or_active(&id_a));
         assert!(queue.get_active_tx(&id_a).is_none());
     }

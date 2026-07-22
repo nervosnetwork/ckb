@@ -32,6 +32,25 @@ impl super::TxPoolService {
         id: &ProposalShortId,
         committed: bool,
     ) -> Vec<ResolvedTx> {
+        self.settle_rbf_candidate_inner(id, committed, None).await
+    }
+
+    pub(crate) async fn settle_rbf_candidate_at(
+        &self,
+        id: &ProposalShortId,
+        committed: bool,
+        epoch: u64,
+    ) -> Vec<ResolvedTx> {
+        self.settle_rbf_candidate_inner(id, committed, Some(epoch))
+            .await
+    }
+
+    async fn settle_rbf_candidate_inner(
+        &self,
+        id: &ProposalShortId,
+        committed: bool,
+        epoch: Option<u64>,
+    ) -> Vec<ResolvedTx> {
         // Registration removal and held-entry transfer are one ownership
         // transition. Holding both locks in the global order prevents expiry
         // routing from observing "winner gone" while its losers are still
@@ -39,6 +58,9 @@ impl super::TxPoolService {
         let held = {
             let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
             let mut room = self.pipeline.waiting_room.write().await;
+            if epoch.is_some_and(|epoch| !self.is_pipeline_epoch_current(epoch)) {
+                return Vec::new();
+            }
             rbf.remove(id);
             room.wake_by_winner(id)
         };
@@ -61,7 +83,8 @@ impl super::TxPoolService {
             super::TxPoolService::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
         ));
         for resolved in held {
-            self.after_process(resolved.tx, resolved.source, &ret).await;
+            self.after_process_at(resolved.tx, resolved.source, &ret, resolved.epoch)
+                .await;
         }
     }
 
@@ -70,8 +93,13 @@ impl super::TxPoolService {
     /// mismatch, submit failure, removal by RPC or peer ban), and restore
     /// the candidates it displaced: the displacement was speculative, so
     /// they simply resume verification.
+    #[cfg(test)]
     pub(crate) async fn abort_rbf_candidate(&self, id: &ProposalShortId) {
         self.settle_rbf_candidate(id, false).await;
+    }
+
+    pub(crate) async fn abort_rbf_candidate_at(&self, id: &ProposalShortId, epoch: u64) {
+        self.settle_rbf_candidate_at(id, false, epoch).await;
     }
 
     /// Hand a superseded-at-submit candidate to the waiting room as the
@@ -92,12 +120,21 @@ impl super::TxPoolService {
         &self,
         resolved: ResolvedTx,
         conflict_inputs: Vec<OutPoint>,
-    ) {
+    ) -> bool {
         let id = resolved.tx.proposal_short_id();
+        let epoch = resolved.epoch;
         let own_fee_rate = self.compute_size_based_fee_rate(resolved.fee, resolved.tx_size);
         let (own_woken, evicted, restore_self) = {
             let mut rbf_guard = self.pipeline.queues.rbf_candidates.write().await;
+            let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
             let mut room = self.pipeline.waiting_room.write().await;
+            if !self.is_pipeline_epoch_current(epoch) {
+                return false;
+            }
+            // The worker's active lease hands ownership to RaceLost (or to
+            // the immediate restore path) here. Its trailing finish call is
+            // token-conditional and cannot erase a later restored lease.
+            verify_queue.release_active_for_transition(&id, epoch);
             // The candidate's own registration (if any) is removed — it lost
             // the race. Anything it held is restored right away: their
             // displacer is no longer a live registration.
@@ -135,6 +172,7 @@ impl super::TxPoolService {
         restore.extend(restore_self);
         self.restore_held_rbf_candidates(restore).await;
         self.route_waiting_evictions(evicted).await;
+        true
     }
 
     /// Compute the size-based fee rate used for RBF in-flight candidate
@@ -268,6 +306,13 @@ impl super::TxPoolService {
         tx_size: usize,
     ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
+        let epoch = resolved.epoch;
+
+        if !self.is_pipeline_epoch_current(epoch) {
+            return Err(Reject::Internal(
+                "tx-pool pipeline generation invalidated by clear".to_string(),
+            ));
+        }
 
         // Fast-path duplicate check: a remote tx already in the verify queue
         // should not register as an RBF candidate and displace lower-fee-rate
@@ -286,9 +331,21 @@ impl super::TxPoolService {
 
         let fee_rate = self.compute_size_based_fee_rate(fee, tx_size);
         let mut rbf_guard = self.pipeline.queues.rbf_candidates.write().await;
+        if !self.is_pipeline_epoch_current(epoch) {
+            return Err(Reject::Internal(
+                "tx-pool pipeline generation invalidated by clear".to_string(),
+            ));
+        }
         match rbf_guard.register(id.clone(), fee_rate, &conflict_inputs) {
             Ok(registration) => {
                 let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
+                if !self.is_pipeline_epoch_current(epoch) {
+                    drop(verify_queue);
+                    drop(registration);
+                    return Err(Reject::Internal(
+                        "tx-pool pipeline generation invalidated by clear".to_string(),
+                    ));
+                }
                 match verify_queue.add_tx(resolved.clone()) {
                     Ok(added) => {
                         if !added {
@@ -312,6 +369,18 @@ impl super::TxPoolService {
                         // that would let an unverified high-fee candidate
                         // censor an honest in-flight one at zero cost.
                         let mut room = self.pipeline.waiting_room.write().await;
+                        if !self.is_pipeline_epoch_current(epoch) {
+                            // `clear_pipeline` advances before acquiring any
+                            // of these locks. If it already won, do not commit
+                            // a registration behind its clearing pass.
+                            drop(room);
+                            verify_queue.remove_tx(&id);
+                            drop(verify_queue);
+                            drop(registration);
+                            return Err(Reject::Internal(
+                                "tx-pool pipeline generation invalidated by clear".to_string(),
+                            ));
+                        }
                         let crate::component::rbf_candidates::DisplaceOutcome {
                             to_restore,
                             evicted,
@@ -338,20 +407,50 @@ impl super::TxPoolService {
                         drop(verify_queue);
                         drop(registration);
                         drop(rbf_guard);
-                        self.after_process(tx, source, &Err(reject.clone())).await;
+                        self.after_process_at(tx, source, &Err(reject.clone()), epoch)
+                            .await;
                         Err(reject)
                     }
                 }
             }
             Err(reason) => {
+                // A valid candidate that loses only to an *unverified*
+                // stronger registration is speculative, not terminal. Park
+                // it under that winner while both indexes are locked, so a
+                // failed winner wakes it even though the original in-pool
+                // input owner never changed. Recording it as InputsBlocked
+                // here strands it forever: winner abort does not free the
+                // pool input and therefore cannot trigger conflict recovery.
+                if let Some((winner, winner_rate)) = rbf_guard.find_winner(&conflict_inputs, &id)
+                    && winner_rate >= fee_rate
+                {
+                    let evicted = {
+                        let mut room = self.pipeline.waiting_room.write().await;
+                        if !self.is_pipeline_epoch_current(epoch) {
+                            return Err(Reject::Internal(
+                                "tx-pool pipeline generation invalidated by clear".to_string(),
+                            ));
+                        }
+                        let (retained, evicted) = room.wait_resolved(
+                            resolved.clone(),
+                            crate::component::waiting_room::WaitReason::RaceLost { winner },
+                        );
+                        debug_assert!(
+                            retained,
+                            "a freshly parked RaceLost entry cannot be evicted"
+                        );
+                        evicted
+                    };
+                    drop(rbf_guard);
+                    self.route_waiting_evictions(evicted).await;
+                    return Ok(true);
+                }
                 drop(rbf_guard);
                 let reject = Reject::RBFRejected(reason);
-                // Speculative rejection by an *unverified* in-flight
-                // candidate: park for conflict recovery and relay the
-                // outcome, but do NOT record in recent_reject — the
-                // winner's verification may still fail, and a record
-                // would poison a valid transaction for the TTL (the
-                // censorship vector the hold-and-restore design removes).
+                // Non-supersession failures (for example the displacement
+                // fan-out cap) have no winner that can restore this
+                // candidate. Keep the normal conflict-recovery trace, but do
+                // not poison recent_reject.
                 {
                     let mut tx_pool = self.pool.tx_pool.write().await;
                     if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {

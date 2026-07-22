@@ -128,9 +128,25 @@ This separation enables IO/compute isolation, parallel verification, configurabl
 
 **DeferredTask worker** — bounded mpsc channel (`DEFERRED_CHANNEL_SIZE = 1024`) for opportunistic recovery re-enqueue (RecoverTxs, `.send().await`) and verify-cache updates (CacheUpdate, `try_send`). A failed RBF replacement is different: entries physically removed by the failed attempt are restored exactly inside the original tx-pool write transaction; they never enter the deferred worker. After the lock is released, the winner registration is finalized or aborted and every `RaceLost` owner is transferred before awaiting the bounded channel, so publication backpressure cannot prolong speculative ownership. The worker merges back-to-back non-critical recovery batches, retries transient `Full` backpressure with a bounded window that ends in a terminal outcome, and drains the channel on shutdown.
 
+Every deferred recovery item carries the pipeline epoch of the submit that
+created it. An administrative clear advances the epoch before draining any
+structure, so a delayed recovery cannot resurrect pre-clear state behind the
+drain.
+
 **WaitingRoom** — unified parking structure with two instances split by lock domain: pipeline-side (`ParentsMissing` orphans and `RaceLost` RBF-held candidates) and pool-side (`InputsBlocked` conflict recovery, the retired conflicts LRU). Per-reason budgets cover orphans (100 entries / 20 MB) and conflicts (10k entries / 50 MB). `RaceLost` is not charged a second time by the room: its `ResolvedTx` carries a shared lifecycle permit that remains charged while queued, active, or held, closing the previous budget-refund bypass. FIFO eviction is per reason and expiry scans are watermark-gated. Orphans and RaceLost expire after 100 block intervals; expiry revokes a still-live speculative winner before restoring the loser, and a re-park retains the original expiry so a stalled winner cannot create an endless restore/reverify loop.
 
-**WorkerRunner / ActiveSet** — all queue workers (verify, ordered resolver) share a runner skeleton: wait on command changes, queue notifications, or deadlines; pop one job at a time; process to completion. Popped jobs move into the queue's ActiveSet and stay visible (`contains_or_active`, `get_active_tx`) until `finish`, so "in flight" checks, RPC queries, and administrative removal never lose sight of mid-processing transactions. Every job is wrapped in a panic guard; monitors respawn crashed workers with cancel-aware exponential backoff. A dropped command channel means a clean stop, not a busy loop.
+**WorkerRunner / ActiveSet** — all queue workers (verify, ordered resolver) share a runner skeleton: wait on command changes, queue notifications, or deadlines; pop one job at a time; process to completion. Popped jobs move into the queue's ActiveSet and stay visible (`contains_or_active`, `get_active_tx`) until `finish`, so "in flight" checks, RPC queries, and administrative removal never lose sight of mid-processing transactions. Each pop receives a monotonic active-lease token. Finish and same-stage requeue are token-conditional ownership transitions, so a late worker from before an RBF hold/restore cycle cannot erase the restored lease even within the same administrative epoch. Every job is wrapped in a panic guard; monitors respawn crashed workers with cancel-aware exponential backoff. A dropped command channel means a clean stop, not a busy loop.
+
+**Pipeline epoch / administrative clear** — every pre-check, resolve, verify,
+RBF aftermath and deferred-recovery job carries the epoch in which it was
+admitted. `clear_pool` and `clear_pipeline` advance the epoch before acquiring
+structure locks. Each ownership boundary rechecks it, and the authoritative
+commit check occurs while holding `tx_pool.write()`. The clear path then waits
+on the same lock as a commit barrier and drains all structures. Jobs that
+linearized before the advance are either removed by `clear_pool` or retained by
+the documented `clear_pipeline` semantics; jobs that did not linearize cannot
+commit or reinsert afterwards. Epoch and active-token exhaustion are
+fail-closed and never wrap.
 
 **Dispatcher shutdown** — explicit cancellation, closure of the controller message
 channel, and defensive dispatcher exits converge on one ordered shutdown tail:
@@ -141,7 +157,7 @@ user-facing controller really closes the channel. Persistence never races a
 still-running verifier or recovery worker, and completion of the dispatcher
 handle is the durable shutdown boundary.
 
-**Reorg** — `update_tx_pool_for_reorg` runs under `recovery_lock` for its whole duration (write-lock section, callbacks, and retained-transaction recovery), so `save_pool` cannot intentionally run in the middle of recovery. Detached transactions are re-added per-transaction through `process_tx_direct_outcome` in topological order: `Committed` and `Duplicated` count as success, `Superseded` skips cascading (the transaction is merely held), and only a definitive failure cascade-removes dependents. Transactions committed in attached blocks leave every pipeline structure through the full terminal sequence. Callbacks are outside the tx-pool write lock, but the current implementation still holds `recovery_lock` while dispatching and directly recovering transactions.
+**Reorg** — `update_tx_pool_for_reorg` runs under `recovery_lock` for its authoritative mutation and retained-transaction recovery, so `save_pool` cannot intentionally observe a half-recovered pool. Detached transactions are filtered against attached transactions by raw transaction hash (not witness hash) and re-added per-transaction through `process_tx_direct_outcome` in topological order: `Committed` and `Duplicated` count as success, `Superseded` skips cascading (the transaction is merely held), and only a definitive failure cascade-removes dependents. Transactions committed in attached blocks leave every pipeline structure through the full terminal sequence. Reorg callbacks are deferred by an RAII batch whose outer guard outlives `recovery_lock`; reverse-order drop releases the recovery lock before invoking user code. Callback panic and controller re-entry therefore cannot deadlock or expose a half-mutated reorg state.
 
 The controller applies backpressure instead of dropping a reorg delta when the
 bounded channel is full. The handler retains the received head delta across
@@ -152,7 +168,7 @@ cannot trap the retry loop. The target sequencer still replaces the coarse
 `recovery_lock` with explicit prepare/commit/publish stages and must not run
 external callbacks while holding recovery state.
 
-**Block assembler** — the template lives behind a version counter; partial updates (`update_proposals`, `update_transactions`, `update_uncles`) swap via CAS while `update_full` and `reset_template` serialize under `template_lock` (with `update_uncles` joining that lock so a full update cannot revert a concurrent uncle update). Template byte accounting uses the consensus `serialized_size_without_uncle_proposals` basis throughout; uncle candidates that do not fit are truncated to the longest fitting prefix instead of dropped wholesale; embedded or stale candidates are removed eagerly. Pending proposals take priority over optional uncles: an uncle carrying a selected proposal id (and any descendant that loses its only valid parent) is filtered atomically from that template, so miners may omit optional uncles without stranding the transaction. Management-triggered resets (e.g. `clear_pool`) notify miners immediately, like the reorg path.
+**Block assembler** — the template lives behind a version counter; partial updates (`update_proposals`, `update_transactions`, `update_uncles`) swap via CAS while `update_full` and `reset_template` serialize under `template_lock` (with `update_uncles` joining that lock so a full update cannot revert a concurrent uncle update). A level-triggered dirty-bit journal is written before the bounded notification channel is used as a wake edge; a full channel can coalesce updates but cannot lose the only Pending/Proposed transition and strand a valid transaction. Template byte accounting uses the consensus `serialized_size_without_uncle_proposals` basis throughout; uncle candidates that do not fit are truncated to the longest fitting prefix instead of dropped wholesale; embedded or stale candidates are removed eagerly. Pending proposals take priority over optional uncles: an uncle carrying a selected proposal id (and any descendant that loses its only valid parent) is filtered atomically from that template, so miners may omit optional uncles without stranding the transaction. Management-triggered resets (e.g. `clear_pool`) notify miners immediately, like the reorg path.
 
 **remove_tx (administrative)** — removes a transaction from every structure it may occupy (pre-check, ordered, verify queue plus its registration, both waiting rooms, the conflict cache, and the pool) and reports a tri-state outcome: `Removed`, `InProgress` (a worker is mid-flight on it — reported honestly instead of "not found"), or `NotFound`.
 
@@ -202,15 +218,15 @@ A newly submitted transaction wakes the ordered resolver and orphan waiters dire
 
 ### 3.11 Reorg Recovery Under recovery_lock
 
-The whole reorg (write-lock section + retained-transaction re-add) holds `recovery_lock`; `save_pool` and `clear_pool` take the same lock, so normal completion is observed atomically by persistence and administration. Retained transactions re-enter through `process_tx_direct_outcome` with per-outcome handling (`Committed` / `Superseded` / `Duplicated` / failure), avoiding both write-lock stalls and false failure cascades. The ordered handler retains the head delta until success or shutdown and retries with backoff; callback panics are contained outside the authoritative mutation. This lock is still a legacy safety barrier rather than the target design because callbacks and direct recovery run while it is held.
+The authoritative reorg (write-lock section + retained-transaction re-add) holds `recovery_lock`; `save_pool` and `clear_pool` take the same lock, so normal completion is observed atomically by persistence and administration. Retained transactions re-enter through `process_tx_direct_outcome` with per-outcome handling (`Committed` / `Superseded` / `Duplicated` / failure), avoiding both write-lock stalls and false failure cascades. The ordered handler retains the head delta until success or shutdown and retries with backoff. Callback batches are released only after `recovery_lock` drops. This lock remains a legacy safety barrier rather than the target sequencer because direct recovery still runs while it is held.
 
 ### 3.12 Unified Verify-and-Submit Core
 
-`verify_and_submit_core` is the single verify→submit path for pipeline workers, RPC, tests, and reorg recovery. Verified cycles are written to the verify cache on *every* terminal outcome (including superseded candidates), so restores never pay for a full re-verification.
+`verify_and_submit_core` is the single verify→submit path for pipeline workers, RPC, tests, and reorg recovery. A superseded candidate carries its authoritative `Completed` result in the owned `ResolvedTx` across `RaceLost`; the best-effort global cache update is only an optimization, so a saturated deferred channel cannot force a full re-verification after restore.
 
 ### 3.13 Active-set Visibility
 
-Popped-but-unfinished jobs stay visible in every queue's ActiveSet, closing the pop→finish window for duplicate checks, orphan flight heuristics, RPC queries, and administrative removal (which reports them as `InProgress`).
+Popped-but-unfinished jobs stay visible in every queue's ActiveSet, closing the pop→finish window for duplicate checks, orphan flight heuristics, RPC queries, and administrative removal (which reports them as `InProgress`). Monotonic pop tokens make completion ABA-safe across same-epoch hold/restore, while the pipeline epoch invalidates all pre-clear work at the final commit barrier.
 
 ### 3.14 FIFO Waiting-room Eviction
 
@@ -270,7 +286,10 @@ deltas of `+1.26%`/`+1.56%`. The maximum deviations from each median paired
 ratio were `2.46%`/`2.15%`, below the quick diagnostic ceiling. This validates
 quick as a fast directional regression check; it does not promote quick to a
 release gate. A clean, isolated, repeated medium/full checkpoint A/B is still
-required before the coordinator enters the production hot path.
+required before the coordinator enters the production hot path. A later medium
+run was stopped on operator request after two complete adjacent pairs and one
+incomplete pair because its wall-clock cost was too high; it is deliberately
+recorded as **no verdict**, not combined with the focused quick result.
 
 The numbers below are historical reference values from the original pipeline
 benchmark run; they are not a substitute for the checkpoint A/B record.
@@ -362,6 +381,30 @@ routed through the coordinator and differential tests must prove that current
 parent-first/child-first behavior is preserved before the legacy orphan retry
 logic can be removed.
 
+### 5.5 WaitingRoom retirement
+
+`WaitingRoom` is transitional and is not part of the target production
+architecture. It currently duplicates payload ownership across two instances
+and forces orchestration to infer a transaction's lifecycle from a room,
+several queue indexes, RBF registrations and `TxPool` state. The replacement is
+not a third room:
+
+- `LifecycleStore` owns each pre-pool payload exactly once and represents
+  `ParentsMissing`, `CapacityBlocked` and speculative conflict waiting as typed
+  locations with revisioned leases;
+- `DependencyScheduler` and `ConflictScheduler` retain IDs, edges and tickets
+  only; they never clone `TransactionView` or `ResolvedTx`;
+- accepted conflict audit records are separated from executable waiting state,
+  so RPC history cannot accidentally wake or schedule a transaction;
+- expiry, budget eviction, peer ban, remove, clear and reorg become coordinator
+  transitions over the same record rather than cross-structure scans.
+
+The room is deleted only after production-path differential tests cover every
+current wake/finalize/abort/expiry path and quick plus medium/full performance
+gates pass. Until then, the current resolved-lifecycle permit, epoch and active
+lease token close the known budget and ABA attacks without pretending that the
+dual-room model is the final design.
+
 ### 5.3 ConflictScheduler migration slice
 
 The isolated `component/conflict_scheduler.rs` model separates fee eligibility
@@ -426,7 +469,7 @@ becomes the default.
 - **No ghost state**: removal paths converge on full coverage (queues, registrations, both waiting rooms, conflict cache, pool); attached blocks finalize what they held; the reconcile's removals feed the same registration cleanup. Links/entries consistency is guarded: traversal filters ghost ids, ancestor links are committed only after all fallible checks, and eviction cascades purge removed ids from parent sets.
 - **No panics in the write lock**: fallible paths inside the tx_pool write lock return defensive errors instead of asserting, so unwind can never strand the eviction journal or side-effect records.
 - **Dependency correctness**: `FlightTracker` tracks in-flight outputs across all pipeline stages; the orphan flight heuristic counts queued, active, and parked parents as in flight.
-- **Callbacks outside the tx-pool write lock**: submit and reorg callbacks are collected before dispatch, and callback panics are contained at that side-effect boundary. The target architecture strengthens this to "outside every internal transition/recovery lock" and adds callback-reentry tests.
+- **Callbacks outside internal mutation locks**: submit callbacks are collected before dispatch; reorg callbacks are RAII-deferred until both the tx-pool write lock and `recovery_lock` are released. Callback panics are contained at the stable-state side-effect boundary.
 - **Worker reliability**: per-job panic guards, monitor respawn with cancel-aware backoff, retained/FIFO chain transitions, per-generation cancellation for the verify manager, and clean stop on command-channel drop. Every dispatcher exit shares the same cancel → handler drain → worker quiesce/join → persist sequence.
 
 ---
@@ -476,13 +519,13 @@ remains useful for non-gating historical inspection.
 
 ## 9. Test Coverage
 
-Unit tests (`cargo test -p ckb-tx-pool --features internal`) cover, among others:
+Unit tests (`cargo test -p ckb-tx-pool --features internal`, currently 239/239) cover, among others:
 
 - Queue invariants: pop/active/finish visibility, delayed retries with bounded attempts, FIFO waiting-room eviction, O(1) lookups.
 - Pool invariants: child-before-parent weight folding, escape-hatch eviction without ghost parents, conflict closure ghost filtering, zombie reconciliation (inputs and cell deps), expiry cascade.
 - RBF: hold-and-restore (displace, supersede-at-submit, abort/finalize, no-replacement abort), capacity pre-validation, recovery of the full removed cascade, speculative gates bypassing recent_reject.
 - Reorg: retained-transaction outcome matrix (no cascade on `Duplicated`/`Superseded`), attached orphans skipped from routing, attached winners finalizing held candidates, `save_pool` blocking on `recovery_lock`, and fault-injected status-transition replay without false callbacks.
-- Lifecycle: worker stop on command-channel drop, panic guards with terminal outcomes, callback-panic containment, retained/FIFO reorg deltas, VerifyMgr generation cancellation, deferred-worker drain on shutdown, controller-channel-close persistence only after all handlers/workers quiesce, and clear/reset-to-miner-notify delivery.
+- Lifecycle: worker stop on command-channel drop, panic guards with terminal outcomes, callback-panic containment, retained/FIFO reorg deltas, VerifyMgr generation cancellation, deferred-worker drain on shutdown, controller-channel-close persistence only after all handlers/workers quiesce, clear/reset-to-miner-notify delivery, clear-vs-active commit cancellation, stale deferred recovery rejection, epoch exhaustion, and same-epoch RBF active-lease ABA.
 - Terminal semantics: pre-check Full notified to the relayer, bounded recovery ending in a terminal reject, banned peers' in-flight jobs dropped, administrative removal tri-state and double-park cleanup.
 
 Integration tests (`make integration`, full ckb-test suite) cover the end-to-end behavior, including the RBF family (`RbfBasic`, `RbfRejectReplaceProposed`, `RbfReplaceProposedSuccess`, `RbfConcurrency`, `RbfCyclingAttack`, `RbfOrphanRecovery`), conflict/removal flows (`RemoveConflictFromPending`, `RemoveTx`), and orphan handling.

@@ -284,3 +284,46 @@ fn clear_releases_every_conflict_index() {
     assert!(scheduler.active_owner(&input(2)).is_none());
     scheduler.audit().unwrap();
 }
+
+#[test]
+fn generation_exhaustion_cannot_half_register_candidate() {
+    let mut scheduler = roomy_scheduler();
+    let active = only_active(scheduler.register(eligible(110, &[1], 100)).unwrap());
+    scheduler.set_next_generation_for_test(u64::MAX);
+
+    assert_eq!(
+        scheduler.register(eligible(111, &[1], 200)).unwrap_err(),
+        ConflictError::GenerationExhausted
+    );
+    assert_eq!(scheduler.len(), 1);
+    assert!(scheduler.view(&hash(111)).is_none());
+    assert_eq!(scheduler.active_owner(&input(1)), Some(&active.hash));
+    scheduler.audit().unwrap();
+}
+
+#[test]
+fn generation_exhaustion_cannot_half_abort_active_candidate() {
+    let mut scheduler = roomy_scheduler();
+    let low = only_active(scheduler.register(eligible(120, &[1], 100)).unwrap());
+    let high = scheduler
+        .register(eligible(121, &[1], 200))
+        .unwrap()
+        .activated[0]
+        .clone();
+    scheduler.set_next_generation_for_test(u64::MAX);
+
+    assert_eq!(
+        scheduler.abort_active(&high).unwrap_err(),
+        ConflictError::GenerationExhausted
+    );
+    assert_eq!(scheduler.active_owner(&input(1)), Some(&high.hash));
+    assert!(matches!(
+        scheduler.view(&low.hash).unwrap().state,
+        ConflictState::Waiting { .. }
+    ));
+    assert_eq!(
+        scheduler.view(&high.hash).unwrap().state,
+        ConflictState::Active
+    );
+    scheduler.audit().unwrap();
+}

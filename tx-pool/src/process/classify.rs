@@ -36,6 +36,24 @@ enum RouteDecision {
 }
 
 impl super::TxPoolService {
+    fn stale_pipeline_reject() -> Reject {
+        Reject::Internal("tx-pool pipeline generation invalidated by clear".to_string())
+    }
+
+    async fn ensure_current_or_terminal(
+        &self,
+        tx: &TransactionView,
+        source: TxSource,
+        epoch: u64,
+    ) -> Result<(), Reject> {
+        if self.is_pipeline_epoch_current(epoch) {
+            Ok(())
+        } else {
+            self.terminal_internal(tx.clone(), source).await;
+            Err(Self::stale_pipeline_reject())
+        }
+    }
+
     pub(crate) async fn pre_check(
         &self,
         tx: &TransactionView,
@@ -149,6 +167,7 @@ impl super::TxPoolService {
         source: TxSource,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Result<super::submit::VerifySubmitOutcome, Reject> {
+        let epoch = self.current_pipeline_epoch()?;
         let tx_size = tx.data().serialized_size_in_block();
         let (ret, snapshot) = self.pre_check(&tx, tx_size).await;
 
@@ -170,6 +189,8 @@ impl super::TxPoolService {
                 pre_resolve_tip,
                 snapshot,
                 source,
+                epoch,
+                verified: None,
                 resident_permit: None,
             },
             command_rx,
@@ -192,6 +213,7 @@ impl super::TxPoolService {
             Ok(super::submit::VerifySubmitOutcome::Superseded) => Err(Reject::RBFRejected(
                 super::TxPoolService::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
             )),
+            Ok(super::submit::VerifySubmitOutcome::Cleared) => Err(Self::stale_pipeline_reject()),
             Err(reject) => Err(reject),
         }
     }
@@ -202,16 +224,28 @@ impl super::TxPoolService {
         &self,
         tx: &TransactionView,
         source: TxSource,
+        epoch: u64,
     ) -> Result<RouteDecision, Reject> {
         let id = tx.proposal_short_id();
 
+        if !self.is_pipeline_epoch_current(epoch) {
+            return Err(Self::stale_pipeline_reject());
+        }
+
         if self.depends_on_pipeline(tx).await {
             let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
+            if !self.is_pipeline_epoch_current(epoch) {
+                return Err(Self::stale_pipeline_reject());
+            }
             if ordered.contains_key(&id) {
                 return Ok(RouteDecision::Duplicate);
             }
             return ordered
-                .add_tx(crate::resolved_tx::ResolveJob::new(tx.clone(), source))
+                .add_tx(crate::resolved_tx::ResolveJob::new_at(
+                    tx.clone(),
+                    source,
+                    epoch,
+                ))
                 .map(|_| RouteDecision::Enqueued);
         }
 
@@ -239,6 +273,9 @@ impl super::TxPoolService {
     ) -> Result<bool, Reject> {
         let source = resolved.source;
         let tx = resolved.tx.clone();
+        let epoch = resolved.epoch;
+
+        self.ensure_current_or_terminal(&tx, source, epoch).await?;
 
         if matches!(source, TxSource::Remote { .. }) {
             match self
@@ -253,7 +290,18 @@ impl super::TxPoolService {
             {
                 Ok(true) => return Ok(true),
                 Ok(false) => {}
-                Err(reject) => return Err(reject),
+                Err(reject) => {
+                    if !self.is_pipeline_epoch_current(epoch) {
+                        self.terminal_internal(tx, source).await;
+                    }
+                    return Err(reject);
+                }
+            }
+            if !self.is_pipeline_epoch_current(epoch) {
+                return self
+                    .ensure_current_or_terminal(&tx, source, epoch)
+                    .await
+                    .map(|_| false);
             }
         }
 
@@ -262,12 +310,21 @@ impl super::TxPoolService {
         // run while holding a pipeline-queue write lock.
         let add_result = {
             let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
-            verify_queue.add_tx(resolved)
+            if self.is_pipeline_epoch_current(epoch) {
+                verify_queue.add_tx(resolved)
+            } else {
+                Err(Self::stale_pipeline_reject())
+            }
         };
         match add_result {
             Ok(added) => Ok(added),
             Err(reject) => {
-                self.after_process(tx, source, &Err(reject.clone())).await;
+                if self.is_pipeline_epoch_current(epoch) {
+                    self.after_process_at(tx, source, &Err(reject.clone()), epoch)
+                        .await;
+                } else {
+                    self.terminal_internal(tx, source).await;
+                }
                 Err(reject)
             }
         }
@@ -283,9 +340,30 @@ impl super::TxPoolService {
         tx: TransactionView,
         source: TxSource,
     ) -> Result<bool, Reject> {
+        let epoch = self.current_pipeline_epoch()?;
+        self.classify_and_enqueue_tx_at(tx, source, epoch).await
+    }
+
+    pub(crate) async fn classify_and_enqueue_tx_at(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        epoch: u64,
+    ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
 
-        match self.check_and_route_dependent(&tx, source).await? {
+        self.ensure_current_or_terminal(&tx, source, epoch).await?;
+
+        let route = self.check_and_route_dependent(&tx, source, epoch).await;
+        let route = match route {
+            Ok(route) => route,
+            Err(reject) if !self.is_pipeline_epoch_current(epoch) => {
+                self.terminal_internal(tx, source).await;
+                return Err(reject);
+            }
+            Err(reject) => return Err(reject),
+        };
+        match route {
             RouteDecision::Independent => {}
             RouteDecision::Enqueued => return Ok(true),
             RouteDecision::Duplicate => return Ok(false),
@@ -295,7 +373,7 @@ impl super::TxPoolService {
         // pre_check logic exists in exactly one place.
         match crate::resolve_mgr::resolve_job(
             self,
-            crate::resolved_tx::ResolveJob::new(tx.clone(), source),
+            crate::resolved_tx::ResolveJob::new_at(tx.clone(), source, epoch),
         )
         .await
         {
@@ -306,13 +384,19 @@ impl super::TxPoolService {
                 // Missing inputs: park the tx in the ordered resolve queue so
                 // the ordered resolver retries it once its parents land.
                 let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
+                if !self.is_pipeline_epoch_current(epoch) {
+                    drop(ordered);
+                    self.terminal_internal(tx, source).await;
+                    return Err(Self::stale_pipeline_reject());
+                }
                 if ordered.contains_key(&id) {
                     return Ok(false);
                 }
-                ordered.add_tx(crate::resolved_tx::ResolveJob::new(tx, source))
+                ordered.add_tx(crate::resolved_tx::ResolveJob::new_at(tx, source, epoch))
             }
             crate::resolve_mgr::ResolveStageResult::Reject(tx, reject) => {
-                self.after_process(tx, source, &Err(reject.clone())).await;
+                self.after_process_at(tx, source, &Err(reject.clone()), epoch)
+                    .await;
                 Err(reject)
             }
         }
@@ -331,14 +415,35 @@ impl super::TxPoolService {
         tx: TransactionView,
         source: TxSource,
     ) -> Result<bool, Reject> {
-        match self.check_and_route_dependent(&tx, source).await? {
+        let epoch = self.current_pipeline_epoch()?;
+        self.ensure_current_or_terminal(&tx, source, epoch).await?;
+        let route = self.check_and_route_dependent(&tx, source, epoch).await;
+        let route = match route {
+            Ok(route) => route,
+            Err(reject) if !self.is_pipeline_epoch_current(epoch) => {
+                self.terminal_internal(tx, source).await;
+                return Err(reject);
+            }
+            Err(reject) => return Err(reject),
+        };
+        match route {
             RouteDecision::Independent => {}
             RouteDecision::Enqueued => return Ok(true),
             RouteDecision::Duplicate => return Ok(false),
         }
 
-        let job = PreCheckJob { tx, source };
-        self.pipeline.queues.pre_check_queue.push(job)?;
+        let job = PreCheckJob { tx, source, epoch };
+        if let Err(reject) = self
+            .pipeline
+            .queues
+            .pre_check_queue
+            .push_if_current(job.clone(), &self.pipeline.epoch)
+        {
+            if !self.is_pipeline_epoch_current(epoch) {
+                self.terminal_internal(job.tx, job.source).await;
+            }
+            return Err(reject);
+        }
 
         // Returning Ok(true) only means the tx was accepted into the pipeline;
         // actual classification/verification happens in the worker pool.

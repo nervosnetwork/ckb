@@ -23,6 +23,7 @@ use std::sync::{Mutex, MutexGuard};
 pub(crate) struct PreCheckJob {
     pub tx: TransactionView,
     pub source: TxSource,
+    pub epoch: u64,
 }
 
 struct PreCheckQueueState {
@@ -35,7 +36,7 @@ struct PreCheckQueueState {
     flight: FlightTracker,
     /// Jobs that have been popped by a worker but have not reached a
     /// terminal state yet; see [`PreCheckQueue::contains_or_active`].
-    active: ActiveSet<TransactionView>,
+    active: ActiveSet<PreCheckJob>,
     /// Total serialized size of all transactions currently in the queue.
     ///
     /// This counter is kept inside the mutex-protected state because every
@@ -80,7 +81,7 @@ impl PreCheckQueue {
     /// Must be called while holding the queue lock so the size check is
     /// consistent with concurrent modifications.
     fn is_full_locked(&self, state: &PreCheckQueueState, add_tx_size: usize) -> bool {
-        state.total_tx_size.get().saturating_add(add_tx_size) >= MAX_PRE_CHECK_QUEUE_TX_SIZE
+        state.total_tx_size.get().saturating_add(add_tx_size) > MAX_PRE_CHECK_QUEUE_TX_SIZE
     }
 
     /// Returns true if the given tx spends or references an output produced by
@@ -91,6 +92,7 @@ impl PreCheckQueue {
     }
 
     /// Returns true if the queue contains a job for the given proposal id.
+    #[cfg(test)]
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
         let state = self.lock();
         state.index.contains(id)
@@ -108,10 +110,9 @@ impl PreCheckQueue {
     /// `exclude_existing_proposal`, `get_tx_for_compact_block`) use it for
     /// the same visibility.
     ///
-    /// Deliberately *not* used for duplicate detection (`contains_key`): if a
-    /// worker panics between `pop` and `finish`, the id stays in `active`
-    /// until the queue is cleared. That only makes orphans wait out their
-    /// bounded retry budget; it must never block a genuine resubmission.
+    /// Duplicate admission also consults this active state: every worker has
+    /// a panic guard that finishes the id, so an active duplicate is wasted
+    /// work rather than a recovery mechanism.
     pub fn contains_or_active(&self, id: &ProposalShortId) -> bool {
         let state = self.lock();
         state.index.contains(id) || state.active.contains(id)
@@ -121,7 +122,7 @@ impl PreCheckQueue {
     /// (popped but not yet finished), if any.
     pub fn get_active_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
         let state = self.lock();
-        state.active.get(id).cloned()
+        state.active.get(id).map(|job| job.tx.clone())
     }
 
     /// Mark a previously popped job as terminally processed.
@@ -129,9 +130,9 @@ impl PreCheckQueue {
     /// Every worker must call this exactly once per popped job, after the job
     /// has landed in its terminal state (forwarded, re-enqueued, or
     /// rejected).
-    pub fn finish(&self, id: &ProposalShortId) {
+    pub fn finish(&self, id: &ProposalShortId, epoch: u64) {
         let mut state = self.lock();
-        state.active.finish(id);
+        state.active.finish_if(id, |active| active.epoch == epoch);
     }
 
     /// Returns the raw transaction for the given id, if it is waiting in the
@@ -220,10 +221,35 @@ impl PreCheckQueue {
         removed
     }
 
+    #[cfg(test)]
     pub(crate) fn push(&self, job: PreCheckJob) -> Result<(), Reject> {
+        self.push_guarded(job, None)
+    }
+
+    /// Admit a job only if its administrative generation is still current.
+    /// The check is made while holding the queue mutex, so a concurrent clear
+    /// either removes this insertion or makes it fail as stale.
+    pub(crate) fn push_if_current(
+        &self,
+        job: PreCheckJob,
+        epoch: &crate::service::PipelineEpoch,
+    ) -> Result<(), Reject> {
+        self.push_guarded(job, Some(epoch))
+    }
+
+    fn push_guarded(
+        &self,
+        job: PreCheckJob,
+        epoch: Option<&crate::service::PipelineEpoch>,
+    ) -> Result<(), Reject> {
         let mut state = self.lock();
+        if epoch.is_some_and(|epoch| !epoch.is_current(job.epoch)) {
+            return Err(Reject::Internal(
+                "tx-pool pipeline generation invalidated by clear".to_string(),
+            ));
+        }
         let id = job.tx.proposal_short_id();
-        if state.index.contains(&id) {
+        if state.index.contains(&id) || state.active.contains(&id) {
             return Ok(());
         }
         let tx_size = Self::tx_size(&job);
@@ -266,12 +292,21 @@ impl PreCheckQueue {
         loop {
             {
                 let mut state = self.lock();
+                let active_token = if state.inner.front().is_some() {
+                    state.active.reserve_token()
+                } else {
+                    None
+                };
                 if let Some(job) = state.inner.pop_front() {
+                    let Some(active_token) = active_token else {
+                        state.inner.push_front(job);
+                        return None;
+                    };
                     let id = job.tx.proposal_short_id();
                     state.index.remove(&id);
                     state.lookup.remove(&id);
                     state.flight.remove(&id);
-                    state.active.insert(id, job.tx.clone());
+                    state.active.insert_reserved(id, job.clone(), active_token);
                     let tx_size = Self::tx_size(&job);
                     // On underflow, restore the true total from what
                     // remains queued instead of clamping to zero.
@@ -344,6 +379,7 @@ mod tests {
             .push(PreCheckJob {
                 tx: tx.clone(),
                 source: TxSource::Local,
+                epoch: 0,
             })
             .unwrap();
 
@@ -353,7 +389,7 @@ mod tests {
         assert!(!queue.contains_key(&id));
         assert!(queue.contains_or_active(&id));
 
-        queue.finish(&id);
+        queue.finish(&id, 0);
         assert!(!queue.contains_or_active(&id));
     }
 
@@ -377,6 +413,7 @@ mod tests {
                     cycles: 0,
                     peer: 1.into(),
                 },
+                epoch: 0,
             })
             .unwrap();
         queue
@@ -386,6 +423,7 @@ mod tests {
                     cycles: 0,
                     peer: 2.into(),
                 },
+                epoch: 0,
             })
             .unwrap();
         queue
@@ -395,6 +433,7 @@ mod tests {
                     cycles: 0,
                     peer: 1.into(),
                 },
+                epoch: 0,
             })
             .unwrap();
 
@@ -444,11 +483,13 @@ mod tests {
                         cycles: 0,
                         peer: (*peer).into(),
                     },
+                    epoch: 0,
                 })
                 .unwrap();
             expected_total += PreCheckQueue::tx_size(&PreCheckJob {
                 tx: tx.clone(),
                 source: TxSource::Local,
+                epoch: 0,
             });
         }
 
@@ -469,9 +510,11 @@ mod tests {
         let expected_remaining = PreCheckQueue::tx_size(&PreCheckJob {
             tx: tx_b,
             source: TxSource::Local,
+            epoch: 0,
         }) + PreCheckQueue::tx_size(&PreCheckJob {
             tx: tx_d,
             source: TxSource::Local,
+            epoch: 0,
         });
         assert_eq!(state.total_tx_size.get(), expected_remaining);
     }
@@ -498,12 +541,14 @@ mod tests {
             .push(PreCheckJob {
                 tx: tx_a,
                 source: TxSource::Local,
+                epoch: 0,
             })
             .unwrap();
         queue
             .push(PreCheckJob {
                 tx: tx_b.clone(),
                 source: TxSource::Local,
+                epoch: 0,
             })
             .unwrap();
 
@@ -525,6 +570,7 @@ mod tests {
         let expected_remaining = PreCheckQueue::tx_size(&PreCheckJob {
             tx: tx_b,
             source: TxSource::Local,
+            epoch: 0,
         });
         assert_eq!(
             state.total_tx_size.get(),

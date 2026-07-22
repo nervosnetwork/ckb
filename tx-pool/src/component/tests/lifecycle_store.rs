@@ -1,7 +1,7 @@
 use crate::component::lifecycle_store::{
     LifecycleBatchOp, LifecycleBatchResult, LifecycleError, LifecycleLimits, LifecycleLocation,
-    LifecycleLocationKind, LifecycleStore, LifecycleTransition, PipelineStage, Residency,
-    TerminalOutcome,
+    LifecycleLocationKind, LifecycleStore, LifecycleTransition, LifecycleVersion, PipelineStage,
+    Residency, TerminalOutcome,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, ProposalShortId};
@@ -595,5 +595,42 @@ fn clear_releases_every_budget_and_index() {
     assert_eq!(store.usage(), Residency::default());
     assert_eq!(store.peer_usage(peer), Residency::default());
     assert_eq!(store.location_len(LifecycleLocationKind::QueuedPreCheck), 0);
+    store.audit().unwrap();
+}
+
+#[test]
+fn revision_exhaustion_is_rejected_without_partial_index_mutation() {
+    let mut store = roomy_store();
+    let tx_hash = hash(70);
+    let version = store
+        .admit(
+            tx_hash.clone(),
+            short(70),
+            Payload("entry"),
+            LifecycleLocation::Queued(PipelineStage::PreCheck),
+            None,
+            10,
+        )
+        .unwrap();
+    store.set_revision_for_test(&tx_hash, u64::MAX);
+
+    let err = store
+        .transition(
+            &tx_hash,
+            LifecycleVersion {
+                revision: u64::MAX,
+                ..version
+            },
+            &LifecycleLocation::Queued(PipelineStage::PreCheck),
+            LifecycleLocation::Active(PipelineStage::PreCheck),
+        )
+        .unwrap_err();
+    assert_eq!(err, LifecycleError::RevisionExhausted(tx_hash.clone()));
+    assert_eq!(
+        store.view(&tx_hash).unwrap().location,
+        LifecycleLocation::Queued(PipelineStage::PreCheck)
+    );
+    assert_eq!(store.location_len(LifecycleLocationKind::QueuedPreCheck), 1);
+    assert_eq!(store.location_len(LifecycleLocationKind::ActivePreCheck), 0);
     store.audit().unwrap();
 }

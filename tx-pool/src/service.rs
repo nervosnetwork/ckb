@@ -47,9 +47,10 @@ use ckb_types::{
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
-use std::sync::Arc;
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+};
 #[cfg(test)]
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
@@ -67,6 +68,10 @@ pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 /// slots is sufficient because consumers drain these quickly and stale
 /// notifications are acceptable to drop.
 pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
+
+const BLOCK_ASSEMBLER_DIRTY_PENDING: u8 = 1 << 0;
+const BLOCK_ASSEMBLER_DIRTY_PROPOSED: u8 = 1 << 1;
+const BLOCK_ASSEMBLER_DIRTY_UNCLE: u8 = 1 << 2;
 
 pub(crate) trait OneshotSender<R: fmt::Debug> {
     fn send(self, value: R) -> Result<(), R>;
@@ -174,10 +179,67 @@ pub(crate) struct PoolCore {
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
 }
 
+/// Monotonic administrative generation for the asynchronous pipeline.
+///
+/// `clear_pool` and `clear_pipeline` advance this generation before they
+/// remove queued state. Every job carries the generation in which it was
+/// admitted and workers re-check it at each ownership boundary and at the
+/// final pool commit. This turns clear into a linearizable cancellation
+/// barrier for jobs that had already been popped by a worker.
+///
+/// Generation exhaustion is fail-closed. Wrapping to zero would make an
+/// ancient job current again, so once `u64::MAX` is reached no later job is
+/// accepted or committed.
+#[derive(Debug, Default)]
+pub(crate) struct PipelineEpoch {
+    value: AtomicU64,
+    exhausted: AtomicBool,
+}
+
+impl PipelineEpoch {
+    pub(crate) fn current(&self) -> Option<u64> {
+        if self.exhausted.load(Ordering::Acquire) {
+            None
+        } else {
+            Some(self.value.load(Ordering::Acquire))
+        }
+    }
+
+    pub(crate) fn is_current(&self, epoch: u64) -> bool {
+        !self.exhausted.load(Ordering::Acquire) && self.value.load(Ordering::Acquire) == epoch
+    }
+
+    /// Invalidate every job admitted before this call.
+    pub(crate) fn advance(&self) -> Option<u64> {
+        if self.exhausted.load(Ordering::Acquire) {
+            return None;
+        }
+        match self
+            .value
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1)
+            }) {
+            Ok(previous) => Some(previous + 1),
+            Err(_) => {
+                self.exhausted.store(true, Ordering::Release);
+                None
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&self, value: u64) {
+        self.value.store(value, Ordering::Release);
+        self.exhausted.store(false, Ordering::Release);
+    }
+}
+
 /// Pipeline state: the structures a transaction travels through before it
 /// reaches the pool.
 #[derive(Clone)]
 pub(crate) struct PipelineState {
+    /// Administrative generation shared by every pipeline stage.
+    pub(crate) epoch: Arc<PipelineEpoch>,
     /// The pipeline queues (pre-check, ordered-resolve, verify) and the
     /// in-flight RBF gate, bundled behind a single `Arc` because they share
     /// the same lifecycle and the same lock hierarchy.
@@ -201,11 +263,42 @@ pub(crate) struct RelayState {
     pub(crate) network: crate::network::TxPoolNetworkHandle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
+    /// Level-triggered update journal paired with the bounded notification
+    /// channel. A full channel may drop a wake edge, but it cannot erase the
+    /// authoritative dirty bit consumed on the next assembler pass.
+    pub(crate) block_assembler_dirty: Arc<AtomicU8>,
     pub(crate) callbacks: Arc<Callbacks>,
     /// Peers banned within the ban window. Workers check jobs against this
     /// set so that a banned peer's in-flight jobs (popped from a queue
     /// before the ban) do not keep flowing into the pool afterwards.
     pub(crate) banned_peers: BannedPeers,
+}
+
+impl RelayState {
+    pub(crate) fn mark_block_assembler_dirty(&self, message: &BlockAssemblerMessage) {
+        let bit = match message {
+            BlockAssemblerMessage::Pending => BLOCK_ASSEMBLER_DIRTY_PENDING,
+            BlockAssemblerMessage::Proposed => BLOCK_ASSEMBLER_DIRTY_PROPOSED,
+            BlockAssemblerMessage::Uncle => BLOCK_ASSEMBLER_DIRTY_UNCLE,
+            BlockAssemblerMessage::Reset(_) => return,
+        };
+        self.block_assembler_dirty.fetch_or(bit, Ordering::Release);
+    }
+
+    pub(crate) fn take_block_assembler_dirty(&self) -> Vec<BlockAssemblerMessage> {
+        let dirty = self.block_assembler_dirty.swap(0, Ordering::AcqRel);
+        let mut messages = Vec::with_capacity(3);
+        if dirty & BLOCK_ASSEMBLER_DIRTY_PENDING != 0 {
+            messages.push(BlockAssemblerMessage::Pending);
+        }
+        if dirty & BLOCK_ASSEMBLER_DIRTY_PROPOSED != 0 {
+            messages.push(BlockAssemblerMessage::Proposed);
+        }
+        if dirty & BLOCK_ASSEMBLER_DIRTY_UNCLE != 0 {
+            messages.push(BlockAssemblerMessage::Uncle);
+        }
+        messages
+    }
 }
 
 /// Shared set of recently banned peers (ban time per peer). Pruned

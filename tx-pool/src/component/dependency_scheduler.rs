@@ -249,27 +249,44 @@ impl DependencyScheduler {
 
     /// Mark one parent available. Every child whose final missing dependency
     /// is satisfied becomes ready exactly once.
-    pub(crate) fn parent_available(&mut self, parent: &Byte32) -> Vec<DependencyTicket> {
+    pub(crate) fn parent_available(
+        &mut self,
+        parent: &Byte32,
+    ) -> Result<Vec<DependencyTicket>, DependencyError> {
         let children = self.by_parent.get(parent).cloned().unwrap_or_default();
+        let affected: Vec<_> = children
+            .into_iter()
+            .filter(|child| {
+                self.records.get(child).is_some_and(|record| {
+                    record.missing.contains(parent) && record.state == RecordState::Waiting
+                })
+            })
+            .collect();
+        let ready_count = affected
+            .iter()
+            .filter(|child| {
+                self.records
+                    .get(*child)
+                    .is_some_and(|record| record.missing.len() == 1)
+            })
+            .count();
+        let mut generations = self.allocate_generations(ready_count)?;
         let mut ready = Vec::new();
-        for child in children {
-            let ticket = {
-                let Some(record) = self.records.get_mut(&child) else {
-                    continue;
-                };
-                if !record.missing.remove(parent)
-                    || !record.missing.is_empty()
-                    || record.state != RecordState::Waiting
-                {
-                    continue;
-                }
+        for child in affected {
+            let record = self.records.get_mut(&child).expect("waiting child exists");
+            record.missing.remove(parent);
+            if record.missing.is_empty() {
                 record.state = RecordState::Ready;
-                record.ticket(&child)
-            };
-            self.enqueue_ready(ticket.clone());
-            ready.push(ticket);
+                record.generation = generations
+                    .next()
+                    .expect("generation reserved per ready child");
+                let ticket = record.ticket(&child);
+                self.enqueue_ready(ticket.clone());
+                ready.push(ticket);
+            }
         }
-        ready
+        self.compact_physical_queues();
+        Ok(ready)
     }
 
     /// Reorg/removal invalidation. A child that was ready, dispatched, or
@@ -299,6 +316,7 @@ impl DependencyScheduler {
             record.state = RecordState::Waiting;
             record.generation = generation;
         }
+        self.compact_physical_queues();
         Ok(affected)
     }
 
@@ -336,35 +354,49 @@ impl DependencyScheduler {
 
     /// Dispatch the next ready ID. The record remains authoritative and moves
     /// to `Dispatched`, so a lost worker result is visible and recoverable.
-    pub(crate) fn pop_ready(&mut self) -> Option<DependencyTicket> {
+    pub(crate) fn pop_ready(&mut self) -> Result<Option<DependencyTicket>, DependencyError> {
         while let Some(ticket) = self.ready.pop_front() {
             if !self.ready_set.remove(&ticket) {
                 continue;
             }
-            let Some(record) = self.records.get_mut(&ticket.hash) else {
+            let Some(record) = self.records.get(&ticket.hash) else {
                 continue;
             };
             if record.generation != ticket.generation || record.state != RecordState::Ready {
                 continue;
             }
+            let generation = self.allocate_generation()?;
+            let record = self
+                .records
+                .get_mut(&ticket.hash)
+                .expect("validated ready record");
             record.state = RecordState::Dispatched;
-            return Some(ticket);
+            record.generation = generation;
+            let dispatched = record.ticket(&ticket.hash);
+            self.compact_physical_queues();
+            return Ok(Some(dispatched));
         }
-        None
+        self.compact_physical_queues();
+        Ok(None)
     }
 
     /// Return a failed/panicked dispatch to the ready queue.
     pub(crate) fn return_ready(
         &mut self,
         ticket: &DependencyTicket,
-    ) -> Result<(), DependencyError> {
+    ) -> Result<DependencyTicket, DependencyError> {
         self.validate_ticket_state(ticket, RecordState::Dispatched, "dispatched")?;
-        self.records
+        let generation = self.allocate_generation()?;
+        let record = self
+            .records
             .get_mut(&ticket.hash)
-            .expect("validated record")
-            .state = RecordState::Ready;
-        self.enqueue_ready(ticket.clone());
-        Ok(())
+            .expect("validated record");
+        record.state = RecordState::Ready;
+        record.generation = generation;
+        let ready = record.ticket(&ticket.hash);
+        self.enqueue_ready(ready.clone());
+        self.compact_physical_queues();
+        Ok(ready)
     }
 
     /// Preserve a dispatched child when its next bounded queue is full. It is
@@ -373,18 +405,23 @@ impl DependencyScheduler {
         &mut self,
         ticket: &DependencyTicket,
         stage: PipelineStage,
-    ) -> Result<(), DependencyError> {
+    ) -> Result<DependencyTicket, DependencyError> {
         self.validate_ticket_state(ticket, RecordState::Dispatched, "dispatched")?;
-        self.records
+        let generation = self.allocate_generation()?;
+        let record = self
+            .records
             .get_mut(&ticket.hash)
-            .expect("validated record")
-            .state = RecordState::CapacityBlocked(stage);
-        self.blocked_set.insert(ticket.clone());
+            .expect("validated record");
+        record.state = RecordState::CapacityBlocked(stage);
+        record.generation = generation;
+        let blocked = record.ticket(&ticket.hash);
+        self.blocked_set.insert(blocked.clone());
         self.capacity_waiters
             .entry(stage)
             .or_default()
-            .push_back(ticket.clone());
-        Ok(())
+            .push_back(blocked.clone());
+        self.compact_physical_queues();
+        Ok(blocked)
     }
 
     /// Move up to `limit` live waiters for one downstream stage back to the
@@ -393,39 +430,38 @@ impl DependencyScheduler {
         &mut self,
         stage: PipelineStage,
         limit: usize,
-    ) -> Vec<DependencyTicket> {
-        let mut woken = Vec::new();
-        while woken.len() < limit {
-            let ticket = self
-                .capacity_waiters
-                .get_mut(&stage)
-                .and_then(VecDeque::pop_front);
-            let Some(ticket) = ticket else {
-                break;
-            };
-            if !self.blocked_set.remove(&ticket) {
-                continue;
-            }
-            let Some(record) = self.records.get_mut(&ticket.hash) else {
-                continue;
-            };
-            if record.generation != ticket.generation
-                || record.state != RecordState::CapacityBlocked(stage)
-            {
-                continue;
-            }
-            record.state = RecordState::Ready;
-            self.enqueue_ready(ticket.clone());
-            woken.push(ticket);
-        }
-        if self
+    ) -> Result<Vec<DependencyTicket>, DependencyError> {
+        let candidates: Vec<_> = self
             .capacity_waiters
             .get(&stage)
-            .is_some_and(VecDeque::is_empty)
-        {
-            self.capacity_waiters.remove(&stage);
+            .into_iter()
+            .flat_map(|queue| queue.iter())
+            .filter(|ticket| {
+                self.blocked_set.contains(*ticket)
+                    && self.records.get(&ticket.hash).is_some_and(|record| {
+                        record.generation == ticket.generation
+                            && record.state == RecordState::CapacityBlocked(stage)
+                    })
+            })
+            .take(limit)
+            .cloned()
+            .collect();
+        let generations = self.allocate_generations(candidates.len())?;
+        let mut woken = Vec::with_capacity(candidates.len());
+        for (ticket, generation) in candidates.into_iter().zip(generations) {
+            self.blocked_set.remove(&ticket);
+            let record = self
+                .records
+                .get_mut(&ticket.hash)
+                .expect("validated blocked record");
+            record.state = RecordState::Ready;
+            record.generation = generation;
+            let ready = record.ticket(&ticket.hash);
+            self.enqueue_ready(ready.clone());
+            woken.push(ready);
         }
-        woken
+        self.compact_physical_queues();
+        Ok(woken)
     }
 
     /// Finish a successfully dispatched dependency record. The lifecycle
@@ -515,6 +551,68 @@ impl DependencyScheduler {
         }
     }
 
+    /// Lazy queue slots are intentionally decoupled from the authoritative
+    /// sets, but attacker-driven requeue/remove churn must not make their
+    /// physical allocation grow without bound. Compact once stale slack is
+    /// materially larger than live state; the additive floor keeps the hot
+    /// path amortized O(1) for small queues.
+    fn compact_physical_queues(&mut self) {
+        const STALE_SLACK: usize = 64;
+        if self.ready.len()
+            > self
+                .ready_set
+                .len()
+                .saturating_mul(2)
+                .saturating_add(STALE_SLACK)
+        {
+            self.ready.retain(|ticket| self.ready_set.contains(ticket));
+        }
+        let stages: Vec<_> = self.capacity_waiters.keys().copied().collect();
+        for stage in stages {
+            let live = self
+                .blocked_set
+                .iter()
+                .filter(|ticket| {
+                    self.records.get(&ticket.hash).is_some_and(|record| {
+                        record.generation == ticket.generation
+                            && record.state == RecordState::CapacityBlocked(stage)
+                    })
+                })
+                .count();
+            let should_compact = self.capacity_waiters.get(&stage).is_some_and(|queue| {
+                queue.len() > live.saturating_mul(2).saturating_add(STALE_SLACK)
+            });
+            if should_compact {
+                if let Some(queue) = self.capacity_waiters.get_mut(&stage) {
+                    queue.retain(|ticket| {
+                        self.blocked_set.contains(ticket)
+                            && self.records.get(&ticket.hash).is_some_and(|record| {
+                                record.generation == ticket.generation
+                                    && record.state == RecordState::CapacityBlocked(stage)
+                            })
+                    });
+                }
+            }
+            if self
+                .capacity_waiters
+                .get(&stage)
+                .is_some_and(VecDeque::is_empty)
+            {
+                self.capacity_waiters.remove(&stage);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn physical_queue_slots_for_test(&self) -> usize {
+        self.ready.len()
+            + self
+                .capacity_waiters
+                .values()
+                .map(VecDeque::len)
+                .sum::<usize>()
+    }
+
     fn validate_ticket_state(
         &self,
         ticket: &DependencyTicket,
@@ -584,5 +682,6 @@ impl DependencyScheduler {
                 }
             }
         }
+        self.compact_physical_queues();
     }
 }

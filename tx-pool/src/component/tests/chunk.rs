@@ -61,6 +61,8 @@ fn dummy_resolved_tx(
         pre_resolve_tip: Default::default(),
         snapshot: test_snapshot(),
         source,
+        epoch: 0,
+        verified: None,
         resident_permit: None,
     }
 }
@@ -97,7 +99,7 @@ async fn verify_queue_popped_tx_stays_visible_until_finish() {
         "lifecycle bytes stay charged while the worker owns the job"
     );
 
-    queue.finish(&id);
+    queue.finish(&id, 0);
     assert!(!queue.contains_or_active(&id));
     assert!(queue.get_active_tx(&id).is_none());
     assert_eq!(
@@ -136,7 +138,7 @@ async fn verify_queue_residency_budget_covers_active_jobs() {
         Err(Reject::Full(message)) if message.contains("residency budget")
     ));
 
-    queue.finish(&active.tx.proposal_short_id());
+    queue.finish(&active.tx.proposal_short_id(), 0);
     drop(active);
     assert_eq!(queue.resident_usage(), (0, 0));
 }
@@ -191,6 +193,7 @@ async fn verify_queue_basic() {
 
     assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
     assert!(!queue.contains_key(&id));
+    queue.finish(&id, 0);
 
     assert!(
         queue
@@ -203,6 +206,7 @@ async fn verify_queue_basic() {
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
+    queue.finish(&id, 0);
 
     assert!(
         queue
@@ -556,6 +560,8 @@ fn dummy_resolved_tx_with_fee(
         pre_resolve_tip: Default::default(),
         snapshot: test_snapshot(),
         source,
+        epoch: 0,
+        verified: None,
         resident_permit: None,
     }
 }
@@ -946,6 +952,7 @@ fn service_with_relay_receiver() -> (
             tx_pool_config: Arc::new(config),
         },
         pipeline: crate::service::PipelineState {
+            epoch: Arc::new(crate::service::PipelineEpoch::default()),
             queues: Arc::clone(&queues),
             waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
             chunk_rx,
@@ -955,6 +962,7 @@ fn service_with_relay_receiver() -> (
             network: dummy_network(),
             tx_relay_sender,
             block_assembler_sender,
+            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(Callbacks::new()),
             banned_peers: Default::default(),
         },
@@ -978,13 +986,16 @@ fn service_with_relay_receiver() -> (
     {
         let queues = Arc::clone(&queues);
         let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
+        let epoch = Arc::clone(&service.pipeline.epoch);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = queues.ordered_resolve_queue.write().await;
-                        for (tx, source) in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
+                        for job in txs {
+                            if epoch.is_current(job.epoch) {
+                                let _ = queue.add_tx(job);
+                            }
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1362,6 +1373,7 @@ async fn pre_check_worker_notifies_relayer_when_ordered_resolve_queue_is_full() 
                 cycles: MAX_TX_VERIFY_CYCLES,
                 peer: 1.into(),
             },
+            epoch: 0,
         })
         .unwrap();
 
@@ -1409,6 +1421,7 @@ async fn banned_peer_job_is_dropped_by_pre_check_worker() {
                 cycles: MAX_TX_VERIFY_CYCLES,
                 peer,
             },
+            epoch: 0,
         })
         .unwrap();
 
@@ -1464,20 +1477,23 @@ async fn recover_gives_up_terminally_after_bounded_retries() {
     let tx_hash = tx.hash();
     let queues = Arc::clone(&service.pipeline.queues);
     let relay = service.relay.clone();
+    let epoch = Arc::clone(&service.pipeline.epoch);
     let cancel = ckb_stop_handler::CancellationToken::new();
 
     let start = std::time::Instant::now();
     crate::process::recover::enqueue_recover_txs(
         queues,
-        vec![(
+        vec![crate::resolved_tx::ResolveJob::new_at(
             tx,
             TxSource::Remote {
                 cycles: 0,
                 peer: 1.into(),
             },
+            0,
         )],
         &cancel,
         &relay,
+        &epoch,
     )
     .await;
     assert!(
@@ -1640,6 +1656,8 @@ async fn dropped_verify_mgr_cancels_its_worker_generation() {
                 pre_resolve_tip: Default::default(),
                 snapshot,
                 source: TxSource::Local,
+                epoch: 0,
+                verified: None,
                 resident_permit: None,
             };
             let mut verify = service.pipeline.queues.verify_queue.write().await;
@@ -1733,6 +1751,7 @@ async fn zero_max_workers_is_clamped_to_one() {
             tx_pool_config: Arc::new(config),
         },
         pipeline: crate::service::PipelineState {
+            epoch: Arc::new(crate::service::PipelineEpoch::default()),
             queues: Arc::clone(&queues),
             waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
             chunk_rx,
@@ -1742,6 +1761,7 @@ async fn zero_max_workers_is_clamped_to_one() {
             network: dummy_network(),
             tx_relay_sender,
             block_assembler_sender,
+            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(Callbacks::new()),
             banned_peers: Default::default(),
         },

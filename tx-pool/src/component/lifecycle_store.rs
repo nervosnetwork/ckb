@@ -235,6 +235,7 @@ pub(crate) enum LifecycleError {
     GlobalBudgetExceeded,
     PeerBudgetExceeded(PeerIndex),
     IncarnationExhausted,
+    RevisionExhausted(Byte32),
     Missing(Byte32),
     IncarnationMismatch {
         expected: u64,
@@ -429,7 +430,7 @@ impl<P> LifecycleStore<P> {
         if let Some((_, new_charge_bytes)) = &replacement {
             self.check_recharge(&lease.hash, *new_charge_bytes)?;
         }
-        self.apply_location_change(&lease.hash, next);
+        self.apply_location_change(&lease.hash, next)?;
         if let Some((payload, new_charge_bytes)) = replacement {
             self.apply_recharge(&lease.hash, new_charge_bytes);
             self.entries
@@ -453,7 +454,7 @@ impl<P> LifecycleStore<P> {
         next: LifecycleLocation,
     ) -> Result<LifecycleVersion, LifecycleError> {
         self.validate_transition(hash, version, expected, &next)?;
-        self.apply_location_change(hash, next);
+        self.apply_location_change(hash, next)?;
         Ok(self
             .entries
             .get(hash)
@@ -483,7 +484,7 @@ impl<P> LifecycleStore<P> {
 
         let mut versions = Vec::with_capacity(transitions.len());
         for transition in transitions {
-            self.apply_location_change(&transition.hash, transition.next.clone());
+            self.apply_location_change(&transition.hash, transition.next.clone())?;
             versions.push(
                 self.entries
                     .get(&transition.hash)
@@ -533,7 +534,7 @@ impl<P> LifecycleStore<P> {
         for operation in operations {
             match operation {
                 LifecycleBatchOp::Transition(transition) => {
-                    self.apply_location_change(&transition.hash, transition.next.clone());
+                    self.apply_location_change(&transition.hash, transition.next.clone())?;
                     results.push(LifecycleBatchResult::Transitioned {
                         hash: transition.hash.clone(),
                         version: self
@@ -653,6 +654,13 @@ impl<P> LifecycleStore<P> {
                 to: next.clone(),
             });
         }
+        let entry = self
+            .entries
+            .get(hash)
+            .expect("version validation guarantees lifecycle entry");
+        if entry.revision == u64::MAX {
+            return Err(LifecycleError::RevisionExhausted(hash.clone()));
+        }
         Ok(())
     }
 
@@ -687,13 +695,25 @@ impl<P> LifecycleStore<P> {
         Ok(())
     }
 
-    fn apply_location_change(&mut self, hash: &Byte32, next: LifecycleLocation) {
-        let old_kind = self
-            .entries
-            .get(hash)
-            .expect("validated lifecycle entry")
-            .location
-            .kind();
+    fn apply_location_change(
+        &mut self,
+        hash: &Byte32,
+        next: LifecycleLocation,
+    ) -> Result<(), LifecycleError> {
+        // Compute the new revision before touching any index. Even if a
+        // caller accidentally skipped transition validation, exhaustion is
+        // a clean error and cannot leave the location indexes half-mutated.
+        let (old_kind, new_revision) = {
+            let entry = self
+                .entries
+                .get(hash)
+                .ok_or_else(|| LifecycleError::Missing(hash.clone()))?;
+            let revision = entry
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| LifecycleError::RevisionExhausted(hash.clone()))?;
+            (entry.location.kind(), revision)
+        };
         if let Some(ids) = self.by_location.get_mut(&old_kind) {
             ids.remove(hash);
             if ids.is_empty() {
@@ -709,10 +729,16 @@ impl<P> LifecycleStore<P> {
             .get_mut(hash)
             .expect("validated lifecycle entry");
         entry.location = next;
-        entry.revision = entry
-            .revision
-            .checked_add(1)
-            .expect("lifecycle revision space exhausted");
+        entry.revision = new_revision;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_revision_for_test(&mut self, hash: &Byte32, revision: u64) {
+        self.entries
+            .get_mut(hash)
+            .expect("test lifecycle entry")
+            .revision = revision;
     }
 
     fn check_add_budget(

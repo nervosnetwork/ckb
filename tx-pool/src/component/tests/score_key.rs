@@ -317,6 +317,100 @@ fn escape_hatch_eviction_drops_cascaded_parents_from_parent_set() {
     assert!(!map.contains_key(&c2_id));
 }
 
+#[test]
+fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
+    let mut map = PoolMap::new(3);
+    let base = |n: u8| {
+        OutPoint::new_builder()
+            .tx_hash(ckb_types::packed::Byte32::new([n; 32]))
+            .index(0u32)
+            .build()
+    };
+    let cell_o = base(0x31);
+    let cell_p = base(0x32);
+    let with_dep = |input: OutPoint, dep: OutPoint, fee: u64| {
+        TxEntry::dummy_resolve(
+            TransactionBuilder::default()
+                .input(CellInput::new_builder().previous_output(input).build())
+                .cell_dep(
+                    ckb_types::packed::CellDep::new_builder()
+                        .out_point(dep)
+                        .build(),
+                )
+                .witness(Bytes::new())
+                .build(),
+            100,
+            Capacity::shannons(fee),
+            100,
+        )
+    };
+
+    let c1 = with_dep(base(0x41), cell_o.clone(), 1);
+    let c1_tx = c1.transaction().clone();
+    let child = |parent: &ckb_types::core::TransactionView| {
+        TxEntry::dummy_resolve(
+            TransactionBuilder::default()
+                .input(
+                    CellInput::new_builder()
+                        .previous_output(OutPoint::new(parent.hash(), 0))
+                        .build(),
+                )
+                .witness(Bytes::new())
+                .build(),
+            100,
+            Capacity::shannons(1),
+            100,
+        )
+    };
+    let c2 = child(&c1_tx);
+    let c2_tx = c2.transaction().clone();
+    let c3 = child(&c2_tx);
+    let c3_tx = c3.transaction().clone();
+    let d1 = with_dep(base(0x42), cell_p.clone(), 1_000_000);
+    let c1_id = c1.proposal_short_id();
+    let c2_id = c2.proposal_short_id();
+    let c3_id = c3.proposal_short_id();
+    let d1_id = d1.proposal_short_id();
+    map.add_proposed(c1).unwrap();
+    map.add_proposed(c2).unwrap();
+    map.add_proposed(c3).unwrap();
+    map.add_proposed(d1).unwrap();
+
+    // X has four ancestors: C1 -> C2 -> C3 plus independent D1. Both C1
+    // and D1 are cell-ref eviction candidates. Removing low-fee C1 cascades
+    // through C2/C3, immediately reducing the actual ancestry below max;
+    // D1 must not be evicted based on a stale "minus one" count.
+    let x = TxEntry::dummy_resolve(
+        TransactionBuilder::default()
+            .input(CellInput::new_builder().previous_output(cell_o).build())
+            .input(CellInput::new_builder().previous_output(cell_p).build())
+            .input(
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(c3_tx.hash(), 0))
+                    .build(),
+            )
+            .witness(Bytes::new())
+            .build(),
+        100,
+        Capacity::shannons(2_000_000),
+        100,
+    );
+    let (added, evicted) = map
+        .add_entry(x, crate::component::pool_map::Status::Proposed)
+        .unwrap();
+    assert!(added);
+    let evicted_ids: std::collections::HashSet<_> =
+        evicted.iter().map(TxEntry::proposal_short_id).collect();
+    assert_eq!(
+        evicted_ids,
+        std::collections::HashSet::from([c1_id, c2_id, c3_id])
+    );
+    assert!(
+        map.contains_key(&d1_id),
+        "unrelated high-fee parent survives"
+    );
+}
+
 /// Child-before-parent: linking the parent must fold the child's weight
 /// into the parent's *own* descendant statistics. Without the fold, the
 /// day the child leaves, `sub_descendant_weight` saturates the

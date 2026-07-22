@@ -330,6 +330,8 @@ async fn remote_orphan_parks_and_recovers_after_parent_lands() {
         pre_resolve_tip: Default::default(),
         snapshot,
         source: TxSource::Local,
+        epoch: 0,
+        verified: None,
         resident_permit: None,
     };
     {

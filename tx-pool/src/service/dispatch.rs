@@ -327,7 +327,7 @@ impl TxPoolService {
 
     async fn handle_clear_pipeline(&self, req: SyncRequest<(), ()>) {
         let SyncRequest { responder, .. } = req;
-        self.clear_pipeline_queues().await;
+        self.clear_pipeline().await;
         respond(responder, (), "clear_pipeline");
     }
 

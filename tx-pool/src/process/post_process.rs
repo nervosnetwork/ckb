@@ -19,6 +19,24 @@ impl TxPoolService {
         source: TxSource,
         ret: &Result<Completed, Reject>,
     ) {
+        let Ok(epoch) = self.current_pipeline_epoch() else {
+            self.terminal_internal(tx, source).await;
+            return;
+        };
+        self.after_process_at(tx, source, ret, epoch).await;
+    }
+
+    pub(crate) async fn after_process_at(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        ret: &Result<Completed, Reject>,
+        epoch: u64,
+    ) {
+        if !self.is_pipeline_epoch_current(epoch) {
+            self.terminal_internal(tx, source).await;
+            return;
+        }
         let tx_hash = tx.hash();
 
         // log tx verification result for monitor node
@@ -66,7 +84,9 @@ impl TxPoolService {
             };
             if !already_held {
                 let mut tx_pool = self.pool.tx_pool.write().await;
-                if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
+                if self.is_pipeline_epoch_current(epoch)
+                    && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
+                {
                     tx_pool.record_conflict(tx.clone(), source);
                 }
             }
@@ -82,23 +102,25 @@ impl TxPoolService {
             && is_missing_input(reject)
         {
             let parents = tx.unique_parents();
-            self.handle_missing_input_orphan(tx, source, parents).await;
+            self.handle_missing_input_orphan_at(tx, source, parents, epoch)
+                .await;
             return;
         }
 
         match source {
             TxSource::Remote { cycles, peer } => {
-                self.after_process_remote(tx, peer, cycles, ret).await;
+                self.after_process_remote(tx, peer, cycles, ret, epoch)
+                    .await;
             }
             TxSource::Proposal => {
                 // Proposal txs are a distinct source variant. For relay
                 // purposes they are handled like local submissions, while the
                 // verify queue uses `is_proposal_tx` to grant them priority.
                 // They have no declared cycles or peer.
-                self.after_process_local(tx, tx_hash, ret).await;
+                self.after_process_local(tx, tx_hash, ret, epoch).await;
             }
             TxSource::Local => {
-                self.after_process_local(tx, tx_hash, ret).await;
+                self.after_process_local(tx, tx_hash, ret, epoch).await;
             }
         }
     }
@@ -175,6 +197,7 @@ impl TxPoolService {
         peer: PeerIndex,
         cycles: Cycle,
         ret: &Result<Completed, Reject>,
+        epoch: u64,
     ) {
         let tx_hash = tx.hash();
         match ret {
@@ -183,7 +206,7 @@ impl TxPoolService {
                     "after_process remote send_result_to_relayer {} {}",
                     tx_hash, peer
                 );
-                self.handle_verify_success(&tx, Some(peer)).await;
+                self.handle_verify_success(&tx, Some(peer), epoch).await;
             }
             Err(reject) => {
                 debug!(
@@ -195,7 +218,8 @@ impl TxPoolService {
                     // Orphan storage still uses TxSource, so reconstruct the
                     // remote variant only for the missing-input path.
                     let source = TxSource::Remote { cycles, peer };
-                    self.handle_missing_input_orphan(tx, source, parents).await;
+                    self.handle_missing_input_orphan_at(tx, source, parents, epoch)
+                        .await;
                 } else {
                     self.handle_remote_reject(&tx_hash, reject, peer).await;
                 }
@@ -207,6 +231,7 @@ impl TxPoolService {
         tx: TransactionView,
         tx_hash: Byte32,
         ret: &Result<Completed, Reject>,
+        epoch: u64,
     ) {
         match ret {
             Ok(_) | Err(Reject::Duplicated(_)) => {
@@ -217,7 +242,7 @@ impl TxPoolService {
                 }
                 // Re-broadcast tx when it's duplicated and submitted
                 // through local rpc, or notify on fresh success.
-                self.handle_verify_success(&tx, None).await;
+                self.handle_verify_success(&tx, None, epoch).await;
             }
             Err(reject) => {
                 debug!("after_process {} reject: {} ", tx_hash, reject);
@@ -236,12 +261,21 @@ impl TxPoolService {
         &self,
         tx: &TransactionView,
         original_peer: Option<PeerIndex>,
+        epoch: u64,
     ) {
+        if !self.is_pipeline_epoch_current(epoch) {
+            self.terminal_internal(
+                tx.clone(),
+                original_peer.map_or(TxSource::Local, |peer| TxSource::Remote { cycles: 0, peer }),
+            )
+            .await;
+            return;
+        }
         self.send_result_to_relayer(TxVerificationResult::Ok {
             original_peer,
             tx_hash: tx.hash(),
         });
-        Box::pin(self.process_orphan_tx(tx)).await;
+        Box::pin(self.process_orphan_tx_at(tx, epoch)).await;
     }
     /// Post-processing for a rejected remote transaction: ban the peer if the
     /// tx is malformed, relay the rejection if allowed, and record it in the

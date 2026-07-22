@@ -130,11 +130,17 @@ async fn run_retained_receiver<T, F, Fut>(
 pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
     while let Some(job) = service.pipeline.queues.pre_check_queue.pop().await {
         let id = job.tx.proposal_short_id();
+        let epoch = job.epoch;
+        if !service.is_pipeline_epoch_current(epoch) {
+            service.terminal_internal(job.tx, job.source).await;
+            service.pipeline.queues.pre_check_queue.finish(&id, epoch);
+            continue;
+        }
         if service.is_recently_banned(job.source) {
             // The peer was banned after this job was popped: its in-flight
             // jobs must not keep flowing into the pool.
             service.terminal_internal(job.tx, job.source).await;
-            service.pipeline.queues.pre_check_queue.finish(&id);
+            service.pipeline.queues.pre_check_queue.finish(&id, epoch);
             continue;
         }
         let tx = job.tx.clone();
@@ -169,7 +175,7 @@ pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
         }
         // Terminal state reached (forwarded, re-enqueued elsewhere,
         // rejected, or panicked): clear the active marker set at pop time.
-        service.pipeline.queues.pre_check_queue.finish(&id);
+        service.pipeline.queues.pre_check_queue.finish(&id, epoch);
     }
 }
 
@@ -382,6 +388,7 @@ pub(crate) fn spawn_deferred_worker(
     deferred_receiver: mpsc::Receiver<DeferredTask>,
     cancel: CancellationToken,
     relay: crate::service::RelayState,
+    epoch: Arc<crate::service::PipelineEpoch>,
 ) -> tokio::task::JoinHandle<()> {
     handle.spawn(async move {
         let mut deferred_rx = deferred_receiver;
@@ -398,9 +405,10 @@ pub(crate) fn spawn_deferred_worker(
                     while let Ok(task) = deferred_rx.try_recv() {
                         if let DeferredTask::RecoverTxs(txs) = task {
                             let mut queue = queues.ordered_resolve_queue.write().await;
-                            for (tx, source) in txs {
-                                let _ = queue
-                                    .add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
+                            for job in txs {
+                                if epoch.is_current(job.epoch) {
+                                    let _ = queue.add_tx(job);
+                                }
                             }
                         }
                     }
@@ -436,6 +444,7 @@ pub(crate) fn spawn_deferred_worker(
             };
             let cancel_handler = cancel.clone();
             let relay_handler = relay.clone();
+            let epoch_handler = Arc::clone(&epoch);
             let handler = async move {
                 match task {
                     DeferredTask::RecoverTxs(txs) => {
@@ -444,6 +453,7 @@ pub(crate) fn spawn_deferred_worker(
                             txs,
                             &cancel_handler,
                             &relay_handler,
+                            &epoch_handler,
                         )
                         .await;
                     }
@@ -471,6 +481,7 @@ pub(crate) fn spawn_deferred_worker(
                                 txs,
                                 &cancel,
                                 &relay,
+                                &epoch,
                             ),
                         )
                         .await;
@@ -666,12 +677,14 @@ mod tests {
         let txs_verify_cache = Arc::new(RwLock::new(ckb_verification::cache::init_cache()));
         let (deferred_tx, deferred_rx) = mpsc::channel(16);
         let cancel = CancellationToken::new();
+        let epoch = Arc::new(crate::service::PipelineEpoch::default());
         let (tx_relay_sender, _relay_rx) = ckb_channel::bounded(16);
         let (block_assembler_sender, _ba_rx) = tokio::sync::mpsc::channel(1);
         let relay = crate::service::RelayState {
             network: Arc::new(crate::network::DummyTxPoolNetwork),
             tx_relay_sender,
             block_assembler_sender,
+            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(crate::callback::Callbacks::new()),
             banned_peers: Default::default(),
         };
@@ -688,8 +701,8 @@ mod tests {
         let id2 = tx2.proposal_short_id();
         deferred_tx
             .send(DeferredTask::RecoverTxs(vec![
-                (tx1, crate::tx_source::TxSource::Local),
-                (tx2, crate::tx_source::TxSource::Local),
+                crate::resolved_tx::ResolveJob::new_at(tx1, crate::tx_source::TxSource::Local, 0),
+                crate::resolved_tx::ResolveJob::new_at(tx2, crate::tx_source::TxSource::Local, 0),
             ]))
             .await
             .unwrap();
@@ -703,6 +716,7 @@ mod tests {
             deferred_rx,
             cancel.clone(),
             relay,
+            epoch,
         );
         // Give the worker a moment to start and block on recv.
         tokio::time::sleep(Duration::from_millis(50)).await;

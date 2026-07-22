@@ -1,4 +1,3 @@
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
 use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
 use crate::error::Reject;
@@ -82,15 +81,18 @@ impl TxPoolService {
             return;
         }
         if let Some(message) = status_to_block_assembler_message(status) {
-            // try_send on purpose: the consumer deduplicates messages into
-            // Pending/Proposed/Uncle variants on each interval, so dropping a
-            // duplicate notification when the channel is full is harmless.
+            // Record level-triggered state before the best-effort wake. The
+            // consumer merges this journal on every pass, so even the *only*
+            // Pending/Proposed transition cannot be lost when the bounded
+            // channel is full.
+            self.relay.mark_block_assembler_dirty(&message);
+            // try_send on purpose: the channel is only a wake edge now.
             // Using send().await here would backpressure verify workers
             // whenever the block-assembler loop is slow.
             if let Err(err) = self.relay.block_assembler_sender.try_send(message) {
                 match err {
                     mpsc::error::TrySendError::Full(_) => {
-                        debug!("block_assembler channel full, skip duplicate notification")
+                        debug!("block_assembler channel full; dirty update retained")
                     }
                     mpsc::error::TrySendError::Closed(_) => {
                         error!("block_assembler receiver dropped")
@@ -98,11 +100,6 @@ impl TxPoolService {
                 }
             }
         }
-    }
-
-    pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {
-        let queue = self.pipeline.queues.verify_queue.read().await;
-        queue.contains_key(&tx.proposal_short_id())
     }
 
     /// Read-lock the pool and run `f` without cloning the snapshot.
@@ -141,22 +138,11 @@ impl TxPoolService {
         let dup = || Reject::Duplicated(tx.hash());
         let id = tx.proposal_short_id();
 
-        {
-            let ordered = self.pipeline.queues.ordered_resolve_queue.read().await;
-            if ordered.contains_key(&id) {
-                return Err(dup());
-            }
-        }
-
-        if self.pipeline.queues.pre_check_queue.contains_key(&id) {
-            return Err(dup());
-        }
-
-        if self.verify_queue_contains(tx).await {
-            return Err(dup());
-        }
-
-        if self.waiting_room_contains(tx).await {
+        // Active jobs are authoritative pipeline residents too. Panic guards
+        // now finish every popped job, so allowing resubmission while active
+        // only creates duplicate CPU work and lets two workers overwrite the
+        // same ActiveSet slot.
+        if self.pipeline_contains(&id).await {
             return Err(dup());
         }
 
@@ -320,6 +306,13 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
+        // Declare the callback effect barrier before the recovery guard.
+        // Rust drops locals in reverse order, so every normal, cancellation,
+        // or unwind path releases recovery_lock before publishing callbacks.
+        // Nested after_process calls during detached-tx recovery use the same
+        // callback set and are therefore covered too.
+        let _callback_deferral = self.relay.callbacks.defer();
+
         // Hold the recovery lock for the *whole* reorg — the write-lock
         // section, the callbacks, and the retained-transaction recovery —
         // so `save_pool` can never persist a half-updated pool: a snapshot
@@ -346,7 +339,7 @@ impl TxPoolService {
             self.aux.fee_estimator.commit_block(&blk);
             attached.extend(blk.transactions().into_iter().skip(1));
         }
-        let mut retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
+        let mut retain = reorg::detached_not_attached(&detached, &attached);
 
         let reorg::ReorgOutcome {
             reject_events,
@@ -439,6 +432,10 @@ impl TxPoolService {
                         );
                         continue;
                     }
+                    Ok(crate::process::submit::VerifySubmitOutcome::Cleared) => {
+                        debug!("reorg recovery tx {} invalidated by clear", tx.hash());
+                        continue;
+                    }
                     Err(reject) => reject,
                 };
                 {
@@ -517,6 +514,11 @@ impl TxPoolService {
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
+        // Invalidate popped/active work before waiting for recovery or the
+        // pool write lock. Every later pipeline boundary and the final commit
+        // reject the old generation, while a submit that already linearized
+        // under the pool lock is removed by the clear below.
+        self.advance_pipeline_epoch();
         // Same lock as the reorg recovery: an in-flight reorg must finish
         // re-adding its detached transactions before the pool is cleared,
         // otherwise the freshly cleared pool would be repopulated by the

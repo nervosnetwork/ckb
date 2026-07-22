@@ -10,6 +10,23 @@ use ckb_util::LinkedHashSet;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Retain detached transactions whose raw transaction hash is absent from
+/// the attached branch. `TransactionView` equality includes witnesses, but
+/// cell identity and spendability use the raw transaction hash: treating two
+/// witness variants as distinct would re-submit the detached variant as Dead
+/// and incorrectly cascade that failure into otherwise-live dependents.
+pub(crate) fn detached_not_attached(
+    detached: &LinkedHashSet<TransactionView>,
+    attached: &LinkedHashSet<TransactionView>,
+) -> Vec<TransactionView> {
+    let attached_hashes: HashSet<Byte32> = attached.iter().map(TransactionView::hash).collect();
+    detached
+        .iter()
+        .filter(|tx| !attached_hashes.contains(&tx.hash()))
+        .cloned()
+        .collect()
+}
+
 /// Collected results of [`update_tx_pool_for_reorg`], all dispatched by
 /// the caller outside the write lock.
 pub(crate) struct ReorgOutcome {
@@ -21,6 +38,39 @@ pub(crate) struct ReorgOutcome {
     /// Proposed/pending notifications (user callbacks must not run
     /// in-lock).
     pub(crate) notify_events: Vec<(TxEntry, Status)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detached_not_attached;
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder, prelude::Pack};
+    use ckb_util::LinkedHashSet;
+
+    #[test]
+    fn attached_raw_hash_suppresses_detached_witness_variant() {
+        let detached_variant = TransactionBuilder::default()
+            .witness(Bytes::from_static(b"detached").pack())
+            .build();
+        let attached_variant = detached_variant
+            .as_advanced_builder()
+            .set_witnesses(vec![Bytes::from_static(b"attached").pack()])
+            .build();
+        assert_eq!(detached_variant.hash(), attached_variant.hash());
+        assert_ne!(
+            detached_variant.witness_hash(),
+            attached_variant.witness_hash()
+        );
+        let unrelated = TransactionBuilder::default()
+            .output_data(Bytes::from_static(b"different-raw").pack())
+            .witness(Bytes::from_static(b"unrelated").pack())
+            .build();
+        let mut detached = LinkedHashSet::default();
+        detached.extend([detached_variant, unrelated.clone()]);
+        let mut attached = LinkedHashSet::default();
+        attached.extend([attached_variant]);
+
+        assert_eq!(detached_not_attached(&detached, &attached), vec![unrelated]);
+    }
 }
 
 pub(crate) fn update_tx_pool_for_reorg(

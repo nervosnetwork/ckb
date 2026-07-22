@@ -6,6 +6,7 @@
 //! `pre_check`, and routes the result to `VerifyQueue` or the orphan pool.
 //! Keeping this stage ordered reduces orphan-pool churn for dependent txs.
 
+use crate::component::ordered_resolve_queue::ResolveWork;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
@@ -100,6 +101,8 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
                 pre_resolve_tip,
                 snapshot,
                 source: job.source,
+                epoch: job.epoch,
+                verified: None,
                 resident_permit: None,
             })
         }
@@ -120,7 +123,7 @@ struct ResolveHandler {
 }
 
 impl JobHandler for ResolveHandler {
-    type Job = ResolveJob;
+    type Job = ResolveWork;
     type Exit = ResolveExit;
 
     fn worker_name(&self) -> &'static str {
@@ -147,14 +150,14 @@ impl JobHandler for ResolveHandler {
             .subscribe()
     }
 
-    async fn pop_one(&mut self) -> Option<ResolveJob> {
+    async fn pop_one(&mut self) -> Option<ResolveWork> {
         self.service
             .pipeline
             .queues
             .ordered_resolve_queue
             .write()
             .await
-            .pop_front()
+            .pop_front_work()
     }
 
     async fn next_deadline(&self) -> Option<tokio::time::Instant> {
@@ -168,10 +171,23 @@ impl JobHandler for ResolveHandler {
             .map(tokio::time::Instant::from_std)
     }
 
-    async fn process_one(&mut self, job: ResolveJob) {
+    async fn process_one(&mut self, work: ResolveWork) {
+        let ResolveWork { job, active_token } = work;
         let id = job.tx.proposal_short_id();
         let tx = job.tx.clone();
         let source = job.source;
+        let epoch = job.epoch;
+        if !self.service.is_pipeline_epoch_current(epoch) {
+            self.service.terminal_internal(tx, source).await;
+            self.service
+                .pipeline
+                .queues
+                .ordered_resolve_queue
+                .write()
+                .await
+                .finish_work(&id, active_token);
+            return;
+        }
         if self.service.is_recently_banned(source) {
             // The peer was banned after this job was popped: its in-flight
             // jobs must not keep flowing into the pool.
@@ -182,7 +198,7 @@ impl JobHandler for ResolveHandler {
                 .ordered_resolve_queue
                 .write()
                 .await
-                .finish(&id);
+                .finish_work(&id, active_token);
             return;
         }
         // Guard each job individually: one bad job must neither kill the
@@ -194,10 +210,10 @@ impl JobHandler for ResolveHandler {
                     self.push_to_verify_queue(resolved).await;
                 }
                 ResolveStageResult::Orphan(id, parents) => {
-                    self.handle_orphan(job, id, parents).await;
+                    self.handle_orphan(job, id, parents, active_token).await;
                 }
                 ResolveStageResult::Reject(tx, reject) => {
-                    self.handle_reject(tx, job.source, reject).await;
+                    self.handle_reject(tx, job.source, reject, epoch).await;
                 }
             }
         })
@@ -210,7 +226,7 @@ impl JobHandler for ResolveHandler {
             // A registration may already exist if the panic hit inside
             // `enqueue_resolved_tx` after the registration commit; clean it
             // up so it cannot block future replacements as a ghost.
-            self.service.abort_rbf_candidate(&id).await;
+            self.service.abort_rbf_candidate_at(&id, epoch).await;
             // The tx must not vanish silently either: close the loop with
             // the relayer (nothing is recorded — this was an internal
             // failure, not the transaction's fault).
@@ -227,7 +243,7 @@ impl JobHandler for ResolveHandler {
             .ordered_resolve_queue
             .write()
             .await
-            .finish(&id);
+            .finish_work(&id, active_token);
     }
 
     fn make_exit(&self, outcome: WorkerOutcome) -> ResolveExit {
@@ -258,6 +274,7 @@ impl ResolveHandler {
         job: ResolveJob,
         id: ProposalShortId,
         parents: HashSet<Byte32>,
+        active_token: u64,
     ) {
         if let Some(peer) = job.source.peer() {
             debug!(
@@ -265,7 +282,7 @@ impl ResolveHandler {
                 id, peer, parents
             );
             self.service
-                .handle_missing_input_orphan(job.tx.clone(), job.source, parents)
+                .handle_missing_input_orphan_at(job.tx.clone(), job.source, parents, job.epoch)
                 .await;
             return;
         }
@@ -303,6 +320,7 @@ impl ResolveHandler {
             );
             let tx = job.tx.clone();
             let source = job.source;
+            let epoch = job.epoch;
             let mut ordered = self
                 .service
                 .pipeline
@@ -310,11 +328,23 @@ impl ResolveHandler {
                 .ordered_resolve_queue
                 .write()
                 .await;
-            if let Err(reject) = ordered.add_tx_delayed(job, LOCAL_ORPHAN_RETRY_DELAY) {
+            if !self.service.is_pipeline_epoch_current(epoch) {
                 drop(ordered);
-                self.service
-                    .reject_with_after_process(tx, source, reject)
-                    .await;
+                self.service.terminal_internal(tx, source).await;
+                return;
+            }
+            match ordered.requeue_active(job, active_token, Some(LOCAL_ORPHAN_RETRY_DELAY)) {
+                Ok(true) => {}
+                Ok(false) => {
+                    drop(ordered);
+                    self.service.terminal_internal(tx, source).await;
+                }
+                Err(reject) => {
+                    drop(ordered);
+                    self.service
+                        .after_process_at(tx, source, &Err(reject), epoch)
+                        .await;
+                }
             }
         } else if job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
             let mut job = job;
@@ -325,6 +355,7 @@ impl ResolveHandler {
             );
             let tx = job.tx.clone();
             let source = job.source;
+            let epoch = job.epoch;
             let mut ordered = self
                 .service
                 .pipeline
@@ -332,11 +363,23 @@ impl ResolveHandler {
                 .ordered_resolve_queue
                 .write()
                 .await;
-            if let Err(reject) = ordered.add_tx(job) {
+            if !self.service.is_pipeline_epoch_current(epoch) {
                 drop(ordered);
-                self.service
-                    .reject_with_after_process(tx, source, reject)
-                    .await;
+                self.service.terminal_internal(tx, source).await;
+                return;
+            }
+            match ordered.requeue_active(job, active_token, None) {
+                Ok(true) => {}
+                Ok(false) => {
+                    drop(ordered);
+                    self.service.terminal_internal(tx, source).await;
+                }
+                Err(reject) => {
+                    drop(ordered);
+                    self.service
+                        .after_process_at(tx, source, &Err(reject), epoch)
+                        .await;
+                }
             }
         } else {
             // The bounded retry budget is exhausted: this is a terminal
@@ -355,9 +398,10 @@ impl ResolveHandler {
         tx: ckb_types::core::TransactionView,
         source: TxSource,
         reject: Reject,
+        epoch: u64,
     ) {
         self.service
-            .reject_with_after_process(tx, source, reject)
+            .after_process_at(tx, source, &Err(reject), epoch)
             .await;
     }
 }

@@ -68,20 +68,36 @@ const REQUEUE_LOCK_BATCH: usize = 32;
 /// [`recover_terminal`]) — never a silent drop.
 pub(crate) async fn enqueue_recover_txs(
     queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
-    txs: Vec<(TransactionView, TxSource)>,
+    jobs: Vec<crate::resolved_tx::ResolveJob>,
     cancel: &CancellationToken,
     relay: &crate::service::RelayState,
+    epoch: &crate::service::PipelineEpoch,
 ) {
-    for (tx, source) in txs {
+    for job in jobs {
+        let tx = job.tx.clone();
+        let source = job.source;
         debug!("recover back: {:?}", tx.proposal_short_id());
-        let job = crate::resolved_tx::ResolveJob::new(tx.clone(), source);
+        if !epoch.is_current(job.epoch) {
+            recover_cancelled(relay, &tx, source);
+            continue;
+        }
         for attempt in 1..=RECOVER_ENQUEUE_MAX_ATTEMPTS {
             let result = {
                 let mut queue = queues.ordered_resolve_queue.write().await;
-                queue.add_tx(job.clone())
+                if epoch.is_current(job.epoch) {
+                    queue.add_tx(job.clone())
+                } else {
+                    Err(Reject::Internal(
+                        "tx-pool pipeline generation invalidated by clear".to_string(),
+                    ))
+                }
             };
             match result {
                 Ok(_) => break,
+                Err(Reject::Internal(_)) if !epoch.is_current(job.epoch) => {
+                    recover_cancelled(relay, &tx, source);
+                    break;
+                }
                 Err(crate::error::Reject::Full(_)) if attempt < RECOVER_ENQUEUE_MAX_ATTEMPTS => {
                     tokio::select! {
                         _ = tokio::time::sleep(crate::resolve_mgr::LOCAL_ORPHAN_RETRY_DELAY) => {}
@@ -101,6 +117,16 @@ pub(crate) async fn enqueue_recover_txs(
                 }
             }
         }
+    }
+}
+
+fn recover_cancelled(relay: &crate::service::RelayState, tx: &TransactionView, source: TxSource) {
+    if source.peer().is_some()
+        && let Err(e) = relay
+            .tx_relay_sender
+            .send(TxVerificationResult::Reject { tx_hash: tx.hash() })
+    {
+        warn!("recover cancellation relayer notify failed: {}", e);
     }
 }
 
@@ -134,23 +160,38 @@ fn recover_terminal(
 }
 
 impl TxPoolService {
-    pub(crate) async fn waiting_room_contains(&self, tx: &TransactionView) -> bool {
-        let room = self.pipeline.waiting_room.read().await;
-        room.contains_key(&tx.proposal_short_id())
-    }
-
     /// Route a transaction with missing inputs to the orphan pool and notify
     /// the relayer about the missing parents.
     ///
     /// Used by both [`Self::after_process`] (which computes parents from the
     /// tx) and the ordered resolver (which receives parents from the resolve
     /// stage result).
+    #[cfg(test)]
     pub(crate) async fn handle_missing_input_orphan(
         &self,
         tx: TransactionView,
         source: TxSource,
         parents: HashSet<Byte32>,
     ) {
+        let Ok(epoch) = self.current_pipeline_epoch() else {
+            self.terminal_internal(tx, source).await;
+            return;
+        };
+        self.handle_missing_input_orphan_at(tx, source, parents, epoch)
+            .await;
+    }
+
+    pub(crate) async fn handle_missing_input_orphan_at(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        parents: HashSet<Byte32>,
+        epoch: u64,
+    ) {
+        if !self.is_pipeline_epoch_current(epoch) {
+            self.terminal_internal(tx, source).await;
+            return;
+        }
         // Recheck parent availability while holding the orphan write lock.
         // The tx failed resolution a moment ago, but its parents may have
         // landed since: a parent committing in that window runs its
@@ -161,7 +202,18 @@ impl TxPoolService {
         // committing concurrently runs its `process_orphan_tx` only after
         // we release this lock, and then finds the inserted orphan.
         let mut orphan = self.pipeline.waiting_room.write().await;
-        if self.unavailable_parent_ids(&parents).await.is_empty() {
+        if !self.is_pipeline_epoch_current(epoch) {
+            drop(orphan);
+            self.terminal_internal(tx, source).await;
+            return;
+        }
+        let parents_available = self.unavailable_parent_ids(&parents).await.is_empty();
+        if !self.is_pipeline_epoch_current(epoch) {
+            drop(orphan);
+            self.terminal_internal(tx, source).await;
+            return;
+        }
+        if parents_available {
             drop(orphan);
             // Everything is resolvable now — route the tx through the
             // pipeline instead of parking it in the orphan pool.
@@ -169,7 +221,7 @@ impl TxPoolService {
             // Box::pin is required because after_process and
             // handle_missing_input_orphan -> classify are mutually recursive
             // async fns (same pattern as process_orphan_tx).
-            match Box::pin(self.classify_and_enqueue_tx(tx.clone(), source)).await {
+            match Box::pin(self.classify_and_enqueue_tx_at(tx.clone(), source, epoch)).await {
                 Ok(_) => return,
                 // Only transient backpressure justifies a retry: any other
                 // reject has already been traced by `after_process` inside
@@ -182,13 +234,23 @@ impl TxPoolService {
                     // ordered queue's delayed section instead, and only
                     // give up (terminally) if that is full too.
                     let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
-                    let add_result = ordered.add_tx_delayed(
-                        crate::resolved_tx::ResolveJob::new(tx.clone(), source),
-                        crate::resolve_mgr::LOCAL_ORPHAN_RETRY_DELAY,
-                    );
+                    let add_result = if self.is_pipeline_epoch_current(epoch) {
+                        ordered.add_tx_delayed(
+                            crate::resolved_tx::ResolveJob::new_at(tx.clone(), source, epoch),
+                            crate::resolve_mgr::LOCAL_ORPHAN_RETRY_DELAY,
+                        )
+                    } else {
+                        Err(Reject::Internal(
+                            "tx-pool pipeline generation invalidated by clear".to_string(),
+                        ))
+                    };
                     drop(ordered);
                     match add_result {
                         Ok(_) => return,
+                        Err(Reject::Internal(_)) if !self.is_pipeline_epoch_current(epoch) => {
+                            self.terminal_internal(tx, source).await;
+                            return;
+                        }
                         Err(reject) => {
                             self.terminal_reject(tx, source, reject).await;
                             return;
@@ -250,7 +312,14 @@ impl TxPoolService {
     /// failure in the pipeline does not depend on its siblings being removed
     /// first, so there is no need to pay the cost of a write lock per orphan.
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
-        self.process_orphan_tx_inner(tx, None).await;
+        let Ok(epoch) = self.current_pipeline_epoch() else {
+            return;
+        };
+        self.process_orphan_tx_at(tx, epoch).await;
+    }
+
+    pub(crate) async fn process_orphan_tx_at(&self, tx: &TransactionView, epoch: u64) {
+        self.process_orphan_tx_inner(tx, None, epoch).await;
     }
 
     /// `skip`: orphan ids that must not be routed in this pass (e.g.
@@ -261,7 +330,11 @@ impl TxPoolService {
         &self,
         tx: &TransactionView,
         skip: Option<&HashSet<ProposalShortId>>,
+        epoch: u64,
     ) {
+        if !self.is_pipeline_epoch_current(epoch) {
+            return;
+        }
         // Collect the orphan entries under a single read lock, then process
         // them outside the lock. This keeps the critical section short and
         // avoids cloning transactions while holding the write lock.
@@ -312,7 +385,10 @@ impl TxPoolService {
                 continue;
             }
 
-            match self.classify_and_enqueue_tx(orphan.tx, orphan.source).await {
+            match self
+                .classify_and_enqueue_tx_at(orphan.tx, orphan.source, epoch)
+                .await
+            {
                 Ok(_) => {
                     to_remove.push(orphan_id);
                     // The orphan is now in the pipeline. Its own children
@@ -344,6 +420,9 @@ impl TxPoolService {
 
         if !to_remove.is_empty() {
             let mut room = self.pipeline.waiting_room.write().await;
+            if !self.is_pipeline_epoch_current(epoch) {
+                return;
+            }
             for id in to_remove {
                 // Only remove entries that are still parked as orphans: a
                 // tx reclassified into the verify queue may have been
@@ -378,7 +457,11 @@ impl TxPoolService {
         let attached_ids: HashSet<ProposalShortId> =
             txs.iter().map(|tx| tx.proposal_short_id()).collect();
         for tx in txs.iter() {
-            self.process_orphan_tx_inner(tx, Some(&attached_ids)).await;
+            let Ok(epoch) = self.current_pipeline_epoch() else {
+                return;
+            };
+            self.process_orphan_tx_inner(tx, Some(&attached_ids), epoch)
+                .await;
         }
         let mut orphan = self.pipeline.waiting_room.write().await;
         orphan.remove_many(attached_ids.into_iter());
@@ -409,11 +492,20 @@ impl TxPoolService {
     /// fails the tx is dropped with a warning — bounded queues force a
     /// terminal somewhere.
     pub(crate) async fn restore_held_rbf_candidates(&self, held: Vec<ResolvedTx>) {
+        let (held, cancelled): (Vec<_>, Vec<_>) = held
+            .into_iter()
+            .partition(|resolved| self.is_pipeline_epoch_current(resolved.epoch));
+        for resolved in cancelled {
+            self.terminal_internal(resolved.tx, resolved.source).await;
+        }
         if held.is_empty() {
             return;
         }
         let (worklist, consumed) = self.sort_and_prefetch(held).await;
-        let (fallbacks, evicted) = self.requeue_and_reregister(worklist, consumed).await;
+        let (fallbacks, evicted, cancelled) = self.requeue_and_reregister(worklist, consumed).await;
+        for resolved in cancelled {
+            self.terminal_internal(resolved.tx, resolved.source).await;
+        }
         self.fallback_terminal(fallbacks).await;
         // Box::pin is required: route → terminal_reject → handle_remote_reject
         // → ban_malformed → restore is an unboxed recursion cycle otherwise.
@@ -523,9 +615,11 @@ impl TxPoolService {
     ) -> (
         Vec<crate::resolved_tx::ResolveJob>,
         Vec<crate::component::waiting_room::WaitingEntry>,
+        Vec<ResolvedTx>,
     ) {
         let mut fallbacks = Vec::new();
         let mut evicted = Vec::new();
+        let mut cancelled = Vec::new();
         while !worklist.is_empty() {
             let mut batch = 0;
             {
@@ -533,8 +627,13 @@ impl TxPoolService {
                 let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
                 let mut room = self.pipeline.waiting_room.write().await;
                 while let Some(resolved) = worklist.pop_front() {
+                    if !self.is_pipeline_epoch_current(resolved.epoch) {
+                        cancelled.push(resolved);
+                        continue;
+                    }
                     let tx = resolved.tx.clone();
                     let source = resolved.source;
+                    let epoch = resolved.epoch;
                     let id = tx.proposal_short_id();
                     let fee_rate = self.compute_size_based_fee_rate(resolved.fee, resolved.tx_size);
                     match verify_queue.add_tx(resolved) {
@@ -573,7 +672,8 @@ impl TxPoolService {
                             // Duplicate: resubmitted while held; its own entry
                             // path already handles registration.
                         }
-                        Err(_) => fallbacks.push(crate::resolved_tx::ResolveJob::new(tx, source)),
+                        Err(_) => fallbacks
+                            .push(crate::resolved_tx::ResolveJob::new_at(tx, source, epoch)),
                     }
                     batch += 1;
                     if batch >= REQUEUE_LOCK_BATCH {
@@ -585,7 +685,7 @@ impl TxPoolService {
             // ordered resolver and verify workers all need these locks.
             tokio::task::yield_now().await;
         }
-        (fallbacks, evicted)
+        (fallbacks, evicted, cancelled)
     }
 
     /// Chain-end for jobs the verify queue could not take: fall back to the
@@ -598,6 +698,7 @@ impl TxPoolService {
             return;
         }
         let mut terminal = Vec::new();
+        let mut cancelled = Vec::new();
         {
             let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
             for job in fallbacks {
@@ -605,16 +706,22 @@ impl TxPoolService {
                 // for the terminal trace.
                 let tx = job.tx.clone();
                 let source = job.source;
-                if let Err(reject) = ordered.add_tx(job) {
-                    terminal.push((tx, source, reject));
+                let epoch = job.epoch;
+                if !self.is_pipeline_epoch_current(epoch) {
+                    cancelled.push((tx, source));
+                } else if let Err(reject) = ordered.add_tx(job) {
+                    terminal.push((tx, source, reject, epoch));
                 }
             }
+        }
+        for (tx, source) in cancelled {
+            self.terminal_internal(tx, source).await;
         }
         // Box::pin is required because after_process → orphan →
         // classify → register_rbf_candidate can lead back here, making
         // the recursion indirect (same pattern as process_orphan_tx).
-        for (tx, source, reject) in terminal {
-            Box::pin(self.after_process(tx, source, &Err(reject))).await;
+        for (tx, source, reject, epoch) in terminal {
+            Box::pin(self.after_process_at(tx, source, &Err(reject), epoch)).await;
         }
     }
 }
@@ -657,12 +764,14 @@ mod tests {
         let tx = TransactionBuilder::default().build();
         let id = tx.proposal_short_id();
         let cancel = CancellationToken::new();
+        let epoch = crate::service::PipelineEpoch::default();
         let (tx_relay_sender, _relay_rx) = ckb_channel::bounded(16);
         let (block_assembler_sender, _ba_rx) = tokio::sync::mpsc::channel(1);
         let relay = crate::service::RelayState {
             network: Arc::new(crate::network::DummyTxPoolNetwork),
             tx_relay_sender,
             block_assembler_sender,
+            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(crate::callback::Callbacks::new()),
             banned_peers: Default::default(),
         };
@@ -681,9 +790,14 @@ mod tests {
             Duration::from_secs(10),
             enqueue_recover_txs(
                 Arc::clone(&queues),
-                vec![(tx, TxSource::Local)],
+                vec![crate::resolved_tx::ResolveJob::new_at(
+                    tx,
+                    TxSource::Local,
+                    0,
+                )],
                 &cancel,
                 &relay,
+                &epoch,
             ),
         )
         .await
@@ -693,5 +807,49 @@ mod tests {
             queue.contains_key(&id),
             "recovered tx must eventually be enqueued, not dropped"
         );
+    }
+
+    #[tokio::test]
+    async fn stale_deferred_recovery_cannot_resurrect_after_clear() {
+        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: RwLock::new(
+                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+            ),
+            verify_queue: RwLock::new(VerifyQueue::new(
+                70_000_000,
+                ckb_app_config::VerifyOrdering::ArrivalTime,
+                usize::MAX,
+            )),
+            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
+                CancellationToken::new(),
+            ),
+            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+        });
+        let (tx_relay_sender, _relay_rx) = ckb_channel::bounded(4);
+        let (block_assembler_sender, _ba_rx) = tokio::sync::mpsc::channel(1);
+        let relay = crate::service::RelayState {
+            network: Arc::new(crate::network::DummyTxPoolNetwork),
+            tx_relay_sender,
+            block_assembler_sender,
+            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            callbacks: Arc::new(crate::callback::Callbacks::new()),
+            banned_peers: Default::default(),
+        };
+        let epoch = crate::service::PipelineEpoch::default();
+        let tx = TransactionBuilder::default().build();
+        let id = tx.proposal_short_id();
+        let stale = crate::resolved_tx::ResolveJob::new_at(tx, TxSource::Local, 0);
+        assert_eq!(epoch.advance(), Some(1));
+
+        enqueue_recover_txs(
+            Arc::clone(&queues),
+            vec![stale],
+            &CancellationToken::new(),
+            &relay,
+            &epoch,
+        )
+        .await;
+
+        assert!(!queues.ordered_resolve_queue.read().await.contains_key(&id));
     }
 }

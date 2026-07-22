@@ -12,6 +12,7 @@ use ckb_types::{
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::Byte32,
 };
+use ckb_verification::cache::Completed;
 use std::sync::{Arc, Mutex};
 
 /// Shared budget for fully-resolved transactions that have entered the
@@ -89,6 +90,8 @@ pub struct ResolveJob {
     pub tx: TransactionView,
     /// The origin of the transaction (remote, local, or proposal notification).
     pub source: TxSource,
+    /// Pipeline generation in which this job was admitted.
+    pub epoch: u64,
     /// Number of times this local transaction has been retried because its
     /// inputs were not yet available. Used to bound retries for orphans that
     /// are not satisfiable (`MAX_LOCAL_ORPHAN_ATTEMPTS`) and for orphans whose
@@ -99,10 +102,17 @@ pub struct ResolveJob {
 
 impl ResolveJob {
     /// Create a new resolve job for a transaction that has not been retried yet.
+    #[cfg(test)]
     pub fn new(tx: TransactionView, source: TxSource) -> Self {
+        Self::new_at(tx, source, 0)
+    }
+
+    /// Create a new resolve job in an explicit pipeline generation.
+    pub(crate) fn new_at(tx: TransactionView, source: TxSource, epoch: u64) -> Self {
         Self {
             tx,
             source,
+            epoch,
             attempts: 0,
         }
     }
@@ -127,6 +137,12 @@ pub struct ResolvedTx {
     pub snapshot: Arc<Snapshot>,
     /// The origin of the transaction (remote, local, or proposal notification).
     pub source: TxSource,
+    /// Pipeline generation inherited from the resolve job.
+    pub(crate) epoch: u64,
+    /// Completed script verification carried by authoritative RBF ownership.
+    /// A `RaceLost` restore can therefore reuse the result even if the
+    /// best-effort global cache-update channel was saturated.
+    pub(crate) verified: Option<Completed>,
     /// Lifecycle-wide resource permit. `None` before the transaction first
     /// enters the asynchronous verify queue; queue admission installs it.
     pub(crate) resident_permit: Option<Arc<ResolvedTxPermit>>,
@@ -154,5 +170,7 @@ impl PartialEq for ResolvedTx {
             && self.pre_resolve_tip == other.pre_resolve_tip
             && self.snapshot == other.snapshot
             && self.source == other.source
+            && self.epoch == other.epoch
+            && self.verified == other.verified
     }
 }

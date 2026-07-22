@@ -70,7 +70,7 @@ async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
         outcome
     };
     service
-        .dispatch_submit_aftermath(&id, outcome)
+        .dispatch_submit_aftermath(&id, outcome, 0)
         .await
         .unwrap();
     assert!(callback_ran.load(Ordering::SeqCst));
@@ -673,6 +673,8 @@ async fn displaced_candidate_is_restored_unless_displacer_commits() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         };
         (tx, source, resolved)
@@ -799,6 +801,119 @@ async fn displaced_candidate_is_restored_unless_displacer_commits() {
     ));
 }
 
+/// A lower-fee candidate that arrives after a stronger unverified candidate
+/// must be owned by that candidate's speculative hold. Parking it only in the
+/// pool-side input-conflict cache strands it when the winner fails, because
+/// the original pool input owner never left and no input-freed event occurs.
+#[tokio::test]
+async fn register_time_loser_is_restored_when_unverified_winner_aborts() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_queue::PipelineQueue;
+    use crate::resolved_tx::ResolvedTx;
+    use crate::tx_source::TxSource;
+    use ckb_types::core::cell::ResolvedTransaction;
+    use std::sync::Arc;
+
+    let service = harness(1)
+        .rbf(true)
+        .workers(WorkerSet::None)
+        .build()
+        .service;
+    let x_hash = Byte32::new([0x44; 32]);
+    let original = build_tx(vec![(&x_hash, 0)], 1);
+    {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(original, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE),
+                Status::Pending,
+            )
+            .unwrap();
+    }
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+    let make = |outputs: usize, fee: u64, peer: usize| {
+        let tx = build_tx(vec![(&x_hash, 0)], outputs);
+        let source = TxSource::Remote {
+            cycles: 0,
+            peer: peer.into(),
+        };
+        let resolved = ResolvedTx {
+            tx: tx.clone(),
+            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
+            status: Status::Pending,
+            fee: Capacity::shannons(fee),
+            tx_size: tx.data().serialized_size_in_block(),
+            pre_resolve_tip: Default::default(),
+            snapshot: Arc::clone(&snapshot),
+            source,
+            epoch: 0,
+            verified: None,
+            resident_permit: None,
+        };
+        (tx, source, resolved)
+    };
+    let (winner, winner_source, winner_resolved) = make(2, 100_000, 1);
+    let (loser, loser_source, loser_resolved) = make(1, 10_000, 2);
+    let winner_id = winner.proposal_short_id();
+    let loser_id = loser.proposal_short_id();
+
+    assert!(
+        service
+            .register_rbf_candidate(
+                winner,
+                winner_source,
+                &winner_resolved,
+                winner_resolved.fee,
+                winner_resolved.tx_size,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        service
+            .register_rbf_candidate(
+                loser,
+                loser_source,
+                &loser_resolved,
+                loser_resolved.fee,
+                loser_resolved.tx_size,
+            )
+            .await
+            .unwrap(),
+        "speculative loser remains accepted into pipeline ownership"
+    );
+    {
+        let room = service.pipeline.waiting_room.read().await;
+        assert!(room.find_held(&loser_id).is_some());
+    }
+    assert!(
+        service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .waiting_room
+            .get(&loser_id)
+            .is_none(),
+        "candidate must not be double-parked as InputsBlocked"
+    );
+
+    service
+        .pipeline
+        .queues
+        .verify_queue
+        .write()
+        .await
+        .remove_tx(&winner_id);
+    service.abort_rbf_candidate(&winner_id).await;
+    let verify = service.pipeline.queues.verify_queue.read().await;
+    assert!(
+        verify.contains_key(&loser_id),
+        "failed unverified winner must restore the register-time loser"
+    );
+}
+
 /// Superseded at submit: the candidate is *held* by the winner's
 /// registration instead of being rejected — restored if the winner aborts,
 /// really rejected only if the winner commits. This closes the residual
@@ -855,12 +970,14 @@ async fn superseded_at_submit_is_held_then_restored_on_winner_abort() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         };
         (tx, source, resolved)
     };
 
-    let (tx_d, source_d, resolved_d) = mk_candidate(1, 1_000, 1);
+    let (tx_d, source_d, mut resolved_d) = mk_candidate(1, 1_000, 1);
     let (tx_w, source_w, resolved_w) = mk_candidate(2, 10_000, 2);
     let id_d = tx_d.proposal_short_id();
     let id_w = tx_w.proposal_short_id();
@@ -879,13 +996,12 @@ async fn superseded_at_submit_is_held_then_restored_on_winner_abort() {
             .await
             .unwrap()
     );
-    {
+    let d_active_token = {
         let mut verify = service.pipeline.queues.verify_queue.write().await;
-        assert_eq!(
-            verify.pop_front(false).map(|r| r.tx.proposal_short_id()),
-            Some(id_d.clone())
-        );
-    }
+        let work = verify.pop_front_work(false).expect("D becomes active");
+        assert_eq!(work.resolved.tx.proposal_short_id(), id_d);
+        work.active_token
+    };
 
     // W registers with a higher fee rate: D is active, so it cannot be held
     // at register time (its registration is removed, but its job is not).
@@ -904,6 +1020,11 @@ async fn superseded_at_submit_is_held_then_restored_on_winner_abort() {
 
     // D reaches submit while W is still in flight: superseded → held by
     // W's registration, not rejected.
+    let completed = ckb_verification::cache::Completed {
+        cycles: MOCK_CYCLES,
+        fee: resolved_d.fee,
+    };
+    resolved_d.verified = Some(completed);
     let result = service.submit_entry(resolved_d, MOCK_CYCLES).await.unwrap();
     assert!(matches!(
         result,
@@ -919,13 +1040,39 @@ async fn superseded_at_submit_is_held_then_restored_on_winner_abort() {
 
     // W aborts (e.g. fails verification): D is restored — queued and
     // re-registered, not rejected.
+    service
+        .pipeline
+        .queues
+        .verify_queue
+        .write()
+        .await
+        .remove_tx(&id_w);
     service.abort_rbf_candidate(&id_w).await;
     {
-        let verify = service.pipeline.queues.verify_queue.read().await;
+        let mut verify = service.pipeline.queues.verify_queue.write().await;
         assert!(
             verify.contains_key(&id_d),
             "D must be restored to the verify queue after W aborts"
         );
+        assert_eq!(
+            verify
+                .get_tx_by_id(&id_d)
+                .and_then(|resolved| resolved.verified),
+            Some(completed),
+            "verified ownership must not depend on the lossy global cache-update channel"
+        );
+        let restored = verify
+            .pop_front_work(false)
+            .expect("restored D can become active again");
+        assert_eq!(restored.resolved.tx.proposal_short_id(), id_d);
+        verify.finish_work(&id_d, d_active_token);
+        assert!(
+            verify.get_active_tx(&id_d).is_some(),
+            "late finish from D's pre-hold lease must not erase its restored lease"
+        );
+        verify.finish_work(&id_d, restored.active_token);
+        drop(verify);
+
         let rbf = service.pipeline.queues.rbf_candidates.read().await;
         assert!(
             rbf.is_superseded(
@@ -1054,6 +1201,8 @@ async fn superseded_candidate_is_not_double_parked_by_after_process() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         };
         (tx, source, resolved)
@@ -1185,6 +1334,8 @@ async fn winner_committing_without_replacement_restores_displaced() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         };
         (tx, source, resolved)
@@ -1394,6 +1545,8 @@ async fn attached_winner_finalizes_held_candidates() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         };
         (tx, source, resolved)
@@ -1532,6 +1685,8 @@ async fn expired_race_lost_revokes_stalled_winner_and_restores_loser() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            epoch: 0,
+            verified: None,
             resident_permit: None,
         };
         (tx, source, resolved)

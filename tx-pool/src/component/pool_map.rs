@@ -1030,7 +1030,6 @@ impl PoolMap {
             while ancestors_count > self.max_ancestors_count {
                 if let Some(next_id) = iter.next() {
                     let removed = self.remove_entry_and_descendants_with_status(next_id);
-                    ancestors_count = ancestors_count.saturating_sub(1);
                     // The cascade removes `next_id` *and its descendants*,
                     // and any of them may be a direct parent of the new
                     // entry. Every removed id must leave the parent set: a
@@ -1041,6 +1040,17 @@ impl PoolMap {
                     for removed_entry in &removed {
                         parents.remove(&removed_entry.entry.proposal_short_id());
                     }
+                    // One eviction candidate may remove an entire descendant
+                    // cascade. Decrementing by one overestimates the live
+                    // ancestry and can evict unrelated, high-fee cell-ref
+                    // parents after the entry already fits. Recompute from
+                    // the authoritative link graph after each cold-path
+                    // cascade instead.
+                    ancestors_count = self
+                        .links
+                        .calc_relation_ids(parents.clone(), Relation::Parents)
+                        .len()
+                        .saturating_add(1);
                     // Journal the escape-hatch evictions so the caller can
                     // recover them if a later step rejects this entry.
                     self.evicted_journal.extend(removed.iter().cloned());

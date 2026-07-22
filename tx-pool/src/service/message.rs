@@ -102,7 +102,7 @@ pub(crate) enum BlockAssemblerMessage {
 pub(crate) enum DeferredTask {
     /// Push RBF-displaced transactions back into the ordered resolve queue
     /// so they can be re-resolved, re-verified and re-submitted.
-    RecoverTxs(Vec<(TransactionView, TxSource)>),
+    RecoverTxs(Vec<crate::resolved_tx::ResolveJob>),
     /// Store a successful verification result in the cache (keyed by wtx_hash).
     CacheUpdate {
         wtx_hash: Byte32,

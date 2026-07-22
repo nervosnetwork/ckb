@@ -35,6 +35,8 @@ pub(crate) enum SubmitEntryResult {
     /// registration and is now *held* by it — its fate follows the
     /// winner's (finalize → rejected, abort → restored).
     Superseded,
+    /// Administrative clear invalidated the job before it could commit.
+    Cleared,
 }
 
 /// Result of [`TxPoolService::verify_and_submit_core`].
@@ -45,6 +47,9 @@ pub(crate) enum VerifySubmitOutcome {
     /// and held by it. Not a rejection: no `after_process` side effects
     /// (mirrors register-time displacement).
     Superseded,
+    /// Administrative clear invalidated the job. This is not a transaction
+    /// rejection and must not be recorded in recent-reject.
+    Cleared,
 }
 
 impl TxPoolService {
@@ -59,6 +64,7 @@ impl TxPoolService {
         verified_cycles: ckb_types::core::Cycle,
     ) -> Result<SubmitEntryResult, Reject> {
         let status = resolved.status;
+        let epoch = resolved.epoch;
         let pre_resolve_tip = resolved.pre_resolve_tip.clone();
         let entry = TxEntry::new(
             Arc::clone(&resolved.rtx),
@@ -81,6 +87,10 @@ impl TxPoolService {
         // weight-based).
         let entry_fee_rate = self.compute_size_based_fee_rate(entry.fee, entry.size);
         let rbf_guard = self.pipeline.queues.rbf_candidates.read().await;
+        if !self.is_pipeline_epoch_current(epoch) {
+            drop(rbf_guard);
+            return Ok(SubmitEntryResult::Cleared);
+        }
         let conflict_inputs = self.find_conflict_inputs(entry.transaction()).await;
 
         if !conflict_inputs.is_empty() {
@@ -94,12 +104,21 @@ impl TxPoolService {
                 // register-time displacement hold and closes the residual
                 // censorship window for candidates that were already active
                 // (mid-verification) when a stronger candidate appeared.
-                self.hold_superseded_candidate(resolved, conflict_inputs)
-                    .await;
-                return Ok(SubmitEntryResult::Superseded);
+                if self
+                    .hold_superseded_candidate(resolved, conflict_inputs)
+                    .await
+                {
+                    return Ok(SubmitEntryResult::Superseded);
+                }
+                return Ok(SubmitEntryResult::Cleared);
             }
 
             let mut tx_pool = self.pool.tx_pool.write().await;
+            if !self.is_pipeline_epoch_current(epoch) {
+                drop(tx_pool);
+                drop(rbf_guard);
+                return Ok(SubmitEntryResult::Cleared);
+            }
             let snapshot = tx_pool.cloned_snapshot();
             let outcome = self.try_submit_entry(
                 &mut tx_pool,
@@ -112,7 +131,8 @@ impl TxPoolService {
             drop(tx_pool);
             drop(rbf_guard);
 
-            self.dispatch_submit_aftermath(&entry_id, outcome).await?;
+            self.dispatch_submit_aftermath(&entry_id, outcome, epoch)
+                .await?;
             Ok(SubmitEntryResult::Committed)
         } else {
             // Separate the successful result from the collected reject events and
@@ -124,6 +144,11 @@ impl TxPoolService {
             // is itself rejected, leaving the node with neither transaction.
             let outcome = {
                 let mut tx_pool = self.pool.tx_pool.write().await;
+                if !self.is_pipeline_epoch_current(epoch) {
+                    drop(tx_pool);
+                    drop(rbf_guard);
+                    return Ok(SubmitEntryResult::Cleared);
+                }
                 let snapshot = tx_pool.cloned_snapshot();
                 let outcome = self.try_submit_entry(
                     &mut tx_pool,
@@ -138,7 +163,8 @@ impl TxPoolService {
             };
             drop(rbf_guard);
 
-            self.dispatch_submit_aftermath(&entry_id, outcome).await?;
+            self.dispatch_submit_aftermath(&entry_id, outcome, epoch)
+                .await?;
             Ok(SubmitEntryResult::Committed)
         }
     }
@@ -228,6 +254,8 @@ impl TxPoolService {
             pre_resolve_tip,
             snapshot,
             source,
+            epoch,
+            verified: carried_verified,
             resident_permit,
         } = resolved;
         let declared_cycles = source.cycles();
@@ -239,7 +267,10 @@ impl TxPoolService {
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
+        let verify_cache = match carried_verified {
+            Some(verified) => Some(verified),
+            None => self.fetch_tx_verify_cache(&tx).await,
+        };
         let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status_to_verify_env(status, tip_header));
@@ -257,7 +288,11 @@ impl TxPoolService {
         let verified = match verified_ret {
             Ok(v) => v,
             Err(err) => {
-                self.abort_rbf_candidate(&tx.proposal_short_id()).await;
+                if !self.is_pipeline_epoch_current(epoch) {
+                    return Ok(VerifySubmitOutcome::Cleared);
+                }
+                self.abort_rbf_candidate_at(&tx.proposal_short_id(), epoch)
+                    .await;
                 return Err(err);
             }
         };
@@ -271,7 +306,11 @@ impl TxPoolService {
                 verified.cycles,
                 tx.hash()
             );
-            self.abort_rbf_candidate(&tx.proposal_short_id()).await;
+            if !self.is_pipeline_epoch_current(epoch) {
+                return Ok(VerifySubmitOutcome::Cleared);
+            }
+            self.abort_rbf_candidate_at(&tx.proposal_short_id(), epoch)
+                .await;
             return Err(Reject::DeclaredWrongCycles(declared, verified.cycles));
         }
 
@@ -287,6 +326,8 @@ impl TxPoolService {
                     pre_resolve_tip,
                     snapshot,
                     source,
+                    epoch,
+                    verified: Some(verified),
                     resident_permit,
                 },
                 entry_cycles,
@@ -317,6 +358,7 @@ impl TxPoolService {
                 }
                 Ok(VerifySubmitOutcome::Superseded)
             }
+            SubmitEntryResult::Cleared => Ok(VerifySubmitOutcome::Cleared),
         }
     }
     pub(crate) async fn test_accept_tx_core(

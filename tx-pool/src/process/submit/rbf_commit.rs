@@ -496,6 +496,7 @@ impl TxPoolService {
         &self,
         entry_id: &ProposalShortId,
         outcome: SubmitEntryOutcome,
+        epoch: u64,
     ) -> Result<(), Reject> {
         let SubmitEntryOutcome {
             result,
@@ -537,7 +538,7 @@ impl TxPoolService {
         // Finalized losers are returned for terminal publication only after
         // every internal ownership transition is stable.
         let finalized_rbf_losers = self
-            .settle_rbf_candidate(entry_id, result.is_ok() && replaced)
+            .settle_rbf_candidate_at(entry_id, result.is_ok() && replaced, epoch)
             .await;
 
         // Send recovered txs to the deferred worker after the write lock is
@@ -546,6 +547,10 @@ impl TxPoolService {
         // RBF frequency. Recovery is attempted even if the replacement
         // ultimately failed, because third-party transactions may now be
         // eligible again.
+        let recovered = recovered
+            .into_iter()
+            .map(|(tx, source)| crate::resolved_tx::ResolveJob::new_at(tx, source, epoch))
+            .collect::<Vec<_>>();
         if !recovered.is_empty()
             && let Err(e) = self
                 .pipeline

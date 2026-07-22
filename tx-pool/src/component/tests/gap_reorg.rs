@@ -302,7 +302,12 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
     let reject_calls = Arc::new(AtomicUsize::new(0));
     let mut callbacks = crate::callback::Callbacks::new();
     let pending_calls_cb = Arc::clone(&pending_calls);
+    let recovery_lock = Arc::clone(&h.service.recovery_lock);
     callbacks.register_pending(Box::new(move |_| {
+        assert!(
+            recovery_lock.try_lock().is_ok(),
+            "reorg callbacks must publish after recovery_lock is released"
+        );
         pending_calls_cb.fetch_add(1, Ordering::SeqCst);
     }));
     let reject_calls_cb = Arc::clone(&reject_calls);

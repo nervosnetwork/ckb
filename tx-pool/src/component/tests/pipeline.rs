@@ -226,6 +226,8 @@ async fn resolved_for_test(
         pre_resolve_tip,
         snapshot,
         source,
+        epoch: 0,
+        verified: None,
         resident_permit: None,
     }
 }
@@ -1737,7 +1739,7 @@ async fn failed_rbf_rollback_and_settlement_precede_deferred_publication() {
         let mut verify = service.pipeline.queues.verify_queue.write().await;
         let popped = verify.pop_front(false).expect("A has verify priority");
         assert_eq!(popped.tx.proposal_short_id(), attack_id);
-        verify.finish(&attack_id);
+        verify.finish(&attack_id, 0);
     }
     let entry = TxEntry::new(
         Arc::clone(&attack_resolved.rtx),
@@ -1792,7 +1794,7 @@ async fn failed_rbf_rollback_and_settlement_precede_deferred_publication() {
     let dispatch_id = attack_id.clone();
     let dispatch_task = tokio::spawn(async move {
         dispatch_service
-            .dispatch_submit_aftermath(&dispatch_id, outcome)
+            .dispatch_submit_aftermath(&dispatch_id, outcome, 0)
             .await
     });
 
@@ -1931,6 +1933,68 @@ async fn clear_pool_resets_template_and_notifies_miner_immediately() {
     assert_eq!(h.service.pool.tx_pool.read().await.pool_map.size(), 0);
 }
 
+/// Administrative clear is a generation barrier, not just a queue drain.
+/// A verify job popped before the clear must be unable to commit afterwards,
+/// and its late `finish` must not erase a same-id lease admitted in the new
+/// generation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clear_pipeline_cancels_active_commit_without_active_aba() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_queue::PipelineQueue;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let service = h.service;
+    let tx = build_tx(&h.out_points[0], ISSUE_OUTPUT_CAPACITY as usize - 1);
+    let id = tx.proposal_short_id();
+
+    let old = resolved_for_test(&service, tx.clone(), TxSource::Local).await;
+    let old_epoch = old.epoch;
+    let old_active = {
+        let mut verify = service.pipeline.queues.verify_queue.write().await;
+        assert!(verify.add_tx(old).unwrap());
+        verify.pop_front(false).expect("old generation pops")
+    };
+
+    service.clear_pipeline().await;
+    assert!(!service.is_pipeline_epoch_current(old_epoch));
+
+    let mut fresh = resolved_for_test(&service, tx, TxSource::Local).await;
+    fresh.epoch = service.current_pipeline_epoch().unwrap();
+    let fresh_epoch = fresh.epoch;
+    {
+        let mut verify = service.pipeline.queues.verify_queue.write().await;
+        assert!(verify.add_tx(fresh).unwrap());
+        verify.pop_front(false).expect("new generation pops");
+    }
+
+    // The final commit gate rejects the old active job even though it was
+    // already fully resolved before clear.
+    assert!(matches!(
+        service.verify_and_submit_core(old_active, None).await,
+        Ok(crate::process::submit::VerifySubmitOutcome::Cleared)
+    ));
+    assert!(
+        service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool(&id)
+            .is_none()
+    );
+
+    // A late old-worker finish is conditional on its epoch and therefore
+    // cannot erase the fresh active lease for the same proposal id.
+    let mut verify = service.pipeline.queues.verify_queue.write().await;
+    verify.finish(&id, old_epoch);
+    assert_eq!(
+        verify.get_active_tx(&id).map(|resolved| resolved.epoch),
+        Some(fresh_epoch)
+    );
+    verify.finish(&id, fresh_epoch);
+    assert!(verify.get_active_tx(&id).is_none());
+}
+
 /// Topologically sort dependent transactions so parents come before children.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sort_txs_by_dependencies_orders_parents_before_children() {
@@ -1984,6 +2048,7 @@ async fn pre_check_queue_rejects_when_full() {
     let job = crate::component::pre_check_queue::PreCheckJob {
         tx: tx.clone(),
         source: TxSource::Local,
+        epoch: 0,
     };
 
     // First push succeeds.
@@ -1996,6 +2061,7 @@ async fn pre_check_queue_rejects_when_full() {
     let huge_job = crate::component::pre_check_queue::PreCheckJob {
         tx: huge_tx,
         source: TxSource::Local,
+        epoch: 0,
     };
     assert!(
         matches!(queue.push(huge_job), Err(crate::error::Reject::Full(_))),
@@ -2463,7 +2529,7 @@ async fn remove_tx_reports_in_progress_for_worker_active_job() {
         .ordered_resolve_queue
         .write()
         .await
-        .finish(&id);
+        .finish(&id, 0);
     assert!(
         matches!(
             service.remove_tx(tx.hash()).await,

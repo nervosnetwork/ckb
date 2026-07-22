@@ -507,6 +507,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
             parts.deferred_receiver,
             parts.signal.child_token(),
             parts.service.relay.clone(),
+            Arc::clone(&parts.service.pipeline.epoch),
         ));
     }
 
