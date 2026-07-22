@@ -35,11 +35,17 @@ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 # Cargo's fingerprint cache is not worktree-aware when callers force two
 # checkouts through one CARGO_TARGET_DIR. Keep each checkout's benchmark binary
 # isolated so a baseline executable can never be mistaken for the candidate.
-BENCH_TARGET_DIR = WORKSPACE_ROOT / "target" / "tx-pool-bench"
-HARNESS_FILES = (
-    Path(__file__).resolve(),
-    WORKSPACE_ROOT / "tx-pool" / "src" / "benchmark.rs",
-)
+
+
+def bench_target_dir(workspace_root: Path) -> Path:
+    return workspace_root / "target" / "tx-pool-bench"
+
+
+def harness_files(workspace_root: Path) -> Tuple[Path, Path]:
+    return (
+        workspace_root / "devtools" / "tx_pool_bench.py",
+        workspace_root / "tx-pool" / "src" / "benchmark.rs",
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,6 +68,19 @@ def parse_args() -> argparse.Namespace:
         "--compare-json",
         type=Path,
         help="compare against a JSON record produced by this script",
+    )
+    parser.add_argument(
+        "--baseline-worktree",
+        type=Path,
+        help=(
+            "run an interleaved A/B against this baseline worktree instead "
+            "of consuming a pre-recorded JSON baseline"
+        ),
+    )
+    parser.add_argument(
+        "--save-baseline-json",
+        type=Path,
+        help="save the baseline side of --baseline-worktree paired execution",
     )
     parser.add_argument(
         "--fail-on-regression",
@@ -96,6 +115,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     args = parser.parse_args()
+    if args.baseline_worktree and args.compare_json:
+        parser.error("--baseline-worktree and --compare-json are mutually exclusive")
+    if args.save_baseline_json and not args.baseline_worktree:
+        parser.error("--save-baseline-json requires --baseline-worktree")
+    if args.fail_on_regression and not (args.compare_json or args.baseline_worktree):
+        parser.error(
+            "--fail-on-regression requires --compare-json or --baseline-worktree"
+        )
     if args.regression_threshold_percent is None:
         args.regression_threshold_percent = 2.0 if args.quick else 0.0
     if args.max_run_spread_percent is None:
@@ -120,24 +147,24 @@ def matrix_mode() -> str:
     return "medium"
 
 
-def command_output(args: List[str]) -> str:
+def command_output(args: List[str], workspace_root: Path = WORKSPACE_ROOT) -> str:
     try:
-        return subprocess.check_output(args, text=True).strip()
+        return subprocess.check_output(args, cwd=workspace_root, text=True).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
 
 
-def files_sha256(paths: Iterable[Path]) -> str:
+def files_sha256(paths: Iterable[Path], workspace_root: Path) -> str:
     digest = hashlib.sha256()
     for path in paths:
-        digest.update(str(path.relative_to(WORKSPACE_ROOT)).encode("utf-8"))
+        digest.update(str(path.relative_to(workspace_root)).encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
 
 
-def run_cargo_bench(run: int) -> str:
+def run_cargo_bench(run: int, workspace_root: Path, label: str = "") -> str:
     cmd = [
         "cargo",
         "bench",
@@ -151,12 +178,13 @@ def run_cargo_bench(run: int) -> str:
     if ARGS.benchmark_filter:
         cmd.extend(["--", ARGS.benchmark_filter])
     print(
-        f"\n>>> Run {run}/{ARGS.runs}: {' '.join(cmd)} ({matrix_mode()} matrix)",
+        f"\n>>> {label + ' ' if label else ''}run {run}/{ARGS.runs}: "
+        f"{' '.join(cmd)} ({matrix_mode()} matrix)",
         flush=True,
     )
 
     env = os.environ.copy()
-    env["CARGO_TARGET_DIR"] = str(BENCH_TARGET_DIR)
+    env["CARGO_TARGET_DIR"] = str(bench_target_dir(workspace_root))
     env.pop("QUICK_BENCH", None)
     env.pop("FULL_BENCH", None)
     if ARGS.quick:
@@ -170,6 +198,7 @@ def run_cargo_bench(run: int) -> str:
         stderr=subprocess.STDOUT,
         text=True,
         env=env,
+        cwd=workspace_root,
     )
     lines: List[str] = []
     assert proc.stdout is not None
@@ -304,18 +333,21 @@ def aggregate_runs(
     return medians, samples
 
 
-def environment_metadata() -> Dict:
+def environment_metadata(workspace_root: Path = WORKSPACE_ROOT) -> Dict:
     return {
-        "git_commit": command_output(["git", "rev-parse", "HEAD"]),
+        "git_commit": command_output(["git", "rev-parse", "HEAD"], workspace_root),
         "git_tracked_changes": command_output(
-            ["git", "status", "--porcelain", "--untracked-files=no"]
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            workspace_root,
         ),
         "rustc": command_output(["rustc", "--version", "--verbose"]),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python": platform.python_version(),
-        "benchmark_harness_sha256": files_sha256(HARNESS_FILES),
-        "benchmark_target_dir": str(BENCH_TARGET_DIR),
+        "benchmark_harness_sha256": files_sha256(
+            harness_files(workspace_root), workspace_root
+        ),
+        "benchmark_target_dir": str(bench_target_dir(workspace_root)),
         "benchmark_filter": ARGS.benchmark_filter,
     }
 
@@ -323,6 +355,7 @@ def environment_metadata() -> Dict:
 def make_record(
     medians: Dict[ResultKey, Result],
     samples: Dict[ResultKey, Dict[str, List[float]]],
+    workspace_root: Path = WORKSPACE_ROOT,
 ) -> Dict:
     entries = []
     for key in sorted(medians):
@@ -352,7 +385,7 @@ def make_record(
         "runs": ARGS.runs,
         "results": entries,
     }
-    record.update(environment_metadata())
+    record.update(environment_metadata(workspace_root))
     return record
 
 
@@ -520,7 +553,67 @@ def compare_results(
     return failed
 
 
+def write_record(path: Path, record: Dict, label: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"\nSaved {label} benchmark record to {path}")
+
+
+def run_paired_worktrees(baseline_root: Path) -> bool:
+    baseline_root = baseline_root.expanduser().resolve()
+    if baseline_root == WORKSPACE_ROOT:
+        raise RuntimeError("baseline worktree must differ from the candidate worktree")
+    if not (baseline_root / "Cargo.toml").is_file():
+        raise RuntimeError(f"baseline worktree has no Cargo.toml: {baseline_root}")
+
+    baseline_runs: List[Dict[ResultKey, Result]] = []
+    candidate_runs: List[Dict[ResultKey, Result]] = []
+    for run in range(1, ARGS.runs + 1):
+        pair = [
+            ("baseline", baseline_root, baseline_runs),
+            ("candidate", WORKSPACE_ROOT, candidate_runs),
+        ]
+        # Alternate which side runs first so steady thermal/load drift cannot
+        # systematically favor one checkout across repeated pairs.
+        if run % 2 == 0:
+            pair.reverse()
+        for label, root, destination in pair:
+            destination.append(parse_output(run_cargo_bench(run, root, label)))
+
+    baseline_medians, baseline_samples = aggregate_runs(baseline_runs)
+    candidate_medians, candidate_samples = aggregate_runs(candidate_runs)
+    baseline_record = make_record(
+        baseline_medians, baseline_samples, baseline_root
+    )
+    candidate_record = make_record(
+        candidate_medians, candidate_samples, WORKSPACE_ROOT
+    )
+
+    print("\n## Interleaved baseline")
+    print_summary(baseline_medians, baseline_samples)
+    print("\n## Interleaved candidate")
+    print_summary(candidate_medians, candidate_samples)
+
+    if ARGS.save_baseline_json:
+        write_record(ARGS.save_baseline_json, baseline_record, "baseline")
+    if ARGS.save_json:
+        write_record(ARGS.save_json, candidate_record, "candidate")
+
+    validate_comparison_environment(baseline_record, candidate_record)
+    return compare_results(baseline_medians, candidate_medians)
+
+
 def main() -> None:
+    if ARGS.baseline_worktree:
+        regressed = run_paired_worktrees(ARGS.baseline_worktree)
+        if ARGS.fail_on_regression and regressed:
+            print("\nPerformance gate failed.", file=sys.stderr)
+            raise SystemExit(2)
+        return
+
     baseline_record = None
     if ARGS.compare_json:
         baseline_record = json.loads(ARGS.compare_json.read_text(encoding="utf-8"))
@@ -529,12 +622,12 @@ def main() -> None:
         current_environment = {
             "mode": matrix_mode(),
             "runs": ARGS.runs,
-            **environment_metadata(),
+            **environment_metadata(WORKSPACE_ROOT),
         }
         validate_comparison_environment(baseline_record, current_environment)
 
     run_results = [
-        parse_output(run_cargo_bench(run))
+        parse_output(run_cargo_bench(run, WORKSPACE_ROOT))
         for run in range(1, ARGS.runs + 1)
     ]
     medians, samples = aggregate_runs(run_results)
@@ -542,12 +635,7 @@ def main() -> None:
     print_summary(medians, samples)
 
     if ARGS.save_json:
-        ARGS.save_json.parent.mkdir(parents=True, exist_ok=True)
-        ARGS.save_json.write_text(
-            json.dumps(record, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        print(f"\nSaved benchmark record to {ARGS.save_json}")
+        write_record(ARGS.save_json, record, "candidate")
 
     regressed = False
     if baseline_record is not None:

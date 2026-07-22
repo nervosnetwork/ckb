@@ -252,7 +252,10 @@ scheduler interval before timing, so worker startup jitter is not mistaken for
 pipeline latency. Its diagnostic defaults are a 7% cross-run spread ceiling and
 a 2% directional regression threshold; medium/full keep the 5%/0% release gate.
 The runner can filter benchmark IDs for a fast focused retest without weakening
-the recorded harness/environment checks.
+the recorded harness/environment checks. Preferred quick A/B execution accepts
+a baseline worktree and alternates adjacent baseline/candidate pairs (reversing
+the order every second pair), reducing thermal and host-load drift without
+mixing their Cargo targets.
 
 Current measurement status: isolated one-run quick diagnostics are not release
 evidence. An adjacent same-binary quick rerun changed the always-success median

@@ -22,6 +22,14 @@ python3 devtools/tx_pool_bench.py --quick
 # focused quick diagnosis (one matching scenario family)
 python3 devtools/tx_pool_bench.py --quick --filter always_success_100
 
+# preferred quick A/B: alternate adjacent baseline/candidate runs
+python3 devtools/tx_pool_bench.py --quick --runs 3 \
+  --filter always_success_100 \
+  --baseline-worktree /tmp/ckb-txpool-bench-checkpoint \
+  --save-baseline-json /tmp/tx-pool-baseline.json \
+  --save-json /tmp/tx-pool-candidate.json \
+  --fail-on-regression
+
 # full matrix (~1 hour)
 python3 devtools/tx_pool_bench.py --full
 
@@ -56,6 +64,12 @@ development diagnostic; medium/full repeated records are the architectural
 acceptance evidence. Strict records must also come from clean tracked trees,
 so the exact measured source can be reconstructed from `git_commit` (untracked
 local notes do not invalidate a run).
+
+`--baseline-worktree` is the preferred quick comparison mode. It runs each
+baseline/candidate pair adjacently and reverses their order on every second
+pair, reducing systematic thermal or host-load bias. Each worktree still uses
+its isolated Cargo target, and both records retain independent commit/dirty
+metadata plus the common harness fingerprint.
 
 ## Matrices
 
