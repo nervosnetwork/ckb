@@ -476,6 +476,13 @@ impl TxPoolService {
                             }
                         }
                     }
+                    // These entries released their inputs outside the main
+                    // reorg reconciliation outcome. Remove speculative RBF
+                    // registrations targeting those inputs as well; otherwise
+                    // a ghost candidate can keep future replacements blocked
+                    // after its conflict target no longer exists in the pool.
+                    self.cleanup_rbf_for_removed_entries(cascaded.iter().map(|(entry, _)| entry))
+                        .await;
                     for (entry, out_point) in cascaded {
                         debug!(
                             "cascade-remove pool tx {}: its reference {:?} died with the failed re-add",

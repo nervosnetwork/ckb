@@ -541,6 +541,7 @@ impl TxPool {
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.
+    #[cfg(test)]
     pub(crate) fn get_proposals(
         &self,
         limit: usize,
@@ -623,13 +624,17 @@ impl TxPool {
         self.waiting_room.clear();
     }
 
-    pub(crate) fn package_proposals(&self, proposals_limit: u64) -> HashSet<ProposalShortId> {
+    pub(crate) fn package_proposals(&self, proposals_limit: u64) -> Vec<ProposalShortId> {
         // Select proposals independently of the template's optional uncles.
         // The block assembler atomically filters conflicting uncles after this
         // selection. Excluding here can strand a recovered Pending tx forever
         // when a miner validly omits the returned uncle: the candidate remains
         // eligible, so every subsequent template excludes the same short id.
-        self.get_proposals(proposals_limit as usize, &HashSet::new())
+        self.pool_map
+            .score_sorted_iter_by_status(Status::Pending)
+            .map(|entry| entry.proposal_short_id())
+            .take(proposals_limit as usize)
+            .collect()
     }
 
     pub(crate) fn package_txs(

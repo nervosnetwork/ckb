@@ -484,7 +484,7 @@ impl PoolMap {
     ///
     /// The traversal aborts as soon as the union exceeds `limit` unique
     /// entries, so the caller's cap (RBF rule #5's
-    /// `MAX_REPLACEMENT_CANDIDATES`) is the hard bound on cost regardless
+    /// `MAX_RBF_REPLACEMENT_CANDIDATES`) is the hard bound on cost regardless
     /// of pool population. Earlier versions first computed every root's
     /// descendants separately (shared subtrees walked once per root) and
     /// then re-walked the union for ordering.
@@ -632,6 +632,7 @@ impl PoolMap {
     }
 
     // find the pending txs sorted by score, and return their proposal short ids
+    #[cfg(test)]
     pub(crate) fn get_proposals(
         &self,
         limit: usize,

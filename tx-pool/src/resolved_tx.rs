@@ -12,7 +12,75 @@ use ckb_types::{
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::Byte32,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+/// Shared budget for fully-resolved transactions that have entered the
+/// asynchronous verify/RBF lifecycle.
+///
+/// Queue-local byte counters are insufficient here: a transaction popped by
+/// a verify worker is still resident in the active set, and an in-flight RBF
+/// loser moves from the verify queue into `RaceLost` without becoming
+/// terminal.  A permit is therefore attached to `ResolvedTx` and follows all
+/// of its clones until the last copy is dropped.
+#[derive(Debug)]
+pub(crate) struct ResolvedTxBudget {
+    max_tx_size: usize,
+    max_entries: usize,
+    state: Mutex<ResolvedTxBudgetState>,
+}
+
+#[derive(Debug, Default)]
+struct ResolvedTxBudgetState {
+    tx_size: usize,
+    entries: usize,
+}
+
+impl ResolvedTxBudget {
+    pub(crate) fn new(max_tx_size: usize, max_entries: usize) -> Arc<Self> {
+        Arc::new(Self {
+            max_tx_size,
+            max_entries,
+            state: Mutex::new(ResolvedTxBudgetState::default()),
+        })
+    }
+
+    fn try_acquire(self: &Arc<Self>, tx_size: usize) -> Option<Arc<ResolvedTxPermit>> {
+        let mut state = self.state.lock().unwrap();
+        let next_size = state.tx_size.checked_add(tx_size)?;
+        let next_entries = state.entries.checked_add(1)?;
+        if next_size > self.max_tx_size || next_entries > self.max_entries {
+            return None;
+        }
+        state.tx_size = next_size;
+        state.entries = next_entries;
+        drop(state);
+        Some(Arc::new(ResolvedTxPermit {
+            budget: Arc::clone(self),
+            tx_size,
+        }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn usage(&self) -> (usize, usize) {
+        let state = self.state.lock().unwrap();
+        (state.tx_size, state.entries)
+    }
+}
+
+/// RAII token for one resident resolved transaction.
+#[derive(Debug)]
+pub(crate) struct ResolvedTxPermit {
+    budget: Arc<ResolvedTxBudget>,
+    tx_size: usize,
+}
+
+impl Drop for ResolvedTxPermit {
+    fn drop(&mut self) {
+        let mut state = self.budget.state.lock().unwrap();
+        state.tx_size = state.tx_size.saturating_sub(self.tx_size);
+        state.entries = state.entries.saturating_sub(1);
+    }
+}
 
 /// A job submitted to the resolve queue.
 #[derive(Debug, Clone)]
@@ -41,7 +109,7 @@ impl ResolveJob {
 }
 
 /// A transaction that has been resolved and is ready for verification.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ResolvedTx {
     /// The raw transaction.
     pub tx: TransactionView,
@@ -59,4 +127,32 @@ pub struct ResolvedTx {
     pub snapshot: Arc<Snapshot>,
     /// The origin of the transaction (remote, local, or proposal notification).
     pub source: TxSource,
+    /// Lifecycle-wide resource permit. `None` before the transaction first
+    /// enters the asynchronous verify queue; queue admission installs it.
+    pub(crate) resident_permit: Option<Arc<ResolvedTxPermit>>,
+}
+
+impl ResolvedTx {
+    /// Ensure this transaction is charged to `budget`. Existing permits are
+    /// preserved when a transaction moves queue -> active -> RaceLost -> queue.
+    pub(crate) fn ensure_resident(&mut self, budget: &Arc<ResolvedTxBudget>) -> Result<(), ()> {
+        if self.resident_permit.is_none() {
+            self.resident_permit = budget.try_acquire(self.tx_size);
+        }
+        self.resident_permit.as_ref().map(|_| ()).ok_or(())
+    }
+}
+
+// The resource permit is an ownership detail, not transaction identity.
+impl PartialEq for ResolvedTx {
+    fn eq(&self, other: &Self) -> bool {
+        self.tx == other.tx
+            && self.rtx == other.rtx
+            && self.status == other.status
+            && self.fee == other.fee
+            && self.tx_size == other.tx_size
+            && self.pre_resolve_tip == other.pre_resolve_tip
+            && self.snapshot == other.snapshot
+            && self.source == other.source
+    }
 }

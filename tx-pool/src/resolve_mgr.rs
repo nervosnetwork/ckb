@@ -100,6 +100,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
                 pre_resolve_tip,
                 snapshot,
                 source: job.source,
+                resident_permit: None,
             })
         }
         Err(reject) => {

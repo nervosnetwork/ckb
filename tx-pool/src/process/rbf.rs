@@ -16,8 +16,16 @@ impl super::TxPoolService {
     /// it is relayed through the usual `after_process` path and recorded
     /// in recent_reject like any terminal RBF rejection.
     pub(crate) async fn finalize_rbf_candidate(&self, id: &ProposalShortId) {
-        self.pipeline.queues.rbf_candidates.write().await.remove(id);
-        let held = self.pipeline.waiting_room.write().await.wake_by_winner(id);
+        // Registration removal and held-entry transfer are one ownership
+        // transition. Holding both locks in the global order prevents expiry
+        // routing from observing "winner gone" while its losers are still
+        // parked under that winner.
+        let held = {
+            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
+            let mut room = self.pipeline.waiting_room.write().await;
+            rbf.remove(id);
+            room.wake_by_winner(id)
+        };
         if held.is_empty() {
             return;
         }
@@ -35,8 +43,12 @@ impl super::TxPoolService {
     /// the candidates it displaced: the displacement was speculative, so
     /// they simply resume verification.
     pub(crate) async fn abort_rbf_candidate(&self, id: &ProposalShortId) {
-        self.pipeline.queues.rbf_candidates.write().await.remove(id);
-        let held = self.pipeline.waiting_room.write().await.wake_by_winner(id);
+        let held = {
+            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
+            let mut room = self.pipeline.waiting_room.write().await;
+            rbf.remove(id);
+            room.wake_by_winner(id)
+        };
         self.restore_held_rbf_candidates(held).await;
     }
 
@@ -83,8 +95,9 @@ impl super::TxPoolService {
                         resolved,
                         crate::component::waiting_room::WaitReason::RaceLost { winner },
                     );
-                    // A freshly parked RaceLost entry is budget-exempt and
-                    // cannot be evicted.
+                    // RaceLost is exempt from the waiting-room-local budget:
+                    // its ResolvedTx lifecycle permit remains charged, so it
+                    // cannot be evicted here.
                     debug_assert!(
                         retained,
                         "a freshly parked RaceLost entry cannot be evicted"

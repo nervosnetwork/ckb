@@ -38,6 +38,12 @@ pub(crate) const PROPOSED_PROPOSAL_INDEX: u64 = 1;
 pub(crate) const DEFERRED_CHANNEL_SIZE: usize = 1024;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
 
+/// Maximum number of distinct in-flight registrations one RBF candidate may
+/// displace. Keep this aligned with the main pool's replacement-candidate
+/// bound: the speculative scheduling gate must not expose a larger O(n)
+/// operation than the authoritative RBF check it precedes.
+pub(crate) const MAX_RBF_REPLACEMENT_CANDIDATES: usize = 100;
+
 /// Maximum time the shutdown path waits for each pipeline-worker group
 /// (deferred worker, pre-check workers, verify manager, ordered resolver)
 /// to finish its current job before persisting the tx-pool state.

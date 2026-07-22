@@ -101,7 +101,7 @@ impl TxPoolService {
 
             let mut tx_pool = self.pool.tx_pool.write().await;
             let snapshot = tx_pool.cloned_snapshot();
-            let (result, replaced, recovered, reject_events) = self.try_submit_entry(
+            let outcome = self.try_submit_entry(
                 &mut tx_pool,
                 Arc::clone(&snapshot),
                 pre_resolve_tip,
@@ -112,8 +112,7 @@ impl TxPoolService {
             drop(tx_pool);
             drop(rbf_guard);
 
-            self.dispatch_submit_aftermath(&entry_id, result, replaced, recovered, reject_events)
-                .await?;
+            self.dispatch_submit_aftermath(&entry_id, outcome).await?;
             Ok(SubmitEntryResult::Committed)
         } else {
             // Separate the successful result from the collected reject events and
@@ -123,7 +122,7 @@ impl TxPoolService {
             // replacement fails the pool ancestor/size limits). Without this, a
             // remote peer can evict in-pool txs via a crafted RBF replacement that
             // is itself rejected, leaving the node with neither transaction.
-            let (result, replaced, recovered, reject_events) = {
+            let outcome = {
                 let mut tx_pool = self.pool.tx_pool.write().await;
                 let snapshot = tx_pool.cloned_snapshot();
                 let outcome = self.try_submit_entry(
@@ -139,8 +138,7 @@ impl TxPoolService {
             };
             drop(rbf_guard);
 
-            self.dispatch_submit_aftermath(&entry_id, result, replaced, recovered, reject_events)
-                .await?;
+            self.dispatch_submit_aftermath(&entry_id, outcome).await?;
             Ok(SubmitEntryResult::Committed)
         }
     }
@@ -230,6 +228,7 @@ impl TxPoolService {
             pre_resolve_tip,
             snapshot,
             source,
+            resident_permit,
         } = resolved;
         let declared_cycles = source.cycles();
         // Verification uses the snapshot captured at resolve time. If the chain
@@ -288,6 +287,7 @@ impl TxPoolService {
                     pre_resolve_tip,
                     snapshot,
                     source,
+                    resident_permit,
                 },
                 entry_cycles,
             )

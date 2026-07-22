@@ -60,6 +60,7 @@
 
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::verify_queue::VerifyQueue;
+use crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES;
 use crate::resolved_tx::ResolvedTx;
 use ckb_logger::debug;
 use ckb_types::{
@@ -105,9 +106,11 @@ pub(crate) struct RbfRegistration {
     new_id: ProposalShortId,
     new_fee_rate: FeeRate,
     new_conflict_inputs: Vec<OutPoint>,
-    /// Full state of displaced candidates so they can be removed from the
-    /// verify queue and their RBF registrations atomically committed.
-    pub(crate) displaced: Vec<(ProposalShortId, FeeRate, Vec<OutPoint>)>,
+    /// Distinct registrations displaced by this candidate. Their full state
+    /// remains owned by `RbfCandidates::by_id` until commit, so the pending
+    /// delta must not clone every input vector (a 100-candidate displacement
+    /// could otherwise allocate tens of megabytes before doing any work).
+    pub(crate) displaced: Vec<ProposalShortId>,
 }
 
 impl RbfRegistration {
@@ -160,23 +163,25 @@ impl RbfCandidates {
             }
         }
 
-        // Collect unique lower-fee-rate candidates that are displaced by this
-        // new candidate, including their full state so they can be removed from
-        // the verify queue once the registration is committed.
-        let mut displaced: Vec<(ProposalShortId, FeeRate, Vec<OutPoint>)> = Vec::new();
+        // Collect unique lower-fee-rate candidates displaced by this new
+        // candidate. Keep only ids: `by_id` remains unchanged until commit and
+        // owns the input vectors, avoiding attacker-amplified cloning here.
+        let mut displaced: Vec<ProposalShortId> = Vec::new();
         let mut seen: HashSet<ProposalShortId> = HashSet::new();
         for input in conflict_inputs {
             if let Some((existing_fee_rate, existing_id)) = self.by_input.get(input)
                 && *existing_fee_rate < fee_rate
                 && existing_id != &id
                 && seen.insert(existing_id.clone())
-                && let Some(candidate) = self.by_id.get(existing_id)
+                && self.by_id.contains_key(existing_id)
             {
-                displaced.push((
-                    existing_id.clone(),
-                    *existing_fee_rate,
-                    candidate.inputs.clone(),
-                ));
+                displaced.push(existing_id.clone());
+                if displaced.len() > MAX_RBF_REPLACEMENT_CANDIDATES {
+                    return Err(format!(
+                        "RBF candidate would displace more than {} in-flight candidates",
+                        MAX_RBF_REPLACEMENT_CANDIDATES
+                    ));
+                }
             }
         }
 
@@ -207,7 +212,7 @@ impl RbfCandidates {
         // candidate overlaps with; leaving those entries behind would cause
         // later replacements for the other inputs to be rejected by a candidate
         // that is no longer in flight.
-        for (displaced_id, _, _) in &displaced {
+        for displaced_id in &displaced {
             if let Some(candidate) = self.by_id.remove(displaced_id) {
                 for input in candidate.inputs {
                     if self
@@ -290,6 +295,7 @@ impl RbfCandidates {
     }
 
     /// True if the given candidate currently holds a live registration.
+    #[cfg(test)]
     pub(crate) fn contains_candidate(&self, id: &ProposalShortId) -> bool {
         self.by_id.contains_key(id)
     }
@@ -360,7 +366,7 @@ pub(crate) fn displace_and_commit(
     let winner = registration.winner_id().clone();
     let mut to_restore = Vec::new();
     let mut evicted = Vec::new();
-    for (displaced_id, _, _) in &registration.displaced {
+    for displaced_id in &registration.displaced {
         if let Some(resolved) = verify_queue.remove_tx(displaced_id) {
             let (retained, ev) = waiting_room.wait_resolved(
                 resolved,
@@ -368,8 +374,9 @@ pub(crate) fn displace_and_commit(
                     winner: winner.clone(),
                 },
             );
-            // A freshly parked RaceLost entry is budget-exempt and cannot
-            // be evicted; reaching the else arm means a new eviction path
+            // RaceLost is exempt from the waiting-room-local budget because
+            // its ResolvedTx lifecycle permit stays charged. It cannot be
+            // evicted here; reaching the else arm means a new eviction path
             // forgot this case.
             debug_assert!(
                 retained,
@@ -473,8 +480,7 @@ mod tests {
         let reg = rbf
             .register(id_b.clone(), FeeRate::from_u64(200), &[input0, input1])
             .unwrap();
-        let displaced_ids: Vec<_> = reg.displaced.iter().map(|(id, _, _)| id.clone()).collect();
-        assert_eq!(displaced_ids, vec![id_a]);
+        assert_eq!(reg.displaced, vec![id_a]);
         rbf.commit(reg);
         // Removing the new candidate frees both.
         rbf.remove(&id_b);
@@ -509,8 +515,7 @@ mod tests {
                 std::slice::from_ref(&input0),
             )
             .unwrap();
-        let displaced_ids: Vec<_> = reg.displaced.iter().map(|(id, _, _)| id.clone()).collect();
-        assert_eq!(displaced_ids, vec![id_a.clone()]);
+        assert_eq!(reg.displaced, vec![id_a.clone()]);
         rbf.commit(reg);
 
         // input1 must no longer be held by the displaced candidate A, otherwise
@@ -533,6 +538,37 @@ mod tests {
         rbf.remove(&id_c);
         assert!(rbf.by_input.is_empty());
         assert!(rbf.by_id.is_empty());
+    }
+
+    #[test]
+    fn one_registration_cannot_displace_unbounded_independent_candidates() {
+        let mut rbf = RbfCandidates::new();
+        let mut inputs = Vec::new();
+        for idx in 0..=MAX_RBF_REPLACEMENT_CANDIDATES {
+            let input = OutPoint::new(
+                ckb_types::packed::Byte32::new([(idx % 255) as u8; 32]),
+                idx as u32,
+            );
+            let candidate_id = ProposalShortId::from_tx_hash(&ckb_types::packed::Byte32::new(
+                [(idx + 1) as u8; 32],
+            ));
+            let reg = rbf
+                .register(
+                    candidate_id,
+                    FeeRate::from_u64(1),
+                    std::slice::from_ref(&input),
+                )
+                .unwrap();
+            rbf.commit(reg);
+            inputs.push(input);
+        }
+
+        let winner = ProposalShortId::from_tx_hash(&ckb_types::packed::Byte32::new([254; 32]));
+        let err = rbf
+            .register(winner, FeeRate::from_u64(2), &inputs)
+            .expect_err("101 independent displacements must be rejected");
+        assert!(err.contains("more than 100"));
+        assert_eq!(rbf.by_id.len(), MAX_RBF_REPLACEMENT_CANDIDATES + 1);
     }
 
     #[test]

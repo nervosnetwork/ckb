@@ -28,6 +28,55 @@ use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_
 const CHAIN_LEN: u32 = 125;
 
 #[tokio::test]
+async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
+    use super::harness::{WorkerSet, harness};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let mut service = harness(1).workers(WorkerSet::None).build().service;
+    let callback_ran = Arc::new(AtomicBool::new(false));
+    let pool = Arc::clone(&service.pool.tx_pool);
+    let callback_ran_clone = Arc::clone(&callback_ran);
+    let mut callbacks = crate::callback::Callbacks::new();
+    callbacks.register_pending(Box::new(move |_entry| {
+        assert!(
+            pool.try_read().is_ok(),
+            "pending callback must not run under tx_pool.write()"
+        );
+        callback_ran_clone.store(true, Ordering::SeqCst);
+    }));
+    service.relay.callbacks = Arc::new(callbacks);
+
+    let tx = build_tx(vec![(&Byte32::new([99; 32]), 0)], 1);
+    let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE);
+    let id = entry.proposal_short_id();
+    let outcome = {
+        let mut guard = service.pool.tx_pool.write().await;
+        let snapshot = guard.cloned_snapshot();
+        let outcome = service.try_submit_entry(
+            &mut guard,
+            Arc::clone(&snapshot),
+            snapshot.tip_hash(),
+            entry,
+            Status::Pending,
+            id.clone(),
+        );
+        assert!(
+            !callback_ran.load(Ordering::SeqCst),
+            "try_submit_entry must only collect callback side effects"
+        );
+        outcome
+    };
+    service
+        .dispatch_submit_aftermath(&id, outcome)
+        .await
+        .unwrap();
+    assert!(callback_ran.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
 async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     let (service, _relay, _cancel, _store, _out_points) = service_with_rbf(2);
 
@@ -76,7 +125,14 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     );
     let attack_id = attack_entry.proposal_short_id();
 
-    let (result, _replaced, recovered, reject_events) = {
+    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
+        result,
+        replaced: _,
+        rollback,
+        recovered,
+        reject_events,
+        accept_event: _,
+    } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -94,6 +150,7 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     // evicted, nothing needs recovering, and the victim cluster never left
     // the pool.
     assert!(matches!(result, Err(Reject::ExceededMaximumAncestorsCount)));
+    assert!(rollback.is_empty());
     assert!(recovered.is_empty());
     assert!(reject_events.is_empty());
     let tx_pool = service.pool.tx_pool.read().await;
@@ -217,7 +274,14 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
     let n_id = n.proposal_short_id();
     let n_entry = TxEntry::dummy_resolve(n.clone(), MOCK_CYCLES, Capacity::zero(), 100);
 
-    let (result, _replaced, recovered, reject_events) = {
+    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
+        result,
+        replaced: _,
+        rollback,
+        recovered: _,
+        reject_events,
+        accept_event: _,
+    } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -238,7 +302,7 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
         "the zero-fee entry must self-evict under the pool limit"
     );
     assert!(
-        recovered.iter().any(|(tx, _)| tx.hash() == e.hash()),
+        rollback.iter().any(|(tx, _)| tx.hash() == e.hash()),
         "the escape-hatch eviction of E must be recovered after the commit failure"
     );
     assert!(
@@ -300,7 +364,14 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
     let n_id = n.proposal_short_id();
     let n_entry = TxEntry::dummy_resolve(n.clone(), MOCK_CYCLES, Capacity::zero(), 100);
 
-    let (result, _replaced, recovered, _reject_events) = {
+    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
+        result,
+        replaced: _,
+        rollback,
+        recovered: _,
+        reject_events: _,
+        accept_event: _,
+    } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -319,7 +390,7 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
         "the dep pre-validation must reject after C consumed D'"
     );
     assert!(
-        recovered.iter().any(|(tx, _)| tx.hash() == e.hash()),
+        rollback.iter().any(|(tx, _)| tx.hash() == e.hash()),
         "the escape-hatch eviction of E must be recovered even though add_entry itself failed"
     );
 
@@ -384,7 +455,14 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
     );
     let attack_id = attack_entry.proposal_short_id();
 
-    let (result, _replaced, recovered, reject_events) = {
+    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
+        result,
+        replaced: _,
+        rollback,
+        recovered,
+        reject_events,
+        accept_event: _,
+    } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         // A stale pre-resolve tip forces the tip-change revalidation branch.
@@ -400,7 +478,11 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
     };
 
     assert!(result.is_err(), "far-future since must fail revalidation");
-    let recovered_hashes: HashSet<_> = recovered.iter().map(|(tx, _)| tx.hash()).collect();
+    let recovered_hashes: HashSet<_> = rollback
+        .iter()
+        .chain(recovered.iter())
+        .map(|(tx, _)| tx.hash())
+        .collect();
     assert!(
         recovered_hashes.contains(&parent.hash()),
         "the direct conflict must be recovered"
@@ -483,6 +565,7 @@ async fn displaced_candidate_is_restored_unless_displacer_commits() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            resident_permit: None,
         };
         (tx, source, resolved)
     };
@@ -535,6 +618,11 @@ async fn displaced_candidate_is_restored_unless_displacer_commits() {
         let verify = service.pipeline.queues.verify_queue.read().await;
         assert!(!verify.contains_key(&id_a), "A must be displaced");
         assert!(verify.contains_key(&id_b));
+        assert_eq!(
+            verify.resident_usage(),
+            (resolved_a.tx_size + resolved_b.tx_size, 2),
+            "RaceLost must remain charged to the resolved residency budget"
+        );
     }
 
     // While A is held by B's registration, pipeline queries must still see
@@ -659,6 +747,7 @@ async fn superseded_at_submit_is_held_then_restored_on_winner_abort() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            resident_permit: None,
         };
         (tx, source, resolved)
     };
@@ -857,6 +946,7 @@ async fn superseded_candidate_is_not_double_parked_by_after_process() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            resident_permit: None,
         };
         (tx, source, resolved)
     };
@@ -987,6 +1077,7 @@ async fn winner_committing_without_replacement_restores_displaced() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            resident_permit: None,
         };
         (tx, source, resolved)
     };
@@ -1107,7 +1198,14 @@ async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
     );
     let replacement_id = replacement_entry.proposal_short_id();
 
-    let (result, _replaced, recovered, _events) = {
+    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
+        result,
+        replaced: _,
+        rollback,
+        recovered,
+        reject_events: _events,
+        accept_event: _,
+    } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -1122,6 +1220,7 @@ async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
     };
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
+    assert!(rollback.is_empty());
     assert!(
         recovered
             .iter()
@@ -1187,6 +1286,7 @@ async fn attached_winner_finalizes_held_candidates() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            resident_permit: None,
         };
         (tx, source, resolved)
     };
@@ -1274,12 +1374,11 @@ async fn attached_winner_finalizes_held_candidates() {
     );
 }
 
-/// An expired `RaceLost` entry must not loop: if its winner is still in
-/// flight when the wait deadline passes, the loser is terminally rejected
-/// (relayed, not recorded); if the winner is gone, it is restored to the
-/// verify queue.
+/// An expired `RaceLost` entry must not loop or be censored by an unverified
+/// winner: expiry revokes a still-live speculative registration and restores
+/// its losers. If the winner is already gone, the loser is restored directly.
 #[tokio::test]
-async fn expired_race_lost_is_rejected_when_winner_alive_restored_when_gone() {
+async fn expired_race_lost_revokes_stalled_winner_and_restores_loser() {
     use super::harness::{WorkerSet, harness};
     use crate::component::pipeline_queue::PipelineQueue;
     use crate::resolved_tx::ResolvedTx;
@@ -1289,7 +1388,7 @@ async fn expired_race_lost_is_rejected_when_winner_alive_restored_when_gone() {
 
     let h = harness(2).rbf(true).workers(WorkerSet::None).build();
     let service = h.service;
-    let relay_rx = h.relay_rx;
+    let _relay_rx = h.relay_rx;
 
     let x_hash = Byte32::new([53u8; 32]);
     let original = build_tx(vec![(&x_hash, 0)], 1);
@@ -1325,17 +1424,17 @@ async fn expired_race_lost_is_rejected_when_winner_alive_restored_when_gone() {
             pre_resolve_tip: Default::default(),
             snapshot: Arc::clone(&snapshot),
             source,
+            resident_permit: None,
         };
         (tx, source, resolved)
     };
 
     // Scenario 1: the deadline passes while the winner is still in flight —
-    // terminal rejection, no restore, no more verify/re-hold cycles.
+    // revoke its speculative registration and restore the loser.
     let (tx_l, source_l, resolved_l) = mk_candidate(1, 1_000, 1);
     let (tx_a, source_a, resolved_a) = mk_candidate(2, 10_000, 2);
     let id_l = tx_l.proposal_short_id();
     let id_a = tx_a.proposal_short_id();
-    let hash_l = tx_l.hash();
 
     assert!(
         service
@@ -1379,33 +1478,30 @@ async fn expired_race_lost_is_rejected_when_winner_alive_restored_when_gone() {
         )
         .await;
 
-    let notified = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if let Ok(crate::service::TxVerificationResult::Reject { tx_hash }) =
-                relay_rx.try_recv()
-                && tx_hash == hash_l
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-    })
-    .await;
-    assert!(
-        notified.is_ok(),
-        "an expired loser whose winner is in flight must be relayed as rejected"
-    );
     {
         let verify = service.pipeline.queues.verify_queue.read().await;
         assert!(
-            !verify.contains_key(&id_l),
-            "must not be restored while the winner is in flight"
+            verify.contains_key(&id_l),
+            "an unverified stalled winner must not censor the loser"
         );
     }
+    assert!(
+        !service
+            .pipeline
+            .queues
+            .rbf_candidates
+            .read()
+            .await
+            .contains_candidate(&id_a),
+        "expiry must revoke the stalled winner's speculative registration"
+    );
 
     // Scenario 2: the winner is gone before the deadline — the loser is
     // restored to the verify queue.
-    service.abort_rbf_candidate(&id_a).await;
+    assert!(matches!(
+        service.remove_tx(tx_l.hash()).await,
+        crate::service::RemoveTxOutcome::Removed
+    ));
     let (tx_l2, source_l2, resolved_l2) = mk_candidate(3, 1_000, 1);
     let (tx_b, source_b, resolved_b) = mk_candidate(4, 10_000, 2);
     let id_l2 = tx_l2.proposal_short_id();
@@ -1508,7 +1604,14 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     );
     let replacement_id = replacement_entry.proposal_short_id();
 
-    let (result, _replaced, recovered, _events) = {
+    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
+        result,
+        replaced: _,
+        rollback,
+        recovered,
+        reject_events: _events,
+        accept_event: _,
+    } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -1523,6 +1626,7 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     };
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
+    assert!(rollback.is_empty());
     assert!(
         !recovered
             .iter()

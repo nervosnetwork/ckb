@@ -135,9 +135,16 @@ impl TxPoolController {
             detached_proposal_id,
             snapshot,
         ));
-        self.reorg_sender.try_send(notify).map_err(|e| {
-            let (_m, e) = handle_try_send_error(e);
-            e.into()
+        // Reorg messages are authoritative chain-state transitions, not
+        // best-effort notifications. Dropping one when the bounded channel is
+        // briefly full leaves committed transactions in the pool and loses
+        // detached-transaction recovery permanently, because a later reorg
+        // message is only a delta for that later fork. Apply backpressure to
+        // the chain worker instead. `block_in_place` mirrors the controller's
+        // synchronous request API while `handle.block_on` drives the async
+        // bounded send without busy waiting.
+        block_in_place(|| self.handle.block_on(self.reorg_sender.send(notify))).map_err(|e| {
+            ckb_error::OtherError::new(format!("send reorg notification fails: {e}")).into()
         })
     }
 

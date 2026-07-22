@@ -61,11 +61,13 @@ fn dummy_resolved_tx(
         pre_resolve_tip: Default::default(),
         snapshot: test_snapshot(),
         source,
+        resident_permit: None,
     }
 }
 #[tokio::test]
 async fn verify_queue_popped_tx_stays_visible_until_finish() {
     let tx = TransactionBuilder::default().build();
+    let tx_size = tx.data().serialized_size_in_block();
     let id = tx.proposal_short_id();
     let mut queue = VerifyQueue::new(
         MAX_TX_VERIFY_CYCLES,
@@ -77,6 +79,7 @@ async fn verify_queue_popped_tx_stays_visible_until_finish() {
             .add_tx(dummy_resolved_tx(tx.clone(), TxSource::Local))
             .unwrap()
     );
+    assert_eq!(queue.resident_usage(), (tx_size, 1));
 
     let popped = queue.pop_front(false).expect("tx pops");
     assert_eq!(popped.tx.hash(), tx.hash());
@@ -87,10 +90,55 @@ async fn verify_queue_popped_tx_stays_visible_until_finish() {
         queue.get_active_tx(&id).map(|r| r.tx.hash()),
         Some(tx.hash())
     );
+    assert_eq!(queue.total_tx_size(), 0, "queue-local bytes are refunded");
+    assert_eq!(
+        queue.resident_usage(),
+        (tx_size, 1),
+        "lifecycle bytes stay charged while the worker owns the job"
+    );
 
     queue.finish(&id);
     assert!(!queue.contains_or_active(&id));
     assert!(queue.get_active_tx(&id).is_none());
+    assert_eq!(
+        queue.resident_usage(),
+        (tx_size, 1),
+        "the popped worker value still owns the permit"
+    );
+    drop(popped);
+    assert_eq!(queue.resident_usage(), (0, 0));
+}
+
+#[tokio::test]
+async fn verify_queue_residency_budget_covers_active_jobs() {
+    let tx_a = TransactionBuilder::default().build();
+    let tx_b = TransactionBuilder::default()
+        .output_data(Bytes::from_static(b"b").pack())
+        .build();
+    let tx_size = tx_a.data().serialized_size_in_block();
+    let tx_b_size = tx_b.data().serialized_size_in_block();
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        tx_size.max(tx_b_size) + 1,
+    );
+    queue
+        .add_tx(dummy_resolved_tx(tx_a, TxSource::Local))
+        .unwrap();
+    let active = queue.pop_front(false).expect("first tx pops");
+
+    // The queue-local counter is empty, but the active worker value still
+    // owns the lifecycle permit. A second resolved transaction cannot use
+    // the same bytes until that value becomes terminal.
+    assert_eq!(queue.total_tx_size(), 0);
+    assert!(matches!(
+        queue.add_tx(dummy_resolved_tx(tx_b, TxSource::Local)),
+        Err(Reject::Full(message)) if message.contains("residency budget")
+    ));
+
+    queue.finish(&active.tx.proposal_short_id());
+    drop(active);
+    assert_eq!(queue.resident_usage(), (0, 0));
 }
 
 #[tokio::test]
@@ -508,6 +556,7 @@ fn dummy_resolved_tx_with_fee(
         pre_resolve_tip: Default::default(),
         snapshot: test_snapshot(),
         source,
+        resident_permit: None,
     }
 }
 
@@ -576,6 +625,49 @@ async fn verify_queue_peek_fee_rate_ordering() {
     assert_eq!(
         peeked, id_high,
         "fee-rate mode should return highest fee rate first"
+    );
+}
+
+#[tokio::test]
+async fn verify_queue_fee_order_ignores_unverified_declared_cycles() {
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::FeeRate,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
+    let low_fee = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("low-fee-liar").pack()])
+        .build();
+    let high_fee = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("high-fee-honest").pack()])
+        .build();
+    let high_id = high_fee.proposal_short_id();
+
+    queue
+        .add_tx(dummy_resolved_tx_with_fee(
+            low_fee,
+            100,
+            TxSource::Remote {
+                cycles: 0,
+                peer: 1.into(),
+            },
+        ))
+        .unwrap();
+    queue
+        .add_tx(dummy_resolved_tx_with_fee(
+            high_fee,
+            10_000,
+            TxSource::Remote {
+                cycles: u64::MAX,
+                peer: 2.into(),
+            },
+        ))
+        .unwrap();
+
+    assert_eq!(
+        queue.peek(false),
+        Some(high_id),
+        "declared cycles are unverified metadata and must not buy priority"
     );
 }
 
@@ -1505,6 +1597,7 @@ async fn dropped_verify_mgr_cancels_its_worker_generation() {
                 pre_resolve_tip: Default::default(),
                 snapshot,
                 source: TxSource::Local,
+                resident_permit: None,
             };
             let mut verify = service.pipeline.queues.verify_queue.write().await;
             verify.add_tx(resolved).unwrap();

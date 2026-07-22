@@ -421,19 +421,19 @@ impl TxPoolService {
     }
 
     /// Route waiting-room evictions by reason: orphans get a Reject
-    /// notification (their wait expired or the room was full); race-lost
-    /// candidates are restored to the verify queue *only while their
-    /// winner is actually still in flight* — a winner that outlasted the
-    /// whole expiry window has won the race for real, so the loser is
-    /// terminally rejected (relayed, not recorded) instead of paying for
-    /// yet another verify/re-hold cycle. Without this check the
-    /// expired → restored → re-held cycle never terminates and burns a
-    /// full script verification per round.
+    /// notification (their wait expired or the room was full). An expired
+    /// `RaceLost` revokes the stalled winner's *speculative* registration
+    /// and restores every loser it held. Merely surviving in a verify backlog
+    /// is not proof that the winner is valid and must never terminally reject
+    /// an already-admitted transaction. Revocation also prevents an
+    /// expired -> restored -> re-held verification loop; the winner may keep
+    /// verifying, but it must compete under the real pool RBF rules.
     pub(crate) async fn route_waiting_evictions(
         &self,
         evicted: Vec<crate::component::waiting_room::WaitingEntry>,
     ) {
         let mut restore = Vec::new();
+        let mut stale_winners = HashSet::new();
         for entry in evicted {
             match entry.reason {
                 crate::component::waiting_room::WaitReason::ParentsMissing { .. } => {
@@ -443,22 +443,12 @@ impl TxPoolService {
                 }
                 crate::component::waiting_room::WaitReason::RaceLost { winner } => {
                     if let Some(resolved) = entry.resolved {
-                        let winner_alive = {
-                            let rbf = self.pipeline.queues.rbf_candidates.read().await;
-                            rbf.contains_candidate(&winner)
-                        };
-                        if winner_alive {
-                            self.terminal_reject(
-                                resolved.tx,
-                                resolved.source,
-                                Reject::RBFRejected(
-                                    "winner outlasted the wait deadline".to_string(),
-                                ),
-                            )
-                            .await;
-                        } else {
-                            restore.push(*resolved);
-                        }
+                        // Join the winner's ownership transition below. If
+                        // finalize/abort already won both locks this is an
+                        // idempotent no-op; otherwise expiry revokes the stale
+                        // speculative registration and wakes all its losers.
+                        stale_winners.insert(winner);
+                        restore.push(*resolved);
                     } else {
                         // RaceLost entries are always parked with their
                         // resolved form; reaching here means a future
@@ -473,6 +463,17 @@ impl TxPoolService {
                     // Conflicts-cache migration (S3): recovered conflicts
                     // resume through the ordered resolve queue.
                 }
+            }
+        }
+        if !stale_winners.is_empty() {
+            // Lock order: rbf_candidates -> waiting_room. Removing the
+            // registration first makes every subsequent submit observe that
+            // the timeout revoked the speculative preference.
+            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
+            let mut room = self.pipeline.waiting_room.write().await;
+            for winner in stale_winners {
+                rbf.remove(&winner);
+                restore.extend(room.wake_by_winner(&winner));
             }
         }
         // Box::pin is required: restore → route → restore is recursive

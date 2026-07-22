@@ -303,3 +303,21 @@ fn pending_proposals_filter_conflicting_uncle_subtree() {
     assert!(!filtered.contains(&conflicting));
     assert!(!filtered.contains(&descendant));
 }
+
+#[test]
+fn proposal_update_keeps_highest_scored_fitting_prefix() {
+    use ckb_types::packed::ProposalShortId;
+
+    let mut proposals: Vec<ProposalShortId> = (0..3u8)
+        .map(|byte| ProposalShortId::from_tx_hash(&Byte32::new([byte; 32])))
+        .collect();
+    let id_size = ProposalShortId::serialized_size();
+    let base = 1_000;
+    let (proposal_bytes, total) =
+        super::BlockAssembler::fit_proposal_prefix(&mut proposals, base, base + 2 * id_size)
+            .expect("base template fits");
+
+    assert_eq!(proposals.len(), 2);
+    assert_eq!(proposal_bytes, 2 * id_size);
+    assert_eq!(total, base + 2 * id_size);
+}

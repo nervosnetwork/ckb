@@ -201,10 +201,11 @@ impl BlockAssembler {
             }
 
             let proposals = tx_pool_reader.package_proposals(consensus.max_block_proposals_limit());
+            let proposal_set: HashSet<ProposalShortId> = proposals.iter().cloned().collect();
             let uncles = Self::filter_uncles_conflicting_with_proposals(
                 &current.snapshot,
                 &current_template.uncles,
-                &proposals,
+                &proposal_set,
             );
 
             let basic_size = Self::basic_block_size(
@@ -256,7 +257,7 @@ impl BlockAssembler {
         let mut builder = BlockTemplateBuilder::from_template(&current.template);
         builder
             .set_uncles(uncles)
-            .set_proposals(Vec::from_iter(proposals))
+            .set_proposals(proposals)
             .set_transactions(checked_txs)
             .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(
@@ -452,41 +453,55 @@ impl BlockAssembler {
             (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
         };
         let consensus = current.snapshot.consensus();
-        let proposals = {
+        let mut proposals = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
                 return;
             }
             tx_pool_reader.package_proposals(consensus.max_block_proposals_limit())
         };
+        let proposal_set: HashSet<ProposalShortId> = proposals.iter().cloned().collect();
         let uncles = Self::filter_uncles_conflicting_with_proposals(
             &current.snapshot,
             &current.template.uncles,
-            &proposals,
+            &proposal_set,
         );
 
-        let new_proposals_size = proposals.len() * ProposalShortId::serialized_size();
         let new_uncles_size = Self::uncles_size(&uncles);
-        let new_total_size = current
+        let base_total_size = current
             .size
-            .calc_total_by_uncles_and_proposals(new_uncles_size, new_proposals_size);
+            .calc_total_by_uncles_and_proposals(new_uncles_size, 0);
         let max_block_bytes = consensus.max_block_bytes() as usize;
-        // Same boundary as the transaction selector: a template that fills
-        // the budget exactly is allowed (`>` rejects only overshoots).
-        if new_total_size > max_block_bytes {
+        let Some((new_proposals_size, new_total_size)) =
+            Self::fit_proposal_prefix(&mut proposals, base_total_size, max_block_bytes)
+        else {
             return;
-        }
+        };
 
         self.apply_partial_update(current, version, "update_proposals", |builder, size| {
-            builder
-                .set_uncles(uncles)
-                .set_proposals(Vec::from_iter(proposals));
+            builder.set_uncles(uncles).set_proposals(proposals);
             size.uncles = new_uncles_size;
             size.proposals = new_proposals_size;
             size.total = new_total_size;
             true
         })
         .await;
+    }
+
+    /// Keep the highest-scored proposal prefix that fits the remaining block
+    /// bytes. Returning `None` means the non-proposal template already exceeds
+    /// the limit. Exact fits are valid.
+    fn fit_proposal_prefix(
+        proposals: &mut Vec<ProposalShortId>,
+        base_total_size: usize,
+        max_block_bytes: usize,
+    ) -> Option<(usize, usize)> {
+        let available = max_block_bytes.checked_sub(base_total_size)?;
+        let id_size = ProposalShortId::serialized_size();
+        let fit_count = (available / id_size).min(proposals.len());
+        proposals.truncate(fit_count);
+        let proposals_size = fit_count * id_size;
+        Some((proposals_size, base_total_size + proposals_size))
     }
 
     /// Update the transaction set of the current block template.

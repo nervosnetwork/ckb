@@ -88,11 +88,10 @@ impl WaitingEntry {
 /// they lost to; `by_outpoint` indexes `InputsBlocked` entries by every
 /// blocked input so a freed outpoint finds its candidates directly.
 ///
-/// Only `ParentsMissing` and `InputsBlocked` entries count against the
-/// size budgets, each with its own per-reason accounting: they are driven
-/// by untrusted remote input, while `RaceLost` entries can only appear
-/// through the fee-escalating in-flight gate (every displacement requires
-/// a strictly higher fee rate), so their number is naturally bounded.
+/// `ParentsMissing` and `InputsBlocked` use reason-local budgets. `RaceLost`
+/// owns an already-budgeted `ResolvedTx`: its lifecycle permit remains charged
+/// across verify queue, active worker and waiting-room moves, so it must not be
+/// charged or evicted a second time here.
 ///
 /// Expiry applies only to `ParentsMissing` (orphan churn) and `RaceLost`
 /// (a stalled winner must not hold the loser forever); `InputsBlocked`
@@ -172,8 +171,8 @@ impl WaitingRoom {
         self.by_id.get(id)
     }
 
-    /// Returns the accounting group for a reason, or `None` for
-    /// budget-exempt (`RaceLost`) entries.
+    /// Returns the reason-local accounting group, or `None` for `RaceLost`
+    /// entries already charged by their resolved-lifecycle permit.
     fn stat_for(&mut self, reason: &WaitReason) -> Option<&mut GroupStat> {
         match reason {
             WaitReason::ParentsMissing { .. } => Some(&mut self.parents_missing),
@@ -512,8 +511,8 @@ impl WaitingRoom {
         }
 
         // Per-reason budget loops: evict the *oldest* entries of the
-        // reason whose group is over budget (RaceLost entries are exempt:
-        // they are bounded by the fee-escalating gate). Candidates come
+        // reason whose group is over budget (`RaceLost` is charged by the
+        // resolved-lifecycle budget instead). Candidates come
         // from the per-reason insertion-order queues; ids already removed
         // through other paths are skipped lazily.
         loop {
@@ -587,6 +586,7 @@ mod tests {
             pre_resolve_tip: Default::default(),
             snapshot: test_snapshot(),
             source: TxSource::Local,
+            resident_permit: None,
         }
     }
 

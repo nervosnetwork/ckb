@@ -10,7 +10,6 @@
 //! (out-of-lock side-effect dispatch). Entry and verification orchestration
 //! lives in `super` (`process/submit/mod.rs`).
 
-use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
 use crate::error::Reject;
@@ -33,15 +32,22 @@ use crate::process::{get_tx_status, status_to_verify_env};
 /// replacement, paired with the pipeline source they were recorded with.
 pub(crate) type RecoveredTxs = Vec<(TransactionView, TxSource)>;
 
-/// Outcome of `try_submit_entry`: the commit result, whether an actual RBF
-/// replacement happened (old transactions were removed), the recovered txs
-/// to re-enqueue, and the reject events to dispatch outside the write lock.
-pub(crate) type SubmitEntryOutcome = (
-    Result<(), Reject>,
-    bool,
-    RecoveredTxs,
-    Vec<(TxEntry, Reject)>,
-);
+/// Outcome of `try_submit_entry`, carried as one side-effect envelope across
+/// the tx-pool write-lock boundary.
+pub(crate) struct SubmitEntryOutcome {
+    pub(crate) result: Result<(), Reject>,
+    /// Whether an actual RBF replacement happened (old transactions were
+    /// physically removed).
+    pub(crate) replaced: bool,
+    /// Entries that must be restored synchronously if `result` is an error.
+    pub(crate) rollback: RecoveredTxs,
+    /// Opportunistic conflict recoveries that may use the deferred worker.
+    pub(crate) recovered: RecoveredTxs,
+    /// Terminal removals whose reject callbacks run outside the lock.
+    pub(crate) reject_events: Vec<(TxEntry, Reject)>,
+    /// Successful accepted callback, also dispatched outside the lock.
+    pub(crate) accept_event: Option<(TxEntry, Status)>,
+}
 
 /// The side effects accumulated by one submit attempt.
 ///
@@ -59,9 +65,19 @@ pub(crate) struct SubmitSideEffects {
     removed_old_txs: Vec<TxEntry>,
     /// Txs to recover (conflict-cache hits and escape-hatch evictions).
     recovered: RecoveredTxs,
+    /// Transactions physically removed from the main pool by this submit.
+    /// On failure these form the rollback barrier and must be back in the
+    /// pool (or definitively fail against current state) before speculative
+    /// RBF losers are released.
+    rollback: RecoveredTxs,
     /// Entries evicted by `add_entry`'s cell-ref escape hatch during this
     /// attempt (drained from `PoolMap::evicted_journal`).
     commit_evicted: HashSet<TxEntry>,
+    /// Successful pool insertion notification, dispatched only after the
+    /// write lock is released. It is intentionally installed after all pool
+    /// limits pass so a transaction rejected by the same submit never emits
+    /// a spurious pending/proposed callback first.
+    accept_event: Option<(TxEntry, Status)>,
 }
 
 impl SubmitSideEffects {
@@ -109,30 +125,38 @@ impl SubmitSideEffects {
         // happened, so they must be recovered too — this class of
         // eviction was previously lost with only an `Invalidated`
         // reject notification.
-        let existing: HashSet<ProposalShortId> = self
-            .recovered
-            .iter()
-            .map(|(tx, _)| tx.proposal_short_id())
-            .collect();
-        self.recovered.extend(
-            std::mem::take(&mut self.commit_evicted)
-                .into_iter()
-                .filter_map(|evicted| {
-                    let tx = evicted.transaction().clone();
-                    // Same source policy as conflict-cache recovery: the
-                    // original pipeline source is not retained in the pool.
-                    (!existing.contains(&tx.proposal_short_id())
-                        && tx.proposal_short_id() != *entry_id)
-                        .then_some((tx, TxSource::Local))
-                }),
+        let mut rollback_seen = HashSet::new();
+        self.rollback.extend(
+            self.removed_old_txs
+                .iter()
+                .map(|old| old.transaction().clone())
+                .chain(
+                    std::mem::take(&mut self.commit_evicted)
+                        .into_iter()
+                        .map(|old| old.transaction().clone()),
+                )
+                .filter(|tx| {
+                    tx.proposal_short_id() != *entry_id
+                        && rollback_seen.insert(tx.proposal_short_id())
+                })
+                .map(|tx| (tx, TxSource::Local)),
         );
+
+        // `prepare_rbf_replacement` may also have exported one of the same
+        // removed entries through the conflict-recovery indexes. It belongs
+        // to the synchronous rollback set exactly once, not to the deferred
+        // opportunistic recovery set.
+        self.recovered.retain(|(tx, _)| {
+            !rollback_seen.contains(&tx.proposal_short_id()) && tx.proposal_short_id() != *entry_id
+        });
 
         // Recovery order matters: parents must be re-added before
         // children, while escape-hatch evictions arrive children-first
         // (post-order removal). Re-sort the merged set by dependency.
+        TxPoolService::sort_by_dependencies(&mut self.rollback, |(tx, _)| tx);
         TxPoolService::sort_by_dependencies(&mut self.recovered, |(tx, _)| tx);
 
-        for (tx, _) in &self.recovered {
+        for (tx, _) in self.rollback.iter().chain(self.recovered.iter()) {
             tx_pool.remove_conflict(&tx.proposal_short_id());
         }
         for old in &self.removed_old_txs {
@@ -148,6 +172,7 @@ impl SubmitSideEffects {
             .recovered
             .iter()
             .map(|(tx, _)| tx.proposal_short_id())
+            .chain(self.rollback.iter().map(|(tx, _)| tx.proposal_short_id()))
             .chain(self.removed_old_txs.iter().map(|e| e.proposal_short_id()))
             .collect();
         self.reject_events
@@ -156,7 +181,6 @@ impl SubmitSideEffects {
 }
 
 type AddToPoolFn = fn(&mut TxPool, TxEntry) -> Result<(bool, HashSet<TxEntry>), Reject>;
-type PoolCallbackFn = fn(&Callbacks, &TxEntry);
 
 impl TxPoolService {
     /// Check RBF conflicts, re-verify if the tip changed while the tx was in
@@ -283,13 +307,7 @@ impl TxPoolService {
         status: Status,
         fx: &mut SubmitSideEffects,
     ) -> Result<(), Reject> {
-        let evicted = commit_entry_to_pool(
-            tx_pool,
-            status,
-            entry,
-            &self.relay.callbacks,
-            &mut fx.commit_evicted,
-        )?;
+        let evicted = commit_entry_to_pool(tx_pool, status, entry, &mut fx.commit_evicted)?;
 
         // `commit_entry_to_pool` has already drained `PoolMap::evicted_journal`
         // (the cell-ref escape-hatch evictions) into `fx.commit_evicted`, and
@@ -334,6 +352,7 @@ impl TxPoolService {
             )?;
 
             self.commit_and_apply_limits(tx_pool, &entry, final_status, &mut fx)?;
+            fx.accept_event = Some((entry.clone(), final_status));
 
             Ok(())
         })();
@@ -368,7 +387,14 @@ impl TxPoolService {
                 .retain(|(tx, _)| !removed_ids.contains(&tx.proposal_short_id()));
         }
 
-        (result, replaced, fx.recovered, fx.reject_events)
+        SubmitEntryOutcome {
+            result,
+            replaced,
+            rollback: fx.rollback,
+            recovered: fx.recovered,
+            reject_events: fx.reject_events,
+            accept_event: fx.accept_event,
+        }
     }
     /// Dispatch reject callbacks, enqueue recovered txs, clean up stale RBF
     /// registrations, and remove the current RBF candidate after the write-locked
@@ -376,15 +402,36 @@ impl TxPoolService {
     pub(crate) async fn dispatch_submit_aftermath(
         &self,
         entry_id: &ProposalShortId,
-        result: Result<(), Reject>,
-        replaced: bool,
-        recovered: RecoveredTxs,
-        reject_events: Vec<(TxEntry, Reject)>,
+        outcome: SubmitEntryOutcome,
     ) -> Result<(), Reject> {
-        // Dispatch reject callbacks outside the write lock, regardless of
-        // whether the submission itself succeeded.
-        for (entry, reject) in &reject_events {
-            self.relay.callbacks.call_reject(entry, reject.clone());
+        let SubmitEntryOutcome {
+            result,
+            replaced,
+            rollback,
+            recovered,
+            reject_events,
+            accept_event,
+        } = outcome;
+        // A failed replacement is a transaction rollback, not ordinary
+        // background recovery. Restore the entries it physically removed
+        // before aborting the unverified winner and releasing candidates it
+        // held. Otherwise an under-fee held candidate can observe free inputs,
+        // commit as a normal transaction, and bypass the pool's replacement
+        // fee floor before the old transaction reaches the deferred worker.
+        if result.is_err() {
+            for (tx, source) in rollback {
+                let tx_hash = tx.hash();
+                if let Err(reject) = Box::pin(self.process_tx(tx, source)).await
+                    && !matches!(reject, Reject::Duplicated(_))
+                {
+                    warn!("failed to roll back RBF-removed tx {}: {}", tx_hash, reject);
+                }
+            }
+        } else {
+            debug_assert!(
+                rollback.is_empty(),
+                "successful submit must not export a rollback set"
+            );
         }
 
         // In-pool entries that were removed by this submit (RBF-replaced or
@@ -424,6 +471,23 @@ impl TxPoolService {
             self.abort_rbf_candidate(entry_id).await;
         }
 
+        // User callbacks run last, after every internal ownership and RBF
+        // transition is stable. They are allowed to re-enter the controller;
+        // invoking one before rollback/finalize would let that re-entrant
+        // operation observe a transient state or invalidate the decision about
+        // held candidates. Preserve accepted-before-evicted order and emit
+        // acceptance only after the complete submit (including limits)
+        // succeeded.
+        if let Some((entry, status)) = &accept_event {
+            match status {
+                Status::Proposed => self.relay.callbacks.call_proposed(entry),
+                Status::Pending | Status::Gap => self.relay.callbacks.call_pending(entry),
+            }
+        }
+        for (entry, reject) in &reject_events {
+            self.relay.callbacks.call_reject(entry, reject.clone());
+        }
+
         result
     }
 }
@@ -442,15 +506,14 @@ fn commit_entry_to_pool(
     tx_pool: &mut TxPool,
     status: Status,
     entry: &TxEntry,
-    callbacks: &Callbacks,
     evicted_out: &mut HashSet<TxEntry>,
 ) -> Result<HashSet<TxEntry>, Reject> {
     let tx_hash = entry.transaction().hash();
     debug!("submit_entry {:?} {}", status, tx_hash);
-    let (add, callback): (AddToPoolFn, PoolCallbackFn) = match status {
-        Status::Pending => (TxPool::add_pending, Callbacks::call_pending),
-        Status::Gap => (TxPool::add_gap, Callbacks::call_pending),
-        Status::Proposed => (TxPool::add_proposed, Callbacks::call_proposed),
+    let add: AddToPoolFn = match status {
+        Status::Pending => TxPool::add_pending,
+        Status::Gap => TxPool::add_gap,
+        Status::Proposed => TxPool::add_proposed,
     };
     let result = add(tx_pool, entry.clone());
     // Drain the escape-hatch journal into the caller's recovery set on
@@ -471,6 +534,5 @@ fn commit_entry_to_pool(
         // does not punish a later legitimate resubmission.
         return Err(Reject::Duplicated(tx_hash));
     }
-    callback(callbacks, entry);
     Ok(evicts)
 }

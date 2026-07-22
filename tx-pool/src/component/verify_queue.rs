@@ -6,11 +6,10 @@ use crate::component::active_set::ActiveSet;
 use crate::component::flight_tracker::FlightTracker;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::saturating_counter::SaturatingCounter;
-use crate::resolved_tx::ResolvedTx;
+use crate::resolved_tx::{ResolvedTx, ResolvedTxBudget};
 use ckb_app_config::VerifyOrdering;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_types::{
     core::{FeeRate, tx_pool::Reject},
     packed::ProposalShortId,
@@ -91,6 +90,10 @@ pub(crate) struct VerifyQueue {
     /// `pool_config.verify_queue_tx_size_budget()` (clamped up to
     /// `max_tx_pool_size` so persisted-pool reload never hits `Reject::Full`).
     max_tx_size: usize,
+    /// Lifecycle-wide resolved-transaction budget. Unlike
+    /// `total_tx_size`, this stays charged while a popped job is active or
+    /// parked as an RBF `RaceLost` candidate.
+    resident_budget: Arc<ResolvedTxBudget>,
     /// Number of proposal entries currently in the queue. Maintained so that
     /// `peek_by_fee_rate` can skip its full-index proposal scan when no
     /// proposal is present (the common case); see `peek_by_fee_rate`.
@@ -98,6 +101,12 @@ pub(crate) struct VerifyQueue {
 }
 
 impl VerifyQueue {
+    /// A count cap is required in addition to serialized bytes because every
+    /// resolved entry owns vectors of `CellMeta` and snapshot/provider state.
+    /// Tiny transactions must not turn those fixed costs into an unbounded
+    /// allocation attack.
+    const MAX_RESIDENT_ENTRIES: usize = 10_000;
+
     /// Create a new VerifyQueue
     pub(crate) fn new(
         large_cycle_threshold: u64,
@@ -113,6 +122,7 @@ impl VerifyQueue {
             active: ActiveSet::default(),
             ordering,
             max_tx_size,
+            resident_budget: ResolvedTxBudget::new(max_tx_size, Self::MAX_RESIDENT_ENTRIES),
             proposal_count: 0,
         }
     }
@@ -130,6 +140,11 @@ impl VerifyQueue {
     #[cfg(test)]
     pub fn total_tx_size(&self) -> usize {
         self.total_tx_size.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resident_usage(&self) -> (usize, usize) {
+        self.resident_budget.usage()
     }
 
     /// Number of proposal entries currently queued (test introspection for
@@ -263,18 +278,15 @@ impl VerifyQueue {
         entry.map(|e| e.inner.tx.proposal_short_id())
     }
 
-    /// Compute fee rate for a resolved tx.
+    /// Compute the admission-order fee rate from verified inputs only.
     ///
-    /// For remote txs, declared cycles are used to compute weight.
-    /// For local/proposal txs (cycles unknown), `large_cycle_threshold` is used
-    /// as a conservative estimate so that they are not unfairly penalised.
+    /// Peer-declared cycles are checked only *after* script verification. If
+    /// they influence queue ordering, a peer can declare zero cycles to jump
+    /// ahead of honest transactions and pay the verification cost only after
+    /// consuming the priority slot. Size-based fee rate is the same
+    /// non-manipulable unit used by the pre-check and in-flight RBF gate.
     fn compute_fee_rate(&self, resolved: &ResolvedTx) -> FeeRate {
-        let declared_cycles = resolved
-            .source
-            .cycles()
-            .unwrap_or(self.large_cycle_threshold);
-        let weight = get_transaction_weight(resolved.tx_size, declared_cycles);
-        FeeRate::calculate(resolved.fee, weight)
+        FeeRate::calculate(resolved.fee, resolved.tx_size as u64)
     }
 
     /// When OnlySmallCycleTx Worker is wakeup, but found the tx is large cycle tx, notify other workers.
@@ -348,7 +360,7 @@ impl PipelineQueue for VerifyQueue {
         removed
     }
 
-    fn add_tx(&mut self, resolved: ResolvedTx) -> Result<bool, Reject> {
+    fn add_tx(&mut self, mut resolved: ResolvedTx) -> Result<bool, Reject> {
         let id = resolved.tx.proposal_short_id();
         if self.contains_key(&id) {
             if resolved.source.is_proposal_tx() {
@@ -394,6 +406,14 @@ impl PipelineQueue for VerifyQueue {
                 resolved.tx.hash()
             )));
         }
+        resolved
+            .ensure_resident(&self.resident_budget)
+            .map_err(|_| {
+                Reject::Full(format!(
+                    "resolved transaction residency budget exceeded, failed to add tx: {:#x}",
+                    resolved.tx.hash()
+                ))
+            })?;
         let total_tx_size = self
             .total_tx_size
             .get()

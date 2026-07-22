@@ -7,6 +7,7 @@
 use super::TxPool;
 use crate::component::TxEntry;
 use crate::component::pool_map::{ConflictClosure, PoolEntry};
+use crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES;
 use crate::error::Reject;
 use crate::tx_source::TxSource;
 use ckb_logger::error;
@@ -23,8 +24,6 @@ use std::collections::{HashMap, HashSet};
 /// Prevents an O(n) scan of the mempool when a large transaction conflicts with many
 /// existing entries. 100 is the same order of magnitude as Bitcoin Core's replacement
 /// candidate limit.
-const MAX_REPLACEMENT_CANDIDATES: usize = 100;
-
 /// Outcome of a successful [`TxPool::check_rbf`]: all fields come from a
 /// single [`PoolMap::conflict_closure`] traversal so that the commit
 /// pre-validation and `process_rbf` can reuse them without re-walking the
@@ -109,16 +108,16 @@ impl TxPool {
         // Compute the conflict closure after rule #2 has passed, so a
         // rule #2 rejection does not pay for it. The candidate cap (rule
         // #5) is enforced inside the traversal itself, so an oversized
-        // union costs at most `MAX_REPLACEMENT_CANDIDATES` visited entries
+        // union costs at most `MAX_RBF_REPLACEMENT_CANDIDATES` visited entries
         // regardless of pool population.
         let (removal, removal_set) = match self
             .pool_map
-            .conflict_closure(&conflict_ids, MAX_REPLACEMENT_CANDIDATES)
+            .conflict_closure(&conflict_ids, MAX_RBF_REPLACEMENT_CANDIDATES)
         {
             ConflictClosure::Exceeded { count_lower_bound } => {
                 return Err(Reject::RBFRejected(format!(
                     "Tx conflict with too many txs, conflict txs count: >= {}, expect <= {}",
-                    count_lower_bound, MAX_REPLACEMENT_CANDIDATES,
+                    count_lower_bound, MAX_RBF_REPLACEMENT_CANDIDATES,
                 )));
             }
             ConflictClosure::Complete {
@@ -173,7 +172,7 @@ impl TxPool {
     }
 
     /// RBF Rule #5: check that the number of replaced txs (conflicts + descendants)
-    /// does not exceed MAX_REPLACEMENT_CANDIDATES, that the new tx does not
+    /// does not exceed MAX_RBF_REPLACEMENT_CANDIDATES, that the new tx does not
     /// reference outputs of descendant txs as inputs, and that the new tx's
     /// ancestors do not overlap with the conflicted txs' descendants.
     ///

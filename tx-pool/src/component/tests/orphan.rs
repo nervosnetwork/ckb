@@ -330,6 +330,7 @@ async fn remote_orphan_parks_and_recovers_after_parent_lands() {
         pre_resolve_tip: Default::default(),
         snapshot,
         source: TxSource::Local,
+        resident_permit: None,
     };
     {
         let mut verify = service.pipeline.queues.verify_queue.write().await;

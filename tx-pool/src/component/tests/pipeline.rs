@@ -199,6 +199,33 @@ async fn measured_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
         .cycles
 }
 
+async fn resolved_for_test(
+    service: &TxPoolService,
+    tx: TransactionView,
+    source: TxSource,
+) -> crate::resolved_tx::ResolvedTx {
+    let tx_size = tx.data().serialized_size_in_block();
+    let (pre_checked, snapshot) = service.pre_check(&tx, tx_size).await;
+    let crate::process::PreCheckedTx {
+        pre_resolve_tip,
+        rtx,
+        status,
+        fee,
+        tx_size,
+    } = pre_checked.expect("test transaction pre-checks");
+    crate::resolved_tx::ResolvedTx {
+        tx,
+        rtx,
+        status,
+        fee,
+        tx_size,
+        pre_resolve_tip,
+        snapshot,
+        source,
+        resident_permit: None,
+    }
+}
+
 // -----------------------------------------------------------------------------
 // secp256k1 1-in-1-out helpers
 // -----------------------------------------------------------------------------
@@ -521,7 +548,7 @@ async fn pipeline_rejects_conflicting_double_spend() {
         .input(CellInput::new(shared_input.clone(), 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(4_000).unwrap())
+                .capacity(Capacity::bytes(4_990).unwrap())
                 .lock(Script::default())
                 .build(),
         )
@@ -1515,7 +1542,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
         .input(CellInput::new(shared_input.clone(), 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(4_990).unwrap())
+                .capacity(Capacity::bytes(4_000).unwrap())
                 .lock(always_success_script())
                 .build(),
         )
@@ -1596,6 +1623,183 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// A failed RBF winner must roll its removed victim back into the main pool
+/// before candidates it speculatively displaced are restored. Otherwise a
+/// held candidate that is below the pool-level replacement fee can observe a
+/// momentarily free input and commit as an ordinary transaction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_rbf_rollback_precedes_held_candidate_restore() {
+    use crate::component::entry::TxEntry;
+    use crate::component::pipeline_queue::PipelineQueue;
+
+    let h = super::harness::harness(1)
+        .rbf(true)
+        .max_tx_pool_size(1_500)
+        .workers(super::harness::WorkerSet::None)
+        .build();
+    let service = h.service;
+    let shared_input = &h.out_points[0];
+
+    // O pays a 2 CKB fee and fits the tiny pool.
+    let original = build_tx(shared_input, 4_998);
+    let original_id = original.proposal_short_id();
+    service
+        .process_tx(original.clone(), TxSource::Local)
+        .await
+        .expect("original enters the pool");
+
+    // C has the same fee as O (only output data differs), so it is strictly
+    // below O.fee + min_rbf_rate.fee(C.size). It can nevertheless register
+    // in the in-flight ordering gate because that gate is only a scheduling
+    // preference, not the pool-level replacement check.
+    let candidate = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(shared_input.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(4_998).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::from_static(b"c").pack())
+        .build();
+    let candidate_id = candidate.proposal_short_id();
+    let candidate_source = TxSource::Remote {
+        cycles: 0,
+        peer: 1.into(),
+    };
+    let candidate_resolved = resolved_for_test(&service, candidate.clone(), candidate_source).await;
+
+    // A is a valid, much stronger RBF candidate, but its output data makes it
+    // too large for this pool. Registering it parks C as A's RaceLost.
+    let attack = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(shared_input.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(4_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::from(vec![0u8; 2_000]).pack())
+        .build();
+    let attack_id = attack.proposal_short_id();
+    let attack_source = TxSource::Remote {
+        cycles: 0,
+        peer: 2.into(),
+    };
+    let attack_resolved = resolved_for_test(&service, attack, attack_source).await;
+
+    assert!(
+        service
+            .register_rbf_candidate(
+                candidate.clone(),
+                candidate_source,
+                &candidate_resolved,
+                candidate_resolved.fee,
+                candidate_resolved.tx_size,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        service
+            .register_rbf_candidate(
+                attack_resolved.tx.clone(),
+                attack_source,
+                &attack_resolved,
+                attack_resolved.fee,
+                attack_resolved.tx_size,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        service
+            .pipeline
+            .waiting_room
+            .read()
+            .await
+            .find_held(&candidate_id)
+            .is_some(),
+        "C must be held by A before A submits"
+    );
+
+    // Drive A's submit deterministically: it removes O under the pool write
+    // lock, then fails the tiny pool's size limit.
+    {
+        let mut verify = service.pipeline.queues.verify_queue.write().await;
+        let popped = verify.pop_front(false).expect("A has verify priority");
+        assert_eq!(popped.tx.proposal_short_id(), attack_id);
+        verify.finish(&attack_id);
+    }
+    let entry = TxEntry::new(
+        Arc::clone(&attack_resolved.rtx),
+        0,
+        attack_resolved.fee,
+        attack_resolved.tx_size,
+    );
+    let outcome = {
+        let mut pool = service.pool.tx_pool.write().await;
+        let snapshot = pool.cloned_snapshot();
+        service.try_submit_entry(
+            &mut pool,
+            snapshot,
+            attack_resolved.pre_resolve_tip.clone(),
+            entry,
+            attack_resolved.status,
+            attack_id.clone(),
+        )
+    };
+    assert!(outcome.result.is_err());
+    assert!(outcome.replaced);
+    assert!(
+        outcome
+            .rollback
+            .iter()
+            .any(|(tx, _)| tx.proposal_short_id() == original_id)
+    );
+
+    let dispatch = service.dispatch_submit_aftermath(&attack_id, outcome).await;
+    assert!(dispatch.is_err());
+
+    // At the exact point C is restored, O already owns the input again.
+    {
+        let pool = service.pool.tx_pool.read().await;
+        assert!(pool.get_tx_from_pool(&original_id).is_some());
+        assert!(pool.get_tx_from_pool(&candidate_id).is_none());
+    }
+    assert!(
+        service
+            .pipeline
+            .queues
+            .verify_queue
+            .read()
+            .await
+            .contains_key(&candidate_id),
+        "C is restored only after rollback"
+    );
+
+    // Even if C is driven directly now, the real pool RBF floor rejects it;
+    // the scheduling gate never grants an admission exemption.
+    let reject = service
+        .process_tx_direct(candidate, TxSource::Local, None)
+        .await
+        .expect_err("under-fee C must not replace O");
+    assert!(matches!(reject, crate::error::Reject::RBFRejected(_)));
+    assert!(
+        service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool(&original_id)
+            .is_some()
+    );
+
+    h.cancel.cancel();
 }
 
 /// Topologically sort dependent transactions so parents come before children.

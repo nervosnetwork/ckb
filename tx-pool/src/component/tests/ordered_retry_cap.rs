@@ -47,6 +47,7 @@ async fn park_parent_in_verify_queue(service: &TxPoolService, parent: &Transacti
         pre_resolve_tip: Default::default(),
         snapshot,
         source: TxSource::Local,
+        resident_permit: None,
     };
     let mut verify = service.pipeline.queues.verify_queue.write().await;
     verify.add_tx(resolved).unwrap();
