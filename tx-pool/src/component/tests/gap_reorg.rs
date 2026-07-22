@@ -82,12 +82,8 @@ async fn reorg_demotes_stale_gap_to_pending() {
         .unwrap();
 
     // Empty proposal view: the Gap short id is neither gap nor proposed.
-    let snapshot = snapshot_with_proposals(
-        tx_pool.snapshot(),
-        &store,
-        HashSet::new(),
-        HashSet::new(),
-    );
+    let snapshot =
+        snapshot_with_proposals(tx_pool.snapshot(), &store, HashSet::new(), HashSet::new());
     let notifies = run_mine_mode_reorg(&mut tx_pool, snapshot);
 
     assert_eq!(
@@ -96,7 +92,7 @@ async fn reorg_demotes_stale_gap_to_pending() {
         "stale Gap must demote to Pending"
     );
     assert!(
-        notifies.iter().any(|s| *s == Status::Pending),
+        notifies.contains(&Status::Pending),
         "demotion must emit a Pending notify so callers/assembler can react"
     );
     // Critically: get_proposals must see it again.
@@ -139,7 +135,7 @@ async fn reorg_keeps_gap_when_still_in_gap_window() {
         "Gap still in the gap window must not demote"
     );
     assert!(
-        !notifies.iter().any(|s| *s == Status::Pending),
+        !notifies.contains(&Status::Pending),
         "no Pending notify for a still-valid Gap"
     );
     // Gap must remain invisible to get_proposals.
@@ -182,7 +178,7 @@ async fn reorg_promotes_gap_to_proposed_when_in_proposed_window() {
         "Gap in the proposed window must promote to Proposed"
     );
     assert!(
-        notifies.iter().any(|s| *s == Status::Proposed),
+        notifies.contains(&Status::Proposed),
         "promotion must emit a Proposed notify"
     );
 }
@@ -242,12 +238,8 @@ async fn reorg_demotes_stale_gap_even_without_mine_mode() {
         )
         .unwrap();
 
-    let snapshot = snapshot_with_proposals(
-        tx_pool.snapshot(),
-        &store,
-        HashSet::new(),
-        HashSet::new(),
-    );
+    let snapshot =
+        snapshot_with_proposals(tx_pool.snapshot(), &store, HashSet::new(), HashSet::new());
     crate::process::reorg::update_tx_pool_for_reorg(
         &mut tx_pool,
         &LinkedHashSet::default(),
@@ -285,12 +277,8 @@ async fn reorg_leaves_true_pending_proposable() {
         )
         .unwrap();
 
-    let snapshot = snapshot_with_proposals(
-        tx_pool.snapshot(),
-        &store,
-        HashSet::new(),
-        HashSet::new(),
-    );
+    let snapshot =
+        snapshot_with_proposals(tx_pool.snapshot(), &store, HashSet::new(), HashSet::new());
     run_mine_mode_reorg(&mut tx_pool, snapshot);
 
     assert_eq!(entry_status(&tx_pool, &id), Status::Pending);

@@ -175,7 +175,10 @@ impl Spec for ReorgRecoversDependentPendingTree {
         (0..window.closest()).for_each(|_| {
             node_a.submit_block(&blank(node_a));
         });
-        assert_new_block_committed(node_a, &[grandparent.clone(), parent.clone(), child.clone()]);
+        assert_new_block_committed(
+            node_a,
+            &[grandparent.clone(), parent.clone(), child.clone()],
+        );
 
         while node_b.get_tip_block_number() <= node_a.get_tip_block_number() {
             node_b.submit_block(&blank(node_b));
@@ -223,7 +226,10 @@ fn mine_until_committed_via_template(node: &Node, txs: &[&TransactionView]) {
     let window = node.consensus().tx_proposal_window();
     // Re-propose (or uncle-propose) + closest + commit, with generous margin
     // for uncle selection order and pipeline settle time.
-    let max_blocks = window.farthest().saturating_add(window.closest()).saturating_add(40);
+    let max_blocks = window
+        .farthest()
+        .saturating_add(window.closest())
+        .saturating_add(40);
 
     for i in 0..max_blocks {
         if txs.iter().all(|tx| is_transaction_committed(node, tx)) {
