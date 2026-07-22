@@ -132,6 +132,15 @@ This separation enables IO/compute isolation, parallel verification, configurabl
 
 **WorkerRunner / ActiveSet** — all queue workers (verify, ordered resolver) share a runner skeleton: wait on command changes, queue notifications, or deadlines; pop one job at a time; process to completion. Popped jobs move into the queue's ActiveSet and stay visible (`contains_or_active`, `get_active_tx`) until `finish`, so "in flight" checks, RPC queries, and administrative removal never lose sight of mid-processing transactions. Every job is wrapped in a panic guard; monitors respawn crashed workers with cancel-aware exponential backoff. A dropped command channel means a clean stop, not a busy loop.
 
+**Dispatcher shutdown** — explicit cancellation, closure of the controller message
+channel, and defensive dispatcher exits converge on one ordered shutdown tail:
+cancel the pipeline, drain every in-flight message handler, quiesce and join the
+background workers, then persist the accepted pool. The builder's startup-only
+controller clone is dropped before `start` returns, so dropping the last
+user-facing controller really closes the channel. Persistence never races a
+still-running verifier or recovery worker, and completion of the dispatcher
+handle is the durable shutdown boundary.
+
 **Reorg** — `update_tx_pool_for_reorg` runs under `recovery_lock` for its whole duration (write-lock section, callbacks, and retained-transaction recovery), so `save_pool` cannot intentionally run in the middle of recovery. Detached transactions are re-added per-transaction through `process_tx_direct_outcome` in topological order: `Committed` and `Duplicated` count as success, `Superseded` skips cascading (the transaction is merely held), and only a definitive failure cascade-removes dependents. Transactions committed in attached blocks leave every pipeline structure through the full terminal sequence. Callbacks are outside the tx-pool write lock, but the current implementation still holds `recovery_lock` while dispatching and directly recovering transactions.
 
 The controller applies backpressure instead of dropping a reorg delta when the
@@ -386,7 +395,7 @@ becomes the default.
 - **No panics in the write lock**: fallible paths inside the tx_pool write lock return defensive errors instead of asserting, so unwind can never strand the eviction journal or side-effect records.
 - **Dependency correctness**: `FlightTracker` tracks in-flight outputs across all pipeline stages; the orphan flight heuristic counts queued, active, and parked parents as in flight.
 - **Callbacks outside the tx-pool write lock**: submit and reorg callbacks are collected before dispatch, and callback panics are contained at that side-effect boundary. The target architecture strengthens this to "outside every internal transition/recovery lock" and adds callback-reentry tests.
-- **Worker reliability**: per-job panic guards, monitor respawn with cancel-aware backoff, retained/FIFO chain transitions, per-generation cancellation for the verify manager, and clean stop on command-channel drop.
+- **Worker reliability**: per-job panic guards, monitor respawn with cancel-aware backoff, retained/FIFO chain transitions, per-generation cancellation for the verify manager, and clean stop on command-channel drop. Every dispatcher exit shares the same cancel → handler drain → worker quiesce/join → persist sequence.
 
 ---
 
@@ -432,7 +441,7 @@ Unit tests (`cargo test -p ckb-tx-pool --features internal`) cover, among others
 - Pool invariants: child-before-parent weight folding, escape-hatch eviction without ghost parents, conflict closure ghost filtering, zombie reconciliation (inputs and cell deps), expiry cascade.
 - RBF: hold-and-restore (displace, supersede-at-submit, abort/finalize, no-replacement abort), capacity pre-validation, recovery of the full removed cascade, speculative gates bypassing recent_reject.
 - Reorg: retained-transaction outcome matrix (no cascade on `Duplicated`/`Superseded`), attached orphans skipped from routing, attached winners finalizing held candidates, `save_pool` blocking on `recovery_lock`.
-- Lifecycle: worker stop on command-channel drop, panic guards with terminal outcomes, callback-panic containment, retained/FIFO reorg deltas, VerifyMgr generation cancellation, deferred-worker drain on shutdown.
+- Lifecycle: worker stop on command-channel drop, panic guards with terminal outcomes, callback-panic containment, retained/FIFO reorg deltas, VerifyMgr generation cancellation, deferred-worker drain on shutdown, and controller-channel-close persistence only after all handlers/workers quiesce.
 - Terminal semantics: pre-check Full notified to the relayer, bounded recovery ending in a terminal reject, banned peers' in-flight jobs dropped, administrative removal tri-state and double-park cleanup.
 
 Integration tests (`make integration`, full ckb-test suite) cover the end-to-end behavior, including the RBF family (`RbfBasic`, `RbfRejectReplaceProposed`, `RbfReplaceProposedSuccess`, `RbfConcurrency`, `RbfCyclingAttack`, `RbfOrphanRecovery`), conflict/removal flows (`RemoveConflictFromPending`, `RemoveTx`), and orphan handling.

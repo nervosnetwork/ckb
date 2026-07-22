@@ -80,7 +80,7 @@ Status meanings:
 | 41 | Covered | `cancel_drains_deferred_recover_txs` | I4 |
 | 42 | Partial | Recovery retry tests exist; add saturated deferred-channel throughput and shutdown stress. | I4, I5, I12 |
 | 43 | Covered | `zero_max_workers_is_clamped_to_one` | I4 |
-| 44 | Open | Add dispatcher-channel-close persistence regression. | I4, I7 |
+| 44 | Covered | `dispatcher_channel_close_quiesces_workers_and_persists_pool` proves sender-drop shutdown cancels and joins workers, drains handlers, and persists accepted state before the dispatcher handle completes. | I4, I7 |
 | 45 | Open | Add clear/reset-to-miner-notify integration regression. | I8, I11 |
 | 46 | Partial | O(1) index is functional; add compact-block lookup scaling benchmark. | I12 |
 | 47 | Covered | `budget_eviction_is_oldest_first` | I5 |

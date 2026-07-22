@@ -438,6 +438,11 @@ impl TxPoolServiceBuilder {
         if let Err(err) = tx_pool_controller.load_persisted_data(txs) {
             error!("Failed to import persistent txs, cause: {}", err);
         }
+        // The builder owns an internal controller clone solely for startup
+        // replay. Drop it before returning so the user-facing controllers are
+        // the complete sender set; otherwise dropping all of them can never
+        // close the dispatcher channel.
+        drop(tx_pool_controller);
         started.store(true, Ordering::Release);
         dispatcher_handle
     }
@@ -456,62 +461,66 @@ impl TxPoolServiceBuilder {
         handle.spawn(async move {
             loop {
                 tokio::select! {
-                    Some(message) = receiver.recv() => {
-                        let service_clone = service.clone();
-                        let permit = match Arc::clone(&semaphore).acquire_owned().await {
-                            Ok(permit) => permit,
-                            Err(_) => {
-                                info!("TxPool message dispatcher semaphore closed, exiting");
+                    message = receiver.recv() => {
+                        match message {
+                            Some(message) => {
+                                let service_clone = service.clone();
+                                let permit = match Arc::clone(&semaphore).acquire_owned().await {
+                                    Ok(permit) => permit,
+                                    Err(_) => {
+                                        info!("TxPool message dispatcher semaphore closed, exiting");
+                                        break;
+                                    }
+                                };
+                                runtime_handle.spawn(async move {
+                                    let _permit = permit;
+                                    // Message handlers must never take the whole
+                                    // dispatcher down with a panic: catch and log,
+                                    // matching the deferred worker's behaviour.
+                                    let handler = process(service_clone, message);
+                                    if let Err(payload) = AssertUnwindSafe(handler).catch_unwind().await {
+                                        error!(
+                                            "tx-pool message handler panicked: {}",
+                                            panic_payload_to_string(payload.as_ref())
+                                        );
+                                    }
+                                });
+                            }
+                            None => {
+                                // Every sender dropped without an explicit stop.
+                                // `select! else` cannot express this: the pending
+                                // cancellation branch remains enabled forever,
+                                // so an unmatched `Some(...)` pattern would never
+                                // reach `else` after `recv()` returned `None`.
+                                info!("TxPool message channel closed without shutdown signal");
                                 break;
                             }
-                        };
-                        runtime_handle.spawn(async move {
-                            let _permit = permit;
-                            // Message handlers must never take the whole
-                            // dispatcher down with a panic: catch and log,
-                            // matching the deferred worker's behaviour.
-                            let handler = process(service_clone, message);
-                            if let Err(payload) = AssertUnwindSafe(handler).catch_unwind().await {
-                                error!(
-                                    "tx-pool message handler panicked: {}",
-                                    panic_payload_to_string(payload.as_ref())
-                                );
-                            }
-                        });
+                        }
                     },
                     _ = signal_receiver.cancelled() => {
-                        info!("TxPool is draining in-flight tasks...");
-                        // Wait for all in-flight message-processing tasks to
-                        // complete before persisting the pool state.  The
-                        // semaphore bounds concurrent message handlers at
-                        // max_workers * MESSAGE_CONCURRENCY_MULTIPLIER, so
-                        // acquiring all permits guarantees no handler is still
-                        // running.
-                        let _ = semaphore
-                            .acquire_many(max_workers as u32 * MESSAGE_CONCURRENCY_MULTIPLIER as u32)
-                            .await;
-
-                        info!("TxPool is quiescing background workers...");
-                        worker_handles
-                            .quiesce(Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS))
-                            .await;
-
-                        info!("TxPool is saving, please wait...");
-                        service.save_pool().await;
-                        info!("TxPool process_service exit now");
                         break
-                    },
-                    else => {
-                        // The message channel closed without a cancel signal
-                        // (every sender dropped): treat it as a shutdown and
-                        // persist the pool, otherwise this exit path would
-                        // lose it silently.
-                        info!("TxPool message channel closed without shutdown signal, saving pool...");
-                        service.save_pool().await;
-                        break
-                    },
+                    }
                 }
             }
+
+            // Idempotent for explicit cancellation; also covers every
+            // defensive dispatcher exit such as a closed semaphore.
+            signal_receiver.cancel();
+            info!("TxPool is draining in-flight tasks...");
+            // The semaphore bounds concurrent handlers, so acquiring every
+            // permit proves all dispatched messages reached a stable outcome.
+            let _ = semaphore
+                .acquire_many(max_workers as u32 * MESSAGE_CONCURRENCY_MULTIPLIER as u32)
+                .await;
+
+            info!("TxPool is quiescing background workers...");
+            worker_handles
+                .quiesce(Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS))
+                .await;
+
+            info!("TxPool is saving, please wait...");
+            service.save_pool().await;
+            info!("TxPool process_service exit now");
         })
     }
 

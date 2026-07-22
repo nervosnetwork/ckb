@@ -225,3 +225,78 @@ async fn dependent_chain_survives_save_and_restart() {
         "child must survive save + restart"
     );
 }
+
+/// Dropping every controller sender is a graceful shutdown trigger too. The
+/// dispatcher must cancel and join the pipeline before saving, then expose a
+/// completed handle only after the accepted pool is durable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dispatcher_channel_close_quiesces_workers_and_persists_pool() {
+    use ckb_async_runtime::Handle;
+    use ckb_fee_estimator::FeeEstimator;
+    use ckb_stop_handler::CancellationToken;
+    use ckb_verification::cache::init_cache;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::RwLock;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let (consensus, funding) = super::pipeline::test_consensus(1);
+    let consensus = Arc::new(consensus);
+    let (_store, snapshot) = super::pipeline::snapshot_with_genesis(consensus);
+    let mut config = super::pipeline::tx_pool_config();
+    config.persisted_data = tmp.path().join("tx_pool");
+
+    let runtime = Handle::new(tokio::runtime::Handle::current(), None);
+    let (relay_sender, relay_receiver) = ckb_channel::bounded(16);
+    let relay_drain = tokio::task::spawn_blocking(move || while relay_receiver.recv().is_ok() {});
+    let (mut builder, controller) = crate::TxPoolServiceBuilder::new(
+        config.clone(),
+        Arc::clone(&snapshot),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &runtime,
+        relay_sender,
+        FeeEstimator::new_dummy(),
+    );
+    // Keep this test independent from the process-wide stop token. The only
+    // shutdown trigger below is closing every controller sender.
+    builder.signal_receiver = CancellationToken::new();
+    let dispatcher = builder.start_with_handle(super::chunk::dummy_network());
+
+    let tx = build_resolvable_tx(&funding[0], 4_000);
+    let tx_id = tx.proposal_short_id();
+    controller
+        .submit_local_tx(tx)
+        .expect("dispatcher responds")
+        .expect("transaction commits before shutdown");
+    assert_eq!(
+        controller.sender.strong_count(),
+        1,
+        "the user-facing controller must be the last message sender after startup"
+    );
+
+    let weak_sender = controller.sender.downgrade();
+    drop(controller);
+    assert!(
+        weak_sender.upgrade().is_none(),
+        "dropping the final controller must close the message channel"
+    );
+    tokio::time::timeout(Duration::from_secs(10), dispatcher)
+        .await
+        .expect("channel-close shutdown must finish")
+        .expect("dispatcher task must not panic");
+    tokio::time::timeout(Duration::from_secs(10), relay_drain)
+        .await
+        .expect("relay drain must observe service drop")
+        .expect("relay drain task must not panic");
+
+    let reloaded = crate::TxPool::new(config, snapshot)
+        .load_from_file()
+        .expect("channel-close shutdown must write a valid pool file");
+    assert!(
+        reloaded
+            .iter()
+            .any(|loaded| loaded.proposal_short_id() == tx_id),
+        "accepted transaction must be durable when all senders are dropped"
+    );
+}
