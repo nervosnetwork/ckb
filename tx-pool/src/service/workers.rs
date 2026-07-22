@@ -468,4 +468,133 @@ mod tests {
             Duration::from_millis(100)
         );
     }
+
+    /// Cancel during backoff sleep must exit immediately (bug #40):
+    /// the `select!` wrapping the sleep must observe cancellation
+    /// instead of waiting out the full backoff duration.
+    #[tokio::test]
+    async fn cancel_during_backoff_exits_immediately() {
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+
+        // Spawn a task that simulates a worker in backoff sleep.
+        let handle = tokio::spawn(async move {
+            let mut backoff = RespawnBackoff::new();
+            // Simulate a crash to get a non-trivial backoff delay.
+            let _ = backoff.delay_for(Duration::from_millis(1));
+            let _ = backoff.delay_for(Duration::from_millis(1));
+            // Now the next delay would be 400ms.
+            let delay = backoff.delay_for(Duration::from_millis(1));
+            assert!(delay >= Duration::from_millis(400));
+
+            let started = std::time::Instant::now();
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {
+                    // Should not reach here if cancel fires first.
+                    started.elapsed()
+                }
+                _ = cancel_clone.cancelled() => {
+                    // Cancel fired: exit immediately.
+                    started.elapsed()
+                }
+            }
+        });
+
+        // Give the task time to enter the select!.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Cancel: the task should exit well before the 400ms backoff.
+        cancel.cancel();
+
+        let elapsed = tokio::time::timeout(Duration::from_millis(200), handle)
+            .await
+            .expect("task must exit within 200ms of cancel, not wait out the backoff")
+            .expect("task joins");
+
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "cancel must interrupt backoff sleep immediately, took {:?}",
+            elapsed
+        );
+    }
+
+    /// Cancel must drain pending `RecoverTxs` from the deferred channel
+    /// before exiting (bug #41): recovered transactions lose their only
+    /// handle when the channel is dropped, so they must be enqueued.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancel_drains_deferred_recover_txs() {
+        use crate::component::pipeline_queue::PipelineQueue;
+        use crate::service::DeferredTask;
+        use ckb_types::core::TransactionBuilder;
+
+        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: RwLock::new(
+                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+            ),
+            verify_queue: RwLock::new(crate::component::verify_queue::VerifyQueue::new(
+                70_000_000,
+                ckb_app_config::VerifyOrdering::ArrivalTime,
+                usize::MAX,
+            )),
+            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
+                CancellationToken::new(),
+            ),
+            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+        });
+        let txs_verify_cache = Arc::new(RwLock::new(ckb_verification::cache::init_cache()));
+        let (deferred_tx, deferred_rx) = mpsc::channel(16);
+        let cancel = CancellationToken::new();
+        let (tx_relay_sender, _relay_rx) = ckb_channel::bounded(16);
+        let (block_assembler_sender, _ba_rx) = tokio::sync::mpsc::channel(1);
+        let relay = crate::service::RelayState {
+            network: Arc::new(crate::network::DummyTxPoolNetwork),
+            tx_relay_sender,
+            block_assembler_sender,
+            callbacks: Arc::new(crate::callback::Callbacks::new()),
+            banned_peers: Default::default(),
+        };
+
+        // Enqueue two RecoverTxs tasks before cancelling.
+        let tx1 = TransactionBuilder::default().build();
+        let tx2 = TransactionBuilder::default()
+            .input(ckb_types::packed::CellInput::new(
+                ckb_types::packed::OutPoint::new(tx1.hash(), 0),
+                0,
+            ))
+            .build();
+        let id1 = tx1.proposal_short_id();
+        let id2 = tx2.proposal_short_id();
+        deferred_tx
+            .send(DeferredTask::RecoverTxs(vec![
+                (tx1, crate::tx_source::TxSource::Local),
+                (tx2, crate::tx_source::TxSource::Local),
+            ]))
+            .await
+            .unwrap();
+
+        // Spawn the deferred worker, then cancel immediately.
+        let ckb_handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
+        let handle = spawn_deferred_worker(
+            &ckb_handle,
+            Arc::clone(&queues),
+            txs_verify_cache,
+            deferred_rx,
+            cancel.clone(),
+            relay,
+        );
+        // Give the worker a moment to start and block on recv.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel.cancel();
+
+        tokio::time::timeout(Duration::from_secs(5), handle)
+            .await
+            .expect("deferred worker must exit after cancel")
+            .expect("task joins");
+
+        // The RecoverTxs must have been drained into the ordered queue.
+        let queue = queues.ordered_resolve_queue.read().await;
+        assert!(
+            queue.contains_key(&id1) || queue.contains_key(&id2),
+            "at least one recovered tx must be drained into the ordered queue on cancel"
+        );
+    }
 }

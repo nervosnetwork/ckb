@@ -161,3 +161,88 @@ fn test_candidate_uncles_max_per_height() {
     assert_eq!(candidate_uncles.map.len(), 1);
     assert_eq!(candidate_uncles.len(), MAX_PER_HEIGHT);
 }
+
+/// Bug #49: `uncle_size` must use the same accounting basis as
+/// `basic_block_size` and the consensus block-bytes limit:
+/// `serialized_size_in_block` minus the proposal ids (which are
+/// accounted separately in the template's proposals section).
+#[test]
+fn uncle_size_matches_basic_block_size_basis() {
+    use ckb_types::packed::ProposalShortId;
+
+    // An uncle with no proposals: size == serialized_size_in_block.
+    let bare = BlockBuilder::default()
+        .number(1)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .build()
+        .as_uncle();
+    assert_eq!(
+        super::BlockAssembler::uncle_size(&bare),
+        ckb_types::core::UncleBlockView::serialized_size_in_block()
+    );
+
+    // An uncle with proposals: size == serialized_size_in_block - proposals * id_size.
+    let proposals: Vec<ProposalShortId> = (0..3u8)
+        .map(|i| ProposalShortId::from_tx_hash(&Byte32::new([i; 32])))
+        .collect();
+    let with_proposals = BlockBuilder::default()
+        .number(2)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .proposals(proposals.clone())
+        .build()
+        .as_uncle();
+    let expected = ckb_types::core::UncleBlockView::serialized_size_in_block()
+        - proposals.len() * ProposalShortId::serialized_size();
+    assert_eq!(
+        super::BlockAssembler::uncle_size(&with_proposals),
+        expected,
+        "uncle_size must subtract proposal ids from the in-block size"
+    );
+    assert!(
+        super::BlockAssembler::uncle_size(&with_proposals)
+            < super::BlockAssembler::uncle_size(&bare),
+        "an uncle with proposals must account for fewer bytes than a bare one"
+    );
+}
+
+/// Bug #56: `prepare_uncles` must remove candidates that are already on
+/// the main chain or embedded as an uncle, instead of retaining them
+/// until the epoch boundary.
+#[test]
+fn prepare_uncles_removes_main_chain_and_embedded_candidates() {
+    let snapshot = genesis_snapshot();
+    let consensus = snapshot.consensus();
+    let epoch_ext = consensus.genesis_epoch_ext().clone();
+
+    let mut candidate_uncles = CandidateUncles::new();
+
+    // The genesis block IS on the main chain of this snapshot.
+    let genesis_uncle = consensus.genesis_block().as_uncle();
+    candidate_uncles.insert(genesis_uncle.clone());
+    assert_eq!(candidate_uncles.len(), 1);
+
+    // A block that is NOT on the main chain (random hash).
+    let off_chain = BlockBuilder::default()
+        .number(0)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
+        .parent_hash(consensus.genesis_block().hash())
+        .build()
+        .as_uncle();
+    candidate_uncles.insert(off_chain.clone());
+    assert_eq!(candidate_uncles.len(), 2);
+
+    let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch_ext);
+
+    // The genesis uncle is on the main chain: must be removed.
+    assert!(
+        !candidate_uncles.contains(&genesis_uncle),
+        "main-chain candidate must be removed by prepare_uncles"
+    );
+    // The off-chain candidate is eligible (its parent is genesis which is
+    // on the main chain) and is returned as a valid uncle.
+    assert_eq!(uncles.len(), 1);
+    assert_eq!(uncles[0].hash(), off_chain.hash());
+    // It is retained in the candidate set (not removed, just not eligible
+    // for removal — it's a valid uncle that was selected).
+    assert!(candidate_uncles.contains(&off_chain));
+}

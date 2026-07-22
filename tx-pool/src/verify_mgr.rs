@@ -215,6 +215,12 @@ impl VerifyMgr {
         }
     }
 
+    /// Number of verify workers in this manager generation.
+    #[cfg(test)]
+    pub(crate) fn worker_count(&self) -> usize {
+        self.workers.len()
+    }
+
     fn spawn_worker(
         &mut self,
         worker_id: usize,

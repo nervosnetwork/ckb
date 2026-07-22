@@ -1110,6 +1110,38 @@ async fn handle_remote_reject_relays_allowed_rejects() {
     );
 }
 
+/// Remote duplicate must NOT be relayed as Reject (bug #8): the tx is
+/// (or will be) in the pool, and a "Reject" would mark a valid transaction
+/// as rejected in the relayer's peer filter. Local duplicates already get
+/// the Ok re-broadcast treatment.
+#[tokio::test]
+async fn remote_duplicate_is_not_relayed_as_reject() {
+    let (service, tx_relay_receiver) = service_with_recent_reject();
+    let tx = build_tx(vec![(&Byte32::zero(), 0)], 1);
+    let tx_hash = tx.hash();
+    let reject = Reject::Duplicated(tx.witness_hash());
+
+    service
+        .handle_remote_reject(&tx_hash, &reject, 1.into())
+        .await;
+
+    // No relay reject for duplicated tx.
+    assert!(
+        tx_relay_receiver.try_recv().is_err(),
+        "duplicate reject must not be relayed to the peer filter"
+    );
+    // Also NOT recorded in recent_reject (Duplicated is exempt).
+    let recent_reject = service
+        .aux
+        .recent_reject
+        .as_ref()
+        .expect("recent_reject set");
+    assert!(
+        recent_reject.get(&tx_hash).unwrap().is_none(),
+        "duplicate must not be recorded in recent_reject"
+    );
+}
+
 #[tokio::test]
 async fn handle_missing_input_orphan_notifies_relayer_once() {
     let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
@@ -1525,4 +1557,71 @@ async fn save_pool_waits_for_recovery_lock() {
         .await
         .expect("save_pool must complete once the recovery lock is released")
         .expect("save task joins");
+}
+
+/// `max_tx_verify_workers=0` must still spawn at least one worker
+/// (bug #43): a zero config would silently stall verification — no
+/// workers to drain the queue and no log explaining why.
+#[tokio::test]
+async fn zero_max_workers_is_clamped_to_one() {
+    use crate::verify_mgr::VerifyMgr;
+    use ckb_stop_handler::CancellationToken;
+
+    // Build a service with max_tx_verify_workers=0.
+    let consensus = Arc::new(ConsensusBuilder::default().build());
+    let snapshot = snapshot(Arc::clone(&consensus));
+    let mut config = tx_pool_config();
+    config.max_tx_verify_workers = 0; // The zero config we want to test.
+    let (tx_relay_sender, _tx_relay_receiver) = ckb_channel::bounded(16);
+    let (block_assembler_sender, _) = mpsc::channel(1);
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    let (deferred_sender, _deferred_receiver) = mpsc::channel(1024);
+    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+
+    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+        ordered_resolve_queue: RwLock::new(
+            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+        ),
+        verify_queue: RwLock::new(VerifyQueue::new(
+            config.max_tx_verify_cycles,
+            config.verify_ordering,
+            config.verify_queue_tx_size_budget(),
+        )),
+        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
+        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+    });
+    let service = TxPoolService {
+        pool: crate::service::PoolCore {
+            tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
+            consensus: Arc::clone(&consensus),
+            tx_pool_config: Arc::new(config),
+        },
+        pipeline: crate::service::PipelineState {
+            queues: Arc::clone(&queues),
+            waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
+            chunk_rx,
+            deferred_sender,
+        },
+        relay: crate::service::RelayState {
+            network: dummy_network(),
+            tx_relay_sender,
+            block_assembler_sender,
+            callbacks: Arc::new(Callbacks::new()),
+            banned_peers: Default::default(),
+        },
+        aux: crate::service::AuxServices {
+            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+            recent_reject: None,
+            fee_estimator: FeeEstimator::new_dummy(),
+        },
+        block_assembler: None,
+        recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+    };
+
+    let mgr = VerifyMgr::new(service, chunk_tx.subscribe(), CancellationToken::new());
+
+    assert!(
+        mgr.worker_count() >= 1,
+        "max_tx_verify_workers=0 must be clamped to at least 1 worker"
+    );
 }

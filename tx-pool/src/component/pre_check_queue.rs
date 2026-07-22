@@ -475,4 +475,65 @@ mod tests {
         });
         assert_eq!(state.total_tx_size.get(), expected_remaining);
     }
+
+    /// Counter drift recovery (bug #31): if `total_tx_size` is corrupted
+    /// (e.g. by a partial removal that skipped the accounting), the next
+    /// `remove_by_id` must recompute the true total from the remaining
+    /// entries instead of clamping to zero (which would silently disable
+    /// the size budget).
+    #[test]
+    fn counter_drift_is_recovered_by_recompute() {
+        let cancel = CancellationToken::new();
+        let queue = PreCheckQueue::new(cancel);
+        let input = OutPoint::new(
+            h256!("0x0505050505050505050505050505050505050505050505050505050505050505").pack(),
+            0,
+        );
+
+        let tx_a = dummy_tx(&input, 1_000);
+        let tx_b = dummy_tx(&OutPoint::new(tx_a.hash(), 0), 500);
+        let id_a = tx_a.proposal_short_id();
+
+        queue
+            .push(PreCheckJob {
+                tx: tx_a,
+                source: TxSource::Local,
+            })
+            .unwrap();
+        queue
+            .push(PreCheckJob {
+                tx: tx_b.clone(),
+                source: TxSource::Local,
+            })
+            .unwrap();
+
+        // Corrupt the counter to simulate drift (set it below the true
+        // total so the next subtraction would underflow).
+        {
+            let mut state = queue.lock();
+            state.total_tx_size.set(1); // way below true_total
+        }
+
+        // Remove tx_a: the subtraction (1 - tx_a_size) would underflow,
+        // triggering the recompute path.
+        let removed = queue.remove_by_id(&id_a);
+        assert!(removed.is_some());
+
+        // The counter must be recomputed to the true remaining total
+        // (just tx_b), not clamped to zero.
+        let state = queue.lock();
+        let expected_remaining = PreCheckQueue::tx_size(&PreCheckJob {
+            tx: tx_b,
+            source: TxSource::Local,
+        });
+        assert_eq!(
+            state.total_tx_size.get(),
+            expected_remaining,
+            "counter must be recomputed to the true remaining total after drift"
+        );
+        assert!(
+            state.total_tx_size.get() > 0,
+            "budget must not be silently disabled by clamping to zero"
+        );
+    }
 }

@@ -330,8 +330,10 @@ fn test_candidate_uncles_retain() {
         let snapshot = shared.snapshot();
         let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);
         assert!(uncles.is_empty());
-        // candidate uncles should retain
-        assert!(candidate_uncles.contains(&block0_0.as_uncle()));
+        // block0_0 is now on the main chain: prepare_uncles removes stale
+        // entries (on main chain or already embedded as uncle) immediately
+        // instead of retaining them until the epoch boundary.
+        assert!(!candidate_uncles.contains(&block0_0.as_uncle()));
     }
 
     let epoch = shared
@@ -354,7 +356,9 @@ fn test_candidate_uncles_retain() {
             .epoch();
         let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);
         assert!(uncles.is_empty());
-        // candidate uncles should remove by next epoch
+        // Already empty: the stale entry was removed in the previous
+        // prepare_uncles call (main-chain detection), not deferred to
+        // the epoch boundary.
         assert!(candidate_uncles.is_empty());
     }
 }

@@ -819,4 +819,49 @@ mod tests {
             "a RaceLost re-park must not refresh the expiry"
         );
     }
+
+    /// `clear()` must reset `expiry_watermark` to `u64::MAX`: the next
+    /// `wait()` after a clear must not trigger a stale expiry scan from
+    /// the previous generation's watermark (bug #24).
+    #[test]
+    fn clear_resets_expiry_watermark() {
+        let mut room = WaitingRoom::new();
+        let tx = build_tx(vec![(&Byte32::zero(), 40)], 1);
+
+        // Park an entry to push the watermark down from u64::MAX.
+        room.wait(
+            tx.clone(),
+            TxSource::Local,
+            WaitReason::ParentsMissing {
+                parents: tx.unique_parents(),
+            },
+        );
+        assert!(
+            room.expiry_watermark < u64::MAX,
+            "watermark must be pushed down by a parked entry"
+        );
+
+        room.clear();
+        assert_eq!(
+            room.expiry_watermark,
+            u64::MAX,
+            "clear must reset expiry_watermark to u64::MAX"
+        );
+        assert_eq!(room.len(), 0);
+
+        // The next wait must not see a stale watermark: it should compute
+        // a fresh expiry from the current time.
+        let tx2 = build_tx(vec![(&Byte32::zero(), 41)], 1);
+        room.wait(
+            tx2,
+            TxSource::Local,
+            WaitReason::ParentsMissing {
+                parents: Default::default(),
+            },
+        );
+        assert!(
+            room.expiry_watermark > 0,
+            "watermark must be recomputed after clear"
+        );
+    }
 }
