@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.207.0"
+version = "0.208.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -296,6 +296,7 @@ sled = "0.34.7"
 snap = "1"
 sql-builder = "3.1"
 sqlx = "0.8.2"
+subtle = "2.6"
 syn = "2.0"
 tera = "1"
 thiserror = "1.0.22"

@@ -74,6 +74,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
         notify: vec![],
         notify_scripts: vec![],
         notify_timeout_millis: 800,
+        notify_auth_token: None,
     };
 
     let (shared, mut pack) = builder

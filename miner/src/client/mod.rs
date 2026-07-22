@@ -14,7 +14,7 @@ use futures::prelude::*;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
     Error as HyperError, Request, Response, Uri,
-    body::{Buf, Bytes},
+    body::{Body, Buf, Bytes},
     header::{CONTENT_TYPE, HeaderValue},
     service::service_fn,
 };
@@ -33,10 +33,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{convert::Into, time};
+use subtle::ConstantTimeEq;
 use tokio::{
     net::TcpListener,
     sync::{mpsc, oneshot},
 };
+
+#[cfg(test)]
+mod tests;
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
 
@@ -219,6 +223,16 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
 "#,
                 addr
             );
+            if client.config.auth_token.is_none() {
+                ckb_logger::warn!(
+                    r#"
+ckb-miner notify mode is enabled without an auth_token. \
+Any client that can reach {} can submit a BlockTemplate and redirect mining rewards. \
+Set miner.client.auth_token and block_assembler.notify_auth_token to the same value to authenticate notifications.
+"#,
+                    addr
+                );
+            }
             self.handle.spawn(async move {
                 client.listen_block_template_notify(addr).await;
             });
@@ -355,11 +369,37 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-async fn handle(
-    client: Client,
-    req: Request<hyper::body::Incoming>,
-) -> Result<Response<Empty<Bytes>>, Error> {
-    let body = BodyExt::collect(req).await?.aggregate();
+async fn handle<B>(client: Client, req: Request<B>) -> Result<Response<Empty<Bytes>>, Error>
+where
+    B: Body + Send,
+    B::Data: Send,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    if req.method() != hyper::Method::POST {
+        return Ok(Response::builder()
+            .status(hyper::StatusCode::METHOD_NOT_ALLOWED)
+            .header(hyper::header::ALLOW, "POST")
+            .body(Empty::new())?);
+    }
+
+    if let Some(expected_token) = &client.config.auth_token {
+        let authorized = req
+            .headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::trim)
+            .is_some_and(|token| bool::from(token.as_bytes().ct_eq(expected_token.as_bytes())));
+
+        if !authorized {
+            return Ok(Response::builder()
+                .status(hyper::StatusCode::UNAUTHORIZED)
+                .header(hyper::header::WWW_AUTHENTICATE, "Bearer")
+                .body(Empty::new())?);
+        }
+    }
+
+    let body = BodyExt::collect(req.into_body()).await?.aggregate();
 
     if let Ok(template) = serde_json::from_reader(body.reader()) {
         client.update_block_template(template);

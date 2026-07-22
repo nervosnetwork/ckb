@@ -271,6 +271,10 @@ block_uncles_cache_size    = 30
 # notify = ["http://127.0.0.1:8888"]
 # # Execute command when the block template changes, first arg is block template.
 # notify_scripts = ["your_notify_scripts.sh"]
+# # Optional bearer token to authenticate notify requests to ckb-miner.
+# # Must match miner.client.auth_token in ckb-miner.toml.
+# # Must be non-empty without leading/trailing whitespace, otherwise the node refuses to start.
+# notify_auth_token = "change-me-to-a-long-random-secret"
 #
 # # CKB built-in indexer/rich-indexer settings.
 # # Utilize the `ckb reset-data --indexer` and `ckb reset-data --rich-indexer` subcommands to efficiently clean existing indexes.

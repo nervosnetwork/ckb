@@ -867,7 +867,7 @@ impl TxPoolService {
         queue.add_tx(tx, is_proposal_tx, remote)
     }
 
-    async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
+    async fn remove_orphan_txs_by_attach(&self, txs: &LinkedHashSet<TransactionView>) {
         for tx in txs.iter() {
             self.process_orphan_tx(tx).await;
         }
