@@ -306,7 +306,7 @@ impl SharedBench {
         let local_signal = CancellationToken::new();
         builder.signal_receiver = local_signal.clone();
         let dispatcher_handle = builder.start_with_handle(Arc::clone(&self.network));
-        ServiceHandle {
+        let service = ServiceHandle {
             controller,
             signal: local_signal,
             tx_relay_sender: Some(tx_relay_sender),
@@ -314,7 +314,22 @@ impl SharedBench {
             dispatcher_handle: Some(dispatcher_handle),
             runtime: self.ckb_handle.clone(),
             completion,
-        }
+        };
+
+        // `start_inner` has spawned every worker, but Tokio is free to run the
+        // benchmark thread before those tasks receive their first poll. Prove
+        // the dispatcher is live, then yield one short scheduler interval so
+        // worker-start latency is not charged to the first transaction batch.
+        // This is setup work outside Criterion's measured closure.
+        service
+            .controller
+            .get_tx_pool_info()
+            .expect("benchmark dispatcher readiness round-trip");
+        self.runtime.block_on(async {
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        });
+        service
     }
 }
 
@@ -1018,11 +1033,11 @@ const MEDIUM_DEPENDENT_SIZES: &[usize] = &[10];
 const MEDIUM_DEPENDENT_WARM_POOL_SIZE: usize = 10;
 
 // Quick matrix: runs in about 5 minutes — activate with QUICK_BENCH=1.
-const QUICK_SIZES: &[usize] = &[50];
+const QUICK_SIZES: &[usize] = &[100];
 const QUICK_PEER_COUNTS: &[usize] = &[1];
 const QUICK_WORKER_COUNTS: &[usize] = &[8];
-const QUICK_WARM_POOL_SIZE: usize = 50;
-const QUICK_DEPENDENT_SIZES: &[usize] = &[10];
+const QUICK_WARM_POOL_SIZE: usize = 30;
+const QUICK_DEPENDENT_SIZES: &[usize] = &[20];
 const QUICK_DEPENDENT_WARM_POOL_SIZE: usize = 10;
 
 struct BenchMatrix {
@@ -1293,9 +1308,13 @@ fn bench(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("tx_pool_pipeline");
     if quick {
-        // Quick matrix keeps the original small-sample flat configuration.
-        group.sample_size(10);
+        // Keep the matrix narrow, but collect enough work per scenario to
+        // amortize scheduler jitter. This remains much faster than medium
+        // because it has one peer/worker combination instead of four.
+        group.sample_size(20);
         group.sampling_mode(SamplingMode::Flat);
+        group.warm_up_time(Duration::from_secs(2));
+        group.measurement_time(Duration::from_secs(8));
     } else if full {
         group.sample_size(50);
         group.warm_up_time(Duration::from_secs(5));

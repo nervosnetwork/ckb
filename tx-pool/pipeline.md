@@ -245,6 +245,12 @@ isolated Cargo target directories and must record an identical benchmark-harness
 fingerprint, preventing stale cross-worktree executable reuse from producing a
 false comparison.
 
+Quick keeps only one peer/worker combination but uses 100-transaction
+independent batches, 20-transaction dependency chains, and 20 Criterion samples.
+Each fresh service completes a dispatcher readiness round-trip plus one short
+scheduler interval before timing, so worker startup jitter is not mistaken for
+pipeline latency.
+
 Current measurement status: isolated one-run quick diagnostics are not release
 evidence. An adjacent same-binary quick rerun changed the always-success median
 by roughly 11%, exceeding the 5% record limit, so that attempted record was

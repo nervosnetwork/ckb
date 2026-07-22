@@ -85,11 +85,11 @@ The matrix is selected at compile time via environment variables:
 
 | Constant | Value |
 |---|---|
-| `QUICK_SIZES` | `[50]` |
+| `QUICK_SIZES` | `[100]` |
 | `QUICK_PEER_COUNTS` | `[1]` |
 | `QUICK_WORKER_COUNTS` | `[8]` |
-| `QUICK_WARM_POOL_SIZE` | `50` |
-| `QUICK_DEPENDENT_SIZES` | `[10]` |
+| `QUICK_WARM_POOL_SIZE` | `30` |
+| `QUICK_DEPENDENT_SIZES` | `[20]` |
 | `QUICK_DEPENDENT_WARM_POOL_SIZE` | `10` |
 
 Regular workloads and dependent-chain workloads use different size/warm configurations so the chain never grows too long.  Dependent chains are only benchmarked with **1 peer and the first worker count** because they are bottlenecked by serialized orphan recovery; varying peers/workers adds no useful signal.
@@ -131,6 +131,7 @@ Dependent chains are measured in both directions because they exercise different
 
 - `SharedBench` owns the genesis snapshot, network controller, and tokio runtime, and is reused across all benchmark iterations.
 - `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
+- Before returning a new controller to Criterion, setup completes one dispatcher round-trip and a short Tokio scheduling interval. This keeps freshly spawned worker startup latency outside the measured transaction batch without warming the verification cache or pool.
 - `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration. A teardown timeout or task panic fails the benchmark instead of silently admitting a contaminated sample.
 - Criterion uses `iter_batched_ref`, so that complete service shutdown (worker quiescence, pool save and relay-drain join) happens after the measurement interval rather than being charged to transaction latency.
 - `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the deferred task worker. It is used only for cycle measurement. Teardown joins those workers first, releases the final service/relay sender, and only then joins the relay drain; joining all three ownership layers at once would deadlock until timeout.
@@ -140,7 +141,7 @@ Dependent chains are measured in both directions because they exercise different
 
 ### Criterion sampling
 
-The benchmark group uses `SamplingMode::Flat` to avoid the default warning about being unable to collect 10 samples within 5 seconds.
+Quick mode uses the narrow one-peer/one-worker-count matrix with 20 flat samples, a 2-second warm-up, and an 8-second measurement window. Its larger 100-transaction independent batches and 20-transaction dependent chains improve signal-to-noise without expanding the scenario matrix. Medium/full modes remain the release gates.
 
 Measured completion is event-driven: the pending callback increments an atomic counter and wakes a `Notify` waiter only after the pool transition is stable. No 1 ms polling timer or `get_tx_pool_info` request runs in the measured path.
 
