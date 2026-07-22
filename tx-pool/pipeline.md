@@ -287,6 +287,22 @@ ID-only dependency/conflict schedulers and differential tests are ready. Its
 quick benchmark therefore must be runtime-neutral; each later integration
 slice is gated against the checkpoint medium/full records.
 
+### 5.2 DependencyScheduler migration slice
+
+The isolated `component/dependency_scheduler.rs` model owns dependency IDs and
+edges only. Readiness is represented by generation-tagged tickets: parent
+availability wakes a child once, parent invalidation makes even a dispatched
+ticket stale, and definitive failure cascades through ready and
+capacity-blocked descendants. A downstream `Full` outcome becomes an explicit
+`CapacityBlocked(stage)` state that is requeued by a capacity event; it cannot
+silently fall back to orphan expiry. Entry, total-edge, and per-entry-edge
+limits bound scheduler metadata independently from payload residency.
+
+Production integration remains pending: queue capacity notifications must be
+routed through the coordinator and differential tests must prove that current
+parent-first/child-first behavior is preserved before the legacy orphan retry
+logic can be removed.
+
 ---
 
 ## 6. Correctness Guarantees

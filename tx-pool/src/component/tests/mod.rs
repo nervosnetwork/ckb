@@ -1,4 +1,5 @@
 mod chunk;
+mod dependency_scheduler;
 mod entry;
 mod estimate;
 mod gap_reorg;

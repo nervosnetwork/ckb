@@ -51,7 +51,7 @@ Status meanings:
 | 12 | Covered | `pre_check_worker_notifies_relayer_when_ordered_resolve_queue_is_full` | I4 |
 | 13 | Covered | `recover_gives_up_terminally_after_bounded_retries` | I4 |
 | 14 | Covered | `local_orphan_with_stuck_parent_is_eventually_rejected` | I4, I6 |
-| 15 | Open | Add ready-parent + verify-full + ordered-full regression; target must schedule retry or terminalize, never expiry-stall. | I4, I6 |
+| 15 | Partial | The target `DependencyScheduler` model covers ready-parent + downstream-full capacity wake-up; production routing and ordered/verify queue integration remain mandatory. | I4, I6 |
 | 16 | Partial | Panic guards are tested; add injected panic from resolve/verify/commit through final relay and ownership cleanup. | I1, I4 |
 | 17 | Covered | `remove_tx_reports_in_progress_for_worker_active_job` | I1 |
 | 18 | Covered | `banned_peer_job_is_dropped_by_pre_check_worker` | I4, I5 |

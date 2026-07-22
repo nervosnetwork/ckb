@@ -2,6 +2,7 @@ pub mod entry;
 pub mod tx_selector;
 
 pub(crate) mod active_set;
+pub(crate) mod dependency_scheduler;
 pub(crate) mod flight_tracker;
 pub(crate) mod lifecycle_store;
 pub(crate) mod links;
