@@ -116,8 +116,8 @@ Status meanings:
 
 | Candidate | Disposition | Current evidence | Target requirement |
 |---|---|---|---|
-| C-racelost-budget | Reportable, fixed at checkpoint | Resolved lifecycle permit, active-job budget test, independent displacement cap. | Remove RaceLost payload ownership; run independent-input, large-loser/small-winner, slow-winner, multi-peer memory stress. |
-| C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the size-fee registration prerequisite; rejected-RBF recovery passes. | Keep negative construction test and `failed_rbf_rollback_precedes_held_candidate_restore`; rollback remains a commit barrier. |
+| C-racelost-budget | Reportable, fixed at checkpoint | Resolved lifecycle permit, active-job budget test, independent displacement cap. The target models now keep payloads in LifecycleStore and bound conflict edges separately. | Integrate the models, then run independent-input, large-loser/small-winner, slow-winner, and multi-peer memory stress before deleting RaceLost. |
+| C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the current size-fee registration prerequisite; rejected-RBF recovery passes. The target `ReplacementFeeGate` negative test makes under-fee scheduling unconstructible. | Source the typed eligibility proof from the authoritative pool calculation and keep rollback as a commit barrier during integration. |
 | Reorg Gap/uncle proposal exclusion | Confirmed, fixed | Gap transition unit tests plus normal `get_block_template` dependent-tree integration. | Reorg delta sequencing and template revision model must preserve the same integration test without manual proposal blocks. |
 | Reorg delta dropped after repeated panic | Confirmed open gap | Channel-full delivery now applies backpressure, but the handler still logs and drops an already-received delta after two panics. | Retain the head delta until success or a verified full rebuild; add panic/fault injection and FIFO tip-sequence tests. |
 

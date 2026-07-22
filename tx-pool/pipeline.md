@@ -303,6 +303,24 @@ routed through the coordinator and differential tests must prove that current
 parent-first/child-first behavior is preserved before the legacy orphan retry
 logic can be removed.
 
+### 5.3 ConflictScheduler migration slice
+
+The isolated `component/conflict_scheduler.rs` model separates fee eligibility
+from scheduling. `ReplacementFeeGate` must produce an eligible candidate before
+the scheduler can hold or order it; both the candidate-specific pool
+replacement fee and the size-based fee-rate floor are checked first. The
+scheduler then stores IDs, conflict outpoints, score metadata and generation
+tickets only. A multi-input candidate either wins every active conflict domain
+or waits without partially displacing any owner. Committing candidates are
+frozen against later arrivals; abort rebalances the highest-fee valid waiter,
+while only authoritative commit success terminalizes direct conflicts.
+
+Candidate count, total conflict edges and per-candidate edges are separately
+bounded. Production integration must retain the current pool write-lock fee
+calculation as the proof source and combine a successful pool mutation with the
+LifecycleStore winner/victim batch before replacing `RbfCandidates` and
+`RaceLost`.
+
 ---
 
 ## 6. Correctness Guarantees

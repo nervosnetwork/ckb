@@ -1,4 +1,5 @@
 mod chunk;
+mod conflict_scheduler;
 mod dependency_scheduler;
 mod entry;
 mod estimate;
