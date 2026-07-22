@@ -522,12 +522,30 @@ impl TxPoolService {
         self.cleanup_rbf_for_removed_entries(reject_events.iter().map(|(entry, _)| entry))
             .await;
 
+        // The RBF candidate has either been accepted or definitively
+        // rejected; remove it from the in-flight fee-ordering gate. On
+        // success *with an actual replacement* the candidates it displaced
+        // are really rejected (finalize); on failure — or on a success that
+        // removed nothing because the conflicts had already vanished — they
+        // are restored to the verify queue (abort). Finalizing without an
+        // actual replacement would wrongly reject losers whose inputs are
+        // free again (see the hold-and-restore contract in `rbf_candidates`).
+        //
+        // This ownership settlement deliberately precedes the bounded
+        // deferred channel below. Backpressure in publication must never keep
+        // a failed winner registered or its `RaceLost` candidates parked.
+        // Finalized losers are returned for terminal publication only after
+        // every internal ownership transition is stable.
+        let finalized_rbf_losers = self
+            .settle_rbf_candidate(entry_id, result.is_ok() && replaced)
+            .await;
+
         // Send recovered txs to the deferred worker after the write lock is
-        // released. Use .send().await rather than try_send so that recovery
-        // txs are never silently dropped under high RBF frequency.
-        // Recovery is attempted even if the replacement ultimately failed,
-        // because the old conflicting txs have already been removed from the
-        // pool and may now be valid again.
+        // released and RBF ownership is stable. Use .send().await rather than
+        // try_send so that recovery txs are never silently dropped under high
+        // RBF frequency. Recovery is attempted even if the replacement
+        // ultimately failed, because third-party transactions may now be
+        // eligible again.
         if !recovered.is_empty()
             && let Err(e) = self
                 .pipeline
@@ -538,19 +556,8 @@ impl TxPoolService {
             warn!("failed to enqueue recovered txs for re-processing: {}", e);
         }
 
-        // The RBF candidate has either been accepted or definitively
-        // rejected; remove it from the in-flight fee-ordering gate. On
-        // success *with an actual replacement* the candidates it displaced
-        // are really rejected (finalize); on failure — or on a success that
-        // removed nothing because the conflicts had already vanished — they
-        // are restored to the verify queue (abort). Finalizing without an
-        // actual replacement would wrongly reject losers whose inputs are
-        // free again (see the hold-and-restore contract in `rbf_candidates`).
-        if result.is_ok() && replaced {
-            self.finalize_rbf_candidate(entry_id).await;
-        } else {
-            self.abort_rbf_candidate(entry_id).await;
-        }
+        self.publish_finalized_rbf_candidates(finalized_rbf_losers)
+            .await;
 
         // User callbacks run last, after every internal ownership and RBF
         // transition is stable. They are allowed to re-enter the controller;

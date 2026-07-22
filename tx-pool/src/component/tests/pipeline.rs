@@ -1630,7 +1630,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 /// held candidate that is below the pool-level replacement fee can observe a
 /// momentarily free input and commit as an ordinary transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn failed_rbf_rollback_precedes_held_candidate_restore() {
+async fn failed_rbf_rollback_and_settlement_precede_deferred_publication() {
     use crate::component::entry::TxEntry;
     use crate::component::pipeline_queue::PipelineQueue;
 
@@ -1639,7 +1639,7 @@ async fn failed_rbf_rollback_precedes_held_candidate_restore() {
         .max_tx_pool_size(1_500)
         .workers(super::harness::WorkerSet::None)
         .build();
-    let service = h.service;
+    let mut service = h.service;
     let shared_input = &h.out_points[0];
 
     // O pays a 2 CKB fee and fits the tiny pool.
@@ -1741,7 +1741,7 @@ async fn failed_rbf_rollback_precedes_held_candidate_restore() {
         attack_resolved.fee,
         attack_resolved.tx_size,
     );
-    let outcome = {
+    let mut outcome = {
         let mut pool = service.pool.tx_pool.write().await;
         let snapshot = pool.cloned_snapshot();
         service.try_submit_entry(
@@ -1773,7 +1773,57 @@ async fn failed_rbf_rollback_precedes_held_candidate_restore() {
             .is_some()
     );
 
-    let dispatch = service.dispatch_submit_aftermath(&attack_id, outcome).await;
+    // Saturate the publication channel, then add one opportunistic recovery
+    // effect to this outcome. `dispatch_submit_aftermath` must restore C and
+    // remove A's registration before it blocks trying to publish that effect.
+    let (blocked_sender, mut blocked_receiver) = tokio::sync::mpsc::channel(1);
+    blocked_sender
+        .send(crate::service::DeferredTask::RecoverTxs(Vec::new()))
+        .await
+        .unwrap();
+    service.pipeline.deferred_sender = blocked_sender;
+    outcome.recovered.push((original.clone(), TxSource::Local));
+
+    let dispatch_service = service.clone();
+    let dispatch_id = attack_id.clone();
+    let dispatch_task = tokio::spawn(async move {
+        dispatch_service
+            .dispatch_submit_aftermath(&dispatch_id, outcome)
+            .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if service
+                .pipeline
+                .queues
+                .verify_queue
+                .read()
+                .await
+                .contains_key(&candidate_id)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("RBF ownership settlement must not wait for deferred publication");
+    assert!(
+        !dispatch_task.is_finished(),
+        "the saturated deferred channel should still block publication"
+    );
+
+    // Release the publication channel and let the aftermath finish.
+    assert!(matches!(
+        blocked_receiver.recv().await,
+        Some(crate::service::DeferredTask::RecoverTxs(txs)) if txs.is_empty()
+    ));
+    assert!(matches!(
+        blocked_receiver.recv().await,
+        Some(crate::service::DeferredTask::RecoverTxs(txs)) if !txs.is_empty()
+    ));
+    let dispatch = dispatch_task.await.unwrap();
     assert!(dispatch.is_err());
 
     // At the exact point C is restored, O already owns the input again.

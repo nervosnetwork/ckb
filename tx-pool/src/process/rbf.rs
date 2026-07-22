@@ -16,6 +16,22 @@ impl super::TxPoolService {
     /// it is relayed through the usual `after_process` path and recorded
     /// in recent_reject like any terminal RBF rejection.
     pub(crate) async fn finalize_rbf_candidate(&self, id: &ProposalShortId) {
+        let held = self.settle_rbf_candidate(id, true).await;
+        self.publish_finalized_rbf_candidates(held).await;
+    }
+
+    /// Atomically release one RBF registration and every candidate it owns.
+    ///
+    /// This is the authoritative pre-publication ownership transition used by
+    /// the submit transaction. A committed winner returns its held candidates
+    /// for later terminal publication; an aborted winner restores them before
+    /// returning. In either case no bounded side-effect channel is awaited
+    /// while the registration still owns `RaceLost` entries.
+    pub(crate) async fn settle_rbf_candidate(
+        &self,
+        id: &ProposalShortId,
+        committed: bool,
+    ) -> Vec<ResolvedTx> {
         // Registration removal and held-entry transfer are one ownership
         // transition. Holding both locks in the global order prevents expiry
         // routing from observing "winner gone" while its losers are still
@@ -26,6 +42,18 @@ impl super::TxPoolService {
             rbf.remove(id);
             room.wake_by_winner(id)
         };
+        if committed {
+            held
+        } else {
+            self.restore_held_rbf_candidates(held).await;
+            Vec::new()
+        }
+    }
+
+    /// Publish the real terminal rejection of candidates released by a
+    /// committed RBF winner. The ownership transition has already completed,
+    /// so callback/relay/recent-reject work cannot expose a half-settled gate.
+    pub(crate) async fn publish_finalized_rbf_candidates(&self, held: Vec<ResolvedTx>) {
         if held.is_empty() {
             return;
         }
@@ -43,13 +71,7 @@ impl super::TxPoolService {
     /// the candidates it displaced: the displacement was speculative, so
     /// they simply resume verification.
     pub(crate) async fn abort_rbf_candidate(&self, id: &ProposalShortId) {
-        let held = {
-            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
-            let mut room = self.pipeline.waiting_room.write().await;
-            rbf.remove(id);
-            room.wake_by_winner(id)
-        };
-        self.restore_held_rbf_candidates(held).await;
+        self.settle_rbf_candidate(id, false).await;
     }
 
     /// Hand a superseded-at-submit candidate to the waiting room as the
