@@ -68,9 +68,10 @@ local notes do not invalidate a run).
 `--baseline-worktree` is the preferred quick comparison mode. It runs each
 baseline/candidate pair adjacently and reverses their order on every second
 pair, reducing systematic thermal or host-load bias. Paired mode evaluates the
-median and spread of each adjacent candidate/baseline ratio rather than
-rejecting a common absolute-speed drift in both checkouts. Each worktree still
-uses its isolated Cargo target, and both records retain independent commit/dirty
+median of each adjacent candidate/baseline ratio and bounds every ratio's
+relative deviation from that median; it does not double-count symmetric
+above/below-median movement as a max-minus-min range. Each worktree still uses
+its isolated Cargo target, and both records retain independent commit/dirty
 metadata plus the common harness fingerprint.
 
 ## Matrices

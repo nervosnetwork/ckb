@@ -417,6 +417,15 @@ def relative_run_spread(values: List[float]) -> float:
     return (max(values) - min(values)) / median * 100.0
 
 
+def relative_median_deviation(values: List[float]) -> float:
+    if not values:
+        raise RuntimeError("benchmark record has no paired ratio samples")
+    median = statistics.median(values)
+    if median <= 0:
+        raise RuntimeError("benchmark paired ratio median must be positive")
+    return max(abs(value - median) for value in values) / median * 100.0
+
+
 def validate_run_stability(record: Dict, label: str) -> None:
     unstable = []
     for item in record.get("results", []):
@@ -451,12 +460,12 @@ def validate_paired_stability(record: Dict) -> None:
                 f"paired record has incomplete ratio samples for {scenario}: "
                 f"{len(throughputs)} != {record.get('runs')}"
             )
-        spread = relative_run_spread(throughputs)
-        if spread > ARGS.max_run_spread_percent:
-            unstable.append(f"{scenario}={spread:.2f}%")
+        deviation = relative_median_deviation(throughputs)
+        if deviation > ARGS.max_run_spread_percent:
+            unstable.append(f"{scenario}={deviation:.2f}%")
     if unstable:
         raise RuntimeError(
-            "paired benchmark ratios are too noisy for a decision "
+            "paired benchmark ratios deviate too far from their median "
             f"(limit={ARGS.max_run_spread_percent:.2f}%): " + ", ".join(unstable)
         )
 

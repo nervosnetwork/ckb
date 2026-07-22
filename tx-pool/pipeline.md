@@ -257,7 +257,9 @@ a baseline worktree and alternates adjacent baseline/candidate pairs (reversing
 the order every second pair), reducing thermal and host-load drift without
 mixing their Cargo targets. Verdicts use the median of adjacent
 candidate/baseline ratios, and stability is assessed on those ratios rather than
-on unrelated absolute host-speed movement.
+on unrelated absolute host-speed movement. The paired stability bound is the
+maximum relative deviation from the median ratio, matching the estimator used
+for the verdict instead of double-counting both sides of a symmetric range.
 
 Current measurement status: isolated one-run quick diagnostics are not release
 evidence. An adjacent same-binary quick rerun changed the always-success median
