@@ -67,11 +67,22 @@ def parse_args() -> argparse.Namespace:
             "acceptance gate uses the strict default of 0"
         ),
     )
+    parser.add_argument(
+        "--max-run-spread-percent",
+        type=float,
+        default=5.0,
+        help=(
+            "maximum allowed max-min throughput spread across repetitions; "
+            "a noisier record is invalid for --fail-on-regression"
+        ),
+    )
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.regression_threshold_percent < 0:
         parser.error("--regression-threshold-percent cannot be negative")
+    if args.max_run_spread_percent <= 0:
+        parser.error("--max-run-spread-percent must be positive")
     return args
 
 
@@ -257,6 +268,19 @@ def aggregate_runs(
     return medians, samples
 
 
+def environment_metadata() -> Dict:
+    return {
+        "git_commit": command_output(["git", "rev-parse", "HEAD"]),
+        "git_tracked_changes": command_output(
+            ["git", "status", "--porcelain", "--untracked-files=no"]
+        ),
+        "rustc": command_output(["rustc", "--version", "--verbose"]),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+    }
+
+
 def make_record(
     medians: Dict[ResultKey, Result],
     samples: Dict[ResultKey, Dict[str, List[float]]],
@@ -275,22 +299,22 @@ def make_record(
                 "throughput": medians[key]["throughput"],
                 "time_ms_samples": samples[key]["time_ms"],
                 "throughput_samples": samples[key]["throughput"],
+                "throughput_run_spread_percent": relative_run_spread(
+                    samples[key]["throughput"]
+                ),
             }
         )
-    return {
+    record = {
         "schema": 1,
         "generated_at_utc": datetime.datetime.now(
             datetime.timezone.utc
         ).isoformat(),
         "mode": matrix_mode(),
         "runs": ARGS.runs,
-        "git_commit": command_output(["git", "rev-parse", "HEAD"]),
-        "rustc": command_output(["rustc", "--version", "--verbose"]),
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "python": platform.python_version(),
         "results": entries,
     }
+    record.update(environment_metadata())
+    return record
 
 
 def record_results(record: Dict) -> Dict[ResultKey, Result]:
@@ -312,14 +336,95 @@ def record_results(record: Dict) -> Dict[ResultKey, Result]:
     return results
 
 
-def print_summary(results: Dict[ResultKey, Result]) -> None:
+def relative_run_spread(values: List[float]) -> float:
+    if not values:
+        raise RuntimeError("benchmark record has no run samples")
+    median = statistics.median(values)
+    if median <= 0:
+        raise RuntimeError("benchmark run sample median must be positive")
+    return (max(values) - min(values)) / median * 100.0
+
+
+def validate_run_stability(record: Dict, label: str) -> None:
+    unstable = []
+    for item in record.get("results", []):
+        samples = [float(value) for value in item.get("throughput_samples", [])]
+        if len(samples) != int(record.get("runs", 1)):
+            raise RuntimeError(
+                f"{label} record has incomplete run samples for "
+                f"{item.get('tx_type')}: {len(samples)} != {record.get('runs')}"
+            )
+        spread = relative_run_spread(samples)
+        if spread > ARGS.max_run_spread_percent:
+            unstable.append(
+                f"{item.get('tx_type')} "
+                f"({'warm' if item.get('warm') else 'cold'})={spread:.2f}%"
+            )
+    if unstable:
+        raise RuntimeError(
+            f"{label} benchmark is too noisy for a release decision "
+            f"(limit={ARGS.max_run_spread_percent:.2f}%): " + ", ".join(unstable)
+        )
+
+
+def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
+    """Reject comparisons whose sampling or host context is not symmetric."""
+    if baseline.get("mode") != current.get("mode"):
+        raise RuntimeError(
+            "baseline matrix mode differs: "
+            f"{baseline.get('mode')} != {current.get('mode')}"
+        )
+
+    mismatches = []
+    for field in ("rustc", "platform", "machine"):
+        if baseline.get(field) != current.get(field):
+            mismatches.append(
+                f"{field}: {baseline.get(field)!r} != {current.get(field)!r}"
+            )
+    if mismatches:
+        raise RuntimeError(
+            "benchmark environment differs; record a new same-host baseline: "
+            + "; ".join(mismatches)
+        )
+
+    if ARGS.fail_on_regression:
+        for label, record in (("baseline", baseline), ("candidate", current)):
+            tracked_changes = record.get("git_tracked_changes", "unknown")
+            if tracked_changes != "":
+                raise RuntimeError(
+                    f"{label} benchmark must come from a clean tracked tree; "
+                    f"git status was {tracked_changes!r}"
+                )
+        baseline_runs = int(baseline.get("runs", 1))
+        current_runs = int(current.get("runs", 1))
+        if baseline_runs < 3 or current_runs < 3:
+            raise RuntimeError(
+                "--fail-on-regression requires at least three complete runs "
+                f"on both sides (baseline={baseline_runs}, current={current_runs})"
+            )
+        if baseline_runs != current_runs:
+            raise RuntimeError(
+                "--fail-on-regression requires symmetric repetition counts "
+                f"(baseline={baseline_runs}, current={current_runs})"
+            )
+        if baseline.get("results") is not None:
+            validate_run_stability(baseline, "baseline")
+        if current.get("results") is not None:
+            validate_run_stability(current, "candidate")
+
+
+def print_summary(
+    results: Dict[ResultKey, Result],
+    samples: Dict[ResultKey, Dict[str, List[float]]],
+) -> None:
     print("\n# Tx-Pool Pipeline Benchmark\n")
-    print("| scenario | median time | median throughput |")
-    print("|---|---:|---:|")
+    print("| scenario | median time | median throughput | run spread |")
+    print("|---|---:|---:|---:|")
     for key, value in sorted(results.items()):
         print(
             f"| {format_key(key)} | {value['time_ms']:.3f} ms | "
-            f"{value['throughput']:.2f} tx/s |"
+            f"{value['throughput']:.2f} tx/s | "
+            f"{relative_run_spread(samples[key]['throughput']):.2f}% |"
         )
 
 
@@ -360,7 +465,7 @@ def compare_results(
 
     geomean = math.exp(sum(math.log(ratio) for ratio in ratios) / len(ratios))
     aggregate_delta = (geomean - 1.0) * 100.0
-    aggregate_regressed = aggregate_delta < 0.0
+    aggregate_regressed = aggregate_delta < -threshold
     failed = failed or aggregate_regressed
     print(
         f"\nThroughput geometric mean: {aggregate_delta:+.2f}% "
@@ -370,13 +475,25 @@ def compare_results(
 
 
 def main() -> None:
+    baseline_record = None
+    if ARGS.compare_json:
+        baseline_record = json.loads(ARGS.compare_json.read_text(encoding="utf-8"))
+        # Reject an invalid release comparison before spending minutes or hours
+        # running its candidate side.
+        current_environment = {
+            "mode": matrix_mode(),
+            "runs": ARGS.runs,
+            **environment_metadata(),
+        }
+        validate_comparison_environment(baseline_record, current_environment)
+
     run_results = [
         parse_output(run_cargo_bench(run))
         for run in range(1, ARGS.runs + 1)
     ]
     medians, samples = aggregate_runs(run_results)
     record = make_record(medians, samples)
-    print_summary(medians)
+    print_summary(medians, samples)
 
     if ARGS.save_json:
         ARGS.save_json.parent.mkdir(parents=True, exist_ok=True)
@@ -387,13 +504,8 @@ def main() -> None:
         print(f"\nSaved benchmark record to {ARGS.save_json}")
 
     regressed = False
-    if ARGS.compare_json:
-        baseline_record = json.loads(ARGS.compare_json.read_text(encoding="utf-8"))
-        if baseline_record.get("mode") != record["mode"]:
-            raise RuntimeError(
-                "baseline matrix mode differs: "
-                f"{baseline_record.get('mode')} != {record['mode']}"
-            )
+    if baseline_record is not None:
+        validate_comparison_environment(baseline_record, record)
         regressed = compare_results(record_results(baseline_record), medians)
 
     if ARGS.fail_on_regression and regressed:
@@ -402,4 +514,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as error:
+        print(f"benchmark error: {error}", file=sys.stderr)
+        raise SystemExit(2) from None

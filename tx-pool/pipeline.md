@@ -223,7 +223,13 @@ Performance is a hard migration gate. The authoritative baseline is recorded
 from checkpoint `3ece94af1` (with the benchmark-only harness changes applied
 equally to both sides). The comparison tool supports repeated runs, JSON
 records, and a strict non-regression exit status. Parent-first and child-first
-dependent paths are benchmarked separately.
+dependent paths are benchmarked separately. The measured closure ends at an
+event-driven accepted callback; per-iteration service quiescence/destruction is
+outside the timer. A failing comparison requires symmetric same-host/toolchain
+records with at least three complete repetitions per side; a record whose
+cross-run spread exceeds the configured noise ceiling is invalid rather than a
+pass or regression. Quick mode is diagnostic, while repeated medium/full A/B
+records are the migration acceptance gate.
 
 The numbers below are historical reference values from the original pipeline
 benchmark run; they are not a substitute for the checkpoint A/B record.

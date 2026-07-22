@@ -38,9 +38,12 @@ use ckb_types::{
 use ckb_verification::cache::init_cache;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, SamplingMode, Throughput, criterion_group};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{Notify, RwLock, watch};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ALWAYS_SUCCESS_ISSUE_CAPACITY: u64 = 5_000;
@@ -183,6 +186,46 @@ struct SharedBench {
     secp_cell_deps: Option<Vec<CellDep>>,
 }
 
+/// Event-driven stable-state completion barrier for measured submissions.
+///
+/// Polling the controller every millisecond adds timer quantization and
+/// dispatcher contention to cases that complete in only a few milliseconds.
+/// The pending callback runs after the authoritative pool mutation, so it is
+/// the precise completion event the benchmark needs.
+#[derive(Default)]
+struct BenchCompletion {
+    completed: AtomicUsize,
+    changed: Notify,
+}
+
+impl BenchCompletion {
+    fn record(&self) {
+        self.completed.fetch_add(1, Ordering::Release);
+        // `notify_one` stores one permit when no waiter is currently polled,
+        // closing the load-to-await race. Coalescing is harmless because the
+        // atomic count is the source of truth.
+        self.changed.notify_one();
+    }
+
+    async fn wait_for(&self, target: usize) {
+        let result = tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                if self.completed.load(Ordering::Acquire) >= target {
+                    break;
+                }
+                self.changed.notified().await;
+            }
+        })
+        .await;
+        assert!(
+            result.is_ok(),
+            "pipeline did not complete all txs in time: {}/{} accepted",
+            self.completed.load(Ordering::Acquire),
+            target
+        );
+    }
+}
+
 impl SharedBench {
     fn from_consensus(
         consensus: Consensus,
@@ -255,6 +298,9 @@ impl SharedBench {
             tx_relay_sender.clone(),
             FeeEstimator::new_dummy(),
         );
+        let completion = Arc::new(BenchCompletion::default());
+        let completion_callback = Arc::clone(&completion);
+        builder.register_pending(Box::new(move |_| completion_callback.record()));
         // Replace the global exit token with a local one so stopping this service
         // does not affect other benchmark iterations.
         let local_signal = CancellationToken::new();
@@ -266,6 +312,7 @@ impl SharedBench {
             tx_relay_sender: Some(tx_relay_sender),
             drain_handle: Some(drain_handle),
             runtime: self.ckb_handle.clone(),
+            completion,
         }
     }
 }
@@ -308,6 +355,8 @@ struct ServiceHandle {
     drain_handle: Option<tokio::task::JoinHandle<()>>,
     /// Runtime used to await the drain task on drop.
     runtime: ckb_async_runtime::Handle,
+    /// Stable-state completion event used instead of controller polling.
+    completion: Arc<BenchCompletion>,
 }
 
 impl Drop for ServiceHandle {
@@ -343,48 +392,6 @@ impl Drop for BenchServiceHandle {
 // ---------------------------------------------------------------------------
 // Async helpers
 // ---------------------------------------------------------------------------
-
-/// Poll the tx-pool until at least `count` transactions reach the pending state.
-///
-/// Uses a 1 ms polling interval to reduce latency noise for fast workloads.
-/// The overhead is bounded to ~1 ms after the last tx enters pending; this is
-/// declared in `benchmark.md`.
-async fn wait_for_pending(controller: &crate::TxPoolController, count: usize) {
-    let start = Instant::now();
-    let mut last_log = start;
-    let result = tokio::time::timeout(Duration::from_secs(120), async {
-        loop {
-            let info = controller.get_tx_pool_info().ok();
-            let pending = info.as_ref().map(|i| i.pending_size).unwrap_or(0);
-            if pending >= count {
-                break;
-            }
-            let now = Instant::now();
-            if now.duration_since(last_log).as_secs() >= 5 {
-                eprintln!(
-                    "[wait_for_pending] pending={} orphan={} total={} after {:?}",
-                    pending,
-                    info.as_ref().map(|i| i.orphan_size).unwrap_or(0),
-                    info.as_ref().map(|i| i.total_tx_size).unwrap_or(0),
-                    now.duration_since(start)
-                );
-                last_log = now;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    })
-    .await;
-    let pending = controller
-        .get_tx_pool_info()
-        .map(|info| info.pending_size)
-        .unwrap_or(usize::MAX);
-    assert!(
-        result.is_ok(),
-        "pipeline did not process all txs in time: {}/{} pending",
-        pending,
-        count
-    );
-}
 
 // ---------------------------------------------------------------------------
 // start_service — used by measure_cycles (needs direct TxPoolService access)
@@ -893,6 +900,7 @@ impl BenchData {
 fn submit_and_wait(
     runtime: &tokio::runtime::Runtime,
     controller: &crate::TxPoolController,
+    completion: &BenchCompletion,
     txs: Arc<Vec<TransactionView>>,
     cycles: Arc<Vec<u64>>,
     target_pending: usize,
@@ -912,7 +920,6 @@ fn submit_and_wait(
             .map(|start| (start, (start + chunk_size).min(txs.len())))
             .collect();
 
-        let controller_for_wait = controller.clone();
         let mut handles = Vec::with_capacity(ranges.len());
         for (start, end) in ranges {
             let controller = controller.clone();
@@ -927,10 +934,10 @@ fn submit_and_wait(
                 }
             }));
         }
-        wait_for_pending(&controller_for_wait, target_pending).await;
         for h in handles {
             h.await.expect("submitter");
         }
+        completion.wait_for(target_pending).await;
     })
 }
 
@@ -1052,12 +1059,13 @@ fn register_cold_bench(
         group.bench_function(
             format!("{mode}_{peers}peer_{workers}worker_{tx_type}_{size}"),
             |b| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || {
                         let handle = data.shared.start_controller(workers);
                         submit_and_wait(
                             &data.shared.runtime,
                             &handle.controller,
+                            &handle.completion,
                             Arc::clone(&warm_txs),
                             Arc::clone(&warm_cycles),
                             data.warm_pool_size,
@@ -1069,6 +1077,7 @@ fn register_cold_bench(
                         submit_and_wait(
                             &data.shared.runtime,
                             &handle.controller,
+                            &handle.completion,
                             Arc::clone(&txs),
                             Arc::clone(&cycles),
                             expected_pending,
@@ -1083,12 +1092,13 @@ fn register_cold_bench(
         group.bench_function(
             format!("{mode}_{peers}peer_{workers}worker_{tx_type}_{size}"),
             |b| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || data.shared.start_controller(workers),
                     |handle| {
                         submit_and_wait(
                             &data.shared.runtime,
                             &handle.controller,
+                            &handle.completion,
                             Arc::clone(&txs),
                             Arc::clone(&cycles),
                             size,
@@ -1132,7 +1142,7 @@ fn register_warm_bench(
         data.tx_type.as_str().to_string()
     };
     group.throughput(Throughput::Elements(size as u64));
-    // The setup closure (iter_batched) creates a fresh controller with an empty
+    // The setup closure (iter_batched_ref) creates a fresh controller with an empty
     // verify cache, then submits warm_txs which populate the cache with those
     // entries.  The measured closure then submits target_txs (different hashes),
     // so they miss the cache and undergo full verification — matching the real
@@ -1140,12 +1150,13 @@ fn register_warm_bench(
     group.bench_function(
         format!("{mode}_{peers}peer_{workers}worker_warm_{tx_type}_{size}"),
         |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || {
                     let handle = data.shared.start_controller(workers);
                     submit_and_wait(
                         &data.shared.runtime,
                         &handle.controller,
+                        &handle.completion,
                         Arc::clone(&warm_txs),
                         Arc::clone(&warm_cycles),
                         data.warm_pool_size,
@@ -1157,6 +1168,7 @@ fn register_warm_bench(
                     submit_and_wait(
                         &data.shared.runtime,
                         &handle.controller,
+                        &handle.completion,
                         Arc::clone(&target_txs),
                         Arc::clone(&target_cycles),
                         expected_pending,

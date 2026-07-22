@@ -33,8 +33,17 @@ python3 devtools/tx_pool_bench.py --runs 3 \
   --fail-on-regression
 ```
 
-The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), aggregates repeated runs by median, records the commit/toolchain/platform and raw run medians in JSON, and can enforce the architecture's strict non-regression gate.
+The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), aggregates repeated runs by median, records the commit/dirty state/toolchain/platform and raw run medians in JSON, and can enforce the architecture's strict non-regression gate. A failing gate requires the baseline and candidate to come from the same recorded host/toolchain and to use the same repetition count of at least three; a one-run smoke record is never accepted as one side of a release decision.
 `--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
+
+Every report includes the max-min throughput spread across complete runs. With
+`--fail-on-regression`, either side exceeding
+`--max-run-spread-percent` (5% by default) is rejected as an invalid/noisy
+measurement rather than mislabeled as a code regression. Quick mode is a smoke
+and development diagnostic; medium/full repeated records are the architectural
+acceptance evidence. Strict records must also come from clean tracked trees, so
+the exact measured source can be reconstructed from `git_commit` (untracked
+local notes do not invalidate a run).
 
 ## Matrices
 
@@ -116,6 +125,7 @@ Dependent chains are measured in both directions because they exercise different
 - `SharedBench` owns the genesis snapshot, network controller, and tokio runtime, and is reused across all benchmark iterations.
 - `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
 - `ServiceHandle::drop` cancels the local `CancellationToken` so the tx-pool actor and background tasks stop cleanly after each iteration, and drops the `tx_relay_sender` clone so the background relay-drain thread exits.
+- Criterion uses `iter_batched_ref`, so that complete service shutdown (worker quiescence, pool save and relay-drain join) happens after the measurement interval rather than being charged to transaction latency.
 - `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the deferred task worker.  It is used only for cycle measurement.
 - Both `start_controller` and `start_service` spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.
 - The deferred task worker only receives clones of the two fields it needs (`ordered_resolve_queue` and `txs_verify_cache`) so it does not hold a `deferred_sender` and the channel can close on shutdown.
@@ -124,6 +134,8 @@ Dependent chains are measured in both directions because they exercise different
 ### Criterion sampling
 
 The benchmark group uses `SamplingMode::Flat` to avoid the default warning about being unable to collect 10 samples within 5 seconds.
+
+Measured completion is event-driven: the pending callback increments an atomic counter and wakes a `Notify` waiter only after the pool transition is stable. No 1 ms polling timer or `get_tx_pool_info` request runs in the measured path.
 
 ## Output format
 
