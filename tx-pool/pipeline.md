@@ -234,7 +234,9 @@ equally to both sides). The comparison tool supports repeated runs, JSON
 records, and a strict non-regression exit status. Parent-first and child-first
 dependent paths are benchmarked separately. The measured closure ends at an
 event-driven accepted callback; per-iteration service quiescence/destruction is
-outside the timer. A failing comparison requires symmetric same-host/toolchain
+outside the timer, but teardown timeouts and task failures invalidate the run
+instead of allowing work to overlap the next sample. A failing comparison
+requires symmetric same-host/toolchain
 records with at least three complete repetitions per side; a record whose
 cross-run spread exceeds the configured noise ceiling is invalid rather than a
 pass or regression. Quick mode is diagnostic, while repeated medium/full A/B

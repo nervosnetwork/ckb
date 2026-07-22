@@ -332,12 +332,35 @@ fn await_handles(
     let runtime = runtime.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        runtime.block_on(async move {
-            let _ = tokio::time::timeout(timeout, futures_util::future::join_all(handles)).await;
+        let result = runtime.block_on(async move {
+            match tokio::time::timeout(timeout, futures_util::future::join_all(handles)).await {
+                Ok(results) => {
+                    let failures: Vec<_> = results
+                        .into_iter()
+                        .filter_map(Result::err)
+                        .map(|error| error.to_string())
+                        .collect();
+                    if failures.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "benchmark teardown task failed: {}",
+                            failures.join("; ")
+                        ))
+                    }
+                }
+                Err(_) => Err(format!(
+                    "benchmark teardown did not quiesce within {timeout:?}"
+                )),
+            }
         });
-        let _ = tx.send(());
+        let _ = tx.send(result);
     });
-    let _ = rx.recv_timeout(timeout + Duration::from_secs(1));
+    match rx.recv_timeout(timeout + Duration::from_secs(1)) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => panic!("{error}"),
+        Err(error) => panic!("benchmark teardown helper did not complete: {error}"),
+    }
 }
 
 /// RAII handle for a benchmark service instance.
@@ -387,17 +410,33 @@ impl Drop for ServiceHandle {
 struct BenchServiceHandle {
     /// Kept alive so that the underlying service is not dropped while
     /// benchmark tasks are still running.
-    service: TxPoolService,
+    service: Option<TxPoolService>,
     signal: CancellationToken,
-    handles: Vec<tokio::task::JoinHandle<()>>,
+    worker_handles: Vec<tokio::task::JoinHandle<()>>,
+    drain_handle: Option<tokio::task::JoinHandle<()>>,
     runtime: ckb_async_runtime::Handle,
+}
+
+impl BenchServiceHandle {
+    fn service(&self) -> &TxPoolService {
+        self.service
+            .as_ref()
+            .expect("benchmark service is unavailable during teardown")
+    }
 }
 
 impl Drop for BenchServiceHandle {
     fn drop(&mut self) {
         self.signal.cancel();
-        let handles = std::mem::take(&mut self.handles);
-        await_handles(&self.runtime, handles, Duration::from_secs(5));
+        // Worker tasks own service clones, so join them first. Then release the
+        // handle's final service (and relay sender) before awaiting the relay
+        // drain; doing these in one join set creates a sender/drain deadlock.
+        let worker_handles = std::mem::take(&mut self.worker_handles);
+        await_handles(&self.runtime, worker_handles, Duration::from_secs(5));
+        self.service.take();
+        if let Some(drain_handle) = self.drain_handle.take() {
+            await_handles(&self.runtime, vec![drain_handle], Duration::from_secs(5));
+        }
     }
 }
 
@@ -438,8 +477,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     builder.signal_receiver = local_signal;
     let mut parts = builder.build_bench_service(Arc::clone(&shared.network));
 
-    let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
-    handles.push(drain_handle);
+    let mut worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     // Spawn the deferred task worker (recovery tx re-enqueue + cache updates).
     // Only clone the two fields the worker needs; holding a full TxPoolService
@@ -447,7 +485,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // because the receiver task would itself be holding a sender.
     {
         let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
-        handles.push(crate::service::spawn_deferred_worker(
+        worker_handles.push(crate::service::spawn_deferred_worker(
             &handle,
             Arc::clone(&parts.service.pipeline.queues),
             Arc::clone(&parts.service.aux.txs_verify_cache),
@@ -465,7 +503,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
         for _ in 0..pre_check_workers {
             let svc = parts.service.clone();
-            handles.push(tokio::spawn(
+            worker_handles.push(tokio::spawn(
                 crate::service::workers::run_pre_check_worker_loop(svc),
             ));
         }
@@ -478,7 +516,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
 
     let mut verify_mgr =
         crate::verify_mgr::VerifyMgr::new(parts.service.clone(), chunk_rx, signal.child_token());
-    handles.push(tokio::spawn(async move { verify_mgr.run().await }));
+    worker_handles.push(tokio::spawn(async move { verify_mgr.run().await }));
 
     let ordered_resolver = OrderedResolver::new(
         parts.service.clone(),
@@ -487,7 +525,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     );
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    handles.push(tokio::spawn(async move {
+    worker_handles.push(tokio::spawn(async move {
         if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
@@ -495,9 +533,10 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     }));
 
     BenchServiceHandle {
-        service: parts.service,
+        service: Some(parts.service),
         signal,
-        handles,
+        worker_handles,
+        drain_handle: Some(drain_handle),
         runtime: shared.ckb_handle.clone(),
     }
 }
@@ -580,7 +619,7 @@ fn measure_cycles(
             MeasureMode::Uniform => {
                 let sample = &txs[0];
                 let c = handle
-                    .service
+                    .service()
                     .test_accept_tx(sample.clone())
                     .await
                     .expect("measure uniform cycle")
@@ -596,21 +635,25 @@ fn measure_cycles(
                 // is submitted all at once, while still measuring cycles through
                 // the real resolve -> verify -> submit pipeline.
                 for tx in txs {
+                    // Capture the target before enqueueing. `notify_tx` only
+                    // guarantees dispatch, and a fast worker may commit before
+                    // it returns; deriving `pending + 1` afterwards can wait for
+                    // a transaction that was never submitted.
+                    let expected_pending = {
+                        let pool = handle.service().pool.tx_pool.read().await;
+                        pool.pool_map.pending_size() + 1
+                    };
                     handle
-                        .service
+                        .service()
                         .notify_tx(tx.clone())
                         .await
                         .expect("measure cycles via notify_tx");
-                    wait_for_pending_service(&handle.service, {
-                        let pool = handle.service.pool.tx_pool.read().await;
-                        pool.pool_map.pending_size() + 1
-                    })
-                    .await;
+                    wait_for_pending_service(handle.service(), expected_pending).await;
                 }
                 for tx in txs {
                     let id = tx.proposal_short_id();
                     let (_, c) = handle
-                        .service
+                        .service()
                         .pool
                         .tx_pool
                         .read()
@@ -623,7 +666,7 @@ fn measure_cycles(
             MeasureMode::PerTxTest => {
                 for tx in txs {
                     let c = handle
-                        .service
+                        .service()
                         .test_accept_tx(tx.clone())
                         .await
                         .expect("measure cycles via test_accept_tx")
