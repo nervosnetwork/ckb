@@ -347,15 +347,26 @@ impl TxPoolService {
         let replaced = !fx.removed_old_txs.is_empty();
         if result.is_err() {
             fx.recover_on_failure(tx_pool, &entry, &entry_id);
+        } else {
+            // On success, entries removed by *this* replacement must not be
+            // re-enqueued: they are dead as a cluster (their ancestry was
+            // destroyed), not merely blocked, so recovery would flip their
+            // recorded `RBFRejected` status to a bogus `Pending` in the
+            // pipeline and finally to a misleading `Resolve Unknown`. Only
+            // third-party txs blocked by the removed cluster may recover;
+            // the cluster itself stays in the conflict cache as rejected
+            // candidates (the audit/RPC view). The failure path above keeps
+            // the full set: `recover_on_failure` only queries the entry's
+            // own inputs and relies on the prepare-phase set for
+            // descendants whose inputs differ.
+            let removed_ids: HashSet<ProposalShortId> = fx
+                .removed_old_txs
+                .iter()
+                .map(|entry| entry.proposal_short_id())
+                .collect();
+            fx.recovered
+                .retain(|(tx, _)| !removed_ids.contains(&tx.proposal_short_id()));
         }
-        // Note: on success the recovered txs stay in the conflict cache
-        // while they are re-enqueued — the cache is their durable home
-        // until they reach a terminal state (re-committed or terminally
-        // rejected). Pulling them out here would make the whole removed
-        // cluster vanish from the conflicts view the moment the
-        // replacement lands, and the transient double registration (queue
-        // slot + cache entry) is benign: re-enqueue dedups by id, and
-        // `remove_tx` clears both sides.
 
         (result, replaced, fx.recovered, fx.reject_events)
     }

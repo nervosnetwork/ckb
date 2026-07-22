@@ -1461,3 +1461,83 @@ async fn expired_race_lost_is_rejected_when_winner_alive_restored_when_gone() {
         );
     }
 }
+
+/// A successful replacement must not re-enqueue the descendants it
+/// removed: they are dead as a cluster (their ancestry is destroyed),
+/// not merely blocked. They stay in the conflict cache as rejected
+/// candidates (the audit/RPC view); only third-party txs blocked by the
+/// removed cluster may be recovered. Re-enqueueing them would flip their
+/// recorded `RBFRejected` status to a bogus `Pending` (pipeline) and
+/// eventually to a misleading `Resolve Unknown`.
+#[tokio::test]
+async fn successful_replacement_does_not_recover_removed_descendants() {
+    use super::harness::{WorkerSet, harness};
+
+    let service = harness(2)
+        .rbf(true)
+        .workers(WorkerSet::None)
+        .build()
+        .service;
+
+    // Chain T1 -> T2 in the pool.
+    let t1 = build_tx(vec![(&Byte32::new([61u8; 32]), 0)], 1);
+    let t2 = build_tx(vec![(&t1.hash(), 0)], 1);
+    let t1_id = t1.proposal_short_id();
+    let t2_id = t2.proposal_short_id();
+    {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        for tx in [t1.clone(), t2.clone()] {
+            tx_pool
+                .pool_map
+                .add_entry(
+                    TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE),
+                    Status::Pending,
+                )
+                .unwrap();
+        }
+    }
+
+    // R replaces T1 (same input, different outputs -> different hash,
+    // much higher fee).
+    let replacement = build_tx(vec![(&Byte32::new([61u8; 32]), 0)], 2);
+    let replacement_entry = TxEntry::dummy_resolve(
+        replacement,
+        MOCK_CYCLES,
+        Capacity::shannons(1_000_000_000),
+        MOCK_SIZE,
+    );
+    let replacement_id = replacement_entry.proposal_short_id();
+
+    let (result, _replaced, recovered, _events) = {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        let snapshot = tx_pool.cloned_snapshot();
+        let pre_resolve_tip = snapshot.tip_hash();
+        service.try_submit_entry(
+            &mut tx_pool,
+            snapshot,
+            pre_resolve_tip,
+            replacement_entry,
+            Status::Pending,
+            replacement_id,
+        )
+    };
+
+    assert!(result.is_ok(), "replacement must commit: {:?}", result);
+    assert!(
+        !recovered
+            .iter()
+            .any(|(tx, _)| tx.proposal_short_id() == t2_id),
+        "a removed descendant must not be re-enqueued on a successful replacement"
+    );
+    // The whole removed cluster stays in the conflict cache as rejected
+    // candidates (the audit/RPC view, see `RbfReplaceProposedSuccess`).
+    let tx_pool = service.pool.tx_pool.read().await;
+    assert!(
+        tx_pool.waiting_room.get(&t1_id).is_some(),
+        "the replaced root must stay in the conflict cache"
+    );
+    assert!(
+        tx_pool.waiting_room.get(&t2_id).is_some(),
+        "the removed descendant must stay in the conflict cache"
+    );
+}

@@ -4,7 +4,7 @@ use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_err
 use crate::service::{
     AsyncRequest, BlockTemplateResult, ChainReorgArgs, FeeEstimatesResult,
     FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
-    Request, SubmitTxResult, TestAcceptTxResult,
+    Request, SubmitTxResult, TestAcceptTxResult, TxPoolService,
 };
 use crate::tx_source::TxSource;
 use ckb_async_runtime::Handle;
@@ -326,10 +326,22 @@ impl TxPoolController {
             .map_err(Into::into)
     }
 
-    /// Load persisted txs into pool, assume that all txs are sorted
-    pub(crate) fn load_persisted_data(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
+    /// Load persisted txs into the pool.
+    ///
+    /// The file written by `TxPool::save_into_file` is already topologically
+    /// ordered, but the reload path replays serially without retry: a child
+    /// stored before its parent would hit missing-input, be rejected, and be
+    /// recorded in recent_reject — permanently lost even though the parent
+    /// shows up moments later. Sort parents before children on the load side
+    /// too, so replay correctness never depends on the file's provenance
+    /// (older nodes, hand-edited files, or future changes to the writer).
+    pub(crate) fn load_persisted_data(
+        &self,
+        mut txs: Vec<TransactionView>,
+    ) -> Result<(), AnyError> {
         if !txs.is_empty() {
             info!("Loading persistent tx-pool data, total {} txs", txs.len());
+            TxPoolService::sort_txs_by_dependencies(&mut txs);
             let mut failed_txs = 0;
             for tx in txs {
                 if self.submit_local_tx(tx)?.is_err() {
