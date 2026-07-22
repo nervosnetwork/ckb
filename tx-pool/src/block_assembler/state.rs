@@ -14,13 +14,16 @@ pub(crate) struct TemplateSize {
 }
 
 impl TemplateSize {
-    pub(crate) fn calc_total_by_proposals(&self, new_proposals_size: usize) -> usize {
+    pub(crate) fn calc_total_by_uncles_and_proposals(
+        &self,
+        new_uncles_size: usize,
+        new_proposals_size: usize,
+    ) -> usize {
+        let total = self.calc_total_by_uncles(new_uncles_size);
         if new_proposals_size > self.proposals {
-            self.total
-                .saturating_add(new_proposals_size - self.proposals)
+            total.saturating_add(new_proposals_size - self.proposals)
         } else {
-            self.total
-                .saturating_sub(self.proposals - new_proposals_size)
+            total.saturating_sub(self.proposals - new_proposals_size)
         }
     }
 

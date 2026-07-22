@@ -14,7 +14,7 @@ use ckb_types::{
     core::{BlockExt, cell::CellChecker},
     packed::{Byte32, OutPoint},
 };
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 fn genesis_snapshot() -> Arc<Snapshot> {
     let consensus = Arc::new(ConsensusBuilder::default().build());
@@ -245,4 +245,61 @@ fn prepare_uncles_removes_main_chain_and_embedded_candidates() {
     // It is retained in the candidate set (not removed, just not eligible
     // for removal — it's a valid uncle that was selected).
     assert!(candidate_uncles.contains(&off_chain));
+}
+
+/// A Pending proposal must win over an optional uncle carrying the same id.
+/// If that uncle is removed, descendants that depended on it solely through
+/// the in-template uncle chain must be removed too; unrelated valid uncles
+/// remain available.
+#[test]
+fn pending_proposals_filter_conflicting_uncle_subtree() {
+    use ckb_types::packed::ProposalShortId;
+
+    let snapshot = genesis_snapshot();
+    let genesis = snapshot.consensus().genesis_block();
+    let epoch = snapshot
+        .consensus()
+        .genesis_epoch_ext()
+        .number_with_fraction(1);
+    let pending_id = ProposalShortId::from_tx_hash(&Byte32::new([1; 32]));
+    let other_id = ProposalShortId::from_tx_hash(&Byte32::new([2; 32]));
+
+    let conflicting = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .parent_hash(genesis.hash())
+        .proposals(vec![pending_id.clone()])
+        .build()
+        .as_uncle();
+    let independent = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .timestamp(1)
+        .parent_hash(genesis.hash())
+        .proposals(vec![other_id])
+        .build()
+        .as_uncle();
+    let descendant = BlockBuilder::default()
+        .number(2)
+        .epoch(epoch)
+        .parent_hash(conflicting.hash())
+        .build()
+        .as_uncle();
+    let uncles = vec![conflicting.clone(), independent.clone(), descendant.clone()];
+
+    let all = super::BlockAssembler::filter_uncles_conflicting_with_proposals(
+        &snapshot,
+        &uncles,
+        &HashSet::new(),
+    );
+    assert_eq!(all, uncles, "a conflict-free uncle chain must be preserved");
+
+    let filtered = super::BlockAssembler::filter_uncles_conflicting_with_proposals(
+        &snapshot,
+        &uncles,
+        &HashSet::from([pending_id]),
+    );
+    assert_eq!(filtered, vec![independent]);
+    assert!(!filtered.contains(&conflicting));
+    assert!(!filtered.contains(&descendant));
 }

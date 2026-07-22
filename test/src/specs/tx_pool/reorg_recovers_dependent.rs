@@ -160,6 +160,13 @@ impl Spec for ReorgRecoversDependentPendingTree {
 
         node_a.mine_until_out_bootstrap_period();
 
+        // Fork immediately before the proposal block. After the reorg that
+        // detached block has a parent on the new main chain, so it is an
+        // eligible uncle carrying exactly the recovered tx proposal ids.
+        node_b.connect(node_a);
+        waiting_for_sync_with_timeout(nodes, 30);
+        node_a.disconnect(node_b);
+
         let family = prepare_tx_family(node_a);
         let grandparent = family.a().clone();
         let parent = family.b().clone();
@@ -199,8 +206,8 @@ impl Spec for ReorgRecoversDependentPendingTree {
             );
         }
 
-        info!("mine recovered tree through normal get_block_template (no manual propose)");
-        mine_until_committed_via_template(node_a, &txs);
+        info!("mine recovered tree through get_block_template while omitting optional uncles");
+        mine_until_committed_without_template_uncles(node_a, &txs);
 
         for tx in txs {
             assert!(
@@ -213,16 +220,11 @@ impl Spec for ReorgRecoversDependentPendingTree {
     }
 }
 
-/// Mine full block templates (including uncles) until every `txs` entry is
-/// committed, or panic with pool/template diagnostics.
-///
-/// Full templates are required: reorg inserts detached blocks as uncle
-/// candidates, and `package_proposals` excludes short ids already present
-/// in those uncles. Mining without uncles can leave those short ids never
-/// proposed on-chain; mining with uncles lets uncle proposals land and the
-/// Pending → Gap → Proposed path complete, while still allowing re-proposal
-/// when short ids are not excluded.
-fn mine_until_committed_via_template(node: &Node, txs: &[&TransactionView]) {
+/// Mine templates while deliberately omitting optional uncles, as miners are
+/// allowed to do. Recovered Pending transactions must still be proposed at the
+/// top level and eventually committed; an eligible detached uncle carrying the
+/// same proposal ids must not suppress them indefinitely.
+fn mine_until_committed_without_template_uncles(node: &Node, txs: &[&TransactionView]) {
     let window = node.consensus().tx_proposal_window();
     // Re-propose (or uncle-propose) + closest + commit, with generous margin
     // for uncle selection order and pipeline settle time.
@@ -237,7 +239,10 @@ fn mine_until_committed_via_template(node: &Node, txs: &[&TransactionView]) {
         }
 
         let template = node.rpc_client().get_block_template(None, None, None);
-        let block = packed::Block::from(template).as_advanced_builder().build();
+        let block = packed::Block::from(template)
+            .as_advanced_builder()
+            .set_uncles(vec![])
+            .build();
         node.rpc_client()
             .submit_block("".to_owned(), block.data().into())
             .expect("submit mined template block");
@@ -270,7 +275,7 @@ fn mine_until_committed_via_template(node: &Node, txs: &[&TransactionView]) {
         })
         .collect();
     panic!(
-        "timeout mining recovered txs via get_block_template: \
+        "timeout mining recovered txs via get_block_template without uncles: \
          pending={}, proposed={}, orphan={}, statuses={:?}",
         info.pending.value(),
         info.proposed.value(),

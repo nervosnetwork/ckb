@@ -15,7 +15,7 @@ use ckb_types::core::{BlockNumber, FeeRate};
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
-        Capacity, Cycle, TransactionView, UncleBlockView,
+        Capacity, Cycle, TransactionView,
         cell::{OverlayCellChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction},
         tx_pool::{PoolTxDetailInfo, TxPoolEntryInfo, TxPoolIds},
     },
@@ -623,16 +623,13 @@ impl TxPool {
         self.waiting_room.clear();
     }
 
-    pub(crate) fn package_proposals(
-        &self,
-        proposals_limit: u64,
-        uncles: &[UncleBlockView],
-    ) -> HashSet<ProposalShortId> {
-        let uncle_proposals: HashSet<ProposalShortId> = uncles
-            .iter()
-            .flat_map(|u| u.data().proposals().into_iter())
-            .collect();
-        self.get_proposals(proposals_limit as usize, &uncle_proposals)
+    pub(crate) fn package_proposals(&self, proposals_limit: u64) -> HashSet<ProposalShortId> {
+        // Select proposals independently of the template's optional uncles.
+        // The block assembler atomically filters conflicting uncles after this
+        // selection. Excluding here can strand a recovered Pending tx forever
+        // when a miner validly omits the returned uncle: the candidate remains
+        // eligible, so every subsequent template excludes the same short id.
+        self.get_proposals(proposals_limit as usize, &HashSet::new())
     }
 
     pub(crate) fn package_txs(
