@@ -228,9 +228,9 @@ Bulk RBF restores process the worklist in 32-entry slices, releasing the `rbf_ca
 
 ## 4. Performance
 
-Performance is a hard migration gate. The authoritative baseline is recorded
-from checkpoint `3ece94af1` (with the benchmark-only harness changes applied
-equally to both sides). The comparison tool supports repeated runs, JSON
+Performance is a hard migration gate. The authoritative baseline must be
+recorded from checkpoint `3ece94af1` (with the benchmark-only harness changes
+applied equally to both sides). The comparison tool supports repeated runs, JSON
 records, and a strict non-regression exit status. Parent-first and child-first
 dependent paths are benchmarked separately. The measured closure ends at an
 event-driven accepted callback; per-iteration service quiescence/destruction is
@@ -244,6 +244,13 @@ records are the migration acceptance gate. Baseline and candidate checkouts use
 isolated Cargo target directories and must record an identical benchmark-harness
 fingerprint, preventing stale cross-worktree executable reuse from producing a
 false comparison.
+
+Current measurement status: isolated one-run quick diagnostics are not release
+evidence. An adjacent same-binary quick rerun changed the always-success median
+by roughly 11%, exceeding the 5% record limit, so that attempted record was
+discarded. No performance conclusion is drawn from its provisional deltas. A
+clean, isolated, repeated medium/full checkpoint A/B is still required before
+the coordinator enters the production hot path.
 
 The numbers below are historical reference values from the original pipeline
 benchmark run; they are not a substitute for the checkpoint A/B record.
