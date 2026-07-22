@@ -7,10 +7,99 @@ use ckb_async_runtime::Handle;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use sha2::Sha256;
+use strum::FromRepr;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+
+/// Tor control protocol status codes.
+///
+/// See <https://spec.torproject.org/control-spec/replies.html> for the full table.
+#[derive(FromRepr, Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum StatusCode {
+    /// 250 OK
+    OK = 250,
+    /// 451 Resource temporarily unavailable.
+    Unavailable = 451,
+    /// 500 Command syntax error.
+    SyntaxError = 500,
+    /// 510 Command not implemented.
+    NotImplemented = 510,
+    /// 512 Argument too long.
+    ArgTooLong = 512,
+    /// 513 Internal error.
+    InternalError = 513,
+    /// 514 Unrecognized command.
+    UnrecognizedCommand = 514,
+    /// 515 Authentication required.
+    AuthRequired = 515,
+    /// 550 Permission denied.
+    PermissionDenied = 550,
+    /// 551 Client sent invalid authentication.
+    AuthFailed = 551,
+    /// 552 Unrecognized key.
+    UnrecognizedKey = 552,
+    /// 553 Cookie value incorrect.
+    CookieIncorrect = 553,
+    /// 650 Events disabled.
+    EventsDisabled = 650,
+    /// 651 Events enabled.
+    EventsEnabled = 651,
+}
+
+impl std::fmt::Display for StatusCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StatusCode::OK => write!(f, "250 OK"),
+            StatusCode::Unavailable => write!(f, "451 Unavailable"),
+            StatusCode::SyntaxError => write!(f, "500 Syntax error"),
+            StatusCode::NotImplemented => write!(f, "510 Not implemented"),
+            StatusCode::ArgTooLong => write!(f, "512 Argument too long"),
+            StatusCode::InternalError => write!(f, "513 Internal error"),
+            StatusCode::UnrecognizedCommand => write!(f, "514 Unrecognized command"),
+            StatusCode::AuthRequired => write!(f, "515 Authentication required"),
+            StatusCode::PermissionDenied => write!(f, "550 Permission denied"),
+            StatusCode::AuthFailed => write!(f, "551 Authentication failed"),
+            StatusCode::UnrecognizedKey => write!(f, "552 Unrecognized key"),
+            StatusCode::CookieIncorrect => write!(f, "553 Cookie incorrect"),
+            StatusCode::EventsDisabled => write!(f, "650 Events disabled"),
+            StatusCode::EventsEnabled => write!(f, "651 Events enabled"),
+        }
+    }
+}
+
+/// A Tor control protocol command, terminated with `\r\n` on the wire.
+struct Command {
+    buf: Vec<u8>,
+}
+
+impl Command {
+    fn new(name: &str) -> Self {
+        let mut buf = Vec::with_capacity(name.len());
+        buf.extend_from_slice(name.as_bytes());
+        Self { buf }
+    }
+
+    fn arg(mut self, s: &str) -> Self {
+        self.buf.push(b' ');
+        self.buf.extend_from_slice(s.as_bytes());
+        self
+    }
+
+    fn arg_bytes(mut self, s: &[u8]) -> Self {
+        self.buf.push(b' ');
+        self.buf.extend_from_slice(s);
+        self
+    }
+}
+
+impl AsRef<[u8]> for Command {
+    fn as_ref(&self) -> &[u8] {
+        &self.buf
+    }
+}
 
 /// Error type for Tor control protocol operations.
 #[derive(Debug, thiserror::Error)]
@@ -25,11 +114,11 @@ pub enum ConnError {
 
     /// Invalid response code from Tor controller.
     #[error("invalid response code: {0}")]
-    InvalidResponseCode(u16),
+    InvalidResponseCode(StatusCode),
 
     /// Invalid response format.
-    #[error("invalid response format")]
-    InvalidFormat,
+    #[error("invalid response format: {0}")]
+    InvalidFormat(String),
 
     /// Protocol info was already fetched.
     #[error("protocol info already fetched")]
@@ -101,8 +190,17 @@ pub struct ProtocolInfo {
 }
 
 struct Response {
-    code: u16,
+    code: StatusCode,
     lines: Vec<String>,
+}
+
+impl Response {
+    fn expect_ok(&self) -> Result<(), ConnError> {
+        if self.code != StatusCode::OK {
+            return Err(ConnError::InvalidResponseCode(self.code));
+        }
+        Ok(())
+    }
 }
 
 pub struct TorConnection {
@@ -146,11 +244,10 @@ impl TorConnection {
 
     /// Load protocol information from the Tor controller.
     pub(crate) async fn load_protocol_info(mut self) -> Result<(Self, ProtocolInfo), ConnError> {
-        self.send_command("PROTOCOLINFO 1\r\n").await?;
+        self.send_command(Command::new("PROTOCOLINFO").arg("1"))
+            .await?;
         let resp = self.receive_response().await?;
-        if resp.code != 250 {
-            return Err(ConnError::InvalidResponseCode(resp.code));
-        }
+        resp.expect_ok()?;
         let info = parse_protocol_info(&resp.lines)?;
         Ok((self, info))
     }
@@ -159,19 +256,18 @@ impl TorConnection {
     pub(crate) async fn authenticate(mut self, data: &TorAuthData<'_>) -> Result<Self, ConnError> {
         match data {
             TorAuthData::Null => {
-                self.send_command("AUTHENTICATE\r\n").await?;
+                self.send_command(Command::new("AUTHENTICATE")).await?;
             }
             TorAuthData::HashedPassword(password) => {
-                let mut cmd = b"AUTHENTICATE ".to_vec();
-                cmd.extend_from_slice(&quote_string(password.as_bytes()));
-                cmd.extend_from_slice(b"\r\n");
-                self.send_command(&cmd).await?;
+                self.send_command(
+                    Command::new("AUTHENTICATE").arg_bytes(&quote_string(password.as_bytes())),
+                )
+                .await?;
             }
             TorAuthData::Cookie(cookie) => {
-                self.send_command(&format!(
-                    "AUTHENTICATE {}\r\n",
-                    hex::encode_upper(cookie.as_ref())
-                ))
+                self.send_command(
+                    Command::new("AUTHENTICATE").arg(&hex::encode_upper(cookie.as_ref())),
+                )
                 .await?;
             }
             TorAuthData::SafeCookie(cookie) => {
@@ -180,21 +276,19 @@ impl TorConnection {
         }
 
         let resp = self.receive_response().await?;
-        if resp.code != 250 {
-            return Err(ConnError::InvalidResponseCode(resp.code));
-        }
+        resp.expect_ok()?;
         Ok(self)
     }
 
     /// Get a single INFO value from the Tor controller.
     pub async fn get_info(&mut self, key: &str) -> Result<String, ConnError> {
-        self.send_command(&format!("GETINFO {}\r\n", key)).await?;
+        self.send_command(Command::new("GETINFO").arg(key)).await?;
         let resp = self.receive_response().await?;
-        if resp.code != 250 {
-            return Err(ConnError::InvalidResponseCode(resp.code));
-        }
+        resp.expect_ok()?;
         if resp.lines.is_empty() || resp.lines.last() != Some(&"OK".to_string()) {
-            return Err(ConnError::InvalidFormat);
+            return Err(ConnError::InvalidFormat(
+                "GETINFO response missing trailing OK".into(),
+            ));
         }
 
         let key_prefix = format!("{}=", key);
@@ -202,7 +296,7 @@ impl TorConnection {
             .lines
             .iter()
             .find(|l| l.starts_with(&key_prefix))
-            .ok_or(ConnError::InvalidFormat)?;
+            .ok_or_else(|| ConnError::InvalidFormat(format!("GETINFO key '{}' not found", key)))?;
         Ok(value_line[key_prefix.len()..].to_string())
     }
 
@@ -221,32 +315,37 @@ impl TorConnection {
         key: &crate::onion::TorSecretKeyV3,
         listeners: &[(u16, SocketAddr)],
     ) -> Result<(), ConnError> {
-        let mut cmd = format!(
-            "ADD_ONION ED25519-V3:{} Flags=DiscardPK",
-            key.as_tor_proto_encoded()
-        );
+        let mut cmd = Command::new("ADD_ONION")
+            .arg(&format!("ED25519-V3:{}", key.as_tor_proto_encoded()))
+            .arg("Flags=DiscardPK");
         for (port, addr) in listeners {
-            cmd.push_str(&format!(" Port={},{}", port, addr));
+            cmd = cmd.arg(&format!("Port={},{}", port, addr));
         }
-        cmd.push_str("\r\n");
 
-        self.send_command(&cmd).await?;
+        self.send_command(cmd).await?;
         let resp = self.receive_response().await?;
-        if resp.code != 250 {
-            return Err(ConnError::InvalidResponseCode(resp.code));
-        }
+        resp.expect_ok()?;
         Ok(())
     }
 
     async fn send_command(&mut self, cmd: impl AsRef<[u8]>) -> Result<(), ConnError> {
         self.write.write_all(cmd.as_ref()).await?;
+        self.write.write_all(b"\r\n").await?;
         self.write.flush().await?;
         Ok(())
     }
 
+    /// Parses a Tor control protocol response from the channel.
+    ///
+    /// Each response line has format `XXx Sep Content` where `Sep` is:
+    /// - `' '` — last line of the response (loop terminates)
+    /// - `'-'` — mid-line in a multi-line reply
+    /// - `'+'` — start of a data block, terminated by a line containing only `.`
+    ///
+    /// Per the spec, every line in a response must carry the same status code.
     async fn receive_response(&mut self) -> Result<Response, ConnError> {
         let mut lines = Vec::new();
-        let mut code = None;
+        let mut first_code: Option<StatusCode> = None;
 
         loop {
             let line = self.line_rx.recv().await.ok_or_else(|| {
@@ -254,31 +353,46 @@ impl TorConnection {
             })?;
 
             if line.len() < 4 {
-                return Err(ConnError::InvalidFormat);
+                return Err(ConnError::InvalidFormat(format!(
+                    "response line too short: {:?}",
+                    line
+                )));
             }
 
-            let parsed_code = line[..3]
-                .parse::<u16>()
-                .map_err(|_| ConnError::InvalidFormat)?;
-            let sep = line.as_bytes()[3];
-            let content = line[4..].to_string();
+            let parsed_code = StatusCode::from_repr(line[..3].parse::<u16>().map_err(|_| {
+                ConnError::InvalidFormat(format!("non-numeric response code: {:?}", &line[..3]))
+            })?)
+            .ok_or_else(|| {
+                ConnError::InvalidFormat(format!("unknown status code: {}", &line[..3]))
+            })?;
 
-            if let Some(c) = code {
-                if c != parsed_code {
-                    return Err(ConnError::InvalidFormat);
+            // Verify all lines in a multi-line response share the same code.
+            if let Some(prev) = first_code {
+                if prev != parsed_code {
+                    return Err(ConnError::InvalidFormat(format!(
+                        "response code mismatch: {} vs {}",
+                        prev, parsed_code
+                    )));
                 }
             } else {
-                code = Some(parsed_code);
+                first_code = Some(parsed_code);
             }
+
+            let sep = line.as_bytes()[3];
+            let content = line[4..].to_string();
 
             match sep {
                 b' ' => {
                     lines.push(content);
-                    break;
+                    return Ok(Response {
+                        code: parsed_code,
+                        lines,
+                    });
                 }
                 b'-' => {
                     lines.push(content);
                 }
+                // Data block: read until a line containing only "."
                 b'+' => {
                     let mut data = content;
                     loop {
@@ -295,29 +409,28 @@ impl TorConnection {
                     }
                     lines.push(data);
                 }
-                _ => return Err(ConnError::InvalidFormat),
+                other => {
+                    return Err(ConnError::InvalidFormat(format!(
+                        "unexpected separator byte: 0x{:02x}",
+                        other
+                    )));
+                }
             }
         }
-
-        Ok(Response {
-            code: code.unwrap(),
-            lines,
-        })
     }
 
     async fn authenticate_safe_cookie(mut self, cookie: &[u8]) -> Result<Self, ConnError> {
         let mut client_nonce = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut client_nonce);
 
-        self.send_command(&format!(
-            "AUTHCHALLENGE SAFECOOKIE {}\r\n",
-            hex::encode_upper(client_nonce)
-        ))
+        self.send_command(
+            Command::new("AUTHCHALLENGE")
+                .arg("SAFECOOKIE")
+                .arg(&hex::encode_upper(client_nonce)),
+        )
         .await?;
         let resp = self.receive_response().await?;
-        if resp.code != 250 {
-            return Err(ConnError::InvalidResponseCode(resp.code));
-        }
+        resp.expect_ok()?;
 
         let (server_hash, server_nonce) = parse_auth_challenge_response(&resp.lines)?;
 
@@ -342,25 +455,24 @@ impl TorConnection {
             ],
         )?;
 
-        self.send_command(&format!(
-            "AUTHENTICATE {}\r\n",
-            hex::encode_upper(client_hash)
-        ))
-        .await?;
+        self.send_command(Command::new("AUTHENTICATE").arg(&hex::encode_upper(client_hash)))
+            .await?;
         let resp = self.receive_response().await?;
-        if resp.code != 250 {
-            return Err(ConnError::InvalidResponseCode(resp.code));
-        }
+        resp.expect_ok()?;
         Ok(self)
     }
 }
 
 fn parse_protocol_info(lines: &[String]) -> Result<ProtocolInfo, ConnError> {
     if lines.is_empty() || lines[0] != "PROTOCOLINFO 1" {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(
+            "PROTOCOLINFO response missing header".into(),
+        ));
     }
     if lines.last().map(|s| s.as_str()) != Some("OK") {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(
+            "PROTOCOLINFO response missing trailing OK".into(),
+        ));
     }
 
     let mut auth_methods = HashSet::new();
@@ -389,11 +501,14 @@ fn parse_protocol_info(lines: &[String]) -> Result<ProtocolInfo, ConnError> {
     }
 
     if auth_methods.is_empty() {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(
+            "PROTOCOLINFO reports no auth methods".into(),
+        ));
     }
 
     Ok(ProtocolInfo {
-        version: version.ok_or(ConnError::InvalidFormat)?,
+        version: version
+            .ok_or_else(|| ConnError::InvalidFormat("PROTOCOLINFO missing VERSION".into()))?,
         auth_methods,
         cookie_file,
     })
@@ -401,25 +516,34 @@ fn parse_protocol_info(lines: &[String]) -> Result<ProtocolInfo, ConnError> {
 
 fn parse_auth_challenge_response(lines: &[String]) -> Result<([u8; 32], [u8; 32]), ConnError> {
     if lines.len() != 1 {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(format!(
+            "AUTHCHALLENGE response has {} lines, expected 1",
+            lines.len()
+        )));
     }
     let line = &lines[0];
     let prefix = "AUTHCHALLENGE ";
     if !line.starts_with(prefix) {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(format!(
+            "AUTHCHALLENGE response missing prefix: {:?}",
+            &line[..line.len().min(20)]
+        )));
     }
     let rest = &line[prefix.len()..];
     let parts: Vec<&str> = rest.split(' ').collect();
     if parts.len() != 2 {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(format!(
+            "AUTHCHALLENGE response has {} parts, expected 2",
+            parts.len()
+        )));
     }
 
-    let server_hash_hex = parts[0]
-        .strip_prefix("SERVERHASH=")
-        .ok_or(ConnError::InvalidFormat)?;
-    let server_nonce_hex = parts[1]
-        .strip_prefix("SERVERNONCE=")
-        .ok_or(ConnError::InvalidFormat)?;
+    let server_hash_hex = parts[0].strip_prefix("SERVERHASH=").ok_or_else(|| {
+        ConnError::InvalidFormat(format!("missing SERVERHASH= prefix in {:?}", parts[0]))
+    })?;
+    let server_nonce_hex = parts[1].strip_prefix("SERVERNONCE=").ok_or_else(|| {
+        ConnError::InvalidFormat(format!("missing SERVERNONCE= prefix in {:?}", parts[1]))
+    })?;
 
     let server_hash = hex_to_array32(server_hash_hex)?;
     let server_nonce = hex_to_array32(server_nonce_hex)?;
@@ -430,7 +554,10 @@ fn parse_auth_challenge_response(lines: &[String]) -> Result<([u8; 32], [u8; 32]
 fn hex_to_array32(s: &str) -> Result<[u8; 32], ConnError> {
     let bytes = hex::decode(s)?;
     if bytes.len() != 32 {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(format!(
+            "expected 32-byte hash, got {} bytes",
+            bytes.len()
+        )));
     }
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&bytes);
@@ -489,7 +616,9 @@ fn quote_string(s: &[u8]) -> Vec<u8> {
 /// Section: 2.1.1. Message format (Notes on an escaping bug)
 fn unquote_string(s: &[u8]) -> Result<Vec<u8>, ConnError> {
     if s.len() < 2 || s[0] != b'"' || s[s.len() - 1] != b'"' {
-        return Err(ConnError::InvalidFormat);
+        return Err(ConnError::InvalidFormat(
+            "QuotedString must be wrapped in double quotes".into(),
+        ));
     }
     let mut bytes = Vec::new();
     let inner = &s[1..s.len() - 1];
@@ -498,7 +627,9 @@ fn unquote_string(s: &[u8]) -> Result<Vec<u8>, ConnError> {
         if inner[i] == b'\\' {
             i += 1;
             if i >= inner.len() {
-                return Err(ConnError::InvalidFormat);
+                return Err(ConnError::InvalidFormat(
+                    "QuotedString ends with backslash".into(),
+                ));
             }
             let c = inner[i];
             match c {
@@ -544,7 +675,8 @@ fn unquote_string(s: &[u8]) -> Result<Vec<u8>, ConnError> {
 /// where the caller expects textual data (e.g. `COOKIEFILE`, `VERSION`, or
 /// `GETINFO` values).
 fn unquote_string_to_string(s: impl AsRef<[u8]>) -> Result<String, ConnError> {
-    String::from_utf8(unquote_string(s.as_ref())?).map_err(|_| ConnError::InvalidFormat)
+    String::from_utf8(unquote_string(s.as_ref())?)
+        .map_err(|e| ConnError::InvalidFormat(format!("QuotedString is not valid UTF-8: {}", e)))
 }
 
 #[cfg(test)]

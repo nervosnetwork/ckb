@@ -24,6 +24,7 @@ ckb-logger.workspace = true
 ckb-stop-handler.workspace = true
 ckb-network.workspace = true
 thiserror.workspace = true
+strum.workspace = true
 
 [dev-dependencies]
 ckb-network.workspace = true
