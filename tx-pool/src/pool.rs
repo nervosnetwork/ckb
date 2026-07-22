@@ -65,6 +65,10 @@ pub struct TxPool {
     /// skipped: a full scan with a store lookup per entry is too expensive
     /// to repeat on every block.
     pub(crate) onchain_reconcile_done: bool,
+    /// One-shot fault injection for the reorg status-transition boundary.
+    /// Production builds have neither the field nor the branch.
+    #[cfg(test)]
+    pub(crate) fail_next_status_transition: bool,
 }
 
 impl TxPool {
@@ -79,6 +83,8 @@ impl TxPool {
             expiry,
             waiting_room: WaitingRoom::new(),
             onchain_reconcile_done: false,
+            #[cfg(test)]
+            fail_next_status_transition: false,
         }
     }
 
@@ -543,6 +549,13 @@ impl TxPool {
         short_id: &ProposalShortId,
         target: Status,
     ) -> Result<(), Reject> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_status_transition) {
+            return Err(Reject::Malformed(
+                "injected status transition failure".to_string(),
+                format!("target={target:?}"),
+            ));
+        }
         match self.get_pool_entry(short_id) {
             Some(entry) => {
                 let tx_hash = entry.inner.transaction().hash();

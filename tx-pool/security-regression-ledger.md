@@ -89,7 +89,7 @@ Status meanings:
 | 50 | Partial | Proposal prefix test exists; add uncle-prefix exact-fit and partial-fit cases. | I11 |
 | 51 | Covered | RaceLost expiry/re-park tests; mechanism is obsolete in target but bounded wake semantics remain. | I1, I9 |
 | 52 | Partial | Cache update path is present; add restore-without-reverification counter assertion. | I9, I12 |
-| 53 | Open | Add fault-injected reorg status-transition failure ensuring no false reject event. | I7, I8 |
+| 53 | Covered | `reorg_status_transition_failure_has_no_false_reject_and_replay_converges` injects one failed Gap transition, proves no false reject/status callback, and proves the same authoritative state converges on replay. | I7, I8 |
 | 54 | Covered | `get_treats_missing_shard_as_cache_miss` | I4 |
 | 55 | Covered | CandidateUncles lowest-height capacity regression. | I11 |
 | 56 | Covered | Stale/main-chain/embedded uncle cleanup unit and chain integration tests. | I11 |
