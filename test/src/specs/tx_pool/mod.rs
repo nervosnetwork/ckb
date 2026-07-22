@@ -86,5 +86,6 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
         notify: vec![],
         notify_scripts: vec![],
         notify_timeout_millis: 800,
+        notify_auth_token: None,
     }
 }

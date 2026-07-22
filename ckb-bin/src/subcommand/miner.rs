@@ -12,6 +12,17 @@ pub fn miner(args: MinerArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let (new_work_tx, new_work_rx) = unbounded();
     let MinerConfig { client, workers } = args.config;
 
+    if client
+        .auth_token
+        .as_deref()
+        .is_some_and(|token| token.trim().is_empty() || token.trim() != token)
+    {
+        eprintln!(
+            "miner.client.auth_token must be non-empty and contain no leading or trailing whitespace"
+        );
+        return Err(ExitCode::Config);
+    }
+
     let client = Client::new(new_work_tx, client, async_handle);
     let mut miner = Miner::new(
         args.pow_engine,

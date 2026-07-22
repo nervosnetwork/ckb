@@ -2,7 +2,7 @@
 
 use crate::block_assembler::BlockAssembler;
 use http_body_util::Full;
-use hyper::{Method, Request};
+use hyper::{Method, Request, header::HeaderValue};
 use std::{sync::Arc, time::Duration};
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -16,12 +16,24 @@ impl BlockAssembler {
         if let Ok(template_json) = serde_json::to_string(&template) {
             let notify_timeout = Duration::from_millis(self.config.notify_timeout_millis);
             for url in &self.config.notify {
-                if let Ok(req) = Request::builder()
+                let mut req_builder = Request::builder()
                     .method(Method::POST)
                     .uri(url.as_ref())
-                    .header("content-type", "application/json")
-                    .body(Full::new(template_json.to_owned().into()))
-                {
+                    .header("content-type", "application/json");
+
+                if let Some(token) = &self.config.notify_auth_token {
+                    let mut auth_value = match HeaderValue::from_str(&format!("Bearer {token}")) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            ckb_logger::error!("invalid block_assembler.notify_auth_token: {err}");
+                            continue;
+                        }
+                    };
+                    auth_value.set_sensitive(true);
+                    req_builder = req_builder.header(hyper::header::AUTHORIZATION, auth_value);
+                }
+
+                if let Ok(req) = req_builder.body(Full::new(template_json.to_owned().into())) {
                     let client = Arc::clone(&self.poster);
                     let url = url.to_owned();
                     tokio::spawn(async move {

@@ -121,6 +121,17 @@ pub struct BlockAssemblerConfig {
     /// Notify timeout
     #[serde(default = "default_notify_timeout_millis")]
     pub notify_timeout_millis: u64,
+    /// Optional bearer token to authenticate block-template notifications.
+    ///
+    /// When `notify` URLs are configured and this token is set, the node will
+    /// send the header `Authorization: Bearer <token>` with every notify
+    /// request. The receiving ckb-miner must be configured with the same token
+    /// in `miner.client.auth_token`, otherwise notifications will be rejected.
+    ///
+    /// Must be non-empty and free of leading/trailing whitespace; the node
+    /// refuses to start otherwise.
+    #[serde(default)]
+    pub notify_auth_token: Option<String>,
 }
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
