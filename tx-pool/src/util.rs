@@ -204,3 +204,21 @@ pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> S
         "non-string panic payload".to_owned()
     }
 }
+
+#[cfg(test)]
+mod block_offload_tests {
+    use super::block_offload;
+
+    /// Bug #60: calling the helper from a current-thread runtime must execute
+    /// inline. A naked `block_in_place` panics on this runtime flavor.
+    #[test]
+    fn current_thread_runtime_executes_inline_without_panicking() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build current-thread runtime");
+
+        let value = runtime.block_on(async { block_offload(|| 42) });
+        assert_eq!(value, 42);
+    }
+}

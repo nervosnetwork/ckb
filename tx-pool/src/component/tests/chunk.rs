@@ -1172,6 +1172,49 @@ async fn handle_remote_reject_records_reject_and_rejects_relay() {
     );
 }
 
+/// Bug #9: a malformed remote transaction rejected by the entry preflight
+/// must take the same terminal path as a malformed transaction rejected by a
+/// later pipeline stage. In particular, it must ban the peer and enter
+/// recent-reject instead of being returned directly to the caller with no
+/// durable side effect.
+#[tokio::test]
+async fn malformed_remote_preflight_bans_peer_and_records_reject() {
+    let (service, tx_relay_receiver) = service_with_recent_reject();
+    let peer: ckb_network::PeerIndex = 9.into();
+    let tx = TransactionBuilder::default()
+        .input(ckb_types::packed::CellInput::new_cellbase_input(0))
+        .build();
+    let tx_hash = tx.hash();
+
+    let result = service
+        .submit_remote_tx(tx, TxSource::Remote { cycles: 0, peer })
+        .await;
+
+    assert!(
+        result.as_ref().is_err_and(Reject::is_malformed_tx),
+        "cellbase-like remote transaction must fail the preflight as malformed"
+    );
+    assert!(
+        service.is_recently_banned(TxSource::Remote { cycles: 0, peer }),
+        "the malformed sender must be banned even when rejection happens before enqueue"
+    );
+    assert!(
+        service
+            .aux
+            .recent_reject
+            .as_ref()
+            .expect("recent_reject set")
+            .get(&tx_hash)
+            .unwrap()
+            .is_some(),
+        "preflight malformed rejection must be queryable through recent_reject"
+    );
+    assert!(
+        tx_relay_receiver.try_recv().is_err(),
+        "generic malformed transactions are banned and recorded, not relayed"
+    );
+}
+
 #[tokio::test]
 async fn handle_remote_reject_relays_allowed_rejects() {
     let (service, tx_relay_receiver) = service_with_recent_reject();

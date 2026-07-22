@@ -2,6 +2,12 @@
 
 > The tx-pool runs exclusively in pipeline mode; the legacy serial processing path has been removed.
 
+This document describes the implementation on the refactor checkpoint. The
+security and migration acceptance matrix is tracked in
+[`security-regression-ledger.md`](security-regression-ledger.md). Statements
+marked as a known gap are requirements for the coordinator migration, not
+guarantees of the current implementation.
+
 ---
 
 ## 1. Motivation
@@ -95,7 +101,8 @@ This separation enables IO/compute isolation, parallel verification, configurabl
  │  ParentsMissing (orphan) │  InputsBlocked (conflict)         │
  │  RaceLost (RBF held)     │                                   │
  ├──────────────────────────┼───────────────────────────────────┤
- │ budget 100 / 20 MB       │ budget 10k / 50 MB                │
+ │ orphan: 100 / 20 MB      │ conflicts: 10k / 50 MB            │
+ │ RaceLost: shared resolved-lifecycle byte/count budget        │
  │ expiry 100 blk intervals │ no expiry (recovery / budget only)│
  │  · orphans  → woken by a parent landing in the pool          │
  │  · RaceLost → woken by the winner's terminal state           │
@@ -119,13 +126,15 @@ This separation enables IO/compute isolation, parallel verification, configurabl
 
 **after_process / terminal outcomes** — every transaction that leaves the pipeline reaches a defined terminal state. `after_process` routes by source and reject kind: remote errors go through the ban/relay/record triple; `RBFRejected`/`Dead` park the transaction for conflict recovery (unless already held); a held `RaceLost` candidate is skipped entirely (its fate follows the winner). `terminal_reject` handles exhausted bounded retries (bypassing orphan parking), `terminal_internal` closes the loop for internal failures (worker panics) without recording. Recording rule (`should_recorded`): `Duplicated` and `Full` are exempt; terminal `RBFRejected` is recorded, while the speculative in-flight gates bypass recording at their call sites. Local (RPC) submissions with missing inputs are recorded as rejected; remote and proposal transactions with missing inputs are parked as orphans.
 
-**DeferredTask worker** — bounded mpsc channel (`DEFERRED_CHANNEL_SIZE = 1024`) for recovery re-enqueue (RecoverTxs, `.send().await`) and verify-cache updates (CacheUpdate, `try_send`). The worker merges back-to-back recovery batches, retries transient `Full` backpressure with a bounded window that ends in a terminal outcome, and drains the channel on shutdown.
+**DeferredTask worker** — bounded mpsc channel (`DEFERRED_CHANNEL_SIZE = 1024`) for opportunistic recovery re-enqueue (RecoverTxs, `.send().await`) and verify-cache updates (CacheUpdate, `try_send`). A failed RBF replacement is different: entries physically removed by the failed attempt form a synchronous rollback barrier and are restored before held candidates are released. The worker merges back-to-back non-critical recovery batches, retries transient `Full` backpressure with a bounded window that ends in a terminal outcome, and drains the channel on shutdown.
 
-**WaitingRoom** — unified parking structure with two instances split by lock domain: pipeline-side (`ParentsMissing` orphans and `RaceLost` RBF-held candidates) and pool-side (`InputsBlocked` conflict recovery, the retired conflicts LRU). Per-reason budgets (orphans 100 entries / 20 MB, conflicts 10k entries / 50 MB), FIFO eviction per reason, and a watermark-gated expiry scan (orphans and RaceLost expire after 100 block intervals; expired RaceLost entries are restored only while their winner is still in flight, otherwise terminally rejected). `RaceLost` entries carry their `ResolvedTx` so a restore resumes verification without re-resolving, and a re-park keeps the original expiry.
+**WaitingRoom** — unified parking structure with two instances split by lock domain: pipeline-side (`ParentsMissing` orphans and `RaceLost` RBF-held candidates) and pool-side (`InputsBlocked` conflict recovery, the retired conflicts LRU). Per-reason budgets cover orphans (100 entries / 20 MB) and conflicts (10k entries / 50 MB). `RaceLost` is not charged a second time by the room: its `ResolvedTx` carries a shared lifecycle permit that remains charged while queued, active, or held, closing the previous budget-refund bypass. FIFO eviction is per reason and expiry scans are watermark-gated. Orphans and RaceLost expire after 100 block intervals; expiry revokes a still-live speculative winner before restoring the loser, and a re-park retains the original expiry so a stalled winner cannot create an endless restore/reverify loop.
 
 **WorkerRunner / ActiveSet** — all queue workers (verify, ordered resolver) share a runner skeleton: wait on command changes, queue notifications, or deadlines; pop one job at a time; process to completion. Popped jobs move into the queue's ActiveSet and stay visible (`contains_or_active`, `get_active_tx`) until `finish`, so "in flight" checks, RPC queries, and administrative removal never lose sight of mid-processing transactions. Every job is wrapped in a panic guard; monitors respawn crashed workers with cancel-aware exponential backoff. A dropped command channel means a clean stop, not a busy loop.
 
-**Reorg** — `update_tx_pool_for_reorg` runs under `recovery_lock` for its whole duration (write-lock section, callbacks, and retained-transaction recovery), so `save_pool` can never persist a half-updated pool. Detached transactions are re-added per-transaction through `process_tx_direct_outcome` in topological order: `Committed` and `Duplicated` count as success, `Superseded` skips cascading (the transaction is merely held), and only a definitive failure cascade-removes dependents (pool and waiting room). Transactions committed in the attached blocks leave every pipeline structure with the full terminal sequence (`remove_attached_from_pipeline`), finalizing any RBF registrations they held. All user callbacks (reject, proposed, pending) are collected in-lock and dispatched out-of-lock.
+**Reorg** — `update_tx_pool_for_reorg` runs under `recovery_lock` for its whole duration (write-lock section, callbacks, and retained-transaction recovery), so `save_pool` cannot intentionally run in the middle of recovery. Detached transactions are re-added per-transaction through `process_tx_direct_outcome` in topological order: `Committed` and `Duplicated` count as success, `Superseded` skips cascading (the transaction is merely held), and only a definitive failure cascade-removes dependents. Transactions committed in attached blocks leave every pipeline structure through the full terminal sequence. Callbacks are outside the tx-pool write lock, but the current implementation still holds `recovery_lock` while dispatching and directly recovering transactions.
+
+The controller now applies backpressure instead of dropping a reorg delta when the bounded channel is full. **Known gap:** the handler still drops the already-received delta if the same processing attempt panics twice. The target sequencer must retain a delta until success (or perform a verified full rebuild) and must not run external callbacks while holding recovery state.
 
 **Block assembler** — the template lives behind a version counter; partial updates (`update_proposals`, `update_transactions`, `update_uncles`) swap via CAS while `update_full` and `reset_template` serialize under `template_lock` (with `update_uncles` joining that lock so a full update cannot revert a concurrent uncle update). Template byte accounting uses the consensus `serialized_size_without_uncle_proposals` basis throughout; uncle candidates that do not fit are truncated to the longest fitting prefix instead of dropped wholesale; embedded or stale candidates are removed eagerly. Pending proposals take priority over optional uncles: an uncle carrying a selected proposal id (and any descendant that loses its only valid parent) is filtered atomically from that template, so miners may omit optional uncles without stranding the transaction. Management-triggered resets (e.g. `clear_pool`) notify miners immediately, like the reorg path.
 
@@ -145,7 +154,7 @@ One shared `watch::Sender` for the chunk pause/resume signal; every worker clone
 
 ### 3.3 DeferredTask Backpressure
 
-RBF recovery and cache updates go through a bounded mpsc channel with a single sequential worker: `RecoverTxs` uses `.send().await` (never dropped), `CacheUpdate` uses `try_send` (misses acceptable). Back-to-back recovery batches merge; shutdown drains the channel.
+Opportunistic conflict recovery and cache updates go through a bounded mpsc channel with a single sequential worker: `RecoverTxs` uses `.send().await`, while `CacheUpdate` uses `try_send` because a cache miss is acceptable. Back-to-back recovery batches merge and shutdown drains the channel. Failed-submit rollback is deliberately not deferred; it completes before RBF ownership is released.
 
 ### 3.4 Lock-free Fast Path for On-chain Inputs
 
@@ -157,7 +166,7 @@ Forward `HashMap<OutPoint, ProposalShortId>` for `depends_on` lookups; reverse i
 
 ### 3.6 RBF Replacement Failure Recovery
 
-A rejected replacement rolls back completely: conflict-cache recovery, escape-hatch journaled evictions, and conflict removal merge into one dependency-sorted recovery set, with spurious "replaced" reject events suppressed. Recovered transactions are re-enqueued through the deferred worker with bounded retries and a terminal outcome on exhaustion.
+A rejected replacement rolls back completely: conflict-cache recovery, escape-hatch journaled evictions, and conflict removal merge into dependency-sorted sets, with spurious "replaced" reject events suppressed. Entries physically removed by the failed attempt are restored synchronously before the speculative winner is aborted; only opportunistic conflict recoveries use the deferred worker.
 
 ### 3.7 O(1) Queue Lookups
 
@@ -177,7 +186,7 @@ A newly submitted transaction wakes the ordered resolver and orphan waiters dire
 
 ### 3.11 Reorg Recovery Under recovery_lock
 
-The whole reorg (write-lock section + retained-transaction re-add) holds `recovery_lock`; `save_pool` and `clear_pool` take the same lock, so persistence and administration always see a complete state. Retained transactions re-enter through `process_tx_direct_outcome` with per-outcome handling (`Committed` / `Superseded` / `Duplicated` / failure), avoiding both write-lock stalls and false failure cascades.
+The whole reorg (write-lock section + retained-transaction re-add) holds `recovery_lock`; `save_pool` and `clear_pool` take the same lock, so normal completion is observed atomically by persistence and administration. Retained transactions re-enter through `process_tx_direct_outcome` with per-outcome handling (`Committed` / `Superseded` / `Duplicated` / failure), avoiding both write-lock stalls and false failure cascades. This lock is a legacy safety barrier rather than the target design: callbacks/direct recovery run while it is held, and a twice-panicking handler can still abandon a partially applied delta.
 
 ### 3.12 Unified Verify-and-Submit Core
 
@@ -203,6 +212,14 @@ Bulk RBF restores process the worklist in 32-entry slices, releasing the `rbf_ca
 
 ## 4. Performance
 
+Performance is a hard migration gate. The authoritative baseline is recorded
+from checkpoint `3ece94af1` (with the benchmark-only harness changes applied
+equally to both sides). The comparison tool supports repeated runs, JSON
+records, and a strict non-regression exit status. Parent-first and child-first
+dependent paths are benchmarked separately.
+
+The numbers below are historical reference values from the original pipeline
+benchmark run; they are not a substitute for the checkpoint A/B record.
 Benchmark environment: Apple M-series (arm64), macOS, Rust 1.95.
 Matrix: MEDIUM (100 tx/batch, peers [1, 4], workers [4, 8], 30 samples, Criterion 95% CI).
 
@@ -243,9 +260,9 @@ Push-based dependent wake-up re-enqueues each child immediately when its parent 
 
 ---
 
-## 5. Future: Lock-free Verify Queue
+## 5. Migration Direction
 
-The verify queue uses `RwLock<multi_index_map>`, so verify workers serialize on the write lock during `pop_front`. A lock-free replacement using `crossbeam-skiplist::SkipMap` + `DashMap` was explored and remains a design study; the key challenge is epoch pinning discipline.
+The next implementation keeps fixed parallel pre-check/verify worker pools and introduces a batched coordinator for lifecycle state plus a batched authoritative commit sequencer. Payload ownership becomes single-source; dependency and conflict schedulers store IDs only. The current `RbfCandidates`/`RaceLost` behavior is replaced only after the new conflict scheduler preserves concurrent fee preference, bounded residency, rollback ordering, and all ledger regressions without reducing throughput. A lock-free queue is not a goal by itself; it is considered only when measurement identifies the queue lock as a real bottleneck.
 
 ---
 
@@ -253,12 +270,12 @@ The verify queue uses `RwLock<multi_index_map>`, so verify workers serialize on 
 
 - **Double-spend safety**: `submit_entry` runs inside the tx_pool write lock; concurrently verified double-spends cannot both commit.
 - **Lock ordering**: `ordered_resolve_queue → rbf_candidates → verify_queue → waiting_room → tx_pool`, with `recovery_lock` outermost (before `tx_pool`) and the synchronous `pre_check_queue` mutex never held across `.await`.
-- **No silent loss**: every transaction that leaves the pipeline reaches a defined terminal state — relayed, recorded, restored, parked, or explicitly dropped with a terminal sink. Workers never discard results.
+- **Transaction no-silent-loss contract**: every admitted transaction leaving a normal pipeline worker reaches a defined terminal state — relayed, recorded, restored, parked, or explicitly routed to an internal terminal sink. The twice-panicking reorg handler described above is a known exception and blocks final migration acceptance.
 - **Speculative RBF is reversible**: displacement is hold-and-restore; only a committed replacement makes a rejection real, and a commit that replaced nothing aborts instead of finalizing. Speculative paths never write recent_reject, so an unverified candidate cannot censor an honest transaction.
 - **No ghost state**: removal paths converge on full coverage (queues, registrations, both waiting rooms, conflict cache, pool); attached blocks finalize what they held; the reconcile's removals feed the same registration cleanup. Links/entries consistency is guarded: traversal filters ghost ids, ancestor links are committed only after all fallible checks, and eviction cascades purge removed ids from parent sets.
 - **No panics in the write lock**: fallible paths inside the tx_pool write lock return defensive errors instead of asserting, so unwind can never strand the eviction journal or side-effect records.
 - **Dependency correctness**: `FlightTracker` tracks in-flight outputs across all pipeline stages; the orphan flight heuristic counts queued, active, and parked parents as in flight.
-- **Callbacks out of lock**: all user callbacks (reject, proposed, pending) are collected under the write lock and dispatched after it is released.
+- **Callbacks outside the tx-pool write lock**: submit and reorg callbacks are collected before dispatch. The target architecture strengthens this to "outside every internal transition/recovery lock" and adds callback-reentry tests.
 - **Worker reliability**: per-job panic guards, monitor respawn with cancel-aware backoff, per-generation cancellation for the verify manager, and clean stop on command-channel drop.
 
 ---
@@ -272,6 +289,7 @@ The verify queue uses `RwLock<multi_index_map>`, so verify workers serialize on 
 | `max_ancestors_count` | Ancestor chain limit |
 | `verify_ordering` | Verify queue ordering: `arrival_time` (default) or `fee_rate` |
 | `max_verify_queue_tx_size` | Verify queue budget; effective budget is `max(this, max_tx_pool_size)` |
+| Resolved lifecycle budget | Same byte budget plus a 10,000-entry cap across verify queue, active workers, and RaceLost holds |
 | Semaphore permits | `max_tx_verify_workers * 2` (actor loop concurrency cap) |
 
 ---
@@ -279,7 +297,17 @@ The verify queue uses `RwLock<multi_index_map>`, so verify workers serialize on 
 ## 8. Running the Benchmark
 
 ```bash
-cargo bench -p ckb-tx-pool --features internal --bench pipeline -- --save-baseline pipeline
+# smoke
+python3 devtools/tx_pool_bench.py --quick
+
+# repeatable baseline
+python3 devtools/tx_pool_bench.py --runs 3 --save-json /tmp/tx-pool-baseline.json
+
+# strict candidate gate
+python3 devtools/tx_pool_bench.py --runs 3 \
+  --compare-json /tmp/tx-pool-baseline.json \
+  --save-json /tmp/tx-pool-candidate.json \
+  --fail-on-regression
 ```
 
 Matrix selection: `QUICK_BENCH=1` for fast validation, `FULL_BENCH=1` for comprehensive coverage, default is MEDIUM.
@@ -288,7 +316,7 @@ Matrix selection: `QUICK_BENCH=1` for fast validation, `FULL_BENCH=1` for compre
 
 ## 9. Test Coverage
 
-Unit tests (`cargo nextest run -p ckb-tx-pool --lib`, 160 tests) cover, among others:
+Unit tests (`cargo test -p ckb-tx-pool --features internal`) cover, among others:
 
 - Queue invariants: pop/active/finish visibility, delayed retries with bounded attempts, FIFO waiting-room eviction, O(1) lookups.
 - Pool invariants: child-before-parent weight folding, escape-hatch eviction without ghost parents, conflict closure ghost filtering, zombie reconciliation (inputs and cell deps), expiry cascade.

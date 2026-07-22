@@ -321,3 +321,118 @@ fn proposal_update_keeps_highest_scored_fitting_prefix() {
     assert_eq!(proposal_bytes, 2 * id_size);
     assert_eq!(total, base + 2 * id_size);
 }
+
+/// Bug #37: both full rebuilds and uncle-only refreshes must participate in
+/// the same serialization domain. Otherwise a full rebuild can read the old
+/// uncle set, race an uncle refresh, and unconditionally swap the old set back.
+#[tokio::test]
+async fn full_and_uncle_updates_share_template_serialization_lock() {
+    use crate::pool::TxPool;
+    use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
+    use ckb_jsonrpc_types::ScriptHashType;
+    use ckb_types::{h256, packed::CellInput};
+    use std::sync::atomic::AtomicU64;
+    use tokio::sync::{Mutex, RwLock, oneshot};
+
+    let snapshot = genesis_snapshot();
+    let config = BlockAssemblerConfig {
+        code_hash: h256!("0x0"),
+        args: Default::default(),
+        hash_type: ScriptHashType::Data,
+        message: Default::default(),
+        use_binary_version_as_message_prefix: true,
+        binary_version: "TEST".to_string(),
+        update_interval_millis: 800,
+        notify: vec![],
+        notify_scripts: vec![],
+        notify_timeout_millis: 800,
+        notify_auth_token: None,
+    };
+    // Construct only the state needed to reach `template_lock`. The spawned
+    // updates are cancelled while blocked, before they can consume this dummy
+    // template; this keeps the test independent from chain-root MMR setup.
+    let epoch = snapshot.consensus().genesis_epoch_ext().clone();
+    let cellbase = ckb_types::core::TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(1))
+        .build();
+    let mut template_builder = super::BlockTemplateBuilder::new(&snapshot, &epoch).unwrap();
+    template_builder
+        .cellbase(cellbase)
+        .work_id(0)
+        .dao(Byte32::zero())
+        .current_time(1);
+    let current = super::CurrentTemplate {
+        template: template_builder.build(),
+        size: super::TemplateSize {
+            txs: 0,
+            proposals: 0,
+            uncles: 0,
+            total: 0,
+        },
+        snapshot: Arc::clone(&snapshot),
+        epoch,
+    };
+    let assembler = super::BlockAssembler {
+        config: Arc::new(config),
+        work_id: Arc::new(AtomicU64::new(1)),
+        candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
+        current: Arc::new(RwLock::new(Arc::new(current))),
+        version: Arc::new(AtomicU64::new(0)),
+        template_lock: Arc::new(Mutex::new(())),
+        cell_liveness_memo: Arc::new(std::sync::Mutex::new(CellLivenessMemo::default())),
+        poster: Arc::new(
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build::<_, http_body_util::Full<ckb_types::bytes::Bytes>>(
+                hyper_util::client::legacy::connect::HttpConnector::new(),
+            ),
+        ),
+    };
+    let pool = Arc::new(RwLock::new(TxPool::new(
+        TxPoolConfig::default(),
+        Arc::clone(&snapshot),
+    )));
+
+    let guard = assembler.template_lock.lock().await;
+
+    let (full_started_tx, full_started_rx) = oneshot::channel();
+    let full_assembler = assembler.clone();
+    let full_pool = Arc::clone(&pool);
+    let full = tokio::spawn(async move {
+        let _ = full_started_tx.send(());
+        full_assembler.update_full(&full_pool).await
+    });
+
+    let (uncle_started_tx, uncle_started_rx) = oneshot::channel();
+    let uncle_assembler = assembler.clone();
+    let uncle = tokio::spawn(async move {
+        let _ = uncle_started_tx.send(());
+        uncle_assembler.update_uncles().await;
+    });
+
+    full_started_rx.await.expect("full update task started");
+    uncle_started_rx.await.expect("uncle update task started");
+    tokio::task::yield_now().await;
+    assert!(
+        !full.is_finished(),
+        "full update must wait for template_lock"
+    );
+    assert!(
+        !uncle.is_finished(),
+        "uncle update must wait for the same template_lock"
+    );
+
+    full.abort();
+    uncle.abort();
+    drop(guard);
+    assert!(
+        full.await
+            .expect_err("full update was cancelled")
+            .is_cancelled()
+    );
+    assert!(
+        uncle
+            .await
+            .expect_err("uncle update was cancelled")
+            .is_cancelled()
+    );
+}

@@ -70,6 +70,26 @@ fn put_enforces_count_limit_after_successful_writes() {
     assert!(recent_reject.get(&first_key).unwrap().is_none());
 }
 
+/// Bug #54: a shard can be temporarily absent while the shrink path is
+/// recreating it. Reads during that window mean "no cached rejection", not a
+/// database failure that should escape through RPC.
+#[test]
+fn get_treats_missing_shard_as_cache_miss() {
+    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    let recent_reject = RecentReject::build(tmp_dir.path(), 1, 100, -1).unwrap();
+    let key = Byte32::new(blake2b_256(7u64.to_le_bytes()));
+
+    recent_reject
+        .put(
+            &key,
+            Reject::Malformed("before-drop".to_string(), Default::default()),
+        )
+        .unwrap();
+    recent_reject.drop_hash_shard_for_test(&key);
+
+    assert_eq!(recent_reject.get(&key).unwrap(), None);
+}
+
 /// Concurrent puts racing with shard drops must not make the approximate
 /// counter drift monotonically: increments happen inside the same critical
 /// section as the DB write, so `shrink`'s estimate and the counter stay

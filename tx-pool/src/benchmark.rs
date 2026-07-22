@@ -1015,19 +1015,32 @@ fn register_cold_bench(
     peers: usize,
     workers: usize,
     size: usize,
+    reverse_dependent: bool,
 ) {
     let (mut txs, mut cycles) = data.target(size);
-    // Submit dependent chains in reverse order so children land in the orphan
-    // pool and are recovered after their parents are accepted.  Submitting in
-    // natural order would route them to the ordered resolve queue, which is not
-    // re-driven once the parent leaves the pipeline.
-    if data.tx_type.is_dependent() {
+    // Benchmark both dependency paths explicitly. Parent-first traffic uses
+    // FlightTracker + OrderedResolveQueue; child-first traffic uses orphan
+    // parking and cascade recovery. Historically only the latter was measured,
+    // which could hide a regression in the normal dependent fast path.
+    if data.tx_type.is_dependent() && reverse_dependent {
         let txs_mut = Arc::make_mut(&mut txs);
         txs_mut.reverse();
         let cycles_mut = Arc::make_mut(&mut cycles);
         cycles_mut.reverse();
     }
-    let tx_type = data.tx_type.as_str();
+    let tx_type = if data.tx_type.is_dependent() {
+        format!(
+            "{}_{}",
+            data.tx_type.as_str(),
+            if reverse_dependent {
+                "child_first"
+            } else {
+                "parent_first"
+            }
+        )
+    } else {
+        data.tx_type.as_str().to_string()
+    };
     group.throughput(Throughput::Elements(size as u64));
 
     if data.tx_type.is_dependent() {
@@ -1096,11 +1109,28 @@ fn register_warm_bench(
     peers: usize,
     workers: usize,
     size: usize,
+    reverse_dependent: bool,
 ) {
     let (warm_txs, warm_cycles) = data.warm();
-    let (target_txs, target_cycles) = data.target(size);
+    let (mut target_txs, mut target_cycles) = data.target(size);
+    if data.tx_type.is_dependent() && reverse_dependent {
+        Arc::make_mut(&mut target_txs).reverse();
+        Arc::make_mut(&mut target_cycles).reverse();
+    }
     let expected_pending = data.warm_pool_size + size;
-    let tx_type = data.tx_type.as_str();
+    let tx_type = if data.tx_type.is_dependent() {
+        format!(
+            "{}_{}",
+            data.tx_type.as_str(),
+            if reverse_dependent {
+                "child_first"
+            } else {
+                "parent_first"
+            }
+        )
+    } else {
+        data.tx_type.as_str().to_string()
+    };
     group.throughput(Throughput::Elements(size as u64));
     // The setup closure (iter_batched) creates a fresh controller with an empty
     // verify cache, then submits warm_txs which populate the cache with those
@@ -1226,8 +1256,23 @@ fn bench(c: &mut Criterion) {
                 if data.tx_type.is_dependent() && (*peers != dep_peers || *workers != dep_workers) {
                     continue;
                 }
+                let dependency_orders: &[bool] = if data.tx_type.is_dependent() {
+                    &[false, true]
+                } else {
+                    &[false]
+                };
                 for size in *sizes {
-                    register_cold_bench(&mut group, mode, data, *peers, *workers, *size);
+                    for reverse_dependent in dependency_orders {
+                        register_cold_bench(
+                            &mut group,
+                            mode,
+                            data,
+                            *peers,
+                            *workers,
+                            *size,
+                            *reverse_dependent,
+                        );
+                    }
                 }
             }
         }
@@ -1239,8 +1284,23 @@ fn bench(c: &mut Criterion) {
                 if data.tx_type.is_dependent() && (*peers != dep_peers || *workers != dep_workers) {
                     continue;
                 }
+                let dependency_orders: &[bool] = if data.tx_type.is_dependent() {
+                    &[false, true]
+                } else {
+                    &[false]
+                };
                 for size in *sizes {
-                    register_warm_bench(&mut group, mode, data, *peers, *workers, *size);
+                    for reverse_dependent in dependency_orders {
+                        register_warm_bench(
+                            &mut group,
+                            mode,
+                            data,
+                            *peers,
+                            *workers,
+                            *size,
+                            *reverse_dependent,
+                        );
+                    }
                 }
             }
         }

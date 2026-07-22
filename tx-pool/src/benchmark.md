@@ -21,9 +21,19 @@ python3 devtools/tx_pool_bench.py --quick
 
 # full matrix (~1 hour)
 python3 devtools/tx_pool_bench.py --full
+
+# save the median of three complete runs
+python3 devtools/tx_pool_bench.py --runs 3 \
+  --save-json /tmp/tx-pool-baseline.json
+
+# compare and fail on any measured regression
+python3 devtools/tx_pool_bench.py --runs 3 \
+  --compare-json /tmp/tx-pool-baseline.json \
+  --save-json /tmp/tx-pool-candidate.json \
+  --fail-on-regression
 ```
 
-The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), and finally prints a summary table.
+The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), aggregates repeated runs by median, records the commit/toolchain/platform and raw run medians in JSON, and can enforce the architecture's strict non-regression gate.
 `--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
 
 ## Matrices
@@ -73,8 +83,10 @@ Regular workloads and dependent-chain workloads use different size/warm configur
 
 - `always_success`: independent transactions using the always-success lock and genesis issue outputs.
 - `secp256k1`: independent transactions using the secp256k1_blake160_sighash_all lock.
-- `dependent_always_success`: a parent -> child dependent chain using the always-success lock.
-- `dependent_secp`: a parent -> child dependent chain using the secp lock.
+- `dependent_always_success_parent_first`: a normal parent -> child chain using the always-success lock and the in-flight dependency path.
+- `dependent_always_success_child_first`: the same chain submitted in reverse to exercise orphan recovery.
+- `dependent_secp_parent_first`: a normal parent -> child chain using the secp lock.
+- `dependent_secp_child_first`: the same secp chain submitted in reverse.
 
 Each workload is tested in two variants:
 
@@ -91,10 +103,13 @@ Each workload is tested in two variants:
 
 ### Dependent-chain submission strategy
 
-Dependent chains must be submitted in **child -> parent** reverse order. Children land in the orphan pool first and are recovered cascade-style after their parents are accepted.
+Dependent chains are measured in both directions because they exercise different state transitions:
 
-- **warm benchmark**: the warm prefix is already in the pool, so reversing the target segment is enough for recovery.
-- **cold benchmark**: the target segment depends on the warm prefix. To avoid a hang, the warm prefix is submitted in natural order during the setup phase (not measured), and the target segment is submitted in reverse order during the measured phase.
+- **parent-first**: children observe an in-flight parent and use the ordered dependency path;
+- **child-first**: children enter orphan parking and are recovered cascade-style after their parents are accepted.
+
+- **warm benchmark**: the warm prefix is already in the pool; the target segment is submitted in the selected direction.
+- **cold benchmark**: the target segment depends on the warm prefix. The warm prefix is submitted in natural order during setup (not measured), then the target segment is submitted parent-first or child-first during measurement.
 
 ### Resource lifecycle
 
@@ -121,7 +136,7 @@ tx_pool_pipeline/{mode}_{peers}peer_{workers}worker_{warm_}{tx_type}_{size}
 Example:
 
 ```text
-tx_pool_pipeline/pipeline_1peer_8worker_warm_dependent_secp_20
+tx_pool_pipeline/pipeline_1peer_8worker_warm_dependent_secp_child_first_20
 ```
 
 `tx_pool_bench.py` parses the `time:` and `thrpt:` lines after each ID and produces the comparison table.

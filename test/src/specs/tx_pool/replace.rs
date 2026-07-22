@@ -1,5 +1,6 @@
 use crate::{
     Node, Spec,
+    rpc::RpcClient,
     util::{
         cell::gen_spendable,
         transaction::{
@@ -15,6 +16,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellDepBuilder, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
+use std::sync::{Arc, Barrier};
 
 pub struct RbfEnable;
 impl Spec for RbfEnable {
@@ -905,14 +907,24 @@ impl Spec for RbfConcurrency {
             conflicts.push(tx2);
         }
 
-        // Submit transactions sequentially with small delays so that the
-        // asynchronous pipeline processes each replacement before the next
-        // one arrives.  Concurrent submission causes a livelock with
-        // DeferredTask::RecoverTxs: when an RBF replacement fails, the
-        // displaced tx is re-enqueued, which re-triggers the same conflict.
+        // Exercise the real race: all conflicting replacements enter through
+        // independent RPC handlers. A previous version serialized this loop
+        // with sleeps to avoid a recovery livelock, which made the integration
+        // test incapable of detecting regressions in the in-flight RBF gate.
+        let start = Arc::new(Barrier::new(conflicts.len()));
+        let mut handles = Vec::with_capacity(conflicts.len());
         for tx in &conflicts {
-            let _ = node0.rpc_client().send_transaction_result(tx.data().into());
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            let tx = tx.clone();
+            let rpc_address = node0.rpc_listen();
+            let start = Arc::clone(&start);
+            handles.push(std::thread::spawn(move || {
+                let rpc_client = RpcClient::new(&rpc_address);
+                start.wait();
+                let _ = rpc_client.send_transaction_result(tx.data().into());
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("RBF submitter must not panic");
         }
 
         // Wait for the pipeline to settle: pending count must stabilize.
