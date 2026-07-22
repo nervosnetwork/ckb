@@ -50,6 +50,7 @@ pub(crate) enum WorkerSet {
 pub(crate) struct Harness {
     pub(crate) service: TxPoolService,
     pub(crate) relay_rx: ckb_channel::Receiver<TxVerificationResult>,
+    pub(crate) block_assembler_rx: mpsc::Receiver<crate::service::BlockAssemblerMessage>,
     pub(crate) cancel: CancellationToken,
     #[allow(dead_code)]
     pub(crate) store: MockStore,
@@ -156,7 +157,7 @@ impl HarnessBuilder {
         }
 
         let (tx_relay_sender, relay_rx) = ckb_channel::bounded(1024);
-        let (block_assembler_sender, _) = mpsc::channel(1);
+        let (block_assembler_sender, block_assembler_rx) = mpsc::channel(1);
         let signal = CancellationToken::new();
         let pre_check_cancel = signal.child_token();
         let queues = Arc::new(PipelineQueues {
@@ -283,6 +284,7 @@ impl HarnessBuilder {
         Harness {
             service,
             relay_rx,
+            block_assembler_rx,
             cancel: signal,
             store,
             out_points,

@@ -386,6 +386,7 @@ async fn full_and_uncle_updates_share_template_serialization_lock() {
                 hyper_util::client::legacy::connect::HttpConnector::new(),
             ),
         ),
+        notify_count: Arc::new(AtomicU64::new(0)),
     };
     let pool = Arc::new(RwLock::new(TxPool::new(
         TxPoolConfig::default(),

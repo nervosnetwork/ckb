@@ -25,6 +25,7 @@ use ckb_types::{
     packed::{CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script, WitnessArgs},
     prelude::*,
     utilities::difficulty_to_compact,
+    utilities::merkle_mountain_range::ChainRootMMR,
 };
 use ckb_verification::TxVerifyEnv;
 use std::sync::Arc;
@@ -124,6 +125,9 @@ pub(crate) fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Ar
                 },
             )
             .unwrap();
+        let mut mmr = ChainRootMMR::new(0, &db_txn);
+        mmr.push(genesis.digest()).unwrap();
+        mmr.commit().unwrap();
         db_txn.commit().unwrap();
     }
 
@@ -1861,6 +1865,70 @@ async fn failed_rbf_rollback_and_settlement_precede_deferred_publication() {
     );
 
     h.cancel.cancel();
+}
+
+/// Bug #45: a management clear is authoritative state replacement, not a
+/// best-effort incremental update. The reset must cross the service channel,
+/// blank the current template immediately, and notify external miners without
+/// waiting for the periodic assembler interval.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clear_pool_resets_template_and_notifies_miner_immediately() {
+    use super::harness::{WorkerSet, harness};
+    use crate::block_assembler::BlockAssembler;
+    use crate::service::BlockAssemblerMessage;
+    use ckb_app_config::BlockAssemblerConfig;
+    use ckb_jsonrpc_types::ScriptHashType;
+    use std::sync::atomic::Ordering;
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], ISSUE_OUTPUT_CAPACITY as usize - 1);
+    h.service
+        .process_tx(tx, TxSource::Local)
+        .await
+        .expect("seed one pending transaction");
+
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let assembler = BlockAssembler::new(
+        BlockAssemblerConfig {
+            code_hash: h256!("0x0"),
+            args: Default::default(),
+            hash_type: ScriptHashType::Data,
+            message: Default::default(),
+            use_binary_version_as_message_prefix: true,
+            binary_version: "TEST".to_string(),
+            update_interval_millis: 60_000,
+            notify: vec![],
+            notify_scripts: vec![],
+            notify_timeout_millis: 800,
+            notify_auth_token: None,
+        },
+        Arc::clone(&snapshot),
+    )
+    .unwrap();
+    assembler.update_proposals(&h.service.pool.tx_pool).await;
+    assert_eq!(assembler.get_current().await.proposals.len(), 1);
+    let notify_count = Arc::clone(&assembler.notify_count);
+    h.service.block_assembler = Some(assembler);
+
+    h.service.clear_pool(Arc::clone(&snapshot)).await;
+    let message = tokio::time::timeout(Duration::from_secs(1), h.block_assembler_rx.recv())
+        .await
+        .expect("clear_pool must not wait for the periodic interval")
+        .expect("clear_pool must publish a reset message");
+    assert!(matches!(message, BlockAssemblerMessage::Reset(_)));
+
+    crate::block_assembler::process(h.service.clone(), &message).await;
+    let current = h
+        .service
+        .block_assembler
+        .as_ref()
+        .expect("assembler installed")
+        .get_current()
+        .await;
+    assert!(current.proposals.is_empty());
+    assert!(current.transactions.is_empty());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+    assert_eq!(h.service.pool.tx_pool.read().await.pool_map.size(), 0);
 }
 
 /// Topologically sort dependent transactions so parents come before children.

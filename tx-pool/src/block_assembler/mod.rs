@@ -76,6 +76,10 @@ pub struct BlockAssembler {
     /// cross `.await`.
     cell_liveness_memo: Arc<StdMutex<CellLivenessMemo>>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
+    /// Test-only observation point for the external miner-notification
+    /// boundary. Production builds pay no field or atomic-operation cost.
+    #[cfg(test)]
+    pub(crate) notify_count: Arc<AtomicU64>,
 }
 
 impl BlockAssembler {
@@ -115,6 +119,8 @@ impl BlockAssembler {
                 Client::builder(hyper_util::rt::TokioExecutor::new())
                     .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
             ),
+            #[cfg(test)]
+            notify_count: Arc::new(AtomicU64::new(0)),
         })
     }
 

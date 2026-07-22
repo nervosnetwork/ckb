@@ -81,7 +81,7 @@ Status meanings:
 | 42 | Partial | `failed_rbf_rollback_and_settlement_precede_deferred_publication` proves a saturated deferred channel cannot delay rollback or RBF ownership settlement; add saturated-channel throughput and shutdown stress. | I4, I5, I8, I12 |
 | 43 | Covered | `zero_max_workers_is_clamped_to_one` | I4 |
 | 44 | Covered | `dispatcher_channel_close_quiesces_workers_and_persists_pool` proves sender-drop shutdown cancels and joins workers, drains handlers, and persists accepted state before the dispatcher handle completes. | I4, I7 |
-| 45 | Open | Add clear/reset-to-miner-notify integration regression. | I8, I11 |
+| 45 | Covered | `clear_pool_resets_template_and_notifies_miner_immediately` exercises clear → reliable Reset delivery → blank template → immediate miner notification. | I8, I11 |
 | 46 | Partial | O(1) index is functional; add compact-block lookup scaling benchmark. | I12 |
 | 47 | Covered | `budget_eviction_is_oldest_first` | I5 |
 | 48 | Partial | Orphan recovery tests traverse batched lookup; add query-count or scaling benchmark. | I6, I12 |

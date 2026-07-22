@@ -9,6 +9,9 @@ use tokio::time::timeout;
 
 impl BlockAssembler {
     pub(crate) async fn notify(&self) {
+        #[cfg(test)]
+        self.notify_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if !self.need_to_notify() {
             return;
         }
