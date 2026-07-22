@@ -1,6 +1,7 @@
 mod chunk;
 mod entry;
 mod estimate;
+mod gap_reorg;
 mod harness;
 mod links;
 mod ordered_retry_cap;

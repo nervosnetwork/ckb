@@ -1935,6 +1935,7 @@ dependencies = [
  "ckb-logger",
  "ckb-metrics",
  "ckb-network",
+ "ckb-proposal-table",
  "ckb-reward-calculator",
  "ckb-script",
  "ckb-snapshot",

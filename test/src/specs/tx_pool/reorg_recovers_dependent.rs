@@ -2,9 +2,14 @@ use crate::node::waiting_for_sync_with_timeout;
 use crate::specs::tx_pool::utils::{
     assert_new_block_committed, prepare_tx_family, wait_for_pending_count,
 };
+use crate::util::check::is_transaction_committed;
 use crate::utils::{blank, propose};
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::TxStatus;
+use ckb_logger::info;
+use ckb_types::core::TransactionView;
+use ckb_types::packed;
+use ckb_types::prelude::*;
 
 /// Case: after a reorg removes a block that committed a parent tx, both the
 /// parent and its child must be recovered into the tx-pool and be commitable
@@ -135,4 +140,135 @@ impl Spec for ReorgRecoversDependentChain {
             &[grandparent.clone(), parent.clone(), child.clone()],
         );
     }
+}
+
+/// Case: after reorg recovers a multi-level dependent tree, the txs must be
+/// **real** pending (not stranded internal Gap) and must become committable
+/// again through normal `get_block_template` mining — no manual `propose()`.
+///
+/// This locks the regression where Gap mapped to RPC pending while
+/// `get_proposals` / `TxSelector` never touched the txs, so mining only
+/// ever produced cellbase + empty proposals.
+pub struct ReorgRecoversDependentPendingTree;
+
+impl Spec for ReorgRecoversDependentPendingTree {
+    crate::setup!(num_nodes: 2);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node_a = &nodes[0];
+        let node_b = &nodes[1];
+
+        node_a.mine_until_out_bootstrap_period();
+
+        let family = prepare_tx_family(node_a);
+        let grandparent = family.a().clone();
+        let parent = family.b().clone();
+        let child = family.c().clone();
+        let txs = [&grandparent, &parent, &child];
+
+        for tx in txs {
+            node_a.submit_transaction(tx);
+        }
+
+        node_a.submit_block(&propose(node_a, &txs));
+        let window = node_a.consensus().tx_proposal_window();
+        (0..window.closest()).for_each(|_| {
+            node_a.submit_block(&blank(node_a));
+        });
+        assert_new_block_committed(node_a, &[grandparent.clone(), parent.clone(), child.clone()]);
+
+        while node_b.get_tip_block_number() <= node_a.get_tip_block_number() {
+            node_b.submit_block(&blank(node_b));
+        }
+
+        node_a.connect(node_b);
+        waiting_for_sync_with_timeout(nodes, 30);
+        node_a.wait_for_tx_pool();
+
+        wait_for_pending_count(node_a, 3);
+        // Distinguishes true Pending from stranded internal Gap (both look
+        // like RPC `pending` via map_pool_status / pending_size).
+        for tx in txs {
+            node_a.assert_pool_entry_status(tx.hash(), "pending");
+            assert!(
+                node_a.get_transaction(tx.hash()) == TxStatus::pending(),
+                "recovered tx should be RPC pending"
+            );
+        }
+
+        info!("mine recovered tree through normal get_block_template (no manual propose)");
+        mine_until_committed_via_template(node_a, &txs);
+
+        for tx in txs {
+            assert!(
+                is_transaction_committed(node_a, tx),
+                "tx {:#x} must be committed via normal mining after reorg",
+                tx.hash()
+            );
+        }
+        node_a.assert_tx_pool_size(0, 0);
+    }
+}
+
+/// Mine full block templates (including uncles) until every `txs` entry is
+/// committed, or panic with pool/template diagnostics.
+///
+/// Full templates are required: reorg inserts detached blocks as uncle
+/// candidates, and `package_proposals` excludes short ids already present
+/// in those uncles. Mining without uncles can leave those short ids never
+/// proposed on-chain; mining with uncles lets uncle proposals land and the
+/// Pending → Gap → Proposed path complete, while still allowing re-proposal
+/// when short ids are not excluded.
+fn mine_until_committed_via_template(node: &Node, txs: &[&TransactionView]) {
+    let window = node.consensus().tx_proposal_window();
+    // Re-propose (or uncle-propose) + closest + commit, with generous margin
+    // for uncle selection order and pipeline settle time.
+    let max_blocks = window.farthest().saturating_add(window.closest()).saturating_add(40);
+
+    for i in 0..max_blocks {
+        if txs.iter().all(|tx| is_transaction_committed(node, tx)) {
+            return;
+        }
+
+        let template = node.rpc_client().get_block_template(None, None, None);
+        let block = packed::Block::from(template).as_advanced_builder().build();
+        node.rpc_client()
+            .submit_block("".to_owned(), block.data().into())
+            .expect("submit mined template block");
+        node.wait_for_tx_pool();
+
+        if i % 10 == 9 {
+            let info = node.rpc_client().tx_pool_info();
+            info!(
+                "mining recovered txs: block #{}, pending={}, proposed={}, orphan={}",
+                block.number(),
+                info.pending.value(),
+                info.proposed.value(),
+                info.orphan.value()
+            );
+        }
+    }
+
+    let info = node.rpc_client().tx_pool_info();
+    let statuses: Vec<_> = txs
+        .iter()
+        .map(|tx| {
+            let detail = node.rpc_client().get_pool_tx_detail_info(tx.hash());
+            let rpc = node.get_transaction(tx.hash());
+            format!(
+                "{:#x}: entry_status={}, rpc={:?}",
+                tx.hash(),
+                detail.entry_status,
+                rpc
+            )
+        })
+        .collect();
+    panic!(
+        "timeout mining recovered txs via get_block_template: \
+         pending={}, proposed={}, orphan={}, statuses={:?}",
+        info.pending.value(),
+        info.proposed.value(),
+        info.orphan.value(),
+        statuses
+    );
 }

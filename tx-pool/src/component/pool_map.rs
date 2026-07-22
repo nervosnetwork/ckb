@@ -407,7 +407,8 @@ impl PoolMap {
         Ok(())
     }
 
-    /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
+    /// Change the status of the entry; used by `pending_rtx` / `gap_rtx` /
+    /// `proposed_rtx` during mine-mode proposal-window reconciliation.
     pub(crate) fn set_entry(&mut self, short_id: &ProposalShortId, status: Status) {
         let mut old_status = None;
         self.entries

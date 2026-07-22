@@ -528,6 +528,10 @@ impl TxPool {
         }
     }
 
+    pub(crate) fn pending_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+        self.transition_to_status(short_id, Status::Pending)
+    }
+
     pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
         self.transition_to_status(short_id, Status::Gap)
     }

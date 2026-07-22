@@ -635,6 +635,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(ReorgHandleProposals),
         Box::new(ReorgRecoversDependentTxs),
         Box::new(ReorgRecoversDependentChain),
+        Box::new(ReorgRecoversDependentPendingTree),
         Box::new(TransactionHashCollisionDifferentWitnessHashes),
         Box::new(DuplicatedTransaction),
         Box::new(ConflictInPending),

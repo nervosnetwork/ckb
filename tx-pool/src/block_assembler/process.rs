@@ -20,8 +20,17 @@ pub(crate) async fn process(service: TxPoolService, message: &BlockAssemblerMess
             }
         }
         BlockAssemblerMessage::Uncle => {
+            // Uncle set changes affect which short ids `package_proposals`
+            // must exclude (DuplicateProposal). Refresh proposals under the
+            // new uncle set: otherwise a newly selected uncle can leave a
+            // stale proposals list that still contains its short ids, and
+            // dropping an uncle can leave recovered pending txs unpackageable
+            // until the next tip change rebuilds the full template.
             if let Some(ref block_assembler) = service.block_assembler {
                 block_assembler.update_uncles().await;
+                block_assembler
+                    .update_proposals(&service.pool.tx_pool)
+                    .await;
             }
         }
         BlockAssemblerMessage::Reset(snapshot) => {

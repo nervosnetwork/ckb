@@ -52,57 +52,88 @@ pub(crate) fn update_tx_pool_for_reorg(
         &mut reject_events,
     );
 
-    // mine mode:
-    // pending ---> gap ----> proposed
-    // try move gap to proposed
-    if mine_mode {
-        let mut proposals = Vec::new();
-        let mut gaps = Vec::new();
+    // Re-evaluate Gap/Pending against the new tip's proposal windows.
+    //
+    // Demotion runs for every node (not only mine mode): a Gap entry whose
+    // short id has left both the gap and proposed sets is simply wrong —
+    // RPC still reports "pending" (Gap maps to Pending) while
+    // `get_proposals` / `TxSelector` never touch it, and verify env also
+    // treats it as proposed. Promotion stays mine-mode only (packaging).
+    //
+    // Transitions (collected first so index iteration is stable):
+    //   Gap     + proposed → Proposed   (mine mode)
+    //   Gap     + gap      → stay Gap
+    //   Gap     + neither  → Pending    (always; notify)
+    //   Pending + proposed → Proposed   (mine mode)
+    //   Pending + gap      → Gap        (mine mode)
+    let mut to_proposed = Vec::new();
+    let mut to_gap = Vec::new();
+    let mut to_pending = Vec::new();
 
-        for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
-            let short_id = entry.inner.proposal_short_id();
-            if snapshot.proposals().contains_proposed(&short_id) {
-                proposals.push((short_id, entry.inner.clone()));
+    for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
+        let short_id = entry.inner.proposal_short_id();
+        if snapshot.proposals().contains_proposed(&short_id) {
+            if mine_mode {
+                to_proposed.push((short_id, entry.inner.clone()));
             }
+        } else if !snapshot.proposals().contains_gap(&short_id) {
+            to_pending.push((short_id, entry.inner.clone()));
         }
+    }
 
+    if mine_mode {
         for entry in tx_pool.pool_map.entries.get_by_status(&Status::Pending) {
             let short_id = entry.inner.proposal_short_id();
             let elem = (short_id.clone(), entry.inner.clone());
             if snapshot.proposals().contains_proposed(&short_id) {
-                proposals.push(elem);
+                to_proposed.push(elem);
             } else if snapshot.proposals().contains_gap(&short_id) {
-                gaps.push(elem);
+                to_gap.push(elem);
             }
         }
+    }
 
-        for (id, entry) in proposals {
-            debug!("begin to proposed: {:x}", id);
-            if let Err(e) = tx_pool.proposed_rtx(&id) {
-                // The entry was NOT removed — it stays in the pool — so a
-                // transition failure must not surface as a rejection event:
-                // subscribers would see a tx rejected while it is still
-                // pending. Currently unreachable (the entries were read
-                // from the pool under the same write lock); log only.
-                ckb_logger::error!(
-                    "Failed to add proposed tx {}, reason: {}",
-                    entry.transaction().hash(),
-                    e
-                );
-            } else {
-                notify_events.push((entry, Status::Proposed));
-            }
+    for (id, entry) in to_proposed {
+        debug!("begin to proposed: {:x}", id);
+        if let Err(e) = tx_pool.proposed_rtx(&id) {
+            // The entry was NOT removed — it stays in the pool — so a
+            // transition failure must not surface as a rejection event:
+            // subscribers would see a tx rejected while it is still
+            // pending. Currently unreachable (the entries were read
+            // from the pool under the same write lock); log only.
+            ckb_logger::error!(
+                "Failed to add proposed tx {}, reason: {}",
+                entry.transaction().hash(),
+                e
+            );
+        } else {
+            notify_events.push((entry, Status::Proposed));
         }
+    }
 
-        for (id, entry) in gaps {
-            debug!("begin to gap: {:x}", id);
-            if let Err(e) = tx_pool.gap_rtx(&id) {
-                ckb_logger::error!(
-                    "Failed to add tx to gap {}, reason: {}",
-                    entry.transaction().hash(),
-                    e
-                );
-            }
+    for (id, entry) in to_gap {
+        debug!("begin to gap: {:x}", id);
+        if let Err(e) = tx_pool.gap_rtx(&id) {
+            ckb_logger::error!(
+                "Failed to add tx to gap {}, reason: {}",
+                entry.transaction().hash(),
+                e
+            );
+        }
+    }
+
+    for (id, entry) in to_pending {
+        debug!("begin to demote gap to pending: {:x}", id);
+        if let Err(e) = tx_pool.pending_rtx(&id) {
+            ckb_logger::error!(
+                "Failed to demote gap tx to pending {}, reason: {}",
+                entry.transaction().hash(),
+                e
+            );
+        } else {
+            // Re-pending: block assembler must re-select this short id
+            // for proposals (Gap is invisible to `get_proposals`).
+            notify_events.push((entry, Status::Pending));
         }
     }
 
