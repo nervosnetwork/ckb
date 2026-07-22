@@ -1,4 +1,3 @@
-use crate::component::entry::TxEntry;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
 use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
@@ -27,12 +26,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 mod classify;
-mod orphan;
 mod post_process;
 mod rbf;
+pub(crate) mod recover;
 mod remove;
-mod reorg;
-mod submit;
+pub(crate) mod reorg;
+pub(crate) mod submit;
 
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
@@ -62,6 +61,12 @@ fn status_to_block_assembler_message(status: Status) -> Option<BlockAssemblerMes
 }
 
 impl TxPoolService {
+    /// The reject reason used when an in-flight candidate is superseded by a
+    /// higher-fee-rate one. One constant so the register-time and
+    /// submit-time paths produce the identical message.
+    pub(crate) const SUPERSEDED_BY_HIGHER_FEE_CANDIDATE: &'static str =
+        "superseded by higher-fee-rate in-flight candidate";
+
     pub(crate) async fn get_block_template(&self) -> Result<BlockTemplate, AnyError> {
         if let Some(ref block_assembler) = self.block_assembler {
             Ok(block_assembler.get_current().await)
@@ -82,7 +87,7 @@ impl TxPoolService {
             // duplicate notification when the channel is full is harmless.
             // Using send().await here would backpressure verify workers
             // whenever the block-assembler loop is slow.
-            if let Err(err) = self.block_assembler_sender.try_send(message) {
+            if let Err(err) = self.relay.block_assembler_sender.try_send(message) {
                 match err {
                     mpsc::error::TrySendError::Full(_) => {
                         debug!("block_assembler channel full, skip duplicate notification")
@@ -96,13 +101,13 @@ impl TxPoolService {
     }
 
     pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {
-        let queue = self.queues.verify_queue.read().await;
+        let queue = self.pipeline.queues.verify_queue.read().await;
         queue.contains_key(&tx.proposal_short_id())
     }
 
     /// Read-lock the pool and run `f` without cloning the snapshot.
     pub(crate) async fn read_tx_pool<U, F: FnOnce(&TxPool) -> U>(&self, f: F) -> U {
-        let tx_pool = self.tx_pool.read().await;
+        let tx_pool = self.pool.tx_pool.read().await;
         f(&tx_pool)
     }
 
@@ -111,27 +116,18 @@ impl TxPoolService {
         &self,
         mut f: F,
     ) -> (U, Arc<Snapshot>) {
-        let tx_pool = self.tx_pool.read().await;
+        let tx_pool = self.pool.tx_pool.read().await;
         let snapshot = tx_pool.cloned_snapshot();
 
         let ret = f(&tx_pool, Arc::clone(&snapshot));
         (ret, snapshot)
     }
 
-    pub(crate) async fn non_contextual_verify(
-        &self,
-        tx: &TransactionView,
-        source: TxSource,
-    ) -> Result<(), Reject> {
-        if let Err(reject) = non_contextual_verify(&self.consensus, tx) {
-            if reject.is_malformed_tx()
-                && let Some(peer) = source.peer()
-            {
-                self.ban_malformed(peer, format!("reject {reject}")).await;
-            }
-            return Err(reject);
-        }
-        Ok(())
+    pub(crate) async fn non_contextual_verify(&self, tx: &TransactionView) -> Result<(), Reject> {
+        // Malformed peer banning lives in the after_process remote-reject
+        // path (`handle_remote_reject`); keeping it out of this shared
+        // check keeps the ban decision in exactly one place.
+        non_contextual_verify(&self.pool.consensus, tx)
     }
 
     /// Common pre-flight checks shared by all transaction submission paths.
@@ -139,24 +135,20 @@ impl TxPoolService {
     /// Runs non-contextual verification and rejects duplicates that are
     /// already in any pipeline queue (ordered resolve, pre-check, verify)
     /// or the orphan pool.
-    pub(crate) async fn check_tx_basic_validity(
-        &self,
-        tx: &TransactionView,
-        source: TxSource,
-    ) -> Result<(), Reject> {
-        self.non_contextual_verify(tx, source).await?;
+    pub(crate) async fn check_tx_basic_validity(&self, tx: &TransactionView) -> Result<(), Reject> {
+        self.non_contextual_verify(tx).await?;
 
         let dup = || Reject::Duplicated(tx.hash());
         let id = tx.proposal_short_id();
 
         {
-            let ordered = self.queues.ordered_resolve_queue.read().await;
+            let ordered = self.pipeline.queues.ordered_resolve_queue.read().await;
             if ordered.contains_key(&id) {
                 return Err(dup());
             }
         }
 
-        if self.queues.pre_check_queue.contains_key(&id) {
+        if self.pipeline.queues.pre_check_queue.contains_key(&id) {
             return Err(dup());
         }
 
@@ -164,7 +156,7 @@ impl TxPoolService {
             return Err(dup());
         }
 
-        if self.orphan_contains(tx).await {
+        if self.waiting_room_contains(tx).await {
             return Err(dup());
         }
 
@@ -191,14 +183,25 @@ impl TxPoolService {
         tx: TransactionView,
         source: TxSource,
     ) -> Result<bool, Reject> {
-        self.check_tx_basic_validity(&tx, source).await?;
+        // Preflight failures go through after_process too: the remote error
+        // triple (ban / relay / recent_reject) must apply here exactly like
+        // it does to failures deeper in the pipeline, otherwise a peer can
+        // resubmit the same malformed tx forever with no consequence.
+        if let Err(reject) = self.check_tx_basic_validity(&tx).await {
+            self.reject_with_after_process(tx, source, reject.clone())
+                .await;
+            return Err(reject);
+        }
         self.classify_and_enqueue_with_full_reject_notification(tx, source)
             .await
     }
 
     pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
-        self.check_tx_basic_validity(&tx, TxSource::Proposal)
-            .await?;
+        if let Err(reject) = self.check_tx_basic_validity(&tx).await {
+            self.reject_with_after_process(tx, TxSource::Proposal, reject.clone())
+                .await;
+            return Err(reject);
+        }
         self.classify_and_enqueue_with_full_reject_notification(tx, TxSource::Proposal)
             .await
     }
@@ -208,7 +211,13 @@ impl TxPoolService {
         tx: TransactionView,
         source: TxSource,
     ) -> Result<Completed, Reject> {
-        self.check_tx_basic_validity(&tx, source).await?;
+        if let Err(reject) = self.check_tx_basic_validity(&tx).await {
+            // Same side effects as a pipeline rejection — in particular the
+            // local-duplicate re-broadcast in `after_process_local`.
+            self.reject_with_after_process(tx, source, reject.clone())
+                .await;
+            return Err(reject);
+        }
 
         let ret = self.process_tx_direct(tx.clone(), source, None).await;
         self.after_process(tx, source, &ret).await;
@@ -227,7 +236,7 @@ impl TxPoolService {
     }
 
     pub(crate) fn send_result_to_relayer(&self, result: TxVerificationResult) {
-        if let Err(e) = self.tx_relay_sender.send(result) {
+        if let Err(e) = self.relay.tx_relay_sender.send(result) {
             error!("tx-pool tx_relay_sender internal error {}", e);
         }
     }
@@ -311,6 +320,15 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
+        // Hold the recovery lock for the *whole* reorg — the write-lock
+        // section, the callbacks, and the retained-transaction recovery —
+        // so `save_pool` can never persist a half-updated pool: a snapshot
+        // taken between the write-lock section and the recovery would
+        // silently lose the detached transactions that have not been
+        // re-added yet. Lock order: recovery_lock before tx_pool, and
+        // nothing holding tx_pool ever acquires recovery_lock.
+        let _recovery_guard = self.recovery_lock.lock().await;
+
         let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
@@ -330,36 +348,61 @@ impl TxPoolService {
         }
         let mut retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
-        let reject_events;
-        {
+        let reorg::ReorgOutcome {
+            reject_events,
+            silently_removed,
+            notify_events,
+        } = {
             // This closure is used to limit the lifetime of mutable tx_pool.
-            let mut tx_pool = self.tx_pool.write().await;
+            let mut tx_pool = self.pool.tx_pool.write().await;
 
-            reject_events = reorg::update_tx_pool_for_reorg(
+            reorg::update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
                 &detached_headers,
                 detached_proposal_id,
                 snapshot,
-                &self.callbacks,
                 mine_mode,
-            );
-        }
+            )
+        };
 
         // Dispatch reject callbacks outside the write lock, then clean up
         // in-flight RBF candidates targeting inputs that have just been freed
         // by the reorg (committed, expired, detached, or evicted transactions).
+        // The reconcile's silently-removed entries freed their inputs too and
+        // must join the same cleanup — it is driven by this call alone.
         for (entry, reject) in &reject_events {
-            self.callbacks.call_reject(entry, reject.clone());
+            self.relay.callbacks.call_reject(entry, reject.clone());
         }
-        self.cleanup_rbf_for_removed_entries(reject_events.iter().map(|(entry, _)| entry))
-            .await;
+        // Proposed/pending notifications collected inside the write-lock
+        // section are dispatched here, outside the lock (user callbacks
+        // must never run in-lock: a blocking or re-entering callback
+        // would stall the whole pool).
+        for (entry, status) in &notify_events {
+            match status {
+                crate::component::pool_map::Status::Proposed => {
+                    self.relay.callbacks.call_proposed(entry)
+                }
+                _ => self.relay.callbacks.call_pending(entry),
+            }
+        }
+        self.cleanup_rbf_for_removed_entries(
+            reject_events
+                .iter()
+                .map(|(entry, _)| entry)
+                .chain(silently_removed.iter()),
+        )
+        .await;
 
         self.remove_orphan_txs_by_attach(&attached).await;
-        {
-            let mut queue = self.queues.verify_queue.write().await;
-            queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
-        }
+        // Remove the newly committed transactions from every pipeline
+        // structure with the full terminal sequence (queue removal,
+        // registration removal, and finalize semantics for the candidates
+        // an attached winner held: their race is lost for real — relayed,
+        // but not recorded).
+        let attached_ids: Vec<ProposalShortId> =
+            attached.iter().map(|tx| tx.proposal_short_id()).collect();
+        self.remove_attached_from_pipeline(&attached_ids).await;
 
         // Recover detached transactions through the direct per-tx entry point.
         // Dependent transactions must be processed after their parents have
@@ -369,53 +412,117 @@ impl TxPoolService {
         // transactions.
         {
             Self::sort_txs_by_dependencies(&mut retain);
-            let mut chunk_rx = self.chunk_rx.clone();
+            let mut chunk_rx = self.pipeline.chunk_rx.clone();
             for tx in retain {
-                let ret = self
-                    .process_tx_direct(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
+                let outcome = self
+                    .process_tx_direct_outcome(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
                     .await;
-                if let Err(ref reject) = ret {
+                // Only a definitive failure may cascade-remove dependents.
+                // `Superseded` means the tx is merely held by a stronger
+                // in-flight RBF registration (its fate follows the winner's),
+                // and `Duplicated` means it is already back in the pool
+                // (concurrent resubmission, or this same reorg retried after
+                // a panic) — cascading on either would evict healthy
+                // dependents and emit spurious Dead rejections.
+                let reject = match outcome {
+                    Ok(crate::process::submit::VerifySubmitOutcome::Committed(_))
+                    | Err(Reject::Duplicated(_)) => {
+                        // The detached tx is back in the pool. Wake up any
+                        // orphans that depend on it (including via cell dep).
+                        self.process_orphan_tx(&tx).await;
+                        continue;
+                    }
+                    Ok(crate::process::submit::VerifySubmitOutcome::Superseded) => {
+                        debug!(
+                            "reorg re-add {} held by a stronger in-flight RBF candidate",
+                            tx.hash()
+                        );
+                        continue;
+                    }
+                    Err(reject) => reject,
+                };
+                {
                     debug!("reorg re-add failed: {}", reject);
-                    self.after_process(tx, TxSource::Local, &ret).await;
-                } else {
-                    // The detached tx is now back in the pool. Wake up any
-                    // orphans that depend on it (including via cell dep).
-                    self.process_orphan_tx(&tx).await;
+                    // The detached tx could not be re-added: any in-pool
+                    // transactions referencing its outputs — as inputs *or*
+                    // as cell deps — can never resolve now and would sit in
+                    // the pool as zombies until expiry (the template
+                    // builder filters them out every round). Cascade-remove
+                    // them; callbacks are dispatched outside the write lock.
+                    let mut cascaded = Vec::new();
+                    {
+                        let mut tx_pool = self.pool.tx_pool.write().await;
+                        for out_point in tx.output_pts() {
+                            let mut dependents: HashSet<ProposalShortId> = HashSet::new();
+                            if let Some(id) = tx_pool
+                                .pool_map
+                                .out_point_index
+                                .get_input_ref(&out_point)
+                                .cloned()
+                            {
+                                dependents.insert(id);
+                            }
+                            if let Some(ids) =
+                                tx_pool.pool_map.out_point_index.get_deps_ref(&out_point)
+                            {
+                                dependents.extend(ids.iter().cloned());
+                            }
+                            for child_id in dependents {
+                                let removed =
+                                    tx_pool.pool_map.remove_entry_and_descendants(&child_id);
+                                cascaded.extend(
+                                    removed.into_iter().map(|entry| (entry, out_point.clone())),
+                                );
+                            }
+                        }
+                    }
+                    for (entry, out_point) in cascaded {
+                        debug!(
+                            "cascade-remove pool tx {}: its reference {:?} died with the failed re-add",
+                            entry.transaction().hash(),
+                            out_point,
+                        );
+                        self.relay.callbacks.call_reject(
+                            &entry,
+                            Reject::Resolve(ckb_types::core::error::OutPointError::Dead(out_point)),
+                        );
+                    }
+                    // Orphans parked on this tx as their missing parent can
+                    // never resolve either — remove them with the same
+                    // Reject notification the orphan-eviction route sends.
+                    let orphan_entries = {
+                        let mut room = self.pipeline.waiting_room.write().await;
+                        let ids: Vec<ProposalShortId> =
+                            room.find_by_parent(&tx).into_iter().cloned().collect();
+                        ids.into_iter()
+                            .filter_map(|id| room.remove(&id))
+                            .collect::<Vec<_>>()
+                    };
+                    for entry in orphan_entries {
+                        self.send_result_to_relayer(TxVerificationResult::Reject {
+                            tx_hash: entry.tx.hash(),
+                        });
+                    }
+                    self.after_process(tx, TxSource::Local, &Err(reject)).await;
                 }
             }
         }
     }
 
-    /// Clear all pipeline queues without touching the already-accepted pool.
-    ///
-    /// Locks are acquired one at a time in the documented hierarchy
-    /// (`ordered_resolve_queue → rbf_candidates → verify_queue → orphan`),
-    /// with the synchronous `pre_check_queue` mutex last. Each guard is
-    /// released immediately after its `clear()`, so there is no deadlock
-    /// risk, but the operation is *not* atomic: workers may keep moving
-    /// transactions between queues while the clear is in progress, and
-    /// transactions already popped by a worker are unaffected. Callers that
-    /// need a guaranteed-empty pipeline must additionally quiesce the
-    /// pipeline workers (not implemented here).
-    pub(crate) async fn clear_pipeline_queues(&self) {
-        self.queues.ordered_resolve_queue.write().await.clear();
-        self.queues.rbf_candidates.write().await.clear();
-        self.queues.verify_queue.write().await.clear();
-        self.orphan.write().await.clear();
-        // `pre_check_queue` uses a std::sync::Mutex, independent of the async
-        // lock hierarchy; keep it last so it can never be held across an
-        // `.await`.
-        self.queues.pre_check_queue.clear();
-    }
-
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
+        // Same lock as the reorg recovery: an in-flight reorg must finish
+        // re-adding its detached transactions before the pool is cleared,
+        // otherwise the freshly cleared pool would be repopulated by the
+        // recovery and `clear_pool` would return with a non-empty pool.
+        let _recovery_guard = self.recovery_lock.lock().await;
         {
-            let mut tx_pool = self.tx_pool.write().await;
+            let mut tx_pool = self.pool.tx_pool.write().await;
             tx_pool.clear(Arc::clone(&new_snapshot));
         }
         self.clear_pipeline_queues().await;
         // reset block_assembler
         if self
+            .relay
             .block_assembler_sender
             .send(BlockAssemblerMessage::Reset(new_snapshot))
             .await
@@ -426,7 +533,13 @@ impl TxPoolService {
     }
 
     pub(crate) async fn save_pool(&self) {
-        let mut tx_pool = self.tx_pool.write().await;
+        // Wait for any in-flight reorg recovery to finish so the persisted
+        // file always represents a complete recovery point: a snapshot
+        // taken mid-recovery would silently lose the detached transactions
+        // that have not been re-added yet. Lock order: recovery_lock before
+        // tx_pool, and nothing holding tx_pool ever acquires recovery_lock.
+        let _recovery_guard = self.recovery_lock.lock().await;
+        let mut tx_pool = self.pool.tx_pool.write().await;
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
         } else {
@@ -456,7 +569,8 @@ impl TxPoolService {
                 if enable_fallback {
                     let target_blocks =
                         FeeEstimator::target_blocks_for_estimate_mode(estimate_mode);
-                    self.tx_pool
+                    self.pool
+                        .tx_pool
                         .read()
                         .await
                         .estimate_fee_rate(target_blocks)
@@ -481,13 +595,6 @@ pub(crate) struct PreCheckedTx {
     /// Transaction size in bytes as serialized in a block.
     pub(crate) tx_size: usize,
 }
-
-/// Transactions recovered from the conflict cache after a failed or partial
-/// RBF replacement, paired with their original pipeline source.
-pub(crate) type RecoveredTxs = Vec<(TransactionView, TxSource)>;
-
-/// Outcome of [`TxPoolService::try_submit_entry`].
-pub(crate) type SubmitEntryOutcome = (Result<(), Reject>, RecoveredTxs, Vec<(TxEntry, Reject)>);
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, Status), Reject>;
 

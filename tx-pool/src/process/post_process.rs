@@ -33,14 +33,57 @@ impl TxPoolService {
             );
         }
 
+        // A held candidate (parked as `RaceLost`) surfaced here as
+        // `RBFRejected` — e.g. the RPC/direct path flattening
+        // `Superseded` — is not terminally rejected: its fate follows the
+        // winner's, so nothing terminal may happen to it (no conflict
+        // park, no relay, no recent_reject record). Losers woken by a
+        // committed winner (`finalize_rbf_candidate`) are no longer held
+        // by the time they get here and proceed to the real terminal
+        // handling below.
+        if matches!(ret, Err(Reject::RBFRejected(_))) {
+            let held = {
+                let room = self.pipeline.waiting_room.read().await;
+                room.contains_key(&tx.proposal_short_id())
+            };
+            if held {
+                return;
+            }
+        }
+
         if matches!(
             ret,
             Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
         ) {
-            let mut tx_pool = self.tx_pool.write().await;
-            if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
-                tx_pool.record_conflict(tx.clone(), source);
+            // A tx already held in the pipeline (e.g. a superseded candidate
+            // parked as `RaceLost`) must not be double-parked into the
+            // pool-side waiting room: its fate is decided by the winner's
+            // lifecycle, and a second parked copy would race the
+            // hold-and-restore machinery.
+            let already_held = {
+                let room = self.pipeline.waiting_room.read().await;
+                room.contains_key(&tx.proposal_short_id())
+            };
+            if !already_held {
+                let mut tx_pool = self.pool.tx_pool.write().await;
+                if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
+                    tx_pool.record_conflict(tx.clone(), source);
+                }
             }
+        }
+
+        // Proposal txs (compact-block proposals arriving out of order) are
+        // routed to the orphan pool just like remote ones: their parents
+        // are usually in-flight relay traffic. Local (RPC) submissions with
+        // missing inputs are *not* parked — they are recorded as rejected
+        // (upstream RPC semantics: the caller resubmits when ready).
+        if matches!(source, TxSource::Proposal)
+            && let Err(reject) = ret
+            && is_missing_input(reject)
+        {
+            let parents = tx.unique_parents();
+            self.handle_missing_input_orphan(tx, source, parents).await;
+            return;
         }
 
         match source {
@@ -69,6 +112,56 @@ impl TxPoolService {
         reject: Reject,
     ) {
         self.after_process(tx, source, &Err(reject)).await;
+    }
+
+    /// Terminally reject a transaction whose bounded retries are exhausted.
+    /// Unlike `after_process`, this bypasses the missing-input orphan
+    /// parking — the whole point of the bounded retry is to give up.
+    /// Recording and relaying behave like any other rejection.
+    pub(crate) async fn terminal_reject(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        reject: Reject,
+    ) {
+        match source {
+            TxSource::Remote { peer, .. } => {
+                self.handle_remote_reject(&tx.hash(), &reject, peer).await;
+            }
+            _ => {
+                if reject.should_recorded() {
+                    self.put_recent_reject(&tx.hash(), &reject);
+                }
+            }
+        }
+    }
+
+    /// Terminal routing for a transaction whose processing failed
+    /// *internally* — a panic caught by the per-job guard, or a bounded
+    /// recovery that gave up. The transaction itself is not at fault, so
+    /// nothing is recorded in recent_reject and no peer is banned; but the
+    /// relayer must still hear a definitive answer, otherwise the peer's
+    /// filter entry waits forever.
+    pub(crate) async fn terminal_internal(&self, tx: TransactionView, source: TxSource) {
+        debug!("terminal internal drop of {} from {:?}", tx.hash(), source);
+        if source.peer().is_some() {
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash: tx.hash() });
+        }
+    }
+
+    /// True if the peer was banned within the ban window. Workers check
+    /// popped jobs against this so a banned peer's in-flight jobs do not
+    /// keep flowing into the pool: queue-level removal (`remove_by_peer`)
+    /// only covers queued jobs, not ones a worker has already popped.
+    pub(crate) fn is_recently_banned(&self, source: TxSource) -> bool {
+        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
+        let Some(peer) = source.peer() else {
+            return false;
+        };
+        let banned = self.relay.banned_peers.lock().unwrap();
+        banned
+            .get(&peer)
+            .is_some_and(|at| at.elapsed() < DEFAULT_BAN_TIME)
     }
     /// Post-process a remote transaction result.
     ///
@@ -165,7 +258,11 @@ impl TxPoolService {
         if reject.is_malformed_tx() {
             self.ban_malformed(peer, format!("reject {reject}")).await;
         }
-        if reject.is_allowed_relay() {
+        // A duplicate is not relayed as a rejection: the tx is (or will be)
+        // in the pool, and a "Reject" would mark a valid transaction as
+        // rejected in the relayer's peer filter. Local duplicates already
+        // get the Ok re-broadcast treatment (see `after_process_local`).
+        if reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_)) {
             self.send_result_to_relayer(TxVerificationResult::Reject {
                 tx_hash: tx_hash.clone(),
             });
@@ -196,8 +293,18 @@ impl TxPoolService {
                 )
             },
         );
-        self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
-        self.queues
+        self.relay.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
+        // Record the ban so workers can drop this peer's in-flight jobs
+        // (popped from a queue before the ban) instead of letting them
+        // into the pool; queue-level removal only covers queued jobs.
+        {
+            let mut banned = self.relay.banned_peers.lock().unwrap();
+            let now = std::time::Instant::now();
+            banned.retain(|_, at| now.saturating_duration_since(*at) < DEFAULT_BAN_TIME);
+            banned.insert(peer, now);
+        }
+        self.pipeline
+            .queues
             .ordered_resolve_queue
             .write()
             .await
@@ -207,22 +314,38 @@ impl TxPoolService {
         // registrations for the removed txs while holding both locks. This
         // matches the order used in remove_tx and prevents deadlock with
         // register_rbf_candidate / update_tx_pool_for_reorg.
-        let _removed_ids = {
-            let mut rbf = self.queues.rbf_candidates.write().await;
+        let held = {
+            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
             let removed_ids = self
+                .pipeline
                 .queues
                 .verify_queue
                 .write()
                 .await
                 .remove_txs_by_peer(&peer);
+            let mut held = Vec::new();
+            let mut room = self.pipeline.waiting_room.write().await;
             for id in &removed_ids {
                 rbf.remove(id);
+                held.extend(room.wake_by_winner(id));
             }
-            removed_ids
+            held
         };
+        // Restore candidates that were held by the banned peer's
+        // registrations — unless they themselves came from the banned peer.
+        self.restore_held_rbf_candidates(
+            held.into_iter()
+                .filter(|resolved| resolved.source.peer() != Some(peer))
+                .collect(),
+        )
+        .await;
         // Remove orphan txs from the banned peer so they are not re-processed
         // after the ban.
-        self.orphan.write().await.remove_by_peer(peer);
-        self.queues.pre_check_queue.remove_by_peer(&peer);
+        self.pipeline
+            .waiting_room
+            .write()
+            .await
+            .remove_by_peer(peer);
+        self.pipeline.queues.pre_check_queue.remove_by_peer(&peer);
     }
 }

@@ -64,20 +64,21 @@ pub struct TxPoolConfig {
     ///
     /// The verify queue is the slowest tx-pool pipeline stage (VM execution)
     /// and the one whose entries carry the most completed work, so it gets a
-    /// larger budget than the other pipeline queues. The budget must be at
-    /// least `max_tx_pool_size`: `load_persisted_data` re-submits the whole
-    /// persisted pool through this queue after a restart with a cold
-    /// verification cache, and a smaller budget would silently drop
-    /// transactions with `Reject::Full` during reload. The effective budget
-    /// is therefore clamped up to `max_tx_pool_size`, see
-    /// [`TxPoolConfig::verify_queue_tx_size_budget`].
+    /// larger budget than the other pipeline queues. The effective budget is
+    /// clamped up to `max_tx_pool_size` (see
+    /// [`TxPoolConfig::verify_queue_tx_size_budget`]): the pool itself may
+    /// hold that much, and bursts plus reload churn should not squeeze the
+    /// queue below it. (Reload itself goes through the direct sync path and
+    /// does not pass through this queue; the clamp is headroom, not a
+    /// reload requirement.) Note the queue is "full" at
+    /// `total + add >= budget`, i.e. the budget minus one byte effectively.
     pub max_verify_queue_tx_size: usize,
 }
 
 impl TxPoolConfig {
     /// Effective verify-queue budget in bytes: `max_verify_queue_tx_size`
-    /// clamped up to `max_tx_pool_size` so that reloading a full persisted
-    /// pool after a restart can never hit `Reject::Full`.
+    /// clamped up to `max_tx_pool_size` (headroom so bursts and reload
+    /// churn cannot squeeze the queue below the pool's own capacity).
     pub fn verify_queue_tx_size_budget(&self) -> usize {
         self.max_verify_queue_tx_size.max(self.max_tx_pool_size)
     }

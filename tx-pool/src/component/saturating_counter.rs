@@ -16,9 +16,6 @@ pub(crate) struct SaturatingCounter<T> {
 
 /// Value types supported by [`SaturatingCounter`].
 pub(crate) trait CounterValue: Copy + Default + Display + PartialOrd {
-    /// The additive identity.
-    fn zero() -> Self;
-
     /// The maximum representable value.
     fn max_value() -> Self;
 
@@ -30,10 +27,6 @@ pub(crate) trait CounterValue: Copy + Default + Display + PartialOrd {
 }
 
 impl CounterValue for usize {
-    fn zero() -> Self {
-        0
-    }
-
     fn max_value() -> Self {
         Self::MAX
     }
@@ -48,10 +41,6 @@ impl CounterValue for usize {
 }
 
 impl CounterValue for u64 {
-    fn zero() -> Self {
-        0
-    }
-
     fn max_value() -> Self {
         Self::MAX
     }
@@ -111,20 +100,6 @@ impl<T: CounterValue> SaturatingCounter<T> {
         }
     }
 
-    /// Subtract `delta`. If the subtraction would underflow, reset to zero.
-    pub(crate) fn sub_or_zero(&mut self, delta: T, name: &'static str, action: &'static str) {
-        match self.value.checked_sub(delta) {
-            Some(v) => self.value = v,
-            None => {
-                error!(
-                    "{} {} underflowed by sub {} in {}, reset to zero",
-                    name, self.value, delta, action
-                );
-                self.value = T::zero();
-            }
-        }
-    }
-
     /// Add `delta` with saturation on overflow.
     ///
     /// If the addition would overflow the representable range, the counter is
@@ -161,13 +136,6 @@ mod tests {
         let mut c = SaturatingCounter::<u64>::new(u64::MAX - 1);
         c.add_saturating(5, "test", "overflow");
         assert_eq!(c.get(), u64::MAX);
-    }
-
-    #[test]
-    fn sub_or_zero_recovers_from_underflow() {
-        let mut c = SaturatingCounter::<usize>::new(3);
-        c.sub_or_zero(10, "test", "underflow");
-        assert_eq!(c.get(), 0);
     }
 
     #[test]

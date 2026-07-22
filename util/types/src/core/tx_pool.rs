@@ -101,8 +101,22 @@ impl Reject {
     }
 
     /// Returns true if the reject should be recorded.
+    ///
+    /// `Full` is exempt: queue backpressure is a transient node-local
+    /// condition, not transaction invalidity. A recorded `Full` would
+    /// reject later legitimate resubmissions for the TTL even after the
+    /// queue has drained.
+    ///
+    /// `RBFRejected` is recordable *here* (terminal rejections: pool
+    /// RBF-rule failures, committed replacements, wait-deadline outcomes).
+    /// The *speculative* RBF paths — the in-flight register gate and the
+    /// superseded-at-submit hold — bypass recording at their call sites
+    /// instead: an unverified candidate must not poison a valid
+    /// transaction through this DB. Recording is DoS-neutral anyway: the
+    /// DB only feeds RPC status queries, a resubmission merely re-runs the
+    /// cheap RBF rule checks.
     pub fn should_recorded(&self) -> bool {
-        !matches!(self, Reject::Duplicated(..))
+        !matches!(self, Reject::Duplicated(..) | Reject::Full(..))
     }
 
     /// Returns true if tx can be resubmitted, allowing relay
@@ -432,4 +446,22 @@ pub struct PoolTransactionEntry {
     pub fee: Capacity,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_and_duplicated_are_not_recorded_in_recent_reject() {
+        // Backpressure and duplicates are not invalidity and must not
+        // poison the recent-reject DB (see `should_recorded` docs).
+        // Terminal `RBFRejected` (pool-rule failure / committed
+        // replacement) IS recorded; only the speculative in-flight gates
+        // bypass recording, at their call sites.
+        assert!(Reject::RBFRejected("replaced".to_string()).should_recorded());
+        assert!(!Reject::Duplicated(Default::default()).should_recorded());
+        assert!(!Reject::Full("full".to_string()).should_recorded());
+        assert!(Reject::Malformed("pool".to_string(), "bad".to_string()).should_recorded());
+    }
 }

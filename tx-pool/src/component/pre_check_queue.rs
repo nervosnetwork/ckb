@@ -5,6 +5,7 @@
 //! independent and can be processed in any order, while the ordered queue must
 //! retry missing-input txs in arrival order.
 
+use crate::component::active_set::ActiveSet;
 use crate::component::flight_tracker::FlightTracker;
 use crate::component::saturating_counter::SaturatingCounter;
 use crate::constants::MAX_PRE_CHECK_QUEUE_TX_SIZE;
@@ -27,7 +28,14 @@ pub(crate) struct PreCheckJob {
 struct PreCheckQueueState {
     inner: VecDeque<PreCheckJob>,
     index: HashSet<ProposalShortId>,
+    /// Id-addressable view of the queued jobs, so lookups (`get_tx` in the
+    /// compact-block reconstruction hot path) are O(1) instead of a linear
+    /// scan of the deque. Kept in sync with `inner` on every mutation.
+    lookup: std::collections::HashMap<ProposalShortId, PreCheckJob>,
     flight: FlightTracker,
+    /// Jobs that have been popped by a worker but have not reached a
+    /// terminal state yet; see [`PreCheckQueue::contains_or_active`].
+    active: ActiveSet<TransactionView>,
     /// Total serialized size of all transactions currently in the queue.
     ///
     /// This counter is kept inside the mutex-protected state because every
@@ -49,7 +57,9 @@ impl PreCheckQueue {
             state: Mutex::new(PreCheckQueueState {
                 inner: VecDeque::new(),
                 index: HashSet::new(),
+                lookup: std::collections::HashMap::new(),
                 flight: FlightTracker::new(),
+                active: ActiveSet::default(),
                 total_tx_size: SaturatingCounter::new(0),
             }),
             ready: tokio::sync::Notify::new(),
@@ -86,15 +96,49 @@ impl PreCheckQueue {
         state.index.contains(id)
     }
 
+    /// Returns true if the given proposal id is either queued or currently
+    /// being processed by a worker (popped but not yet terminal).
+    ///
+    /// Introduced for the local-orphan flight check
+    /// (`all_missing_parents_in_flight`): a parent transaction must count as
+    /// "in flight" for the whole time it is inside the pipeline, including
+    /// the window between `pop` and the end of classification, otherwise the
+    /// orphan's retry budget is burned while its parent is mid-flight. The
+    /// read-only pipeline query paths (`find_tx_in_pipeline`,
+    /// `exclude_existing_proposal`, `get_tx_for_compact_block`) use it for
+    /// the same visibility.
+    ///
+    /// Deliberately *not* used for duplicate detection (`contains_key`): if a
+    /// worker panics between `pop` and `finish`, the id stays in `active`
+    /// until the queue is cleared. That only makes orphans wait out their
+    /// bounded retry budget; it must never block a genuine resubmission.
+    pub fn contains_or_active(&self, id: &ProposalShortId) -> bool {
+        let state = self.lock();
+        state.index.contains(id) || state.active.contains(id)
+    }
+
+    /// Returns the transaction currently being processed by a worker
+    /// (popped but not yet finished), if any.
+    pub fn get_active_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
+        let state = self.lock();
+        state.active.get(id).cloned()
+    }
+
+    /// Mark a previously popped job as terminally processed.
+    ///
+    /// Every worker must call this exactly once per popped job, after the job
+    /// has landed in its terminal state (forwarded, re-enqueued, or
+    /// rejected).
+    pub fn finish(&self, id: &ProposalShortId) {
+        let mut state = self.lock();
+        state.active.finish(id);
+    }
+
     /// Returns the raw transaction for the given id, if it is waiting in the
     /// pre-check queue.
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
         let state = self.lock();
-        state
-            .inner
-            .iter()
-            .find(|job| &job.tx.proposal_short_id() == id)
-            .map(|job| job.tx.clone())
+        state.lookup.get(id).map(|job| job.tx.clone())
     }
 
     /// Remove a job from the queue by its short id.
@@ -106,9 +150,27 @@ impl PreCheckQueue {
             .position(|job| &job.tx.proposal_short_id() == id)?;
         let job = state.inner.remove(pos).expect("position exists");
         state.index.remove(id);
+        state.lookup.remove(id);
         state.flight.remove(id);
-        state.total_tx_size.sub_or_zero(
-            Self::tx_size(&job),
+        let tx_size = Self::tx_size(&job);
+        // On underflow (an accounting bug elsewhere), restore the true
+        // total from what remains instead of clamping to zero, which
+        // would silently disable the size budget.
+        let recompute = state
+            .total_tx_size
+            .get()
+            .checked_sub(tx_size)
+            .is_none()
+            .then(|| {
+                state
+                    .inner
+                    .iter()
+                    .try_fold(0usize, |acc, job| acc.checked_add(Self::tx_size(job)))
+            })
+            .flatten();
+        state.total_tx_size.sub_or_recompute(
+            tx_size,
+            recompute,
             "pre_check_queue total_tx_size",
             "remove_by_id",
         );
@@ -128,8 +190,10 @@ impl PreCheckQueue {
         let PreCheckQueueState {
             inner,
             index,
+            lookup,
             flight,
             total_tx_size,
+            ..
         } = &mut *state;
         // `VecDeque::retain` preserves the relative order of kept jobs and
         // avoids the O(n²) cost of repeated `remove(idx)` on a deque.
@@ -137,18 +201,22 @@ impl PreCheckQueue {
             if job.source.peer().is_some_and(|p| p == *peer) {
                 let id = job.tx.proposal_short_id();
                 index.remove(&id);
+                lookup.remove(&id);
                 flight.remove(&id);
-                total_tx_size.sub_or_zero(
-                    Self::tx_size(job),
-                    "pre_check_queue total_tx_size",
-                    "remove_by_peer",
-                );
                 removed.push(job.tx.clone());
                 false
             } else {
                 true
             }
         });
+        // Recompute the counter exactly from what remains: exact and O(n)
+        // once, versus per-job saturating subtraction inside the loop.
+        let remaining = inner
+            .iter()
+            .try_fold(0usize, |acc, job| acc.checked_add(Self::tx_size(job)));
+        if let Some(remaining) = remaining {
+            total_tx_size.set(remaining);
+        }
         removed
     }
 
@@ -168,6 +236,7 @@ impl PreCheckQueue {
             )));
         }
         state.index.insert(id.clone());
+        state.lookup.insert(id.clone(), job.clone());
         state.flight.insert(id, &job.tx);
         state.inner.push_back(job);
         state
@@ -183,11 +252,16 @@ impl PreCheckQueue {
         let mut state = self.lock();
         state.inner.clear();
         state.index.clear();
+        state.lookup.clear();
         state.flight.clear();
+        state.active.clear();
         state.total_tx_size.set(0);
     }
 
     /// Pop the next job, or return `None` if the queue has been cancelled.
+    ///
+    /// The popped id is moved into `active` and stays visible to
+    /// `contains_or_active` until the worker calls [`Self::finish`].
     pub(crate) async fn pop(&self) -> Option<PreCheckJob> {
         loop {
             {
@@ -195,10 +269,27 @@ impl PreCheckQueue {
                 if let Some(job) = state.inner.pop_front() {
                     let id = job.tx.proposal_short_id();
                     state.index.remove(&id);
+                    state.lookup.remove(&id);
                     state.flight.remove(&id);
+                    state.active.insert(id, job.tx.clone());
                     let tx_size = Self::tx_size(&job);
-                    state.total_tx_size.sub_or_zero(
+                    // On underflow, restore the true total from what
+                    // remains queued instead of clamping to zero.
+                    let recompute = state
+                        .total_tx_size
+                        .get()
+                        .checked_sub(tx_size)
+                        .is_none()
+                        .then(|| {
+                            state
+                                .inner
+                                .iter()
+                                .try_fold(0usize, |acc, job| acc.checked_add(Self::tx_size(job)))
+                        })
+                        .flatten();
+                    state.total_tx_size.sub_or_recompute(
                         tx_size,
+                        recompute,
                         "pre_check_queue total_tx_size",
                         "pop",
                     );
@@ -237,6 +328,33 @@ mod tests {
             )
             .output_data(Bytes::default().pack())
             .build()
+    }
+
+    #[tokio::test]
+    async fn popped_job_stays_visible_until_finish() {
+        let cancel = CancellationToken::new();
+        let queue = PreCheckQueue::new(cancel);
+        let input = OutPoint::new(
+            h256!("0x0303030303030303030303030303030303030303030303030303030303030303").pack(),
+            0,
+        );
+        let tx = dummy_tx(&input, 1_000);
+        let id = tx.proposal_short_id();
+        queue
+            .push(PreCheckJob {
+                tx: tx.clone(),
+                source: TxSource::Local,
+            })
+            .unwrap();
+
+        let job = queue.pop().await.expect("job pops");
+        assert_eq!(job.tx.hash(), tx.hash());
+        // No longer queued, but still in flight while the worker classifies it.
+        assert!(!queue.contains_key(&id));
+        assert!(queue.contains_or_active(&id));
+
+        queue.finish(&id);
+        assert!(!queue.contains_or_active(&id));
     }
 
     #[test]

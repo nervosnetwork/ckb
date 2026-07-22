@@ -14,6 +14,7 @@ mod tests;
 
 use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
+use crate::util::block_offload;
 pub use candidate_uncles::CandidateUncles;
 use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
@@ -42,7 +43,6 @@ use std::sync::{
 };
 use std::{cmp, iter};
 use tokio::sync::{Mutex, RwLock};
-use tokio::task::block_in_place;
 
 use crate::TxPool;
 pub(crate) use builder::BlockTemplateBuilder;
@@ -139,7 +139,7 @@ impl BlockAssembler {
         let extension = Self::build_extension(&snapshot)?;
         let basic_block_size =
             Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
-        let uncles_size = uncles.len() * UncleBlockView::serialized_size_in_block();
+        let uncles_size = Self::uncles_size(&uncles);
 
         let (dao, _checked_txs, _failed_txs) =
             Self::calc_dao(&snapshot, current_epoch, cellbase.clone(), vec![], memo)?;
@@ -299,27 +299,17 @@ impl BlockAssembler {
         true
     }
 
-    pub(crate) async fn reset_template(
-        &self,
-        snapshot: Arc<Snapshot>,
-        force: bool,
-    ) -> Result<(), AnyError> {
+    pub(crate) async fn reset_template(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         // Serialize with `update_full` so that a reorg finalization and an
-        // explicit reset never interleave with each other. We must hold the
-        // lock while reading `version` for non-force resets: otherwise a
-        // concurrent `update_full` could increment `version` between the read
-        // and the swap and cause the reset to be silently ignored.
-        // Partial updates (`update_uncles/proposals/transactions`) do not take
-        // this lock and remain concurrent.
+        // explicit reset never interleave with each other. Partial updates
+        // (`update_uncles/proposals/transactions`) do not take this lock and
+        // remain concurrent.
+        //
+        // The swap is always unconditional (`expected_version = None`): both
+        // callers (reorg finalization and the management `Reset` message,
+        // e.g. `clear_pool`) must not be dropped by the version check — the
+        // pool state they rebuild from has already changed.
         let _template_guard = self.template_lock.lock().await;
-
-        // Non-forced blank updates (Reset messages) must not overwrite a reorg
-        // that happened while they were building.
-        let version = if force {
-            0
-        } else {
-            self.version.load(Ordering::SeqCst)
-        };
 
         let consensus = snapshot.consensus();
         let current_epoch = consensus
@@ -345,8 +335,7 @@ impl BlockAssembler {
             new_blank.template.transactions.len(),
         );
 
-        let expected_version = if force { None } else { Some(version) };
-        self.try_swap_template(new_blank, expected_version).await;
+        self.try_swap_template(new_blank, None).await;
         Ok(())
     }
 
@@ -395,6 +384,13 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn update_uncles(&self) {
+        // Serialize with `update_full`/`reset_template`: `update_full`
+        // carries the uncle set forward from the template it read, so an
+        // uncles update landing between its read and its (unconditional)
+        // swap would be silently reverted. The other partial updates are
+        // rebuilt from the pool on every `update_full`, so they do not
+        // need this lock.
+        let _template_guard = self.template_lock.lock().await;
         let (current, version) = {
             let guard = self.current.read().await;
             (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
@@ -407,15 +403,23 @@ impl BlockAssembler {
             return;
         }
 
-        let remain_size = max_block_bytes.saturating_sub(current.size.total);
-        if remain_size <= UncleBlockView::serialized_size_in_block() {
-            return;
+        let mut uncles = self.prepare_uncles(&current.snapshot, &current.epoch).await;
+        let prepared_non_empty = !uncles.is_empty();
+        // Truncate to the longest fitting suffix of the prepared (ordered)
+        // candidate list instead of dropping the whole update when the full
+        // set overshoots the budget. The size accounting uses the
+        // `serialized_size_without_uncle_proposals` basis — the same basis
+        // as the consensus block-bytes limit.
+        let mut new_uncle_size = Self::uncles_size(&uncles);
+        let mut new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
+        while !uncles.is_empty() && new_total_size > max_block_bytes {
+            let dropped = uncles.pop().expect("uncles is non-empty");
+            new_uncle_size = new_uncle_size.saturating_sub(Self::uncle_size(&dropped));
+            new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
         }
-
-        let uncles = self.prepare_uncles(&current.snapshot, &current.epoch).await;
-        let new_uncle_size = uncles.len() * UncleBlockView::serialized_size_in_block();
-        let new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
-        if new_total_size >= max_block_bytes {
+        if prepared_non_empty && uncles.is_empty() {
+            // Nothing fits at all: keep the current set (the original
+            // all-or-nothing behavior for this case).
             return;
         }
 
@@ -446,7 +450,9 @@ impl BlockAssembler {
         let new_proposals_size = proposals.len() * ProposalShortId::serialized_size();
         let new_total_size = current.size.calc_total_by_proposals(new_proposals_size);
         let max_block_bytes = consensus.max_block_bytes() as usize;
-        if new_total_size >= max_block_bytes {
+        // Same boundary as the transaction selector: a template that fills
+        // the budget exactly is allowed (`>` rejects only overshoots).
+        if new_total_size > max_block_bytes {
             return;
         }
 
@@ -593,7 +599,7 @@ impl BlockAssembler {
         let cellbase_witness = Self::build_cellbase_witness(config, snapshot);
 
         let tx = {
-            let (target_lock, block_reward) = block_in_place(|| {
+            let (target_lock, block_reward) = block_offload(|| {
                 RewardCalculator::new(snapshot.consensus(), snapshot).block_reward_to_finalize(tip)
             })?;
             let input = CellInput::new_cellbase_input(candidate_number);
@@ -646,6 +652,19 @@ impl BlockAssembler {
     ) -> Vec<UncleBlockView> {
         let mut guard = self.candidate_uncles.lock().await;
         guard.prepare_uncles(snapshot, current_epoch)
+    }
+
+    /// The byte contribution of one uncle on the template's accounting
+    /// basis (`serialized_size_without_uncle_proposals`, the same basis as
+    /// `basic_block_size` and the consensus block-bytes limit): the packed
+    /// in-block size minus its proposal ids.
+    fn uncle_size(uncle: &UncleBlockView) -> usize {
+        UncleBlockView::serialized_size_in_block()
+            .saturating_sub(uncle.data().proposals().len() * ProposalShortId::serialized_size())
+    }
+
+    fn uncles_size(uncles: &[UncleBlockView]) -> usize {
+        uncles.iter().map(Self::uncle_size).sum()
     }
 
     pub(crate) fn basic_block_size<'a>(

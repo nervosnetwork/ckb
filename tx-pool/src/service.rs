@@ -4,6 +4,8 @@ pub(crate) mod builder;
 pub(crate) mod controller;
 pub(crate) mod dispatch;
 pub(crate) mod message;
+pub(crate) mod pipeline_ops;
+pub(crate) mod workers;
 
 pub use builder::TxPoolServiceBuilder;
 pub use controller::TxPoolController;
@@ -11,20 +13,20 @@ pub(crate) use message::{
     AsyncRequest, BlockAssemblerMessage, DeferredTask, Message, SyncRequest, TestAcceptTxResult,
 };
 
-#[cfg(feature = "internal")]
-pub(crate) use builder::spawn_deferred_worker;
 pub(crate) use dispatch::process;
 pub(crate) use message::{
     BlockTemplateArgs, BlockTemplateResult, FeeEstimatesResult, FetchTxsWithCyclesResult,
     GetTransactionWithStatusResult, GetTxStatusResult, SubmitTxResult,
 };
+#[cfg(feature = "internal")]
+pub(crate) use workers::spawn_deferred_worker;
 
 use crate::block_assembler::BlockAssembler;
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
-use crate::component::orphan::OrphanPool;
 use crate::component::pool_map::Status;
 use crate::component::recent_reject::RecentReject;
+use crate::component::waiting_room::WaitingRoom;
 use crate::pool::TxPool;
 #[cfg(feature = "internal")]
 use crate::process::PlugTarget;
@@ -162,22 +164,26 @@ pub(crate) struct AuxServices {
     pub(crate) fee_estimator: FeeEstimator,
 }
 
+/// Pool-core state: the main pool and the chain context it validates
+/// against.
 #[derive(Clone)]
-pub(crate) struct TxPoolService {
+pub(crate) struct PoolCore {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
-    pub(crate) orphan: Arc<RwLock<OrphanPool>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
-    pub(crate) block_assembler: Option<BlockAssembler>,
-    pub(crate) callbacks: Arc<Callbacks>,
-    pub(crate) network: crate::network::TxPoolNetworkHandle,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
-    pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
-    pub(crate) aux: AuxServices,
+}
+
+/// Pipeline state: the structures a transaction travels through before it
+/// reaches the pool.
+#[derive(Clone)]
+pub(crate) struct PipelineState {
     /// The pipeline queues (pre-check, ordered-resolve, verify) and the
     /// in-flight RBF gate, bundled behind a single `Arc` because they share
     /// the same lifecycle and the same lock hierarchy.
     pub(crate) queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
+    /// The waiting room: transactions parked while they wait for an event
+    /// (missing parents, blocked inputs, a lost in-flight race).
+    pub(crate) waiting_room: Arc<RwLock<WaitingRoom>>,
     /// Chunk command receiver used by the synchronous reorg recovery path so
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
@@ -186,6 +192,54 @@ pub(crate) struct TxPoolService {
     /// verify cache updates). A single background worker drains this channel,
     /// preventing unbounded task accumulation under high RBF frequency.
     pub(crate) deferred_sender: mpsc::Sender<DeferredTask>,
+}
+
+/// Relay/notification state: how verification outcomes leave the node.
+#[derive(Clone)]
+pub(crate) struct RelayState {
+    pub(crate) network: crate::network::TxPoolNetworkHandle,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+    pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
+    pub(crate) callbacks: Arc<Callbacks>,
+    /// Peers banned within the ban window. Workers check jobs against this
+    /// set so that a banned peer's in-flight jobs (popped from a queue
+    /// before the ban) do not keep flowing into the pool afterwards.
+    pub(crate) banned_peers: BannedPeers,
+}
+
+/// Shared set of recently banned peers (ban time per peer). Pruned
+/// opportunistically on insert.
+pub(crate) type BannedPeers =
+    Arc<std::sync::Mutex<std::collections::HashMap<ckb_network::PeerIndex, std::time::Instant>>>;
+
+#[derive(Clone)]
+pub(crate) struct TxPoolService {
+    /// Main pool and chain context.
+    pub(crate) pool: PoolCore,
+    /// Pipeline structures between entry and the pool.
+    pub(crate) pipeline: PipelineState,
+    /// Outbound notification channels (network, relayer, callbacks).
+    pub(crate) relay: RelayState,
+    pub(crate) aux: AuxServices,
+    pub(crate) block_assembler: Option<BlockAssembler>,
+    /// Held while the lock-free section of a reorg (retained-transaction
+    /// recovery) is in progress. `save_pool` acquires it before persisting
+    /// so the file always represents a complete recovery point: a snapshot
+    /// taken mid-recovery would silently lose the detached transactions
+    /// that have not been re-added yet.
+    pub(crate) recovery_lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// Outcome of an administrative `remove_tx` attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RemoveTxOutcome {
+    /// The transaction was found and removed.
+    Removed,
+    /// A worker has popped the transaction and is processing it right now
+    /// (not yet terminal): it cannot be removed mid-flight, but it exists.
+    InProgress,
+    /// Not found anywhere.
+    NotFound,
 }
 
 /// Location and metadata of a transaction found in the pipeline queues.
@@ -234,6 +288,7 @@ impl TxPoolService {
                 block_assembler.candidate_uncles.lock().await.insert(uncle);
             }
             if self
+                .relay
                 .block_assembler_sender
                 .send(BlockAssemblerMessage::Uncle)
                 .await
@@ -257,7 +312,7 @@ impl TxPoolService {
                 }
             }
 
-            if let Err(e) = block_assembler.reset_template(snapshot, true).await {
+            if let Err(e) = block_assembler.reset_template(snapshot).await {
                 error!("block_assembler reset_template error {}", e);
             }
             block_assembler.notify().await;
@@ -266,7 +321,7 @@ impl TxPoolService {
 
     pub async fn update_block_assembler_after_tx_pool_reorg(&self) {
         if let Some(ref block_assembler) = self.block_assembler {
-            match block_assembler.update_full(&self.tx_pool).await {
+            match block_assembler.update_full(&self.pool.tx_pool).await {
                 Ok(true) => block_assembler.notify().await,
                 Ok(false) => debug!("block_assembler update_full skipped (tip mismatch)"),
                 Err(e) => error!("block_assembler update failed {:?}", e),
@@ -277,7 +332,7 @@ impl TxPoolService {
     #[cfg(feature = "internal")]
     pub async fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) {
         {
-            let mut tx_pool = self.tx_pool.write().await;
+            let mut tx_pool = self.pool.tx_pool.write().await;
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
@@ -301,7 +356,7 @@ impl TxPoolService {
                 PlugTarget::Pending => BlockAssemblerMessage::Pending,
                 PlugTarget::Proposed => BlockAssemblerMessage::Proposed,
             };
-            if self.block_assembler_sender.send(msg).await.is_err() {
+            if self.relay.block_assembler_sender.send(msg).await.is_err() {
                 error!("block_assembler receiver dropped");
             }
         }

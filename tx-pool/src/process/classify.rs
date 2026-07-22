@@ -69,7 +69,7 @@ impl super::TxPoolService {
                     &snapshot,
                     &rtx,
                     tx_size,
-                    self.tx_pool_config.min_fee_rate,
+                    self.pool.tx_pool_config.min_fee_rate,
                 ) {
                     Ok(fee) => fee,
                     Err(reject) => return (Err(reject), snapshot),
@@ -143,12 +143,12 @@ impl super::TxPoolService {
         (ret, snapshot)
     }
 
-    pub(crate) async fn process_tx_direct(
+    pub(crate) async fn process_tx_direct_outcome(
         &self,
         tx: TransactionView,
         source: TxSource,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Result<Completed, Reject> {
+    ) -> Result<super::submit::VerifySubmitOutcome, Reject> {
         let tx_size = tx.data().serialized_size_in_block();
         let (ret, snapshot) = self.pre_check(&tx, tx_size).await;
 
@@ -176,23 +176,23 @@ impl super::TxPoolService {
         .await
     }
 
-    /// Topologically sort transactions so that parents are placed before their
-    /// children. This is required when re-adding detached transactions into the
-    /// pipeline: a child must not be classified before its parent has had a
-    /// chance to enter the in-flight pipeline, otherwise it will be treated as a
-    /// local orphan and have to wait for a retry.
-    pub(crate) async fn depends_on_pipeline(&self, tx: &TransactionView) -> bool {
-        let ordered = self.queues.ordered_resolve_queue.read().await;
-        if ordered.depends_on(tx) {
-            return true;
+    pub(crate) async fn process_tx_direct(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
+    ) -> Result<Completed, Reject> {
+        match self.process_tx_direct_outcome(tx, source, command_rx).await {
+            Ok(super::submit::VerifySubmitOutcome::Committed(completed)) => Ok(completed),
+            // Held by a stronger in-flight registration (it may be restored
+            // if the winner fails). To this caller the tx is not committed
+            // *now*, so surface the race outcome as a rejection; the hold
+            // machinery decides the rest.
+            Ok(super::submit::VerifySubmitOutcome::Superseded) => Err(Reject::RBFRejected(
+                super::TxPoolService::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
+            )),
+            Err(reject) => Err(reject),
         }
-        drop(ordered);
-        let verify_queue = self.queues.verify_queue.read().await;
-        if verify_queue.depends_on(tx) {
-            return true;
-        }
-        drop(verify_queue);
-        self.queues.pre_check_queue.depends_on(tx)
     }
 
     /// Check if a transaction depends on any in-flight pipeline transaction.
@@ -205,7 +205,7 @@ impl super::TxPoolService {
         let id = tx.proposal_short_id();
 
         if self.depends_on_pipeline(tx).await {
-            let mut ordered = self.queues.ordered_resolve_queue.write().await;
+            let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
             if ordered.contains_key(&id) {
                 return Ok(RouteDecision::Duplicate);
             }
@@ -260,7 +260,7 @@ impl super::TxPoolService {
         // after_process may acquire tx_pool and other locks, and must never
         // run while holding a pipeline-queue write lock.
         let add_result = {
-            let mut verify_queue = self.queues.verify_queue.write().await;
+            let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
             verify_queue.add_tx(resolved)
         };
         match add_result {
@@ -304,7 +304,7 @@ impl super::TxPoolService {
             crate::resolve_mgr::ResolveStageResult::Orphan(..) => {
                 // Missing inputs: park the tx in the ordered resolve queue so
                 // the ordered resolver retries it once its parents land.
-                let mut ordered = self.queues.ordered_resolve_queue.write().await;
+                let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
                 if ordered.contains_key(&id) {
                     return Ok(false);
                 }
@@ -317,7 +317,8 @@ impl super::TxPoolService {
         }
     }
 
-    /// Entry-point classifier used by remote/local submission.
+    /// Entry-point classifier used by remote/local submission and proposal
+    /// notifications (`notify_tx`).
     ///
     /// Dependent transactions (those that spend an output currently in flight)
     /// are handled synchronously so they land in the ordered resolve queue in
@@ -336,7 +337,7 @@ impl super::TxPoolService {
         }
 
         let job = PreCheckJob { tx, source };
-        self.queues.pre_check_queue.push(job)?;
+        self.pipeline.queues.pre_check_queue.push(job)?;
 
         // Returning Ok(true) only means the tx was accepted into the pipeline;
         // actual classification/verification happens in the worker pool.

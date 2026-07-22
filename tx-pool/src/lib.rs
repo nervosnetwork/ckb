@@ -11,7 +11,7 @@
 //! 1. `ordered_resolve_queue`
 //! 2. `rbf_candidates`
 //! 3. `verify_queue`
-//! 4. `orphan`
+//! 4. `waiting_room`
 //! 5. `block_assembler.template_lock`
 //! 6. `tx_pool`
 //!
@@ -19,7 +19,16 @@
 //! `register_rbf_candidate` and `update_tx_pool_for_reorg` hold
 //! `rbf_candidates.write()` while adding or removing entries in
 //! `verify_queue`. Keeping this order everywhere (e.g. `remove_tx`,
-//! `ban_malformed`) avoids deadlocks.
+//! `ban_malformed`) avoids deadlocks. The pipeline-side `waiting_room`
+//! (orphans and `RaceLost` candidates) sits below `verify_queue`; the
+//! pool-side `WaitingRoom` (`InputsBlocked`, i.e. conflict recovery) lives
+//! inside `TxPool` itself, because recording conflicts must stay inside
+//! the `tx_pool` write lock.
+//!
+//! `recovery_lock` is taken before `tx_pool` and never the other way
+//! around: the lock-free section of a reorg (retained-transaction
+//! recovery) holds it for its whole duration, and `save_pool` acquires it
+//! before persisting so a mid-recovery pool is never written to disk.
 //!
 //! `pre_check_queue` is *not* part of the async hierarchy: it uses a
 //! `std::sync::Mutex` internally with short, never-awaiting critical

@@ -6,9 +6,10 @@
 use super::BlockAssembler;
 use super::cell_liveness::{CellLivenessMemo, MemoizedChecker};
 use crate::component::entry::TxEntry;
+use crate::util::block_offload;
 use ckb_dao::DaoCalculator;
 use ckb_error::AnyError;
-use ckb_logger::error;
+use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -18,7 +19,6 @@ use ckb_types::{
 use std::collections::HashSet;
 use std::iter;
 use std::sync::Mutex as StdMutex;
-use tokio::task::block_in_place;
 
 /// A candidate transaction that failed the block-template resolve check,
 /// with the offending out point when available.
@@ -40,7 +40,7 @@ impl BlockAssembler {
         let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
 
         let mut checked_failed_txs = vec![];
-        let checked_entries: Vec<_> = block_in_place(|| {
+        let checked_entries: Vec<_> = block_offload(|| {
             entries
                 .into_iter()
                 .filter_map(|entry| {
@@ -52,7 +52,12 @@ impl BlockAssembler {
                         memo,
                     };
                     if let Err(err) = entry.rtx.check(&mut seen_inputs, &checker, snapshot) {
-                        error!(
+                        // A permanently unresolvable proposed tx lands here
+                        // on *every* template update until its ancestor
+                        // lands or it expires — debug level, or it storms
+                        // the error log. The caller aggregates the failed
+                        // set per update.
+                        debug!(
                             "Resolving transactions while building block template, \
                              tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
                             tip_header.number(),

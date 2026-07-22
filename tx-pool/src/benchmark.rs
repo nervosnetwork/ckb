@@ -430,10 +430,11 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
         handles.push(crate::service::spawn_deferred_worker(
             &handle,
-            Arc::clone(&parts.service.queues),
+            Arc::clone(&parts.service.pipeline.queues),
             Arc::clone(&parts.service.aux.txs_verify_cache),
             parts.deferred_receiver,
             parts.signal.child_token(),
+            parts.service.relay.clone(),
         ));
     }
 
@@ -445,19 +446,16 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
         for _ in 0..pre_check_workers {
             let svc = parts.service.clone();
-            let queues = Arc::clone(&parts.service.queues);
-            handles.push(tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            }));
+            handles.push(tokio::spawn(
+                crate::service::workers::run_pre_check_worker_loop(svc),
+            ));
         }
     }
 
     // Create a fresh chunk channel shared by VerifyMgr, OrderedResolver and the
     // service itself (the reorg recovery path needs to observe pause/resume).
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-    parts.service.chunk_rx = chunk_rx.clone();
+    parts.service.pipeline.chunk_rx = chunk_rx.clone();
 
     let mut verify_mgr =
         crate::verify_mgr::VerifyMgr::new(parts.service.clone(), chunk_rx, signal.child_token());
@@ -514,7 +512,7 @@ async fn wait_for_pending_service(service: &TxPoolService, count: usize) {
     let mut last_log = start;
     let result = tokio::time::timeout(Duration::from_secs(120), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending >= count {
                 break;
             }
@@ -531,7 +529,7 @@ async fn wait_for_pending_service(service: &TxPoolService, count: usize) {
         }
     })
     .await;
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert!(
         result.is_ok(),
         "pipeline did not process all txs in time: {}/{} pending",
@@ -585,7 +583,7 @@ fn measure_cycles(
                         .await
                         .expect("measure cycles via notify_tx");
                     wait_for_pending_service(&handle.service, {
-                        let pool = handle.service.tx_pool.read().await;
+                        let pool = handle.service.pool.tx_pool.read().await;
                         pool.pool_map.pending_size() + 1
                     })
                     .await;
@@ -594,6 +592,7 @@ fn measure_cycles(
                     let id = tx.proposal_short_id();
                     let (_, c) = handle
                         .service
+                        .pool
                         .tx_pool
                         .read()
                         .await

@@ -158,6 +158,13 @@ pub struct PoolMap {
     pub(crate) links: TxLinksMap,
     pub(crate) max_ancestors_count: usize,
     pub(crate) stats: PoolStats,
+    /// Journal of entries evicted by the cell-ref escape hatch during the
+    /// most recent `add_entry` call. Cleared at the start of every
+    /// `add_entry`; the caller drains it on *both* outcomes, because
+    /// `add_entry` can still fail after the escape eviction (e.g. the dep
+    /// pre-validation) and would otherwise drop the evicted set on the
+    /// error path — a failed commit must not evict in-pool transactions.
+    pub(crate) evicted_journal: HashSet<TxEntry>,
 }
 
 impl PoolMap {
@@ -168,6 +175,7 @@ impl PoolMap {
             links: TxLinksMap::new(),
             max_ancestors_count,
             stats: PoolStats::default(),
+            evicted_journal: HashSet::new(),
         }
     }
 
@@ -290,14 +298,20 @@ impl PoolMap {
         mut entry: TxEntry,
         status: Status,
     ) -> Result<(bool, HashSet<TxEntry>), Reject> {
+        // The journal belongs to this call: clear it before *any* exit,
+        // including the duplicate early return below, so a stale journal
+        // left by a previous caller (e.g. a successful escape-hatch
+        // eviction that nobody drained) can never be picked up by this
+        // call's caller and misattributed to this entry.
+        self.evicted_journal.clear();
+
         let tx_short_id = entry.proposal_short_id();
-        let mut evicts = Default::default();
         if self.entries.get_by_id(&tx_short_id).is_some() {
-            return Ok((false, evicts));
+            return Ok((false, Default::default()));
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
 
-        // Order matters here. `check_and_record_ancestors` may *evict* pool
+        // Order matters here. `check_and_prepare_ancestors` may *evict* pool
         // entries, and eviction can free cell-dep conflicts (an evicted
         // cell_ref_parent may have been consuming one of this entry's deps).
         // So the sequence is:
@@ -307,20 +321,35 @@ impl PoolMap {
         //   2. defensive overflow check for the stat counters (read-only; the
         //      actual deltas are applied after eviction, because eviction
         //      itself decrements the counters);
-        //   3. evict/record ancestors (may free dep conflicts);
+        //   3. evict/check ancestors and apply ancestor weights to `entry`
+        //      (may free dep conflicts; does not touch the link graph);
         //   4. pre-validate deps (must be after eviction);
-        //   5. mutate freely.
+        //   5. commit ancestor links, then mutate freely.
         // Any failure happens before the mutating steps, so the evicted set
-        // can never be lost on the `Err` path.
+        // can never be lost on the `Err` path, and the link graph is only
+        // written at step 5, so a rejected entry leaves no ghost nodes
+        // behind. Escape-hatch evictions are journaled (see
+        // `evicted_journal`) so the caller can recover them even when a
+        // later step rejects the entry.
         self.pre_validate_entry_inputs(&entry)?;
         self.update_stat_for_add_tx(entry.size, entry.cycles)?;
 
-        evicts = self.check_and_record_ancestors(&mut entry)?;
+        let (evicts, parents) = self.check_and_prepare_ancestors(&mut entry)?;
         self.pre_validate_entry_deps(&entry)?;
+        self.commit_ancestor_links(tx_short_id, parents);
 
         self.record_entry_edges(&entry);
+        // Link children that entered the pool *before* this entry and fold
+        // their weight into the entry's own descendant statistics — before
+        // `insert_entry` freezes the derived keys, so the evict key already
+        // reflects the children.
+        self.link_and_fold_children(&mut entry);
         self.insert_entry(&entry, status);
-        self.record_entry_descendants(&entry);
+        // Update the derived keys on both sides: the children's ancestor
+        // side and the ancestors' descendant side. The entry's own
+        // ancestor/descendant weights are already folded into `entry`.
+        self.update_descendants_index_key(&entry, EntryOp::Add);
+        self.update_ancestors_index_key(&entry, EntryOp::Add);
         self.track_entry_statistics(None, Some(status));
         // Apply the stat deltas *after* eviction: applying values computed
         // before it would clobber the decrements `update_stat_for_remove_tx`
@@ -477,11 +506,18 @@ impl PoolMap {
             if !visited.insert(id.clone()) {
                 continue;
             }
-            removal_set.insert(id.clone());
-            if removal_set.len() > limit {
-                return ConflictClosure::Exceeded {
-                    count_lower_bound: removal_set.len(),
-                };
+            // A links node with no matching entry is a ghost: it still
+            // participates in the traversal (its children may be real
+            // descendants) and in the removal plan (skipped there because
+            // `remove_entry` returns `None` for it), but it must never
+            // count against the caller's limit.
+            if self.entries.get_by_id(&id).is_some() {
+                removal_set.insert(id.clone());
+                if removal_set.len() > limit {
+                    return ConflictClosure::Exceeded {
+                        count_lower_bound: removal_set.len(),
+                    };
+                }
             }
             stack.push((id.clone(), true));
             if let Some(children) = self.links.get_children(&id) {
@@ -730,8 +766,21 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_descendants(&mut self, entry: &TxEntry) {
-        let tx_short_id: ProposalShortId = entry.proposal_short_id();
+    /// Link an entry to children that entered the pool *before* it (they
+    /// spend or cell-dep on its outputs) and fold their weight into the
+    /// entry's own descendant statistics.
+    ///
+    /// Must run after `commit_ancestor_links` (the entry's links node must
+    /// exist) and before `insert_entry` (the derived keys are frozen at
+    /// insert time). The weight fold is the symmetric half of
+    /// `update_ancestors_index_key(..., Add)` (which updates the ancestors'
+    /// descendant side): without it, the entry's own `descendants_*` stay
+    /// at their self-only initial values, and the day such a child leaves,
+    /// `sub_descendant_weight` saturates them down to zero — permanently
+    /// corrupting the entry's evict key (CPFP protection and eviction
+    /// order).
+    fn link_and_fold_children(&mut self, entry: &mut TxEntry) {
+        let tx_short_id = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
         let mut children = HashSet::with_capacity(outputs.len());
 
@@ -744,18 +793,26 @@ impl PoolMap {
                 children.insert(id);
             }
         }
-        // update children
-        if !children.is_empty() {
-            for child in &children {
-                self.links.add_parent(child, tx_short_id.clone());
-            }
-            if let Some(links) = self.links.get_mut(&tx_short_id) {
-                links.children.extend(children);
-            }
-            self.update_descendants_index_key(entry, EntryOp::Add);
+        if children.is_empty() {
+            return;
         }
-        // update ancestor's index key for adding new entry
-        self.update_ancestors_index_key(entry, EntryOp::Add);
+
+        let mut delta = crate::component::entry::WeightDelta::default();
+        for child in &children {
+            if let Some(child_entry) = self.get_by_id(child) {
+                delta.add_entry(&child_entry.inner);
+            } else {
+                error!(
+                    "tx-pool: out_point_index references missing child entry {}",
+                    child
+                );
+            }
+            self.links.add_parent(child, tx_short_id.clone());
+        }
+        if let Some(links) = self.links.get_mut(&tx_short_id) {
+            links.children.extend(children);
+        }
+        entry.add_descendants_weight(delta);
     }
 
     // return (ancestors, parents, cell_ref_parents)
@@ -799,14 +856,16 @@ impl PoolMap {
         (ancestors, parents, cell_ref_parents)
     }
 
-    fn record_ancestors_inner(
-        &mut self,
+    /// Fold every ancestor's weight into `entry`. Read-only with respect to
+    /// the pool: it must stay safe to call before all fallible validations
+    /// have run, so it never touches `self.links` (see
+    /// [`Self::commit_ancestor_links`]).
+    fn apply_ancestor_weights(
+        &self,
         entry: &mut TxEntry,
-        ancestors: HashSet<ProposalShortId>,
-        parents: HashSet<ProposalShortId>,
+        ancestors: &HashSet<ProposalShortId>,
     ) -> Result<(), Reject> {
-        // update parents references
-        for ancestor_id in &ancestors {
+        for ancestor_id in ancestors {
             let ancestor = self.get_by_id(ancestor_id).ok_or_else(|| {
                 error!(
                     "tx-pool internal invariant broken: missing entry for ancestor {}",
@@ -819,9 +878,23 @@ impl PoolMap {
             })?;
             entry.add_ancestor_weight(&ancestor.inner);
         }
+        Ok(())
+    }
 
-        let short_id = entry.proposal_short_id();
-
+    /// Commit the ancestor links for an entry that has passed every fallible
+    /// validation. Infallible.
+    ///
+    /// Must only be called from `add_entry` *after* `pre_validate_entry_deps`:
+    /// writing the link node (and the parent→child references) any earlier
+    /// would leave a ghost node behind on the error path — an id present in
+    /// `links` but absent from `entries`, poisoning descendant counts
+    /// (`calc_descendants`, `validate_ancestor_capacity`) for a transaction
+    /// that never entered the pool.
+    fn commit_ancestor_links(
+        &mut self,
+        short_id: ProposalShortId,
+        parents: HashSet<ProposalShortId>,
+    ) {
         for parent in &parents {
             self.links.add_child(parent, short_id.clone());
         }
@@ -832,7 +905,6 @@ impl PoolMap {
                 children: Default::default(),
             },
         );
-        Ok(())
     }
 
     /// Read-only pre-validation of `check_and_record_ancestors`' failure
@@ -875,7 +947,13 @@ impl PoolMap {
         Ok(())
     }
 
-    /// Check ancestors and record for entry.
+    /// Check ancestors and compute the link plan for `entry`.
+    ///
+    /// Returns the entries evicted by the cell-ref escape hatch and the final
+    /// parent set to link. Applies ancestor weights to `entry` but does *not*
+    /// touch `self.links`: the caller commits the links via
+    /// [`Self::commit_ancestor_links`] only after every fallible validation
+    /// has passed, so a rejected entry never leaves ghost nodes behind.
     ///
     /// This can fail with `ExceededMaximumAncestorsCount` *after* an RBF
     /// replacement has already removed its conflicts. That failure is
@@ -886,10 +964,10 @@ impl PoolMap {
     /// long even under the RBF rules: rule #2 only restricts the
     /// replacement's *inputs*, not its cell deps, so "a replacement cannot
     /// be in a long transaction chain" is not a safe assumption.
-    fn check_and_record_ancestors(
+    fn check_and_prepare_ancestors(
         &mut self,
         entry: &mut TxEntry,
-    ) -> Result<HashSet<TxEntry>, Reject> {
+    ) -> Result<(HashSet<TxEntry>, HashSet<ProposalShortId>), Reject> {
         let tx = entry.transaction();
         let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancestors(tx);
 
@@ -897,8 +975,8 @@ impl PoolMap {
         let mut evicted = Default::default();
 
         if ancestors_count <= self.max_ancestors_count {
-            self.record_ancestors_inner(entry, ancestors, parents)?;
-            return Ok(evicted);
+            self.apply_ancestor_weights(entry, &ancestors)?;
+            return Ok((evicted, parents));
         }
 
         if ancestors_count.saturating_sub(cell_ref_parents.len()) <= self.max_ancestors_count {
@@ -918,7 +996,19 @@ impl PoolMap {
                 if let Some(next_id) = iter.next() {
                     let removed = self.remove_entry_and_descendants(next_id);
                     ancestors_count = ancestors_count.saturating_sub(1);
-                    parents.remove(next_id);
+                    // The cascade removes `next_id` *and its descendants*,
+                    // and any of them may be a direct parent of the new
+                    // entry. Every removed id must leave the parent set: a
+                    // leftover id is a ghost that `calc_relation_ids`
+                    // recounts unconditionally (it never checks that the id
+                    // is still linked), and the weight fold below would
+                    // then fail with a spurious "missing entry" Malformed.
+                    for removed_entry in &removed {
+                        parents.remove(&removed_entry.proposal_short_id());
+                    }
+                    // Journal the escape-hatch evictions so the caller can
+                    // recover them if a later step rejects this entry.
+                    self.evicted_journal.extend(removed.iter().cloned());
                     evicted.extend(removed);
                 } else {
                     break;
@@ -933,11 +1023,21 @@ impl PoolMap {
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
-        // we can assume the number now is less than `max_ancestors_count`
-        assert!(ancestors.len() < self.max_ancestors_count);
+        // The recount should be under the limit now. This is a defensive
+        // error, not an `assert!`: the function runs inside the tx-pool
+        // write lock, and a panic would unwind past the `evicted_journal`
+        // recovery protocol, permanently losing the evicted transactions.
+        if ancestors.len() >= self.max_ancestors_count {
+            error!(
+                "tx-pool escape-hatch eviction left {} ancestors (max {}), rejecting defensively",
+                ancestors.len(),
+                self.max_ancestors_count
+            );
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
 
-        self.record_ancestors_inner(entry, ancestors, parents)?;
-        Ok(evicted)
+        self.apply_ancestor_weights(entry, &ancestors)?;
+        Ok((evicted, parents))
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
@@ -968,7 +1068,7 @@ impl PoolMap {
 
     fn track_entry_statistics(&mut self, remove: Option<Status>, add: Option<Status>) {
         self.stats.adjust_status_count(remove, add);
-        assert_eq!(
+        debug_assert_eq!(
             self.stats.pending_count + self.stats.gap_count + self.stats.proposed_count,
             self.entries.len()
         );

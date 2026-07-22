@@ -71,7 +71,14 @@ impl TxPool {
 
         // Step 1: Collect transactions WITHOUT draining the pool.
         // If anything fails below, the in-memory pool remains intact.
-        let all_txs = self.get_all_txs();
+        let mut all_txs = self.get_all_txs();
+        // `get_all_txs` iterates the slab-backed entry map (slot order, with
+        // vacant slots reused), which is *not* topological. The reload path
+        // submits serially without retry, so a child stored before its
+        // parent would be dropped as stale (and recorded in recent_reject).
+        // Sort parents before children so the file can always be replayed
+        // in order.
+        crate::service::TxPoolService::sort_txs_by_dependencies(&mut all_txs);
         let txs = TransactionVec::new_builder()
             .extend(all_txs.iter().map(|tx| tx.data()))
             .build();
@@ -126,7 +133,12 @@ impl TxPool {
         // Step 4: Only after successful persistence, drop the in-memory pool.
         // The transactions were already collected in step 1, so there is no
         // need to run a full `TxSelector` pass here just to discard the result.
-        self.pool_map.clear();
+        // Use the full clear (pool map plus committed/conflicts caches) so the
+        // state afterwards is identical to `clear_pool`: leftover conflict
+        // entries could otherwise "resurrect" transactions that were just
+        // dumped to disk once their inputs become available again.
+        let snapshot = self.cloned_snapshot();
+        self.clear(snapshot);
 
         Ok(())
     }

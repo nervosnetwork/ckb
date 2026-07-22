@@ -17,6 +17,35 @@
 //! current candidate aborts.  The candidate is unregistered after `submit_entry`
 //! finishes, whether it succeeded or failed.
 //!
+//! # Displacement is speculative (hold-and-restore)
+//!
+//! When a new candidate supersedes already-queued lower-fee-rate candidates,
+//! the displaced transactions are removed from the verify queue but are *not*
+//! rejected: they are parked in the waiting room as the winner's
+//! `RaceLost` entries. A displacement only becomes real when the winner is
+//! committed to the pool (`finalize` — the held transactions are rejected
+//! through the usual `after_process` path: relayed and recorded, since the
+//! winner's verification is done). If the winner leaves the pipeline first —
+//! verification failure, declared cycles mismatch, superseded at submit,
+//! removal by RPC or peer ban — the held transactions are **restored** to the
+//! verify queue (`abort`), with no recent-reject entry recorded. The
+//! speculative rejection paths (the register gate and the superseded hold)
+//! likewise skip recording: an unverified high-fee candidate must not poison
+//! an honest transaction's recent-reject record before failing itself.
+//!
+//! Superseded-at-submit is held too: a candidate that has already been
+//! *popped* by a verify worker when it is displaced cannot be parked at
+//! register time (it is not in the queue), so it races on — but if it
+//! reaches submit while the winner is still in flight, it is parked in the
+//! waiting room as the winner's `RaceLost` instead of being rejected
+//! (`hold_superseded_candidate`). Every speculative rejection path is
+//! therefore non-terminal; a rejection only becomes real when the winner is
+//! actually committed to the pool.
+//!
+//! `RaceLost` entries are not accounted against the waiting room's size
+//! budgets; their number is bounded by the displacement chain, which
+//! requires a strictly increasing fee rate at every step.
+//!
 //! # Fee-rate unit
 //!
 //! The fee rates stored here are *size-based* (`FeeRate::calculate(fee,
@@ -29,6 +58,9 @@
 //! rate and displace honest candidates before the lie is caught. Using the
 //! size-based rate removes that manipulable input from the ordering gate.
 
+use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::verify_queue::VerifyQueue;
+use crate::resolved_tx::ResolvedTx;
 use ckb_logger::debug;
 use ckb_types::{
     core::FeeRate,
@@ -47,8 +79,17 @@ pub(crate) struct RbfCandidates {
     /// input.
     by_input: HashMap<OutPoint, (FeeRate, ProposalShortId)>,
     /// Reverse index so we can clean up by candidate id when it leaves the
-    /// pipeline or is removed by management commands.
-    by_id: HashMap<ProposalShortId, Vec<OutPoint>>,
+    /// pipeline or is removed by management commands. Each entry also holds
+    /// the transactions the candidate displaced (see the module-level
+    /// "hold-and-restore" section).
+    by_id: HashMap<ProposalShortId, RegisteredCandidate>,
+}
+
+/// A committed in-flight registration.
+#[derive(Debug, Default)]
+struct RegisteredCandidate {
+    /// Conflict inputs the candidate was registered for.
+    inputs: Vec<OutPoint>,
 }
 
 /// A pending RBF registration that has been validated but not yet committed.
@@ -67,6 +108,13 @@ pub(crate) struct RbfRegistration {
     /// Full state of displaced candidates so they can be removed from the
     /// verify queue and their RBF registrations atomically committed.
     pub(crate) displaced: Vec<(ProposalShortId, FeeRate, Vec<OutPoint>)>,
+}
+
+impl RbfRegistration {
+    /// The candidate id this registration installs (the would-be winner).
+    pub(crate) fn winner_id(&self) -> &ProposalShortId {
+        &self.new_id
+    }
 }
 
 impl RbfCandidates {
@@ -122,9 +170,13 @@ impl RbfCandidates {
                 && *existing_fee_rate < fee_rate
                 && existing_id != &id
                 && seen.insert(existing_id.clone())
-                && let Some(inputs) = self.by_id.get(existing_id)
+                && let Some(candidate) = self.by_id.get(existing_id)
             {
-                displaced.push((existing_id.clone(), *existing_fee_rate, inputs.clone()));
+                displaced.push((
+                    existing_id.clone(),
+                    *existing_fee_rate,
+                    candidate.inputs.clone(),
+                ));
             }
         }
 
@@ -139,8 +191,10 @@ impl RbfCandidates {
     /// Atomically commit a pending registration: remove displaced candidates
     /// from the index and install the new candidate.
     ///
-    /// Must be called while holding `rbf_candidates.write()`.
-    pub fn commit(&mut self, registration: RbfRegistration) {
+    /// Must be called while holding `rbf_candidates.write()`. Transactions
+    /// the displaced candidates had themselves displaced (their `held`) are
+    /// woken by the caller through the waiting room.
+    pub(crate) fn commit(&mut self, registration: RbfRegistration) {
         let RbfRegistration {
             new_id,
             new_fee_rate,
@@ -154,8 +208,8 @@ impl RbfCandidates {
         // later replacements for the other inputs to be rejected by a candidate
         // that is no longer in flight.
         for (displaced_id, _, _) in &displaced {
-            if let Some(inputs) = self.by_id.remove(displaced_id) {
-                for input in inputs {
+            if let Some(candidate) = self.by_id.remove(displaced_id) {
+                for input in candidate.inputs {
                     if self
                         .by_input
                         .get(&input)
@@ -171,7 +225,12 @@ impl RbfCandidates {
             self.by_input
                 .insert(input.clone(), (new_fee_rate, new_id.clone()));
         }
-        self.by_id.insert(new_id, new_conflict_inputs);
+        self.by_id.insert(
+            new_id,
+            RegisteredCandidate {
+                inputs: new_conflict_inputs,
+            },
+        );
     }
 
     /// Returns true if a higher size-based fee-rate candidate has been
@@ -194,41 +253,138 @@ impl RbfCandidates {
         })
     }
 
-    /// Remove a candidate by id.  Idempotent.
-    pub fn remove(&mut self, id: &ProposalShortId) {
-        if let Some(inputs) = self.by_id.remove(id) {
-            for input in inputs {
+    /// The strongest registration owning any of `conflict_inputs`, other
+    /// than `exclude_id` (the candidate asking), with its fee rate. `None`
+    /// when no such registration exists (the winner left the pipeline
+    /// meanwhile).
+    pub(crate) fn find_winner(
+        &self,
+        conflict_inputs: &[OutPoint],
+        exclude_id: &ProposalShortId,
+    ) -> Option<(ProposalShortId, FeeRate)> {
+        conflict_inputs
+            .iter()
+            .filter_map(|input| self.by_input.get(input))
+            .filter(|(_, candidate_id)| *candidate_id != *exclude_id)
+            .max_by_key(|(fee_rate, _)| *fee_rate)
+            .map(|(fee_rate, winner_id)| (winner_id.clone(), *fee_rate))
+    }
+
+    /// Remove a candidate by id. Idempotent.
+    ///
+    /// Transactions the candidate had itself displaced are parked in the
+    /// waiting room (not here); the caller wakes them via
+    /// `WaitingRoom::wake_by_winner`.
+    pub(crate) fn remove(&mut self, id: &ProposalShortId) {
+        if let Some(candidate) = self.by_id.remove(id) {
+            for input in &candidate.inputs {
                 if self
                     .by_input
-                    .get(&input)
+                    .get(input)
                     .is_some_and(|(_, candidate_id)| candidate_id == id)
                 {
-                    self.by_input.remove(&input);
+                    self.by_input.remove(input);
                 }
             }
         }
     }
 
+    /// True if the given candidate currently holds a live registration.
+    pub(crate) fn contains_candidate(&self, id: &ProposalShortId) -> bool {
+        self.by_id.contains_key(id)
+    }
+
     /// Clear all tracked candidates.
+    ///
+    /// Any transactions held by these registrations live in the waiting
+    /// room, which is cleared at the same time as this gate (pipeline
+    /// clear), so nothing is lost.
     pub fn clear(&mut self) {
         self.by_input.clear();
         self.by_id.clear();
     }
 
     /// Remove candidates whose conflict inputs reference any of the given
-    /// outpoints. Called after those outpoints have been freed by committed,
-    /// evicted, or replaced transactions so the stale candidates do not block
-    /// future replacements.
-    pub fn remove_by_conflict_outpoints(&mut self, outpoints: &HashSet<OutPoint>) {
+    /// outpoints, returning the removed registration ids so the caller can
+    /// wake whatever they held in the waiting room. Called after those
+    /// outpoints have been freed by committed, evicted, or replaced
+    /// transactions so the stale candidates do not block future
+    /// replacements.
+    pub(crate) fn remove_by_conflict_outpoints(
+        &mut self,
+        outpoints: &HashSet<OutPoint>,
+    ) -> Vec<ProposalShortId> {
         let ids_to_remove: Vec<ProposalShortId> = self
             .by_id
             .iter()
-            .filter(|(_id, inputs)| inputs.iter().any(|input| outpoints.contains(input)))
+            .filter(|(_id, candidate)| {
+                candidate
+                    .inputs
+                    .iter()
+                    .any(|input| outpoints.contains(input))
+            })
             .map(|(id, _)| id.clone())
             .collect();
-        for id in ids_to_remove {
-            self.remove(&id);
+        for id in &ids_to_remove {
+            self.remove(id);
         }
+        ids_to_remove
+    }
+}
+
+/// Outcome of [`displace_and_commit`].
+pub(crate) struct DisplaceOutcome {
+    /// Candidates whose displacer just left the pipeline (to be restored).
+    pub(crate) to_restore: Vec<ResolvedTx>,
+    /// Entries evicted from the waiting room while parking the displaced
+    /// candidates (to be routed by reason).
+    pub(crate) evicted: Vec<crate::component::waiting_room::WaitingEntry>,
+}
+
+/// Commit a validated registration: remove its displaced candidates from
+/// the verify queue and park them in the waiting room as `RaceLost` of the
+/// new winner in one step, so the hold-and-restore invariant lives in
+/// exactly one place.
+///
+/// Candidates that cannot be removed from the queue are active (popped by
+/// a verify worker mid-verification): they race on, and if they reach
+/// submit while the winner is still in flight they are parked as the
+/// winner's `RaceLost` at submit (`hold_superseded_candidate`) — still not
+/// rejected.
+pub(crate) fn displace_and_commit(
+    rbf_guard: &mut RbfCandidates,
+    verify_queue: &mut VerifyQueue,
+    waiting_room: &mut crate::component::waiting_room::WaitingRoom,
+    registration: RbfRegistration,
+) -> DisplaceOutcome {
+    let winner = registration.winner_id().clone();
+    let mut to_restore = Vec::new();
+    let mut evicted = Vec::new();
+    for (displaced_id, _, _) in &registration.displaced {
+        if let Some(resolved) = verify_queue.remove_tx(displaced_id) {
+            let (retained, ev) = waiting_room.wait_resolved(
+                resolved,
+                crate::component::waiting_room::WaitReason::RaceLost {
+                    winner: winner.clone(),
+                },
+            );
+            // A freshly parked RaceLost entry is budget-exempt and cannot
+            // be evicted; reaching the else arm means a new eviction path
+            // forgot this case.
+            debug_assert!(
+                retained,
+                "a freshly parked RaceLost entry cannot be evicted"
+            );
+            evicted.extend(ev);
+        }
+        // The displaced registration is gone: wake whatever it held — those
+        // candidates' displacer is no longer a live registration.
+        to_restore.extend(waiting_room.wake_by_winner(displaced_id));
+    }
+    rbf_guard.commit(registration);
+    DisplaceOutcome {
+        to_restore,
+        evicted,
     }
 }
 
@@ -360,7 +516,7 @@ mod tests {
         // input1 must no longer be held by the displaced candidate A, otherwise
         // a later replacement for input1 would be rejected by a ghost candidate.
         assert_eq!(rbf.by_input.get(&input1), None);
-        assert_eq!(rbf.by_id.get(&id_a), None);
+        assert!(!rbf.by_id.contains_key(&id_a));
 
         // A new candidate for input1 (previously held only by A) should succeed.
         let reg = rbf
@@ -413,8 +569,8 @@ mod tests {
             [input0.clone(), input2.clone()].into_iter().collect();
         rbf.remove_by_conflict_outpoints(&committed_outpoints);
 
-        assert_eq!(rbf.by_id.get(&id_a), None);
-        assert_eq!(rbf.by_id.get(&id_b), None);
+        assert!(!rbf.by_id.contains_key(&id_a));
+        assert!(!rbf.by_id.contains_key(&id_b));
         assert_eq!(rbf.by_input.get(&input0), None);
         assert_eq!(rbf.by_input.get(&input2), None);
 
@@ -450,7 +606,7 @@ mod tests {
 
         // Only input0 is spent; candidate B must remain untouched.
         rbf.remove_by_conflict_outpoints(&[input0.clone()].into_iter().collect());
-        assert_eq!(rbf.by_id.get(&id_a), None);
+        assert!(!rbf.by_id.contains_key(&id_a));
         assert!(rbf.by_id.contains_key(&id_b));
         assert!(rbf.by_input.contains_key(&input1));
         assert_eq!(rbf.by_input.get(&input0), None);
@@ -474,5 +630,34 @@ mod tests {
         rbf.remove_by_conflict_outpoints(&HashSet::new());
         assert!(rbf.by_id.contains_key(&id_a));
         assert!(rbf.by_input.contains_key(&input0));
+    }
+
+    #[test]
+    fn find_winner_returns_strongest_with_fee_rate() {
+        let mut rbf = RbfCandidates::new();
+        let input = out_point(0);
+        let id_a = id(0);
+        let id_b = id(1);
+
+        let reg = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                std::slice::from_ref(&input),
+            )
+            .unwrap();
+        rbf.commit(reg);
+
+        let (winner, rate) = rbf
+            .find_winner(std::slice::from_ref(&input), &id_b)
+            .expect("a live registration is the winner");
+        assert_eq!(winner, id_a);
+        assert_eq!(rate, FeeRate::from_u64(100));
+
+        // The asking candidate itself is excluded.
+        assert!(
+            rbf.find_winner(std::slice::from_ref(&input), &id_a)
+                .is_none()
+        );
     }
 }

@@ -37,7 +37,7 @@ fn service() -> TxPoolService {
 /// Park `parent` in the verify queue forever (no verify manager runs in
 /// this harness) so it never leaves the "in flight" state.
 async fn park_parent_in_verify_queue(service: &TxPoolService, parent: &TransactionView) {
-    let snapshot = service.tx_pool.read().await.cloned_snapshot();
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
     let resolved = ResolvedTx {
         tx: parent.clone(),
         rtx: Arc::new(ResolvedTransaction::dummy_resolve(parent.clone())),
@@ -48,11 +48,13 @@ async fn park_parent_in_verify_queue(service: &TxPoolService, parent: &Transacti
         snapshot,
         source: TxSource::Local,
     };
-    let mut verify = service.queues.verify_queue.write().await;
+    let mut verify = service.pipeline.queues.verify_queue.write().await;
     verify.add_tx(resolved).unwrap();
 }
 
-fn start_ordered_resolver(service: &TxPoolService) -> CancellationToken {
+fn start_ordered_resolver(
+    service: &TxPoolService,
+) -> (CancellationToken, watch::Sender<ChunkCommand>) {
     let signal = CancellationToken::new();
     let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
     let resolver =
@@ -67,7 +69,9 @@ fn start_ordered_resolver(service: &TxPoolService) -> CancellationToken {
         }
         let _ = handle.await;
     });
-    signal
+    // The sender must outlive the resolver: workers treat a dropped command
+    // channel as a clean stop (channel drop = shutdown).
+    (signal, chunk_tx)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -83,11 +87,11 @@ async fn local_orphan_with_stuck_parent_is_eventually_rejected() {
         .await
         .unwrap();
     {
-        let ordered = service.queues.ordered_resolve_queue.read().await;
+        let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
         assert!(ordered.contains_key(&child_id));
     }
 
-    let _signal = start_ordered_resolver(&service);
+    let (_signal, _chunk_tx) = start_ordered_resolver(&service);
 
     // The retry budget is 30 attempts at 50ms in tests (~1.5s). With the
     // delay-heap retry model the job stays *visible* in the queue during
@@ -96,7 +100,7 @@ async fn local_orphan_with_stuck_parent_is_eventually_rejected() {
     let mut rejected = false;
     for _ in 0..200 {
         let gone = {
-            let ordered = service.queues.ordered_resolve_queue.read().await;
+            let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
             !ordered.contains_key(&child_id)
         };
         if gone {
@@ -112,6 +116,7 @@ async fn local_orphan_with_stuck_parent_is_eventually_rejected() {
     );
     assert!(
         service
+            .pool
             .tx_pool
             .read()
             .await
@@ -119,6 +124,62 @@ async fn local_orphan_with_stuck_parent_is_eventually_rejected() {
             .get_by_id(&child_id)
             .is_none(),
         "rejected orphan must not enter the pool"
+    );
+    // The terminal rejection must not be swallowed by the missing-input
+    // orphan parking: the tx leaves every pipeline structure for good.
+    assert!(
+        !service
+            .pipeline
+            .waiting_room
+            .read()
+            .await
+            .contains_key(&child_id),
+        "a terminally rejected orphan must not be re-parked in the waiting room"
+    );
+}
+
+/// A local orphan whose parent has been *popped* from the verify queue (a
+/// worker is running script verification on it right now) must still see
+/// the parent as in flight: it waits in the delayed section instead of
+/// burning the small `MAX_LOCAL_ORPHAN_ATTEMPTS` budget on immediate
+/// retries and being rejected within milliseconds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn orphan_waits_for_parent_being_verified() {
+    let service = service();
+    let parent = build_tx(vec![(&Byte32::zero(), 0)], 1);
+    let parent_id = parent.proposal_short_id();
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let child_id = child.proposal_short_id();
+
+    park_parent_in_verify_queue(&service, &parent).await;
+    // Simulate a verify worker that has popped the parent and is running
+    // the VM right now: no longer queued, but still in flight.
+    {
+        let mut verify = service.pipeline.queues.verify_queue.write().await;
+        assert!(verify.pop_front(false).is_some());
+        assert!(!verify.contains_key(&parent_id));
+        assert!(verify.contains_or_active(&parent_id));
+    }
+
+    service
+        .classify_and_enqueue_tx(child.clone(), TxSource::Local)
+        .await
+        .unwrap();
+
+    let (_signal, _chunk_tx) = start_ordered_resolver(&service);
+
+    // Without active-visibility the child would burn
+    // `MAX_LOCAL_ORPHAN_ATTEMPTS` (5) immediate (non-delayed) retries and be
+    // rejected almost at once. With it, the child parks in the delayed
+    // section (50ms cycles, 30-attempt budget), so it must still be queued
+    // after 500ms. `contains_or_active` is used because the resolver may be
+    // holding the job in its active (mid-processing) window at the instant
+    // we look.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+    assert!(
+        ordered.contains_or_active(&child_id),
+        "orphan must keep waiting while its parent is being verified"
     );
 }
 
@@ -139,20 +200,23 @@ async fn delayed_orphan_is_removable_by_hash() {
         .await
         .unwrap();
 
-    let _signal = start_ordered_resolver(&service);
+    let (_signal, _chunk_tx) = start_ordered_resolver(&service);
 
     // Wait for the child to complete at least one delayed re-enqueue cycle:
     // it must be back in the queue (visible) before we try to remove it.
     tokio::time::sleep(Duration::from_millis(120)).await;
     {
-        let ordered = service.queues.ordered_resolve_queue.read().await;
+        let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
         assert!(
             ordered.contains_key(&child_id),
             "delayed orphan must stay visible in the queue"
         );
     }
 
-    assert!(service.remove_tx(child.hash()).await);
-    let ordered = service.queues.ordered_resolve_queue.read().await;
+    assert!(matches!(
+        service.remove_tx(child.hash()).await,
+        crate::service::RemoveTxOutcome::Removed
+    ));
+    let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
     assert!(!ordered.contains_key(&child_id));
 }

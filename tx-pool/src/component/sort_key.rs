@@ -73,9 +73,8 @@ impl std::fmt::Display for AncestorsScoreSortKey {
     }
 }
 
-/// First compare fee_rate, select the smallest fee_rate,
-/// and then select the latest timestamp, for eviction,
-/// the latest timestamp which also means that the fewer descendants may exist.
+/// Eviction picks the *smallest* key: the lowest fee rate first, then the
+/// fewest descendants (cheap to evict), then the *oldest* timestamp.
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct EvictKey {
     pub fee_rate: FeeRate,

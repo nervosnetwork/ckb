@@ -575,6 +575,14 @@ fn register_tx_pool_callback(
     tx_pool_builder.register_reject(Box::new(move |entry: &TxEntry, reject: Reject| {
         let tx_hash = entry.transaction().hash();
         // record recent reject
+        //
+        // Reject callbacks fire only for *terminal* pool removals —
+        // RBF-replaced, expired, size-evicted, reorg-conflicted — so an
+        // `RBFRejected` arriving here is a real rejection by a *committed*
+        // replacement and must be recorded (the RPC `Rejected` status
+        // depends on it). Only the *in-flight* race paths driven by
+        // `after_process` bypass recording for `RBFRejected`, at their own
+        // call sites — they never reach this callback.
         if reject.should_recorded()
             && let Some(ref recent_reject) = recent_reject
             && let Err(e) = recent_reject.put(&tx_hash, reject.clone())

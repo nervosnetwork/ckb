@@ -1,9 +1,9 @@
 use crate::callback::Callbacks;
-use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
 use crate::component::tests::util::{TEST_MAX_VERIFY_QUEUE_TX_SIZE, build_tx};
 use crate::component::verify_queue::VerifyQueue;
+use crate::component::waiting_room::WaitingRoom;
 use crate::pool::TxPool;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::{TxPoolService, TxVerificationResult};
@@ -33,7 +33,11 @@ use tokio::sync::{RwLock, mpsc};
 use tokio::time::sleep;
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
-const UNUSED_SNAPSHOT_COLUMNS: u32 = 1;
+// Columns opened for the throwaway test store. `Snapshot::transaction_exists`
+// reads COLUMN_TRANSACTION_INFO ("5"), which the orphan availability checks
+// (handle_missing_input_orphan / process_orphan_tx) rely on, so the store
+// must expose at least columns "0"..="5".
+const UNUSED_SNAPSHOT_COLUMNS: u32 = 6;
 
 fn test_snapshot() -> Arc<Snapshot> {
     use std::sync::OnceLock;
@@ -59,6 +63,36 @@ fn dummy_resolved_tx(
         source,
     }
 }
+#[tokio::test]
+async fn verify_queue_popped_tx_stays_visible_until_finish() {
+    let tx = TransactionBuilder::default().build();
+    let id = tx.proposal_short_id();
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::ArrivalTime,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx.clone(), TxSource::Local))
+            .unwrap()
+    );
+
+    let popped = queue.pop_front(false).expect("tx pops");
+    assert_eq!(popped.tx.hash(), tx.hash());
+    // No longer queued, but still in flight while the worker verifies it.
+    assert!(!queue.contains_key(&id));
+    assert!(queue.contains_or_active(&id));
+    assert_eq!(
+        queue.get_active_tx(&id).map(|r| r.tx.hash()),
+        Some(tx.hash())
+    );
+
+    queue.finish(&id);
+    assert!(!queue.contains_or_active(&id));
+    assert!(queue.get_active_tx(&id).is_none());
+}
+
 #[tokio::test]
 async fn verify_queue_basic() {
     let tx = TransactionBuilder::default().build();
@@ -591,6 +625,65 @@ async fn verify_queue_fee_rate_pop_order() {
 }
 
 #[tokio::test]
+async fn verify_queue_proposal_count_tracks_insert_promote_and_remove() {
+    let mut queue = VerifyQueue::new(
+        MAX_TX_VERIFY_CYCLES,
+        VerifyOrdering::FeeRate,
+        TEST_MAX_VERIFY_QUEUE_TX_SIZE,
+    );
+
+    let tx_normal = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("normal").pack()])
+        .build();
+    queue
+        .add_tx(dummy_resolved_tx_with_fee(
+            tx_normal.clone(),
+            100,
+            crate::tx_source::TxSource::Local,
+        ))
+        .unwrap();
+    assert_eq!(queue.proposal_count(), 0);
+
+    let tx_proposal = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("proposal").pack()])
+        .build();
+    queue
+        .add_tx(dummy_resolved_tx_with_fee(
+            tx_proposal,
+            1,
+            crate::tx_source::TxSource::Proposal,
+        ))
+        .unwrap();
+    assert_eq!(queue.proposal_count(), 1);
+
+    // Promoting the normal tx in place bumps the count; re-promoting an
+    // already-proposal entry must not double count.
+    queue
+        .add_tx(dummy_resolved_tx_with_fee(
+            tx_normal.clone(),
+            100,
+            crate::tx_source::TxSource::Proposal,
+        ))
+        .unwrap();
+    assert_eq!(queue.proposal_count(), 2);
+    queue
+        .add_tx(dummy_resolved_tx_with_fee(
+            tx_normal,
+            100,
+            crate::tx_source::TxSource::Proposal,
+        ))
+        .unwrap();
+    assert_eq!(queue.proposal_count(), 2);
+
+    // Popping both proposals drains the count to zero, re-enabling the
+    // scan-skip fast path in `peek_by_fee_rate`.
+    assert!(queue.pop_front(false).is_some());
+    assert_eq!(queue.proposal_count(), 1);
+    assert!(queue.pop_front(false).is_some());
+    assert_eq!(queue.proposal_count(), 0);
+}
+
+#[tokio::test]
 async fn verify_queue_proposal_always_first_in_fee_rate_mode() {
     let mut queue = VerifyQueue::new(
         MAX_TX_VERIFY_CYCLES,
@@ -725,7 +818,11 @@ fn service() -> TxPoolService {
     service_with_relay_receiver().0
 }
 
-fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVerificationResult>) {
+fn service_with_relay_receiver() -> (
+    TxPoolService,
+    ckb_channel::Receiver<TxVerificationResult>,
+    watch::Sender<ChunkCommand>,
+) {
     let consensus = Arc::new(ConsensusBuilder::default().build());
     let snapshot = snapshot(Arc::clone(&consensus));
     let config = tx_pool_config();
@@ -736,7 +833,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
-    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
         ordered_resolve_queue: RwLock::new(
@@ -751,34 +848,37 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
     });
     let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config),
-        block_assembler: None,
-        callbacks: Arc::new(Callbacks::new()),
-        network: dummy_network(),
-        tx_relay_sender,
-        block_assembler_sender,
+        pool: crate::service::PoolCore {
+            tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
+            consensus: Arc::clone(&consensus),
+            tx_pool_config: Arc::new(config),
+        },
+        pipeline: crate::service::PipelineState {
+            queues: Arc::clone(&queues),
+            waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
+            chunk_rx,
+            deferred_sender,
+        },
+        relay: crate::service::RelayState {
+            network: dummy_network(),
+            tx_relay_sender,
+            block_assembler_sender,
+            callbacks: Arc::new(Callbacks::new()),
+            banned_peers: Default::default(),
+        },
         aux: crate::service::AuxServices {
             txs_verify_cache: Arc::new(RwLock::new(init_cache())),
             recent_reject: None,
             fee_estimator: FeeEstimator::new_dummy(),
         },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
+        block_assembler: None,
+        recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                while let Some(job) = queues.pre_check_queue.pop().await {
-                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                }
-            });
+            tokio::spawn(crate::service::workers::run_pre_check_worker_loop(svc));
         }
     }
 
@@ -804,7 +904,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         });
     }
 
-    (service, tx_relay_receiver)
+    (service, tx_relay_receiver, chunk_tx)
 }
 
 /// Seed `parent` into the ordered resolve queue and inflate the queue's
@@ -815,7 +915,7 @@ async fn seed_parent_and_nearly_fill_queue(
     service: &TxPoolService,
     parent: ckb_types::core::TransactionView,
 ) {
-    let mut ordered = service.queues.ordered_resolve_queue.write().await;
+    let mut ordered = service.pipeline.queues.ordered_resolve_queue.write().await;
     ordered.set_total_tx_size_for_test(crate::constants::MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE - 1_000);
     ordered
         .add_tx(ResolveJob::new(parent, TxSource::Local))
@@ -851,9 +951,17 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
         "full resolve queue should not panic while requeueing a high-cycle orphan"
     );
 
-    assert!(service.orphan.read().await.contains_key(&orphan_id));
+    assert!(
+        service
+            .pipeline
+            .waiting_room
+            .read()
+            .await
+            .contains_key(&orphan_id)
+    );
     assert!(
         !service
+            .pipeline
             .queues
             .ordered_resolve_queue
             .read()
@@ -864,7 +972,7 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
 
 #[tokio::test]
 async fn submit_remote_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
-    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
     let parent = build_tx(vec![], 1);
     let tx = build_tx(vec![(&parent.hash(), 0)], 1);
     let tx_hash = tx.hash();
@@ -895,7 +1003,7 @@ async fn submit_remote_tx_notifies_relayer_when_ordered_resolve_queue_is_full() 
 
 #[tokio::test]
 async fn notify_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
-    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
     let parent = build_tx(vec![], 1);
     let tx = build_tx(vec![(&parent.hash(), 0)], 1);
     let tx_hash = tx.hash();
@@ -919,7 +1027,7 @@ async fn notify_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
 /// Build a service with a real `RecentReject` database so that
 /// `handle_remote_reject` recording paths can be tested.
 fn service_with_recent_reject() -> (TxPoolService, ckb_channel::Receiver<TxVerificationResult>) {
-    let (service, receiver) = service_with_relay_receiver();
+    let (service, receiver, _chunk_tx) = service_with_relay_receiver();
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
     let recent_reject = crate::component::recent_reject::RecentReject::build(
         tmp_dir.path(),
@@ -1004,7 +1112,7 @@ async fn handle_remote_reject_relays_allowed_rejects() {
 
 #[tokio::test]
 async fn handle_missing_input_orphan_notifies_relayer_once() {
-    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
     let parent = build_tx(vec![], 1);
     let parent_hash = parent.hash();
     let orphan = build_tx(vec![(&parent_hash, 0)], 1);
@@ -1023,7 +1131,14 @@ async fn handle_missing_input_orphan_notifies_relayer_once() {
         )
         .await;
 
-    assert!(service.orphan.read().await.contains_key(&orphan_id));
+    assert!(
+        service
+            .pipeline
+            .waiting_room
+            .read()
+            .await
+            .contains_key(&orphan_id)
+    );
     match tx_relay_receiver
         .try_recv()
         .expect("expected UnknownParents on first add")
@@ -1052,4 +1167,362 @@ async fn handle_missing_input_orphan_notifies_relayer_once() {
         tx_relay_receiver.try_recv().is_err(),
         "duplicate orphan should not trigger second UnknownParents"
     );
+}
+
+/// The pre-check worker must close the loop with the relayer when the
+/// ordered resolve queue rejects a dependent job with `Full`: previously
+/// the worker discarded the classification result entirely, so the peer's
+/// filter entry would wait forever (no notification, no record, no orphan).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pre_check_worker_notifies_relayer_when_ordered_resolve_queue_is_full() {
+    let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
+    let parent = build_tx(vec![], 1);
+    let tx = build_tx(vec![(&parent.hash(), 0)], 1);
+    let tx_hash = tx.hash();
+
+    seed_parent_and_nearly_fill_queue(&service, parent).await;
+
+    // The dependent job goes through the pre-check worker pool (spawned by
+    // `service_with_relay_receiver`); the ordered queue rejects it with
+    // `Full`, and the worker must notify the relayer.
+    service
+        .pipeline
+        .queues
+        .pre_check_queue
+        .push(crate::component::pre_check_queue::PreCheckJob {
+            tx: tx.clone(),
+            source: TxSource::Remote {
+                cycles: MAX_TX_VERIFY_CYCLES,
+                peer: 1.into(),
+            },
+        })
+        .unwrap();
+
+    let notified = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(TxVerificationResult::Reject { tx_hash: rejected }) =
+                tx_relay_receiver.try_recv()
+                && rejected == tx_hash
+            {
+                break;
+            }
+            sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        notified.is_ok(),
+        "pre-check worker must notify the relayer on ordered-queue Full"
+    );
+}
+
+/// A job from a peer banned *after* the job entered the pipeline must be
+/// dropped by the worker instead of flowing into the pool: queue-level
+/// removal only covers queued jobs, not popped ones.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn banned_peer_job_is_dropped_by_pre_check_worker() {
+    let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
+    let peer: ckb_network::PeerIndex = 7.into();
+    let tx = build_tx(vec![], 1);
+    let tx_hash = tx.hash();
+
+    assert!(!service.is_recently_banned(TxSource::Remote { cycles: 0, peer }));
+    service.ban_malformed(peer, "test ban".to_string()).await;
+    assert!(service.is_recently_banned(TxSource::Remote { cycles: 0, peer }));
+
+    // The job enters the pre-check queue after the ban: the worker pops it,
+    // sees the ban, and drops it terminally (relayer hears Reject).
+    service
+        .pipeline
+        .queues
+        .pre_check_queue
+        .push(crate::component::pre_check_queue::PreCheckJob {
+            tx: tx.clone(),
+            source: TxSource::Remote {
+                cycles: MAX_TX_VERIFY_CYCLES,
+                peer,
+            },
+        })
+        .unwrap();
+
+    let notified = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(TxVerificationResult::Reject { tx_hash: rejected }) =
+                tx_relay_receiver.try_recv()
+                && rejected == tx_hash
+            {
+                break;
+            }
+            sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        notified.is_ok(),
+        "banned peer's in-flight job must be dropped with a Reject notification"
+    );
+}
+
+/// A parent parked in the waiting room (orphan or RBF-held) must count as
+/// in flight for the local-orphan retry heuristic: otherwise the child
+/// burns its small immediate-retry budget while the parent is merely parked.
+#[tokio::test]
+async fn parent_parked_in_waiting_room_counts_as_in_flight() {
+    let service = service();
+    let parent = build_tx(vec![], 1);
+    let parent_hash = parent.hash();
+
+    assert!(service.add_orphan(parent.clone(), TxSource::Local).await);
+
+    let parents: std::collections::HashSet<Byte32> = [parent_hash].into_iter().collect();
+    assert!(
+        service.all_missing_parents_in_flight(&parents).await,
+        "a parent parked in the waiting room must count as in flight"
+    );
+}
+
+/// Bounded recovery retries must end in a *terminal* outcome, not a silent
+/// drop: recovered txs lost their conflict-cache handle when the recovery
+/// began, so an exhausted recovery must still notify the relayer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recover_gives_up_terminally_after_bounded_retries() {
+    let (service, tx_relay_receiver, _chunk_tx) = service_with_relay_receiver();
+    // Permanently full ordered queue.
+    {
+        let mut queue = service.pipeline.queues.ordered_resolve_queue.write().await;
+        queue.set_total_tx_size_for_test(crate::constants::MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE);
+    }
+
+    let tx = build_tx(vec![], 1);
+    let tx_hash = tx.hash();
+    let queues = Arc::clone(&service.pipeline.queues);
+    let relay = service.relay.clone();
+    let cancel = ckb_stop_handler::CancellationToken::new();
+
+    let start = std::time::Instant::now();
+    crate::process::recover::enqueue_recover_txs(
+        queues,
+        vec![(
+            tx,
+            TxSource::Remote {
+                cycles: 0,
+                peer: 1.into(),
+            },
+        )],
+        &cancel,
+        &relay,
+    )
+    .await;
+    assert!(
+        start.elapsed() >= std::time::Duration::from_millis(1_500),
+        "the bounded retries must actually back off before giving up"
+    );
+
+    match tx_relay_receiver.try_recv() {
+        Ok(TxVerificationResult::Reject { tx_hash: rejected }) => {
+            assert_eq!(rejected, tx_hash);
+        }
+        other => panic!(
+            "exhausted recovery must end with a terminal Reject notification, got {:?}",
+            other
+        ),
+    }
+}
+
+/// Administrative removal must clear a double-parked transaction from
+/// *both* waiting rooms (pipeline-side and pool-side): previously the
+/// pipeline-side hit returned early, leaving the pool-side copy to linger
+/// until budget eviction.
+#[tokio::test]
+async fn remove_tx_clears_double_parked_transaction_from_both_rooms() {
+    let service = service();
+    let tx = build_tx(vec![], 1);
+    let id = tx.proposal_short_id();
+
+    // Double-park: pipeline-side (orphan) and pool-side (InputsBlocked).
+    assert!(service.add_orphan(tx.clone(), TxSource::Local).await);
+    {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        tx_pool.record_conflict(tx.clone(), TxSource::Local);
+    }
+
+    assert!(matches!(
+        service.remove_tx(tx.hash()).await,
+        crate::service::RemoveTxOutcome::Removed
+    ));
+    assert!(
+        !service.pipeline.waiting_room.read().await.contains_key(&id),
+        "pipeline-side entry must be removed"
+    );
+    assert!(
+        service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .waiting_room
+            .get(&id)
+            .is_none(),
+        "pool-side entry must be removed too"
+    );
+}
+
+/// An expired parent must cascade to its descendants: its children can
+/// never resolve once the parent's outputs die, so leaving them would make
+/// them zombies until their own expiry (and the template builder would
+/// filter them every round).
+#[tokio::test]
+async fn remove_expired_cascades_to_descendants() {
+    let service = service();
+    let parent = build_tx(vec![], 1);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let parent_id = parent.proposal_short_id();
+    let child_id = child.proposal_short_id();
+
+    {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        // The parent is already expired (timestamp 1); the child is fresh.
+        tx_pool
+            .pool_map
+            .add_entry(
+                crate::component::entry::TxEntry::new_with_timestamp(
+                    Arc::new(ckb_types::core::cell::ResolvedTransaction::dummy_resolve(
+                        parent.clone(),
+                    )),
+                    0,
+                    Capacity::shannons(1),
+                    100,
+                    1,
+                ),
+                Status::Pending,
+            )
+            .unwrap();
+        tx_pool
+            .pool_map
+            .add_entry(
+                crate::component::entry::TxEntry::dummy_resolve(
+                    child.clone(),
+                    0,
+                    Capacity::shannons(1),
+                    100,
+                ),
+                Status::Pending,
+            )
+            .unwrap();
+    }
+
+    let mut events = Vec::new();
+    {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        tx_pool.remove_expired(&mut events);
+    }
+
+    let removed: std::collections::HashSet<_> = events
+        .iter()
+        .map(|(entry, _)| entry.proposal_short_id())
+        .collect();
+    assert!(removed.contains(&parent_id));
+    assert!(
+        removed.contains(&child_id),
+        "an expired parent must cascade to its child"
+    );
+    assert!(
+        events
+            .iter()
+            .all(|(_, reject)| matches!(reject, crate::error::Reject::Expiry(_))),
+        "every cascaded entry gets its own Expiry reject"
+    );
+    {
+        let tx_pool = service.pool.tx_pool.read().await;
+        assert!(tx_pool.pool_map.get_by_id(&parent_id).is_none());
+        assert!(tx_pool.pool_map.get_by_id(&child_id).is_none());
+    }
+}
+
+/// A dropped `VerifyMgr` (e.g. after a manager-level panic, before the
+/// monitor respawns a new one) must cancel its whole worker generation:
+/// detached workers of the old generation must not keep draining the
+/// queue alongside the respawned generation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dropped_verify_mgr_cancels_its_worker_generation() {
+    use ckb_stop_handler::CancellationToken;
+
+    let (service, _relay, _chunk_tx) = service_with_relay_receiver();
+    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let parent = CancellationToken::new();
+    let mut mgr = crate::verify_mgr::VerifyMgr::new(
+        service.clone(),
+        chunk_tx.subscribe(),
+        parent.child_token(),
+    );
+    let handle = tokio::spawn(async move { mgr.run().await });
+
+    let park = |id: u8| {
+        let service = service.clone();
+        async move {
+            let tx = build_tx(vec![(&Byte32::new([id; 32]), 0)], 1);
+            let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+            let resolved = ResolvedTx {
+                tx: tx.clone(),
+                rtx: Arc::new(ckb_types::core::cell::ResolvedTransaction::dummy_resolve(
+                    tx.clone(),
+                )),
+                status: Status::Pending,
+                fee: Capacity::zero(),
+                tx_size: tx.data().serialized_size_in_block(),
+                pre_resolve_tip: Default::default(),
+                snapshot,
+                source: TxSource::Local,
+            };
+            let mut verify = service.pipeline.queues.verify_queue.write().await;
+            verify.add_tx(resolved).unwrap();
+        }
+    };
+
+    // The live generation drains a queued job.
+    park(0x51).await;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if service.pipeline.queues.verify_queue.read().await.is_empty() {
+                break;
+            }
+            sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("live workers must drain the queue");
+
+    // Simulate a manager-level panic: the manager task dies and its
+    // VerifyMgr is dropped. The whole generation must shut down.
+    handle.abort();
+    let _ = handle.await;
+
+    park(0x52).await;
+    sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !service.pipeline.queues.verify_queue.read().await.is_empty(),
+        "workers of a dropped generation must not keep running"
+    );
+}
+
+/// `save_pool` must wait for the reorg recovery lock, so it can never
+/// persist a half-updated pool mid-reorg.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn save_pool_waits_for_recovery_lock() {
+    let service = service();
+    let guard = service.recovery_lock.lock().await;
+
+    let svc = service.clone();
+    let save = tokio::spawn(async move { svc.save_pool().await });
+    sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        !save.is_finished(),
+        "save_pool must block while the recovery lock is held"
+    );
+
+    drop(guard);
+    tokio::time::timeout(std::time::Duration::from_secs(5), save)
+        .await
+        .expect("save_pool must complete once the recovery lock is released")
+        .expect("save task joins");
 }

@@ -13,7 +13,7 @@ use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::TxPoolService;
 use crate::tx_source::TxSource;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
-use ckb_logger::debug;
+use ckb_logger::{debug, error};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::packed::{Byte32, ProposalShortId};
@@ -128,6 +128,7 @@ impl JobHandler for ResolveHandler {
 
     async fn is_queue_empty(&self) -> bool {
         self.service
+            .pipeline
             .queues
             .ordered_resolve_queue
             .read()
@@ -137,6 +138,7 @@ impl JobHandler for ResolveHandler {
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
         self.service
+            .pipeline
             .queues
             .ordered_resolve_queue
             .read()
@@ -146,6 +148,7 @@ impl JobHandler for ResolveHandler {
 
     async fn pop_one(&mut self) -> Option<ResolveJob> {
         self.service
+            .pipeline
             .queues
             .ordered_resolve_queue
             .write()
@@ -155,6 +158,7 @@ impl JobHandler for ResolveHandler {
 
     async fn next_deadline(&self) -> Option<tokio::time::Instant> {
         self.service
+            .pipeline
             .queues
             .ordered_resolve_queue
             .read()
@@ -164,17 +168,65 @@ impl JobHandler for ResolveHandler {
     }
 
     async fn process_one(&mut self, job: ResolveJob) {
-        match resolve_job(&self.service, job.clone()).await {
-            ResolveStageResult::Ready(resolved) => {
-                self.push_to_verify_queue(resolved).await;
-            }
-            ResolveStageResult::Orphan(id, parents) => {
-                self.handle_orphan(job, id, parents).await;
-            }
-            ResolveStageResult::Reject(tx, reject) => {
-                self.handle_reject(tx, job.source, reject).await;
-            }
+        let id = job.tx.proposal_short_id();
+        let tx = job.tx.clone();
+        let source = job.source;
+        if self.service.is_recently_banned(source) {
+            // The peer was banned after this job was popped: its in-flight
+            // jobs must not keep flowing into the pool.
+            self.service.terminal_internal(tx, source).await;
+            self.service
+                .pipeline
+                .queues
+                .ordered_resolve_queue
+                .write()
+                .await
+                .finish(&id);
+            return;
         }
+        // Guard each job individually: one bad job must neither kill the
+        // resolver nor strand this job's active marker. The runner/monitor
+        // respawn stays as the backstop for panics outside the job guard.
+        let outcome = crate::worker::catch_job_panic(async {
+            match resolve_job(&self.service, job.clone()).await {
+                ResolveStageResult::Ready(resolved) => {
+                    self.push_to_verify_queue(resolved).await;
+                }
+                ResolveStageResult::Orphan(id, parents) => {
+                    self.handle_orphan(job, id, parents).await;
+                }
+                ResolveStageResult::Reject(tx, reject) => {
+                    self.handle_reject(tx, job.source, reject).await;
+                }
+            }
+        })
+        .await;
+        if let Err(message) = outcome {
+            error!(
+                "tx-pool ordered resolver panicked on job {}: {}",
+                id, message
+            );
+            // A registration may already exist if the panic hit inside
+            // `enqueue_resolved_tx` after the registration commit; clean it
+            // up so it cannot block future replacements as a ghost.
+            self.service.abort_rbf_candidate(&id).await;
+            // The tx must not vanish silently either: close the loop with
+            // the relayer (nothing is recorded — this was an internal
+            // failure, not the transaction's fault).
+            self.service.terminal_internal(tx, source).await;
+        }
+        // The job has reached its terminal state (forwarded, re-enqueued,
+        // rejected, or panicked). Clear the active marker set at pop time;
+        // the re-enqueue paths above have already made the id visible
+        // through the queue lookup again (and a forwarded tx is visible in
+        // the verify queue), so there is no visibility gap.
+        self.service
+            .pipeline
+            .queues
+            .ordered_resolve_queue
+            .write()
+            .await
+            .finish(&id);
     }
 
     fn make_exit(&self, outcome: WorkerOutcome) -> ResolveExit {
@@ -250,7 +302,13 @@ impl ResolveHandler {
             );
             let tx = job.tx.clone();
             let source = job.source;
-            let mut ordered = self.service.queues.ordered_resolve_queue.write().await;
+            let mut ordered = self
+                .service
+                .pipeline
+                .queues
+                .ordered_resolve_queue
+                .write()
+                .await;
             if let Err(reject) = ordered.add_tx_delayed(job, LOCAL_ORPHAN_RETRY_DELAY) {
                 drop(ordered);
                 self.service
@@ -266,7 +324,13 @@ impl ResolveHandler {
             );
             let tx = job.tx.clone();
             let source = job.source;
-            let mut ordered = self.service.queues.ordered_resolve_queue.write().await;
+            let mut ordered = self
+                .service
+                .pipeline
+                .queues
+                .ordered_resolve_queue
+                .write()
+                .await;
             if let Err(reject) = ordered.add_tx(job) {
                 drop(ordered);
                 self.service
@@ -274,9 +338,13 @@ impl ResolveHandler {
                     .await;
             }
         } else {
+            // The bounded retry budget is exhausted: this is a terminal
+            // rejection, so it must bypass the missing-input orphan
+            // parking (which would otherwise swallow the verdict and park
+            // the tx for another ~80 minutes).
             let reject = first_unknown_input_reject(&job.tx);
             self.service
-                .reject_with_after_process(job.tx, job.source, reject)
+                .terminal_reject(job.tx, job.source, reject)
                 .await;
         }
     }

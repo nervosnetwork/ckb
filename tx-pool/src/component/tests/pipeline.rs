@@ -384,7 +384,7 @@ async fn verify_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
     let PreCheckedTx { rtx, status, .. } =
         pre_check_ret.expect("pre_check for cycle measurement should succeed");
     let verify_cache = service.fetch_tx_verify_cache(&tx).await;
-    let max_cycles = service.consensus.max_block_cycles();
+    let max_cycles = service.pool.consensus.max_block_cycles();
     let tx_env = match status {
         Status::Pending => Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header())),
         Status::Gap => Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 0)),
@@ -428,7 +428,7 @@ async fn pipeline_processes_independent_remote_txs() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == txs.len() {
                 break;
             }
@@ -438,7 +438,7 @@ async fn pipeline_processes_independent_remote_txs() {
     .await
     .expect("pipeline should process all independent txs in time");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
 
     signal.cancel();
@@ -485,7 +485,7 @@ async fn pipeline_preserves_order_for_dependent_txs() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 2 {
                 break;
             }
@@ -495,7 +495,7 @@ async fn pipeline_preserves_order_for_dependent_txs() {
     .await
     .expect("pipeline should process dependent txs in time");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, 2);
 
     signal.cancel();
@@ -566,9 +566,9 @@ async fn pipeline_rejects_conflicting_double_spend() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (pending, ordered_len, verify_len) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
                 (pool.pool_map.pending_size(), ordered.len(), verify.len())
             };
             if pending == 1 && ordered_len == 0 && verify_len == 0 {
@@ -580,7 +580,7 @@ async fn pipeline_rejects_conflicting_double_spend() {
     .await
     .expect("pipeline should settle with exactly one double-spend tx accepted");
 
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     let a_in_pool = pool.get_tx_from_pool(&id_a).is_some();
     let b_in_pool = pool.get_tx_from_pool(&id_b).is_some();
     assert!(
@@ -637,8 +637,8 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (pending, verify_len) = {
-                let pool = service.tx_pool.read().await;
-                let verify = service.queues.verify_queue.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
                 (pool.pool_map.pending_size(), verify.len())
             };
             if pending == 1 || verify_len == 1 {
@@ -664,10 +664,10 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let (pending, ordered_len, verify_len, orphan_len) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
-                let orphan = service.orphan.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
+                let orphan = service.pipeline.waiting_room.read().await;
                 (
                     pool.pool_map.pending_size(),
                     ordered.len(),
@@ -684,7 +684,7 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
     .await
     .expect("pipeline should settle with tx_a accepted and tx_b rejected");
 
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id_a).is_some(),
         "tx_a should be accepted"
@@ -733,10 +733,10 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (pending, ordered_len, verify_len, orphan_len) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
-                let orphan = service.orphan.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
+                let orphan = service.pipeline.waiting_room.read().await;
                 (
                     pool.pool_map.pending_size(),
                     ordered.len(),
@@ -762,10 +762,10 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (pending, ordered_len, verify_len, orphan_len) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
-                let orphan = service.orphan.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
+                let orphan = service.pipeline.waiting_room.read().await;
                 (
                     pool.pool_map.pending_size(),
                     ordered.len(),
@@ -782,7 +782,7 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
     .await
     .expect("tx_b should settle");
 
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id_a).is_some(),
         "tx_a should be accepted"
@@ -829,7 +829,7 @@ async fn pipeline_processes_independent_secp_remote_txs() {
 
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == txs.len() {
                 break;
             }
@@ -839,7 +839,7 @@ async fn pipeline_processes_independent_secp_remote_txs() {
     .await
     .expect("pipeline should process all independent secp txs in time");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
 
     signal.cancel();
@@ -896,7 +896,7 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
 
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 2 {
                 break;
             }
@@ -906,7 +906,7 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
     .await
     .expect("pipeline should process dependent secp txs in order");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, 2);
 
     signal.cancel();
@@ -953,7 +953,7 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == txs.len() {
                 break;
             }
@@ -967,7 +967,7 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
     // This simulates a block being orphaned during a reorg.
     let detached_block = BlockBuilder::default()
         .number(1)
-        .parent_hash(service.tx_pool.read().await.snapshot.tip_hash())
+        .parent_hash(service.pool.tx_pool.read().await.snapshot.tip_hash())
         .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
         .transaction(
             // cellbase (placeholder — skip(1) in reorg handler skips this)
@@ -988,7 +988,7 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
     let detached_blocks: VecDeque<BlockView> = [detached_block].into();
     let attached_blocks: VecDeque<BlockView> = VecDeque::new();
     let detached_proposal_id: HashSet<ProposalShortId> = HashSet::new();
-    let snapshot = service.tx_pool.read().await.cloned_snapshot();
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
 
     // Trigger the reorg. This should call classify_and_enqueue_tx for each
     // retained tx after releasing the write lock. The calls will fail with
@@ -1010,15 +1010,21 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
 
     // Pool should still contain all 3 txs (reorg didn't remove anything
     // since attached was empty and the txs were in pending, not committed).
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(
         pending, 3,
         "pool should still have all 3 txs after reorg with empty attached"
     );
 
     // Verify the ordered resolve queue and verify queue are drained (no stuck txs).
-    let ordered_len = service.queues.ordered_resolve_queue.read().await.len();
-    let verify_len = service.queues.verify_queue.read().await.len();
+    let ordered_len = service
+        .pipeline
+        .queues
+        .ordered_resolve_queue
+        .read()
+        .await
+        .len();
+    let verify_len = service.pipeline.queues.verify_queue.read().await.len();
     assert_eq!(
         ordered_len, 0,
         "ordered resolve queue should be empty after reorg classify calls fail"
@@ -1133,7 +1139,7 @@ async fn pipeline_dedup_double_submission() {
     // Wait for the tx to reach the pending pool.
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 1 {
                 break;
             }
@@ -1164,14 +1170,14 @@ async fn pipeline_dedup_double_submission() {
     // Brief wait for any in-flight processing.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(
         pending, 1,
         "pool must have exactly 1 tx after duplicate submission"
     );
 
     // Verify the specific tx is still in the pool.
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id).is_some(),
         "original tx should still be in pool"
@@ -1211,7 +1217,7 @@ async fn pipeline_high_pre_check_worker_cap() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == txs.len() {
                 break;
             }
@@ -1221,7 +1227,7 @@ async fn pipeline_high_pre_check_worker_cap() {
     .await
     .expect("pipeline should process all txs even with high worker cap");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
 
     signal.cancel();
@@ -1273,7 +1279,7 @@ async fn pipeline_semaphore_backpressure() {
 
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == tx_count {
                 break;
             }
@@ -1283,7 +1289,7 @@ async fn pipeline_semaphore_backpressure() {
     .await
     .expect("all txs should reach pending despite semaphore backpressure");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(
         pending, tx_count,
         "semaphore backpressure must not lose transactions"
@@ -1341,7 +1347,7 @@ async fn pipeline_chunk_command_pause_resume() {
     // no new items are dequeued from VerifyQueue.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let pending_while_suspended = service.tx_pool.read().await.pool_map.pending_size();
+    let pending_while_suspended = service.pool.tx_pool.read().await.pool_map.pending_size();
 
     // Resume — remaining txs should now drain through verification.
     chunk_tx
@@ -1350,7 +1356,7 @@ async fn pipeline_chunk_command_pause_resume() {
 
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == txs.len() {
                 break;
             }
@@ -1360,7 +1366,7 @@ async fn pipeline_chunk_command_pause_resume() {
     .await
     .expect("all txs should reach pending after resume");
 
-    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
 
     // With 1 worker and suspend, some txs should have been delayed.
@@ -1417,7 +1423,7 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 1 {
                 break;
             }
@@ -1428,7 +1434,7 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
     .expect("tx_a should reach pending");
 
     {
-        let pool = service.tx_pool.read().await;
+        let pool = service.pool.tx_pool.read().await;
         assert!(
             pool.get_tx_from_pool(&id_a).is_some(),
             "tx_a should be in pool before replacement"
@@ -1452,9 +1458,9 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (b_in_pool, ordered_len, verify_len) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
                 (
                     pool.get_tx_from_pool(&id_b).is_some(),
                     ordered.len(),
@@ -1470,7 +1476,7 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
     .await
     .expect("RBF should complete: tx_a displaced, tx_b in pool");
 
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id_a).is_none(),
         "tx_a should be removed after RBF"
@@ -1536,7 +1542,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 1 {
                 break;
             }
@@ -1564,7 +1570,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             {
-                let pool = service.tx_pool.read().await;
+                let pool = service.pool.tx_pool.read().await;
                 if pool.get_tx_from_pool(&id_a).is_some() {
                     break;
                 }
@@ -1577,8 +1583,8 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 
     // tx_b passes RBF checks, removes tx_a, but is then rejected by
     // `limit_size` because the pool is too small. tx_a must be recovered from
-    // the conflict pool rather than left out of the mempool.
-    let pool = service.tx_pool.read().await;
+    // the waiting room rather than left out of the mempool.
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id_b).is_none(),
         "tx_b should be rejected because it exceeds the tiny pool size"
@@ -1697,7 +1703,7 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
     // replacements against it.
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 1 {
                 break;
             }
@@ -1765,9 +1771,9 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let (pending, ordered_len, verify_len, settled) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
                 let settled = pool.get_tx_from_pool(&original_id).is_none()
                     && pool.get_tx_from_pool(&expected_id).is_some()
                     && ids
@@ -1789,7 +1795,7 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
     .await
     .expect("pipeline should settle with exactly one RBF replacement accepted");
 
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&original_id).is_none(),
         "original tx should have been replaced"
@@ -1872,7 +1878,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 1 {
                 break;
             }
@@ -1896,7 +1902,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 2 {
                 break;
             }
@@ -1920,7 +1926,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
             if pending == 3 {
                 break;
             }
@@ -1947,9 +1953,9 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (a_in_pool, b_in_pool, c_in_pool, r_in_pool, ordered_len, verify_len) = {
-                let pool = service.tx_pool.read().await;
-                let ordered = service.queues.ordered_resolve_queue.read().await;
-                let verify = service.queues.verify_queue.read().await;
+                let pool = service.pool.tx_pool.read().await;
+                let ordered = service.pipeline.queues.ordered_resolve_queue.read().await;
+                let verify = service.pipeline.queues.verify_queue.read().await;
                 (
                     pool.get_tx_from_pool(&id_a).is_some(),
                     pool.get_tx_from_pool(&id_b).is_some(),
@@ -1974,7 +1980,7 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
     .await
     .expect("original chain should be recovered after rejected RBF replacement");
 
-    let pool = service.tx_pool.read().await;
+    let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id_r).is_none(),
         "oversized replacement should be rejected"
@@ -1991,6 +1997,259 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
         pool.get_tx_from_pool(&id_c).is_some(),
         "tx_c (grand-descendant) should be recovered"
     );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// A retained (detached) tx that is *already back in the pool* must be
+/// treated as recovered, not as a failure: cascading on `Duplicated` would
+/// evict its healthy dependents and emit spurious Dead rejections (this is
+/// also what a retried reorg sees on its second pass).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reorg_retain_duplicate_does_not_cascade_dependents() {
+    use std::collections::{HashSet, VecDeque};
+
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
+    let issue_out_point = &issue_out_points[0];
+
+    // Parent and its child, both pending in the pool.
+    let parent = build_tx(issue_out_point, 4_000);
+    let parent_output = OutPoint::new(parent.hash(), 0);
+    let child = build_tx(&parent_output, 3_000);
+
+    // Child first (it parks in the ordered queue), then the parent. The
+    // child cannot be cycle-measured until the parent is in the pool, so
+    // reuse the parent's (identical always-success script).
+    let cycles = measured_cycles(&service, parent.clone()).await;
+    for tx in [&child, &parent] {
+        service
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles,
+                    peer: 1.into(),
+                },
+            )
+            .await
+            .expect("enqueue remote tx should succeed");
+    }
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
+            if pending == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("parent and child should be pending before reorg");
+
+    // A detached block containing the parent: the retain loop re-adds it and
+    // hits `Duplicated` (it never left the pool). Pre-fix this cascaded and
+    // evicted the child with a spurious Dead rejection.
+    let detached_block = BlockBuilder::default()
+        .number(1)
+        .parent_hash(service.pool.tx_pool.read().await.snapshot.tip_hash())
+        .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
+        .transaction(
+            TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::null(), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::bytes(1_000).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::default().pack())
+                .build(),
+        )
+        .transaction(parent.clone())
+        .build();
+
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+    service
+        .update_tx_pool_for_reorg(
+            [detached_block].into(),
+            VecDeque::new(),
+            HashSet::new(),
+            snapshot,
+        )
+        .await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
+    assert_eq!(
+        pending, 2,
+        "Duplicated retain must not cascade-remove the child"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// Administrative removal must be honest about worker-active jobs: a job
+/// popped by a worker (not yet terminal) is reported as `InProgress`, not
+/// "not found" — the caller would otherwise watch the "missing"
+/// transaction enter the pool moments later.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remove_tx_reports_in_progress_for_worker_active_job() {
+    use crate::component::pipeline_queue::PipelineQueue;
+
+    let h = super::harness::harness(1)
+        .workers(super::harness::WorkerSet::None)
+        .build();
+    let service = h.service;
+    let tx = build_tx(&h.out_points[0], 1_000);
+    let id = tx.proposal_short_id();
+
+    // Queue the job, then pop it so it is worker-active (popped, unfinished).
+    {
+        let mut ordered = service.pipeline.queues.ordered_resolve_queue.write().await;
+        ordered
+            .add_tx(crate::resolved_tx::ResolveJob::new(
+                tx.clone(),
+                TxSource::Local,
+            ))
+            .unwrap();
+        assert!(ordered.pop_front().is_some());
+        assert!(ordered.get_active_tx(&id).is_some());
+    }
+
+    assert!(
+        matches!(
+            service.remove_tx(tx.hash()).await,
+            crate::service::RemoveTxOutcome::InProgress
+        ),
+        "a worker-active job must be reported as InProgress"
+    );
+
+    service
+        .pipeline
+        .queues
+        .ordered_resolve_queue
+        .write()
+        .await
+        .finish(&id);
+    assert!(
+        matches!(
+            service.remove_tx(tx.hash()).await,
+            crate::service::RemoveTxOutcome::NotFound
+        ),
+        "after finish the job is honestly NotFound"
+    );
+}
+
+/// An orphan that is *itself* attached in a reorg must not be routed:
+/// its inputs are consumed by its own block, so routing it would resolve
+/// Dead and poison recent_reject (and the relayer filter) for a
+/// transaction that just committed on-chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reorg_attached_orphan_is_removed_without_dead_rejection() {
+    use std::collections::{HashSet, VecDeque};
+
+    let (service, relay_rx, signal, store, issue_out_points) = service_with_pipeline(1);
+    let issue_out_point = &issue_out_points[0];
+
+    // Parent spends the genesis cell; the orphan spends the parent's output.
+    let parent = build_tx(issue_out_point, 4_000);
+    let orphan = build_tx(&OutPoint::new(parent.hash(), 0), 3_000);
+    let orphan_id = orphan.proposal_short_id();
+    let orphan_hash = orphan.hash();
+
+    // Park the orphan *before* the block arrives (its parent is pretend-missing).
+    assert!(
+        service.add_orphan(orphan.clone(), TxSource::Local).await,
+        "orphan must be parked first"
+    );
+
+    // A block containing both parent and orphan attaches: commit it to the
+    // store and build the post-attachment snapshot (like the reorg handler
+    // receives it).
+    let tip_hash = service.pool.tx_pool.read().await.snapshot.tip_hash();
+    let attached_block = BlockBuilder::default()
+        .number(1)
+        .parent_hash(tip_hash.clone())
+        .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
+        .transaction(
+            TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::null(), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::bytes(1_000).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::default().pack())
+                .build(),
+        )
+        .transaction(parent.clone())
+        .transaction(orphan.clone())
+        .build();
+    let consensus = std::sync::Arc::clone(&service.pool.consensus);
+    let epoch_ext = consensus.genesis_epoch_ext().clone();
+    {
+        let db_txn = store.store().begin_transaction();
+        db_txn.insert_block(&attached_block).unwrap();
+        db_txn.attach_block(&attached_block).unwrap();
+        attach_block_cell(&db_txn, &attached_block).unwrap();
+        db_txn
+            .insert_block_epoch_index(&attached_block.hash(), &tip_hash)
+            .unwrap();
+        db_txn
+            .insert_block_ext(
+                &attached_block.hash(),
+                &BlockExt {
+                    received_at: 0,
+                    total_difficulty: U256::zero(),
+                    total_uncles_count: 0,
+                    verified: Some(true),
+                    txs_fees: vec![],
+                    cycles: None,
+                    txs_sizes: None,
+                },
+            )
+            .unwrap();
+        db_txn.commit().unwrap();
+    }
+    let post_snapshot = Arc::new(Snapshot::new(
+        attached_block.header(),
+        U256::zero(),
+        epoch_ext,
+        store.store().get_snapshot(),
+        Default::default(),
+        consensus,
+    ));
+
+    service
+        .update_tx_pool_for_reorg(
+            VecDeque::new(),
+            [attached_block].into(),
+            HashSet::new(),
+            post_snapshot,
+        )
+        .await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Removed from the room, with no Dead rejection relayed for it.
+    assert!(
+        !service
+            .pipeline
+            .waiting_room
+            .read()
+            .await
+            .contains_key(&orphan_id),
+        "attached orphan must leave the waiting room"
+    );
+    while let Ok(result) = relay_rx.try_recv() {
+        assert!(
+            !matches!(
+                result,
+                crate::service::TxVerificationResult::Reject { tx_hash } if tx_hash == orphan_hash
+            ),
+            "a committed orphan must not be relayed as rejected"
+        );
+    }
 
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;

@@ -2,32 +2,29 @@
 
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
-use crate::component::orphan::OrphanPool;
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
+use crate::component::waiting_room::WaitingRoom;
 use crate::constants::{
     DEFERRED_CHANNEL_SIZE, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
     SECONDS_PER_DAY,
 };
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
+use crate::service::workers;
 use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE};
 use crate::service::{
     BlockAssemblerMessage, ChainReorgArgs, DeferredTask, Message, Notify, TxPoolController,
     TxPoolService, TxVerificationResult, process,
 };
-use crate::tx_source::TxSource;
 use crate::util::panic_payload_to_string;
-use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_logger::{debug, error, info, warn};
+use ckb_logger::{error, info, warn};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
-use ckb_types::core::TransactionView;
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
 use futures_util::FutureExt;
@@ -62,43 +59,6 @@ pub struct TxPoolServiceBuilder {
     ),
     pub(crate) fee_estimator: FeeEstimator,
     pub(crate) recent_reject: Option<Arc<RecentReject>>,
-}
-
-/// Exponential backoff for monitor/worker respawn loops.
-///
-/// A fixed delay is wrong at both ends: transient crashes want a fast
-/// first retry (pipeline availability), while a persistent start-time
-/// failure (a panic that fires immediately on every run) must not become a
-/// hot spin with log spam. The delay therefore doubles per consecutive
-/// failure (100ms → 25.6s, capped at 30s) and resets to the base after any
-/// run that stayed up for at least `HEALTHY_RUN`.
-struct RespawnBackoff {
-    failures: u32,
-}
-
-impl RespawnBackoff {
-    /// First retry delay after a failure.
-    const BASE: Duration = Duration::from_millis(100);
-    /// Maximum delay between respawns.
-    const MAX: Duration = Duration::from_secs(30);
-    /// A run lasting at least this long counts as healthy and resets the
-    /// backoff to `BASE`.
-    const HEALTHY_RUN: Duration = Duration::from_secs(60);
-
-    fn new() -> Self {
-        Self { failures: 0 }
-    }
-
-    /// Delay before the next respawn, given how long the previous run
-    /// lasted.
-    fn delay_for(&mut self, ran_for: Duration) -> Duration {
-        if ran_for >= Self::HEALTHY_RUN {
-            self.failures = 0;
-        }
-        let delay = Self::BASE.saturating_mul(2u32.saturating_pow(self.failures.min(10)));
-        self.failures = self.failures.saturating_add(1);
-        delay.min(Self::MAX)
-    }
 }
 
 /// Shared construction of the pipeline queues and a bare [`TxPoolService`],
@@ -140,24 +100,33 @@ fn assemble_service(
         rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
     });
 
+    let tx_pool_config = tx_pool.config.clone();
     let service = TxPoolService {
-        tx_pool_config: Arc::new(tx_pool.config.clone()),
-        tx_pool: Arc::new(RwLock::new(tx_pool)),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        block_assembler,
-        callbacks: Arc::new(callbacks),
-        tx_relay_sender,
-        block_assembler_sender,
-        network,
-        consensus,
+        pool: crate::service::PoolCore {
+            tx_pool: Arc::new(RwLock::new(tx_pool)),
+            consensus,
+            tx_pool_config: Arc::new(tx_pool_config),
+        },
+        pipeline: crate::service::PipelineState {
+            queues: Arc::clone(&queues),
+            waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
+            chunk_rx,
+            deferred_sender,
+        },
+        relay: crate::service::RelayState {
+            network,
+            tx_relay_sender,
+            block_assembler_sender,
+            callbacks: Arc::new(callbacks),
+            banned_peers: Default::default(),
+        },
         aux: crate::service::AuxServices {
             txs_verify_cache,
             recent_reject,
             fee_estimator,
         },
-        queues: Arc::clone(&queues),
-        chunk_rx,
-        deferred_sender,
+        block_assembler,
+        recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (service, queues)
 }
@@ -324,7 +293,7 @@ impl TxPoolServiceBuilder {
         if self.tx_pool_config.max_verify_queue_tx_size < self.tx_pool_config.max_tx_pool_size {
             warn!(
                 "max_verify_queue_tx_size ({}) < max_tx_pool_size ({}): clamping the verify-queue \
-                 budget up to max_tx_pool_size so persisted-pool reload cannot hit Reject::Full",
+                 budget up to max_tx_pool_size for burst/reload headroom",
                 self.tx_pool_config.max_verify_queue_tx_size, self.tx_pool_config.max_tx_pool_size
             );
         }
@@ -392,26 +361,27 @@ impl TxPoolServiceBuilder {
             pre_check_cancel.clone(),
         );
 
-        let deferred_handle = spawn_deferred_worker(
+        let deferred_handle = workers::spawn_deferred_worker(
             &handle,
             Arc::clone(&queues),
             Arc::clone(&service.aux.txs_verify_cache),
             deferred_receiver,
             signal_receiver.child_token(),
+            service.relay.clone(),
         );
-        let pre_check_handles = Self::spawn_pre_check_workers(
+        let pre_check_handles = workers::spawn_pre_check_workers(
             &handle,
             service.clone(),
             pre_check_cancel,
             pre_check_workers,
         );
-        let verify_mgr_handle = Self::spawn_verify_mgr_monitor(
+        let verify_mgr_handle = workers::spawn_verify_mgr_monitor(
             &handle,
             service.clone(),
             chunk_rx.clone(),
             signal_receiver.clone(),
         );
-        let resolver_handle = Self::spawn_resolver_monitor(
+        let resolver_handle = workers::spawn_resolver_monitor(
             &handle,
             service.clone(),
             chunk_rx,
@@ -426,7 +396,7 @@ impl TxPoolServiceBuilder {
                 signal_receiver.clone(),
             )
         });
-        let reorg_handle = Self::spawn_reorg_handler(
+        let reorg_handle = workers::spawn_reorg_handler(
             &handle,
             service.clone(),
             reorg_receiver,
@@ -454,143 +424,6 @@ impl TxPoolServiceBuilder {
         started.store(true, Ordering::Release);
     }
 
-    /// Spawn a pool of pre-check workers that pop jobs from the queue and
-    /// classify them into the pipeline.  Returns the spawned task handles so
-    /// the shutdown path can quiesce them before persisting.
-    fn spawn_pre_check_workers(
-        handle: &Handle,
-        service: TxPoolService,
-        pre_check_cancel: CancellationToken,
-        count: usize,
-    ) -> Vec<tokio::task::JoinHandle<()>> {
-        let mut handles = Vec::with_capacity(count);
-        for _ in 0..count {
-            let svc = service.clone();
-            let cancel = pre_check_cancel.child_token();
-            let handle = handle.spawn(async move {
-                let mut backoff = RespawnBackoff::new();
-                loop {
-                    let svc = svc.clone();
-                    let started = std::time::Instant::now();
-                    let worker = async move {
-                        while let Some(job) = svc.queues.pre_check_queue.pop().await {
-                            let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                        }
-                    };
-                    let exit = match AssertUnwindSafe(worker).catch_unwind().await {
-                        Ok(()) => crate::resolve_mgr::ResolveExit::Stopped,
-                        Err(payload) => crate::resolve_mgr::ResolveExit::Panicked {
-                            message: crate::util::panic_payload_to_string(payload.as_ref()),
-                        },
-                    };
-                    if cancel.is_cancelled() {
-                        break;
-                    }
-                    match exit {
-                        crate::resolve_mgr::ResolveExit::Stopped => {
-                            // Normal exit because the queue was cancelled.
-                            break;
-                        }
-                        crate::resolve_mgr::ResolveExit::Panicked { message } => {
-                            error!("tx-pool pre-check worker panicked: {}; respawning", message);
-                            tokio::time::sleep(backoff.delay_for(started.elapsed())).await;
-                        }
-                    }
-                }
-            });
-            handles.push(handle);
-        }
-        handles
-    }
-
-    /// Spawn the verification manager monitor with panic-respawn protection,
-    /// mirroring [`Self::spawn_resolver_monitor`]. The manager supervises its
-    /// verify workers internally, but nothing watched the manager task
-    /// itself: without this loop, a manager-level exit (panic or unexpected
-    /// stop) would silently stall the whole verification stage — the verify
-    /// queue would fill up and every new transaction would eventually be
-    /// rejected as `Reject::Full`, with no log at all. Returns the spawned
-    /// task handle so the shutdown path can quiesce it before persisting.
-    fn spawn_verify_mgr_monitor(
-        handle: &Handle,
-        service: TxPoolService,
-        chunk_rx: watch::Receiver<ChunkCommand>,
-        signal: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        handle.spawn(async move {
-            let mut backoff = RespawnBackoff::new();
-            loop {
-                let mut verify_mgr =
-                    VerifyMgr::new(service.clone(), chunk_rx.clone(), signal.clone());
-                let started = std::time::Instant::now();
-                let outcome = AssertUnwindSafe(verify_mgr.run()).catch_unwind().await;
-                match outcome {
-                    Ok(()) => {
-                        if signal.is_cancelled() {
-                            break;
-                        }
-                        error!("tx-pool verify manager stopped unexpectedly, respawning");
-                    }
-                    Err(payload) => {
-                        error!(
-                            "tx-pool verify manager panicked: {}; respawning",
-                            crate::util::panic_payload_to_string(payload.as_ref())
-                        );
-                    }
-                }
-                tokio::time::sleep(backoff.delay_for(started.elapsed())).await;
-            }
-            info!("TxPool verify manager monitor exited");
-        })
-    }
-
-    /// Spawn the ordered resolver monitor with panic-respawn protection.
-    /// Returns the spawned task handle so the shutdown path can quiesce it
-    /// before persisting.
-    fn spawn_resolver_monitor(
-        handle: &Handle,
-        service: TxPoolService,
-        chunk_rx: watch::Receiver<ChunkCommand>,
-        resolver_exit_signal: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        handle.spawn(async move {
-            let mut backoff = RespawnBackoff::new();
-            loop {
-                let resolver = crate::resolve_mgr::OrderedResolver::new(
-                    service.clone(),
-                    chunk_rx.clone(),
-                    resolver_exit_signal.clone(),
-                );
-                let (exit_tx, mut exit_rx) = tokio::sync::mpsc::unbounded_channel();
-                let handle = resolver.start(exit_tx);
-                let started = std::time::Instant::now();
-
-                tokio::select! {
-                    _ = resolver_exit_signal.cancelled() => {
-                        let _ = handle.await;
-                        break;
-                    }
-                    Some((_worker_id, exit)) = exit_rx.recv() => {
-                        let _ = handle.await;
-                        match exit {
-                            crate::resolve_mgr::ResolveExit::Stopped => {
-                                if resolver_exit_signal.is_cancelled() {
-                                    break;
-                                }
-                                error!("tx-pool ordered resolver stopped unexpectedly, respawning");
-                            }
-                            crate::resolve_mgr::ResolveExit::Panicked { message } => {
-                                error!("tx-pool ordered resolver panicked: {}; respawning", message);
-                            }
-                        }
-                        tokio::time::sleep(backoff.delay_for(started.elapsed())).await;
-                    }
-                }
-            }
-            info!("TxPool ordered resolver monitor exited");
-        })
-    }
-
     /// Spawn the main message dispatcher with bounded concurrency.
     fn spawn_message_dispatcher(
         handle: &Handle,
@@ -600,7 +433,7 @@ impl TxPoolServiceBuilder {
         worker_handles: BackgroundWorkerHandles,
     ) -> tokio::task::JoinHandle<()> {
         let runtime_handle = handle.clone();
-        let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
+        let max_workers = service.pool.tx_pool_config.max_tx_verify_workers.max(1);
         let semaphore = Arc::new(Semaphore::new(max_workers * MESSAGE_CONCURRENCY_MULTIPLIER));
         handle.spawn(async move {
             loop {
@@ -650,7 +483,15 @@ impl TxPoolServiceBuilder {
                         info!("TxPool process_service exit now");
                         break
                     },
-                    else => break,
+                    else => {
+                        // The message channel closed without a cancel signal
+                        // (every sender dropped): treat it as a shutdown and
+                        // persist the pool, otherwise this exit path would
+                        // lose it silently.
+                        info!("TxPool message channel closed without shutdown signal, saving pool...");
+                        service.save_pool().await;
+                        break
+                    },
                 }
             }
         })
@@ -724,65 +565,6 @@ impl TxPoolServiceBuilder {
         }
     }
 
-    /// Spawn the reorg handler with panic-respawn protection.
-    fn spawn_reorg_handler(
-        handle: &Handle,
-        service: TxPoolService,
-        mut reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
-        signal_receiver: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        handle.spawn(async move {
-            loop {
-                let service = service.clone();
-                let reorg_result = AssertUnwindSafe(async {
-                    tokio::select! {
-                        Some(message) = reorg_receiver.recv() => {
-                            let Notify {
-                                arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-                            } = message;
-                            let snapshot_clone = Arc::clone(&snapshot);
-                            let detached_blocks_clone = detached_blocks.clone();
-                            service.update_block_assembler_before_tx_pool_reorg(
-                                detached_blocks_clone,
-                                snapshot_clone
-                            ).await;
-
-                            let snapshot_clone = Arc::clone(&snapshot);
-                            service
-                            .update_tx_pool_for_reorg(
-                                detached_blocks,
-                                attached_blocks,
-                                detached_proposal_id,
-                                snapshot_clone,
-                            )
-                            .await;
-
-                            service.update_block_assembler_after_tx_pool_reorg().await;
-                            true
-                        },
-                        _ = signal_receiver.cancelled() => {
-                            info!("TxPool reorg process service received exit signal, exit now");
-                            false
-                        },
-                        else => false,
-                    }
-                })
-                .catch_unwind()
-                .await;
-
-                match reorg_result {
-                    Ok(true) => continue,
-                    Ok(false) => break,
-                    Err(payload) => {
-                        let message = panic_payload_to_string(payload.as_ref());
-                        error!("tx-pool reorg handler panicked: {}; respawning", message);
-                        continue;
-                    }
-                }
-            }
-        })
-    }
-
     /// Build a bare [`TxPoolService`] and its supporting queues **without**
     /// spawning any background workers (pre-check pool, [`VerifyMgr`],
     /// [`OrderedResolver`]).
@@ -834,110 +616,4 @@ pub(crate) struct BenchServiceParts {
     pub service: TxPoolService,
     pub signal: CancellationToken,
     pub deferred_receiver: mpsc::Receiver<DeferredTask>,
-}
-
-/// Spawn the deferred task worker with panic-respawn protection.
-///
-/// Recovery tx re-enqueue and verify cache updates run sequentially in a
-/// single background task. The worker only needs the ordered resolve queue
-/// and the verify cache; it must NOT keep a clone of `TxPoolService`
-/// (which holds `deferred_sender`), because the receiver task itself
-/// holding a sender would keep the channel open forever.
-pub(crate) fn spawn_deferred_worker(
-    handle: &Handle,
-    queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
-    txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-    deferred_receiver: mpsc::Receiver<DeferredTask>,
-    cancel: CancellationToken,
-) -> tokio::task::JoinHandle<()> {
-    handle.spawn(async move {
-        let mut deferred_rx = deferred_receiver;
-        loop {
-            // recv() is outside catch_unwind: the mpsc receiver is not
-            // poisoned by panics in the message handler below.
-            let task = tokio::select! {
-                Some(task) = deferred_rx.recv() => task,
-                _ = cancel.cancelled() => {
-                    info!("deferred task worker received exit signal, exit now");
-                    break;
-                }
-                else => break,
-            };
-            let queues = Arc::clone(&queues);
-            let queues_retry = Arc::clone(&queues);
-            let txs_verify_cache = Arc::clone(&txs_verify_cache);
-            let recover_txs_for_retry = match &task {
-                DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
-                DeferredTask::CacheUpdate { .. } => None,
-            };
-            let handler = async move {
-                match task {
-                    DeferredTask::RecoverTxs(txs) => {
-                        enqueue_recover_txs(queues, txs).await;
-                    }
-                    DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                        let mut guard = txs_verify_cache.write().await;
-                        guard.put(wtx_hash, verified);
-                    }
-                }
-            };
-            match AssertUnwindSafe(handler).catch_unwind().await {
-                Ok(()) => {}
-                Err(payload) => {
-                    let message = panic_payload_to_string(payload.as_ref());
-                    error!("deferred task worker panicked: {}; respawning", message);
-                    // If a RecoverTxs task panicked, retry it directly
-                    // without going back through the channel.
-                    if let Some(txs) = recover_txs_for_retry {
-                        enqueue_recover_txs(queues_retry, txs).await;
-                    }
-                }
-            }
-        }
-        info!("deferred task worker exited (channel closed)");
-    })
-}
-
-async fn enqueue_recover_txs(
-    queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
-    txs: Vec<(TransactionView, TxSource)>,
-) {
-    let mut queue = queues.ordered_resolve_queue.write().await;
-    for (tx, source) in txs {
-        debug!("recover back: {:?}", tx.proposal_short_id());
-        if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source)) {
-            warn!(
-                "failed to recover tx back to ordered resolve queue: {}",
-                reject
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn respawn_backoff_progresses_caps_and_resets() {
-        let mut backoff = RespawnBackoff::new();
-        let crash = Duration::from_millis(5);
-
-        // Consecutive crashes: 100ms, 200ms, 400ms, ...
-        assert_eq!(backoff.delay_for(crash), Duration::from_millis(100));
-        assert_eq!(backoff.delay_for(crash), Duration::from_millis(200));
-        assert_eq!(backoff.delay_for(crash), Duration::from_millis(400));
-
-        // Capped at 30s under a persistent failure.
-        for _ in 0..20 {
-            backoff.delay_for(crash);
-        }
-        assert_eq!(backoff.delay_for(crash), Duration::from_secs(30));
-
-        // A healthy run (>= HEALTHY_RUN) resets the backoff to the base.
-        assert_eq!(
-            backoff.delay_for(Duration::from_secs(120)),
-            Duration::from_millis(100)
-        );
-    }
 }

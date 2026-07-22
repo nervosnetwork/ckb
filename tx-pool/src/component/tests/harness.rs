@@ -11,10 +11,10 @@
 //! call sites change.
 
 use crate::callback::Callbacks;
-use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pipeline_queues::PipelineQueues;
 use crate::component::verify_queue::VerifyQueue;
+use crate::component::waiting_room::WaitingRoom;
 use crate::pool::TxPool;
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::{TxPoolService, TxVerificationResult};
@@ -178,27 +178,35 @@ impl HarnessBuilder {
         // service keeps its own receiver (for direct per-tx verification),
         // while the verify manager and ordered resolver share a second one
         // whose sender may be handed to the test.
-        let (_service_chunk_tx, service_chunk_rx) = watch::channel(ChunkCommand::Resume);
+        let (service_chunk_tx, service_chunk_rx) = watch::channel(ChunkCommand::Resume);
         let (chunk_tx, verify_chunk_rx) = watch::channel(ChunkCommand::Resume);
 
         let service = TxPoolService {
-            tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
-            orphan: Arc::new(RwLock::new(OrphanPool::new())),
-            consensus: Arc::clone(&consensus),
-            tx_pool_config: Arc::new(config),
-            block_assembler: None,
-            callbacks: Arc::new(Callbacks::new()),
-            network: super::chunk::dummy_network(),
-            tx_relay_sender,
-            block_assembler_sender,
+            pool: crate::service::PoolCore {
+                tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
+                consensus: Arc::clone(&consensus),
+                tx_pool_config: Arc::new(config),
+            },
+            pipeline: crate::service::PipelineState {
+                queues: Arc::clone(&queues),
+                waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
+                chunk_rx: service_chunk_rx,
+                deferred_sender,
+            },
+            relay: crate::service::RelayState {
+                network: super::chunk::dummy_network(),
+                tx_relay_sender,
+                block_assembler_sender,
+                callbacks: Arc::new(Callbacks::new()),
+                banned_peers: Default::default(),
+            },
             aux: crate::service::AuxServices {
                 txs_verify_cache: Arc::new(RwLock::new(init_cache())),
                 recent_reject: None,
                 fee_estimator: FeeEstimator::new_dummy(),
             },
-            queues: Arc::clone(&queues),
-            chunk_rx: service_chunk_rx,
-            deferred_sender,
+            block_assembler: None,
+            recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
 
         // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
@@ -227,17 +235,12 @@ impl HarnessBuilder {
         match self.workers {
             WorkerSet::None => {}
             WorkerSet::All => {
-                let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
+                let max_workers = service.pool.tx_pool_config.max_tx_verify_workers.max(1);
                 let pre_check_workers =
                     max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
                 for _ in 0..pre_check_workers {
                     let svc = service.clone();
-                    let queues = Arc::clone(&queues);
-                    tokio::spawn(async move {
-                        while let Some(job) = queues.pre_check_queue.pop().await {
-                            let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
-                        }
-                    });
+                    tokio::spawn(crate::service::workers::run_pre_check_worker_loop(svc));
                 }
                 let mut verify_mgr =
                     VerifyMgr::new(service.clone(), verify_chunk_rx, signal.child_token());
@@ -259,6 +262,22 @@ impl HarnessBuilder {
                     let _ = resolver_handle.await;
                 });
             }
+        }
+
+        // Keep the command senders alive until the harness is cancelled: a
+        // dropped sender closes the watch channel, and the pipeline workers
+        // treat a closed command channel as a clean stop (channel drop =
+        // shutdown). Holding them only in the `Harness` struct is not
+        // enough — most tests destructure it and would drop the keep-alive
+        // fields immediately.
+        {
+            let keepalive_cancel = signal.clone();
+            let keep_service_tx = service_chunk_tx;
+            let keep_verify_tx = chunk_tx.clone();
+            tokio::spawn(async move {
+                let _keep = (keep_service_tx, keep_verify_tx);
+                keepalive_cancel.cancelled().await;
+            });
         }
 
         Harness {

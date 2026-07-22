@@ -22,9 +22,12 @@ pub struct RecentReject {
     ttl: i32,
     shard_num: u32,
     count_limit: u64,
-    /// Approximate key count across all shards.  Updated with sequentially
-    /// consistent ordering so the estimate stays coherent with concurrent
-    /// `put` and `shrink` operations.
+    /// Approximate key count across all shards.  Incremented inside the DB
+    /// guard critical section (see `put`), so the estimate stays totally
+    /// ordered with `shrink`'s drop-estimate and cannot drift monotonically.
+    /// Still approximate by design: two concurrent puts of the *same* new
+    /// key can both count (the read guard does not exclude them), and the
+    /// shard drop-estimate itself is a RocksDB approximation.
     total_keys_num: AtomicU64,
     /// The `RwLock` protects the **Rust-side** `BTreeMap<String, ColumnFamily>`
     /// inside `DBWithTTL`, not RocksDB itself (the C API is already
@@ -91,7 +94,6 @@ impl RecentReject {
         // Fast path: hold the read lock across the DB write so that `shrink`
         // cannot drop the column family while we are writing to it.
         let mut fast_path_ok = false;
-        let mut is_new_key = false;
         block_offload(|| {
             let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
             let existed = match db.get_pinned(&shard, hash_slice) {
@@ -106,10 +108,19 @@ impl RecentReject {
             };
             match db.put(&shard, hash_slice, json_bytes) {
                 Ok(()) => {
-                    // Only count newly inserted keys; overwrites should not
-                    // inflate the approximate counter.
                     fast_path_ok = true;
-                    is_new_key = !existed;
+                    if !existed {
+                        // Only count newly inserted keys; overwrites should
+                        // not inflate the approximate counter. The increment
+                        // must happen inside the same critical section as
+                        // the DB write: `shrink` holds the write guard, so
+                        // its drop-estimate and this increment are now
+                        // totally ordered. Previously the increment ran
+                        // after the guard was released and could count a key
+                        // that `shrink` had already estimated and dropped,
+                        // making the counter drift upwards monotonically.
+                        self.total_keys_num.fetch_add(1, Ordering::SeqCst);
+                    }
                 }
                 Err(e) => {
                     let err = AnyError::from(e);
@@ -122,9 +133,7 @@ impl RecentReject {
         })?;
 
         if fast_path_ok {
-            if is_new_key {
-                self.maybe_shrink();
-            }
+            self.maybe_shrink();
             return Ok(());
         }
 
@@ -145,18 +154,23 @@ impl RecentReject {
                     return Err(err);
                 }
             }
+            // Reaching the slow path means the column family was missing a
+            // moment ago (either dropped by `shrink` or never created), so
+            // count this write as a new key. Concurrent puts of the same key
+            // can double-count — that is inside the declared approximate
+            // tolerance of the counter.
+            self.total_keys_num.fetch_add(1, Ordering::SeqCst);
             Ok::<(), AnyError>(())
         })?;
-        // The shard was empty (it had just been dropped), so this is a new key.
-        // Call `maybe_shrink` only after releasing the write lock to avoid
-        // deadlock: `shrink` also needs the write lock.
         self.maybe_shrink();
         Ok(())
     }
 
+    /// Check the approximate counter (already incremented by `put` inside
+    /// the critical section) and shrink one shard if the limit is exceeded.
     fn maybe_shrink(&self) {
-        let new_count = self.total_keys_num.fetch_add(1, Ordering::SeqCst) + 1;
-        if new_count > self.count_limit
+        let count = self.total_keys_num.load(Ordering::SeqCst);
+        if count > self.count_limit
             && let Err(e) = self.shrink()
         {
             error!("failed to shrink recent_reject: {}", e);
@@ -169,7 +183,19 @@ impl RecentReject {
         let shard = self.get_shard(slice).to_string();
         block_offload(|| {
             let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
-            let ret = db.get_pinned(&shard, slice)?;
+            // A missing shard column family (e.g. dropped by `shrink` and
+            // not yet recreated by the next `put`) means "no entry", not an
+            // error for the caller.
+            let ret = match db.get_pinned(&shard, slice) {
+                Ok(ret) => ret,
+                Err(e) => {
+                    let err = AnyError::from(e);
+                    if is_cf_missing(&err, &shard) {
+                        return Ok(None);
+                    }
+                    return Err(err);
+                }
+            };
             match ret {
                 Some(bytes) => {
                     let s = String::from_utf8(bytes.to_vec()).map_err(|e| {
@@ -206,11 +232,11 @@ impl RecentReject {
     fn shrink(&self) -> Result<u64, AnyError> {
         let mut rng = thread_rng();
         let shard = rng.sample(Uniform::new(0, self.shard_num)).to_string();
-        let dropped_estimate = block_offload(|| {
-            // Exclusive write lock: blocks all concurrent put/get while we
-            // drop and recreate a column family.  This is a very cold path
-            // (triggered only when key count exceeds `count_limit`), so brief
-            // contention is acceptable.
+        // Exclusive write lock: blocks all concurrent put/get while we
+        // drop and recreate a column family.  This is a very cold path
+        // (triggered only when key count exceeds `count_limit`), so brief
+        // contention is acceptable.
+        let (dropped_estimate, create_result) = block_offload(|| {
             let mut db = self
                 .db
                 .write()
@@ -223,9 +249,17 @@ impl RecentReject {
             // while other threads are concurrently calling `put`.
             let dropped_estimate = db.estimate_num_keys_cf(&shard)?.unwrap_or(0);
             db.drop_cf(&shard)?;
-            db.create_cf_with_ttl(&shard, self.ttl)?;
-            Ok::<u64, AnyError>(dropped_estimate)
+            // The shard's data is gone either way now; a recreate failure
+            // must not swallow the decrement (later puts recreate the column
+            // family on demand via the slow path).
+            let create_result = db
+                .create_cf_with_ttl(&shard, self.ttl)
+                .map_err(AnyError::from);
+            Ok::<(u64, Result<(), AnyError>), AnyError>((dropped_estimate, create_result))
         })?;
+        if let Err(e) = create_result {
+            error!("failed to recreate recent_reject shard {shard}: {e}");
+        }
 
         // Saturating decrement to avoid underflow if the estimate overshoots
         // the actual counter.

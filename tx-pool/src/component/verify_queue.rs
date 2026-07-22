@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 extern crate rustc_hash;
 extern crate slab;
+use crate::component::active_set::ActiveSet;
 use crate::component::flight_tracker::FlightTracker;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::saturating_counter::SaturatingCounter;
@@ -81,12 +82,19 @@ pub(crate) struct VerifyQueue {
     large_cycle_threshold: u64,
     /// Output out-points of txs currently in this queue.
     flight: FlightTracker,
+    /// Txs that have been popped by a verify worker but have not reached a
+    /// terminal state yet; see [`VerifyQueue::contains_or_active`].
+    active: ActiveSet<ResolvedTx>,
     /// Ordering strategy: arrival time (FIFO) or fee rate.
     ordering: VerifyOrdering,
     /// Maximum total serialized size this queue may hold, from
     /// `pool_config.verify_queue_tx_size_budget()` (clamped up to
     /// `max_tx_pool_size` so persisted-pool reload never hits `Reject::Full`).
     max_tx_size: usize,
+    /// Number of proposal entries currently in the queue. Maintained so that
+    /// `peek_by_fee_rate` can skip its full-index proposal scan when no
+    /// proposal is present (the common case); see `peek_by_fee_rate`.
+    proposal_count: usize,
 }
 
 impl VerifyQueue {
@@ -102,8 +110,10 @@ impl VerifyQueue {
             total_tx_size: SaturatingCounter::new(0),
             large_cycle_threshold,
             flight: FlightTracker::new(),
+            active: ActiveSet::default(),
             ordering,
             max_tx_size,
+            proposal_count: 0,
         }
     }
 
@@ -120,6 +130,13 @@ impl VerifyQueue {
     #[cfg(test)]
     pub fn total_tx_size(&self) -> usize {
         self.total_tx_size.get()
+    }
+
+    /// Number of proposal entries currently queued (test introspection for
+    /// the `peek_by_fee_rate` scan-skip invariant).
+    #[cfg(test)]
+    pub(crate) fn proposal_count(&self) -> usize {
+        self.proposal_count
     }
 
     /// Returns the resolved tx for the given id, if present.  O(1).
@@ -140,12 +157,52 @@ impl VerifyQueue {
     }
 
     /// Returns the first entry in the queue and remove it.
+    ///
+    /// The popped id is moved into `active` and stays visible to
+    /// `contains_or_active` until the worker calls [`Self::finish`].
     pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<ResolvedTx> {
         if let Some(short_id) = self.peek(only_small_cycle) {
-            <Self as PipelineQueue>::remove_tx(self, &short_id)
+            let resolved = <Self as PipelineQueue>::remove_tx(self, &short_id)?;
+            self.active.insert(short_id, resolved.clone());
+            Some(resolved)
         } else {
             None
         }
+    }
+
+    /// Returns true if the given proposal id is either queued or currently
+    /// being verified by a worker (popped but not yet terminal).
+    ///
+    /// Introduced for the local-orphan flight check
+    /// (`all_missing_parents_in_flight`): a parent transaction must count as
+    /// "in flight" for the whole time it is inside the pipeline, including
+    /// the — potentially seconds-long — script verification window,
+    /// otherwise the orphan's retry budget is burned while its parent is
+    /// mid-flight. The read-only pipeline query paths use it for the same
+    /// visibility.
+    ///
+    /// Deliberately *not* used for duplicate detection (`contains_key`): if
+    /// a worker panics between `pop_front` and `finish`, the id stays in
+    /// `active` until the queue is cleared. That only makes orphans wait out
+    /// their bounded retry budget; it must never block a genuine
+    /// resubmission.
+    pub fn contains_or_active(&self, id: &ProposalShortId) -> bool {
+        self.inner.get_by_id(id).is_some() || self.active.contains(id)
+    }
+
+    /// Returns the resolved tx currently being verified by a worker
+    /// (popped but not yet finished), if any.
+    pub fn get_active_tx(&self, id: &ProposalShortId) -> Option<&ResolvedTx> {
+        self.active.get(id)
+    }
+
+    /// Mark a previously popped tx as terminally processed.
+    ///
+    /// Every verify worker must call this exactly once per popped tx, after
+    /// the tx has landed in its terminal state (submitted to the pool or
+    /// rejected).
+    pub fn finish(&mut self, id: &ProposalShortId) {
+        self.active.finish(id);
     }
 
     /// Returns the first entry in the queue.
@@ -180,11 +237,16 @@ impl VerifyQueue {
     }
 
     fn peek_by_fee_rate(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
-        // Proposals first — within proposals, highest fee rate wins.
-        if let Some(proposal_entry) = self
-            .inner
-            .iter_by_inverted_fee_rate()
-            .find(|e| e.is_proposal_tx && !(only_small_cycle && e.is_large_cycle))
+        // Proposals first — within proposals, highest fee rate wins. The
+        // scan is skipped entirely when no proposal is queued (overwhelmingly
+        // the common case): proposals drain quickly, while a flood of normal
+        // transactions would otherwise make every pop a full-index O(n)
+        // scan in fee-rate mode.
+        if self.proposal_count > 0
+            && let Some(proposal_entry) = self
+                .inner
+                .iter_by_inverted_fee_rate()
+                .find(|e| e.is_proposal_tx && !(only_small_cycle && e.is_large_cycle))
         {
             return Some(proposal_entry.inner.tx.proposal_short_id());
         }
@@ -251,6 +313,9 @@ impl PipelineQueue for VerifyQueue {
     fn remove_tx(&mut self, id: &ProposalShortId) -> Option<ResolvedTx> {
         self.flight.remove(id);
         self.inner.remove_by_id(id).map(|e| {
+            if e.is_proposal_tx {
+                self.proposal_count = self.proposal_count.saturating_sub(1);
+            }
             let tx_size = e.inner.tx_size;
             let recompute = self
                 .total_tx_size
@@ -303,6 +368,9 @@ impl PipelineQueue for VerifyQueue {
                         e.priority_order.1 = now;
                     }
                 });
+                if promoted {
+                    self.proposal_count += 1;
+                }
                 return Ok(promoted);
             } else {
                 return Ok(false);
@@ -347,6 +415,9 @@ impl PipelineQueue for VerifyQueue {
             is_large_cycle,
             is_proposal_tx,
         });
+        if is_proposal_tx {
+            self.proposal_count += 1;
+        }
         self.flight.insert(id.clone(), &tx);
         self.total_tx_size.set(total_tx_size);
         self.ready_rx.notify_one();
@@ -356,6 +427,8 @@ impl PipelineQueue for VerifyQueue {
     fn clear(&mut self) {
         self.inner.clear();
         self.flight.clear();
+        self.active.clear();
+        self.proposal_count = 0;
         self.total_tx_size.set(0);
         self.shrink_to_fit();
     }

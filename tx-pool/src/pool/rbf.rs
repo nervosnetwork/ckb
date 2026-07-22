@@ -8,6 +8,7 @@ use super::TxPool;
 use crate::component::TxEntry;
 use crate::component::pool_map::{ConflictClosure, PoolEntry};
 use crate::error::Reject;
+use crate::tx_source::TxSource;
 use ckb_logger::error;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -44,9 +45,11 @@ impl TxPool {
     /// intentionally not a weight: the replacement threshold must use the same
     /// unit as `min_fee_rate` (shannons per kilo-bytes), which is calculated from
     /// size because cycles are not available at submission time. The RBF
-    /// in-flight candidate gate ([`RbfCandidates`]) uses a separate weight-based
-    /// fee rate for ordering, but that gate only affects queue scheduling and
-    /// never lowers the replacement fee floor computed here.
+    /// in-flight candidate gate ([`RbfCandidates`]) also uses the size-based fee
+    /// rate for ordering: peer-declared cycles are not verified until the verify
+    /// stage, so a weight-based rate would be manipulable before the lie is
+    /// caught. That gate only affects queue scheduling and never lowers the
+    /// replacement fee floor computed here.
     pub(super) fn calculate_min_replace_fee(
         &self,
         conflicts: &[&PoolEntry],
@@ -287,5 +290,53 @@ impl TxPool {
             ));
         }
         Ok(())
+    }
+
+    // Remove conflicting transactions for RBF and record them in the conflicts
+    // cache so they can be recovered if the replacement fails. Returns the set
+    // of removed entries; the caller decides which ones to recover and when to
+    // clean up the conflicts cache.
+    pub(crate) fn process_rbf(
+        &mut self,
+        entry: &TxEntry,
+        removal: &[ProposalShortId],
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+    ) -> Vec<TxEntry> {
+        if removal.is_empty() {
+            return Vec::new();
+        }
+
+        // Apply the caller's removal plan (conflicts + descendants, already
+        // post-ordered by `PoolMap::conflict_closure`) instead of
+        // re-walking the descendants of every conflict here.
+        let all_removed: Vec<_> = removal
+            .iter()
+            .filter_map(|id| self.pool_map.remove_entry(id))
+            .collect();
+
+        for old in &all_removed {
+            ckb_logger::debug!(
+                "remove conflict tx {} for RBF by new tx {}",
+                old.transaction().hash(),
+                entry.transaction().hash()
+            );
+            let reject =
+                Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
+
+            // collect reject events for dispatch outside write lock
+            reject_events.push((old.clone(), reject));
+        }
+
+        // Record every removed entry (direct conflicts and their descendants)
+        // in the conflicts cache so that they can all be recovered if the
+        // replacement fails or if their inputs become available again.
+        //
+        // The original pipeline source is not retained once a transaction has
+        // entered the pool, so recovered entries fall back to `TxSource::Local`.
+        for old in &all_removed {
+            self.record_conflict(old.transaction().clone(), TxSource::Local);
+        }
+
+        all_removed
     }
 }

@@ -40,9 +40,13 @@ impl CandidateUncles {
                 if let Some(set) = self.map.remove(&first_key) {
                     self.count -= set.len();
                 }
-            } else {
+            } else if number < first_key {
                 return false;
             }
+            // `number == first_key`: fall through into the existing height
+            // set. MAX_CANDIDATE_UNCLES is a soft cap and MAX_PER_HEIGHT
+            // bounds the excess — rejecting the boundary height while
+            // evicting it for higher heights would be arbitrary.
         }
 
         let set = self.map.entry(number).or_default();
@@ -127,14 +131,18 @@ impl CandidateUncles {
                 break;
             }
             let parent_hash = uncle.header().parent_hash();
+            let hash = uncle.hash();
             // we should keep candidate util next epoch
             if uncle.compact_target() != current_epoch_ext.compact_target()
                 || uncle.epoch().number() != epoch_number
+                || snapshot.is_main_chain(&hash)
+                || snapshot.is_uncle(&hash)
             {
+                // Wrong epoch/target, or already embedded/on the main
+                // chain: stale — drop it so it stops occupying the
+                // candidate budget.
                 removed.push(uncle.clone());
-            } else if !snapshot.is_main_chain(&uncle.hash())
-                && !snapshot.is_uncle(&uncle.hash())
-                && uncle.number() < candidate_number
+            } else if uncle.number() < candidate_number
                 && (uncles.iter().any(|u| u.hash() == parent_hash)
                     || snapshot.is_main_chain(&parent_hash)
                     || snapshot.is_uncle(&parent_hash))
@@ -153,5 +161,59 @@ impl CandidateUncles {
 impl Default for CandidateUncles {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ckb_types::core::UncleBlockView;
+    use ckb_types::packed;
+
+    fn uncle(number: BlockNumber, seed: u8) -> UncleBlockView {
+        ckb_types::core::BlockBuilder::default()
+            .number(number)
+            .epoch(ckb_types::core::EpochNumberWithFraction::new(0, 0, 1).full_value())
+            .parent_hash(packed::Byte32::new([seed; 32]))
+            .build()
+            .as_uncle()
+    }
+
+    /// A full container must still accept an uncle at the *boundary*
+    /// height (equal to the lowest stored height) into that height's
+    /// existing set when it has room — instead of rejecting it while
+    /// evicting the whole lowest set for strictly higher heights.
+    #[test]
+    fn full_container_accepts_uncle_at_lowest_existing_height() {
+        let mut container = CandidateUncles::new();
+
+        // Fill to capacity: height 1 has room left in its set, the others
+        // are full. (Test constants: MAX_CANDIDATE_UNCLES=4, MAX_PER_HEIGHT=2.)
+        assert!(container.insert(uncle(1, 100)));
+        assert!(container.insert(uncle(2, 101)));
+        assert!(container.insert(uncle(2, 102)));
+        assert!(container.insert(uncle(3, 103)));
+        assert_eq!(container.len(), MAX_CANDIDATE_UNCLES);
+
+        // Boundary height with room: accepted into the existing set (the
+        // soft cap may be exceeded by one set, bounded by MAX_PER_HEIGHT).
+        assert!(
+            container.insert(uncle(1, 200)),
+            "boundary-height uncle must be accepted into the existing set"
+        );
+        assert!(
+            !container.insert(uncle(1, 201)),
+            "but the per-height cap still holds"
+        );
+
+        // A strictly lower height is rejected.
+        assert!(!container.insert(uncle(0, 202)));
+
+        // A higher height evicts the whole lowest set to make room.
+        assert!(container.insert(uncle(4, 203)));
+        assert!(
+            !container.values().any(|u| u.header().number() == 1),
+            "the lowest height set must be evicted for the higher uncle"
+        );
     }
 }

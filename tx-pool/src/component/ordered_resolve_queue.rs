@@ -5,6 +5,7 @@
 //! retries them in arrival order, which keeps orphan-pool churn low for
 //! dependent transactions.
 
+use crate::component::active_set::ActiveSet;
 use crate::component::flight_tracker::FlightTracker;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::saturating_counter::SaturatingCounter;
@@ -21,6 +22,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
 use crate::constants::SHRINK_THRESHOLD;
+use ckb_logger::debug;
 
 /// Ordered queue of raw transactions waiting for the ordered resolver.
 ///
@@ -40,23 +42,39 @@ pub(crate) struct OrderedResolveQueue {
     inner: VecDeque<ProposalShortId>,
     /// O(1) lookup of resolve jobs by short id, covering both FIFO and
     /// delayed jobs.
-    lookup: HashMap<ProposalShortId, ResolveJob>,
+    lookup: HashMap<ProposalShortId, LookupEntry>,
     /// Tombstoned ids that have been logically removed but still occupy a
     /// slot in `inner`; drained lazily by `pop_front`.
     removed: HashSet<ProposalShortId>,
-    /// Delayed jobs by their retry deadline (earliest first). Entries whose
-    /// job is no longer in `lookup` are stale and discarded lazily on pop.
-    delayed: BinaryHeap<std::cmp::Reverse<(Instant, ProposalShortId)>>,
+    /// Delayed jobs by their retry deadline (earliest first), each tagged
+    /// with the generation of the lookup entry it was pushed for. Entries
+    /// whose generation no longer matches the lookup entry are stale (the
+    /// job was removed and possibly re-added since) and discarded lazily on
+    /// pop.
+    delayed: BinaryHeap<std::cmp::Reverse<(Instant, u64, ProposalShortId)>>,
+    /// Monotonic counter tagging every inserted job; see `delayed`.
+    next_generation: u64,
     /// Number of live (non-tombstoned) entries, FIFO and delayed combined.
     /// Kept in sync with `lookup.len()` so that `len()` / `is_empty()` are
     /// accurate without counting tombstones in `inner`.
     live_count: usize,
+    /// Jobs that have been popped by the resolver but have not reached a
+    /// terminal state yet; see [`OrderedResolveQueue::contains_or_active`].
+    active: ActiveSet<TransactionView>,
     /// Subscribe this notify to get notified when an item is added.
     ready_rx: Arc<Notify>,
     /// Total tx size in the queue; new txs are rejected if this would exceed the limit.
     total_tx_size: SaturatingCounter<usize>,
     /// Output out-points of txs currently in this queue.
     flight: FlightTracker,
+}
+
+/// A live resolve job plus the generation it was inserted with. Delayed
+/// heap entries carry the same generation so a stale entry (pushed before a
+/// remove/re-add of the same id) can be told apart from the current job.
+struct LookupEntry {
+    job: ResolveJob,
+    generation: u64,
 }
 
 impl OrderedResolveQueue {
@@ -67,7 +85,9 @@ impl OrderedResolveQueue {
             lookup: HashMap::new(),
             removed: HashSet::new(),
             delayed: BinaryHeap::new(),
+            next_generation: 0,
             live_count: 0,
+            active: ActiveSet::default(),
             ready_rx: Arc::new(Notify::new()),
             total_tx_size: SaturatingCounter::new(0),
             flight: FlightTracker::new(),
@@ -91,7 +111,43 @@ impl OrderedResolveQueue {
 
     /// Returns the raw transaction for the given id, if present.  O(1).
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.lookup.get(id).map(|job| &job.tx)
+        self.lookup.get(id).map(|entry| &entry.job.tx)
+    }
+
+    /// Returns true if the given proposal id is either queued (FIFO or
+    /// delayed) or currently being processed by the resolver (popped but not
+    /// yet terminal).
+    ///
+    /// Introduced for the local-orphan flight check
+    /// (`all_missing_parents_in_flight`): a parent transaction must count as
+    /// "in flight" for the whole time it is inside the pipeline, including
+    /// the window between `pop_front` and the end of resolution, otherwise
+    /// the orphan's retry budget is burned while its parent is mid-flight.
+    /// The read-only pipeline query paths use it for the same visibility.
+    ///
+    /// Deliberately *not* used for duplicate detection (`contains_key`): if
+    /// the resolver panics between `pop_front` and `finish`, the id stays in
+    /// `active` until the queue is cleared. That only makes orphans wait out
+    /// their bounded retry budget; it must never block a genuine
+    /// resubmission.
+    pub fn contains_or_active(&self, id: &ProposalShortId) -> bool {
+        self.lookup.contains_key(id) || self.active.contains(id)
+    }
+
+    /// Returns the transaction currently being processed by the resolver
+    /// (popped but not yet finished), if any.
+    pub fn get_active_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
+        self.active.get(id).cloned()
+    }
+
+    /// Mark a previously popped job as terminally processed.
+    ///
+    /// The resolver must call this exactly once per popped job, after the
+    /// job has landed in its terminal state (forwarded to the verify queue,
+    /// re-enqueued, or rejected). Re-enqueueing first and calling `finish`
+    /// second keeps the id continuously visible to `contains_or_active`.
+    pub fn finish(&mut self, id: &ProposalShortId) {
+        self.active.finish(id);
     }
 
     fn shrink_to_fit(&mut self) {
@@ -113,15 +169,31 @@ impl OrderedResolveQueue {
     /// Remove a live job by id and apply all accounting (count, flight,
     /// size). Returns the job if it was present.
     fn remove_live(&mut self, id: &ProposalShortId, op: &'static str) -> Option<ResolveJob> {
-        let job = self.lookup.remove(id)?;
+        let entry = self.lookup.remove(id)?;
         self.live_count -= 1;
         self.flight.remove(id);
-        self.total_tx_size.sub_or_zero(
-            Self::tx_size(&job),
+        let tx_size = Self::tx_size(&entry.job);
+        // On underflow (an accounting bug elsewhere), restore the true
+        // total from what remains instead of clamping to zero, which
+        // would silently disable the size budget.
+        let recompute = self
+            .total_tx_size
+            .get()
+            .checked_sub(tx_size)
+            .is_none()
+            .then(|| {
+                self.lookup.values().try_fold(0usize, |acc, entry| {
+                    acc.checked_add(Self::tx_size(&entry.job))
+                })
+            })
+            .flatten();
+        self.total_tx_size.sub_or_recompute(
+            tx_size,
+            recompute,
             "ordered_resolve_queue total_tx_size",
             op,
         );
-        Some(job)
+        Some(entry.job)
     }
 
     /// Insert a job after duplicate and capacity checks, applying all
@@ -152,7 +224,21 @@ impl OrderedResolveQueue {
                 })?,
         );
         self.flight.insert(id.clone(), &job.tx);
-        self.lookup.insert(id.clone(), job);
+        self.lookup.insert(
+            id.clone(),
+            LookupEntry {
+                job,
+                generation: self.next_generation,
+            },
+        );
+        self.next_generation += 1;
+        // Drop any stale tombstone left for this id by an earlier removal.
+        // Tombstones are keyed by id, not by slot: a leftover bit would
+        // otherwise drain this freshly added live slot in `pop_front` and
+        // strand the job in `lookup` forever (e.g. a delayed job is removed,
+        // then the same tx is re-added to the FIFO before the stale heap
+        // entry has been cleaned up).
+        self.removed.remove(&id);
         self.live_count += 1;
         self.ready_rx.notify_one();
         Ok((id, true))
@@ -163,30 +249,52 @@ impl OrderedResolveQueue {
     /// FIFO entries are popped first; a delayed job is only returned once
     /// the FIFO has drained and its deadline has passed, which mirrors the
     /// previous behaviour where a retried job was re-enqueued at the back.
+    ///
+    /// The popped id is moved into `active` and stays visible to
+    /// `contains_or_active` until the resolver calls [`Self::finish`].
     pub fn pop_front(&mut self) -> Option<ResolveJob> {
         self.drain_tombstones();
-        if let Some(id) = self.inner.pop_front() {
-            let job = self
-                .remove_live(&id, "pop_front")
-                .expect("lookup contains id from inner");
-            return Some(job);
+        while let Some(id) = self.inner.pop_front() {
+            if let Some(job) = self.remove_live(&id, "pop_front") {
+                self.active.insert(id, job.tx.clone());
+                return Some(job);
+            }
+            // Ghost slot: one id can occupy several FIFO slots while `removed`
+            // holds only a single tombstone bit for it (remove → re-add →
+            // remove). Once the bit has drained the first slot, the remaining
+            // slots have no live job in `lookup`; discard them just like stale
+            // delayed-heap entries instead of panicking.
+            debug!(
+                "ordered_resolve_queue: discarding ghost FIFO slot for {}",
+                id
+            );
         }
         // The FIFO is empty: promote due delayed jobs, discarding stale
-        // heap entries whose jobs were removed meanwhile.
+        // heap entries (their job was removed and possibly re-added since
+        // they were pushed).
         loop {
-            let due = matches!(self.delayed.peek(), Some(std::cmp::Reverse((deadline, _))) if *deadline <= Instant::now());
+            let due = matches!(self.delayed.peek(), Some(std::cmp::Reverse((deadline, _, _))) if *deadline <= Instant::now());
             if !due {
                 return None;
             }
-            let std::cmp::Reverse((_, id)) = self.delayed.pop().expect("peeked");
-            if let Some(job) = self.remove_live(&id, "pop_front delayed") {
-                return Some(job);
+            let std::cmp::Reverse((_, generation, id)) = self.delayed.pop().expect("peeked");
+            let current_generation = self.lookup.get(&id).map(|entry| entry.generation);
+            if current_generation != Some(generation) {
+                // Stale entry. The id is fully gone: drop its tombstone as
+                // well — a delayed job has no FIFO slot, so it would
+                // otherwise linger in `removed` forever. The id was
+                // re-added (different generation): the current job owns its
+                // own state, nothing to clean up here.
+                if current_generation.is_none() {
+                    self.removed.remove(&id);
+                }
+                continue;
             }
-            // Stale entry: its job was already removed via `remove_tx` or
-            // `remove_txs_by_peer`, which also tombstoned the id. Drop that
-            // tombstone now — a delayed job has no FIFO slot, so it would
-            // otherwise linger in `removed` forever.
-            self.removed.remove(&id);
+            let job = self
+                .remove_live(&id, "pop_front delayed")
+                .expect("generation matched");
+            self.active.insert(id, job.tx.clone());
+            return Some(job);
         }
     }
 
@@ -198,8 +306,9 @@ impl OrderedResolveQueue {
     pub fn add_tx_delayed(&mut self, job: ResolveJob, delay: Duration) -> Result<bool, Reject> {
         let (id, added) = self.insert_job(job)?;
         if added {
+            let generation = self.lookup[&id].generation;
             self.delayed
-                .push(std::cmp::Reverse((Instant::now() + delay, id)));
+                .push(std::cmp::Reverse((Instant::now() + delay, generation, id)));
         }
         Ok(added)
     }
@@ -208,7 +317,7 @@ impl OrderedResolveQueue {
     pub fn next_deadline(&self) -> Option<Instant> {
         self.delayed
             .peek()
-            .map(|std::cmp::Reverse((deadline, _))| *deadline)
+            .map(|std::cmp::Reverse((deadline, _, _))| *deadline)
     }
 }
 
@@ -254,7 +363,7 @@ impl PipelineQueue for OrderedResolveQueue {
         let to_remove: Vec<ProposalShortId> = self
             .lookup
             .iter()
-            .filter(|(_, job)| job.source.peer().is_some_and(|p| p == *peer))
+            .filter(|(_, entry)| entry.job.source.peer().is_some_and(|p| p == *peer))
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -283,6 +392,7 @@ impl PipelineQueue for OrderedResolveQueue {
         self.removed.clear();
         self.delayed.clear();
         self.live_count = 0;
+        self.active.clear();
         self.flight.clear();
         self.total_tx_size.set(0);
         self.shrink_to_fit();
@@ -425,5 +535,108 @@ mod tests {
         assert!(queue.contains_key(&other_id));
         assert!(!queue.contains_key(&fifo_id));
         assert!(!queue.contains_key(&delayed_id));
+    }
+
+    /// The same id can occupy several FIFO slots while `removed` holds only
+    /// one tombstone bit for it (remove → re-add → remove). Popping must
+    /// discard the surplus ghost slots instead of panicking on the missing
+    /// lookup entry.
+    #[test]
+    fn duplicate_tombstone_slots_never_panic() {
+        let mut queue = OrderedResolveQueue::new();
+        let job_a = job(10);
+        let job_b = job(11);
+        let id_b = id_of(&job_b);
+
+        queue.add_tx(job_a.clone()).unwrap();
+        queue.add_tx(job_b.clone()).unwrap();
+        // Tombstone B while it is *not* at the front, so the bit survives.
+        assert!(queue.remove_tx(&id_b).is_some());
+        queue.add_tx(job_b).unwrap();
+        assert!(queue.remove_tx(&id_b).is_some());
+        assert_eq!(queue.len(), 1);
+
+        let first = queue.pop_front().expect("A pops first");
+        assert_eq!(first.tx.hash(), job_a.tx.hash());
+
+        // The single tombstone bit drains B's first slot; the second slot is
+        // a ghost and must be skipped without touching accounting.
+        assert!(queue.pop_front().is_none());
+        assert_eq!(queue.len(), 0);
+        assert!(queue.is_empty());
+        assert!(!queue.removed.contains(&id_b));
+    }
+
+    /// A delayed job removed via `remove_tx` leaves a lingering tombstone
+    /// (it has no FIFO slot to drain). Re-adding the same id to the FIFO
+    /// must clear that bit, otherwise the tombstone would drain the new live
+    /// slot and strand the job in `lookup` forever.
+    #[test]
+    fn readded_after_delayed_removal_pops_normally() {
+        let mut queue = OrderedResolveQueue::new();
+        let job_x = job(12);
+        let id_x = id_of(&job_x);
+
+        queue
+            .add_tx_delayed(job_x.clone(), Duration::from_secs(3600))
+            .unwrap();
+        assert!(queue.remove_tx(&id_x).is_some());
+        assert!(queue.removed.contains(&id_x));
+
+        queue.add_tx(job_x.clone()).unwrap();
+        assert!(!queue.removed.contains(&id_x));
+
+        let popped = queue.pop_front().expect("re-added job pops");
+        assert_eq!(popped.tx.hash(), job_x.tx.hash());
+        assert!(queue.pop_front().is_none());
+        assert_eq!(queue.len(), 0);
+        assert!(queue.is_empty());
+    }
+
+    /// A popped job stays visible to `contains_or_active` (but not to
+    /// `contains_key`) until the resolver marks it finished.
+    #[test]
+    fn popped_job_stays_visible_until_finish() {
+        let mut queue = OrderedResolveQueue::new();
+        let job_a = job(13);
+        let id_a = id_of(&job_a);
+        queue.add_tx(job_a).unwrap();
+
+        let popped = queue.pop_front().expect("job pops");
+        assert_eq!(popped.tx.proposal_short_id(), id_a);
+        assert!(!queue.contains_key(&id_a));
+        assert!(queue.contains_or_active(&id_a));
+        assert_eq!(
+            queue.get_active_tx(&id_a).map(|tx| tx.hash()),
+            Some(popped.tx.hash())
+        );
+
+        queue.finish(&id_a);
+        assert!(!queue.contains_or_active(&id_a));
+        assert!(queue.get_active_tx(&id_a).is_none());
+    }
+
+    /// A delayed job removed and re-added with a later deadline must not be
+    /// popped early by the stale heap entry from its first lifetime:
+    /// generations tell the two lifetimes apart.
+    #[test]
+    fn readded_delayed_job_is_not_popped_by_stale_deadline() {
+        let mut queue = OrderedResolveQueue::new();
+        let job_x = job(14);
+        let id_x = id_of(&job_x);
+
+        // First lifetime: due immediately, removed before being popped.
+        queue.add_tx_delayed(job_x.clone(), Duration::ZERO).unwrap();
+        assert!(queue.remove_tx(&id_x).is_some());
+
+        // Second lifetime: re-added with a far-future deadline.
+        queue
+            .add_tx_delayed(job_x, Duration::from_secs(3600))
+            .unwrap();
+
+        // The stale zero-delay heap entry must not pop the current job early.
+        assert!(queue.pop_front().is_none());
+        assert!(queue.contains_key(&id_x));
+        assert_eq!(queue.len(), 1);
     }
 }

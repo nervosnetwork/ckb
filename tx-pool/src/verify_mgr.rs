@@ -40,15 +40,27 @@ impl JobHandler for VerifyHandler {
     }
 
     async fn is_queue_empty(&self) -> bool {
-        self.service.queues.verify_queue.read().await.is_empty()
+        self.service
+            .pipeline
+            .queues
+            .verify_queue
+            .read()
+            .await
+            .is_empty()
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.service.queues.verify_queue.read().await.subscribe()
+        self.service
+            .pipeline
+            .queues
+            .verify_queue
+            .read()
+            .await
+            .subscribe()
     }
 
     async fn pop_one(&mut self) -> Option<ResolvedTx> {
-        let mut tasks = self.service.queues.verify_queue.write().await;
+        let mut tasks = self.service.pipeline.queues.verify_queue.write().await;
         match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
             Some(resolved) => Some(resolved),
             None => {
@@ -65,13 +77,75 @@ impl JobHandler for VerifyHandler {
     }
 
     async fn process_one(&mut self, resolved: ResolvedTx) {
+        let id = resolved.tx.proposal_short_id();
+        // Guard each job individually: a panicking job must neither kill the
+        // worker nor strand its bookkeeping. In particular its in-flight RBF
+        // registration (and any displaced candidates held by it) must be
+        // cleaned up, otherwise a ghost registration blocks every future
+        // replacement for the same inputs.
         let tx = resolved.tx.clone();
         let source = resolved.source;
-        let res = self
-            .service
-            .verify_and_submit_tx(resolved, Some(&mut self.command_rx))
-            .await;
-        self.service.after_process(tx.clone(), source, &res).await;
+        if self.service.is_recently_banned(source) {
+            // The peer was banned after this job was popped: drop it (and
+            // its in-flight registration) instead of letting it into the
+            // pool.
+            self.service.abort_rbf_candidate(&id).await;
+            self.service.terminal_internal(tx, source).await;
+            self.service
+                .pipeline
+                .queues
+                .verify_queue
+                .write()
+                .await
+                .finish(&id);
+            return;
+        }
+        let outcome = crate::worker::catch_job_panic(async {
+            match self
+                .service
+                .verify_and_submit_tx(resolved, Some(&mut self.command_rx))
+                .await
+            {
+                Ok(crate::process::submit::VerifySubmitOutcome::Committed(completed)) => {
+                    self.service
+                        .after_process(tx.clone(), source, &Ok(completed))
+                        .await;
+                }
+                Ok(crate::process::submit::VerifySubmitOutcome::Superseded) => {
+                    // Held by a stronger in-flight registration: not a
+                    // rejection, so no after_process (mirrors register-time
+                    // displacement). The winner's finalize/abort decides
+                    // what happens next.
+                    debug!("verify worker: tx {} held as superseded candidate", id);
+                }
+                Err(reject) => {
+                    self.service
+                        .after_process(tx.clone(), source, &Err(reject))
+                        .await;
+                }
+            }
+        })
+        .await;
+        if let Err(message) = outcome {
+            error!(
+                "tx-pool verify worker panicked on job {}: {}; aborting its RBF registration",
+                id, message
+            );
+            self.service.abort_rbf_candidate(&id).await;
+            // Close the loop with the relayer as well: nothing is recorded
+            // (this was an internal failure, not the transaction's fault),
+            // but the peer's filter entry must not wait forever.
+            self.service.terminal_internal(tx, source).await;
+        }
+        // Terminal state reached (submitted, rejected, held, or panicked):
+        // clear the active marker set at pop time.
+        self.service
+            .pipeline
+            .queues
+            .verify_queue
+            .write()
+            .await
+            .finish(&id);
     }
 
     fn make_exit(&self, outcome: WorkerOutcome) -> WorkerExit {
@@ -90,7 +164,19 @@ impl JobHandler for VerifyHandler {
 pub(crate) struct VerifyMgr {
     workers: Vec<WorkerRunner<VerifyHandler>>,
     join_handles: Option<Vec<Option<JoinHandle<()>>>>,
-    signal_exit: CancellationToken,
+    /// Per-generation cancellation token (child of the service shutdown
+    /// signal). Dropping the manager — e.g. after a manager-level panic,
+    /// before the monitor respawns a new one — cancels it, so the previous
+    /// generation's workers shut down instead of doubling up with the
+    /// respawned generation. Workers still see the service shutdown
+    /// through the parent token.
+    generation_signal: CancellationToken,
+}
+
+impl Drop for VerifyMgr {
+    fn drop(&mut self) {
+        self.generation_signal.cancel();
+    }
 }
 
 impl VerifyMgr {
@@ -99,10 +185,14 @@ impl VerifyMgr {
         command_rx: watch::Receiver<ChunkCommand>,
         signal_exit: CancellationToken,
     ) -> Self {
-        let worker_num = service.tx_pool_config.max_tx_verify_workers;
+        let generation_signal = signal_exit.child_token();
+        // Clamp like the other spawn sites (pre-check pool, dispatcher
+        // semaphore): a zero config would silently stall verification —
+        // no workers to drain the queue and no log explaining why.
+        let worker_num = service.pool.tx_pool_config.max_tx_verify_workers.max(1);
         let workers: Vec<_> = (0..worker_num)
             .map({
-                let signal_exit = signal_exit.clone();
+                let generation_signal = generation_signal.clone();
                 move |idx| {
                     let role = if idx == 0 && worker_num > 1 {
                         WorkerRole::OnlySmallCycleTx
@@ -114,14 +204,14 @@ impl VerifyMgr {
                         role,
                         command_rx: command_rx.clone(),
                     };
-                    WorkerRunner::new(handler, command_rx.clone(), signal_exit.clone())
+                    WorkerRunner::new(handler, command_rx.clone(), generation_signal.clone())
                 }
             })
             .collect();
         Self {
             workers,
             join_handles: None,
-            signal_exit,
+            generation_signal,
         }
     }
 
@@ -174,7 +264,7 @@ impl VerifyMgr {
         self.join_handles.replace(join_handles);
         loop {
             tokio::select! {
-                _ = self.signal_exit.cancelled() => {
+                _ = self.generation_signal.cancelled() => {
                     info!("TxPool chunk_command service received exit signal, exit now");
                     // Workers will exit via their own CancellationToken;
                     // no need to broadcast Stop through per-worker channels.
@@ -182,7 +272,7 @@ impl VerifyMgr {
                 },
                 Some((worker_id, exit)) = worker_exit_rx.recv() => {
                     self.join_worker(worker_id).await;
-                    if self.signal_exit.is_cancelled() {
+                    if self.generation_signal.is_cancelled() {
                         continue;
                     }
                     match exit {

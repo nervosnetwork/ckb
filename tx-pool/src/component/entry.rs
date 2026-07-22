@@ -13,8 +13,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// A signed delta used to update ancestor/descendant weight statistics.
-#[derive(Clone, Copy)]
-struct WeightDelta {
+#[derive(Clone, Copy, Default)]
+pub(crate) struct WeightDelta {
     count: usize,
     size: usize,
     cycles: Cycle,
@@ -29,6 +29,22 @@ impl WeightDelta {
             cycles: entry.cycles,
             fee: entry.fee.as_u64(),
         }
+    }
+
+    /// Accumulate another entry's weight into this delta, so a whole set of
+    /// entries can be applied with a single `apply_*_delta` call.
+    ///
+    /// Plain (non-saturating) addition is safe here: the totals are bounded
+    /// by the pool's own limits (counts by `max_ancestors_count`, sizes and
+    /// cycles by block limits, fees by total issuance), so the sum cannot
+    /// overflow. Applying the aggregated delta is equivalent to applying
+    /// each entry's delta in sequence: all arithmetic downstream is
+    /// saturating, and both forms clamp at zero on over-subtraction.
+    pub(crate) fn add_entry(&mut self, entry: &TxEntry) {
+        self.count += 1;
+        self.size += entry.size;
+        self.cycles += entry.cycles;
+        self.fee += entry.fee.as_u64();
     }
 }
 
@@ -155,6 +171,25 @@ impl TxEntry {
     /// Update ancestor state for remove an entry
     pub fn sub_ancestor_weight(&mut self, entry: &TxEntry) {
         self.apply_ancestor_delta(WeightDelta::from_entry(entry), false);
+    }
+
+    /// Update ancestor state for removing several entries at once.
+    ///
+    /// Equivalent to calling `sub_ancestor_weight` for each of them (see
+    /// [`WeightDelta::add_entry`]); used by the block-template selector to
+    /// adjust shared descendants with one aggregate subtraction instead of
+    /// one subtraction per committed ancestor.
+    pub(crate) fn sub_ancestors_weight(&mut self, delta: WeightDelta) {
+        self.apply_ancestor_delta(delta, false);
+    }
+
+    /// Update descendant state for adding several entries at once.
+    ///
+    /// Equivalent to calling `add_descendant_weight` for each of them (see
+    /// [`WeightDelta::add_entry`]); used when linking an entry to children
+    /// that entered the pool before it.
+    pub(crate) fn add_descendants_weight(&mut self, delta: WeightDelta) {
+        self.apply_descendant_delta(delta, true);
     }
 
     fn apply_ancestor_delta(&mut self, delta: WeightDelta, add: bool) {
