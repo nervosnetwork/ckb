@@ -3,6 +3,7 @@ mod entry;
 mod estimate;
 mod gap_reorg;
 mod harness;
+mod lifecycle_store;
 mod links;
 mod ordered_retry_cap;
 mod orphan;

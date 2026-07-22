@@ -264,6 +264,29 @@ Push-based dependent wake-up re-enqueues each child immediately when its parent 
 
 The next implementation keeps fixed parallel pre-check/verify worker pools and introduces a batched coordinator for lifecycle state plus a batched authoritative commit sequencer. Payload ownership becomes single-source; dependency and conflict schedulers store IDs only. The current `RbfCandidates`/`RaceLost` behavior is replaced only after the new conflict scheduler preserves concurrent fee preference, bounded residency, rollback ordering, and all ledger regressions without reducing throughput. A lock-free queue is not a goal by itself; it is considered only when measurement identifies the queue lock as a real bottleneck.
 
+### 5.1 LifecycleStore migration slice
+
+The first target component now exists as an isolated executable model in
+`component/lifecycle_store.rs`; it is not connected to the production hot path
+yet. It establishes these integration contracts before queue replacement:
+
+- the full transaction hash is the authoritative identity, while proposal
+  short IDs are a collision-checked secondary index;
+- one immutable payload record moves through queued, active, waiting, commit,
+  and pool locations; worker leases carry incarnation/revision tokens, so a
+  stale completion cannot mutate a removed and re-admitted transaction;
+- global and per-peer count/byte charges remain live across every location and
+  payload recharge is transactional;
+- multi-transaction transitions validate completely before mutation, including
+  an RBF commit batch that moves the winner while terminalizing its victims;
+- callbacks consume terminalized records only after the store mutation, which
+  creates an explicit stable-state side-effect boundary.
+
+The model is intentionally compiled out of the runtime call graph until the
+ID-only dependency/conflict schedulers and differential tests are ready. Its
+quick benchmark therefore must be runtime-neutral; each later integration
+slice is gated against the checkpoint medium/full records.
+
 ---
 
 ## 6. Correctness Guarantees
