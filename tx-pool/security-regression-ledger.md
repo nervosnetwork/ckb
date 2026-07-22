@@ -111,13 +111,14 @@ Status meanings:
 | 72 | Covered | `failed_tip_revalidation_recovers_whole_removed_cascade` | I3, I7 |
 | 73 | Partial | Selector cache budget tests exist; add adversarial CPFP graph RSS/allocation benchmark. | I5, I12 |
 | 74 | Covered | Hold/restore/finalize tests; target replaces this with single-owner conflict scheduling and repeats the attack regression. | I1, I5, I9 |
+| 75 | Covered | `failed_commit_restores_all_size_evictions_with_original_status_in_lock` proves a rejected commit restores RBF victims plus unrelated prior size evictions, with exact status, before releasing the pool write guard. | I2, I3, I10 |
 
 ## Validated security candidates
 
 | Candidate | Disposition | Current evidence | Target requirement |
 |---|---|---|---|
 | C-racelost-budget | Reportable, fixed at checkpoint | Resolved lifecycle permit, active-job budget test, independent displacement cap. The target models keep pre-pool payloads in LifecycleStore, hand accepted ownership to TxPool, and bound conflict edges separately. | Integrate the models, then run independent-input, large-loser/small-winner, slow-winner, and multi-peer memory stress before deleting RaceLost. |
-| C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the current size-fee registration prerequisite; rejected-RBF recovery passes. The target `ReplacementFeeGate` negative test makes under-fee scheduling unconstructible. | Source the typed eligibility proof from the authoritative pool calculation and keep rollback as a commit barrier during integration. |
+| C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the current size-fee registration prerequisite; rejected-RBF recovery passes. The target `ReplacementFeeGate` negative test makes under-fee scheduling unconstructible. Follow-up audit nevertheless found that the old barrier ran after releasing the pool lock; exact in-lock rollback now removes that transient state independently of the candidate's suppression rationale. | Source the typed eligibility proof from the authoritative pool calculation and preserve exact in-lock rollback when integrating the new conflict scheduler. |
 | Reorg Gap/uncle proposal exclusion | Confirmed, fixed | Gap transition unit tests plus normal `get_block_template` dependent-tree integration. | Reorg delta sequencing and template revision model must preserve the same integration test without manual proposal blocks. |
 | Reorg delta dropped after repeated panic | Confirmed, fixed | Bounded delivery applies backpressure; `retained_message_retries_until_success` and `retained_receiver_preserves_fifo_across_panics` prove the head survives repeated panics and later deltas cannot overtake it. Callback panics are contained separately. | Preserve retained/FIFO delivery while replacing convergence retries with explicit prepare/commit/publish progress in the commit sequencer. |
 

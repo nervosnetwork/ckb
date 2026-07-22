@@ -1757,9 +1757,20 @@ async fn failed_rbf_rollback_precedes_held_candidate_restore() {
     assert!(outcome.replaced);
     assert!(
         outcome
-            .rollback
+            .rolled_back
             .iter()
             .any(|(tx, _)| tx.proposal_short_id() == original_id)
+    );
+    // The authoritative write transaction has already restored O; aftermath
+    // only releases the speculative conflict scheduler and publishes effects.
+    assert!(
+        service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool(&original_id)
+            .is_some()
     );
 
     let dispatch = service.dispatch_submit_aftermath(&attack_id, outcome).await;

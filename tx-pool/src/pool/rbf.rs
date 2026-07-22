@@ -300,7 +300,7 @@ impl TxPool {
         entry: &TxEntry,
         removal: &[ProposalShortId],
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Vec<TxEntry> {
+    ) -> Vec<crate::component::pool_map::RemovedPoolEntry> {
         if removal.is_empty() {
             return Vec::new();
         }
@@ -310,20 +310,20 @@ impl TxPool {
         // re-walking the descendants of every conflict here.
         let all_removed: Vec<_> = removal
             .iter()
-            .filter_map(|id| self.pool_map.remove_entry(id))
+            .filter_map(|id| self.pool_map.remove_entry_with_status(id))
             .collect();
 
         for old in &all_removed {
             ckb_logger::debug!(
                 "remove conflict tx {} for RBF by new tx {}",
-                old.transaction().hash(),
+                old.entry.transaction().hash(),
                 entry.transaction().hash()
             );
             let reject =
                 Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
 
             // collect reject events for dispatch outside write lock
-            reject_events.push((old.clone(), reject));
+            reject_events.push((old.entry.clone(), reject));
         }
 
         // Record every removed entry (direct conflicts and their descendants)
@@ -333,7 +333,7 @@ impl TxPool {
         // The original pipeline source is not retained once a transaction has
         // entered the pool, so recovered entries fall back to `TxSource::Local`.
         for old in &all_removed {
-            self.record_conflict(old.transaction().clone(), TxSource::Local);
+            self.record_conflict(old.entry.transaction().clone(), TxSource::Local);
         }
 
         all_removed

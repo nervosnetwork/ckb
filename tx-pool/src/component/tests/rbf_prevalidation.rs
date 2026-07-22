@@ -128,7 +128,7 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
         replaced: _,
-        rollback,
+        rolled_back,
         recovered,
         reject_events,
         accept_event: _,
@@ -150,7 +150,7 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     // evicted, nothing needs recovering, and the victim cluster never left
     // the pool.
     assert!(matches!(result, Err(Reject::ExceededMaximumAncestorsCount)));
-    assert!(rollback.is_empty());
+    assert!(rolled_back.is_empty());
     assert!(recovered.is_empty());
     assert!(reject_events.is_empty());
     let tx_pool = service.pool.tx_pool.read().await;
@@ -277,7 +277,7 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
         replaced: _,
-        rollback,
+        rolled_back,
         recovered: _,
         reject_events,
         accept_event: _,
@@ -302,7 +302,7 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
         "the zero-fee entry must self-evict under the pool limit"
     );
     assert!(
-        rollback.iter().any(|(tx, _)| tx.hash() == e.hash()),
+        rolled_back.iter().any(|(tx, _)| tx.hash() == e.hash()),
         "the escape-hatch eviction of E must be recovered after the commit failure"
     );
     assert!(
@@ -310,6 +310,110 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
             .iter()
             .any(|(entry, _)| entry.transaction().hash() == e.hash()),
         "E's Invalidated reject event must be suppressed once it is recovered"
+    );
+}
+
+/// A size-limit failure can evict unrelated low-fee entries before it reaches
+/// and rejects the just-inserted candidate. Every one of those removals is
+/// part of the failed commit transaction: restore it under the same write
+/// guard and preserve its exact proposal-window status.
+#[tokio::test]
+async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock() {
+    use super::harness::{WorkerSet, harness};
+    use std::{collections::HashSet, sync::Arc};
+
+    let service = harness(2)
+        .rbf(true)
+        .max_tx_pool_size(250)
+        .workers(WorkerSet::None)
+        .build()
+        .service;
+
+    let victim = build_tx(vec![(&Byte32::new([71; 32]), 0)], 1);
+    let unrelated = build_tx(vec![(&Byte32::new([72; 32]), 0)], 1);
+    let replacement = build_tx(vec![(&Byte32::new([71; 32]), 0)], 2);
+    let victim_id = victim.proposal_short_id();
+    let unrelated_id = unrelated.proposal_short_id();
+    let replacement_id = replacement.proposal_short_id();
+
+    {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(victim.clone(), MOCK_CYCLES, Capacity::shannons(1_000), 100),
+                Status::Proposed,
+            )
+            .unwrap();
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(unrelated.clone(), MOCK_CYCLES, Capacity::zero(), 100),
+                Status::Gap,
+            )
+            .unwrap();
+    }
+
+    // Once the victim is removed, the 300-byte replacement makes the pool
+    // 400 bytes. Eviction removes the zero-fee unrelated entry first, then
+    // the still-oversized replacement itself. The failed transaction must
+    // put both prior entries back before this guard can be released.
+    let replacement_entry = TxEntry::dummy_resolve(
+        replacement,
+        MOCK_CYCLES,
+        Capacity::shannons(1_000_000_000),
+        300,
+    );
+    let outcome = {
+        let mut tx_pool = service.pool.tx_pool.write().await;
+        let snapshot = tx_pool.cloned_snapshot();
+        let outcome = service.try_submit_entry(
+            &mut tx_pool,
+            Arc::clone(&snapshot),
+            snapshot.tip_hash(),
+            replacement_entry,
+            Status::Proposed,
+            replacement_id.clone(),
+        );
+
+        assert!(outcome.result.is_err());
+        assert_eq!(
+            tx_pool
+                .pool_map
+                .get_by_id(&victim_id)
+                .map(|entry| entry.status),
+            Some(Status::Proposed)
+        );
+        assert_eq!(
+            tx_pool
+                .pool_map
+                .get_by_id(&unrelated_id)
+                .map(|entry| entry.status),
+            Some(Status::Gap)
+        );
+        assert!(tx_pool.pool_map.get_by_id(&replacement_id).is_none());
+        assert_eq!(tx_pool.pool_map.stats.total_tx_size.get(), 200);
+        outcome
+    };
+
+    let restored: HashSet<_> = outcome
+        .rolled_back
+        .iter()
+        .map(|(tx, status)| (tx.proposal_short_id(), *status))
+        .collect();
+    assert_eq!(
+        restored,
+        HashSet::from([
+            (victim_id.clone(), Status::Proposed),
+            (unrelated_id.clone(), Status::Gap),
+        ])
+    );
+    assert!(
+        outcome.reject_events.iter().all(|(entry, _)| {
+            let id = entry.proposal_short_id();
+            id != victim_id && id != unrelated_id
+        }),
+        "restored entries must not emit terminal reject callbacks"
     );
 }
 
@@ -367,7 +471,7 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
         replaced: _,
-        rollback,
+        rolled_back,
         recovered: _,
         reject_events: _,
         accept_event: _,
@@ -390,7 +494,7 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
         "the dep pre-validation must reject after C consumed D'"
     );
     assert!(
-        rollback.iter().any(|(tx, _)| tx.hash() == e.hash()),
+        rolled_back.iter().any(|(tx, _)| tx.hash() == e.hash()),
         "the escape-hatch eviction of E must be recovered even though add_entry itself failed"
     );
 
@@ -458,7 +562,7 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
         replaced: _,
-        rollback,
+        rolled_back,
         recovered,
         reject_events,
         accept_event: _,
@@ -478,10 +582,10 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
     };
 
     assert!(result.is_err(), "far-future since must fail revalidation");
-    let recovered_hashes: HashSet<_> = rollback
+    let recovered_hashes: HashSet<_> = rolled_back
         .iter()
-        .chain(recovered.iter())
         .map(|(tx, _)| tx.hash())
+        .chain(recovered.iter().map(|(tx, _)| tx.hash()))
         .collect();
     assert!(
         recovered_hashes.contains(&parent.hash()),
@@ -1201,7 +1305,7 @@ async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
         replaced: _,
-        rollback,
+        rolled_back,
         recovered,
         reject_events: _events,
         accept_event: _,
@@ -1220,7 +1324,7 @@ async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
     };
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
-    assert!(rollback.is_empty());
+    assert!(rolled_back.is_empty());
     assert!(
         recovered
             .iter()
@@ -1607,7 +1711,7 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
         replaced: _,
-        rollback,
+        rolled_back,
         recovered,
         reject_events: _events,
         accept_event: _,
@@ -1626,7 +1730,7 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     };
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
-    assert!(rollback.is_empty());
+    assert!(rolled_back.is_empty());
     assert!(
         !recovered
             .iter()

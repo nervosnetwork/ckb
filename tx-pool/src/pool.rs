@@ -1,6 +1,6 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
-use crate::component::pool_map::{PoolEntry, PoolMap, Status};
+use crate::component::pool_map::{PoolEntry, PoolMap, RemovedPoolEntry, Status};
 use crate::component::waiting_room::{WaitReason, WaitingRoom};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
@@ -378,6 +378,28 @@ impl TxPool {
         current_entry_id: Option<&ProposalShortId>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Option<Reject> {
+        self.limit_size_inner(current_entry_id, reject_events, None)
+    }
+
+    /// Transactional form of [`Self::limit_size`]. Every physical removal is
+    /// exported with its original status so a caller that rejects the current
+    /// insertion can restore the exact pre-commit pool before releasing the
+    /// write guard.
+    pub(crate) fn limit_size_with_journal(
+        &mut self,
+        current_entry_id: Option<&ProposalShortId>,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+        removal_journal: &mut Vec<RemovedPoolEntry>,
+    ) -> Option<Reject> {
+        self.limit_size_inner(current_entry_id, reject_events, Some(removal_journal))
+    }
+
+    fn limit_size_inner(
+        &mut self,
+        current_entry_id: Option<&ProposalShortId>,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+        mut removal_journal: Option<&mut Vec<RemovedPoolEntry>>,
+    ) -> Option<Reject> {
         let mut ret = None;
         while self.pool_map.stats.total_tx_size.get() > self.config.max_tx_pool_size {
             let next_evict_entry = || {
@@ -388,8 +410,19 @@ impl TxPool {
             };
 
             if let Some(id) = next_evict_entry() {
-                let removed = self.pool_map.remove_entry_and_descendants(&id);
-                for entry in removed {
+                let removed = self.pool_map.remove_entry_and_descendants_with_status(&id);
+                for removed in removed {
+                    // The ordinary path keeps the old move-only behavior.
+                    // Clone a `TxEntry` only when a transactional caller must
+                    // retain the exact undo record as well as its reject event.
+                    let entry = match removal_journal.as_deref_mut() {
+                        Some(journal) => {
+                            let entry = removed.entry.clone();
+                            journal.push(removed);
+                            entry
+                        }
+                        None => removed.entry,
+                    };
                     let tx_hash = entry.transaction().hash();
                     debug!(
                         "Removed by size limit {} timestamp({})",
@@ -462,7 +495,7 @@ impl TxPool {
                             // (same policy as `process_rbf`).
                             for evicted in std::mem::take(&mut self.pool_map.evicted_journal) {
                                 self.record_conflict(
-                                    evicted.transaction().clone(),
+                                    evicted.entry.transaction().clone(),
                                     TxSource::Local,
                                 );
                             }

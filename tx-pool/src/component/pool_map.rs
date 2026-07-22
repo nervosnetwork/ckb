@@ -73,6 +73,18 @@ pub struct PoolEntry {
     pub(crate) inner: TxEntry,
 }
 
+/// Exact undo record for a physical pool removal.
+///
+/// A failed commit must restore both the entry and its proposal-window
+/// status. Reconstructing only from `TransactionView` loses
+/// Pending/Gap/Proposed state and opens a window where competing commits can
+/// observe the removed inputs as free.
+#[derive(Debug, Clone)]
+pub(crate) struct RemovedPoolEntry {
+    pub(crate) entry: TxEntry,
+    pub(crate) status: Status,
+}
+
 /// Aggregated statistics tracked by [`PoolMap`].
 #[derive(Default)]
 pub struct PoolStats {
@@ -164,7 +176,7 @@ pub struct PoolMap {
     /// `add_entry` can still fail after the escape eviction (e.g. the dep
     /// pre-validation) and would otherwise drop the evicted set on the
     /// error path — a failed commit must not evict in-pool transactions.
-    pub(crate) evicted_journal: HashSet<TxEntry>,
+    pub(crate) evicted_journal: Vec<RemovedPoolEntry>,
 }
 
 impl PoolMap {
@@ -175,7 +187,7 @@ impl PoolMap {
             links: TxLinksMap::new(),
             max_ancestors_count,
             stats: PoolStats::default(),
-            evicted_journal: HashSet::new(),
+            evicted_journal: Vec::new(),
         }
     }
 
@@ -420,7 +432,10 @@ impl PoolMap {
         self.track_entry_statistics(old_status, Some(status));
     }
 
-    pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
+    pub(crate) fn remove_entry_with_status(
+        &mut self,
+        id: &ProposalShortId,
+    ) -> Option<RemovedPoolEntry> {
         self.entries.remove_by_id(id).map(|entry| {
             debug!(
                 "remove entry {} from status: {:?}",
@@ -433,11 +448,22 @@ impl PoolMap {
             self.remove_entry_links(id);
             self.track_entry_statistics(Some(entry.status), None);
             self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
-            entry.inner
+            RemovedPoolEntry {
+                entry: entry.inner,
+                status: entry.status,
+            }
         })
     }
 
-    pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+    pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
+        self.remove_entry_with_status(id)
+            .map(|removed| removed.entry)
+    }
+
+    pub(crate) fn remove_entry_and_descendants_with_status(
+        &mut self,
+        id: &ProposalShortId,
+    ) -> Vec<RemovedPoolEntry> {
         let mut removed_ids = vec![id.to_owned()];
         removed_ids.extend(self.calc_descendants(id));
 
@@ -473,7 +499,14 @@ impl PoolMap {
 
         ordered
             .iter()
-            .filter_map(|id| self.remove_entry(id))
+            .filter_map(|id| self.remove_entry_with_status(id))
+            .collect()
+    }
+
+    pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+        self.remove_entry_and_descendants_with_status(id)
+            .into_iter()
+            .map(|removed| removed.entry)
             .collect()
     }
 
@@ -996,7 +1029,7 @@ impl PoolMap {
             let mut iter = evict_candidates.iter();
             while ancestors_count > self.max_ancestors_count {
                 if let Some(next_id) = iter.next() {
-                    let removed = self.remove_entry_and_descendants(next_id);
+                    let removed = self.remove_entry_and_descendants_with_status(next_id);
                     ancestors_count = ancestors_count.saturating_sub(1);
                     // The cascade removes `next_id` *and its descendants*,
                     // and any of them may be a direct parent of the new
@@ -1006,12 +1039,12 @@ impl PoolMap {
                     // is still linked), and the weight fold below would
                     // then fail with a spurious "missing entry" Malformed.
                     for removed_entry in &removed {
-                        parents.remove(&removed_entry.proposal_short_id());
+                        parents.remove(&removed_entry.entry.proposal_short_id());
                     }
                     // Journal the escape-hatch evictions so the caller can
                     // recover them if a later step rejects this entry.
                     self.evicted_journal.extend(removed.iter().cloned());
-                    evicted.extend(removed);
+                    evicted.extend(removed.into_iter().map(|removed| removed.entry));
                 } else {
                     break;
                 }
