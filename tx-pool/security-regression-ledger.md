@@ -20,14 +20,14 @@ Status meanings:
 
 | ID | Invariant | Required evidence |
 |---|---|---|
-| I1 | One lifecycle owner | Before acceptance, a transaction payload has exactly one owner and one location in LifecycleStore; indexes contain IDs only. Acceptance terminalizes that record and transfers sole authority to TxPool, which is never shadowed. |
-| I2 | Authoritative commit | Only the tx-pool commit sequencer can accept/reject RBF or mutate pool membership. |
+| I1 | One lifecycle owner | Before acceptance, a transaction payload has exactly one owner, one typed location and one revision in PipelineCoordinator; dependency/conflict/queue/deadline structures are derived ID indexes. Acceptance consumes that record and transfers sole authority to TxPool, which is never shadowed. |
+| I2 | Authoritative commit | Only the transaction sequenced by the existing TxPool write guard can accept/reject RBF or mutate pool membership; coordinator finalization completes before that guard opens. |
 | I3 | Transactional rollback | Failed replacement restores every removed entry before releasing competing candidates. |
 | I4 | No silent loss | Every admitted transaction reaches pool, wait state, explicit rejection, or retryable internal failure. |
-| I5 | Bounded untrusted state | Global and per-peer count/byte/active-work limits cover queued, active, and parked states continuously. |
+| I5 | Bounded untrusted state | Global and per-peer count/byte/active-work limits continuously cover queued, active and parked payloads, conservative dependency/conflict/ticket/deadline metadata, and any terminal payload charge retained by the bounded effect outbox. |
 | I6 | Event-driven dependencies | Parent commit/failure wakes or reclassifies children; no child relies solely on polling or expiry. |
 | I7 | Reliable chain transitions | Reorg deltas are ordered, tip-checked, retained until success, and never best-effort. |
-| I8 | Stable-state effects | Callbacks, relay events, metrics, and notifications run after internal ownership is stable and outside locks. |
+| I8 | Stable-state effects | Callbacks, relay events, metrics, and notifications are appended to a bounded sequence-ordered outbox before the pool write guard opens, then run after internal ownership is stable and outside locks. |
 | I9 | Deterministic conflict scheduling | Fee preference may order work, but speculative state cannot create a terminal verdict or fee-floor bypass. |
 | I10 | Pool graph integrity | Entries, links, accounting, conflict closure, ancestor/descendant weights, and eviction journals change atomically. |
 | I11 | Template liveness | Pool status, proposal selection, uncles, byte accounting, and template revisions cannot strand a valid transaction. |
@@ -51,7 +51,7 @@ Status meanings:
 | 12 | Covered | `pre_check_worker_notifies_relayer_when_ordered_resolve_queue_is_full` | I4 |
 | 13 | Covered | `recover_gives_up_terminally_after_bounded_retries` | I4 |
 | 14 | Covered | `local_orphan_with_stuck_parent_is_eventually_rejected` | I4, I6 |
-| 15 | Partial | The target `DependencyScheduler` model covers ready-parent + downstream-full capacity wake-up; production routing and ordered/verify queue integration remain mandatory. | I4, I6 |
+| 15 | Partial | The split prototype covers ready-parent + downstream-full wake-up, but the reviewed coordinator removes internal payload queue `Full`: a residency-charged entry changes an ID-only stage ticket atomically. Port a differential test proving stage handoff cannot lose the transaction. | I4, I6 |
 | 16 | Partial | Worker panic guards and callback-panic containment are tested; add injected panic from resolve/verify/commit through final relay and ownership cleanup. | I1, I4 |
 | 17 | Covered | `remove_tx_reports_in_progress_for_worker_active_job` | I1 |
 | 18 | Covered | `banned_peer_job_is_dropped_by_pre_check_worker` | I4, I5 |
@@ -110,7 +110,7 @@ Status meanings:
 | 71 | Covered | `recover_txs_retries_until_ordered_queue_has_room` | I4 |
 | 72 | Covered | `failed_tip_revalidation_recovers_whole_removed_cascade` | I3, I7 |
 | 73 | Partial | Selector cache budget tests exist; add adversarial CPFP graph RSS/allocation benchmark. | I5, I12 |
-| 74 | Covered | Hold/restore/finalize tests; target replaces this with single-owner conflict scheduling and repeats the attack regression. | I1, I5, I9 |
+| 74 | Covered | Hold/restore/finalize tests; target permits preliminary fee ordering but grants reversible conflict ownership only after successful verification, then repeats the attack regression. | I1, I5, I9 |
 | 75 | Covered | `failed_commit_restores_all_size_evictions_with_original_status_in_lock` proves a rejected commit restores RBF victims plus unrelated prior size evictions, with exact status, before releasing the pool write guard. | I2, I3, I10 |
 | 76 | Covered | Reorg attached/detached identity is compared by raw tx hash, not witness hash; `attached_raw_hash_suppresses_detached_witness_variant`. | I4, I7 |
 | 77 | Covered | Block-assembler updates use a level-triggered dirty journal before the bounded wake edge; `block_assembler_dirty_journal_is_level_triggered_and_coalesced`. | I11 |
@@ -120,18 +120,34 @@ Status meanings:
 | 81 | Covered | `PipelineEpoch` plus the final in-lock commit check makes clear a linearizable cancellation barrier. `clear_pipeline_cancels_active_commit_without_active_aba`, `stale_deferred_recovery_cannot_resurrect_after_clear`, and epoch-exhaustion coverage lock the boundary. | I1, I2, I4, I7 |
 | 82 | Covered | `Completed` verification ownership travels inside held `ResolvedTx`; the superseded restore regression proves recovery is independent of the lossy cache-update channel. | I1, I9, I12 |
 | 83 | Covered | Escape-hatch ancestry is recomputed from the surviving graph after a cascade instead of decrementing one; `escape_hatch_stops_after_one_cascade_makes_ancestry_fit`. | I10 |
-| 84 | Covered | Dependency tickets receive a fresh generation on every dispatch/return/capacity transition and lazy physical queues compact under churn; stale-ticket and bounded-slot tests cover ABA and memory growth. | I1, I5, I6 |
-| 85 | Covered | Conflict registration/abort preflight generation capacity before mutation; exhaustion tests prove no partial indexes or rebalance. | I1, I9 |
+| 84 | Partial | The split dependency prototype has useful stale-ticket/churn tests, but target review found a generation-exhaustion ready-ticket loss and quadratic capacity-prefix scans. Port the properties to the single coordinator before deleting the prototype. | I1, I5, I6 |
+| 85 | Partial | Conflict generation preflight tests prove local atomicity, but the split scheduler duplicates lifecycle state and cannot compose atomically with ownership. Port the ordering/exhaustion cases to the single coordinator. | I1, I9 |
 | 86 | Covered | Dispatcher closes and drains the receiver before waiting for permits, so callback/controller re-entry cannot keep shutdown alive indefinitely; channel-close persistence remains the end-to-end anchor. | I4, I8 |
 | 87 | Covered | Queue byte limits accept an exact fit (`>` rather than `>=`); queue boundary tests retain the configured budget semantics. | I5 |
 | 88 | Covered | Ordered-resolver retry is an atomic active-lease-to-queued handoff; orphan delayed/removal regressions prove active duplicate protection cannot consume the worker's own retry. | I1, I4, I6 |
+| 89 | Open | Replace the three split-state target prototypes with one coordinator entry/revision; prove entry↔index↔physical-ticket bijection after every model transition. | I1, I4 |
+| 90 | Open | Make `Committed` a typed handoff constructible only from `Committing`; administrative outcomes must not be able to express commit. | I1, I2 |
+| 91 | Open | Exhaustion/fault injection must prove checkout cannot consume the only live ready ticket before every fallible preflight succeeds. | I4, I6 |
+| 92 | Open | Prove the coordinator has no internal payload-capacity wait state, and that every retained lazy stage/deadline queue consumes stale prefixes with O(1) live counts; add adversarial one-at-a-time churn complexity/allocation coverage. | I5, I12 |
+| 93 | Open | Coordinator audit must include physical live queue membership, not only logical entry/index equality. | I1, I4, I6 |
+| 94 | Open | Recompute the complete RBF closure and both replacement fee gates under the final pool write guard; registration eligibility is not a durable proof. | I2, I9 |
+| 95 | Open | Make the existing pool write guard the only normal-commit membership sequencer, complete coordinator finalization before releasing it, and keep any reorg/persistence chain-operation guard off the normal hot path. | I2, I7, I12 |
+| 96 | Open | Charge conservative dependency/conflict/ticket/deadline metadata to global and per-peer residency in addition to hard edge caps. | I5 |
+| 97 | Open | Prove an unverified high-fee/slow/invalid stream cannot preempt a verified candidate; conflict ownership begins only after verification and remains globally/per-peer bounded. | I4, I5, I9 |
+| 98 | Open | Parked entries must not retain `Arc<Snapshot>`; stress many tips/waiters and assert old snapshots are released while final tip/input revalidation still holds. | I5, I7, I12 |
+| 99 | Open | Bound parent/blocker fan-out and cascade/rebalance work per coordinator lock hold; complexity counters and adversarial graph tests must prove bounded slices and fail-closed descendants. | I4, I5, I6, I12 |
+| 100 | Open | Cross-authority queries hold the pool read guard while taking a short coordinator snapshot and never observe the handoff gap; add deterministic query-vs-commit/reorg/clear races. | I1, I2, I7 |
+| 101 | Open | Reserve a bounded effect slot before mutation, enqueue in mutation order before releasing the pool write guard, contain publisher panic/cancellation and drain on shutdown without adding a mandatory common-path scheduling hop. | I4, I8, I12 |
+| 102 | Open | Bound the effect outbox by bytes as well as batches and transfer unavoidable payload charges through publication; stress a stalled callback/relay consumer without memory-budget escape. | I5, I8, I12 |
+| 103 | Open | Freeze committing conflict domains while the coordinator lock is released for pool validation; later verified contenders must remain capped and success/abort must consume the current cohort without stale-plan loss. | I1, I2, I9 |
+| 104 | Open | Inject unwind at every multi-entry coordinator apply boundary; undo authoritative entries, rebuild derived indexes and prove the batch is entirely old or entirely new. | I1, I4 |
 
 ## Validated security candidates
 
 | Candidate | Disposition | Current evidence | Target requirement |
 |---|---|---|---|
-| C-racelost-budget | Reportable, fixed at checkpoint | Resolved lifecycle permit, active-job budget test, independent displacement cap. The target models keep pre-pool payloads in LifecycleStore, hand accepted ownership to TxPool, and bound conflict edges separately. | Integrate the models, then run independent-input, large-loser/small-winner, slow-winner, and multi-peer memory stress before deleting RaceLost. |
-| C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the current size-fee registration prerequisite; rejected-RBF recovery passes. The target `ReplacementFeeGate` negative test makes under-fee scheduling unconstructible. Follow-up audit nevertheless found that the old barrier ran after releasing the pool lock; exact in-lock rollback removes that transient state independently of the candidate's suppression rationale, and saturated deferred publication can no longer delay the following RBF ownership settlement. | Source the typed eligibility proof from the authoritative pool calculation and preserve exact in-lock rollback plus settle-before-publish ordering when integrating the new conflict scheduler. |
+| C-racelost-budget | Reportable, fixed at checkpoint | Resolved lifecycle permit, active-job budget test, independent displacement cap. The reviewed target keeps every pre-pool payload and all metadata charges in one coordinator entry, then hands accepted ownership to TxPool. | Integrate the single coordinator, then run independent-input, large-loser/small-winner, slow-winner, and multi-peer memory stress before deleting RaceLost. |
+| C-freeloader-rbf | Suppressed | Under-fee candidate cannot pass the current size-fee registration prerequisite; rejected-RBF recovery passes. Follow-up audit nevertheless found that the old barrier ran after releasing the pool lock; exact in-lock rollback removes that transient state independently of the candidate's suppression rationale, and saturated deferred publication can no longer delay the following RBF ownership settlement. | Treat registration as provisional only. Recompute the full conflict closure and fee gates in the mutation-gated pool write transaction, preserving exact rollback plus settle-before-publish ordering. |
 | Reorg Gap/uncle proposal exclusion | Confirmed, fixed | Gap transition unit tests plus normal `get_block_template` dependent-tree integration. | Reorg delta sequencing and template revision model must preserve the same integration test without manual proposal blocks. |
 | Reorg delta dropped after repeated panic | Confirmed, fixed | Bounded delivery applies backpressure; `retained_message_retries_until_success` and `retained_receiver_preserves_fifo_across_panics` prove the head survives repeated panics and later deltas cannot overtake it. Callback panics are contained separately. | Preserve retained/FIFO delivery while replacing convergence retries with explicit prepare/commit/publish progress in the commit sequencer. |
 
@@ -141,9 +157,9 @@ Status meanings:
    target regression.
 2. Every new lifecycle transition is exercised by a pure model/state-machine
    test and at least one production-path differential test.
-3. Quick benchmarks run for each production change, medium benchmarks for each
-   phase, and interleaved multi-run full benchmarks before and after the default
-   switch.
+3. Focused quick A/B runs for each production slice. Medium/full are reserved
+   for explicit final acceptance; an interrupted or incomplete run has no
+   verdict and is never merged with quick evidence.
 4. Throughput geometric mean must not decrease. A negative per-scenario median
    is a rerun condition; a repeated or statistically significant negative result
    blocks the phase.

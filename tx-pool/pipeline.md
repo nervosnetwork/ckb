@@ -335,135 +335,322 @@ Push-based dependent wake-up re-enqueues each child immediately when its parent 
 
 ## 5. Migration Direction
 
-The next implementation keeps fixed parallel pre-check/verify worker pools and introduces a batched coordinator for lifecycle state plus a batched authoritative commit sequencer. Payload ownership becomes single-source; dependency and conflict schedulers store IDs only. The current `RbfCandidates`/`RaceLost` behavior is replaced only after the new conflict scheduler preserves concurrent fee preference, bounded residency, rollback ordering, and all ledger regressions without reducing throughput. A lock-free queue is not a goal by itself; it is considered only when measurement identifies the queue lock as a real bottleneck.
+The audited target keeps the fixed parallel pre-check/resolve/verify workers,
+but replaces every pre-pool queue, active set, waiting room and speculative RBF
+owner with one `PipelineCoordinator`. It does not put an actor hop in front of
+workers and it never mirrors accepted `TxPool` entries.
 
-### 5.1 LifecycleStore migration slice
+The first isolated model split lifecycle, dependency and conflict state across
+three components. Review found that this repeats the original architectural
+mistake: all three components independently store locations such as ready,
+dispatched, waiting and committing, and all three issue generations. They
+cannot be composed atomically, so they are prototypes only and are blocked
+from production integration.
 
-The first target component now exists as an isolated executable model in
-`component/lifecycle_store.rs`; it is not connected to the production hot path
-yet. It establishes these integration contracts before queue replacement:
+### 5.1 Target-model review findings
 
-- the full transaction hash is the authoritative identity, while proposal
-  short IDs are a collision-checked secondary index;
-- one immutable payload record moves through queued, active, waiting, and
-  committing locations; worker leases carry incarnation/revision tokens, so a
-  stale completion cannot mutate a removed and re-admitted transaction;
-- global and per-peer count/byte charges remain live across every location and
-  payload recharge is transactional;
-- multi-transaction transitions validate completely before mutation, including
-  an RBF handoff batch that terminalizes the committed winner and its
-  speculative pre-pool victims;
-- `Committed` is an ownership handoff: `LifecycleStore` then contains no live
-  record for the transaction, and the existing `TxPool` is the sole authority
-  for accepted `Pending`/`Gap`/`Proposed` state. There is no shadow pool state,
-  duplicated payload, or hot-path status double-write;
-- callbacks consume terminalized records only after the store mutation, which
-  creates an explicit stable-state side-effect boundary.
+| ID | Finding | Required correction |
+|---|---|---|
+| A1 | `LifecycleStore`, `DependencyScheduler` and `ConflictScheduler` each own overlapping transaction state and generations. A transition can succeed in one and fail or become stale in another. | One coordinator entry is the only state and generation authority. Dependency/conflict structures become indexes derived from that entry. |
+| A2 | The lifecycle prototype permits `Committed` terminalization from any location, and administrative removal can also request `Committed`. | Make commit handoff a dedicated typed operation available only for `Committing`; administrative dispositions cannot express `Committed`. |
+| A3 | `DependencyScheduler::pop_ready` removes the live ready ticket before allocating its next generation. Generation exhaustion leaves a `Ready` record with no schedulable ticket. | A queue pop and lease transition are one coordinator mutation; all fallible preflight occurs before the live queue slot is consumed. |
+| A4 | Capacity wake-up repeatedly scans stale queue prefixes, while compaction counts the global blocked set for every stage on every mutation. Small wake batches can become quadratic under attacker-controlled churn. | Do not reproduce payload queue capacity in the coordinator: entries are already residency-charged and stage queues hold bounded ID tickets only. Any retained lazy queue consumes stale prefixes monotonically with O(1) live counts. |
+| A5 | Scheduler audits compare logical sets but do not prove that every live ready/blocked ticket has a physical queue slot. They can report success for a liveness failure. | The coordinator audit checks entry↔index↔physical-ticket bijection for every schedulable state. |
+| A6 | Registration-time replacement eligibility can become stale while a candidate waits. Treating it as a durable proof would reintroduce a fee-floor TOCTOU. | Registration is only an admission/ranking filter. The commit sequencer recalculates the complete RBF closure and fee requirements under the authoritative pool write guard. |
+| A7 | The migration draft nested the coordinator before `TxPool`, which would block all queue transitions for the duration of pool validation and creates an unnecessary hot-path lock convoy. Adding a second mutation lock would also tax every commit. | Reuse the existing `TxPool` write guard as the membership sequencer. The only nesting is `TxPool → coordinator`; no coordinator path waits for `TxPool`, and no extra hot-path gate/actor is added. |
+| A8 | Payload bytes were charged, but dependency/conflict edges, tickets and deadlines had independent limits rather than one peer-attributable residency budget. Many tiny transactions could maximize every metadata limit simultaneously. | Charge payload plus conservative metadata cost continuously to global and per-peer budgets; retain hard entry/edge caps as secondary defenses. |
+| A9 | Pre-verification conflict ownership lets a stream of invalid high-fee candidates repeatedly displace honest verified work. Expiry bounds one hold but not repeated censorship. | Unverified candidates may be ordered for verification but cannot own/preempt a conflict domain. Only successfully verified entries enter reversible conflict scheduling. |
+| A10 | A parked `ResolvedTx` retains an `Arc<Snapshot>`. Repeated waits across tips can pin many historical snapshots and their backing state. | Snapshots are transient worker inputs. Parked entries retain tip identity and resolved/verified data only; checkout reacquires/revalidates the current snapshot. |
+| A11 | Parent fan-out, descendant failure and conflict waiter rebalance can touch the global entry count while holding the coordinator mutex. Entry/edge caps bound memory but not lock latency. | Add per-bucket fan-out caps and reliable bounded maintenance batches. Mark invalid roots/children before yielding so stale workers cannot commit ahead of deferred cascade work. |
+| A12 | A query that checks `TxPool` and then the coordinator can observe neither side during a successful ownership transfer. | A cross-authority query holds the existing pool read guard while taking a short coordinator snapshot (`TxPool → coordinator`), so the writer cannot expose the handoff gap. |
+| A13 | Publishing effects directly from the committing task can lose or reorder callbacks/relay notifications if it is cancelled after state finalization. An unbounded outbox would turn a slow consumer into memory exhaustion. | Finalization appends a sequence-ordered batch to a bounded, pre-reserved effect outbox before releasing the pool write guard. Publication is outside state locks, panic-contained and drained on shutdown. |
+| A14 | A count-bounded outbox can still retain unbounded payload bytes, and releasing lifecycle accounting at terminalization creates a second residency gap. | Effect batches contain minimal IDs/outcomes, have count and byte limits, and inherit any unavoidable payload charge until publication releases it. |
+| A15 | Coordinator conflict membership can change while pool validation runs with the coordinator unlocked, making an exact waiter list captured at prepare stale. | `Committing` freezes every input domain; later verified contenders enter its capped waiter buckets. Finalization consumes/reclassifies the current bucket without allocation, while abort schedules bounded rebalance. |
+| A16 | Even with complete preflight, a panic in a multi-entry/index apply could leave half a coordinator batch applied. | A transition undo guard retains old authoritative entries until commit. Unwind restores entries and rebuilds derived indexes; production code contains no panicking invariant accessors. |
 
-The model is intentionally compiled out of the runtime call graph until the
-ID-only dependency/conflict schedulers and differential tests are ready. Its
-quick benchmark therefore must be runtime-neutral; each later integration
-slice is gated against the checkpoint medium/full records.
+These defects do not affect the current production path because the prototypes
+are unreachable (`#![allow(dead_code)]`). They invalidate the prototypes as an
+integration base. Their useful test cases are retained as requirements and
+must move to the single-coordinator model before the prototype modules are
+deleted.
 
-### 5.2 DependencyScheduler migration slice
+### 5.2 Single authoritative coordinator
 
-The isolated `component/dependency_scheduler.rs` model owns dependency IDs and
-edges only. Readiness is represented by generation-tagged tickets: parent
-availability wakes a child once, parent invalidation makes even a dispatched
-ticket stale, and definitive failure cascades through ready and
-capacity-blocked descendants. A downstream `Full` outcome becomes an explicit
-`CapacityBlocked(stage)` state that is requeued by a capacity event; it cannot
-silently fall back to orphan expiry. Entry, total-edge, and per-entry-edge
-limits bound scheduler metadata independently from payload residency.
+`PipelineCoordinator` contains one short-held synchronous mutex around
+`CoordinatorInner`. Every admitted full transaction hash maps to exactly one
+entry. Proposal short IDs are collision-checked secondary indexes only.
 
-Production integration remains pending: queue capacity notifications must be
-routed through the coordinator and differential tests must prove that current
-parent-first/child-first behavior is preserved before the legacy orphan retry
-logic can be removed.
+The entry uses payload-phase-aware typed states so illegal combinations are not
+representable:
 
-### 5.5 WaitingRoom retirement
+- raw entries may be queued/active in pre-check or resolve, wait for parents,
+  or wait for a retry deadline;
+- resolved-unverified entries may only be queued/active in verify; they can be
+  prioritized by preliminary fee score but cannot own a conflict domain;
+- verified entries may wait for accepted-pool inputs or verified speculative
+  conflict blockers, be ready to commit, or carry a unique committing lease;
+- accepted `Pending`/`Gap`/`Proposed` states exist only in `TxPool`; successful
+  commit consumes the committing entry rather than changing it to a shadow
+  pool location.
 
-`WaitingRoom` is transitional and is not part of the target production
-architecture. It currently duplicates payload ownership across two instances
-and forces orchestration to infer a transaction's lifecycle from a room,
-several queue indexes, RBF registrations and `TxPool` state. The replacement is
-not a third room:
+One monotonic incarnation/revision pair supplies every worker, queue, deadline,
+dependency and conflict ticket. Auxiliary structures contain full hashes plus
+that same revision; they never have an independent state or generation.
+Indexes include short ID, peer, location, dependency parent, blocked pool
+input, speculative blocker, expiry/deadline and stage-ready order. Queue tickets
+may be lazily stale, but every live queued entry has exactly one physical live
+ticket and stale storage is bounded by amortized compaction. Stage queues carry
+IDs only and are bounded by the same maximum entry count as the store, so a
+successful internal transition cannot fail merely because another payload
+queue has a separate byte budget. The old `CapacityBlocked` lifecycle therefore
+disappears instead of being reimplemented.
 
-- `LifecycleStore` owns each pre-pool payload exactly once and represents
-  `ParentsMissing`, `CapacityBlocked` and speculative conflict waiting as typed
-  locations with revisioned leases;
-- `DependencyScheduler` and `ConflictScheduler` retain IDs, edges and tickets
-  only; they never clone `TransactionView` or `ResolvedTx`;
-- accepted conflict audit records are separated from executable waiting state,
-  so RPC history cannot accidentally wake or schedule a transaction;
-- expiry, budget eviction, peer ban, remove, clear and reorg become coordinator
-  transitions over the same record rather than cross-structure scans.
+Expiry tickets use `(deadline, full_hash, incarnation)`, not the changing
+revision. Normal state transitions cannot accidentally invalidate an entry's
+original lifetime; removal and re-admission get a new incarnation and make the
+old deadline harmlessly stale.
 
-The room is deleted only after production-path differential tests cover every
-current wake/finalize/abort/expiry path and quick plus medium/full performance
-gates pass. Until then, the current resolved-lifecycle permit, epoch and active
-lease token close the known budget and ABA attacks without pretending that the
-dual-room model is the final design.
+Payload ownership is also singular. Indexes never clone `TransactionView` or
+`ResolvedTx`; worker leases clone only an `Arc` to immutable work data. A raw
+entry is transactionally replaced by a resolved-unverified entry after
+resolution, and verification replaces that with a verified entry carrying its
+owned proof. Snapshots never become resident payload: the worker lease obtains
+the current `Arc<Snapshot>` transiently and the entry retains only the tip hash
+needed for final revalidation. Its exact resolved charge is computed outside
+the lock and recharged atomically; if it cannot fit, the result is a defined
+`Full` terminal outcome rather than an unbudgeted capacity wait. Proposal
+admission/recharge has validated reserved headroom (or deterministically evicts
+remote entries) so remote saturation cannot prevent chain reconciliation.
+Local RPC remains globally bounded because it may be exposed to untrusted
+clients; it does not receive an unlimited trusted bypass.
 
-### 5.3 ConflictScheduler migration slice
+The residency charge covers serialized payload/accounted heap data plus
+conservative index metadata and remains live across queued, active, waiting and
+committing states. Global and per-peer count/byte/active-work caps are checked
+in the same admission/recharge transaction. Per-peer active-work limits and a
+bounded fair peer rotation prevent one peer from occupying every worker with a
+FIFO prefix; proposal priority remains absolute and fee ordering remains the
+configured policy within eligible verify work.
 
-The isolated `component/conflict_scheduler.rs` model separates fee eligibility
-from scheduling. `ReplacementFeeGate` must produce an eligible candidate before
-the scheduler can hold or order it; both the candidate-specific pool
-replacement fee and the size-based fee-rate floor are checked first. The
-scheduler then stores IDs, conflict outpoints, score metadata and generation
-tickets only. A multi-input candidate either wins every active conflict domain
-or waits without partially displacing any owner. Committing candidates are
-frozen against later arrivals; abort rebalances the highest-fee valid waiter,
-while only authoritative commit success terminalizes direct conflicts.
+The required transition families are deliberately small:
 
-Candidate count, total conflict edges and per-candidate edges are separately
-bounded. Production integration must retain the current pool write-lock fee
-calculation as the proof source. A successful pool mutation transfers the
-winner out of `LifecycleStore`; it does not mirror the winner as a pool
-location. Direct speculative losers are terminalized in the same coordinator
-finalization before replacing `RbfCandidates` and `RaceLost`.
+| From | Event | To / outcome |
+|---|---|---|
+| absent | admit independent/dependent | raw `QueuedPreCheck` / `QueuedResolve` |
+| raw queued | checkout | raw `Active(stage)` plus versioned worker lease |
+| raw active | resolved | resolved-unverified `QueuedVerify`, with atomic recharge; preliminary fee score affects order only |
+| raw active | parents missing | raw `WaitingParents`; the parent reverse index is updated in the same transition |
+| raw waiting | final parent available | raw `QueuedResolve` exactly once |
+| unverified queued | checkout | unverified `ActiveVerify` plus versioned worker lease and transient current snapshot |
+| unverified active | verification success | verified `ReadyToCommit` or `WaitingConflict`; conflict ownership is decided only now |
+| verified ready/waiting | stronger verified arrival | deterministic all-input rebalance; an already `Committing` owner is frozen |
+| waiting conflict | blocker abort/remove | atomically rebalanced `ReadyToCommit` or continued `WaitingConflict` without re-verification |
+| verified entry | accepted input freed | revalidated `ReadyToCommit`/`WaitingConflict`, reusing proof only when its resolved inputs remain identical |
+| ready | begin authoritative mutation | unique `Committing` lease |
+| committing | pool apply succeeds | consumed as typed `Committed` handoff; direct speculative conflicts are consumed as `Rejected` in the same batch |
+| committing | pool apply fails | journal restored first, then explicit requeue/wait/reject disposition |
+| any pre-pool state | remove/clear/peer ban/expiry | consumed terminal record; stale workers become harmless no-ops |
+| raw or resolved dependent | parent becomes unavailable/definitively fails | atomically demote to raw re-resolve/wait or terminal cascade; resolved snapshot/proof is never reused across invalidated dependencies |
 
-### 5.4 Authoritative commit transaction
+Duplicate admission never creates another entry. A proposal notification may
+promote an existing entry's priority, and a local submission may attach its
+completion observer, but neither changes full-hash identity nor duplicates
+payload/accounting. Remote peer attribution is retained until a trusted source
+promotion explicitly releases it, preventing duplicate submissions from
+moving charges between peers.
 
-Production integration uses one explicit prepare/apply/finalize/publish
-protocol. It keeps the existing parallel verification workers and the existing
-serialized `TxPool` write section; it does not add an actor hop or a second pool
-representation to the hot path.
+### 5.3 Atomic transition engine
 
-1. **Prepare (coordinator metadata only).** Validate the lifecycle lease and
-   conflict-generation ticket and build an immutable commit intent. This phase
-   does not mutate `TxPool`.
-2. **Apply (coordinator → `TxPool` lock order).** Perform every fallible pool
-   validation before destructive mutation wherever possible. The remaining
-   mutation phase must either be infallible or carry an exact journal containing
-   each removed `TxEntry` and its original `Status`. On failure, that journal is
-   restored while the same `TxPool` write guard is still held; competing
-   candidates can never observe temporarily free inputs.
-3. **Finalize pre-pool ownership.** After successful pool apply, atomically
-   terminalize the lifecycle winner as `Committed` and its direct speculative
-   losers as `Rejected`. On failure, abort/requeue/terminalize from an explicit
-   disposition. No callback, relay, miner notification, or asynchronous
-   recovery runs in this phase.
-4. **Publish effects.** After all internal locks are released, dispatch a typed
-   effect journal: callbacks, relay, cache update, miner notification, and
-   opportunistic dependency wakes. Effects are consequences of an already
-   stable state and cannot decide or repair ownership.
+Every coordinator API is a complete domain transition rather than a public
+collection primitive. Examples are `admit_raw`, `checkout_stage`,
+`complete_resolution`, `wait_for_parents`, `parent_available`,
+`register_conflict`, `begin_commit`, `abort_commit`, `remove_peer`, `clear` and
+`apply_reorg_delta`.
 
-The coordinator lock protects only lifecycle IDs, generations, bounded
-accounting, and scheduler metadata. Queue leases and transitions are batched;
-payload verification remains on the fixed worker pools. Consequently the
-design removes legacy cross-queue lock choreography without serializing script
-verification or copying accepted pool state. Medium/full A/B gates must confirm
-that coordinator and journal costs do not reduce throughput before the new path
-becomes the default.
+Each operation follows the same rule:
+
+1. validate the full hash, incarnation/revision, typed source state, budgets,
+   generation capacity and the whole affected batch without mutation;
+2. update entries and all auxiliary indexes under the one coordinator lock;
+3. return immutable worker leases, terminal records and a typed effect journal;
+4. publish notifications/callbacks only after releasing all internal locks.
+
+No helper is allowed to mutate a relationship index independently. Batch
+operations reject duplicate hashes before applying the first member. Revision
+or counter exhaustion fails closed without consuming a live queue ticket.
+Administrative removal, clear, peer ban, expiry and reorg use the same APIs, so
+there is no cross-structure scan that can miss an active or parked owner.
+
+Hot-path transitions are O(1), O(log n) for configured priority indexes, or
+O(the transaction's bounded dependency/conflict degree). Per-parent and
+per-blocker fan-out have explicit caps. Larger cascade/rebalance work is placed
+on an ID-only maintenance deque and drained in bounded batches. Before the lock
+is released, every discovered failed child is marked invalid as a possible
+parent and every affected active lease is revision-invalidated; deferred BFS
+work can delay cleanup but cannot allow a descendant to commit. The maintenance
+deque is level-triggered, bounded by coordinator entry/edge limits, retained
+across worker panics and drained during shutdown.
+
+The invariant auditor reconstructs every index, budget and physical live queue
+membership from entries. In tests it runs after every model transition; in
+production it is sampled/rate-limited and reports metrics without repairing
+state silently.
+
+Each apply batch owns a bounded undo guard containing the prior authoritative
+entries (payloads are shared `Arc`s). It is disarmed only after entry and index
+changes pass the invariant boundary. If an injected panic unwinds an apply,
+the guard restores those entries and marks derived indexes for deterministic
+rebuild before the next operation. This recovery path is tested; ordinary
+production accessors return typed invariant errors instead of `unwrap`,
+`expect` or `assert` inside the coordinator lock.
+
+### 5.4 Authoritative pool transaction
+
+The existing `TxPool` write guard remains the sole hot-path membership
+sequencer for normal commit, RBF, attached/detached block application, clear
+and administrative pool removal. No second lock or actor hop is added to every
+transaction. Persistence/reorg may retain a separate chain-operation guard only
+for work that genuinely spans multiple pool-lock sections; it is not acquired
+by normal commits. CPU-heavy resolution and script verification remain
+parallel outside all pool locks.
+
+RPC, compact-block and persistence reads that need a combined accepted/pre-pool
+view hold the existing pool read guard while taking a short coordinator
+snapshot. The universal nested order is therefore `TxPool → coordinator`.
+Coordinator-only queue/wait transitions never acquire `TxPool`.
+
+A normal commit is one prepare/apply/finalize/publish transaction:
+
+1. **Acquire.** Reserve one bounded effect-outbox slot, then acquire the
+   existing `TxPool` write guard. No lifecycle state has changed at either
+   asynchronous wait point, so cancellation is harmless.
+2. **Prepare.** Briefly lock the coordinator while already holding `TxPool`,
+   validate the verified lease/current conflict winner, freeze it as a unique
+   committing lease, freeze its input domains and reserve bounded
+   success/failure work. A later verified contender can join only the capped
+   waiter buckets of that committing owner; it cannot alter the pool plan.
+   Release the coordinator lock; prepare/finalize are the only two bounded
+   `TxPool → coordinator` sections.
+3. **Apply.** Under the existing `TxPool` write guard, revalidate tip,
+   transaction context, the current complete RBF conflict closure, replacement
+   fee and size-based fee-rate. Perform all fallible work before destructive
+   mutation where possible. The remaining mutation uses an exact undo journal
+   containing every removed entry and original pool status. Failure restores
+   the journal before releasing the pool guard.
+4. **Finalize.** While the pool write guard still excludes every competing
+   membership mutation, finalize the preflighted coordinator batch. Success consumes the winner as
+   `Committed` and direct speculative losers as `Rejected`; failure returns or
+   terminalizes the winner from an explicit disposition. Finalization performs
+   no allocation-dependent or externally fallible work. If both locks are
+   briefly held, the sole legal nesting is `TxPool → coordinator`; coordinator
+   code never waits for `TxPool`.
+5. **Journal and publish.** Before releasing the pool write guard, append the
+   typed effect batch to the already-reserved count/byte-bounded FIFO outbox.
+   Batches contain minimal hashes, sources and outcomes; any unavoidable
+   payload residency charge moves from the coordinator entry to the outbox
+   record until publication. Then release every state lock. The supervised
+   publisher emits callbacks, relay result,
+   cache update, miner dirty bits, metrics and dependency wake edges in sequence
+   order. Publication cannot choose or repair an ownership outcome.
+
+The committing lease plus pool write guard is the clear/reorg/remove
+linearization boundary. There is no `.await` from lifecycle prepare through
+pool apply, coordinator finalize and outbox append. The undo/finalize guards
+retain enough preflighted ownership to roll both structures back if an injected
+panic occurs before the transaction is armed as stable. On startup/debug audit,
+any impossible pool/coordinator residue is reconciled with `TxPool` as authority
+and surfaced as an invariant failure rather than silently re-executed.
+
+### 5.5 Performance contract
+
+Correctness integration is rejected if it lowers performance. The target is
+designed to remove work as well as locks:
+
+- no coordinator actor hop and no channel round trip per stage;
+- one hash lookup and one short critical section per checkout/completion,
+  replacing separate queue, active-set, waiting-room and RBF lock choreography;
+- immutable payloads referenced by `Arc`; indexes and tickets contain IDs only;
+- bounded checkout/completion batches amortize wakeups without delaying a
+  partially filled batch;
+- stage queues consume their physical head monotonically and use O(1) live
+  counters; there is no payload-capacity wait queue or per-operation global
+  blocked-set scan;
+- dependency and conflict changes touch only affected reverse-index buckets;
+- callbacks, relay, cache writes and miner notifications remain outside locks;
+- the effect outbox is bounded and pre-reserved before mutation; its common
+  publication path may be flat-combined by the committing task to avoid a
+  mandatory scheduling hop, while a supervised drainer retains cancellation
+  and shutdown safety;
+- accepted pool data is never copied into the coordinator.
+
+Every production slice records lock hold/wait time, queue depth, stale-slot
+ratio, allocations, CPU, throughput and dependent-chain latency. Focused quick
+A/B is the per-slice directional gate. Medium/full remain the final release
+gate and are not run again until explicitly requested; the interrupted medium
+record remains no verdict.
+
+### 5.6 Migration and deletion sequence
+
+1. **Replace the prototypes.** Build an isolated single-coordinator model,
+   port all lifecycle/dependency/conflict tests, add state-machine/property
+   tests and exhaustion/fault-injection tests, then delete the three split-state
+   prototype modules.
+2. **Read-only differential surface.** In test builds, compare coordinator
+   queries against legacy queue/active/waiting/RBF queries for full hash, short
+   ID, peer, location, dependency and residency results. No production shadow
+   copy is allowed because it would distort performance and ownership.
+3. **Raw pipeline cutover.** Move admission, pre-check, ordered resolve and
+   parent/deadline waiting to the coordinator. Delete
+   `PreCheckQueue`, `OrderedResolveQueue`, their `ActiveSet`/`FlightTracker`
+   ownership and `ParentsMissing` storage after differential and quick gates.
+4. **Resolved/conflict cutover.** Move verify ordering, active verification,
+   accepted-input waiting and speculative conflict scheduling. Delete
+   `VerifyQueue` ownership, `RbfCandidates`, `RaceLost`, both executable
+   `WaitingRoom` instances and the resolved RAII budget permit. Historical
+   conflict audit records remain a separate bounded, non-executable cache.
+5. **Mutation cutover.** Route commit/RBF/reorg/clear/remove/persistence through
+   the authoritative pool transaction and typed commit journal. Run all historical security and
+   reorg/template regressions plus injected panic/exhaustion cases.
+6. **Cleanup and acceptance.** Remove epoch/token mechanisms made redundant by
+   coordinator revisions, delete obsolete compatibility paths, run quick during
+   cleanup, and run medium/full only on explicit final-validation instruction.
+
+A legacy component is deleted only in the same slice that makes every caller
+unreachable and ports its security property. Keeping two production owners as
+a long-lived fallback is forbidden: rollback is performed by reverting the
+whole slice at its checkpoint, not by dual-writing transactions.
+
+### 5.7 Verification matrix and phase exits
+
+The isolated coordinator is not eligible for production integration until the
+following model suites pass with `audit()` after every transition:
+
+| Area | Mandatory cases |
+|---|---|
+| Identity and payload | full-hash duplicate, proposal-short-id collision, witness variant, remote→proposal promotion, raw→unverified→verified replacement, and no resident snapshot |
+| Typed state and leases | every legal edge, every illegal edge, stale checkout, remove/re-admit ABA, clear, revision/incarnation exhaustion, duplicate batch member and unwind at every apply boundary |
+| Dependency graph | parent-first/child-first, multiple missing parents, cell deps, parent unavailable after dispatch/verification, exact-once final-parent wake, definitive cascade, parent-hash re-admission, fan-out cap and bounded maintenance slices |
+| Conflict graph | preliminary under-fee rejection, unverified high-fee non-preemption, verified total ordering, multi-input all-or-none ownership, committing freeze, late waiter, success cohort, abort rebalance, stale fee proof and final in-lock RBF recalculation |
+| Residency and fairness | exact-fit global/per-peer limits, aggregate metadata charge, resolved recharge, active-work cap, peer rotation, sybil/global cap, proposal reserve/remote eviction, expiry lifetime and terminal outbox charge transfer |
+| Authoritative pool handoff | exact RBF/size-eviction journal, original status restoration, tip change, clear/remove/reorg races, raw-hash attached/detached identity and combined query during every handoff instruction boundary |
+| Effects and shutdown | full outbox backpressure, publisher panic/cancellation/restart, callback re-entry, FIFO chain/reorg order, miner dirty journal, terminal exactly once and shutdown drain |
+| Complexity | operation counters (not wall-clock alone) prove bounded lock work, monotonic stale-prefix consumption and no full-store scan on normal admission/checkout/completion |
+
+Production slices additionally require differential tests at their public API
+boundary and a focused quick A/B against the checkpoint. A slice with an
+unexplained negative quick result, an unbounded complexity counter, a new
+legacy/new dual owner, or any relevant **Open** ledger item is not allowed to
+advance. Medium/full remain final acceptance only and require explicit
+instruction.
 
 ---
 
 ## 6. Correctness Guarantees
 
 - **Double-spend safety**: `submit_entry` runs inside the tx_pool write lock; concurrently verified double-spends cannot both commit.
-- **Lock ordering**: `ordered_resolve_queue → rbf_candidates → verify_queue → waiting_room → tx_pool`, with `recovery_lock` outermost (before `tx_pool`) and the synchronous `pre_check_queue` mutex never held across `.await`.
+- **Checkpoint lock ordering**: until coordinator cutover, the implemented order is `ordered_resolve_queue → rbf_candidates → verify_queue → waiting_room → tx_pool`, with `recovery_lock` outermost (before `tx_pool`) and the synchronous `pre_check_queue` mutex never held across `.await`.
+- **Target lock ordering**: the existing pool read/write guard is the accepted-membership linearization lock. The only nested pair is `TxPool → coordinator`; coordinator-only transitions never acquire `TxPool`, and no external effect runs under either lock.
+- **Single state authority**: the reviewed target has one coordinator entry and one revision for every pre-pool transaction. Dependency/conflict/deadline/queue structures are derived ID indexes, not parallel state machines.
 - **Transaction no-silent-loss contract**: every admitted transaction leaving a normal pipeline worker reaches a defined terminal state — relayed, recorded, restored, parked, or explicitly routed to an internal terminal sink. Ordered chain deltas remain at the channel head until success or shutdown; a panic cannot acknowledge/drop one or allow a later delta to overtake it.
 - **Speculative RBF is reversible**: displacement is hold-and-restore; only a committed replacement makes a rejection real, and a commit that replaced nothing aborts instead of finalizing. Speculative paths never write recent_reject, so an unverified candidate cannot censor an honest transaction.
 - **No ghost state**: removal paths converge on full coverage (queues, registrations, both waiting rooms, conflict cache, pool); attached blocks finalize what they held; the reconcile's removals feed the same registration cleanup. Links/entries consistency is guarded: traversal filters ghost ids, ancestor links are committed only after all fallible checks, and eviction cascades purge removed ids from parent sets.
