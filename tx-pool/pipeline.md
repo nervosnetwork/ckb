@@ -240,7 +240,10 @@ requires symmetric same-host/toolchain
 records with at least three complete repetitions per side; a record whose
 cross-run spread exceeds the configured noise ceiling is invalid rather than a
 pass or regression. Quick mode is diagnostic, while repeated medium/full A/B
-records are the migration acceptance gate.
+records are the migration acceptance gate. Baseline and candidate checkouts use
+isolated Cargo target directories and must record an identical benchmark-harness
+fingerprint, preventing stale cross-worktree executable reuse from producing a
+false comparison.
 
 The numbers below are historical reference values from the original pipeline
 benchmark run; they are not a substitute for the checkpoint A/B record.

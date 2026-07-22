@@ -36,6 +36,12 @@ python3 devtools/tx_pool_bench.py --runs 3 \
 The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), aggregates repeated runs by median, records the commit/dirty state/toolchain/platform and raw run medians in JSON, and can enforce the architecture's strict non-regression gate. A failing gate requires the baseline and candidate to come from the same recorded host/toolchain and to use the same repetition count of at least three; a one-run smoke record is never accepted as one side of a release decision.
 `--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
 
+Each checkout builds into its own `<workspace>/target/tx-pool-bench` directory;
+an externally supplied shared `CARGO_TARGET_DIR` is deliberately ignored. This
+prevents Cargo from reusing a baseline worktree's same-named executable for the
+candidate. Strict comparisons also require a byte-identical SHA-256 fingerprint
+of the Python runner and Rust benchmark harness.
+
 Every report includes the max-min throughput spread across complete runs. With
 `--fail-on-regression`, either side exceeding
 `--max-run-spread-percent` (5% by default) is rejected as an invalid/noisy

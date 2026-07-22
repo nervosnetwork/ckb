@@ -17,6 +17,7 @@ Examples:
 
 import argparse
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -30,6 +31,15 @@ from typing import Dict, Iterable, List, Tuple
 
 ResultKey = Tuple[int, int, bool, str, int]
 Result = Dict[str, float]
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+# Cargo's fingerprint cache is not worktree-aware when callers force two
+# checkouts through one CARGO_TARGET_DIR. Keep each checkout's benchmark binary
+# isolated so a baseline executable can never be mistaken for the candidate.
+BENCH_TARGET_DIR = WORKSPACE_ROOT / "target" / "tx-pool-bench"
+HARNESS_FILES = (
+    Path(__file__).resolve(),
+    WORKSPACE_ROOT / "tx-pool" / "src" / "benchmark.rs",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -104,6 +114,16 @@ def command_output(args: List[str]) -> str:
         return "unknown"
 
 
+def files_sha256(paths: Iterable[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(str(path.relative_to(WORKSPACE_ROOT)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def run_cargo_bench(run: int) -> str:
     cmd = [
         "cargo",
@@ -121,6 +141,7 @@ def run_cargo_bench(run: int) -> str:
     )
 
     env = os.environ.copy()
+    env["CARGO_TARGET_DIR"] = str(BENCH_TARGET_DIR)
     env.pop("QUICK_BENCH", None)
     env.pop("FULL_BENCH", None)
     if ARGS.quick:
@@ -278,6 +299,8 @@ def environment_metadata() -> Dict:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python": platform.python_version(),
+        "benchmark_harness_sha256": files_sha256(HARNESS_FILES),
+        "benchmark_target_dir": str(BENCH_TARGET_DIR),
     }
 
 
@@ -376,7 +399,7 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         )
 
     mismatches = []
-    for field in ("rustc", "platform", "machine"):
+    for field in ("rustc", "platform", "machine", "benchmark_harness_sha256"):
         if baseline.get(field) != current.get(field):
             mismatches.append(
                 f"{field}: {baseline.get(field)!r} != {current.get(field)!r}"
