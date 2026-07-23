@@ -74,6 +74,7 @@ pub(crate) enum EffectOutboxError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) enum EffectOutboxAuditError {
     Usage,
     Limits,
@@ -119,6 +120,7 @@ impl<E> EffectOutbox<E> {
         self.usage
     }
 
+    #[cfg(test)]
     pub(crate) fn queued_len(&self) -> usize {
         self.queued.len()
     }
@@ -337,6 +339,7 @@ impl<E> EffectOutbox<E> {
 
     /// Publisher panic/cancellation returns the active head without changing
     /// residency or allowing a later sequence to overtake it.
+    #[cfg(test)]
     pub(crate) fn retry_active(&mut self, sequence: u64) -> Result<(), EffectOutboxError> {
         let active = self
             .active
@@ -356,6 +359,7 @@ impl<E> EffectOutbox<E> {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn audit(&self) -> Result<(), EffectOutboxAuditError> {
         let mut batches = self.reservations.len();
         let mut bytes = self

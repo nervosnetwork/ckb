@@ -4,52 +4,28 @@
 //!
 //! # Lock hierarchy
 //!
-//! The pipeline and the main pool use several async locks. To avoid deadlocks,
-//! acquire them in the following order whenever more than one is needed in the
-//! same task:
-//!
-//! 1. `ordered_resolve_queue`
-//! 2. `rbf_candidates`
-//! 3. `verify_queue`
-//! 4. `waiting_room`
-//! 5. `block_assembler.template_lock`
-//! 6. `tx_pool`
-//!
-//! `rbf_candidates` must be acquired before `verify_queue` because
-//! `register_rbf_candidate` and `update_tx_pool_for_reorg` hold
-//! `rbf_candidates.write()` while adding or removing entries in
-//! `verify_queue`. Keeping this order everywhere (e.g. `remove_tx`,
-//! `ban_malformed`) avoids deadlocks. The pipeline-side `waiting_room`
-//! (orphans and `RaceLost` candidates) sits below `verify_queue`; the
-//! pool-side `WaitingRoom` (`InputsBlocked`, i.e. conflict recovery) lives
-//! inside `TxPool` itself, because recording conflicts must stay inside
-//! the `tx_pool` write lock.
+//! There are two executable transaction authorities: accepted membership in
+//! `TxPool`, and all pre-pool lifecycle in `PipelineCoordinator`. The latter
+//! is protected by one short-held synchronous mutex and is never held across
+//! `.await`. Any operation that needs both takes `tx_pool` first and then the
+//! coordinator; coordinator-only code must never acquire `tx_pool`.
 //!
 //! `recovery_lock` is taken before `tx_pool` and never the other way
-//! around: the lock-free section of a reorg (retained-transaction
-//! recovery) holds it for its whole duration, and `save_pool` acquires it
-//! before persisting so a mid-recovery pool is never written to disk.
-//!
-//! `pre_check_queue` is *not* part of the async hierarchy: it uses a
-//! `std::sync::Mutex` internally with short, never-awaiting critical
-//! sections, so it may be acquired at any point but must never be held
-//! across an `.await`.
-//!
-//! `after_process` (and everything it calls: relayer notification, ban,
-//! recent-reject recording, conflict-cache updates) must never be invoked
-//! while holding a lock from levels 1-4: it may acquire `tx_pool` and block
-//! on channels, so holding a pipeline lock across it stalls the pipeline
-//! and can self-deadlock.
+//! around: reorg recovery and persistence use it to exclude an incomplete
+//! retained-transaction snapshot. Effect/outbox capacity is reserved before
+//! either async state lock. Callbacks, relay I/O, and cache-update I/O run only
+//! after state mutation has been journaled and no state lock is held.
 //!
 //! `block_assembler.template_lock` guards the current block template.
 //! `update_full` and `reset_template` acquire `template_lock` first and then
-//! read `tx_pool` so that a concurrent `Reset` cannot swap the template while
+//! read `tx_pool` so a concurrent `Reset` cannot swap the template while
 //! the full update is in progress. Partial updates such as `update_uncles`,
 //! `update_proposals` and `update_transactions` do not touch the template and
 //! therefore do not acquire `template_lock`.
 //!
-//! Read-only aggregations such as `info()` should acquire each lock in
-//! isolation rather than holding several at once.
+//! Combined membership reads take `tx_pool` and then inspect the coordinator
+//! under its synchronous lock, matching the writer order and preventing a
+//! visible handoff gap.
 
 #[cfg(feature = "internal")]
 pub mod benchmark;

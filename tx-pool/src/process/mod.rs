@@ -404,6 +404,17 @@ impl TxPoolService {
             }) {
                 panic!("reorg coordinator membership transaction failed: {error:?}");
             }
+            let scheduled_recoveries = tx_pool.schedule_conflicted_txs_from_inputs(
+                outcome
+                    .reject_events
+                    .iter()
+                    .map(|(entry, _)| entry)
+                    .chain(outcome.silently_removed.iter())
+                    .flat_map(|entry| entry.transaction().input_pts_iter()),
+            );
+            if scheduled_recoveries != 0 {
+                self.pipeline.runtime.request_maintenance();
+            }
             let mut effects = Vec::new();
             for (entry, reject) in &outcome.reject_events {
                 effects.extend(self.rejected_effects(entry.clone(), reject.clone()));

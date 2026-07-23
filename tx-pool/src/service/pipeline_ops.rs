@@ -1,17 +1,10 @@
 //! Cross-structure pipeline operations.
 //!
-//! The pipeline's structure list — pre-check queue, ordered-resolve queue,
-//! verify queue, RBF-held registrations, orphan pool, and the main pool —
-//! is enumerated in exactly one place: this module. Every cross-structure
-//! operation (duplicate/visibility checks, removal, lookup, clearing)
-//! lives here instead of being hand-enumerated at each call site, so
-//! adding a structure (e.g. a new queue or a new held set) touches one
-//! file instead of ten.
-//!
-//! Lock acquisition inside a helper follows the documented hierarchy
-//! (`ordered_resolve_queue → rbf_candidates → verify_queue → orphan →
-//! tx_pool`), and guards are always acquired and released sequentially —
-//! never nested — so these helpers cannot deadlock.
+//! The accepted pool and the pre-pool coordinator are the only executable
+//! state owners. Operations that cross that boundary take `TxPool` before
+//! the coordinator and complete membership/effect bookkeeping before the
+//! pool guard is released. Lookup, removal, parent waiting, and clearing live
+//! here so call sites cannot invent a partial structure list or lock order.
 
 use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorSource, RawWorkLease, VerifyWorkLease,
@@ -28,10 +21,7 @@ use std::collections::HashSet;
 pub(crate) enum ParentWaitOutcome {
     /// At least one parent is still unavailable and the transaction now owns
     /// a coordinator wait registration.
-    Parked {
-        parents: HashSet<Byte32>,
-        source: CoordinatorSource,
-    },
+    Parked,
     /// Every reported parent became available during the handoff window, so
     /// the raw transaction was queued for a fresh resolution snapshot.
     Requeued,
@@ -120,7 +110,7 @@ impl TxPoolService {
                     panic!("reserved raw parent-wait journal failed: {error:?}");
                 }
             }
-            Ok(ParentWaitOutcome::Parked { parents, source })
+            Ok(ParentWaitOutcome::Parked)
         });
         drop(permit);
         outcome
@@ -171,7 +161,7 @@ impl TxPoolService {
                         panic!("reserved verify parent-wait journal failed: {error:?}");
                     }
                 }
-                Ok(ParentWaitOutcome::Parked { parents, source })
+                Ok(ParentWaitOutcome::Parked)
             }
         });
         drop(permit);
@@ -240,6 +230,14 @@ impl TxPoolService {
                     return RemoveTxOutcome::InProgress;
                 }
                 let removed = tx_pool.remove_tx(&id);
+                let scheduled_recoveries = tx_pool.schedule_conflicted_txs_from_inputs(
+                    removed
+                        .iter()
+                        .flat_map(|entry| entry.transaction().input_pts_iter()),
+                );
+                if scheduled_recoveries != 0 {
+                    self.pipeline.runtime.request_maintenance();
+                }
                 for status in removal_statuses {
                     self.journal_block_assembler_update(status);
                 }
@@ -306,7 +304,8 @@ impl TxPoolService {
         // same lock makes that ordering explicit before this method returns;
         // later submitters observe the stale generation and cannot commit.
         let terminal = {
-            let _commit_barrier = self.pool.tx_pool.write().await;
+            let mut tx_pool = self.pool.tx_pool.write().await;
+            tx_pool.clear_conflict_recovery_schedule();
             let result = self.pipeline.runtime.mutate(|coordinator| {
                 let result = coordinator.clear();
                 if let Ok(records) = &result {
@@ -417,14 +416,8 @@ impl TxPoolService {
     ///
     /// During compact block relay, a node may receive a block that contains transactions
     /// still being verified and not yet present in the main mempool. This method searches
-    /// all locations where a transaction can reside when its short ID is known:
-    ///
-    /// 1. `ordered_resolve_queue` – transactions waiting for parent resolution
-    /// 2. `pre_check_queue` – transactions awaiting pre-check by workers
-    /// 3. `verify_queue` – transactions currently undergoing background validation
-    /// 4. `rbf_candidates` – displaced transactions held by in-flight registrations
-    /// 5. `orphan_pool` – orphan transactions waiting for missing parents
-    /// 6. `pool_map` – the main mempool (already accepted transactions)
+    /// both executable owners when its short ID is known: the single
+    /// pre-pool coordinator and the accepted `pool_map`.
     ///
     /// # Returns
     /// A map containing only the transactions that were found, keyed by their short ID.

@@ -37,11 +37,11 @@ pub(crate) fn dummy_network() -> crate::network::TxPoolNetworkHandle {
 
 /// Which background workers the harness spawns.
 pub(crate) enum WorkerSet {
-    /// Nothing but the deferred-task drain loop: the test drives every
-    /// queue manually (e.g. parking entries in the verify queue).
+    /// No pipeline state workers; tests drive coordinator transitions
+    /// manually. The effect publisher and cache-update drain remain active.
     None,
     /// The full pipeline: pre-check workers, verify manager and the ordered
-    /// resolver (with a panic watcher), plus the deferred drain.
+    /// resolver (with a panic watcher), plus cache updates.
     All,
 }
 
@@ -158,7 +158,7 @@ impl HarnessBuilder {
         let (block_assembler_sender, block_assembler_rx) = mpsc::channel(1);
         let signal = CancellationToken::new();
         let pre_check_cancel = signal.child_token();
-        let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+        let (verify_cache_sender, mut verify_cache_receiver) = mpsc::channel(1024);
         // Two command channels, mirroring the previous inline harnesses: the
         // service keeps its own receiver (for direct per-tx verification),
         // while the verify manager and ordered resolver share a second one
@@ -193,7 +193,7 @@ impl HarnessBuilder {
                 runtime,
                 epoch: Arc::new(crate::service::PipelineEpoch::default()),
                 chunk_rx: service_chunk_rx,
-                deferred_sender,
+                verify_cache_sender,
             },
             relay: crate::service::RelayState {
                 network: dummy_network(),
@@ -233,33 +233,13 @@ impl HarnessBuilder {
             ));
         }
 
-        // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
+        // Drain best-effort verification-cache updates for tests.
         {
-            let runtime = Arc::clone(&service.pipeline.runtime);
             let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
-            let epoch = Arc::clone(&service.pipeline.epoch);
-            let relay = service.relay.clone();
-            let deferred_cancel = signal.child_token();
             tokio::spawn(async move {
-                while let Some(task) = deferred_receiver.recv().await {
-                    match task {
-                        crate::service::DeferredTask::RecoverTxs(txs) => {
-                            crate::process::recover::enqueue_pipeline_recover_txs(
-                                Arc::clone(&runtime),
-                                txs,
-                                &deferred_cancel,
-                                &relay,
-                                None,
-                                &epoch,
-                                true,
-                            )
-                            .await;
-                        }
-                        crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                            let mut guard = txs_verify_cache.write().await;
-                            guard.put(wtx_hash, verified);
-                        }
-                    }
+                while let Some(update) = verify_cache_receiver.recv().await {
+                    let mut guard = txs_verify_cache.write().await;
+                    guard.put(update.wtx_hash, update.verified);
                 }
             });
         }

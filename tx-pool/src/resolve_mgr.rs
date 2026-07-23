@@ -19,12 +19,8 @@ use ckb_types::core::FeeRate;
 use ckb_types::packed::Byte32;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-
-/// Short retry delay used only by bounded conflict-cache recovery.
-pub(crate) const LOCAL_ORPHAN_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 #[derive(Debug)]
 pub(crate) enum ResolveStageResult {
@@ -243,7 +239,7 @@ impl TxPoolService {
                         }
                     };
                     match self.settle_raw_parent_wait(&lease, parents, permit).await {
-                        Ok(ParentWaitOutcome::Parked { .. }) => {}
+                        Ok(ParentWaitOutcome::Parked) => {}
                         Ok(ParentWaitOutcome::Requeued) => {}
                         Ok(ParentWaitOutcome::Unavailable) => {
                             let reject = first_unknown_input_reject(&tx);

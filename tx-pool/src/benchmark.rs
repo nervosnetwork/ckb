@@ -505,21 +505,15 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
 
     let mut worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
-    // Spawn the deferred task worker (recovery tx re-enqueue + cache updates).
-    // Only clone the two fields the worker needs; holding a full TxPoolService
-    // (which contains deferred_sender) would keep the mpsc channel open forever
-    // because the receiver task would itself be holding a sender.
+    // Spawn the best-effort verification-cache update worker. Holding a full
+    // TxPoolService here would keep its channel sender open forever.
     {
         let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
-        worker_handles.push(crate::service::spawn_deferred_worker(
+        worker_handles.push(crate::service::spawn_verify_cache_worker(
             &handle,
-            Arc::clone(&parts.service.pipeline.runtime),
             Arc::clone(&parts.service.aux.txs_verify_cache),
-            parts.deferred_receiver,
+            parts.verify_cache_receiver,
             parts.signal.child_token(),
-            parts.service.relay.clone(),
-            parts.service.aux.recent_reject.clone(),
-            Arc::clone(&parts.service.pipeline.epoch),
         ));
     }
 

@@ -3,9 +3,8 @@
 //! This module carries the pipeline's final stage entry points:
 //! `verify_and_submit_core` (script verification and the transition into the
 //! write-locked commit), `submit_entry` (the authoritative commit dispatch),
-//! `post_submit_side_effects`,
-//! and the `test_accept_tx` helpers. The write-lock commit transaction
-//! family (RBF prepare / try / commit / aftermath) lives in
+//! `post_submit_side_effects`, and the `test_accept_tx` helpers. The
+//! write-lock commit transaction family (RBF prepare / try / commit) lives in
 //! [`rbf_commit`].
 
 pub(crate) mod rbf_commit;
@@ -84,7 +83,7 @@ impl TxPoolService {
         // speculative RBF owner. All remote/proposal pipeline competition is
         // verified-only in the coordinator, while the authoritative complete
         // replacement closure is recalculated here under the pool write lock.
-        let (outcome, publication_barrier) = {
+        let outcome = {
             let mut tx_pool = self.pool.tx_pool.write().await;
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
@@ -159,12 +158,10 @@ impl TxPoolService {
             for status in coordinated.block_assembler_statuses() {
                 self.journal_block_assembler_update(status);
             }
-            let barrier =
-                self.journal_submit_effects(&mut coordinated.outcome, effect_permit, extra_effects);
-            (coordinated.outcome, barrier)
+            self.journal_submit_effects(&mut coordinated.outcome, effect_permit, extra_effects);
+            coordinated.outcome
         };
-        self.dispatch_submit_aftermath(outcome, epoch, publication_barrier)
-            .await?;
+        outcome.result?;
         Ok(SubmitEntryResult::Committed)
     }
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
@@ -261,8 +258,8 @@ impl TxPoolService {
     pub(crate) fn defer_cache_update(&self, wtx_hash: &Byte32, verified: Completed) {
         if let Err(e) =
             self.pipeline
-                .deferred_sender
-                .try_send(crate::service::DeferredTask::CacheUpdate {
+                .verify_cache_sender
+                .try_send(crate::service::VerifyCacheUpdate {
                     wtx_hash: wtx_hash.clone(),
                     verified,
                 })
@@ -432,13 +429,11 @@ impl TxPoolService {
             verified.resolved.tx_size,
         );
         let entry_id = entry.proposal_short_id();
-        let epoch = verified.resolved.epoch;
-
         let mut settlement = None;
         let mut failed_terminal = None;
         let mut internal_failure = false;
         let mut failed_banned_peer = None;
-        let (coordinated, publication_barrier) = {
+        let coordinated = {
             let mut tx_pool = self.pool.tx_pool.write().await;
             let snapshot = tx_pool.cloned_snapshot();
             let mut coordinated = self.try_submit_entry_coordinated(
@@ -620,14 +615,11 @@ impl TxPoolService {
             for status in coordinated.block_assembler_statuses() {
                 self.journal_block_assembler_update(status);
             }
-            let publication_barrier =
-                self.journal_submit_effects(&mut coordinated.outcome, effect_permit, extra_effects);
-            (coordinated, publication_barrier)
+            self.journal_submit_effects(&mut coordinated.outcome, effect_permit, extra_effects);
+            coordinated
         };
 
-        let dispatch_result = self
-            .dispatch_submit_aftermath(coordinated.outcome, epoch, publication_barrier)
-            .await;
+        let dispatch_result = coordinated.outcome.result;
         if let Some(peer) = failed_banned_peer {
             self.remove_banned_peer_entries(peer).await;
         }

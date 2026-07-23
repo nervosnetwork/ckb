@@ -285,6 +285,7 @@ impl TxPoolService {
         );
     }
 
+    #[cfg(test)]
     pub(crate) async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
 

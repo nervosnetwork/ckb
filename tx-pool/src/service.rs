@@ -11,7 +11,8 @@ pub(crate) mod workers;
 pub use builder::TxPoolServiceBuilder;
 pub use controller::TxPoolController;
 pub(crate) use message::{
-    AsyncRequest, BlockAssemblerMessage, DeferredTask, Message, SyncRequest, TestAcceptTxResult,
+    AsyncRequest, BlockAssemblerMessage, Message, SyncRequest, TestAcceptTxResult,
+    VerifyCacheUpdate,
 };
 
 pub(crate) use dispatch::process;
@@ -20,7 +21,7 @@ pub(crate) use message::{
     GetTransactionWithStatusResult, GetTxStatusResult, SubmitTxResult,
 };
 #[cfg(feature = "internal")]
-pub(crate) use workers::spawn_deferred_worker;
+pub(crate) use workers::spawn_verify_cache_worker;
 
 use crate::block_assembler::BlockAssembler;
 use crate::callback::Callbacks;
@@ -246,10 +247,9 @@ pub(crate) struct PipelineState {
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
-    /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
-    /// verify cache updates). A single background worker drains this channel,
-    /// preventing unbounded task accumulation under high RBF frequency.
-    pub(crate) deferred_sender: mpsc::Sender<DeferredTask>,
+    /// Bounded best-effort verification-cache update channel. Executable
+    /// transaction lifecycle and conflict recovery never use this channel.
+    pub(crate) verify_cache_sender: mpsc::Sender<VerifyCacheUpdate>,
 }
 
 /// Relay/notification state: how verification outcomes leave the node.

@@ -6,9 +6,8 @@
 //! `prepare_rbf_replacement` (conflict check + removal + progressive
 //! export), `try_submit_entry` (the write-lock boundary + failure
 //! recovery), `commit_and_apply_limits` / `commit_entry_to_pool` (pool
-//! insertion and size limits), and `dispatch_submit_aftermath`
-//! (out-of-lock side-effect dispatch). Entry and verification orchestration
-//! lives in `super` (`process/submit/mod.rs`).
+//! insertion and size limits), and synchronous effect journaling. Entry and
+//! verification orchestration lives in `super` (`process/submit/mod.rs`).
 
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::{RemovedPoolEntry, Status};
@@ -16,7 +15,7 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::pool::rbf::RbfCheck;
 use crate::service::TxPoolService;
-use crate::service::effects::{PublicationBarrier, TxPoolEffect};
+use crate::service::effects::TxPoolEffect;
 use crate::tx_source::TxSource;
 use crate::util::time_relative_verify;
 use ckb_logger::{debug, warn};
@@ -29,9 +28,10 @@ use std::sync::Arc;
 
 use crate::process::{get_tx_status, status_to_verify_env};
 
-/// Txs recovered from the conflicts cache after a failed or successful
-/// replacement, paired with the pipeline source they were recorded with.
-pub(crate) type RecoveredTxs = Vec<(TransactionView, TxSource)>;
+/// Transient references to cache-owned transactions that became eligible for
+/// coordinator admission during one pool mutation. They never cross the pool
+/// write-lock boundary; durable transfer work is recorded in `ConflictCache`.
+type ConflictCandidates = Vec<(TransactionView, TxSource)>;
 
 /// Entries already restored inside the authoritative pool write transaction,
 /// retained only for diagnostics and regression assertions.
@@ -100,8 +100,6 @@ pub(crate) struct SubmitEntryOutcome {
     /// Entries restored before `try_submit_entry` returned and before the pool
     /// write guard can be released.
     pub(crate) rolled_back: RolledBackTxs,
-    /// Opportunistic conflict recoveries that may use the deferred worker.
-    pub(crate) recovered: RecoveredTxs,
     /// Terminal removals whose reject callbacks run outside the lock.
     pub(crate) reject_events: Vec<(TxEntry, Reject)>,
     /// Successful accepted callback, also dispatched outside the lock.
@@ -168,7 +166,7 @@ pub(crate) struct SubmitSideEffects {
     /// Every physical pool removal made by this submit, classified by cause.
     pool_journal: PoolCommitJournal,
     /// Conflict-cache transactions newly eligible for opportunistic recovery.
-    recovered: RecoveredTxs,
+    recoverable: ConflictCandidates,
     /// Entries restored inside the pool write transaction after a failed
     /// commit. Exported only as diagnostic evidence; aftermath never
     /// re-processes them through the pipeline.
@@ -201,15 +199,15 @@ impl SubmitSideEffects {
         // cycle where both the entry and the in-pool tx keep being
         // recovered and failing RBF against each other indefinitely.
         //
-        // `recovered` may already hold entries that `prepare_rbf_replacement`
+        // `recoverable` may already hold entries that `prepare_rbf_replacement`
         // exported before the failing step; dedup by short id when extending
         // from the entry's own inputs.
         let mut seen: HashSet<ProposalShortId> = self
-            .recovered
+            .recoverable
             .iter()
             .map(|(tx, _)| tx.proposal_short_id())
             .collect();
-        self.recovered.extend(
+        self.recoverable.extend(
             tx_pool
                 .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter())
                 .into_iter()
@@ -230,9 +228,9 @@ impl SubmitSideEffects {
 
         // `prepare_rbf_replacement` may also have exported one of the same
         // removed entries through the conflict-recovery indexes. It belongs
-        // to the synchronous rollback set exactly once, not to the deferred
-        // opportunistic recovery set.
-        self.recovered.retain(|(tx, _)| {
+        // to the synchronous rollback set exactly once, not to the
+        // cache-owned opportunistic recovery set.
+        self.recoverable.retain(|(tx, _)| {
             !rollback_seen.contains(&tx.proposal_short_id()) && tx.proposal_short_id() != *entry_id
         });
 
@@ -242,11 +240,12 @@ impl SubmitSideEffects {
         TxPoolService::sort_by_dependencies(&mut rollback_entries, |removed| {
             removed.entry.transaction()
         });
-        TxPoolService::sort_by_dependencies(&mut self.recovered, |(tx, _)| tx);
+        TxPoolService::sort_by_dependencies(&mut self.recoverable, |(tx, _)| tx);
 
-        for (tx, _) in &self.recovered {
-            tx_pool.remove_conflict_hash(&tx.hash());
-        }
+        // Opportunistic candidates stay cache-owned until the bounded
+        // maintenance worker can atomically admit them to the coordinator.
+        // Removing them here would recreate the cancellation gap that the
+        // cache→coordinator handoff is meant to close.
         for old in self.pool_journal.by_cause(RemovalCause::Replacement) {
             tx_pool.remove_conflict_hash(&old.entry.transaction().hash());
         }
@@ -293,7 +292,7 @@ impl SubmitSideEffects {
         // subscriber would first hear "tx X was replaced" and then see X
         // reappear as pending.
         let recovered_ids: HashSet<ProposalShortId> = self
-            .recovered
+            .recoverable
             .iter()
             .map(|(tx, _)| tx.proposal_short_id())
             .chain(
@@ -400,13 +399,13 @@ impl TxPoolService {
         for input in entry.transaction().input_pts_iter() {
             available_inputs.remove(&input);
         }
-        fx.recovered
+        fx.recoverable
             .extend(tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()));
 
         // Parents must be recovered before children so that the
         // ordered resolver can re-resolve and accept them in the
         // correct order.
-        Self::sort_by_dependencies(&mut fx.recovered, |(tx, _)| tx);
+        Self::sort_by_dependencies(&mut fx.recoverable, |(tx, _)| tx);
 
         // if snapshot changed by context switch we need redo time_relative verify
         let tip_hash = snapshot.tip_hash();
@@ -523,16 +522,24 @@ impl TxPoolService {
                 .by_cause(RemovalCause::Replacement)
                 .map(|removed| removed.entry.proposal_short_id())
                 .collect();
-            fx.recovered
+            fx.recoverable
                 .retain(|(tx, _)| !removed_ids.contains(&tx.proposal_short_id()));
         }
+
+        let scheduled =
+            tx_pool.schedule_conflict_candidates(fx.recoverable.iter().map(|(tx, _)| tx.hash()));
+        if scheduled != 0 {
+            self.pipeline.runtime.request_maintenance();
+        }
+        // Ownership remains in ConflictCache until the maintenance handoff;
+        // nothing executable is exported to a cancellable channel.
+        fx.recoverable.clear();
 
         CoordinatedSubmitOutcome {
             outcome: SubmitEntryOutcome {
                 result,
                 replaced,
                 rolled_back: fx.rolled_back,
-                recovered: fx.recovered,
                 reject_events: fx.reject_events,
                 accept_event: fx.accept_event,
             },
@@ -540,6 +547,7 @@ impl TxPoolService {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn try_submit_entry(
         &self,
         tx_pool: &mut TxPool,
@@ -600,15 +608,19 @@ impl TxPoolService {
         let mut effects = SubmitSideEffects {
             reject_events: std::mem::take(&mut coordinated.outcome.reject_events),
             pool_journal: std::mem::take(&mut coordinated.pool_journal),
-            recovered: std::mem::take(&mut coordinated.outcome.recovered),
+            recoverable: Vec::new(),
             rolled_back: std::mem::take(&mut coordinated.outcome.rolled_back),
             accept_event: None,
         };
         effects.rollback_on_failure(tx_pool, entry, &entry_id)?;
+        let scheduled = tx_pool
+            .schedule_conflict_candidates(effects.recoverable.iter().map(|(tx, _)| tx.hash()));
+        if scheduled != 0 {
+            self.pipeline.runtime.request_maintenance();
+        }
         coordinated.outcome.result = Err(cause);
         coordinated.outcome.replaced = false;
         coordinated.outcome.rolled_back = effects.rolled_back;
-        coordinated.outcome.recovered = effects.recovered;
         coordinated.outcome.reject_events = effects.reject_events;
         coordinated.outcome.accept_event = None;
         Ok(())
@@ -623,7 +635,7 @@ impl TxPoolService {
         outcome: &mut SubmitEntryOutcome,
         permit: crate::service::effects::EffectPermit,
         mut extra_effects: Vec<TxPoolEffect>,
-    ) -> Option<PublicationBarrier> {
+    ) {
         if outcome.result.is_ok() {
             debug_assert!(
                 outcome.rolled_back.is_empty(),
@@ -641,60 +653,9 @@ impl TxPoolService {
             effects.extend(self.rejected_effects(entry, reject));
         }
         effects.append(&mut extra_effects);
-        let barrier = (!effects.is_empty() && !outcome.recovered.is_empty())
-            .then(crate::service::effects::publication_barrier);
-        if let Some(barrier) = &barrier {
-            effects.insert(0, barrier.effect());
-        }
         if let Err(error) = self.publish_reserved_effects(permit, effects) {
             panic!("reserved submit effect journal failed inside pool transaction: {error:?}");
         }
-        barrier
-    }
-
-    /// Schedule causal recovery after the pool lock is released, then open the
-    /// already-journaled publication barrier.
-    pub(crate) async fn dispatch_submit_aftermath(
-        &self,
-        outcome: SubmitEntryOutcome,
-        epoch: u64,
-        barrier: Option<PublicationBarrier>,
-    ) -> Result<(), Reject> {
-        let SubmitEntryOutcome {
-            result,
-            replaced: _,
-            rolled_back,
-            recovered,
-            reject_events,
-            accept_event,
-        } = outcome;
-        debug_assert!(reject_events.is_empty() && accept_event.is_none());
-        debug_assert!(result.is_err() || rolled_back.is_empty());
-
-        // Send recovered txs to the deferred worker after the write lock is
-        // released and RBF ownership is stable. Use .send().await rather than
-        // try_send so that recovery txs are never silently dropped under high
-        // RBF frequency. Recovery is attempted even if the replacement
-        // ultimately failed, because third-party transactions may now be
-        // eligible again.
-        let recovered = recovered
-            .into_iter()
-            .map(|(tx, source)| crate::resolved_tx::ResolveJob::new_at(tx, source, epoch))
-            .collect::<Vec<_>>();
-        if !recovered.is_empty()
-            && let Err(e) = self
-                .pipeline
-                .deferred_sender
-                .send(crate::service::DeferredTask::RecoverTxs(recovered))
-                .await
-        {
-            warn!("failed to enqueue recovered txs for re-processing: {}", e);
-        }
-        if let Some(barrier) = barrier {
-            barrier.release();
-        }
-
-        result
     }
 }
 

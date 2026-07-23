@@ -201,6 +201,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn audit(&self) -> Result<(), CoordinatorAuditError> {
         let mut global_usage = CoordinatorResidency::default();
         let mut peer_usage: HashMap<PeerIndex, CoordinatorResidency> = HashMap::new();

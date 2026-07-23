@@ -22,7 +22,8 @@ pub(crate) trait CounterValue: Copy + Default + Display + PartialOrd {
     /// Checked addition.
     fn checked_add(self, rhs: Self) -> Option<Self>;
 
-    /// Checked subtraction.
+    /// Checked subtraction for underflow-recovery regression tests.
+    #[cfg(test)]
     fn checked_sub(self, rhs: Self) -> Option<Self>;
 }
 
@@ -35,6 +36,7 @@ impl CounterValue for usize {
         self.checked_add(rhs)
     }
 
+    #[cfg(test)]
     fn checked_sub(self, rhs: Self) -> Option<Self> {
         self.checked_sub(rhs)
     }
@@ -49,6 +51,7 @@ impl CounterValue for u64 {
         self.checked_add(rhs)
     }
 
+    #[cfg(test)]
     fn checked_sub(self, rhs: Self) -> Option<Self> {
         self.checked_sub(rhs)
     }
@@ -56,6 +59,7 @@ impl CounterValue for u64 {
 
 impl<T: CounterValue> SaturatingCounter<T> {
     /// Create a counter with the given initial value.
+    #[cfg(test)]
     pub(crate) fn new(value: T) -> Self {
         Self { value }
     }
@@ -73,6 +77,7 @@ impl<T: CounterValue> SaturatingCounter<T> {
     /// Subtract `delta`. If the subtraction would underflow, use `recompute`
     /// (precomputed by the caller) as the recovered value. If `recompute` is
     /// `None`, keep the current value.
+    #[cfg(test)]
     pub(crate) fn sub_or_recompute(
         &mut self,
         delta: T,

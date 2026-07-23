@@ -3,7 +3,7 @@
 
 use super::{get_tx_status, make_pre_checked_tx, resolve_tx};
 use crate::component::pipeline_coordinator::{RawStage, TerminalRecord};
-use crate::component::pipeline_runtime::{PipelineRawTx, PipelineVerifiedTx, coordinator_reject};
+use crate::component::pipeline_runtime::{PipelineRawTx, coordinator_reject};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::tx_source::TxSource;
@@ -240,11 +240,7 @@ impl super::TxPoolService {
     pub(crate) fn journal_pipeline_terminal_records(
         &self,
         permit: crate::service::effects::EffectPermit,
-        records: &[TerminalRecord<
-            PipelineRawTx,
-            crate::resolved_tx::ResolvedTx,
-            PipelineVerifiedTx,
-        >],
+        records: &[TerminalRecord<PipelineRawTx>],
     ) {
         let mut effects = Vec::new();
         for record in records {
@@ -283,7 +279,7 @@ impl super::TxPoolService {
     pub(crate) fn journal_pipeline_outcome(
         &self,
         permit: crate::service::effects::EffectPermit,
-        record: &TerminalRecord<PipelineRawTx, crate::resolved_tx::ResolvedTx, PipelineVerifiedTx>,
+        record: &TerminalRecord<PipelineRawTx>,
         reject: Option<&Reject>,
         mut tx_pool: Option<&mut crate::pool::TxPool>,
     ) -> Option<ckb_network::PeerIndex> {

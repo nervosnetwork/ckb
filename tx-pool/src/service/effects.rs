@@ -7,9 +7,9 @@
 //! retaining an unbounded task/channel backlog.
 
 use crate::callback::CallbackEvent;
-use crate::component::effect_outbox::{
-    EffectOutbox, EffectOutboxError, EffectOutboxLimits, EffectOutboxUsage,
-};
+#[cfg(test)]
+use crate::component::effect_outbox::EffectOutboxUsage;
+use crate::component::effect_outbox::{EffectOutbox, EffectOutboxError, EffectOutboxLimits};
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
 use crate::error::Reject;
@@ -42,7 +42,6 @@ pub(crate) enum EffectQueueError {
 }
 
 pub(crate) enum TxPoolEffect {
-    Barrier(Arc<PublicationBarrierState>),
     Callback {
         callbacks: Arc<crate::callback::Callbacks>,
         event: CallbackEvent,
@@ -58,7 +57,6 @@ pub(crate) enum TxPoolEffect {
 impl TxPoolEffect {
     fn charge_bytes(&self) -> usize {
         match self {
-            Self::Barrier(_) => EFFECT_ENVELOPE_BYTES,
             Self::Callback {
                 event: CallbackEvent::Pending(entry),
                 ..
@@ -160,6 +158,7 @@ impl Drop for EffectPermit {
 }
 
 impl EffectQueue {
+    #[cfg(test)]
     pub(crate) fn new(max_batches: usize, max_bytes: usize) -> Result<Self, EffectOutboxError> {
         Self::new_with_critical_capacity(max_batches, max_bytes, 0, 0)
     }
@@ -330,6 +329,7 @@ impl EffectQueue {
         self.space.notify_waiters();
     }
 
+    #[cfg(test)]
     pub(crate) fn usage(&self) -> EffectOutboxUsage {
         self.state
             .lock()
@@ -359,17 +359,11 @@ pub(crate) struct EffectEndpoints {
 enum PublishOne {
     Complete,
     Retry,
-    WaitBarrier(Arc<PublicationBarrierState>),
 }
 
 impl EffectEndpoints {
     fn publish_one(&self, effect: &TxPoolEffect) -> PublishOne {
         match effect {
-            TxPoolEffect::Barrier(released) => {
-                if !released.released.load(Ordering::Acquire) {
-                    return PublishOne::WaitBarrier(Arc::clone(released));
-                }
-            }
             TxPoolEffect::Callback { callbacks, event } => callbacks.publish(event),
             TxPoolEffect::Relay(result) => match self.tx_relay_sender.try_send(result.clone()) {
                 Ok(()) => {}
@@ -385,42 +379,6 @@ impl EffectEndpoints {
             } => self.network.ban_peer(*peer, *duration, reason.clone()),
         }
         PublishOne::Complete
-    }
-}
-
-/// Keeps a journaled batch unpublished until all causal internal work (for
-/// example RBF recovery admission) has been scheduled. Unwind/cancellation
-/// releases the truthful stable-state batch instead of losing it.
-pub(crate) struct PublicationBarrier {
-    state: Arc<PublicationBarrierState>,
-}
-
-pub(crate) struct PublicationBarrierState {
-    released: std::sync::atomic::AtomicBool,
-    ready: Notify,
-}
-
-impl PublicationBarrier {
-    pub(crate) fn effect(&self) -> TxPoolEffect {
-        TxPoolEffect::Barrier(Arc::clone(&self.state))
-    }
-
-    pub(crate) fn release(self) {}
-}
-
-impl Drop for PublicationBarrier {
-    fn drop(&mut self) {
-        self.state.released.store(true, Ordering::Release);
-        self.state.ready.notify_waiters();
-    }
-}
-
-pub(crate) fn publication_barrier() -> PublicationBarrier {
-    PublicationBarrier {
-        state: Arc::new(PublicationBarrierState {
-            released: std::sync::atomic::AtomicBool::new(false),
-            ready: Notify::new(),
-        }),
     }
 }
 
@@ -475,12 +433,6 @@ pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: Eff
                 Ok(PublishOne::Complete) => batch.advance(),
                 Ok(PublishOne::Retry) => {
                     tokio::time::sleep(Duration::from_millis(1)).await;
-                }
-                Ok(PublishOne::WaitBarrier(barrier)) => {
-                    let released = barrier.ready.notified();
-                    if !barrier.released.load(Ordering::Acquire) {
-                        released.await;
-                    }
                 }
                 Err(payload) => {
                     error!(
@@ -645,7 +597,6 @@ mod tests {
     use crate::component::entry::TxEntry;
     use crate::network::DummyTxPoolNetwork;
     use ckb_types::core::{Capacity, TransactionBuilder};
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn endpoints(tx_relay_sender: ckb_channel::Sender<TxVerificationResult>) -> EffectEndpoints {
         EffectEndpoints {
@@ -661,44 +612,6 @@ mod tests {
             Capacity::zero(),
             0,
         )
-    }
-
-    #[tokio::test]
-    async fn batch_barrier_delays_callback_until_causal_work_is_stable() {
-        let queue = Arc::new(EffectQueue::new(4, 1_000_000).unwrap());
-        let (relay_tx, _relay_rx) = ckb_channel::bounded(4);
-        let publisher = tokio::spawn(run_effect_publisher(
-            Arc::clone(&queue),
-            endpoints(relay_tx),
-        ));
-        let barrier = publication_barrier();
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mut callbacks = Callbacks::new();
-        let observed = Arc::clone(&calls);
-        callbacks.register_pending(Box::new(move |_| {
-            observed.fetch_add(1, Ordering::SeqCst);
-        }));
-        queue
-            .enqueue(
-                EffectBatch::new(vec![
-                    barrier.effect(),
-                    callback_accept(Arc::new(callbacks), entry(), Status::Pending),
-                ])
-                .unwrap(),
-            )
-            .await
-            .unwrap();
-        tokio::task::yield_now().await;
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-
-        barrier.release();
-        tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
-            .await
-            .unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        queue.close();
-        publisher.await.unwrap();
     }
 
     #[tokio::test]

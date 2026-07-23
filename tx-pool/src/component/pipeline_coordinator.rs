@@ -97,14 +97,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    #[cfg(test)]
     pub(crate) fn usage(&self) -> CoordinatorResidency {
         self.global_usage
     }
@@ -166,8 +169,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(crate) fn verified_by_short_id(&self, short_id: &ProposalShortId) -> Option<Arc<V>> {
         let hash = self.by_short_id.get(short_id)?;
         match &self.entries.get(hash)?.state {
-            EntryState::PlainVerified { payload, .. }
-            | EntryState::CandidateVerified { payload, .. }
+            EntryState::CandidateVerified { payload, .. }
             | EntryState::Invalidated {
                 payload: InvalidatedPayload::Verified(payload),
                 ..
@@ -200,18 +202,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_recheck_set.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn active_conflict_owner(&self, input: &OutPoint) -> Option<&Byte32> {
         self.active_by_input.get(input)
     }
 
+    #[cfg(test)]
     pub(crate) fn conflict_edge_count(&self) -> usize {
         self.conflict_edge_count
     }
 
+    #[cfg(test)]
     pub(crate) fn deadline_len(&self) -> usize {
         self.live_deadlines.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn active_work(&self) -> usize {
         self.active_work
     }
@@ -220,6 +226,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.active_work_by_peer.get(&peer).copied().unwrap_or(0)
     }
 
+    #[cfg(test)]
     pub(crate) fn admit_raw(
         &mut self,
         hash: Byte32,
@@ -229,7 +236,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         peer: Option<PeerIndex>,
         charge_bytes: usize,
         dependencies: HashSet<Byte32>,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
         let source = peer.map_or(CoordinatorSource::Local, CoordinatorSource::Remote);
         self.admit_raw_sourced(
             hash,
@@ -254,7 +261,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         expires_at: Option<u64>,
         charge_bytes: usize,
         dependencies: HashSet<Byte32>,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
         if self.entries.contains_key(&hash) {
             return Err(CoordinatorError::DuplicateHash(hash));
         }
@@ -600,7 +607,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             stage,
             version: entry.version(),
             payload,
-            source,
         }))
     }
 
@@ -611,7 +617,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         lease: &RawWorkLease<R>,
         disposition: TerminalDisposition,
-    ) -> Result<TerminalRecord<R, U, V>, CoordinatorError> {
+    ) -> Result<TerminalRecord<R>, CoordinatorError> {
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location_phase(
             &lease.hash,
@@ -640,7 +646,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         lease: &VerifyWorkLease<U>,
         disposition: TerminalDisposition,
-    ) -> Result<TerminalRecord<R, U, V>, CoordinatorError> {
+    ) -> Result<TerminalRecord<R>, CoordinatorError> {
         self.validate_version_location_phase(
             &lease.hash,
             lease.version,
@@ -762,7 +768,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         unverified: U,
         charge_bytes: usize,
         verify_schedule: VerifySchedule,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location_phase(
             &lease.hash,
@@ -1086,6 +1092,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         affected.into_iter().collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn parent_unavailable(
         &mut self,
         parent: &Byte32,
@@ -1208,6 +1215,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
     /// Make every direct dependent fail-closed immediately, then defer the
     /// transitive terminal cascade to bounded maintenance slices.
+    #[cfg(test)]
     pub(crate) fn schedule_parent_failure(
         &mut self,
         parent: &Byte32,
@@ -1218,7 +1226,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(crate) fn drain_dependency_failures(
         &mut self,
         max: usize,
-    ) -> Result<Vec<TerminalRecord<R, U, V>>, CoordinatorError> {
+    ) -> Result<Vec<TerminalRecord<R>>, CoordinatorError> {
         let roots = self.preview_dependency_failure_roots(max);
         let mut affected = roots.clone();
         for root in &roots {
@@ -1307,7 +1315,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             hash: ticket.hash,
             version: entry.version(),
             payload,
-            source,
         }))
     }
 
@@ -1355,102 +1362,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(version)
     }
 
-    /// Install a verified phase bundle. `charge_bytes` covers every payload
-    /// object retained by the bundle, not only the newly produced proof.
+    /// Test convenience wrapper around the only production verified state.
+    /// A unique synthetic input keeps generic state-machine tests on the same
+    /// candidate/index path as real transactions without creating conflicts.
+    #[cfg(test)]
     pub(crate) fn complete_verification(
         &mut self,
         lease: &VerifyWorkLease<U>,
         verified: V,
         charge_bytes: usize,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
-        self.validate_version_location_phase(
-            &lease.hash,
-            lease.version,
-            &CoordinatorLocation::VerifyActive,
-            PayloadPhase::Unverified,
-        )?;
-        let entry = self
-            .entries
-            .get(&lease.hash)
-            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        let total_charge_bytes = charge_bytes
-            .checked_add(entry.base_metadata_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let protected = self.dependency_ancestor_closure(&lease.hash, &entry.dependencies)?;
-        self.check_peer_budget_after_victims(
-            Some(&lease.hash),
-            entry.source,
-            total_charge_bytes,
-            &HashSet::new(),
-        )?;
-        let victims = self.global_capacity_victims(
-            Some(&lease.hash),
-            entry.source,
-            total_charge_bytes,
-            &HashSet::new(),
-            &protected,
-        )?;
-        let subject = CapacitySubject::Present(lease.hash.clone());
-        self.with_capacity_victims(subject, victims, move |coordinator| {
-            coordinator.complete_verification_inner(lease, verified, charge_bytes)
-        })
-    }
-
-    fn complete_verification_inner(
-        &mut self,
-        lease: &VerifyWorkLease<U>,
-        verified: V,
-        charge_bytes: usize,
-    ) -> Result<CoordinatorVersion, CoordinatorError> {
-        self.validate_version_location_phase(
-            &lease.hash,
-            lease.version,
-            &CoordinatorLocation::VerifyActive,
-            PayloadPhase::Unverified,
-        )?;
-        self.ensure_revision_capacity(&lease.hash)?;
-        let metadata_bytes = self
-            .entries
-            .get(&lease.hash)
-            .map(|entry| entry.base_metadata_bytes)
-            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        let total_charge_bytes = charge_bytes
-            .checked_add(metadata_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        self.check_recharge(&lease.hash, total_charge_bytes)?;
-        let source = self
-            .entries
-            .get(&lease.hash)
-            .map(|entry| entry.source)
-            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        let priority = source.is_proposal();
-        self.queue_mut(QueueKind::Commit)?
-            .reserve_live(priority, source.queue_owner())?;
-        let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
-        self.deactivate_source(source)?;
-        self.apply_recharge(&lease.hash, total_charge_bytes)?;
-        let entry = self
-            .entries
-            .get_mut(&lease.hash)
-            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        let raw = Arc::clone(entry.state.raw());
-        entry.state = EntryState::PlainVerified {
-            raw,
-            payload: Arc::new(verified),
-            location: PlainVerifiedLocation::Ready,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
+        let candidate = VerifiedCandidate {
+            inputs: HashSet::from([OutPoint::new(lease.hash.clone(), 0)]),
+            fee: 0,
+            tx_size: 1,
         };
-        entry.resident_payload_bytes = charge_bytes;
-        entry.metadata_bytes = metadata_bytes;
-        entry.queue_sequence = queue_sequence;
-        entry.verify_schedule = VerifySchedule::default();
-        entry.revision += 1;
-        let version = entry.version();
-        let ticket = entry.ticket(&lease.hash);
-        let front = entry.source.is_proposal();
-        self.queue_mut(QueueKind::Commit)?
-            .push_reserved(QueueKind::Commit, ticket, front)?;
-        self.next_queue_sequence = next_queue_sequence;
-        Ok(version)
+        self.complete_verification_candidate(lease, verified, charge_bytes, candidate)
     }
 
     /// Install a verified conflict candidate. `charge_bytes` covers the
@@ -1462,7 +1389,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         verified: V,
         charge_bytes: usize,
         candidate: VerifiedCandidate,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
         self.validate_version_location_phase(
             &lease.hash,
             lease.version,
@@ -1808,12 +1735,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             entry.deadline_generation += 1;
         }
         let payload = match &mut entry.state {
-            EntryState::PlainVerified {
-                payload, location, ..
-            } => {
-                *location = PlainVerifiedLocation::Committing;
-                Arc::clone(payload)
-            }
             EntryState::CandidateVerified {
                 payload, location, ..
             } => {
@@ -1886,6 +1807,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn abort_commit(
         &mut self,
         lease: &CommitLease<V>,
@@ -1928,9 +1850,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .get_mut(&lease.hash)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
         match &mut entry.state {
-            EntryState::PlainVerified { location, .. } => {
-                *location = PlainVerifiedLocation::Ready;
-            }
             EntryState::CandidateVerified { location, .. } => {
                 *location = CandidateLocation::Ready;
             }
@@ -1962,7 +1881,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         lease: &CommitLease<V>,
         disposition: TerminalDisposition,
-    ) -> Result<TerminalRecord<R, U, V>, CoordinatorError> {
+    ) -> Result<TerminalRecord<R>, CoordinatorError> {
         self.validate_version_location_phase(
             &lease.hash,
             lease.version,
@@ -1982,51 +1901,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
-    pub(crate) fn commit_handoff(
-        &mut self,
-        lease: &CommitLease<V>,
-    ) -> Result<CommitHandoff<R, V>, CoordinatorError> {
-        self.validate_version_location_phase(
-            &lease.hash,
-            lease.version,
-            &CoordinatorLocation::Committing,
-            PayloadPhase::Verified,
-        )?;
-        if self
-            .entries
-            .get(&lease.hash)
-            .is_some_and(|entry| entry.candidate().is_some())
-        {
-            return Err(CoordinatorError::ConflictInvariant);
-        }
-        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
-        self.with_entry_undo(&undo, |coordinator| {
-            let ready_children = coordinator.parent_available(&lease.hash)?;
-            let entry = coordinator.remove_present_apply(&lease.hash)?;
-            let EntryState::PlainVerified {
-                raw,
-                payload: verified,
-                location: PlainVerifiedLocation::Committing,
-            } = entry.state
-            else {
-                return Err(CoordinatorError::ConflictInvariant);
-            };
-            Ok(CommitHandoff {
-                hash: lease.hash.clone(),
-                short_id: entry.short_id,
-                raw,
-                verified,
-                peer: entry.source.peer(),
-                source: entry.source,
-                ready_children,
-            })
-        })
-    }
-
     pub(crate) fn commit_candidate_handoff(
         &mut self,
         lease: &CommitLease<V>,
-    ) -> Result<ConflictCommitHandoff<R, U, V>, CoordinatorError> {
+    ) -> Result<ConflictCommitHandoff<R>, CoordinatorError> {
         self.validate_version_location_phase(
             &lease.hash,
             lease.version,
@@ -2102,21 +1980,24 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             coordinator.apply_fault_checkpoint();
             let EntryState::CandidateVerified {
                 raw,
-                payload: verified,
+                payload: _,
                 location: CandidateLocation::Committing,
                 ..
             } = entry.state
             else {
                 return Err(CoordinatorError::ConflictInvariant);
             };
+            #[cfg(not(test))]
+            let _ = &ready_children;
             Ok(ConflictCommitHandoff {
                 winner: CommitHandoff {
+                    #[cfg(test)]
                     hash: lease.hash.clone(),
-                    short_id: entry.short_id,
                     raw,
-                    verified,
+                    #[cfg(test)]
                     peer: entry.source.peer(),
                     source: entry.source,
+                    #[cfg(test)]
                     ready_children,
                 },
                 rejected: terminal,
@@ -2127,20 +2008,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(crate) fn commit_any_handoff(
         &mut self,
         lease: &CommitLease<V>,
-    ) -> Result<ConflictCommitHandoff<R, U, V>, CoordinatorError> {
-        if self
-            .entries
-            .get(&lease.hash)
-            .is_some_and(|entry| entry.candidate().is_some())
-        {
-            self.commit_candidate_handoff(lease)
-        } else {
-            self.commit_handoff(lease)
-                .map(|winner| ConflictCommitHandoff {
-                    winner,
-                    rejected: Vec::new(),
-                })
-        }
+    ) -> Result<ConflictCommitHandoff<R>, CoordinatorError> {
+        self.commit_candidate_handoff(lease)
     }
 
     fn commit_handoff_undo_hashes(
@@ -2191,7 +2060,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         lease: &CommitLease<V>,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<ConflictCommitHandoff<R, U, V>, CoordinatorError> {
+    ) -> Result<ConflictCommitHandoff<R>, CoordinatorError> {
         let mut undo = self.commit_handoff_undo_hashes(lease)?;
         undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
         undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
@@ -2209,7 +2078,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(crate) fn external_commit(
         &mut self,
         hash: &Byte32,
-    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+    ) -> Result<Option<ExternalCommitRecord>, CoordinatorError> {
         let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
         if self.entries.contains_key(hash) {
             self.with_entry_undo(&undo, |coordinator| coordinator.external_commit_apply(hash))
@@ -2230,7 +2099,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+    ) -> Result<Option<ExternalCommitRecord>, CoordinatorError> {
         let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
         undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
         undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
@@ -2259,7 +2128,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         committed: &HashSet<Byte32>,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<Vec<ExternalCommitRecord<R>>, CoordinatorError> {
+    ) -> Result<Vec<ExternalCommitRecord>, CoordinatorError> {
         let mut undo = self.parents_unavailable_undo_hashes(unavailable_parents);
         for hash in committed {
             undo.extend(self.causal_undo_hashes(std::slice::from_ref(hash)));
@@ -2288,7 +2157,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     fn external_commit_apply(
         &mut self,
         hash: &Byte32,
-    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+    ) -> Result<Option<ExternalCommitRecord>, CoordinatorError> {
         let ready_children = self.parent_available(hash)?;
         if !self.entries.contains_key(hash) {
             // The parent may have entered through the synchronous local path
@@ -2297,11 +2166,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
         let entry = self.remove_present_apply(hash)?;
         self.apply_fault_checkpoint();
+        let _ = &entry;
+        #[cfg(not(test))]
+        let _ = &ready_children;
         Ok(Some(ExternalCommitRecord {
+            #[cfg(test)]
             hash: hash.clone(),
-            short_id: entry.short_id,
-            raw: Arc::clone(entry.state.raw()),
-            source: entry.source,
+            #[cfg(test)]
             ready_children,
         }))
     }
@@ -2310,17 +2181,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
         disposition: TerminalDisposition,
-    ) -> Result<Option<TerminalRecord<R, U, V>>, CoordinatorError> {
+    ) -> Result<Option<TerminalRecord<R>>, CoordinatorError> {
         if !self.entries.contains_key(hash) {
             return Ok(None);
         }
         if self.entries.get(hash).is_some_and(|entry| {
             matches!(
                 &entry.state,
-                EntryState::PlainVerified {
-                    location: PlainVerifiedLocation::Committing,
-                    ..
-                } | EntryState::CandidateVerified {
+                EntryState::CandidateVerified {
                     location: CandidateLocation::Committing,
                     ..
                 }
@@ -2348,7 +2216,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         now: u64,
         max: usize,
-    ) -> Result<Vec<TerminalRecord<R, U, V>>, CoordinatorError> {
+    ) -> Result<Vec<TerminalRecord<R>>, CoordinatorError> {
         let capacity = max.min(self.live_deadlines.len());
         let mut selected = Vec::new();
         selected
@@ -2380,10 +2248,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
             if matches!(
                 &entry.state,
-                EntryState::PlainVerified {
-                    location: PlainVerifiedLocation::Committing,
-                    ..
-                } | EntryState::CandidateVerified {
+                EntryState::CandidateVerified {
                     location: CandidateLocation::Committing,
                     ..
                 }
@@ -2420,7 +2285,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
-    pub(crate) fn clear(&mut self) -> Result<Vec<TerminalRecord<R, U, V>>, CoordinatorError> {
+    pub(crate) fn clear(&mut self) -> Result<Vec<TerminalRecord<R>>, CoordinatorError> {
         // Clear is one ownership transaction, not N conflict removals. It must
         // not wake/revise records that are themselves being cleared, and stale
         // worker leases become harmless because re-admission receives a new
@@ -3168,7 +3033,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         subject: CapacitySubject,
         victims: Vec<Byte32>,
         apply_subject: F,
-    ) -> Result<(T, Vec<TerminalRecord<R, U, V>>), CoordinatorError>
+    ) -> Result<(T, Vec<TerminalRecord<R>>), CoordinatorError>
     where
         F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
     {
@@ -3456,8 +3321,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     EntryState::Unverified { payload, .. } => {
                         InvalidatedPayload::Unverified(Arc::clone(payload))
                     }
-                    EntryState::PlainVerified { payload, .. }
-                    | EntryState::CandidateVerified { payload, .. } => {
+                    EntryState::CandidateVerified { payload, .. } => {
                         InvalidatedPayload::Verified(Arc::clone(payload))
                     }
                     EntryState::Invalidated { .. } => {
@@ -3659,35 +3523,15 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         hash: Byte32,
         entry: CoordinatorEntry<R, U, V>,
         disposition: TerminalDisposition,
-    ) -> TerminalRecord<R, U, V> {
-        let (raw, later_phase) = match entry.state {
-            EntryState::Raw { raw, .. }
-            | EntryState::Invalidated {
-                raw,
-                payload: InvalidatedPayload::Raw,
-                ..
-            } => (raw, None),
-            EntryState::Unverified { raw, payload, .. }
-            | EntryState::Invalidated {
-                raw,
-                payload: InvalidatedPayload::Unverified(payload),
-                ..
-            } => (raw, Some(TerminalPhase::Unverified(payload))),
-            EntryState::PlainVerified { raw, payload, .. }
-            | EntryState::CandidateVerified { raw, payload, .. }
-            | EntryState::Invalidated {
-                raw,
-                payload: InvalidatedPayload::Verified(payload),
-                ..
-            } => (raw, Some(TerminalPhase::Verified(payload))),
-        };
+    ) -> TerminalRecord<R> {
+        let raw = Arc::clone(entry.state.raw());
+        #[cfg(not(test))]
+        let _ = disposition;
         TerminalRecord {
             hash,
-            short_id: entry.short_id,
             raw,
-            later_phase,
-            peer: entry.source.peer(),
             source: entry.source,
+            #[cfg(test)]
             disposition,
         }
     }

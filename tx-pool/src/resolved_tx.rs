@@ -54,9 +54,8 @@ pub struct ResolvedTx {
     pub source: TxSource,
     /// Pipeline generation inherited from the resolve job.
     pub(crate) epoch: u64,
-    /// Completed script verification carried by authoritative RBF ownership.
-    /// A `RaceLost` restore can therefore reuse the result even if the
-    /// best-effort global cache-update channel was saturated.
+    /// Completed script verification carried by the authoritative typed
+    /// lifecycle. Correctness never depends on the best-effort global cache.
     pub(crate) verified: Option<Completed>,
 }
 

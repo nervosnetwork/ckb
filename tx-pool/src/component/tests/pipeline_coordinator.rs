@@ -148,17 +148,17 @@ fn begin_candidate(
     (tx_hash, verify, candidate)
 }
 
-fn verify_plain(
+fn verify_uncontested_candidate(
     coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
     seed: u8,
 ) -> (
     Byte32,
     crate::component::pipeline_coordinator::CoordinatorVersion,
 ) {
-    verify_plain_sourced(coordinator, seed, CoordinatorSource::Local)
+    verify_uncontested_candidate_sourced(coordinator, seed, CoordinatorSource::Local)
 }
 
-fn verify_plain_sourced(
+fn verify_uncontested_candidate_sourced(
     coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
     seed: u8,
     source: CoordinatorSource,
@@ -955,7 +955,7 @@ fn deterministic_state_machine_audits_every_ownership_boundary() {
             }
             9 => {
                 if let Some(lease) = commit_leases.pop() {
-                    let _ = coordinator.commit_handoff(&lease);
+                    let _ = coordinator.commit_candidate_handoff(&lease);
                 }
             }
             10 => {
@@ -990,7 +990,7 @@ fn deterministic_state_machine_audits_every_ownership_boundary() {
 }
 
 #[test]
-fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
+fn one_entry_and_revision_own_every_payload_phase_until_candidate_handoff() {
     let mut coordinator = roomy();
     let tx_hash = hash(1);
     let peer: PeerIndex = 7.into();
@@ -1018,7 +1018,6 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
         .unwrap()
         .unwrap();
     assert_eq!(*raw.payload, Raw("raw"));
-    assert_eq!(raw.source, CoordinatorSource::Remote(peer));
     coordinator
         .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
@@ -1033,7 +1032,6 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
         .unwrap()
         .unwrap();
     assert_eq!(*verify.payload, Unverified("resolved"));
-    assert_eq!(verify.source, CoordinatorSource::Remote(peer));
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();
@@ -1041,10 +1039,12 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
     assert_eq!(*commit.payload, Verified("proof"));
     coordinator.audit().unwrap();
 
-    let handoff = coordinator.commit_handoff(&commit).unwrap();
+    let handoff = coordinator
+        .commit_candidate_handoff(&commit)
+        .unwrap()
+        .winner;
     assert_eq!(handoff.hash, tx_hash);
     assert_eq!(*handoff.raw, Raw("raw"));
-    assert_eq!(*handoff.verified, Verified("proof"));
     assert_eq!(handoff.peer, Some(peer));
     assert!(coordinator.is_empty());
     assert_eq!(coordinator.usage(), CoordinatorResidency::default());
@@ -1073,7 +1073,6 @@ fn administrative_terminal_api_cannot_express_commit_and_releases_all_indexes() 
         .unwrap();
     assert_eq!(terminal.disposition, TerminalDisposition::Removed);
     assert_eq!(*terminal.raw, Raw("raw"));
-    assert!(terminal.later_phase.is_none());
     assert!(coordinator.hash_by_short_id(&short(2)).is_none());
     assert!(coordinator.is_empty());
     coordinator.audit().unwrap();
@@ -1439,7 +1438,7 @@ fn definitive_parent_failure_is_fail_closed_and_drained_in_bounded_slices() {
         Err(CoordinatorError::RevisionMismatch { .. })
     ));
     assert!(matches!(
-        coordinator.commit_handoff(&grand_commit),
+        coordinator.commit_candidate_handoff(&grand_commit),
         Err(CoordinatorError::DependencyInvalidated {
             child: failed_child,
             parent: failed_parent,
@@ -2244,7 +2243,7 @@ fn global_admission_reconciliation_preserves_dependency_ancestors() {
 }
 
 #[test]
-fn global_recharge_reconciliation_covers_raw_and_plain_verified_phases() {
+fn global_recharge_reconciliation_covers_raw_and_verified_phases() {
     let limits = test_limits(CoordinatorResidency::new(2, 25), None, 4, 4);
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(limits);
@@ -2695,7 +2694,7 @@ fn abort_commit_requeues_once_and_makes_the_old_commit_lease_stale() {
     coordinator.abort_commit(&old_commit).unwrap();
 
     assert!(matches!(
-        coordinator.commit_handoff(&old_commit),
+        coordinator.commit_candidate_handoff(&old_commit),
         Err(CoordinatorError::RevisionMismatch { .. })
     ));
     assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
@@ -3664,11 +3663,6 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
         coordinator.view(&late_loser).unwrap().location,
         CoordinatorLocation::WaitingConflict { .. }
     ));
-    assert!(matches!(
-        coordinator.commit_handoff(&committing),
-        Err(CoordinatorError::ConflictInvariant)
-    ));
-
     let before = [
         winner.clone(),
         loser.clone(),
@@ -3908,7 +3902,7 @@ fn later_parent_unavailability_cannot_resurrect_an_invalidated_child() {
 #[test]
 fn accepted_parent_handoff_wakes_waiting_children_atomically() {
     let mut coordinator = roomy();
-    let (parent, _) = verify_plain(&mut coordinator, 245);
+    let (parent, _) = verify_uncontested_candidate(&mut coordinator, 245);
     let child = hash(246);
     coordinator
         .admit_raw(
@@ -3930,7 +3924,10 @@ fn accepted_parent_handoff_wakes_waiting_children_atomically() {
         .unwrap();
     let commit = coordinator.begin_next_commit().unwrap().unwrap();
 
-    let handoff = coordinator.commit_handoff(&commit).unwrap();
+    let handoff = coordinator
+        .commit_candidate_handoff(&commit)
+        .unwrap()
+        .winner;
     assert_eq!(handoff.hash, parent);
     assert_eq!(handoff.ready_children.len(), 1);
     assert_eq!(handoff.ready_children[0].hash, child);
@@ -3945,7 +3942,7 @@ fn accepted_parent_handoff_wakes_waiting_children_atomically() {
 fn accepted_parent_handoff_rolls_back_child_wake_at_every_apply_boundary() {
     for fault_step in 1..=3 {
         let mut coordinator = roomy();
-        let (parent, _) = verify_plain(&mut coordinator, 251);
+        let (parent, _) = verify_uncontested_candidate(&mut coordinator, 251);
         let child = hash(252);
         coordinator
             .admit_raw(
@@ -3972,7 +3969,7 @@ fn accepted_parent_handoff_rolls_back_child_wake_at_every_apply_boundary() {
 
         coordinator.set_apply_fault_for_test(Some(fault_step));
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = coordinator.commit_handoff(&commit);
+            let _ = coordinator.commit_candidate_handoff(&commit);
         }));
         assert!(result.is_err(), "fault step {fault_step} was not reached");
         coordinator.set_apply_fault_for_test(None);

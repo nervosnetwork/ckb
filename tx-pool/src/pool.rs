@@ -170,6 +170,7 @@ impl TxPool {
         );
     }
 
+    #[cfg(test)]
     pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) -> bool {
         let removed = self.conflict_cache.remove(short_id).is_some();
         debug!(
@@ -202,6 +203,48 @@ impl TxPool {
         self.conflict_cache.recoverable_by_inputs(inputs, |tx| {
             self.pool_map.find_conflict_outpoint(tx).is_none()
         })
+    }
+
+    /// Mark fully unblocked historical candidates for an atomic
+    /// cache→coordinator ownership transfer. Scheduling stays inside the
+    /// pool mutation that freed the inputs; actual admission is drained in
+    /// bounded maintenance slices without cloning an executable second owner.
+    pub(crate) fn schedule_conflicted_txs_from_inputs(
+        &mut self,
+        inputs: impl Iterator<Item = OutPoint>,
+    ) -> usize {
+        let pool_map = &self.pool_map;
+        self.conflict_cache
+            .schedule_recoverable_by_inputs(inputs, |tx| {
+                pool_map.find_conflict_outpoint(tx).is_none()
+            })
+    }
+
+    pub(crate) fn schedule_conflict_candidates(
+        &mut self,
+        hashes: impl Iterator<Item = Byte32>,
+    ) -> usize {
+        let pool_map = &self.pool_map;
+        self.conflict_cache
+            .schedule_hashes(hashes, |tx| pool_map.find_conflict_outpoint(tx).is_none())
+    }
+
+    pub(crate) fn pop_conflict_recovery(
+        &mut self,
+    ) -> Option<crate::component::conflict_cache::ConflictRecoveryCandidate> {
+        self.conflict_cache.pop_recovery_candidate()
+    }
+
+    pub(crate) fn reschedule_conflict_recovery(&mut self, hash: &Byte32) -> bool {
+        self.conflict_cache.reschedule_recovery(hash)
+    }
+
+    pub(crate) fn conflict_recovery_len(&self) -> usize {
+        self.conflict_cache.recovery_len()
+    }
+
+    pub(crate) fn clear_conflict_recovery_schedule(&mut self) {
+        self.conflict_cache.clear_recovery_schedule();
     }
 
     /// Returns tx with cycles corresponding to the id.

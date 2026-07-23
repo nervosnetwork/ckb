@@ -56,7 +56,7 @@ async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
         .reserve_effects(service.max_submit_effect_bytes())
         .await
         .unwrap();
-    let (outcome, barrier) = {
+    let outcome = {
         let mut guard = service.pool.tx_pool.write().await;
         let snapshot = guard.cloned_snapshot();
         let mut outcome = service.try_submit_entry(
@@ -71,13 +71,10 @@ async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
             !callback_ran.load(Ordering::SeqCst),
             "try_submit_entry must only collect callback side effects"
         );
-        let barrier = service.journal_submit_effects(&mut outcome, effect_permit, Vec::new());
-        (outcome, barrier)
+        service.journal_submit_effects(&mut outcome, effect_permit, Vec::new());
+        outcome
     };
-    service
-        .dispatch_submit_aftermath(outcome, 0, barrier)
-        .await
-        .unwrap();
+    outcome.result.unwrap();
     service.relay.effects.wait_idle().await;
     assert!(callback_ran.load(Ordering::SeqCst));
 }
@@ -135,7 +132,6 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
         result,
         replaced: _,
         rolled_back,
-        recovered,
         reject_events,
         accept_event: _,
     } = {
@@ -157,7 +153,6 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     // the pool.
     assert!(matches!(result, Err(Reject::ExceededMaximumAncestorsCount)));
     assert!(rolled_back.is_empty());
-    assert!(recovered.is_empty());
     assert!(reject_events.is_empty());
     let tx_pool = service.pool.tx_pool.read().await;
     let resident = |tx: &ckb_types::core::TransactionView| {
@@ -284,7 +279,6 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
         result,
         replaced: _,
         rolled_back,
-        recovered: _,
         reject_events,
         accept_event: _,
     } = {
@@ -482,7 +476,6 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
         result,
         replaced: _,
         rolled_back,
-        recovered: _,
         reject_events: _,
         accept_event: _,
     } = {
@@ -573,7 +566,6 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
         result,
         replaced: _,
         rolled_back,
-        recovered,
         reject_events,
         accept_event: _,
     } = {
@@ -592,11 +584,7 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
     };
 
     assert!(result.is_err(), "far-future since must fail revalidation");
-    let recovered_hashes: HashSet<_> = rolled_back
-        .iter()
-        .map(|(tx, _)| tx.hash())
-        .chain(recovered.iter().map(|(tx, _)| tx.hash()))
-        .collect();
+    let recovered_hashes: HashSet<_> = rolled_back.iter().map(|(tx, _)| tx.hash()).collect();
     assert!(
         recovered_hashes.contains(&parent.hash()),
         "the direct conflict must be recovered"
@@ -620,476 +608,6 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
         assert!(
             !tx_pool.conflict_cache.contains(&tx.proposal_short_id()),
             "recovered tx must not stay in the conflict cache"
-        );
-    }
-}
-
-/// Hold-and-restore: a displaced candidate must not be rejected when its
-/// (unverified) displacer leaves the pipeline — it is restored to the
-/// verify queue with no recent-reject side effects. Only a *committed*
-/// displacer makes the displacement real (finalize rejects the loser).
-#[tokio::test]
-#[cfg(any())]
-async fn displaced_candidate_is_restored_unless_displacer_commits() {
-    use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_queue::PipelineQueue;
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use ckb_types::packed::OutPoint;
-    use std::sync::Arc;
-
-    let service = harness(2)
-        .rbf(true)
-        .workers(WorkerSet::None)
-        .build()
-        .service;
-
-    // In-pool original spending X: the conflict target for every candidate.
-    let x_hash = Byte32::new([11u8; 32]);
-    let original = build_tx(vec![(&x_hash, 0)], 1);
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(
-                    original.clone(),
-                    MOCK_CYCLES,
-                    Capacity::shannons(1),
-                    MOCK_SIZE,
-                ),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-
-    let mk_candidate = |outputs_len: usize, fee: u64, peer: u64| {
-        let tx = build_tx(vec![(&x_hash, 0)], outputs_len);
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: (peer as usize).into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-
-    let (tx_a, source_a, resolved_a) = mk_candidate(1, 1_000, 1);
-    let (tx_b, source_b, resolved_b) = mk_candidate(2, 10_000, 2);
-    let (tx_c, source_c, resolved_c) = mk_candidate(3, 100_000, 3);
-    let id_a = tx_a.proposal_short_id();
-    let id_b = tx_b.proposal_short_id();
-    let id_c = tx_c.proposal_short_id();
-
-    // A registers and enters the verify queue.
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_a,
-                source_a,
-                &resolved_a,
-                resolved_a.fee,
-                resolved_a.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    assert!(
-        service
-            .pipeline
-            .queues
-            .verify_queue
-            .read()
-            .await
-            .contains_key(&id_a)
-    );
-
-    // B (higher fee rate) registers: A leaves the verify queue but is held
-    // by B's registration, not rejected.
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_b,
-                source_b,
-                &resolved_b,
-                resolved_b.fee,
-                resolved_b.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(!verify.contains_key(&id_a), "A must be displaced");
-        assert!(verify.contains_key(&id_b));
-        assert_eq!(
-            verify.resident_usage(),
-            (resolved_a.tx_size + resolved_b.tx_size, 2),
-            "RaceLost must remain charged to the resolved residency budget"
-        );
-    }
-
-    // While A is held by B's registration, pipeline queries must still see
-    // it as in flight (not as Unknown): it may be restored at any moment.
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(room.find_held(&id_a).is_some());
-    }
-    let location = service.find_tx_in_pipeline(&id_a).await;
-    assert!(
-        matches!(
-            location,
-            Some(crate::service::PipelineTxLocation::Verifying { .. })
-        ),
-        "held candidate must be reported as in the verify stage"
-    );
-
-    // B is popped by a verify worker and fails verification: aborting its
-    // registration must restore A (and B stays gone).
-    {
-        let mut verify = service.pipeline.queues.verify_queue.write().await;
-        let popped = verify.pop_front(false).expect("B is queued");
-        assert_eq!(popped.tx.proposal_short_id(), id_b);
-    }
-    service.abort_rbf_candidate(&id_b).await;
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(
-            verify.contains_key(&id_a),
-            "displaced candidate must be restored when the displacer aborts"
-        );
-        assert!(!verify.contains_key(&id_b));
-    }
-
-    // C (even higher fee rate) displaces A again; committing C makes A's
-    // rejection real, so A is *not* restored this time.
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_c,
-                source_c,
-                &resolved_c,
-                resolved_c.fee,
-                resolved_c.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    service.finalize_rbf_candidate(&id_c).await;
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(
-            !verify.contains_key(&id_a),
-            "finalized displacement must not restore the loser"
-        );
-        assert!(verify.contains_key(&id_c));
-    }
-
-    // Finalizing removed C's registration: nothing blocks candidates for X
-    // anymore, no matter how high their fee rate.
-    let rbf = service.pipeline.queues.rbf_candidates.read().await;
-    assert!(!rbf.is_superseded(
-        &id_a,
-        ckb_types::core::FeeRate::from_u64(u64::MAX),
-        &[OutPoint::new(x_hash, 0)],
-    ));
-}
-
-/// A lower-fee candidate that arrives after a stronger unverified candidate
-/// must be owned by that candidate's speculative hold. Parking it only in the
-/// pool-side input-conflict cache strands it when the winner fails, because
-/// the original pool input owner never left and no input-freed event occurs.
-#[tokio::test]
-#[cfg(any())]
-async fn register_time_loser_is_restored_when_unverified_winner_aborts() {
-    use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_queue::PipelineQueue;
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use std::sync::Arc;
-
-    let service = harness(1)
-        .rbf(true)
-        .workers(WorkerSet::None)
-        .build()
-        .service;
-    let x_hash = Byte32::new([0x44; 32]);
-    let original = build_tx(vec![(&x_hash, 0)], 1);
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(original, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-    let make = |outputs: usize, fee: u64, peer: usize| {
-        let tx = build_tx(vec![(&x_hash, 0)], outputs);
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: peer.into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-    let (winner, winner_source, winner_resolved) = make(2, 100_000, 1);
-    let (loser, loser_source, loser_resolved) = make(1, 10_000, 2);
-    let winner_id = winner.proposal_short_id();
-    let loser_id = loser.proposal_short_id();
-
-    assert!(
-        service
-            .register_rbf_candidate(
-                winner,
-                winner_source,
-                &winner_resolved,
-                winner_resolved.fee,
-                winner_resolved.tx_size,
-            )
-            .await
-            .unwrap()
-    );
-    assert!(
-        service
-            .register_rbf_candidate(
-                loser,
-                loser_source,
-                &loser_resolved,
-                loser_resolved.fee,
-                loser_resolved.tx_size,
-            )
-            .await
-            .unwrap(),
-        "speculative loser remains accepted into pipeline ownership"
-    );
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(room.find_held(&loser_id).is_some());
-    }
-    assert!(
-        service
-            .pool
-            .tx_pool
-            .read()
-            .await
-            .waiting_room
-            .get(&loser_id)
-            .is_none(),
-        "candidate must not be double-parked as InputsBlocked"
-    );
-
-    service
-        .pipeline
-        .queues
-        .verify_queue
-        .write()
-        .await
-        .remove_tx(&winner_id);
-    service.abort_rbf_candidate(&winner_id).await;
-    let verify = service.pipeline.queues.verify_queue.read().await;
-    assert!(
-        verify.contains_key(&loser_id),
-        "failed unverified winner must restore the register-time loser"
-    );
-}
-
-/// Superseded at submit: the candidate is *held* by the winner's
-/// registration instead of being rejected — restored if the winner aborts,
-/// really rejected only if the winner commits. This closes the residual
-/// censorship window for candidates that were already active
-/// (mid-verification) when a stronger candidate appeared.
-#[tokio::test]
-#[cfg(any())]
-async fn superseded_at_submit_is_held_then_restored_on_winner_abort() {
-    use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_queue::PipelineQueue;
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use ckb_types::packed::OutPoint;
-    use std::sync::Arc;
-
-    let service = harness(2)
-        .rbf(true)
-        .workers(WorkerSet::None)
-        .build()
-        .service;
-
-    // In-pool original spending X: the conflict target for every candidate.
-    let x_hash = Byte32::new([17u8; 32]);
-    let original = build_tx(vec![(&x_hash, 0)], 1);
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(
-                    original.clone(),
-                    MOCK_CYCLES,
-                    Capacity::shannons(1),
-                    MOCK_SIZE,
-                ),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-
-    let mk_candidate = |outputs_len: usize, fee: u64, peer: u64| {
-        let tx = build_tx(vec![(&x_hash, 0)], outputs_len);
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: (peer as usize).into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-
-    let (tx_d, source_d, mut resolved_d) = mk_candidate(1, 1_000, 1);
-    let (tx_w, source_w, resolved_w) = mk_candidate(2, 10_000, 2);
-    let id_d = tx_d.proposal_short_id();
-    let id_w = tx_w.proposal_short_id();
-
-    // D registers and enters the verify queue, then a worker pops it (it is
-    // now active, mid-verification).
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_d,
-                source_d,
-                &resolved_d,
-                resolved_d.fee,
-                resolved_d.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    let d_active_token = {
-        let mut verify = service.pipeline.queues.verify_queue.write().await;
-        let work = verify.pop_front_work(false).expect("D becomes active");
-        assert_eq!(work.resolved.tx.proposal_short_id(), id_d);
-        work.active_token
-    };
-
-    // W registers with a higher fee rate: D is active, so it cannot be held
-    // at register time (its registration is removed, but its job is not).
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_w,
-                source_w,
-                &resolved_w,
-                resolved_w.fee,
-                resolved_w.tx_size
-            )
-            .await
-            .unwrap()
-    );
-
-    // D reaches submit while W is still in flight: superseded → held by
-    // W's registration, not rejected.
-    let completed = ckb_verification::cache::Completed {
-        cycles: MOCK_CYCLES,
-        fee: resolved_d.fee,
-    };
-    resolved_d.verified = Some(completed);
-    let result = service.submit_entry(resolved_d, MOCK_CYCLES).await.unwrap();
-    assert!(matches!(
-        result,
-        crate::process::submit::SubmitEntryResult::Superseded
-    ));
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(
-            room.find_held(&id_d).is_some(),
-            "D must be held by W's registration"
-        );
-    }
-
-    // W aborts (e.g. fails verification): D is restored — queued and
-    // re-registered, not rejected.
-    service
-        .pipeline
-        .queues
-        .verify_queue
-        .write()
-        .await
-        .remove_tx(&id_w);
-    service.abort_rbf_candidate(&id_w).await;
-    {
-        let mut verify = service.pipeline.queues.verify_queue.write().await;
-        assert!(
-            verify.contains_key(&id_d),
-            "D must be restored to the verify queue after W aborts"
-        );
-        assert_eq!(
-            verify
-                .get_tx_by_id(&id_d)
-                .and_then(|resolved| resolved.verified),
-            Some(completed),
-            "verified ownership must not depend on the lossy global cache-update channel"
-        );
-        let restored = verify
-            .pop_front_work(false)
-            .expect("restored D can become active again");
-        assert_eq!(restored.resolved.tx.proposal_short_id(), id_d);
-        verify.finish_work(&id_d, d_active_token);
-        assert!(
-            verify.get_active_tx(&id_d).is_some(),
-            "late finish from D's pre-hold lease must not erase its restored lease"
-        );
-        verify.finish_work(&id_d, restored.active_token);
-        drop(verify);
-
-        let rbf = service.pipeline.queues.rbf_candidates.read().await;
-        assert!(
-            rbf.is_superseded(
-                &id_w,
-                ckb_types::core::FeeRate::from_u64(1),
-                &[OutPoint::new(x_hash, 0)],
-            ),
-            "D must be re-registered for the conflict input after restore"
         );
     }
 }
@@ -1156,274 +674,12 @@ async fn conflict_recovery_index_stays_consistent() {
     assert!(recovered.is_empty());
 }
 
-/// Double-park guard: a superseded-at-submit candidate that *also* flows
-/// through `after_process` (the RPC/direct path flattens the hold into
-/// `RBFRejected`) must not be parked a second time in the pool-side waiting
-/// room — its fate follows the winner's registration, and a second parked
-/// copy would race the hold-and-restore machinery.
+/// On a successful commit the conflict cache remains the candidate's sole
+/// owner until bounded maintenance admits it to the coordinator. The handoff
+/// then removes the historical copy under the same pool lock, so combined
+/// readers cannot observe dual or zero ownership.
 #[tokio::test]
-#[cfg(any())]
-async fn superseded_candidate_is_not_double_parked_by_after_process() {
-    use super::harness::{WorkerSet, harness};
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use std::sync::Arc;
-
-    let service = harness(2)
-        .rbf(true)
-        .workers(WorkerSet::None)
-        .build()
-        .service;
-
-    // In-pool original spending X: the conflict target for both candidates.
-    let x_hash = Byte32::new([23u8; 32]);
-    let original = build_tx(vec![(&x_hash, 0)], 1);
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(
-                    original.clone(),
-                    MOCK_CYCLES,
-                    Capacity::shannons(1),
-                    MOCK_SIZE,
-                ),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-
-    let mk_candidate = |outputs_len: usize, fee: u64, peer: u64| {
-        let tx = build_tx(vec![(&x_hash, 0)], outputs_len);
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: (peer as usize).into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-
-    let (tx_d, source_d, resolved_d) = mk_candidate(1, 1_000, 1);
-    let (tx_w, source_w, resolved_w) = mk_candidate(2, 10_000, 2);
-    let id_d = tx_d.proposal_short_id();
-
-    // D registers and is popped (active); W registers stronger. D reaches
-    // submit while W is in flight and is held as W's `RaceLost`.
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_d.clone(),
-                source_d,
-                &resolved_d,
-                resolved_d.fee,
-                resolved_d.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    {
-        let mut verify = service.pipeline.queues.verify_queue.write().await;
-        assert!(verify.pop_front(false).is_some());
-    }
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_w,
-                source_w,
-                &resolved_w,
-                resolved_w.fee,
-                resolved_w.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    let result = service.submit_entry(resolved_d, MOCK_CYCLES).await.unwrap();
-    assert!(matches!(
-        result,
-        crate::process::submit::SubmitEntryResult::Superseded
-    ));
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(room.find_held(&id_d).is_some(), "D must be held by W");
-    }
-
-    // The RPC/direct path flattens the hold into `RBFRejected` and runs
-    // after_process — with D's conflict (the in-pool original) still live.
-    let ret = Err(Reject::RBFRejected("superseded".to_string()));
-    service.after_process(tx_d.clone(), source_d, &ret).await;
-
-    // Pre-fix, D was also parked pool-side (InputsBlocked): two parked
-    // copies of the same tx raced the hold-and-restore machinery.
-    let tx_pool = service.pool.tx_pool.read().await;
-    assert!(
-        tx_pool.waiting_room.get(&id_d).is_none(),
-        "a held candidate must not be double-parked into the pool-side waiting room"
-    );
-}
-
-/// A winner that commits *without replacing anything* (its conflicts
-/// vanished between registration and submit) must abort — restoring the
-/// candidates it displaced — not finalize-reject them.
-#[tokio::test]
-#[cfg(any())]
-async fn winner_committing_without_replacement_restores_displaced() {
-    use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_queue::PipelineQueue;
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use ckb_types::core::{TransactionBuilder, TransactionView};
-    use ckb_types::packed::{CellInput, CellOutput};
-    use ckb_types::prelude::*;
-    use std::sync::Arc;
-
-    // A real genesis funding cell: the winner's submit re-resolves against
-    // the chain (`check_rtx`/`time_relative_verify` run on tip change), so
-    // the conflict input must actually exist.
-    let h = harness(1).rbf(true).workers(WorkerSet::None).build();
-    let service = h.service;
-    let funding = h.out_points[0].clone();
-
-    let mk_tx = |outputs_len: usize| -> TransactionView {
-        TransactionBuilder::default()
-            .input(CellInput::new(funding.clone(), 0))
-            .outputs((0..outputs_len).map(|i| {
-                CellOutput::new_builder()
-                    .capacity(Capacity::bytes(i + 1).unwrap())
-                    .build()
-            }))
-            .outputs_data((0..outputs_len).map(|_| ckb_types::packed::Bytes::default()))
-            .build()
-    };
-
-    // In-pool original spending the funding cell: the conflict target.
-    let original = mk_tx(1);
-    let original_id = original.proposal_short_id();
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(
-                    original.clone(),
-                    MOCK_CYCLES,
-                    Capacity::shannons(1),
-                    MOCK_SIZE,
-                ),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-
-    let mk_candidate = |tx: TransactionView, fee: u64, peer: u64| {
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: (peer as usize).into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-
-    let (tx_a, source_a, resolved_a) = mk_candidate(mk_tx(2), 1_000, 1);
-    let (tx_b, source_b, resolved_b) = mk_candidate(mk_tx(3), 10_000, 2);
-    let id_a = tx_a.proposal_short_id();
-    let id_b = tx_b.proposal_short_id();
-
-    // A registers; B (stronger) registers and displaces A into the hold.
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_a,
-                source_a,
-                &resolved_a,
-                resolved_a.fee,
-                resolved_a.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_b,
-                source_b,
-                &resolved_b,
-                resolved_b.fee,
-                resolved_b.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(room.find_held(&id_a).is_some(), "A must be held by B");
-    }
-
-    // The conflict vanishes before B commits (third-party removal).
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool.pool_map.remove_entry(&original_id);
-    }
-
-    // B commits with nothing to replace: A must be restored (abort), not
-    // really rejected (finalize).
-    let result = service.submit_entry(resolved_b, MOCK_CYCLES).await.unwrap();
-    assert!(matches!(
-        result,
-        crate::process::submit::SubmitEntryResult::Committed
-    ));
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(
-            verify.contains_key(&id_a),
-            "displaced candidate must be restored when the winner replaced nothing"
-        );
-    }
-    // A's registration resumed for the conflict input (B now consumes it).
-    let rbf = service.pipeline.queues.rbf_candidates.read().await;
-    assert!(
-        rbf.is_superseded(&id_b, ckb_types::core::FeeRate::from_u64(1), &[funding],),
-        "A must be re-registered for the conflict input after the abort"
-    );
-}
-
-/// On a *successful* commit the recovered txs stay in the conflict cache
-/// while they are re-enqueued: the cache is their durable home until they
-/// reach a terminal state (re-committed or terminally rejected). Pulling
-/// them out at commit time would make the whole removed cluster vanish
-/// from the conflicts view the moment the replacement lands (the
-/// `RbfReplaceProposedSuccess` integration spec asserts exactly that
-/// visibility).
-#[tokio::test]
-async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
+async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once() {
     use super::harness::{WorkerSet, harness};
     use crate::tx_source::TxSource;
 
@@ -1472,7 +728,6 @@ async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
         result,
         replaced: _,
         rolled_back,
-        recovered,
         reject_events: _events,
         accept_event: _,
     } = {
@@ -1491,347 +746,37 @@ async fn successful_commit_keeps_recovered_txs_in_conflict_cache() {
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
     assert!(rolled_back.is_empty());
-    assert!(
-        recovered
-            .iter()
-            .any(|(tx, _)| tx.hash() == recovered_tx.hash()),
-        "the conflict-cached tx must be recovered once its input is freed"
-    );
-    let tx_pool = service.pool.tx_pool.read().await;
-    assert!(
-        tx_pool.conflict_cache.contains(&recovered_id),
-        "a recovered tx stays in the conflict cache until its own terminal state"
-    );
-}
-
-/// A winner whose transaction commits *on-chain* (block attachment) makes
-/// its displacement real: the candidates it held are really rejected
-/// (finalize — relayed, not recorded), not restored.
-#[tokio::test]
-#[cfg(any())]
-async fn attached_winner_finalizes_held_candidates() {
-    use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_queue::PipelineQueue;
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use ckb_types::packed::OutPoint;
-    use std::sync::Arc;
-
-    let h = harness(2).rbf(true).workers(WorkerSet::None).build();
-    let service = h.service;
-    let relay_rx = h.relay_rx;
-
-    // In-pool original spending X: the conflict target for both candidates.
-    let x_hash = Byte32::new([43u8; 32]);
-    let original = build_tx(vec![(&x_hash, 0)], 1);
     {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(
-                    original.clone(),
-                    MOCK_CYCLES,
-                    Capacity::shannons(1),
-                    MOCK_SIZE,
-                ),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-
-    let mk_candidate = |outputs_len: usize, fee: u64, peer: u64| {
-        let tx = build_tx(vec![(&x_hash, 0)], outputs_len);
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: (peer as usize).into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-
-    let (tx_l, source_l, resolved_l) = mk_candidate(1, 1_000, 1);
-    let (tx_a, source_a, resolved_a) = mk_candidate(2, 10_000, 2);
-    let id_l = tx_l.proposal_short_id();
-    let id_a = tx_a.proposal_short_id();
-
-    // L registers; A (stronger) registers and displaces L into the hold.
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_l.clone(),
-                source_l,
-                &resolved_l,
-                resolved_l.fee,
-                resolved_l.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_a,
-                source_a,
-                &resolved_a,
-                resolved_a.fee,
-                resolved_a.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(room.find_held(&id_l).is_some(), "L must be held by A");
-    }
-
-    // A commits on-chain (block attachment).
-    service
-        .remove_attached_from_pipeline(std::slice::from_ref(&id_a))
-        .await;
-
-    // A left the verify queue; L was really rejected — not restored.
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(!verify.contains_key(&id_a), "attached winner must leave");
+        let tx_pool = service.pool.tx_pool.read().await;
         assert!(
-            !verify.contains_key(&id_l),
-            "a finalized loser must not be restored"
+            tx_pool.conflict_cache.contains(&recovered_id),
+            "the cache owns the candidate before maintenance handoff"
         );
-    }
-    // A's registration is gone: nothing blocks candidates for X anymore.
-    let rbf = service.pipeline.queues.rbf_candidates.read().await;
-    assert!(
-        !rbf.is_superseded(
-            &id_l,
-            ckb_types::core::FeeRate::from_u64(u64::MAX),
-            &[OutPoint::new(x_hash, 0)],
-        ),
-        "the attached winner's registration must be removed"
-    );
-    drop(rbf);
-
-    // The loser's rejection is real and relayed (RBFRejected is exempt from
-    // recent_reject recording, so the relayer notification is the only
-    // terminal signal).
-    let hash_l = tx_l.hash();
-    let notified = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if let Ok(crate::service::TxVerificationResult::Reject { tx_hash }) =
-                relay_rx.try_recv()
-                && tx_hash == hash_l
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-    })
-    .await;
-    assert!(
-        notified.is_ok(),
-        "a finalized loser must be relayed as rejected"
-    );
-}
-
-/// An expired `RaceLost` entry must not loop or be censored by an unverified
-/// winner: expiry revokes a still-live speculative registration and restores
-/// its losers. If the winner is already gone, the loser is restored directly.
-#[tokio::test]
-#[cfg(any())]
-async fn expired_race_lost_revokes_stalled_winner_and_restores_loser() {
-    use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_queue::PipelineQueue;
-    use crate::resolved_tx::ResolvedTx;
-    use crate::tx_source::TxSource;
-    use ckb_types::core::cell::ResolvedTransaction;
-    use std::sync::Arc;
-
-    let h = harness(2).rbf(true).workers(WorkerSet::None).build();
-    let service = h.service;
-    let _relay_rx = h.relay_rx;
-
-    let x_hash = Byte32::new([53u8; 32]);
-    let original = build_tx(vec![(&x_hash, 0)], 1);
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(
-                    original.clone(),
-                    MOCK_CYCLES,
-                    Capacity::shannons(1),
-                    MOCK_SIZE,
-                ),
-                Status::Pending,
-            )
-            .unwrap();
-    }
-    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
-
-    let mk_candidate = |outputs_len: usize, fee: u64, peer: u64| {
-        let tx = build_tx(vec![(&x_hash, 0)], outputs_len);
-        let source = TxSource::Remote {
-            cycles: 0,
-            peer: (peer as usize).into(),
-        };
-        let resolved = ResolvedTx {
-            tx: tx.clone(),
-            rtx: Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
-            status: Status::Pending,
-            fee: Capacity::shannons(fee),
-            tx_size: tx.data().serialized_size_in_block(),
-            pre_resolve_tip: Default::default(),
-            snapshot: Arc::clone(&snapshot),
-            source,
-            epoch: 0,
-            verified: None,
-            resident_permit: None,
-        };
-        (tx, source, resolved)
-    };
-
-    // Scenario 1: the deadline passes while the winner is still in flight —
-    // revoke its speculative registration and restore the loser.
-    let (tx_l, source_l, resolved_l) = mk_candidate(1, 1_000, 1);
-    let (tx_a, source_a, resolved_a) = mk_candidate(2, 10_000, 2);
-    let id_l = tx_l.proposal_short_id();
-    let id_a = tx_a.proposal_short_id();
-
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_l.clone(),
-                source_l,
-                &resolved_l,
-                resolved_l.fee,
-                resolved_l.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    assert!(
-        service
-            .register_rbf_candidate(
-                tx_a,
-                source_a,
-                &resolved_a,
-                resolved_a.fee,
-                resolved_a.tx_size
-            )
-            .await
-            .unwrap()
-    );
-    {
-        let room = service.pipeline.waiting_room.read().await;
-        assert!(room.find_held(&id_l).is_some(), "L must be held by A");
-    }
-    {
-        let mut room = service.pipeline.waiting_room.write().await;
-        room.expire_entry_for_test(&id_l);
-    }
-    // Drive the expiry scan (any wait() runs it) and route the eviction.
-    let dummy = build_tx(vec![(&Byte32::new([54u8; 32]), 0)], 1);
-    service
-        .handle_missing_input_orphan(
-            dummy,
-            TxSource::Local,
-            std::collections::HashSet::from([Byte32::new([54u8; 32])]),
-        )
-        .await;
-
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(
-            verify.contains_key(&id_l),
-            "an unverified stalled winner must not censor the loser"
-        );
+        assert_eq!(tx_pool.conflict_recovery_len(), 1);
     }
     assert!(
         !service
             .pipeline
-            .queues
-            .rbf_candidates
-            .read()
-            .await
-            .contains_candidate(&id_a),
-        "expiry must revoke the stalled winner's speculative registration"
+            .runtime
+            .mutate(|coordinator| coordinator.contains_hash(&recovered_tx.hash())),
+        "the coordinator must not own the candidate before handoff"
     );
 
-    // Scenario 2: the winner is gone before the deadline — the loser is
-    // restored to the verify queue.
-    assert!(matches!(
-        service.remove_tx(tx_l.hash()).await,
-        crate::service::RemoveTxOutcome::Removed
-    ));
-    let (tx_l2, source_l2, resolved_l2) = mk_candidate(3, 1_000, 1);
-    let (tx_b, source_b, resolved_b) = mk_candidate(4, 10_000, 2);
-    let id_l2 = tx_l2.proposal_short_id();
-    let id_b = tx_b.proposal_short_id();
-
+    let progress = service.recover_conflict_cache_slice(1).await;
+    assert!(!progress.capacity_blocked);
     assert!(
         service
-            .register_rbf_candidate(
-                tx_l2,
-                source_l2,
-                &resolved_l2,
-                resolved_l2.fee,
-                resolved_l2.tx_size
-            )
-            .await
-            .unwrap()
+            .pipeline
+            .runtime
+            .mutate(|coordinator| coordinator.contains_hash(&recovered_tx.hash())),
+        "maintenance must transfer the candidate to the coordinator"
     );
+    let tx_pool = service.pool.tx_pool.read().await;
     assert!(
-        service
-            .register_rbf_candidate(
-                tx_b,
-                source_b,
-                &resolved_b,
-                resolved_b.fee,
-                resolved_b.tx_size
-            )
-            .await
-            .unwrap()
+        !tx_pool.conflict_cache.contains(&recovered_id),
+        "cache ownership must end at coordinator admission"
     );
-    {
-        let mut room = service.pipeline.waiting_room.write().await;
-        room.expire_entry_for_test(&id_l2);
-    }
-    // The winner's registration disappears without waking the loser.
-    {
-        let mut rbf = service.pipeline.queues.rbf_candidates.write().await;
-        rbf.remove(&id_b);
-    }
-    let dummy2 = build_tx(vec![(&Byte32::new([55u8; 32]), 0)], 1);
-    service
-        .handle_missing_input_orphan(
-            dummy2,
-            TxSource::Local,
-            std::collections::HashSet::from([Byte32::new([55u8; 32])]),
-        )
-        .await;
-
-    {
-        let verify = service.pipeline.queues.verify_queue.read().await;
-        assert!(
-            verify.contains_key(&id_l2),
-            "must be restored when the winner is gone before the deadline"
-        );
-    }
+    assert_eq!(tx_pool.conflict_recovery_len(), 0);
 }
 
 /// A successful replacement must not re-enqueue the descendants it
@@ -1907,19 +852,12 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
         result,
         replaced: _,
         rolled_back,
-        recovered,
         reject_events: _events,
         accept_event: _,
     } = outcome;
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
     assert!(rolled_back.is_empty());
-    assert!(
-        !recovered
-            .iter()
-            .any(|(tx, _)| tx.proposal_short_id() == t2_id),
-        "a removed descendant must not be re-enqueued on a successful replacement"
-    );
     // The whole removed cluster stays in the conflict cache as rejected
     // candidates (the audit/RPC view, see `RbfReplaceProposedSuccess`).
     let tx_pool = service.pool.tx_pool.read().await;

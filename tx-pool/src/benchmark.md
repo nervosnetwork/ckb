@@ -115,14 +115,14 @@ The matrix is selected at compile time via environment variables:
 | `QUICK_DEPENDENT_SIZES` | `[20]` |
 | `QUICK_DEPENDENT_WARM_POOL_SIZE` | `10` |
 
-Regular workloads and dependent-chain workloads use different size/warm configurations so the chain never grows too long.  Dependent chains are only benchmarked with **1 peer and the first worker count** because they are bottlenecked by serialized orphan recovery; varying peers/workers adds no useful signal.
+Regular workloads and dependent-chain workloads use different size/warm configurations so the chain never grows too long. Dependent chains are only benchmarked with **1 peer and the first worker count** because they are bottlenecked by serialized dependency resolution/wake-up; varying peers/workers adds no useful signal.
 
 ## Workloads
 
 - `always_success`: independent transactions using the always-success lock and genesis issue outputs.
 - `secp256k1`: independent transactions using the secp256k1_blake160_sighash_all lock.
 - `dependent_always_success_parent_first`: a normal parent -> child chain using the always-success lock and the in-flight dependency path.
-- `dependent_always_success_child_first`: the same chain submitted in reverse to exercise orphan recovery.
+- `dependent_always_success_child_first`: the same chain submitted in reverse to exercise coordinator parent waiting and wake-up.
 - `dependent_secp_parent_first`: a normal parent -> child chain using the secp lock.
 - `dependent_secp_child_first`: the same secp chain submitted in reverse.
 
@@ -145,7 +145,7 @@ Each workload is tested in two variants:
 Dependent chains are measured in both directions because they exercise different state transitions:
 
 - **parent-first**: children observe an in-flight parent and use the ordered dependency path;
-- **child-first**: children enter orphan parking and are recovered cascade-style after their parents are accepted.
+- **child-first**: children enter coordinator `WaitingParents` state and are woken after their parents are accepted.
 
 - **warm benchmark**: the warm prefix is already in the pool; the target segment is submitted in the selected direction.
 - **cold benchmark**: the target segment depends on the warm prefix. The warm prefix is submitted in natural order during setup (not measured), then the target segment is submitted parent-first or child-first during measurement.
@@ -157,9 +157,9 @@ Dependent chains are measured in both directions because they exercise different
 - Before returning a new controller to Criterion, setup completes one dispatcher round-trip and a short Tokio scheduling interval. This keeps freshly spawned worker startup latency outside the measured transaction batch without warming the verification cache or pool.
 - `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration. A teardown timeout or task panic fails the benchmark instead of silently admitting a contaminated sample.
 - Criterion uses `iter_batched_ref`, so that complete service shutdown (worker quiescence, pool save and relay-drain join) happens after the measurement interval rather than being charged to transaction latency.
-- `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the deferred task worker. It is used only for cycle measurement. Teardown joins those workers first, releases the final service/relay sender, and only then joins the relay drain; joining all three ownership layers at once would deadlock until timeout.
+- `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the best-effort verification-cache worker. It is used only for cycle measurement. Teardown joins those workers first, releases the final service/relay sender, and only then joins the relay drain; joining all three ownership layers at once would deadlock until timeout.
 - Both `start_controller` and `start_service` spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.
-- The deferred task worker only receives clones of the two fields it needs (`ordered_resolve_queue` and `txs_verify_cache`) so it does not hold a `deferred_sender` and the channel can close on shutdown.
+- The verification-cache worker receives only the cache handle and channel receiver, so it cannot retain its own sender and prevent shutdown.
 - `SharedBench` creates genesis issue outputs according to the workload's actual need (`issue_outputs = max_size + warm_pool_size`), avoiding over-allocation for dependent chains.
 
 ### Criterion sampling

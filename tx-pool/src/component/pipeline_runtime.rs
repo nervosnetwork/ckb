@@ -214,6 +214,14 @@ impl PipelineRuntime {
         Arc::clone(&self.maintenance_ready)
     }
 
+    /// Wake the shared bounded maintenance worker for work whose authority
+    /// lives outside the coordinator (currently ConflictCache ownership
+    /// transfer). The underlying queue is level-triggered; Notify is only a
+    /// latency hint and the expiry tick provides a defensive retry.
+    pub(crate) fn request_maintenance(&self) {
+        self.maintenance_ready.notify_one();
+    }
+
     pub(crate) fn maintenance_pending(&self) -> bool {
         self.read(|state| state.dependency_failure_len() != 0 || state.conflict_recheck_len() != 0)
     }
@@ -236,13 +244,7 @@ impl PipelineRuntime {
         source: TxSource,
         epoch: u64,
         stage: RawStage,
-    ) -> Result<
-        (
-            bool,
-            Vec<TerminalRecord<PipelineRawTx, ResolvedTx, PipelineVerifiedTx>>,
-        ),
-        CoordinatorError,
-    > {
+    ) -> Result<(bool, Vec<TerminalRecord<PipelineRawTx>>), CoordinatorError> {
         self.admit_transaction_journaled(tx, source, epoch, stage, |_| {})
     }
 
@@ -252,14 +254,8 @@ impl PipelineRuntime {
         source: TxSource,
         epoch: u64,
         stage: RawStage,
-        journal: impl FnOnce(&[TerminalRecord<PipelineRawTx, ResolvedTx, PipelineVerifiedTx>]),
-    ) -> Result<
-        (
-            bool,
-            Vec<TerminalRecord<PipelineRawTx, ResolvedTx, PipelineVerifiedTx>>,
-        ),
-        CoordinatorError,
-    > {
+        journal: impl FnOnce(&[TerminalRecord<PipelineRawTx>]),
+    ) -> Result<(bool, Vec<TerminalRecord<PipelineRawTx>>), CoordinatorError> {
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
         let dependencies = tx.unique_parents();

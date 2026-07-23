@@ -87,25 +87,10 @@ pub(crate) enum BlockAssemblerMessage {
     Reset(Arc<Snapshot>),
 }
 
-/// Deferred side-effects that are processed by a single background worker
-/// instead of fire-and-forget `tokio::spawn` calls.
-///
-/// The two variants deliberately have different delivery semantics:
-/// [`DeferredTask::RecoverTxs`] is sent with `send().await` (guaranteed —
-/// displaced transactions must never be lost, at the price of backpressure
-/// on the submit path), while [`DeferredTask::CacheUpdate`] is sent with
-/// `try_send` (best-effort — a dropped update only means the transaction is
-/// re-verified next time, so it may yield to recovery traffic under load).
-/// Both are cheap for the worker to apply: recovery is only an enqueue into
-/// the ordered resolve queue (re-resolution happens later in the resolver),
-/// and a cache update is a single LRU put.
-pub(crate) enum DeferredTask {
-    /// Push RBF-displaced transactions back into the ordered resolve queue
-    /// so they can be re-resolved, re-verified and re-submitted.
-    RecoverTxs(Vec<crate::resolved_tx::ResolveJob>),
-    /// Store a successful verification result in the cache (keyed by wtx_hash).
-    CacheUpdate {
-        wtx_hash: Byte32,
-        verified: ckb_verification::cache::Completed,
-    },
+/// Best-effort verification-cache update. Dropping one only causes a later
+/// re-verification; executable transaction recovery is owned separately by
+/// the level-triggered conflict-cache maintenance path.
+pub(crate) struct VerifyCacheUpdate {
+    pub(crate) wtx_hash: Byte32,
+    pub(crate) verified: ckb_verification::cache::Completed,
 }

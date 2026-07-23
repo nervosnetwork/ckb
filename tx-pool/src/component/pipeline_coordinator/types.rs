@@ -221,6 +221,7 @@ impl CoordinatorLimits {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn with_capacity_reconciliation_limits(
         mut self,
         max_dependency_ancestors: usize,
@@ -353,7 +354,6 @@ pub(crate) struct RawWorkLease<R> {
     pub(crate) stage: RawStage,
     pub(crate) version: CoordinatorVersion,
     pub(crate) payload: Arc<R>,
-    pub(crate) source: CoordinatorSource,
 }
 
 #[derive(Debug, Clone)]
@@ -361,7 +361,6 @@ pub(crate) struct VerifyWorkLease<U> {
     pub(crate) hash: Byte32,
     pub(crate) version: CoordinatorVersion,
     pub(crate) payload: Arc<U>,
-    pub(crate) source: CoordinatorSource,
 }
 
 #[derive(Debug, Clone)]
@@ -372,29 +371,29 @@ pub(crate) struct CommitLease<V> {
 }
 
 #[derive(Debug)]
-pub(crate) struct CommitHandoff<R, V> {
+pub(crate) struct CommitHandoff<R> {
+    #[cfg(test)]
     pub(crate) hash: Byte32,
-    pub(crate) short_id: ProposalShortId,
     pub(crate) raw: Arc<R>,
-    pub(crate) verified: Arc<V>,
+    #[cfg(test)]
     pub(crate) peer: Option<PeerIndex>,
     pub(crate) source: CoordinatorSource,
+    #[cfg(test)]
     pub(crate) ready_children: Vec<CoordinatorTicket>,
 }
 
 #[derive(Debug)]
-pub(crate) struct ExternalCommitRecord<R> {
+pub(crate) struct ExternalCommitRecord {
+    #[cfg(test)]
     pub(crate) hash: Byte32,
-    pub(crate) short_id: ProposalShortId,
-    pub(crate) raw: Arc<R>,
-    pub(crate) source: CoordinatorSource,
+    #[cfg(test)]
     pub(crate) ready_children: Vec<CoordinatorTicket>,
 }
 
 #[derive(Debug)]
-pub(crate) struct ConflictCommitHandoff<R, U, V> {
-    pub(crate) winner: CommitHandoff<R, V>,
-    pub(crate) rejected: Vec<TerminalRecord<R, U, V>>,
+pub(crate) struct ConflictCommitHandoff<R> {
+    pub(crate) winner: CommitHandoff<R>,
+    pub(crate) rejected: Vec<TerminalRecord<R>>,
 }
 
 /// Administrative/negative terminal outcomes deliberately exclude commit.
@@ -412,20 +411,12 @@ pub(crate) enum TerminalDisposition {
 }
 
 #[derive(Debug)]
-pub(crate) struct TerminalRecord<R, U, V> {
+pub(crate) struct TerminalRecord<R> {
     pub(crate) hash: Byte32,
-    pub(crate) short_id: ProposalShortId,
     pub(crate) raw: Arc<R>,
-    pub(crate) later_phase: Option<TerminalPhase<U, V>>,
-    pub(crate) peer: Option<PeerIndex>,
     pub(crate) source: CoordinatorSource,
+    #[cfg(test)]
     pub(crate) disposition: TerminalDisposition,
-}
-
-#[derive(Debug)]
-pub(crate) enum TerminalPhase<U, V> {
-    Unverified(Arc<U>),
-    Verified(Arc<V>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -512,6 +503,7 @@ pub(crate) enum CoordinatorError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) enum CoordinatorAuditError {
     GlobalUsage,
     PeerUsage,
@@ -544,12 +536,6 @@ pub(super) enum RawLocation {
 pub(super) enum UnverifiedLocation {
     Queued,
     Active,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum PlainVerifiedLocation {
-    Ready,
-    Committing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -588,11 +574,6 @@ pub(super) enum EntryState<R, U, V> {
         payload: Arc<U>,
         location: UnverifiedLocation,
     },
-    PlainVerified {
-        raw: Arc<R>,
-        payload: Arc<V>,
-        location: PlainVerifiedLocation,
-    },
     CandidateVerified {
         raw: Arc<R>,
         payload: Arc<V>,
@@ -622,15 +603,6 @@ impl<R, U, V> Clone for EntryState<R, U, V> {
                 raw: Arc::clone(raw),
                 payload: Arc::clone(payload),
                 location: *location,
-            },
-            Self::PlainVerified {
-                raw,
-                payload,
-                location,
-            } => Self::PlainVerified {
-                raw: Arc::clone(raw),
-                payload: Arc::clone(payload),
-                location: location.clone(),
             },
             Self::CandidateVerified {
                 raw,
@@ -663,7 +635,6 @@ impl<R, U, V> EntryState<R, U, V> {
         match self {
             Self::Raw { raw, .. }
             | Self::Unverified { raw, .. }
-            | Self::PlainVerified { raw, .. }
             | Self::CandidateVerified { raw, .. }
             | Self::Invalidated { raw, .. } => raw,
         }
@@ -681,8 +652,7 @@ impl<R, U, V> EntryState<R, U, V> {
                 payload: InvalidatedPayload::Unverified(_),
                 ..
             } => PayloadPhase::Unverified,
-            Self::PlainVerified { .. }
-            | Self::CandidateVerified { .. }
+            Self::CandidateVerified { .. }
             | Self::Invalidated {
                 payload: InvalidatedPayload::Verified(_),
                 ..
@@ -714,11 +684,7 @@ impl<R, U, V> EntryState<R, U, V> {
                 location: UnverifiedLocation::Active,
                 ..
             } => CoordinatorLocation::VerifyActive,
-            Self::PlainVerified {
-                location: PlainVerifiedLocation::Ready,
-                ..
-            }
-            | Self::CandidateVerified {
+            Self::CandidateVerified {
                 location: CandidateLocation::Ready,
                 ..
             } => CoordinatorLocation::ReadyToCommit,
@@ -732,11 +698,7 @@ impl<R, U, V> EntryState<R, U, V> {
                 location: CandidateLocation::Recheck { .. },
                 ..
             } => CoordinatorLocation::ConflictRecheck,
-            Self::PlainVerified {
-                location: PlainVerifiedLocation::Committing,
-                ..
-            }
-            | Self::CandidateVerified {
+            Self::CandidateVerified {
                 location: CandidateLocation::Committing,
                 ..
             } => CoordinatorLocation::Committing,
@@ -760,11 +722,7 @@ impl<R, U, V> EntryState<R, U, V> {
                 location: UnverifiedLocation::Queued,
                 ..
             } => Some(QueueKind::Verify),
-            Self::PlainVerified {
-                location: PlainVerifiedLocation::Ready,
-                ..
-            }
-            | Self::CandidateVerified {
+            Self::CandidateVerified {
                 location: CandidateLocation::Ready,
                 ..
             } => Some(QueueKind::Commit),
@@ -781,9 +739,6 @@ impl<R, U, V> EntryState<R, U, V> {
             } | Self::Unverified {
                 location: UnverifiedLocation::Active,
                 ..
-            } | Self::PlainVerified {
-                location: PlainVerifiedLocation::Committing,
-                ..
             } | Self::CandidateVerified {
                 location: CandidateLocation::Committing,
                 ..
@@ -794,10 +749,7 @@ impl<R, U, V> EntryState<R, U, V> {
     pub(super) fn is_committing(&self) -> bool {
         matches!(
             self,
-            Self::PlainVerified {
-                location: PlainVerifiedLocation::Committing,
-                ..
-            } | Self::CandidateVerified {
+            Self::CandidateVerified {
                 location: CandidateLocation::Committing,
                 ..
             }
@@ -929,7 +881,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
             }
             EntryState::Raw { .. }
             | EntryState::Unverified { .. }
-            | EntryState::PlainVerified { .. }
             | EntryState::Invalidated { .. } => true,
         }
     }
@@ -1099,14 +1050,17 @@ impl TicketQueue {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn physical_len(&self) -> usize {
         self.physical.len()
     }
 
+    #[cfg(test)]
     pub(super) fn tickets(&self) -> impl Iterator<Item = &CoordinatorTicket> {
         self.physical.iter()
     }
 
+    #[cfg(test)]
     pub(super) fn structure_valid(&self) -> bool {
         self.live.iter().all(|ticket| {
             self.physical

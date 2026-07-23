@@ -4,17 +4,17 @@ use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::recent_reject::RecentReject;
 use crate::constants::{
-    DEFERRED_CHANNEL_SIZE, EFFECT_OUTBOX_MAX_BATCHES, MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE,
-    MAX_PRE_CHECK_QUEUE_TX_SIZE, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
-    SECONDS_PER_DAY,
+    EFFECT_OUTBOX_MAX_BATCHES, MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE, MAX_PRE_CHECK_QUEUE_TX_SIZE,
+    MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS, SECONDS_PER_DAY,
+    VERIFY_CACHE_CHANNEL_SIZE,
 };
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
 use crate::service::workers;
 use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE};
 use crate::service::{
-    BlockAssemblerMessage, ChainReorgArgs, DeferredTask, Message, Notify, TxPoolController,
-    TxPoolService, TxVerificationResult, process,
+    BlockAssemblerMessage, ChainReorgArgs, Message, Notify, TxPoolController, TxPoolService,
+    TxVerificationResult, VerifyCacheUpdate, process,
 };
 use crate::util::panic_payload_to_string;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -77,7 +77,7 @@ fn assemble_service(
     fee_estimator: FeeEstimator,
     tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
-    deferred_sender: mpsc::Sender<DeferredTask>,
+    verify_cache_sender: mpsc::Sender<VerifyCacheUpdate>,
     chunk_rx: watch::Receiver<ChunkCommand>,
     pre_check_cancel: CancellationToken,
 ) -> TxPoolService {
@@ -127,7 +127,7 @@ fn assemble_service(
             runtime,
             epoch: Arc::new(crate::service::PipelineEpoch::default()),
             chunk_rx,
-            deferred_sender,
+            verify_cache_sender,
         },
         relay: crate::service::RelayState {
             network,
@@ -209,7 +209,7 @@ impl TxPoolServiceBuilder {
 /// persisted on graceful shutdown.
 struct BackgroundWorkerHandles {
     effects: tokio::task::JoinHandle<()>,
-    deferred: tokio::task::JoinHandle<()>,
+    verify_cache: tokio::task::JoinHandle<()>,
     maintenance: tokio::task::JoinHandle<()>,
     pre_check: Vec<tokio::task::JoinHandle<()>>,
     verify_mgr: tokio::task::JoinHandle<()>,
@@ -231,7 +231,7 @@ impl BackgroundWorkerHandles {
     ) -> bool {
         let mut effect_publisher = self.effects;
         let mut tasks: Vec<(String, tokio::task::JoinHandle<()>)> = Vec::new();
-        tasks.push(("deferred worker".to_owned(), self.deferred));
+        tasks.push(("verify-cache worker".to_owned(), self.verify_cache));
         tasks.push(("pipeline maintenance".to_owned(), self.maintenance));
         for (i, handle) in self.pre_check.into_iter().enumerate() {
             tasks.push((format!("pre-check worker {i}"), handle));
@@ -313,11 +313,11 @@ mod shutdown_tests {
 
     fn handles(
         effects: tokio::task::JoinHandle<()>,
-        deferred: tokio::task::JoinHandle<()>,
+        verify_cache: tokio::task::JoinHandle<()>,
     ) -> BackgroundWorkerHandles {
         BackgroundWorkerHandles {
             effects,
-            deferred,
+            verify_cache,
             maintenance: finished(),
             pre_check: vec![finished()],
             verify_mgr: finished(),
@@ -481,8 +481,8 @@ impl TxPoolServiceBuilder {
         let pre_check_workers =
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
 
-        let (deferred_sender, deferred_receiver) =
-            mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
+        let (verify_cache_sender, verify_cache_receiver) =
+            mpsc::channel::<VerifyCacheUpdate>(VERIFY_CACHE_CHANNEL_SIZE);
 
         let service = assemble_service(
             tx_pool,
@@ -495,20 +495,16 @@ impl TxPoolServiceBuilder {
             fee_estimator,
             tx_relay_sender,
             block_assembler_sender,
-            deferred_sender,
+            verify_cache_sender,
             chunk_rx.clone(),
             pre_check_cancel.clone(),
         );
 
-        let deferred_handle = workers::spawn_deferred_worker(
+        let verify_cache_handle = workers::spawn_verify_cache_worker(
             &handle,
-            Arc::clone(&service.pipeline.runtime),
             Arc::clone(&service.aux.txs_verify_cache),
-            deferred_receiver,
+            verify_cache_receiver,
             signal_receiver.child_token(),
-            service.relay.clone(),
-            service.aux.recent_reject.clone(),
-            Arc::clone(&service.pipeline.epoch),
         );
         let effect_handle = handle.spawn(crate::service::effects::run_effect_publisher(
             Arc::clone(&service.relay.effects),
@@ -563,7 +559,7 @@ impl TxPoolServiceBuilder {
             signal_receiver,
             BackgroundWorkerHandles {
                 effects: effect_handle,
-                deferred: deferred_handle,
+                verify_cache: verify_cache_handle,
                 maintenance: maintenance_handle,
                 pre_check: pre_check_handles,
                 verify_mgr: verify_mgr_handle,
@@ -614,7 +610,7 @@ impl TxPoolServiceBuilder {
                                     let _permit = permit;
                                     // Message handlers must never take the whole
                                     // dispatcher down with a panic: catch and log,
-                                    // matching the deferred worker's behaviour.
+                                    // matching the background workers' behaviour.
                                     let handler = process(service_clone, message);
                                     if let Err(payload) = AssertUnwindSafe(handler).catch_unwind().await {
                                         error!(
@@ -769,8 +765,8 @@ impl TxPoolServiceBuilder {
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
         let (block_assembler_sender, _) = self.block_assembler_channel;
-        let (deferred_sender, deferred_receiver) =
-            mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
+        let (verify_cache_sender, verify_cache_receiver) =
+            mpsc::channel::<VerifyCacheUpdate>(VERIFY_CACHE_CHANNEL_SIZE);
 
         let service = assemble_service(
             tx_pool,
@@ -783,7 +779,7 @@ impl TxPoolServiceBuilder {
             self.fee_estimator,
             self.tx_relay_sender,
             block_assembler_sender,
-            deferred_sender,
+            verify_cache_sender,
             self.chunk_rx,
             pre_check_cancel,
         );
@@ -801,7 +797,7 @@ impl TxPoolServiceBuilder {
         BenchServiceParts {
             service,
             signal,
-            deferred_receiver,
+            verify_cache_receiver,
             effect_publisher,
         }
     }
@@ -815,6 +811,6 @@ impl TxPoolServiceBuilder {
 pub(crate) struct BenchServiceParts {
     pub service: TxPoolService,
     pub signal: CancellationToken,
-    pub deferred_receiver: mpsc::Receiver<DeferredTask>,
+    pub verify_cache_receiver: mpsc::Receiver<VerifyCacheUpdate>,
     pub effect_publisher: tokio::task::JoinHandle<()>,
 }

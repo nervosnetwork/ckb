@@ -71,7 +71,7 @@ impl TxPoolService {
                 }
             };
             match self.settle_verify_parent_wait(lease, parents, permit).await {
-                Ok(ParentWaitOutcome::Parked { .. }) => return,
+                Ok(ParentWaitOutcome::Parked) => return,
                 Ok(ParentWaitOutcome::Requeued) => return,
                 Ok(ParentWaitOutcome::Unavailable) => {}
                 Err(
