@@ -201,7 +201,23 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if dependencies.len() > self.limits.max_dependencies_per_entry {
             return Err(CoordinatorError::DependencyLimitExceeded);
         }
-        let victims = self.dependency_capacity_victims(source, &dependencies)?;
+        let protected = self.dependency_ancestor_closure(&dependencies);
+        let mut victims = self.dependency_capacity_victims(source, &dependencies, &protected)?;
+        let base_metadata_bytes =
+            self.metadata_charge_bytes(dependencies.len(), expires_at.is_some(), 0, 0)?;
+        let incoming_charge_bytes = charge_bytes
+            .checked_add(base_metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let selected: HashSet<_> = victims.iter().cloned().collect();
+        victims.extend(self.global_capacity_victims(
+            None,
+            source,
+            incoming_charge_bytes,
+            &selected,
+            &protected,
+        )?);
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        victims.dedup();
         let mut terminal = Vec::new();
         terminal
             .try_reserve(victims.len())
@@ -545,6 +561,66 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     /// the total payload residency of that entire bundle, including the raw
     /// transaction retained for dependency demotion and terminal handoff.
     pub(crate) fn complete_raw(
+        &mut self,
+        lease: &RawWorkLease<R>,
+        unverified: U,
+        charge_bytes: usize,
+        verify_schedule: VerifySchedule,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+        let expected = CoordinatorLocation::RawActive(lease.stage);
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &expected,
+            PayloadPhase::Raw,
+        )?;
+        let entry = self
+            .entries
+            .get(&lease.hash)
+            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        let total_charge_bytes = charge_bytes
+            .checked_add(entry.base_metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let protected = self.dependency_ancestor_closure(&entry.dependencies);
+        let victims = self.global_capacity_victims(
+            Some(&lease.hash),
+            entry.source,
+            total_charge_bytes,
+            &HashSet::new(),
+            &protected,
+        )?;
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(victims.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut affected = vec![lease.hash.clone()];
+        affected.extend(self.causal_undo_hashes(&victims));
+        for victim in &victims {
+            if let Some(waiters) = self.waiters_by_blocker.get(victim) {
+                affected.extend(waiters.iter().cloned());
+            }
+            self.preflight_remove_conflict_indexes(victim)?;
+            self.preflight_remove_pool_input_indexes(victim)?;
+        }
+        self.with_entry_undo(&affected, move |coordinator| {
+            for victim in victims {
+                coordinator.mark_children_invalid(&victim, &victim)?;
+                let entry = coordinator.remove_present_apply(&victim)?;
+                terminal.push(Self::terminal_record(
+                    victim,
+                    entry,
+                    TerminalDisposition::CapacityEvicted,
+                ));
+                coordinator.apply_fault_checkpoint();
+            }
+            let version =
+                coordinator.complete_raw_inner(lease, unverified, charge_bytes, verify_schedule)?;
+            coordinator.apply_fault_checkpoint();
+            Ok((version, terminal))
+        })
+    }
+
+    fn complete_raw_inner(
         &mut self,
         lease: &RawWorkLease<R>,
         unverified: U,
@@ -1006,6 +1082,63 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         lease: &VerifyWorkLease<U>,
         verified: V,
         charge_bytes: usize,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::VerifyActive,
+            PayloadPhase::Unverified,
+        )?;
+        let entry = self
+            .entries
+            .get(&lease.hash)
+            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        let total_charge_bytes = charge_bytes
+            .checked_add(entry.base_metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let protected = self.dependency_ancestor_closure(&entry.dependencies);
+        let victims = self.global_capacity_victims(
+            Some(&lease.hash),
+            entry.source,
+            total_charge_bytes,
+            &HashSet::new(),
+            &protected,
+        )?;
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(victims.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut affected = vec![lease.hash.clone()];
+        affected.extend(self.causal_undo_hashes(&victims));
+        for victim in &victims {
+            if let Some(waiters) = self.waiters_by_blocker.get(victim) {
+                affected.extend(waiters.iter().cloned());
+            }
+            self.preflight_remove_conflict_indexes(victim)?;
+            self.preflight_remove_pool_input_indexes(victim)?;
+        }
+        self.with_entry_undo(&affected, move |coordinator| {
+            for victim in victims {
+                coordinator.mark_children_invalid(&victim, &victim)?;
+                let entry = coordinator.remove_present_apply(&victim)?;
+                terminal.push(Self::terminal_record(
+                    victim,
+                    entry,
+                    TerminalDisposition::CapacityEvicted,
+                ));
+                coordinator.apply_fault_checkpoint();
+            }
+            let version = coordinator.complete_verification_inner(lease, verified, charge_bytes)?;
+            coordinator.apply_fault_checkpoint();
+            Ok((version, terminal))
+        })
+    }
+
+    fn complete_verification_inner(
+        &mut self,
+        lease: &VerifyWorkLease<U>,
+        verified: V,
+        charge_bytes: usize,
     ) -> Result<CoordinatorVersion, CoordinatorError> {
         self.validate_version_location_phase(
             &lease.hash,
@@ -1077,18 +1210,38 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if candidate.inputs.len() > self.limits.max_conflict_inputs_per_entry {
             return Err(CoordinatorError::ConflictInputLimitExceeded);
         }
-        let source = self
+        let entry = self
             .entries
             .get(&lease.hash)
-            .map(|entry| entry.source)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        let source = entry.source;
         let incoming = CandidateMeta {
             inputs: candidate.inputs.clone(),
             fee: candidate.fee,
             tx_size: candidate.tx_size,
             arrival: self.next_arrival,
         };
-        let victims = self.conflict_capacity_victims(&lease.hash, source, &incoming)?;
+        let mut victims = self.conflict_capacity_victims(&lease.hash, source, &incoming)?;
+        let metadata_bytes = self.metadata_charge_bytes(
+            entry.dependencies.len(),
+            entry.expires_at.is_some(),
+            candidate.inputs.len(),
+            0,
+        )?;
+        let total_charge_bytes = charge_bytes
+            .checked_add(metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let protected = self.dependency_ancestor_closure(&entry.dependencies);
+        let selected: HashSet<_> = victims.iter().cloned().collect();
+        victims.extend(self.global_capacity_victims(
+            Some(&lease.hash),
+            source,
+            total_charge_bytes,
+            &selected,
+            &protected,
+        )?);
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        victims.dedup();
         let mut terminal = Vec::new();
         terminal
             .try_reserve(victims.len())
@@ -1417,7 +1570,30 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 actual: entry.location(),
             });
         }
-        let victims = self.pool_input_capacity_victims(hash, &inputs)?;
+        let mut victims = self.pool_input_capacity_victims(hash, &inputs)?;
+        let added_metadata = inputs
+            .len()
+            .checked_mul(self.limits.metadata_cost.pool_input_edge_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let next_metadata_bytes = entry
+            .metadata_bytes
+            .checked_add(added_metadata)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let next_charge_bytes = entry
+            .resident_payload_bytes
+            .checked_add(next_metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let protected = self.dependency_ancestor_closure(&entry.dependencies);
+        let selected: HashSet<_> = victims.iter().cloned().collect();
+        victims.extend(self.global_capacity_victims(
+            Some(hash),
+            entry.source,
+            next_charge_bytes,
+            &selected,
+            &protected,
+        )?);
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        victims.dedup();
         let mut terminal = Vec::new();
         terminal
             .try_reserve(victims.len())
@@ -2440,6 +2616,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &self,
         source: CoordinatorSource,
         dependencies: &HashSet<Byte32>,
+        protected: &HashSet<Byte32>,
     ) -> Result<Vec<Byte32>, CoordinatorError> {
         let mut parents: Vec<_> = dependencies.iter().cloned().collect();
         parents.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
@@ -2460,6 +2637,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let victim = children
                 .iter()
                 .filter(|child| !selected.contains(*child))
+                .filter(|child| !protected.contains(*child))
                 .filter_map(|child| self.entries.get(child).map(|entry| (child, entry)))
                 .filter(|(_, entry)| {
                     !entry.is_committing()
@@ -2481,6 +2659,91 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .ok_or_else(|| CoordinatorError::ParentFanoutLimitExceeded(parent.clone()))?;
             selected.insert(victim.clone());
             victims.push(victim);
+        }
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        Ok(victims)
+    }
+
+    fn dependency_ancestor_closure(&self, dependencies: &HashSet<Byte32>) -> HashSet<Byte32> {
+        let mut ancestors = HashSet::new();
+        let mut pending: Vec<_> = dependencies.iter().cloned().collect();
+        while let Some(hash) = pending.pop() {
+            if !ancestors.insert(hash.clone()) {
+                continue;
+            }
+            if let Some(entry) = self.entries.get(&hash) {
+                pending.extend(entry.dependencies.iter().cloned());
+            }
+        }
+        ancestors
+    }
+
+    fn global_capacity_victims(
+        &self,
+        incoming_hash: Option<&Byte32>,
+        incoming_source: CoordinatorSource,
+        incoming_charge_bytes: usize,
+        preselected: &HashSet<Byte32>,
+        protected: &HashSet<Byte32>,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let mut projected = self.global_usage;
+        if let Some(hash) = incoming_hash {
+            let old = self
+                .entries
+                .get(hash)
+                .map(|entry| CoordinatorResidency::new(1, entry.charge_bytes))
+                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+            projected = projected
+                .checked_sub(old)
+                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+        }
+        for hash in preselected {
+            let charge = self
+                .entries
+                .get(hash)
+                .map(|entry| CoordinatorResidency::new(1, entry.charge_bytes))
+                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+            projected = projected
+                .checked_sub(charge)
+                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+        }
+        projected = projected
+            .checked_add(CoordinatorResidency::new(1, incoming_charge_bytes))
+            .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+
+        let mut selected = preselected.clone();
+        let mut victims = Vec::new();
+        while !projected.fits(self.limits.global) {
+            let incoming_strength = Self::source_capacity_strength(incoming_source);
+            let victim = self
+                .entries
+                .iter()
+                .filter(|(hash, _)| incoming_hash != Some(*hash))
+                .filter(|(hash, _)| !selected.contains(*hash) && !protected.contains(*hash))
+                .filter(|(_, entry)| {
+                    !entry.is_committing()
+                        && (entry.invalidated_cause().is_some()
+                            || Self::source_capacity_strength(entry.source) < incoming_strength)
+                })
+                .min_by(|(left_hash, left), (right_hash, right)| {
+                    left.invalidated_cause()
+                        .is_none()
+                        .cmp(&right.invalidated_cause().is_none())
+                        .then_with(|| {
+                            Self::source_capacity_strength(left.source)
+                                .cmp(&Self::source_capacity_strength(right.source))
+                        })
+                        .then_with(|| right.charge_bytes.cmp(&left.charge_bytes))
+                        .then_with(|| right.queue_sequence.cmp(&left.queue_sequence))
+                        .then_with(|| left_hash.as_slice().cmp(right_hash.as_slice()))
+                })
+                .map(|(hash, entry)| (hash.clone(), entry.charge_bytes))
+                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+            selected.insert(victim.0.clone());
+            projected = projected
+                .checked_sub(CoordinatorResidency::new(1, victim.1))
+                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+            victims.push(victim.0);
         }
         victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         Ok(victims)

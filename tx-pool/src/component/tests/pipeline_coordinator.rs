@@ -164,7 +164,8 @@ fn verify_plain(
         .unwrap();
     let version = coordinator
         .complete_verification(&verify, Verified("proof"), 30)
-        .unwrap();
+        .unwrap()
+        .0;
     (tx_hash, version)
 }
 
@@ -347,7 +348,7 @@ fn stronger_verified_work_reconciles_accepted_input_waiter_capacity() {
 
 #[test]
 fn accepted_input_capacity_reconciliation_rolls_back_every_apply_boundary() {
-    for fault_step in 1..=4 {
+    for fault_step in 1..=5 {
         let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
             .with_conflict_limits(1, 4, 8)
             .with_pool_input_limits(1, 1, 4);
@@ -813,7 +814,7 @@ fn queue_sequence_exhaustion_fails_before_admission_or_phase_transition() {
         .unwrap();
     let before = coordinator.view(&hash(112)).unwrap();
     coordinator.set_next_queue_sequence_for_test(u64::MAX);
-    assert_eq!(
+    assert!(matches!(
         coordinator.complete_raw(
             &raw,
             Unverified("resolved"),
@@ -821,7 +822,7 @@ fn queue_sequence_exhaustion_fails_before_admission_or_phase_transition() {
             VerifySchedule::new(100, false),
         ),
         Err(CoordinatorError::QueueSequenceExhausted)
-    );
+    ));
     assert_eq!(coordinator.view(&hash(112)).unwrap(), before);
     coordinator.audit().unwrap();
 }
@@ -2002,7 +2003,7 @@ fn stronger_source_reconciles_parent_capacity_with_explicit_causal_eviction() {
 
 #[test]
 fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
-    for fault_step in 1..=2 {
+    for fault_step in 1..=3 {
         let limits = CoordinatorLimits::new(
             CoordinatorResidency::new(10, 10_000),
             Some(CoordinatorResidency::new(10, 10_000)),
@@ -2051,6 +2052,259 @@ fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
 }
 
 #[test]
+fn global_admission_reconciliation_preserves_dependency_ancestors() {
+    let limits = CoordinatorLimits::new(
+        CoordinatorResidency::new(3, 30),
+        Some(CoordinatorResidency::new(3, 30)),
+        4,
+        4,
+    );
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let parent = hash(145);
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(145),
+            Raw("parent"),
+            RawStage::Resolve,
+            Some(44.into()),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    for seed in [146, 147] {
+        coordinator
+            .admit_raw(
+                hash(seed),
+                short(seed),
+                Raw("remote filler"),
+                RawStage::Resolve,
+                Some(44.into()),
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+
+    let child = hash(148);
+    let (_, evicted) = coordinator
+        .admit_raw_sourced(
+            child.clone(),
+            short(148),
+            Raw("local child"),
+            RawStage::Resolve,
+            CoordinatorSource::Local,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, hash(147));
+    assert!(coordinator.view(&parent).is_some());
+    assert!(coordinator.view(&child).is_some());
+    assert!(matches!(
+        coordinator.admit_raw(
+            hash(149),
+            short(149),
+            Raw("remote"),
+            RawStage::Resolve,
+            Some(45.into()),
+            10,
+            HashSet::new(),
+        ),
+        Err(CoordinatorError::GlobalBudgetExceeded)
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn global_recharge_reconciliation_covers_raw_and_plain_verified_phases() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(2, 25), None, 4, 4);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let local = hash(150);
+    coordinator
+        .admit_raw_sourced(
+            local.clone(),
+            short(150),
+            Raw("local"),
+            RawStage::Resolve,
+            CoordinatorSource::Local,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator
+        .admit_raw(
+            hash(151),
+            short(151),
+            Raw("remote"),
+            RawStage::Resolve,
+            Some(46.into()),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    assert_eq!(raw.hash, local);
+    let (_, evicted) = coordinator
+        .complete_raw(
+            &raw,
+            Unverified("resolved"),
+            20,
+            VerifySchedule::default(),
+        )
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, hash(151));
+
+    coordinator
+        .admit_raw(
+            hash(152),
+            short(152),
+            Raw("remote filler"),
+            RawStage::Resolve,
+            Some(46.into()),
+            5,
+            HashSet::new(),
+        )
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    let (_, evicted) = coordinator
+        .complete_verification(&verify, Verified("proof"), 25)
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, hash(152));
+    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 25));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn global_recharge_reconciliation_covers_candidate_and_pool_wait_metadata() {
+    let metadata = CoordinatorMetadataCost {
+        conflict_edge_bytes: 10,
+        pool_input_edge_bytes: 10,
+        ..CoordinatorMetadataCost::default()
+    };
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(3, 60), None, 4, 4)
+        .with_conflict_limits(1, 4, 8)
+        .with_pool_input_limits(1, 4, 8)
+        .with_metadata_cost(metadata);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let (candidate_hash, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        153,
+        CoordinatorSource::Local,
+        HashSet::from([input(153)]),
+        200,
+    );
+    coordinator
+        .admit_raw(
+            hash(154),
+            short(154),
+            Raw("remote filler"),
+            RawStage::Resolve,
+            Some(47.into()),
+            40,
+            HashSet::new(),
+        )
+        .unwrap();
+    let (version, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("candidate"), 40, candidate)
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, hash(154));
+    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 50));
+
+    coordinator
+        .admit_raw(
+            hash(155),
+            short(155),
+            Raw("remote filler"),
+            RawStage::Resolve,
+            Some(47.into()),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let (_, evicted) = coordinator
+        .wait_for_pool_inputs(&candidate_hash, version, HashSet::from([input(156)]))
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, hash(155));
+    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 60));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn global_recharge_reconciliation_rolls_back_after_every_apply_boundary() {
+    for fault_step in 1..=3 {
+        let limits = CoordinatorLimits::new(CoordinatorResidency::new(2, 25), None, 4, 4);
+        let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+            PipelineCoordinator::new(limits);
+        let local = hash(157);
+        let remote = hash(158);
+        coordinator
+            .admit_raw_sourced(
+                local.clone(),
+                short(157),
+                Raw("local"),
+                RawStage::Resolve,
+                CoordinatorSource::Local,
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+        coordinator
+            .admit_raw(
+                remote.clone(),
+                short(158),
+                Raw("remote"),
+                RawStage::Resolve,
+                Some(48.into()),
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+        let lease = coordinator
+            .checkout_raw(RawStage::Resolve)
+            .unwrap()
+            .unwrap();
+        let before = [local.clone(), remote.clone()]
+            .map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.complete_raw(
+                &lease,
+                Unverified("resolved"),
+                20,
+                VerifySchedule::default(),
+            );
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+
+        let after = [local, remote].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
+}
+
+#[test]
 fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> = PipelineCoordinator::new(
         CoordinatorLimits::new(CoordinatorResidency::new(1, 15), None, 4, 4),
@@ -2072,7 +2326,7 @@ fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(
+    assert!(matches!(
         coordinator.complete_raw(
             &lease,
             Unverified("too large"),
@@ -2080,7 +2334,7 @@ fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
             VerifySchedule::default()
         ),
         Err(CoordinatorError::GlobalBudgetExceeded)
-    );
+    ));
     let view = coordinator.view(&tx_hash).unwrap();
     assert_eq!(view.phase, PayloadPhase::Raw);
     assert_eq!(
@@ -2851,7 +3105,7 @@ fn committing_candidate_cannot_be_capacity_evicted() {
 
 #[test]
 fn conflict_capacity_reconciliation_rolls_back_every_apply_boundary() {
-    for fault_step in 1..=4 {
+    for fault_step in 1..=5 {
         let limits = CoordinatorLimits::new(CoordinatorResidency::new(10, 10_000), None, 4, 4)
             .with_conflict_limits(1, 1, 2);
         let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
