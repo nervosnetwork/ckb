@@ -21,6 +21,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut expected_queues: HashMap<QueueKind, Vec<CoordinatorTicket>> = HashMap::new();
 
         for (hash, entry) in &self.entries {
+            if !entry.state_shape_valid(hash, &self.limits) {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
             if self
                 .by_short_id
                 .insert(entry.short_id.clone(), hash.clone())
@@ -40,7 +43,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
                 self.by_peer.entry(peer).or_default().insert(hash.clone());
             }
-            if entry.location.uses_active_slot() {
+            if entry.uses_active_slot() {
                 self.active_work = self
                     .active_work
                     .checked_add(1)
@@ -58,23 +61,24 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .or_default()
                     .insert(hash.clone());
             }
-            if let Some(kind) = entry.location.queue_kind() {
+            if let Some(kind) = entry.queue_kind() {
                 expected_queues
                     .entry(kind)
                     .or_default()
                     .push(entry.ticket(hash));
             }
-            if let Some(expires_at) = entry.expires_at {
+            if let Some(expires_at) = entry.expires_at.filter(|_| !entry.is_committing()) {
                 self.live_deadlines.insert(
                     hash.clone(),
                     DeadlineTicket {
                         expires_at,
                         hash: hash.clone(),
                         incarnation: entry.incarnation,
+                        generation: entry.deadline_generation,
                     },
                 );
             }
-            if let CoordinatorLocation::WaitingPoolInputs { inputs } = &entry.location {
+            if let Some(inputs) = entry.waiting_pool_inputs() {
                 self.pool_input_edge_count = self
                     .pool_input_edge_count
                     .checked_add(inputs.len())
@@ -86,11 +90,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .insert(hash.clone());
                 }
             }
-            if matches!(entry.location, CoordinatorLocation::Invalidated { .. }) {
+            if entry.invalidated_cause().is_some() {
                 self.dependency_failure_set.insert(hash.clone());
                 continue;
             }
-            if let Some(candidate) = &entry.candidate {
+            if let EntryState::CandidateVerified {
+                candidate,
+                location,
+                ..
+            } = &entry.state
+            {
                 self.conflict_edge_count = self
                     .conflict_edge_count
                     .checked_add(candidate.inputs.len())
@@ -101,8 +110,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .or_default()
                         .insert(hash.clone());
                 }
-                match &entry.location {
-                    CoordinatorLocation::ReadyToCommit | CoordinatorLocation::Committing => {
+                match location {
+                    CandidateLocation::Ready | CandidateLocation::Committing => {
                         for input in &candidate.inputs {
                             if self
                                 .active_by_input
@@ -113,7 +122,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                             }
                         }
                     }
-                    CoordinatorLocation::WaitingConflict { blockers } => {
+                    CandidateLocation::WaitingConflict { blockers } => {
                         for blocker in blockers {
                             self.waiters_by_blocker
                                 .entry(blocker.clone())
@@ -121,11 +130,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                                 .insert(hash.clone());
                         }
                     }
-                    CoordinatorLocation::ConflictRecheck => {
+                    CandidateLocation::Recheck => {
                         self.conflict_recheck_set.insert(hash.clone());
                     }
-                    CoordinatorLocation::WaitingPoolInputs { .. } => {}
-                    _ => return Err(CoordinatorError::ConflictInvariant),
+                    CandidateLocation::WaitingPoolInputs { .. } => {}
                 }
             }
         }
@@ -191,14 +199,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut dependency_failures = HashSet::new();
 
         for (hash, entry) in &self.entries {
-            if !Self::phase_location_valid(entry.phase.kind(), &entry.location) {
-                return Err(CoordinatorAuditError::InvalidPhaseLocation(hash.clone()));
+            if !entry.state_shape_valid(hash, &self.limits) {
+                return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
             }
-            let conflict_inputs = entry.candidate.as_ref().map_or(0, |meta| meta.inputs.len());
-            let pool_inputs = match &entry.location {
-                CoordinatorLocation::WaitingPoolInputs { inputs } => inputs.len(),
-                _ => 0,
-            };
+            let conflict_inputs = entry.candidate().map_or(0, |meta| meta.inputs.len());
+            let pool_inputs = entry.waiting_pool_inputs().map_or(0, HashSet::len);
             let base_metadata = self
                 .metadata_charge_bytes(entry.dependencies.len(), entry.expires_at.is_some(), 0, 0)
                 .map_err(|_| CoordinatorAuditError::MetadataCharge)?;
@@ -214,12 +219,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 || entry.metadata_bytes != metadata
                 || entry.raw_charge_bytes
                     != entry
-                        .raw_payload_bytes
+                        .raw_resident_payload_bytes
                         .checked_add(base_metadata)
                         .ok_or(CoordinatorAuditError::MetadataCharge)?
                 || entry.charge_bytes
                     != entry
-                        .payload_bytes
+                        .resident_payload_bytes
                         .checked_add(metadata)
                         .ok_or(CoordinatorAuditError::MetadataCharge)?
             {
@@ -242,7 +247,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .ok_or(CoordinatorAuditError::PeerUsage)?;
                 by_peer.entry(peer).or_default().insert(hash.clone());
             }
-            if entry.location.uses_active_slot() {
+            if entry.uses_active_slot() {
                 active_work = active_work
                     .checked_add(1)
                     .ok_or(CoordinatorAuditError::ActiveWork)?;
@@ -253,13 +258,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .ok_or(CoordinatorAuditError::ActiveWork)?;
                 }
             }
-            if let Some(expires_at) = entry.expires_at {
+            if let Some(expires_at) = entry.expires_at.filter(|_| !entry.is_committing()) {
                 live_deadlines.insert(
                     hash.clone(),
                     DeadlineTicket {
                         expires_at,
                         hash: hash.clone(),
                         incarnation: entry.incarnation,
+                        generation: entry.deadline_generation,
                     },
                 );
             }
@@ -269,7 +275,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .or_default()
                     .insert(hash.clone());
             }
-            if let Some(kind) = entry.location.queue_kind() {
+            if let Some(kind) = entry.queue_kind() {
                 let ticket = entry.ticket(hash);
                 expected_live
                     .entry(kind)
@@ -279,8 +285,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     expected_priority.entry(kind).or_default().insert(ticket);
                 }
             }
-            if let CoordinatorLocation::WaitingPoolInputs { inputs } = &entry.location {
-                if inputs.is_empty() || entry.phase.kind() != PayloadPhase::Verified {
+            if let Some(inputs) = entry.waiting_pool_inputs() {
+                if inputs.is_empty() {
                     return Err(CoordinatorAuditError::PoolInputIndex);
                 }
                 pool_input_edges = pool_input_edges
@@ -293,16 +299,15 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .insert(hash.clone());
                 }
             }
-            if matches!(entry.location, CoordinatorLocation::Invalidated { .. }) {
+            if entry.invalidated_cause().is_some() {
                 dependency_failures.insert(hash.clone());
             }
-            if let Some(candidate) = &entry.candidate {
-                if entry.phase.kind() != PayloadPhase::Verified {
-                    return Err(CoordinatorAuditError::InvalidPhaseLocation(hash.clone()));
-                }
-                if matches!(entry.location, CoordinatorLocation::Invalidated { .. }) {
-                    continue;
-                }
+            if let EntryState::CandidateVerified {
+                candidate,
+                location,
+                ..
+            } = &entry.state
+            {
                 conflict_edges = conflict_edges
                     .checked_add(candidate.inputs.len())
                     .ok_or(CoordinatorAuditError::ConflictEdgeCount)?;
@@ -312,8 +317,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .or_default()
                         .insert(hash.clone());
                 }
-                match &entry.location {
-                    CoordinatorLocation::ReadyToCommit | CoordinatorLocation::Committing => {
+                match location {
+                    CandidateLocation::Ready | CandidateLocation::Committing => {
                         for input in &candidate.inputs {
                             if active_by_input
                                 .insert(input.clone(), hash.clone())
@@ -323,7 +328,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                             }
                         }
                     }
-                    CoordinatorLocation::WaitingConflict { blockers } => {
+                    CandidateLocation::WaitingConflict { blockers } => {
                         if blockers.is_empty() {
                             return Err(CoordinatorAuditError::ConflictWaiterIndex);
                         }
@@ -332,13 +337,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                                 return Err(CoordinatorAuditError::ConflictWaiterIndex);
                             };
                             if !matches!(
-                                blocker_entry.location,
-                                CoordinatorLocation::ReadyToCommit
-                                    | CoordinatorLocation::Committing
-                            ) || blocker_entry.candidate.as_ref().is_none_or(
-                                |blocker_candidate| {
-                                    candidate.inputs.is_disjoint(&blocker_candidate.inputs)
-                                },
+                                &blocker_entry.state,
+                                EntryState::CandidateVerified {
+                                    candidate: blocker_candidate,
+                                    location: CandidateLocation::Ready
+                                        | CandidateLocation::Committing,
+                                    ..
+                                } if !candidate.inputs.is_disjoint(&blocker_candidate.inputs)
                             ) {
                                 return Err(CoordinatorAuditError::ConflictWaiterIndex);
                             }
@@ -348,17 +353,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                                 .insert(hash.clone());
                         }
                     }
-                    CoordinatorLocation::ConflictRecheck => {
+                    CandidateLocation::Recheck => {
                         conflict_rechecks.insert(hash.clone());
                     }
-                    CoordinatorLocation::WaitingPoolInputs { .. } => {}
-                    _ => return Err(CoordinatorAuditError::InvalidPhaseLocation(hash.clone())),
+                    CandidateLocation::WaitingPoolInputs { .. } => {}
                 }
-            } else if matches!(
-                entry.location,
-                CoordinatorLocation::WaitingConflict { .. } | CoordinatorLocation::ConflictRecheck
-            ) {
-                return Err(CoordinatorAuditError::ConflictCandidateIndex);
             }
         }
 

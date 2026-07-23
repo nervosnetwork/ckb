@@ -404,24 +404,29 @@ successful internal transition cannot fail merely because another payload
 queue has a separate byte budget. The old `CapacityBlocked` lifecycle therefore
 disappears instead of being reimplemented.
 
-Expiry tickets use `(deadline, full_hash, incarnation)`, not the changing
-revision. Normal state transitions cannot accidentally invalidate an entry's
-original lifetime; removal and re-admission get a new incarnation and make the
-old deadline harmlessly stale.
+Expiry is scoped to `(deadline, full_hash, incarnation)`, not the changing
+worker revision. A separate deadline generation is used only to suspend the
+physical ticket while an entry is `Committing` and to restore it on abort, so
+one frozen commit cannot head-of-line block later due entries. Normal state
+transitions cannot extend an entry's original lifetime; removal and
+re-admission get a new incarnation and make the old deadline harmlessly stale.
 
 Payload ownership is also singular. Indexes never clone `TransactionView` or
-`ResolvedTx`; worker leases clone only an `Arc` to immutable work data. A raw
-entry is transactionally replaced by a resolved-unverified entry after
-resolution, and verification replaces that with a verified entry carrying its
-owned proof. Snapshots never become resident payload: the worker lease obtains
-the current `Arc<Snapshot>` transiently and the entry retains only the tip hash
-needed for final revalidation. Its exact resolved charge is computed outside
-the lock and recharged atomically; if it cannot fit, the result is a defined
-`Full` terminal outcome rather than an unbudgeted capacity wait. Proposal
-admission/recharge has validated reserved headroom (or deterministically evicts
-remote entries) so remote saturation cannot prevent chain reconciliation.
-Local RPC remains globally bounded because it may be exposed to untrusted
-clients; it does not receive an unlimited trusted bypass.
+`ResolvedTx`; worker leases clone only an `Arc` to immutable work data. Each
+closed phase bundle owns the raw transaction needed for dependency demotion or
+terminal handoff, plus exactly the unverified/verified payload legal for that
+phase. There is no independent `phase + location + candidate` combination, and
+an invalidated candidate drops executable candidate/conflict metadata by
+construction. Every phase-completion charge covers the entire resident bundle,
+including the retained raw payload. Snapshots never become resident payload:
+the worker lease obtains the current `Arc<Snapshot>` transiently and the entry
+retains only the tip hash needed for final revalidation. Its exact resolved
+charge is computed outside the lock and recharged atomically; if it cannot fit,
+the result is a defined `Full` terminal outcome rather than an unbudgeted
+capacity wait. Proposal admission/recharge has validated reserved headroom (or
+deterministically evicts remote entries) so remote saturation cannot prevent
+chain reconciliation. Local RPC remains globally bounded because it may be
+exposed to untrusted clients; it does not receive an unlimited trusted bypass.
 
 The residency charge covers serialized payload/accounted heap data plus
 conservative index metadata and remains live across queued, active, waiting and
@@ -446,7 +451,7 @@ The required transition families are deliberately small:
 | waiting conflict | blocker abort/remove | atomically rebalanced `ReadyToCommit` or continued `WaitingConflict` without re-verification |
 | verified entry | accepted input freed | revalidated `ReadyToCommit`/`WaitingConflict`, reusing proof only when its resolved inputs remain identical |
 | ready | begin authoritative mutation | unique `Committing` lease |
-| committing | pool apply succeeds | consumed as typed `Committed` handoff; direct speculative conflicts are consumed as `Rejected` in the same batch |
+| committing | pool apply succeeds | consumed as typed `Committed` handoff; waiting children are made ready in the same transition, while every direct speculative loser is rejected together with causal invalidation of its children |
 | committing | pool apply fails | journal restored first, then explicit requeue/wait/reject disposition |
 | any pre-pool state | remove/clear/peer ban/expiry | consumed terminal record; stale workers become harmless no-ops |
 | raw or resolved dependent | parent becomes unavailable/definitively fails | atomically demote to raw re-resolve/wait or terminal cascade; resolved snapshot/proof is never reused across invalidated dependencies |
@@ -472,7 +477,7 @@ continuous count/byte reservation, mutation-order sequence binding, FIFO retry
 and active-publication residency. The coordinator is split by responsibility
 into state types, derived indexes and invariant audit modules while retaining
 one entry store and one transition authority. The isolated model currently
-contains 41 coordinator and 5 outbox focused tests.
+contains 49 coordinator and 5 outbox focused tests.
 
 Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
 conservative metadata charging and global/per-peer active-work fairness now
@@ -482,25 +487,30 @@ the queued entry, so the entry, live set and physical lane never disagree. A
 deterministic 4,000-step state-machine test audits every generated transition
 and found the missing reticket edge during development.
 
-This checkpoint is not a production migration claim. Definitive dependency
-failure now invalidates direct children synchronously and drains transitive
-cleanup through a bounded maintenance deque, so deferred work cannot let a
-descendant commit. Multi-entry dependency, accepted-input and conflict-handoff
-operations use a bounded entry undo guard and deterministic derived-index
-rebuild. Dependency schedule/drain, parent wake/demotion, accepted-input
-park/wake, verified conflict preemption, conflict recheck, removal, expiry and
-candidate handoff inject unwind at their apply boundaries and prove the
-observed state is entirely old before retry. Multi-item maintenance freezes its
-bounded entry worklist so work discovered during the slice remains
+This checkpoint is not a production migration claim. Every definitive parent
+exit now invalidates direct children synchronously; accepted commit handoff
+wakes children in the same transition; transitive cleanup drains through a
+bounded maintenance deque, so deferred work cannot let a descendant commit.
+Multi-entry dependency, accepted-input and conflict-handoff operations use a
+bounded entry undo guard and deterministic derived-index rebuild. Dependency
+schedule/drain, parent wake/demotion, accepted-input park/wake, verified
+conflict preemption, conflict recheck, removal, expiry, plain/candidate commit
+handoff and causal child outcomes inject unwind at their apply boundaries and
+prove the observed state is entirely old before retry. Multi-item maintenance
+freezes its bounded entry worklist so work discovered during the slice remains
 level-triggered for the next slice; a late failure cannot discard earlier
 terminal or activation results. Queue rebuild preserves the round-robin cursor
-of surviving owners while removing stale tombstones. Queue scheduling still
-needs configured fee-priority ordering within eligible peer heads. Before
-mutation cutover the model additionally needs coordinator/outbox charge
-transfer, final in-lock pool RBF recalculation, cross-authority query tests and
-production publisher/shutdown integration. The obsolete split prototypes and
-their duplicate state authorities have been deleted rather than hardened or
-integrated.
+of surviving owners while removing stale tombstones.
+
+The next correctness slice must make maintenance order part of authoritative,
+reconstructible state; define worker capability separately from scheduling
+policy while preserving configured FIFO/fee semantics; and prevent a remote
+first-filler from monopolizing per-parent/per-input caps needed by proposal,
+local, or strictly better verified work. Before mutation cutover the model also
+needs coordinator/outbox charge transfer, final in-lock pool RBF recalculation,
+cross-authority query tests and production publisher/shutdown integration. The
+obsolete split prototypes and their duplicate state authorities have been
+deleted rather than hardened or integrated.
 
 ### 5.3 Atomic transition engine
 
@@ -626,11 +636,13 @@ designed to remove work as well as locks:
   and shutdown safety;
 - accepted pool data is never copied into the coordinator.
 
-Every production slice records lock hold/wait time, queue depth, stale-slot
-ratio, allocations, CPU, throughput and dependent-chain latency. Focused quick
-A/B is the per-slice directional gate. Medium/full remain the final release
-gate and are not run again until explicitly requested; the interrupted medium
-record remains no verdict.
+Performance evidence is deliberately deferred while the isolated correctness
+model and production ownership cutovers are still changing. Near production
+completion, first review and optimize the final algorithms, then record lock
+hold/wait time, queue depth, stale-slot ratio, allocations, CPU, throughput and
+dependent-chain latency. Quick A/B, followed by medium/full only on explicit
+instruction, remains a mandatory release gate; deferral is not acceptance of a
+regression, and the interrupted medium record remains no verdict.
 
 ### 5.6 Migration and deletion sequence
 
@@ -645,7 +657,7 @@ record remains no verdict.
 3. **Raw pipeline cutover.** Move admission, pre-check, ordered resolve and
    parent/deadline waiting to the coordinator. Delete
    `PreCheckQueue`, `OrderedResolveQueue`, their `ActiveSet`/`FlightTracker`
-   ownership and `ParentsMissing` storage after differential and quick gates.
+   ownership and `ParentsMissing` storage after differential correctness gates.
 4. **Resolved/conflict cutover.** Move verify ordering, active verification,
    accepted-input waiting and speculative conflict scheduling. Delete
    `VerifyQueue` ownership, `RbfCandidates`, `RaceLost`, both executable
@@ -654,9 +666,12 @@ record remains no verdict.
 5. **Mutation cutover.** Route commit/RBF/reorg/clear/remove/persistence through
    the authoritative pool transaction and typed commit journal. Run all historical security and
    reorg/template regressions plus injected panic/exhaustion cases.
-6. **Cleanup and acceptance.** Remove epoch/token mechanisms made redundant by
-   coordinator revisions, delete obsolete compatibility paths, run quick during
-   cleanup, and run medium/full only on explicit final-validation instruction.
+6. **Cleanup and correctness acceptance.** Remove epoch/token mechanisms made
+   redundant by coordinator revisions, delete obsolete compatibility paths,
+   and complete the invariant/security/integration matrix.
+7. **Final performance acceptance.** Review and optimize the stable algorithms,
+   run quick A/B, then run medium/full only on explicit final-validation
+   instruction. No performance verdict is inferred before this stage.
 
 A legacy component is deleted only in the same slice that makes every caller
 unreachable and ports its security property. Keeping two production owners as
@@ -680,11 +695,13 @@ following model suites pass with `audit()` after every transition:
 | Complexity | operation counters (not wall-clock alone) prove bounded lock work, monotonic stale-prefix consumption and no full-store scan on normal admission/checkout/completion |
 
 Production slices additionally require differential tests at their public API
-boundary and a focused quick A/B against the checkpoint. A slice with an
-unexplained negative quick result, an unbounded complexity counter, a new
-legacy/new dual owner, or any relevant **Open** ledger item is not allowed to
-advance. Medium/full remain final acceptance only and require explicit
-instruction.
+boundary. After every slice, review state authority, causal exits, attack
+bounds, ordering semantics, rollback coverage and newly introduced failure
+modes before advancing. Performance execution is deferred to the stable final
+stage, where quick A/B is followed by medium/full on explicit instruction. An
+unbounded complexity counter, a new legacy/new dual owner, any relevant
+**Open** ledger item, or a final unexplained benchmark regression blocks
+release.
 
 ---
 

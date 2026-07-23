@@ -34,32 +34,6 @@ pub(crate) enum CoordinatorLocation {
     Invalidated { cause: Byte32 },
 }
 
-impl CoordinatorLocation {
-    pub(super) fn queue_kind(&self) -> Option<QueueKind> {
-        match self {
-            Self::RawQueued(RawStage::PreCheck) => Some(QueueKind::PreCheck),
-            Self::RawQueued(RawStage::Resolve) => Some(QueueKind::Resolve),
-            Self::VerifyQueued => Some(QueueKind::Verify),
-            Self::ReadyToCommit => Some(QueueKind::Commit),
-            Self::RawActive(_)
-            | Self::WaitingParents { .. }
-            | Self::VerifyActive
-            | Self::WaitingPoolInputs { .. }
-            | Self::WaitingConflict { .. }
-            | Self::ConflictRecheck
-            | Self::Committing
-            | Self::Invalidated { .. } => None,
-        }
-    }
-
-    pub(super) fn uses_active_slot(&self) -> bool {
-        matches!(
-            self,
-            Self::RawActive(_) | Self::VerifyActive | Self::Committing
-        )
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PayloadPhase {
     Raw,
@@ -345,6 +319,7 @@ pub(crate) struct CommitHandoff<R, V> {
     pub(crate) verified: Arc<V>,
     pub(crate) peer: Option<PeerIndex>,
     pub(crate) source: CoordinatorSource,
+    pub(crate) ready_children: Vec<CoordinatorTicket>,
 }
 
 #[derive(Debug)]
@@ -432,6 +407,7 @@ pub(crate) enum CoordinatorError {
     PeerBudgetExceeded(PeerIndex),
     IncarnationExhausted,
     RevisionExhausted(Byte32),
+    DeadlineGenerationExhausted(Byte32),
     Missing(Byte32),
     IncarnationMismatch {
         expected: u64,
@@ -480,21 +456,50 @@ pub(crate) enum CoordinatorAuditError {
     PoolInputIndex,
     PoolInputEdgeCount,
     DeadlineIndex,
+    StateInvariant(Byte32),
     MetadataCharge,
     ActiveWork,
     DependencyMaintenanceIndex,
-    InvalidPhaseLocation(Byte32),
     BudgetExceeded,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum RawLocation {
+    Queued(RawStage),
+    Active(RawStage),
+    WaitingParents { missing: HashSet<Byte32> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UnverifiedLocation {
+    Queued,
+    Active,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum PlainVerifiedLocation {
+    Ready,
+    WaitingPoolInputs { inputs: HashSet<OutPoint> },
+    Committing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CandidateLocation {
+    Ready,
+    WaitingPoolInputs { inputs: HashSet<OutPoint> },
+    WaitingConflict { blockers: HashSet<Byte32> },
+    Recheck,
+    Committing,
+}
+
 #[derive(Debug)]
-pub(crate) enum ResidentPhase<U, V> {
+pub(super) enum InvalidatedPayload<U, V> {
     Raw,
     Unverified(Arc<U>),
     Verified(Arc<V>),
 }
 
-impl<U, V> Clone for ResidentPhase<U, V> {
+impl<U, V> Clone for InvalidatedPayload<U, V> {
     fn clone(&self) -> Self {
         match self {
             Self::Raw => Self::Raw,
@@ -504,12 +509,275 @@ impl<U, V> Clone for ResidentPhase<U, V> {
     }
 }
 
-impl<U, V> ResidentPhase<U, V> {
-    pub(super) fn kind(&self) -> PayloadPhase {
+#[derive(Debug)]
+pub(super) enum EntryState<R, U, V> {
+    Raw {
+        raw: Arc<R>,
+        location: RawLocation,
+    },
+    Unverified {
+        raw: Arc<R>,
+        payload: Arc<U>,
+        location: UnverifiedLocation,
+    },
+    PlainVerified {
+        raw: Arc<R>,
+        payload: Arc<V>,
+        location: PlainVerifiedLocation,
+    },
+    CandidateVerified {
+        raw: Arc<R>,
+        payload: Arc<V>,
+        candidate: CandidateMeta,
+        location: CandidateLocation,
+    },
+    Invalidated {
+        raw: Arc<R>,
+        payload: InvalidatedPayload<U, V>,
+        cause: Byte32,
+    },
+}
+
+impl<R, U, V> Clone for EntryState<R, U, V> {
+    fn clone(&self) -> Self {
         match self {
-            Self::Raw => PayloadPhase::Raw,
-            Self::Unverified(_) => PayloadPhase::Unverified,
-            Self::Verified(_) => PayloadPhase::Verified,
+            Self::Raw { raw, location } => Self::Raw {
+                raw: Arc::clone(raw),
+                location: location.clone(),
+            },
+            Self::Unverified {
+                raw,
+                payload,
+                location,
+            } => Self::Unverified {
+                raw: Arc::clone(raw),
+                payload: Arc::clone(payload),
+                location: *location,
+            },
+            Self::PlainVerified {
+                raw,
+                payload,
+                location,
+            } => Self::PlainVerified {
+                raw: Arc::clone(raw),
+                payload: Arc::clone(payload),
+                location: location.clone(),
+            },
+            Self::CandidateVerified {
+                raw,
+                payload,
+                candidate,
+                location,
+            } => Self::CandidateVerified {
+                raw: Arc::clone(raw),
+                payload: Arc::clone(payload),
+                candidate: candidate.clone(),
+                location: location.clone(),
+            },
+            Self::Invalidated {
+                raw,
+                payload,
+                cause,
+            } => Self::Invalidated {
+                raw: Arc::clone(raw),
+                payload: payload.clone(),
+                cause: cause.clone(),
+            },
+        }
+    }
+}
+
+impl<R, U, V> EntryState<R, U, V> {
+    pub(super) fn raw(&self) -> &Arc<R> {
+        match self {
+            Self::Raw { raw, .. }
+            | Self::Unverified { raw, .. }
+            | Self::PlainVerified { raw, .. }
+            | Self::CandidateVerified { raw, .. }
+            | Self::Invalidated { raw, .. } => raw,
+        }
+    }
+
+    pub(super) fn phase_kind(&self) -> PayloadPhase {
+        match self {
+            Self::Raw { .. }
+            | Self::Invalidated {
+                payload: InvalidatedPayload::Raw,
+                ..
+            } => PayloadPhase::Raw,
+            Self::Unverified { .. }
+            | Self::Invalidated {
+                payload: InvalidatedPayload::Unverified(_),
+                ..
+            } => PayloadPhase::Unverified,
+            Self::PlainVerified { .. }
+            | Self::CandidateVerified { .. }
+            | Self::Invalidated {
+                payload: InvalidatedPayload::Verified(_),
+                ..
+            } => PayloadPhase::Verified,
+        }
+    }
+
+    pub(super) fn location(&self) -> CoordinatorLocation {
+        match self {
+            Self::Raw {
+                location: RawLocation::Queued(stage),
+                ..
+            } => CoordinatorLocation::RawQueued(*stage),
+            Self::Raw {
+                location: RawLocation::Active(stage),
+                ..
+            } => CoordinatorLocation::RawActive(*stage),
+            Self::Raw {
+                location: RawLocation::WaitingParents { missing },
+                ..
+            } => CoordinatorLocation::WaitingParents {
+                missing: missing.clone(),
+            },
+            Self::Unverified {
+                location: UnverifiedLocation::Queued,
+                ..
+            } => CoordinatorLocation::VerifyQueued,
+            Self::Unverified {
+                location: UnverifiedLocation::Active,
+                ..
+            } => CoordinatorLocation::VerifyActive,
+            Self::PlainVerified {
+                location: PlainVerifiedLocation::Ready,
+                ..
+            }
+            | Self::CandidateVerified {
+                location: CandidateLocation::Ready,
+                ..
+            } => CoordinatorLocation::ReadyToCommit,
+            Self::PlainVerified {
+                location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
+                ..
+            }
+            | Self::CandidateVerified {
+                location: CandidateLocation::WaitingPoolInputs { inputs },
+                ..
+            } => CoordinatorLocation::WaitingPoolInputs {
+                inputs: inputs.clone(),
+            },
+            Self::CandidateVerified {
+                location: CandidateLocation::WaitingConflict { blockers },
+                ..
+            } => CoordinatorLocation::WaitingConflict {
+                blockers: blockers.clone(),
+            },
+            Self::CandidateVerified {
+                location: CandidateLocation::Recheck,
+                ..
+            } => CoordinatorLocation::ConflictRecheck,
+            Self::PlainVerified {
+                location: PlainVerifiedLocation::Committing,
+                ..
+            }
+            | Self::CandidateVerified {
+                location: CandidateLocation::Committing,
+                ..
+            } => CoordinatorLocation::Committing,
+            Self::Invalidated { cause, .. } => CoordinatorLocation::Invalidated {
+                cause: cause.clone(),
+            },
+        }
+    }
+
+    pub(super) fn queue_kind(&self) -> Option<QueueKind> {
+        match self {
+            Self::Raw {
+                location: RawLocation::Queued(RawStage::PreCheck),
+                ..
+            } => Some(QueueKind::PreCheck),
+            Self::Raw {
+                location: RawLocation::Queued(RawStage::Resolve),
+                ..
+            } => Some(QueueKind::Resolve),
+            Self::Unverified {
+                location: UnverifiedLocation::Queued,
+                ..
+            } => Some(QueueKind::Verify),
+            Self::PlainVerified {
+                location: PlainVerifiedLocation::Ready,
+                ..
+            }
+            | Self::CandidateVerified {
+                location: CandidateLocation::Ready,
+                ..
+            } => Some(QueueKind::Commit),
+            _ => None,
+        }
+    }
+
+    pub(super) fn uses_active_slot(&self) -> bool {
+        matches!(
+            self,
+            Self::Raw {
+                location: RawLocation::Active(_),
+                ..
+            } | Self::Unverified {
+                location: UnverifiedLocation::Active,
+                ..
+            } | Self::PlainVerified {
+                location: PlainVerifiedLocation::Committing,
+                ..
+            } | Self::CandidateVerified {
+                location: CandidateLocation::Committing,
+                ..
+            }
+        )
+    }
+
+    pub(super) fn is_committing(&self) -> bool {
+        matches!(
+            self,
+            Self::PlainVerified {
+                location: PlainVerifiedLocation::Committing,
+                ..
+            } | Self::CandidateVerified {
+                location: CandidateLocation::Committing,
+                ..
+            }
+        )
+    }
+
+    pub(super) fn candidate(&self) -> Option<&CandidateMeta> {
+        match self {
+            Self::CandidateVerified { candidate, .. } => Some(candidate),
+            _ => None,
+        }
+    }
+
+    pub(super) fn waiting_pool_inputs(&self) -> Option<&HashSet<OutPoint>> {
+        match self {
+            Self::PlainVerified {
+                location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
+                ..
+            }
+            | Self::CandidateVerified {
+                location: CandidateLocation::WaitingPoolInputs { inputs },
+                ..
+            } => Some(inputs),
+            _ => None,
+        }
+    }
+
+    pub(super) fn waiting_conflict_blockers(&self) -> Option<&HashSet<Byte32>> {
+        match self {
+            Self::CandidateVerified {
+                location: CandidateLocation::WaitingConflict { blockers },
+                ..
+            } => Some(blockers),
+            _ => None,
+        }
+    }
+
+    pub(super) fn invalidated_cause(&self) -> Option<&Byte32> {
+        match self {
+            Self::Invalidated { cause, .. } => Some(cause),
+            _ => None,
         }
     }
 }
@@ -517,42 +785,42 @@ impl<U, V> ResidentPhase<U, V> {
 #[derive(Debug)]
 pub(crate) struct CoordinatorEntry<R, U, V> {
     pub(super) short_id: ProposalShortId,
-    pub(super) raw: Arc<R>,
-    pub(super) phase: ResidentPhase<U, V>,
-    pub(super) location: CoordinatorLocation,
+    pub(super) state: EntryState<R, U, V>,
     pub(super) source: CoordinatorSource,
     pub(super) expires_at: Option<u64>,
     pub(super) raw_charge_bytes: usize,
-    pub(super) raw_payload_bytes: usize,
-    pub(super) payload_bytes: usize,
+    /// Total resident payload bytes for the raw phase bundle.
+    pub(super) raw_resident_payload_bytes: usize,
+    /// Total resident payload bytes for the current typed phase bundle. When
+    /// a later phase retains the raw transaction for demotion/terminal
+    /// handoff, that retained ownership is included in this value.
+    pub(super) resident_payload_bytes: usize,
     pub(super) base_metadata_bytes: usize,
     pub(super) metadata_bytes: usize,
     pub(super) charge_bytes: usize,
     pub(super) dependencies: HashSet<Byte32>,
-    pub(super) candidate: Option<CandidateMeta>,
     pub(super) incarnation: u64,
     pub(super) revision: u64,
+    pub(super) deadline_generation: u64,
 }
 
 impl<R, U, V> Clone for CoordinatorEntry<R, U, V> {
     fn clone(&self) -> Self {
         Self {
             short_id: self.short_id.clone(),
-            raw: Arc::clone(&self.raw),
-            phase: self.phase.clone(),
-            location: self.location.clone(),
+            state: self.state.clone(),
             source: self.source,
             expires_at: self.expires_at,
             raw_charge_bytes: self.raw_charge_bytes,
-            raw_payload_bytes: self.raw_payload_bytes,
-            payload_bytes: self.payload_bytes,
+            raw_resident_payload_bytes: self.raw_resident_payload_bytes,
+            resident_payload_bytes: self.resident_payload_bytes,
             base_metadata_bytes: self.base_metadata_bytes,
             metadata_bytes: self.metadata_bytes,
             charge_bytes: self.charge_bytes,
             dependencies: self.dependencies.clone(),
-            candidate: self.candidate.clone(),
             incarnation: self.incarnation,
             revision: self.revision,
+            deadline_generation: self.deadline_generation,
         }
     }
 }
@@ -566,6 +834,49 @@ pub(crate) struct CandidateMeta {
 }
 
 impl<R, U, V> CoordinatorEntry<R, U, V> {
+    pub(super) fn state_shape_valid(&self, hash: &Byte32, limits: &CoordinatorLimits) -> bool {
+        if self.dependencies.contains(hash)
+            || self.dependencies.len() > limits.max_dependencies_per_entry
+        {
+            return false;
+        }
+        match &self.state {
+            EntryState::Raw {
+                location: RawLocation::WaitingParents { missing },
+                ..
+            } => !missing.is_empty() && missing.is_subset(&self.dependencies),
+            EntryState::PlainVerified {
+                location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
+                ..
+            } => !inputs.is_empty() && inputs.len() <= limits.max_pool_inputs_per_entry,
+            EntryState::CandidateVerified {
+                candidate,
+                location,
+                ..
+            } => {
+                !candidate.inputs.is_empty()
+                    && candidate.inputs.len() <= limits.max_conflict_inputs_per_entry
+                    && candidate.tx_size != 0
+                    && match location {
+                        CandidateLocation::WaitingPoolInputs { inputs } => {
+                            !inputs.is_empty() && inputs.len() <= limits.max_pool_inputs_per_entry
+                        }
+                        CandidateLocation::WaitingConflict { blockers } => {
+                            !blockers.is_empty()
+                                && blockers.len() <= limits.max_conflict_inputs_per_entry
+                        }
+                        CandidateLocation::Ready
+                        | CandidateLocation::Recheck
+                        | CandidateLocation::Committing => true,
+                    }
+            }
+            EntryState::Raw { .. }
+            | EntryState::Unverified { .. }
+            | EntryState::PlainVerified { .. }
+            | EntryState::Invalidated { .. } => true,
+        }
+    }
+
     pub(super) fn version(&self) -> CoordinatorVersion {
         CoordinatorVersion {
             incarnation: self.incarnation,
@@ -582,11 +893,47 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
         }
     }
 
+    pub(super) fn phase_kind(&self) -> PayloadPhase {
+        self.state.phase_kind()
+    }
+
+    pub(super) fn location(&self) -> CoordinatorLocation {
+        self.state.location()
+    }
+
+    pub(super) fn queue_kind(&self) -> Option<QueueKind> {
+        self.state.queue_kind()
+    }
+
+    pub(super) fn uses_active_slot(&self) -> bool {
+        self.state.uses_active_slot()
+    }
+
+    pub(super) fn is_committing(&self) -> bool {
+        self.state.is_committing()
+    }
+
+    pub(super) fn candidate(&self) -> Option<&CandidateMeta> {
+        self.state.candidate()
+    }
+
+    pub(super) fn waiting_pool_inputs(&self) -> Option<&HashSet<OutPoint>> {
+        self.state.waiting_pool_inputs()
+    }
+
+    pub(super) fn waiting_conflict_blockers(&self) -> Option<&HashSet<Byte32>> {
+        self.state.waiting_conflict_blockers()
+    }
+
+    pub(super) fn invalidated_cause(&self) -> Option<&Byte32> {
+        self.state.invalidated_cause()
+    }
+
     pub(super) fn view(&self) -> CoordinatorView {
         CoordinatorView {
             short_id: self.short_id.clone(),
-            phase: self.phase.kind(),
-            location: self.location.clone(),
+            phase: self.phase_kind(),
+            location: self.location(),
             peer: self.source.peer(),
             source: self.source,
             charge_bytes: self.charge_bytes,
@@ -900,6 +1247,7 @@ pub(crate) struct DeadlineTicket {
     pub(super) expires_at: u64,
     pub(super) hash: Byte32,
     pub(super) incarnation: u64,
+    pub(super) generation: u64,
 }
 
 impl Ord for DeadlineTicket {
@@ -908,6 +1256,7 @@ impl Ord for DeadlineTicket {
             .cmp(&other.expires_at)
             .then_with(|| self.hash.as_slice().cmp(other.hash.as_slice()))
             .then_with(|| self.incarnation.cmp(&other.incarnation))
+            .then_with(|| self.generation.cmp(&other.generation))
     }
 }
 

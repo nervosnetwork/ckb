@@ -38,7 +38,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let inputs = self
             .entries
             .get(hash)
-            .and_then(|entry| entry.candidate.as_ref())
+            .and_then(CoordinatorEntry::candidate)
             .map(|candidate| candidate.inputs.clone())
             .ok_or(CoordinatorError::ConflictInvariant)?;
         if inputs
@@ -60,7 +60,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let inputs = self
             .entries
             .get(hash)
-            .and_then(|entry| entry.candidate.as_ref())
+            .and_then(CoordinatorEntry::candidate)
             .map(|candidate| candidate.inputs.clone())
             .ok_or(CoordinatorError::ConflictInvariant)?;
         for input in inputs {
@@ -75,7 +75,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let Some(inputs) = self
             .entries
             .get(hash)
-            .and_then(|entry| entry.candidate.as_ref())
+            .and_then(CoordinatorEntry::candidate)
             .map(|candidate| candidate.inputs.clone())
         else {
             return;
@@ -91,10 +91,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
     ) -> Result<(), CoordinatorError> {
-        let blockers = match self.entries.get(hash).map(|entry| &entry.location) {
-            Some(CoordinatorLocation::WaitingConflict { blockers }) => blockers.clone(),
-            Some(_) => return Ok(()),
-            None => return Err(CoordinatorError::Missing(hash.clone())),
+        let blockers = self
+            .entries
+            .get(hash)
+            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?
+            .waiting_conflict_blockers()
+            .cloned();
+        let Some(blockers) = blockers else {
+            return Ok(());
         };
         for blocker in blockers {
             if let Some(waiters) = self.waiters_by_blocker.get_mut(&blocker) {
@@ -122,8 +126,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .get(waiter)
                 .ok_or_else(|| CoordinatorError::Missing(waiter.clone()))?;
             if !matches!(
-                &entry.location,
-                CoordinatorLocation::WaitingConflict { blockers }
+                &entry.state,
+                EntryState::CandidateVerified {
+                    location: CandidateLocation::WaitingConflict { blockers },
+                    ..
+                }
                     if blockers.contains(blocker)
             ) {
                 return Err(CoordinatorError::ConflictInvariant);
@@ -143,7 +150,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .entries
                 .get_mut(&waiter)
                 .ok_or_else(|| CoordinatorError::Missing(waiter.clone()))?;
-            entry.location = CoordinatorLocation::ConflictRecheck;
+            let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
+                return Err(CoordinatorError::ConflictInvariant);
+            };
+            *location = CandidateLocation::Recheck;
             entry.revision += 1;
             if self.conflict_recheck_set.insert(waiter.clone()) {
                 self.conflict_rechecks.push_back(waiter);
@@ -163,7 +173,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let Some(candidate) = self
             .entries
             .get(hash)
-            .and_then(|entry| entry.candidate.as_ref())
+            .and_then(CoordinatorEntry::candidate)
             .cloned()
         else {
             return Ok(());
@@ -209,7 +219,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .entries
             .get(hash)
             .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        let CoordinatorLocation::WaitingPoolInputs { inputs } = &entry.location else {
+        let Some(inputs) = entry.waiting_pool_inputs() else {
             return Ok(());
         };
         if self.pool_input_edge_count < inputs.len() {
@@ -231,10 +241,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
     ) -> Result<(), CoordinatorError> {
-        let inputs = match self.entries.get(hash).map(|entry| &entry.location) {
-            Some(CoordinatorLocation::WaitingPoolInputs { inputs }) => inputs.clone(),
-            Some(_) => return Ok(()),
-            None => return Err(CoordinatorError::Missing(hash.clone())),
+        let inputs = self
+            .entries
+            .get(hash)
+            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?
+            .waiting_pool_inputs()
+            .cloned();
+        let Some(inputs) = inputs else {
+            return Ok(());
         };
         self.pool_input_edge_count = self
             .pool_input_edge_count
@@ -259,12 +273,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .entries
             .get(hash)
             .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        if let Some(candidate) = &entry.candidate
+        if let Some(candidate) = entry.candidate()
             && self.conflict_edge_count < candidate.inputs.len()
         {
             return Err(CoordinatorError::ConflictInvariant);
         }
-        if let CoordinatorLocation::WaitingConflict { blockers } = &entry.location {
+        if let Some(blockers) = entry.waiting_conflict_blockers() {
             for blocker in blockers {
                 if !self
                     .waiters_by_blocker
@@ -286,8 +300,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .get(waiter)
                 .ok_or_else(|| CoordinatorError::Missing(waiter.clone()))?;
             if !matches!(
-                &waiter_entry.location,
-                CoordinatorLocation::WaitingConflict { blockers }
+                &waiter_entry.state,
+                EntryState::CandidateVerified {
+                    location: CandidateLocation::WaitingConflict { blockers },
+                    ..
+                }
                     if blockers.contains(hash)
             ) {
                 return Err(CoordinatorError::ConflictInvariant);
@@ -329,40 +346,40 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .entries
             .get(hash)
             .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        if entry.location != CoordinatorLocation::ConflictRecheck {
+        if !matches!(
+            &entry.state,
+            EntryState::CandidateVerified {
+                location: CandidateLocation::Recheck,
+                ..
+            }
+        ) {
             return Err(CoordinatorError::LocationMismatch {
                 expected: CoordinatorLocation::ConflictRecheck,
-                actual: entry.location.clone(),
-            });
-        }
-        if entry.phase.kind() != PayloadPhase::Verified {
-            return Err(CoordinatorError::PhaseMismatch {
-                expected: PayloadPhase::Verified,
-                actual: entry.phase.kind(),
+                actual: entry.location(),
             });
         }
         self.ensure_revision_capacity(hash)?;
         let candidate = entry
-            .candidate
-            .as_ref()
+            .candidate()
             .cloned()
             .ok_or(CoordinatorError::ConflictInvariant)?;
         let blockers = self.active_blockers_for_inputs(hash, &candidate.inputs);
         let can_preempt = !blockers.is_empty()
             && blockers.iter().all(|blocker| {
                 self.entries.get(blocker).is_some_and(|blocker_entry| {
-                    blocker_entry.location == CoordinatorLocation::ReadyToCommit
-                        && blocker_entry
-                            .candidate
-                            .as_ref()
-                            .is_some_and(|blocker_candidate| {
-                                Self::compare_candidates(
-                                    hash,
-                                    &candidate,
-                                    blocker,
-                                    blocker_candidate,
-                                ) == Ordering::Greater
-                            })
+                    matches!(
+                        &blocker_entry.state,
+                        EntryState::CandidateVerified {
+                            candidate: blocker_candidate,
+                            location: CandidateLocation::Ready,
+                            ..
+                        } if Self::compare_candidates(
+                            hash,
+                            &candidate,
+                            blocker,
+                            blocker_candidate,
+                        ) == Ordering::Greater
+                    )
                 })
             });
         let mut inherited_waiters = HashSet::new();
@@ -425,7 +442,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .entries
                     .get_mut(blocker)
                     .ok_or_else(|| CoordinatorError::Missing(blocker.clone()))?;
-                blocker_entry.location = CoordinatorLocation::WaitingConflict {
+                let EntryState::CandidateVerified { location, .. } = &mut blocker_entry.state
+                else {
+                    return Err(CoordinatorError::ConflictInvariant);
+                };
+                *location = CandidateLocation::WaitingConflict {
                     blockers: HashSet::from([hash.clone()]),
                 };
                 blocker_entry.revision += 1;
@@ -443,7 +464,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .entries
                     .get_mut(hash)
                     .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-                entry.location = CoordinatorLocation::ReadyToCommit;
+                let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
+                    return Err(CoordinatorError::ConflictInvariant);
+                };
+                *location = CandidateLocation::Ready;
                 entry.revision += 1;
                 (entry.ticket(hash), entry.source.is_proposal())
             };
@@ -460,7 +484,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .entries
                 .get_mut(hash)
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-            entry.location = CoordinatorLocation::WaitingConflict {
+            let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
+                return Err(CoordinatorError::ConflictInvariant);
+            };
+            *location = CandidateLocation::WaitingConflict {
                 blockers: plan.blockers.clone(),
             };
             entry.revision += 1;
