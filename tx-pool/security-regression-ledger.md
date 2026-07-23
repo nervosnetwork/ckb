@@ -8,6 +8,9 @@ unchanged; this tracked document records what the implementation must preserve.
 Status meanings:
 
 - **Covered**: a focused automated regression exists.
+- **Model-covered**: the invariant has a focused regression in the isolated
+  target model, but production cutover and differential evidence are still
+  required before deleting the legacy owner.
 - **Partial**: behavior is covered indirectly or only one side of the invariant
   is locked; the listed follow-up is mandatory before deleting the legacy path.
 - **Open**: no sufficient automated regression exists yet.
@@ -125,21 +128,21 @@ Status meanings:
 | 86 | Covered | Dispatcher closes and drains the receiver before waiting for permits, so callback/controller re-entry cannot keep shutdown alive indefinitely; channel-close persistence remains the end-to-end anchor. | I4, I8 |
 | 87 | Covered | Queue byte limits accept an exact fit (`>` rather than `>=`); queue boundary tests retain the configured budget semantics. | I5 |
 | 88 | Covered | Ordered-resolver retry is an atomic active-lease-to-queued handoff; orphan delayed/removal regressions prove active duplicate protection cannot consume the worker's own retry. | I1, I4, I6 |
-| 89 | Open | Replace the three split-state target prototypes with one coordinator entry/revision; prove entry↔index↔physical-ticket bijection after every model transition. | I1, I4 |
-| 90 | Open | Make `Committed` a typed handoff constructible only from `Committing`; administrative outcomes must not be able to express commit. | I1, I2 |
-| 91 | Open | Exhaustion/fault injection must prove checkout cannot consume the only live ready ticket before every fallible preflight succeeds. | I4, I6 |
-| 92 | Open | Prove the coordinator has no internal payload-capacity wait state, and that every retained lazy stage/deadline queue consumes stale prefixes with O(1) live counts; add adversarial one-at-a-time churn complexity/allocation coverage. | I5, I12 |
-| 93 | Open | Coordinator audit must include physical live queue membership, not only logical entry/index equality. | I1, I4, I6 |
+| 89 | Partial | The isolated `PipelineCoordinator` now owns one entry/incarnation/revision and audits entry↔index↔physical-ticket equality. Complete the missing deadline, accepted-input, source-promotion and bounded-cascade transitions, then add state-machine and production differential coverage. | I1, I4 |
+| 90 | Model-covered | `administrative_terminal_api_cannot_express_commit_and_releases_all_indexes` and the dedicated typed commit handoffs make commit unavailable to administrative terminalization. Preserve this boundary during production cutover. | I1, I2 |
+| 91 | Model-covered | `revision_exhaustion_does_not_consume_the_only_live_queue_ticket` proves checkout preflights revision capacity before consuming the live ticket. Add allocation and production fault injection at cutover. | I4, I6 |
+| 92 | Partial | The isolated coordinator has no payload-capacity wait and ID-only stage queues use O(1) live sets plus bounded-ratio compaction. Deadline queues and adversarial operation-count coverage are still missing. | I5, I12 |
+| 93 | Model-covered | `PipelineCoordinator::audit` reconstructs logical live tickets and compares them with both queue live sets and physical ticket membership; focused tests audit every exercised transition family. State-machine coverage is still required by #89. | I1, I4, I6 |
 | 94 | Open | Recompute the complete RBF closure and both replacement fee gates under the final pool write guard; registration eligibility is not a durable proof. | I2, I9 |
 | 95 | Open | Make the existing pool write guard the only normal-commit membership sequencer, complete coordinator finalization before releasing it, and keep any reorg/persistence chain-operation guard off the normal hot path. | I2, I7, I12 |
-| 96 | Open | Charge conservative dependency/conflict/ticket/deadline metadata to global and per-peer residency in addition to hard edge caps. | I5 |
-| 97 | Open | Prove an unverified high-fee/slow/invalid stream cannot preempt a verified candidate; conflict ownership begins only after verification and remains globally/per-peer bounded. | I4, I5, I9 |
-| 98 | Open | Parked entries must not retain `Arc<Snapshot>`; stress many tips/waiters and assert old snapshots are released while final tip/input revalidation still holds. | I5, I7, I12 |
-| 99 | Open | Bound parent/blocker fan-out and cascade/rebalance work per coordinator lock hold; complexity counters and adversarial graph tests must prove bounded slices and fail-closed descendants. | I4, I5, I6, I12 |
+| 96 | Partial | Payload residency plus hard dependency/conflict count and fan-out caps exist in the isolated coordinator. Conservative metadata bytes, ticket/deadline charges, per-peer active-work accounting and terminal charge transfer are not yet implemented. | I5 |
+| 97 | Model-covered | `unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain` proves ownership starts only after verification; under-fee and verified-preemption cases are also covered. Add slow/invalid multi-peer production stress and active-work limits before cutover. | I4, I5, I9 |
+| 98 | Partial | The isolated coordinator payload types contain no snapshot and invalidation drops the resolved/verified phase, but many-tip release stress and production final-tip/input revalidation are still missing. | I5, I7, I12 |
+| 99 | Partial | Per-parent, per-input, per-candidate and global conflict-edge caps are transactional; conflict rechecks use an ID-only maintenance queue. Dependency cascade slicing, fail-closed descendants and operation-count stress remain open. | I4, I5, I6, I12 |
 | 100 | Open | Cross-authority queries hold the pool read guard while taking a short coordinator snapshot and never observe the handoff gap; add deterministic query-vs-commit/reorg/clear races. | I1, I2, I7 |
-| 101 | Open | Reserve a bounded effect slot before mutation, enqueue in mutation order before releasing the pool write guard, contain publisher panic/cancellation and drain on shutdown without adding a mandatory common-path scheduling hop. | I4, I8, I12 |
-| 102 | Open | Bound the effect outbox by bytes as well as batches and transfer unavoidable payload charges through publication; stress a stalled callback/relay consumer without memory-budget escape. | I5, I8, I12 |
-| 103 | Open | Freeze committing conflict domains while the coordinator lock is released for pool validation; later verified contenders must remain capped and success/abort must consume the current cohort without stale-plan loss. | I1, I2, I9 |
+| 101 | Partial | The isolated `EffectOutbox` reserves before mutation, binds FIFO mutation order, retains the active head across retry and continuously charges reserved/queued/active batches. Production publisher supervision, shutdown drain, pool-lock enqueue and common-path scheduling evidence remain open. | I4, I8, I12 |
+| 102 | Partial | Count and byte bounds plus stalled-publisher coverage exist in the isolated outbox. Minimal production effect records and coordinator→outbox payload-charge transfer remain open. | I5, I8, I12 |
+| 103 | Model-covered | Multi-input all-or-none ownership, committing freeze, capped late waiters, abort recheck and success consumption of the current direct cohort are covered in the isolated coordinator. Production pool-transaction integration remains required. | I1, I2, I9 |
 | 104 | Open | Inject unwind at every multi-entry coordinator apply boundary; undo authoritative entries, rebuild derived indexes and prove the batch is entirely old or entirely new. | I1, I4 |
 
 ## Validated security candidates

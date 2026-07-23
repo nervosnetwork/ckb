@@ -1,6 +1,7 @@
 mod chunk;
 mod conflict_scheduler;
 mod dependency_scheduler;
+mod effect_outbox;
 mod entry;
 mod estimate;
 mod gap_reorg;
@@ -12,6 +13,7 @@ mod orphan;
 mod pending;
 mod persisted;
 mod pipeline;
+mod pipeline_coordinator;
 mod proposed;
 mod rbf_prevalidation;
 mod recent_reject;

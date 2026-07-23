@@ -459,6 +459,31 @@ payload/accounting. Remote peer attribution is retained until a trusted source
 promotion explicitly releases it, preventing duplicate submissions from
 moving charges between peers.
 
+#### Current isolated implementation status
+
+The first single-authority checkpoint is implemented in
+`component/pipeline_coordinator.rs` together with the bounded
+`component/effect_outbox.rs`. It is deliberately unreachable from the
+production hot path. The coordinator currently covers one full-hash owner,
+typed raw/unverified/verified payload replacement, versioned stage and commit
+leases, dependency wake/invalidation, verified-only conflict scheduling,
+multi-input committing freeze, typed commit handoff, global/per-peer payload
+residency, physical queue-ticket audit and clear/removal. The outbox covers
+continuous count/byte reservation, mutation-order sequence binding, FIFO retry
+and active-publication residency. The complete tx-pool unit suite currently
+contains 18 coordinator and 5 outbox focused tests.
+
+This checkpoint is not a production migration claim. Before raw cutover, the
+model still needs source promotion, expiry/deadline ownership, per-peer active
+fairness, accepted-pool-input waiting, exact conservative metadata charging,
+bounded dependency-cascade maintenance, state-machine/property coverage and
+the multi-entry undo guard. Before mutation cutover it additionally needs
+coordinator/outbox charge transfer, final in-lock pool RBF recalculation,
+cross-authority query tests and production publisher/shutdown integration.
+The existing split prototypes remain test oracles only until their remaining
+properties are ported; they must then be deleted rather than hardened or
+integrated.
+
 ### 5.3 Atomic transition engine
 
 Every coordinator API is a complete domain transition rather than a public
