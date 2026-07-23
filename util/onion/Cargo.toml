@@ -10,15 +10,21 @@ repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.95.0"
 
 [dependencies]
-base64.workspace = true
+data-encoding.workspace = true
+ed25519-dalek = { workspace = true, features = ["hazmat"] }
+hmac.workspace = true
+hex.workspace = true
+rand.workspace = true
+sha2.workspace = true
+tiny-keccak = { workspace = true, features = ["sha3"] }
 tokio = { workspace = true, features = [ "full", "macros" ]}
-torut.workspace = true
 ckb-error.workspace = true
 ckb-async-runtime.workspace = true
 ckb-logger.workspace = true
 ckb-stop-handler.workspace = true
 ckb-network.workspace = true
-futures.workspace = true
+thiserror.workspace = true
+strum.workspace = true
 
 [dev-dependencies]
 ckb-network.workspace = true

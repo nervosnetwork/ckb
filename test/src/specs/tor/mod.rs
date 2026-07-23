@@ -2,7 +2,7 @@ mod tor_basic;
 mod tor_connect;
 mod tor_hash_password;
 mod tor_reconnect;
-use ckb_async_runtime::Runtime;
+use ckb_async_runtime::{Handle, Runtime};
 use ckb_logger::{error, info};
 use std::{path::Path, process::Child};
 use tempfile::{TempDir, tempdir};
@@ -52,9 +52,15 @@ impl TorServer {
     pub fn tor_wait_bootstrap_done(&self) {
         let tor_controller_url = format!("127.0.0.1:{}", self.control_port);
         let controller_password = self.controller_password.clone();
-        Runtime::new().unwrap().block_on(async {
-            let tor_controller =
-                ckb_onion::TorController::new(tor_controller_url, controller_password, None).await;
+        let runtime = Runtime::new().unwrap();
+        let handle = Handle::new(runtime.handle().clone(), None);
+        handle.block_on(async {
+            let tor_controller = ckb_onion::TorController::new(
+                tor_controller_url,
+                controller_password,
+                handle.clone(),
+            )
+            .await;
             let mut tor_controller = tor_controller.unwrap();
             if let Err(err) = tor_controller.wait_tor_server_bootstrap_done().await {
                 error!("wait tor server bootstrap done error: {:?}", err);
