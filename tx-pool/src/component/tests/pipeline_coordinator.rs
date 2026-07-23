@@ -118,6 +118,19 @@ fn verify_plain(
 fn accepted_pool_inputs_wake_only_after_the_final_input_is_free() {
     let mut coordinator = roomy();
     let (tx_hash, version) = verify_plain(&mut coordinator, 80);
+    let before = coordinator.view(&tx_hash).unwrap();
+    let usage = coordinator.usage();
+    for fault_step in 1..=2 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.wait_for_pool_inputs(&tx_hash, version, inputs([180, 181]));
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
     coordinator
         .wait_for_pool_inputs(&tx_hash, version, inputs([180, 181]))
         .unwrap();
@@ -197,6 +210,21 @@ fn accepted_pool_input_limits_and_wake_slices_are_transactional() {
     coordinator
         .wait_for_pool_inputs(&second, second_version, HashSet::from([shared.clone()]))
         .unwrap();
+    let before = [first.clone(), second.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+    for fault_step in 1..=2 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.pool_input_freed(&shared, 2);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [first.clone(), second.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.queue_len(QueueKind::Commit), 0);
+        coordinator.audit().unwrap();
+    }
     assert_eq!(coordinator.pool_input_freed(&shared, 1).unwrap().len(), 1);
     assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     assert_eq!(coordinator.pool_input_freed(&shared, 1).unwrap().len(), 1);
@@ -594,6 +622,50 @@ fn expiry_and_administrative_remove_cannot_steal_a_committing_lease() {
     ));
     coordinator.abort_commit(&commit).unwrap();
     assert_eq!(coordinator.expire_due(10, 1).unwrap().len(), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn expiry_batch_never_loses_an_earlier_terminal_on_unwind() {
+    let mut coordinator = roomy();
+    let hashes = [hash(228), hash(229)];
+    for (seed, tx_hash) in [(228, hashes[0].clone()), (229, hashes[1].clone())] {
+        coordinator
+            .admit_raw_sourced(
+                tx_hash,
+                short(seed),
+                Raw("expiring"),
+                RawStage::Resolve,
+                CoordinatorSource::Local,
+                Some(10),
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    let before = hashes
+        .clone()
+        .map(|tx_hash| coordinator.view(&tx_hash).unwrap());
+    let usage = coordinator.usage();
+
+    for fault_step in 1..=6 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.expire_due(10, 2);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = hashes
+            .clone()
+            .map(|tx_hash| coordinator.view(&tx_hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.deadline_len(), 2);
+        coordinator.audit().unwrap();
+    }
+
+    assert_eq!(coordinator.expire_due(10, 2).unwrap().len(), 2);
+    assert!(coordinator.is_empty());
     coordinator.audit().unwrap();
 }
 
@@ -1017,32 +1089,79 @@ fn injected_multi_entry_unwind_restores_entries_and_rebuilds_indexes() {
         .collect();
     let usage = coordinator.usage();
     let physical = coordinator.physical_queue_slots_for_test(QueueKind::Resolve);
-    coordinator.set_invalidation_fault_for_test(Some(1));
-
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = coordinator.schedule_parent_failure(&parent);
-    }));
-    assert!(result.is_err());
-    coordinator.set_invalidation_fault_for_test(None);
-    let after: Vec<_> = children
-        .iter()
-        .map(|child| coordinator.view(child).unwrap())
-        .collect();
-    assert_eq!(after, before);
-    assert_eq!(coordinator.usage(), usage);
-    assert_eq!(coordinator.dependency_failure_len(), 0);
-    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 2);
-    assert_eq!(
-        coordinator.physical_queue_slots_for_test(QueueKind::Resolve),
-        physical
-    );
-    coordinator.audit().unwrap();
+    for fault_step in 1..=4 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.schedule_parent_failure(&parent);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after: Vec<_> = children
+            .iter()
+            .map(|child| coordinator.view(child).unwrap())
+            .collect();
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.dependency_failure_len(), 0);
+        assert_eq!(coordinator.queue_len(QueueKind::Resolve), 2);
+        assert_eq!(
+            coordinator.physical_queue_slots_for_test(QueueKind::Resolve),
+            physical
+        );
+        coordinator.audit().unwrap();
+    }
 
     assert_eq!(
         coordinator.schedule_parent_failure(&parent).unwrap().len(),
         2
     );
     assert_eq!(coordinator.drain_dependency_failures(2).unwrap().len(), 2);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn dependency_failure_batch_never_loses_an_earlier_terminal_on_unwind() {
+    let mut coordinator = roomy();
+    let parent = hash(221);
+    let children = [hash(222), hash(223)];
+    for (seed, child) in [(222, children[0].clone()), (223, children[1].clone())] {
+        coordinator
+            .admit_raw(
+                child,
+                short(seed),
+                Raw("child"),
+                RawStage::Resolve,
+                None,
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+    }
+    coordinator.schedule_parent_failure(&parent).unwrap();
+    let before = children
+        .clone()
+        .map(|child| coordinator.view(&child).unwrap());
+    let usage = coordinator.usage();
+
+    for fault_step in 1..=6 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.drain_dependency_failures(2);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = children
+            .clone()
+            .map(|child| coordinator.view(&child).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.dependency_failure_len(), 2);
+        coordinator.audit().unwrap();
+    }
+
+    let terminal = coordinator.drain_dependency_failures(2).unwrap();
+    assert_eq!(terminal.len(), 2);
+    assert!(coordinator.is_empty());
     coordinator.audit().unwrap();
 }
 
@@ -1089,6 +1208,85 @@ fn final_parent_wake_is_exactly_once_and_batch_preflight_is_atomic() {
     }
     assert_eq!(coordinator.queue_len(QueueKind::Resolve), 0);
     coordinator.audit().unwrap();
+}
+
+#[test]
+fn every_dependency_batch_apply_boundary_is_all_old_or_all_new() {
+    let parent = hash(230);
+    let children = [hash(231), hash(232)];
+
+    let mut unavailable = roomy();
+    for (seed, child) in [(231, children[0].clone()), (232, children[1].clone())] {
+        unavailable
+            .admit_raw(
+                child,
+                short(seed),
+                Raw("child"),
+                RawStage::Resolve,
+                None,
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+    }
+    let before = children
+        .clone()
+        .map(|child| unavailable.view(&child).unwrap());
+    for fault_step in 1..=4 {
+        unavailable.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = unavailable.parent_unavailable(&parent);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        unavailable.set_apply_fault_for_test(None);
+        let after = children
+            .clone()
+            .map(|child| unavailable.view(&child).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(unavailable.queue_len(QueueKind::Resolve), 2);
+        unavailable.audit().unwrap();
+    }
+    assert_eq!(unavailable.parent_unavailable(&parent).unwrap().len(), 2);
+    unavailable.audit().unwrap();
+
+    let mut available = roomy();
+    for (seed, child) in [(231, children[0].clone()), (232, children[1].clone())] {
+        available
+            .admit_raw(
+                child,
+                short(seed),
+                Raw("child"),
+                RawStage::Resolve,
+                None,
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+        let lease = available.checkout_raw(RawStage::Resolve).unwrap().unwrap();
+        available
+            .wait_for_parents(&lease, set([parent.clone()]))
+            .unwrap();
+    }
+    let before = children
+        .clone()
+        .map(|child| available.view(&child).unwrap());
+    for fault_step in 1..=2 {
+        available.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = available.parent_available(&parent);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        available.set_apply_fault_for_test(None);
+        let after = children
+            .clone()
+            .map(|child| available.view(&child).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(available.queue_len(QueueKind::Resolve), 0);
+        available.audit().unwrap();
+    }
+    assert_eq!(available.parent_available(&parent).unwrap().len(), 2);
+    assert_eq!(available.queue_len(QueueKind::Resolve), 2);
+    available.audit().unwrap();
 }
 
 #[test]
@@ -1441,6 +1639,73 @@ fn higher_verified_candidate_preempts_and_removal_rechecks_the_loser() {
 }
 
 #[test]
+fn verified_conflict_preemption_rolls_back_at_every_apply_boundary() {
+    let mut coordinator = roomy();
+    let contested = input(233);
+    let low = verify_candidate(
+        &mut coordinator,
+        233,
+        HashSet::from([contested.clone()]),
+        100,
+    );
+    let high = hash(234);
+    coordinator
+        .admit_raw(
+            high.clone(),
+            short(234),
+            Raw("high"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("high"), 20)
+        .unwrap();
+    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let before = [low.clone(), high.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+    let active_work = coordinator.active_work();
+
+    for fault_step in 1..=3 {
+        let candidate = CoordinatorFeeGate::new(0, 0)
+            .validate(high.clone(), HashSet::from([contested.clone()]), 200, 100)
+            .unwrap();
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.complete_verification_candidate(
+                &verify,
+                Verified("high"),
+                30,
+                candidate,
+            );
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [low.clone(), high.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.active_work(), active_work);
+        assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
+        coordinator.audit().unwrap();
+    }
+
+    let candidate = CoordinatorFeeGate::new(0, 0)
+        .validate(high.clone(), HashSet::from([contested.clone()]), 200, 100)
+        .unwrap();
+    coordinator
+        .complete_verification_candidate(&verify, Verified("high"), 30, candidate)
+        .unwrap();
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&high));
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn exact_conflict_score_tie_keeps_the_earlier_verified_candidate() {
     let mut coordinator = roomy();
     let shared = input(210);
@@ -1596,6 +1861,130 @@ fn preempted_blockers_move_their_old_waiters_to_bounded_recheck_work() {
 }
 
 #[test]
+fn injected_conflict_recheck_unwind_restores_the_entire_preemption() {
+    let mut coordinator = roomy();
+    let contested = input(215);
+    let middle = verify_candidate(
+        &mut coordinator,
+        215,
+        HashSet::from([contested.clone()]),
+        200,
+    );
+    let low = verify_candidate(
+        &mut coordinator,
+        216,
+        HashSet::from([contested.clone()]),
+        100,
+    );
+    let high = verify_candidate(
+        &mut coordinator,
+        217,
+        HashSet::from([contested.clone()]),
+        300,
+    );
+    coordinator
+        .force_terminalize(&high, TerminalDisposition::Rejected)
+        .unwrap();
+    let weak = verify_candidate(
+        &mut coordinator,
+        218,
+        HashSet::from([contested.clone()]),
+        50,
+    );
+    assert_eq!(coordinator.conflict_recheck_len(), 2);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
+    let before =
+        [low.clone(), middle.clone(), weak.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+
+    for fault_step in 1..=3 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.drain_conflict_rechecks(1);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+
+        let after = [low.clone(), middle.clone(), weak.clone()]
+            .map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.conflict_recheck_len(), 2);
+        assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
+        assert_eq!(
+            coordinator.physical_queue_slots_for_test(QueueKind::Commit),
+            coordinator.queue_len(QueueKind::Commit)
+        );
+        coordinator.audit().unwrap();
+    }
+
+    assert_eq!(coordinator.drain_conflict_rechecks(1).unwrap().len(), 1);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
+    assert!(matches!(
+        coordinator.view(&weak).unwrap().location,
+        CoordinatorLocation::WaitingConflict { .. }
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn conflict_recheck_batch_rolls_back_earlier_preemptions_on_late_unwind() {
+    let mut coordinator = roomy();
+    let contested = input(224);
+    let middle = verify_candidate(
+        &mut coordinator,
+        224,
+        HashSet::from([contested.clone()]),
+        200,
+    );
+    let low = verify_candidate(
+        &mut coordinator,
+        225,
+        HashSet::from([contested.clone()]),
+        100,
+    );
+    let high = verify_candidate(
+        &mut coordinator,
+        226,
+        HashSet::from([contested.clone()]),
+        300,
+    );
+    coordinator
+        .force_terminalize(&high, TerminalDisposition::Rejected)
+        .unwrap();
+    let weak = verify_candidate(
+        &mut coordinator,
+        227,
+        HashSet::from([contested.clone()]),
+        50,
+    );
+    let before =
+        [low.clone(), middle.clone(), weak.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+    assert_eq!(coordinator.conflict_recheck_len(), 2);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
+
+    coordinator.set_apply_fault_for_test(Some(4));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.drain_conflict_rechecks(2);
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+
+    let after =
+        [low.clone(), middle.clone(), weak.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    assert_eq!(after, before);
+    assert_eq!(coordinator.usage(), usage);
+    assert_eq!(coordinator.conflict_recheck_len(), 2);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
+    coordinator.audit().unwrap();
+
+    assert_eq!(coordinator.drain_conflict_rechecks(2).unwrap().len(), 2);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&middle));
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn conflict_limits_fail_before_verified_state_or_indexes_change() {
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> = PipelineCoordinator::new(
         CoordinatorLimits::new(CoordinatorResidency::new(10, 1_000), None, 4, 4)
@@ -1680,6 +2069,45 @@ fn waiter_revision_exhaustion_cannot_half_remove_its_active_blocker() {
 }
 
 #[test]
+fn every_conflict_owner_removal_apply_boundary_rolls_back_atomically() {
+    let contested = input(219);
+    for fault_step in 1..=3 {
+        let mut coordinator = roomy();
+        let owner = verify_candidate(
+            &mut coordinator,
+            219,
+            HashSet::from([contested.clone()]),
+            200,
+        );
+        let waiter = verify_candidate(
+            &mut coordinator,
+            220,
+            HashSet::from([contested.clone()]),
+            100,
+        );
+        let before = [owner.clone(), waiter.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
+        let commit_len = coordinator.queue_len(QueueKind::Commit);
+        let recheck_len = coordinator.conflict_recheck_len();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.force_terminalize(&owner, TerminalDisposition::Rejected);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+
+        let after = [owner.clone(), waiter].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.queue_len(QueueKind::Commit), commit_len);
+        assert_eq!(coordinator.conflict_recheck_len(), recheck_len);
+        assert_eq!(coordinator.active_conflict_owner(&contested), Some(&owner));
+        coordinator.audit().unwrap();
+    }
+}
+
+#[test]
 fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
     let mut coordinator = roomy();
     let contested = input(11);
@@ -1719,6 +2147,36 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
         Err(CoordinatorError::ConflictInvariant)
     ));
 
+    let before = [
+        winner.clone(),
+        loser.clone(),
+        late_loser.clone(),
+        independent.clone(),
+    ]
+    .map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+    let conflict_edges = coordinator.conflict_edge_count();
+    for fault_step in 1..=9 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.commit_candidate_handoff(&committing);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [
+            winner.clone(),
+            loser.clone(),
+            late_loser.clone(),
+            independent.clone(),
+        ]
+        .map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.conflict_edge_count(), conflict_edges);
+        assert_eq!(coordinator.active_work(), 1);
+        coordinator.audit().unwrap();
+    }
+
     let handoff = coordinator.commit_candidate_handoff(&committing).unwrap();
     assert_eq!(handoff.winner.hash, winner);
     let rejected: HashSet<_> = handoff
@@ -1743,7 +2201,7 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
 fn clear_is_one_batch_and_does_not_revise_conflict_waiters() {
     let mut coordinator = roomy();
     let contested = input(13);
-    let _owner = verify_candidate(
+    let owner = verify_candidate(
         &mut coordinator,
         41,
         HashSet::from([contested.clone()]),
@@ -1753,6 +2211,17 @@ fn clear_is_one_batch_and_does_not_revise_conflict_waiters() {
     coordinator
         .set_revision_for_test(&waiter, u64::MAX)
         .unwrap();
+
+    let before = [owner.clone(), waiter.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    coordinator.set_apply_fault_for_test(Some(1));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.clear();
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    let after = [owner, waiter.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    assert_eq!(after, before);
+    coordinator.audit().unwrap();
 
     let cleared = coordinator.clear().unwrap();
     assert_eq!(cleared.len(), 2);

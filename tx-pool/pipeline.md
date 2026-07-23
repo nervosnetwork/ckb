@@ -472,7 +472,7 @@ continuous count/byte reservation, mutation-order sequence binding, FIFO retry
 and active-publication residency. The coordinator is split by responsibility
 into state types, derived indexes and invariant audit modules while retaining
 one entry store and one transition authority. The isolated model currently
-contains 34 coordinator and 5 outbox focused tests.
+contains 41 coordinator and 5 outbox focused tests.
 
 Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
 conservative metadata charging and global/per-peer active-work fairness now
@@ -487,14 +487,20 @@ failure now invalidates direct children synchronously and drains transitive
 cleanup through a bounded maintenance deque, so deferred work cannot let a
 descendant commit. Multi-entry dependency, accepted-input and conflict-handoff
 operations use a bounded entry undo guard and deterministic derived-index
-rebuild; an injected unwind regression proves the observed state is entirely
-old before retry. The guard still needs fault injection at every apply
-boundary, and queue scheduling still needs configured fee-priority ordering
-within eligible peer heads. Before mutation cutover the model additionally
-needs coordinator/outbox charge transfer, final in-lock pool RBF
-recalculation, cross-authority query tests and production publisher/shutdown
-integration. The obsolete split prototypes and their duplicate state
-authorities have been deleted rather than hardened or integrated.
+rebuild. Dependency schedule/drain, parent wake/demotion, accepted-input
+park/wake, verified conflict preemption, conflict recheck, removal, expiry and
+candidate handoff inject unwind at their apply boundaries and prove the
+observed state is entirely old before retry. Multi-item maintenance freezes its
+bounded entry worklist so work discovered during the slice remains
+level-triggered for the next slice; a late failure cannot discard earlier
+terminal or activation results. Queue rebuild preserves the round-robin cursor
+of surviving owners while removing stale tombstones. Queue scheduling still
+needs configured fee-priority ordering within eligible peer heads. Before
+mutation cutover the model additionally needs coordinator/outbox charge
+transfer, final in-lock pool RBF recalculation, cross-authority query tests and
+production publisher/shutdown integration. The obsolete split prototypes and
+their duplicate state authorities have been deleted rather than hardened or
+integrated.
 
 ### 5.3 Atomic transition engine
 

@@ -1,5 +1,11 @@
 use super::*;
 
+pub(super) struct ConflictRecheckPlan {
+    blockers: HashSet<Byte32>,
+    can_preempt: bool,
+    inherited_waiters: HashSet<Byte32>,
+}
+
 impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(super) fn active_blockers_for_inputs(
         &self,
@@ -300,6 +306,25 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
     ) -> Result<Option<CoordinatorTicket>, CoordinatorError> {
+        let plan = self.prepare_conflict_recheck(hash)?;
+        let undo_capacity = 1usize
+            .saturating_add(plan.blockers.len())
+            .saturating_add(plan.inherited_waiters.len());
+        let mut undo = Vec::new();
+        undo.try_reserve(undo_capacity)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        undo.push(hash.clone());
+        undo.extend(plan.blockers.iter().cloned());
+        undo.extend(plan.inherited_waiters.iter().cloned());
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.apply_conflict_recheck(hash, &plan)
+        })
+    }
+
+    pub(super) fn prepare_conflict_recheck(
+        &mut self,
+        hash: &Byte32,
+    ) -> Result<ConflictRecheckPlan, CoordinatorError> {
         let entry = self
             .entries
             .get(hash)
@@ -379,9 +404,20 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_recheck_set
             .try_reserve(inherited_waiters.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        Ok(ConflictRecheckPlan {
+            blockers,
+            can_preempt,
+            inherited_waiters,
+        })
+    }
 
-        if can_preempt {
-            for blocker in &blockers {
+    pub(super) fn apply_conflict_recheck(
+        &mut self,
+        hash: &Byte32,
+        plan: &ConflictRecheckPlan,
+    ) -> Result<Option<CoordinatorTicket>, CoordinatorError> {
+        if plan.can_preempt {
+            for blocker in &plan.blockers {
                 self.invalidate_conflict_waiters(blocker)?;
                 self.remove_current_queue_ticket(blocker)?;
                 self.release_conflict_claims(blocker)?;
@@ -397,22 +433,19 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .entry(hash.clone())
                     .or_default()
                     .insert(blocker.clone());
+                self.apply_fault_checkpoint();
             }
         }
 
-        if blockers.is_empty() || can_preempt {
-            let (version, ticket, front) = {
+        if plan.blockers.is_empty() || plan.can_preempt {
+            let (ticket, front) = {
                 let entry = self
                     .entries
                     .get_mut(hash)
                     .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
                 entry.location = CoordinatorLocation::ReadyToCommit;
                 entry.revision += 1;
-                (
-                    entry.version(),
-                    entry.ticket(hash),
-                    entry.source.is_proposal(),
-                )
+                (entry.ticket(hash), entry.source.is_proposal())
             };
             self.claim_conflict_inputs(hash)?;
             self.queue_mut(QueueKind::Commit)?.push_reserved(
@@ -420,7 +453,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ticket.clone(),
                 front,
             )?;
-            let _ = version;
+            self.apply_fault_checkpoint();
             Ok(Some(ticket))
         } else {
             let entry = self
@@ -428,15 +461,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .get_mut(hash)
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             entry.location = CoordinatorLocation::WaitingConflict {
-                blockers: blockers.clone(),
+                blockers: plan.blockers.clone(),
             };
             entry.revision += 1;
-            for blocker in blockers {
+            for blocker in &plan.blockers {
                 self.waiters_by_blocker
-                    .entry(blocker)
+                    .entry(blocker.clone())
                     .or_default()
                     .insert(hash.clone());
             }
+            self.apply_fault_checkpoint();
             Ok(None)
         }
     }

@@ -704,12 +704,23 @@ impl TicketLane {
             bucket.retain(|ticket| live.contains(ticket));
         }
         self.buckets.retain(|_, bucket| !bucket.is_empty());
-        self.rotation.clear();
+        // Preserve the round-robin cursor for every surviving owner. A
+        // transactional rollback may compact stale physical tickets, but it
+        // must not silently reshuffle unrelated peers.
         self.rotating.clear();
+        {
+            let buckets = &self.buckets;
+            let rotating = &mut self.rotating;
+            self.rotation
+                .retain(|owner| buckets.contains_key(owner) && rotating.insert(*owner));
+        }
+        for owner in self.buckets.keys() {
+            if self.rotating.insert(*owner) {
+                self.rotation.push_back(*owner);
+            }
+        }
         self.physical_len = 0;
-        for (owner, bucket) in &self.buckets {
-            self.rotation.push_back(*owner);
-            self.rotating.insert(*owner);
+        for bucket in self.buckets.values() {
             self.physical_len = self.physical_len.saturating_add(bucket.len());
         }
     }

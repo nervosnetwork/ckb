@@ -47,7 +47,9 @@ pub(crate) struct PipelineCoordinator<R, U, V> {
     next_incarnation: u64,
     next_arrival: u64,
     #[cfg(test)]
-    fault_after_invalidations: Option<usize>,
+    fault_after_apply_steps: Option<usize>,
+    #[cfg(test)]
+    apply_steps_seen: usize,
 }
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
@@ -83,7 +85,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             next_incarnation: 1,
             next_arrival: 0,
             #[cfg(test)]
-            fault_after_invalidations: None,
+            fault_after_apply_steps: None,
+            #[cfg(test)]
+            apply_steps_seen: 0,
         }
     }
 
@@ -610,10 +614,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             normal_owners,
             ready_count.saturating_sub(priority_ready_count),
         )?;
+        let mut ready = Vec::new();
+        ready
+            .try_reserve(ready_count)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
 
         let undo = affected.clone();
         self.with_entry_undo(&undo, |coordinator| {
-            let mut ready = Vec::with_capacity(ready_count);
             for child in affected {
                 let entry = coordinator
                     .entries
@@ -640,6 +647,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     )?;
                     ready.push(ticket);
                 }
+                coordinator.apply_fault_checkpoint();
             }
             Ok(ready)
         })
@@ -686,6 +694,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 coordinator.remove_current_queue_ticket(child)?;
                 coordinator.remove_pool_input_indexes(child)?;
                 coordinator.remove_conflict_indexes(child)?;
+                coordinator.apply_fault_checkpoint();
                 let raw_charge = coordinator
                     .entries
                     .get(child)
@@ -707,6 +716,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 entry.candidate = None;
                 entry.location = CoordinatorLocation::WaitingParents { missing };
                 entry.revision += 1;
+                coordinator.apply_fault_checkpoint();
             }
             Ok(result)
         })
@@ -725,32 +735,41 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         max: usize,
     ) -> Result<Vec<TerminalRecord<R, U, V>>, CoordinatorError> {
+        let roots = self.preview_dependency_failure_roots(max);
+        let mut affected = roots.clone();
+        for root in &roots {
+            if let Some(children) = self.by_parent.get(root) {
+                affected.extend(children.iter().cloned());
+            }
+        }
+        let directly_affected = affected.clone();
+        for hash in &directly_affected {
+            if let Some(waiters) = self.waiters_by_blocker.get(hash) {
+                affected.extend(waiters.iter().cloned());
+            }
+        }
         let mut terminal = Vec::new();
         terminal
-            .try_reserve(max.min(self.dependency_failure_set.len()))
+            .try_reserve(roots.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        while terminal.len() < max {
-            let Some(hash) = self.dependency_failures.front().cloned() else {
-                break;
-            };
-            if !self.dependency_failure_set.contains(&hash) {
-                self.dependency_failures.pop_front();
-                continue;
+        self.with_entry_undo(&affected, |coordinator| {
+            for hash in roots {
+                let cause = match coordinator.entries.get(&hash).map(|entry| &entry.location) {
+                    Some(CoordinatorLocation::Invalidated { cause }) => cause.clone(),
+                    Some(_) => return Err(CoordinatorError::ConflictInvariant),
+                    None => return Err(CoordinatorError::Missing(hash)),
+                };
+                coordinator.mark_children_invalid(&hash, &cause)?;
+                let entry = coordinator.remove_present_apply(&hash)?;
+                terminal.push(Self::terminal_record(
+                    hash,
+                    entry,
+                    TerminalDisposition::DependencyFailed,
+                ));
+                coordinator.apply_fault_checkpoint();
             }
-            let cause = match self.entries.get(&hash).map(|entry| &entry.location) {
-                Some(CoordinatorLocation::Invalidated { cause }) => cause.clone(),
-                Some(_) => return Err(CoordinatorError::ConflictInvariant),
-                None => return Err(CoordinatorError::Missing(hash)),
-            };
-            self.mark_children_invalid(&hash, &cause)?;
-            let entry = self.remove_present(&hash)?;
-            terminal.push(Self::terminal_record(
-                hash,
-                entry,
-                TerminalDisposition::DependencyFailed,
-            ));
-        }
-        Ok(terminal)
+            Ok(terminal)
+        })
     }
 
     pub(crate) fn dependency_failure_len(&self) -> usize {
@@ -972,11 +991,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .try_reserve(invalidated_waiters.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
 
-        let mut undo = Vec::with_capacity(
-            1usize
-                .saturating_add(blockers.len())
-                .saturating_add(invalidated_waiters.len()),
-        );
+        let undo_capacity = 1usize
+            .saturating_add(blockers.len())
+            .saturating_add(invalidated_waiters.len());
+        let mut undo = Vec::new();
+        undo.try_reserve(undo_capacity)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         undo.push(lease.hash.clone());
         undo.extend(blockers.iter().cloned());
         undo.extend(invalidated_waiters.iter().cloned());
@@ -997,6 +1017,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .or_default()
                     .insert(lease.hash.clone());
             }
+            coordinator.apply_fault_checkpoint();
 
             if can_preempt {
                 for blocker in &blockers {
@@ -1016,6 +1037,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .entry(lease.hash.clone())
                         .or_default()
                         .insert(blocker.clone());
+                    coordinator.apply_fault_checkpoint();
                 }
             }
 
@@ -1039,6 +1061,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     ticket,
                     front,
                 )?;
+                coordinator.apply_fault_checkpoint();
                 Ok(version)
             } else {
                 entry.location = CoordinatorLocation::WaitingConflict {
@@ -1052,6 +1075,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .or_default()
                         .insert(lease.hash.clone());
                 }
+                coordinator.apply_fault_checkpoint();
                 Ok(version)
             }
         })
@@ -1148,6 +1172,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             coordinator.apply_recharge(hash, next_charge_bytes)?;
             coordinator.remove_current_queue_ticket(hash)?;
             coordinator.deactivate_conflict_indexes(hash)?;
+            coordinator.apply_fault_checkpoint();
             for input in &inputs {
                 coordinator
                     .pool_waiters_by_input
@@ -1163,7 +1188,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             entry.location = CoordinatorLocation::WaitingPoolInputs { inputs };
             entry.metadata_bytes = next_metadata_bytes;
             entry.revision += 1;
-            Ok(entry.version())
+            let version = entry.version();
+            coordinator.apply_fault_checkpoint();
+            Ok(version)
         })
     }
 
@@ -1289,6 +1316,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         priority,
                     )?;
                 }
+                coordinator.apply_fault_checkpoint();
             }
             if coordinator
                 .pool_waiters_by_input
@@ -1343,25 +1371,51 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         limit: usize,
     ) -> Result<Vec<CoordinatorTicket>, CoordinatorError> {
-        let mut activated = Vec::new();
-        let mut processed = 0usize;
-        while processed < limit {
-            let Some(hash) = self.conflict_rechecks.front().cloned() else {
-                break;
-            };
-            if !self.conflict_recheck_set.contains(&hash) {
-                self.conflict_rechecks.pop_front();
-                continue;
+        // Freeze the slice before applying it. Waiters discovered while this
+        // slice runs remain level-triggered for the next slice instead of
+        // extending the current transaction's attack-controlled work graph.
+        let selected: Vec<_> = self
+            .conflict_rechecks
+            .iter()
+            .filter(|hash| self.conflict_recheck_set.contains(*hash))
+            .take(limit)
+            .cloned()
+            .collect();
+        let mut affected = selected.clone();
+        for hash in &selected {
+            let candidate = self
+                .entries
+                .get(hash)
+                .and_then(|entry| entry.candidate.as_ref())
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            for input in &candidate.inputs {
+                if let Some(candidates) = self.candidates_by_input.get(input) {
+                    affected.extend(candidates.iter().cloned());
+                }
             }
-            let ticket = self.recheck_conflict_candidate(&hash)?;
-            self.conflict_rechecks.pop_front();
-            self.conflict_recheck_set.remove(&hash);
-            if let Some(ticket) = ticket {
-                activated.push(ticket);
-            }
-            processed += 1;
         }
-        Ok(activated)
+        let conflict_cohort = affected.clone();
+        for hash in &conflict_cohort {
+            if let Some(waiters) = self.waiters_by_blocker.get(hash) {
+                affected.extend(waiters.iter().cloned());
+            }
+        }
+        let mut activated = Vec::new();
+        activated
+            .try_reserve(selected.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        self.with_entry_undo(&affected, |coordinator| {
+            for hash in &selected {
+                let plan = coordinator.prepare_conflict_recheck(hash)?;
+                if let Some(ticket) = coordinator.apply_conflict_recheck(hash, &plan)? {
+                    activated.push(ticket);
+                }
+                coordinator.conflict_recheck_set.remove(hash);
+                coordinator.apply_fault_checkpoint();
+            }
+            coordinator.compact_conflict_rechecks();
+            Ok(activated)
+        })
     }
 
     pub(crate) fn abort_commit(
@@ -1484,24 +1538,30 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
         let mut rejected: Vec<_> = rejected.into_iter().collect();
         rejected.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(rejected.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         let mut undo = rejected.clone();
         undo.push(lease.hash.clone());
-        for hash in &undo.clone() {
+        let directly_affected = undo.clone();
+        for hash in &directly_affected {
             if let Some(waiters) = self.waiters_by_blocker.get(hash) {
                 undo.extend(waiters.iter().cloned());
             }
         }
         self.with_entry_undo(&undo, |coordinator| {
-            let mut terminal = Vec::with_capacity(rejected.len());
             for hash in rejected {
-                let entry = coordinator.remove_present(&hash)?;
+                let entry = coordinator.remove_present_apply(&hash)?;
                 terminal.push(Self::terminal_record(
                     hash,
                     entry,
                     TerminalDisposition::Rejected,
                 ));
+                coordinator.apply_fault_checkpoint();
             }
-            let entry = coordinator.remove_present(&lease.hash)?;
+            let entry = coordinator.remove_present_apply(&lease.hash)?;
+            coordinator.apply_fault_checkpoint();
             let ResidentPhase::Verified(verified) = entry.phase else {
                 return Err(CoordinatorError::PhaseMismatch {
                     expected: PayloadPhase::Verified,
@@ -1553,11 +1613,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         now: u64,
         max: usize,
     ) -> Result<Vec<TerminalRecord<R, U, V>>, CoordinatorError> {
-        let mut terminal = Vec::new();
-        terminal
-            .try_reserve(max.min(self.live_deadlines.len()))
+        let capacity = max.min(self.live_deadlines.len());
+        let mut selected = Vec::new();
+        selected
+            .try_reserve(capacity)
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        while terminal.len() < max {
+        while selected.len() < max {
             let Some(Reverse(ticket)) = self.deadlines.peek().cloned() else {
                 break;
             };
@@ -1584,14 +1645,38 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             if entry.location == CoordinatorLocation::Committing {
                 break;
             }
-            let entry = self.remove_present(&ticket.hash)?;
-            terminal.push(Self::terminal_record(
-                ticket.hash,
-                entry,
-                TerminalDisposition::Expired,
-            ));
+            self.deadlines.pop();
+            selected.push(ticket);
         }
-        Ok(terminal)
+        // Restore the selected physical tickets before any fallible undo
+        // preparation. Successful removal makes them lazy-stale; rollback can
+        // therefore rebuild only logical state without a deadline liveness gap.
+        for ticket in &selected {
+            self.deadlines.push(Reverse(ticket.clone()));
+        }
+        let mut affected: Vec<_> = selected.iter().map(|ticket| ticket.hash.clone()).collect();
+        let directly_affected = affected.clone();
+        for hash in &directly_affected {
+            if let Some(waiters) = self.waiters_by_blocker.get(hash) {
+                affected.extend(waiters.iter().cloned());
+            }
+        }
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(selected.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        self.with_entry_undo(&affected, |coordinator| {
+            for ticket in selected {
+                let entry = coordinator.remove_present_apply(&ticket.hash)?;
+                terminal.push(Self::terminal_record(
+                    ticket.hash,
+                    entry,
+                    TerminalDisposition::Expired,
+                ));
+                coordinator.apply_fault_checkpoint();
+            }
+            Ok(terminal)
+        })
     }
 
     pub(crate) fn clear(&mut self) -> Result<Vec<TerminalRecord<R, U, V>>, CoordinatorError> {
@@ -1599,8 +1684,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         // not wake/revise records that are themselves being cleared, and stale
         // worker leases become harmless because re-admission receives a new
         // incarnation.
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(self.entries.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        self.apply_fault_checkpoint();
         let entries = std::mem::take(&mut self.entries);
-        let mut terminal = Vec::with_capacity(entries.len());
         for (hash, entry) in entries {
             terminal.push(Self::terminal_record(
                 hash,
@@ -1670,9 +1759,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_invalidation_fault_for_test(&mut self, after: Option<usize>) {
-        self.fault_after_invalidations = after;
+    pub(crate) fn set_apply_fault_for_test(&mut self, after: Option<usize>) {
+        self.fault_after_apply_steps = after;
+        self.apply_steps_seen = 0;
     }
+
+    #[cfg(test)]
+    fn apply_fault_checkpoint(&mut self) {
+        self.apply_steps_seen = self.apply_steps_seen.saturating_add(1);
+        if self.fault_after_apply_steps == Some(self.apply_steps_seen) {
+            std::panic::panic_any("injected coordinator apply fault");
+        }
+    }
+
+    #[cfg(not(test))]
+    #[inline(always)]
+    fn apply_fault_checkpoint(&mut self) {}
 
     fn queue_mut(&mut self, kind: QueueKind) -> Result<&mut TicketQueue, CoordinatorError> {
         self.queues
@@ -2064,8 +2166,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
         let result = children.clone();
         self.with_entry_undo(&undo_hashes, |coordinator| {
-            #[cfg(test)]
-            let mut invalidated = 0usize;
             for child in &children {
                 let active_source = coordinator
                     .entries
@@ -2077,6 +2177,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 coordinator.remove_current_queue_ticket(child)?;
                 coordinator.remove_pool_input_indexes(child)?;
                 coordinator.remove_conflict_indexes(child)?;
+                coordinator.apply_fault_checkpoint();
                 let entry = coordinator
                     .entries
                     .get_mut(child)
@@ -2088,19 +2189,28 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 if coordinator.dependency_failure_set.insert(child.clone()) {
                     coordinator.dependency_failures.push_back(child.clone());
                 }
-                #[cfg(test)]
-                {
-                    invalidated = invalidated.saturating_add(1);
-                    if coordinator.fault_after_invalidations == Some(invalidated) {
-                        std::panic::panic_any("injected coordinator invalidation fault");
-                    }
-                }
+                coordinator.apply_fault_checkpoint();
             }
             Ok(result)
         })
     }
 
     fn remove_present(
+        &mut self,
+        hash: &Byte32,
+    ) -> Result<CoordinatorEntry<R, U, V>, CoordinatorError> {
+        let mut undo = vec![hash.clone()];
+        if let Some(waiters) = self.waiters_by_blocker.get(hash) {
+            undo.extend(waiters.iter().cloned());
+        }
+        self.with_entry_undo(&undo, |coordinator| {
+            let entry = coordinator.remove_present_apply(hash)?;
+            coordinator.apply_fault_checkpoint();
+            Ok(entry)
+        })
+    }
+
+    fn remove_present_apply(
         &mut self,
         hash: &Byte32,
     ) -> Result<CoordinatorEntry<R, U, V>, CoordinatorError> {
@@ -2122,6 +2232,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.remove_current_queue_ticket(hash)?;
         self.remove_pool_input_indexes(hash)?;
         self.remove_conflict_indexes(hash)?;
+        self.apply_fault_checkpoint();
         if let Some(source) = active_source {
             self.deactivate_source(source)?;
         }
@@ -2168,6 +2279,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.compact_deadlines();
         self.dependency_failure_set.remove(hash);
         self.compact_dependency_failures();
+        self.apply_fault_checkpoint();
         Ok(entry)
     }
 
@@ -2183,6 +2295,58 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             self.dependency_failures
                 .retain(|hash| self.dependency_failure_set.contains(hash));
         }
+    }
+
+    fn compact_conflict_rechecks(&mut self) {
+        const STALE_SLACK: usize = 64;
+        if self.conflict_rechecks.len()
+            > self
+                .conflict_recheck_set
+                .len()
+                .saturating_mul(2)
+                .saturating_add(STALE_SLACK)
+        {
+            self.conflict_rechecks
+                .retain(|hash| self.conflict_recheck_set.contains(hash));
+        }
+    }
+
+    fn preview_dependency_failure_roots(&self, max: usize) -> Vec<Byte32> {
+        let mut pending: VecDeque<_> = self
+            .dependency_failures
+            .iter()
+            .filter(|hash| self.dependency_failure_set.contains(*hash))
+            .cloned()
+            .collect();
+        let mut scheduled: HashSet<_> = pending.iter().cloned().collect();
+        let mut roots = Vec::with_capacity(max.min(self.dependency_failure_set.len()));
+        while roots.len() < max {
+            let Some(root) = pending.pop_front() else {
+                break;
+            };
+            if !self.dependency_failure_set.contains(&root) {
+                continue;
+            }
+            let mut children: Vec<_> = self
+                .by_parent
+                .get(&root)
+                .into_iter()
+                .flat_map(|children| children.iter().cloned())
+                .filter(|child| {
+                    self.entries.get(child).is_some_and(|entry| {
+                        !matches!(entry.location, CoordinatorLocation::Invalidated { .. })
+                    })
+                })
+                .collect();
+            children.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+            for child in children {
+                if scheduled.insert(child.clone()) {
+                    pending.push_back(child);
+                }
+            }
+            roots.push(root);
+        }
+        roots
     }
 
     fn compact_deadlines(&mut self) {
