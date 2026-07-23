@@ -279,6 +279,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .candidate()
             .cloned()
             .ok_or(CoordinatorError::ConflictInvariant)?;
+        let source = entry.source;
         let blockers = self.active_blockers_for_inputs(hash, &candidate.inputs);
         let can_preempt = !blockers.is_empty()
             && blockers.iter().all(|blocker| {
@@ -289,10 +290,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                             candidate: blocker_candidate,
                             location: CandidateLocation::Ready,
                             ..
-                        } if Self::compare_candidates(
+                        } if Self::compare_candidate_capacity(
                             hash,
+                            source,
                             &candidate,
                             blocker,
+                            blocker_entry.source,
                             blocker_candidate,
                         ) == Ordering::Greater
                     )

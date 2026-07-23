@@ -213,7 +213,8 @@ fn metadata_residency_is_charged_continuously_across_every_payload_phase() {
         4,
     )
     .with_metadata_cost(metadata);
-    let mut coordinator = PipelineCoordinator::new(limits);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
     let tx_hash = hash(86);
     let parent = hash(186);
     let peer: PeerIndex = 22.into();
@@ -286,7 +287,18 @@ fn metadata_residency_is_charged_continuously_across_every_payload_phase() {
 
 #[test]
 fn trusted_source_promotion_releases_remote_charge_and_preserves_priority() {
-    let mut coordinator = roomy();
+    let limits = test_limits(
+        CoordinatorResidency::new(100, 100_000),
+        Some(CoordinatorResidency::new(20, 20_000)),
+        16,
+        16,
+    )
+    .with_metadata_cost(CoordinatorMetadataCost {
+        deadline_ticket_bytes: 7,
+        ..CoordinatorMetadataCost::default()
+    });
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
     let local = hash(90);
     let promoted = hash(91);
     let peer: PeerIndex = 19.into();
@@ -302,20 +314,23 @@ fn trusted_source_promotion_releases_remote_charge_and_preserves_priority() {
         )
         .unwrap();
     coordinator
-        .admit_raw(
+        .admit_raw_sourced(
             promoted.clone(),
             short(91),
             Raw("remote"),
             RawStage::PreCheck,
-            Some(peer),
+            CoordinatorSource::Remote(peer),
+            Some(10),
             20,
             HashSet::new(),
         )
         .unwrap();
     assert_eq!(
         coordinator.peer_usage(peer),
-        CoordinatorResidency::new(1, 20)
+        CoordinatorResidency::new(1, 27)
     );
+    assert_eq!(coordinator.deadline_len(), 1);
+    assert_eq!(coordinator.usage(), CoordinatorResidency::new(2, 37));
 
     coordinator
         .promote_source(&promoted, TrustedSource::Proposal)
@@ -327,6 +342,8 @@ fn trusted_source_promotion_releases_remote_charge_and_preserves_priority() {
         coordinator.peer_usage(peer),
         CoordinatorResidency::default()
     );
+    assert_eq!(coordinator.deadline_len(), 0);
+    assert!(coordinator.expire_due(10, 1).unwrap().is_empty());
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(2, 30));
     assert_eq!(
         coordinator
@@ -340,6 +357,63 @@ fn trusted_source_promotion_releases_remote_charge_and_preserves_priority() {
         coordinator.promote_source(&promoted, TrustedSource::Local),
         Err(CoordinatorError::SourceDowngrade)
     );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn trusted_source_promotion_rolls_back_peer_expiry_charge_and_queue_together() {
+    let limits = test_limits(
+        CoordinatorResidency::new(10, 1_000),
+        Some(CoordinatorResidency::new(10, 1_000)),
+        4,
+        4,
+    )
+    .with_metadata_cost(CoordinatorMetadataCost {
+        deadline_ticket_bytes: 7,
+        ..CoordinatorMetadataCost::default()
+    });
+    let peer: PeerIndex = 20.into();
+    let tx_hash = hash(92);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    coordinator
+        .admit_raw_sourced(
+            tx_hash.clone(),
+            short(92),
+            Raw("remote"),
+            RawStage::PreCheck,
+            CoordinatorSource::Remote(peer),
+            Some(10),
+            20,
+            HashSet::new(),
+        )
+        .unwrap();
+    let before = coordinator.view(&tx_hash).unwrap();
+    let usage = coordinator.usage();
+    let peer_usage = coordinator.peer_usage(peer);
+    let deadline_len = coordinator.deadline_len();
+    let queue_len = coordinator.queue_len(QueueKind::PreCheck);
+
+    for fault_step in 1..=4 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.promote_source(&tx_hash, TrustedSource::Proposal);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.peer_usage(peer), peer_usage);
+        assert_eq!(coordinator.deadline_len(), deadline_len);
+        assert_eq!(coordinator.queue_len(QueueKind::PreCheck), queue_len);
+        coordinator.audit().unwrap();
+    }
+
+    coordinator
+        .promote_source(&tx_hash, TrustedSource::Proposal)
+        .unwrap();
+    assert_eq!(coordinator.deadline_len(), 0);
+    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 20));
     coordinator.audit().unwrap();
 }
 
@@ -621,16 +695,18 @@ fn active_source_promotion_does_not_invalidate_owned_work() {
     let tx_hash = hash(92);
     let peer: PeerIndex = 20.into();
     coordinator
-        .admit_raw(
+        .admit_raw_sourced(
             tx_hash.clone(),
             short(92),
             Raw("remote"),
             RawStage::Resolve,
-            Some(peer),
+            CoordinatorSource::Remote(peer),
+            Some(10),
             10,
             HashSet::new(),
         )
         .unwrap();
+    assert_eq!(coordinator.deadline_len(), 1);
     let lease = coordinator
         .checkout_raw(RawStage::Resolve)
         .unwrap()
@@ -638,6 +714,7 @@ fn active_source_promotion_does_not_invalidate_owned_work() {
     coordinator
         .promote_source(&tx_hash, TrustedSource::Proposal)
         .unwrap();
+    assert_eq!(coordinator.deadline_len(), 0);
     coordinator
         .complete_raw(
             &lease,
@@ -654,6 +731,172 @@ fn active_source_promotion_does_not_invalidate_owned_work() {
         coordinator.view(&tx_hash).unwrap().source,
         CoordinatorSource::Proposal
     );
+    assert!(coordinator.expire_due(10, 1).unwrap().is_empty());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn waiting_parent_source_promotion_cancels_expiry_without_losing_dependency_wake() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(86);
+    let parent = hash(85);
+    let peer: PeerIndex = 23.into();
+    coordinator
+        .admit_raw_sourced(
+            tx_hash.clone(),
+            short(86),
+            Raw("remote child"),
+            RawStage::Resolve,
+            CoordinatorSource::Remote(peer),
+            Some(10),
+            10,
+            HashSet::from([parent.clone()]),
+        )
+        .unwrap();
+    let lease = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .wait_for_parents(&lease, HashSet::from([parent.clone()]))
+        .unwrap();
+    coordinator
+        .promote_source(&tx_hash, TrustedSource::Proposal)
+        .unwrap();
+    assert_eq!(coordinator.deadline_len(), 0);
+    assert_eq!(
+        coordinator.peer_usage(peer),
+        CoordinatorResidency::default()
+    );
+    assert!(matches!(
+        coordinator.view(&tx_hash).unwrap().location,
+        CoordinatorLocation::WaitingParents { .. }
+    ));
+    assert!(coordinator.expire_due(10, 1).unwrap().is_empty());
+    let ready = coordinator.parent_available(&parent).unwrap();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].hash, tx_hash);
+    assert_eq!(
+        coordinator.view(&tx_hash).unwrap().location,
+        CoordinatorLocation::RawQueued(RawStage::Resolve)
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn verified_source_promotion_cancels_remote_expiry_across_commit_abort() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(89);
+    let peer: PeerIndex = 21.into();
+    coordinator
+        .admit_raw_sourced(
+            tx_hash.clone(),
+            short(89),
+            Raw("remote"),
+            RawStage::Resolve,
+            CoordinatorSource::Remote(peer),
+            Some(10),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_verification_candidate(
+            &verify,
+            Verified("proof"),
+            30,
+            CoordinatorFeeGate::new(0, 0)
+                .validate(tx_hash.clone(), inputs([89]), 1, 1)
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(coordinator.deadline_len(), 1);
+
+    coordinator
+        .promote_source(&tx_hash, TrustedSource::Proposal)
+        .unwrap();
+    assert_eq!(coordinator.deadline_len(), 0);
+    assert_eq!(
+        coordinator.peer_usage(peer),
+        CoordinatorResidency::default()
+    );
+    let commit = coordinator.begin_next_commit().unwrap().unwrap();
+    coordinator.abort_commit(&commit).unwrap();
+    assert_eq!(coordinator.deadline_len(), 0);
+    assert!(coordinator.expire_due(10, 1).unwrap().is_empty());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn waiting_candidate_source_promotion_rechecks_conflict_strength_immediately() {
+    let mut coordinator = roomy();
+    let contested = input(88);
+    let (blocker, blocker_verify, blocker_candidate) = begin_candidate(
+        &mut coordinator,
+        87,
+        CoordinatorSource::Local,
+        HashSet::from([contested.clone()]),
+        10_000,
+    );
+    coordinator
+        .complete_verification_candidate(
+            &blocker_verify,
+            Verified("local blocker"),
+            30,
+            blocker_candidate,
+        )
+        .unwrap();
+    let peer: PeerIndex = 22.into();
+    let (promoted, promoted_verify, promoted_candidate) = begin_candidate(
+        &mut coordinator,
+        88,
+        CoordinatorSource::Remote(peer),
+        HashSet::from([contested]),
+        1,
+    );
+    coordinator
+        .complete_verification_candidate(
+            &promoted_verify,
+            Verified("remote waiter"),
+            30,
+            promoted_candidate,
+        )
+        .unwrap();
+    assert!(matches!(
+        coordinator.view(&promoted).unwrap().location,
+        CoordinatorLocation::WaitingConflict { .. }
+    ));
+
+    coordinator
+        .promote_source(&promoted, TrustedSource::Proposal)
+        .unwrap();
+    assert_eq!(
+        coordinator.view(&promoted).unwrap().location,
+        CoordinatorLocation::ConflictRecheck
+    );
+    assert_eq!(coordinator.conflict_recheck_len(), 1);
+    let activated = coordinator.drain_conflict_rechecks(1).unwrap();
+    assert_eq!(activated.len(), 1);
+    assert_eq!(activated[0].hash, promoted);
+    assert_eq!(
+        coordinator.view(&promoted).unwrap().location,
+        CoordinatorLocation::ReadyToCommit
+    );
+    assert!(matches!(
+        coordinator.view(&blocker).unwrap().location,
+        CoordinatorLocation::WaitingConflict { .. }
+    ));
     coordinator.audit().unwrap();
 }
 

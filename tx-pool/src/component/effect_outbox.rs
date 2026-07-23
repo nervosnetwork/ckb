@@ -1,10 +1,10 @@
 //! Bounded, sequence-ordered publication journal for stable-state effects.
 //!
 //! An owner reserves count/byte capacity before changing lifecycle or pool
-//! state, binds the reservation to the mutation order while holding the
-//! corresponding authoritative lock, and enqueues the effect before opening
-//! that lock. Residency remains charged while queued and while the publisher
-//! is actively executing the effect.
+//! state, commits the reservation at the mutation linearization point while
+//! holding the corresponding authoritative lock, and opens that lock only
+//! after the effect is queued. Residency remains charged while queued and
+//! while the publisher is actively executing the effect.
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ impl EffectOutboxUsage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) struct EffectReservation {
     id: u64,
 }
@@ -45,7 +45,6 @@ pub(crate) struct EffectReservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ReservationState {
     bytes: usize,
-    sequence: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -63,10 +62,6 @@ pub(crate) enum EffectOutboxError {
     AllocationFailed,
     SequenceExhausted,
     MissingReservation,
-    AlreadyBound,
-    UnboundReservation,
-    EarlierBoundReservation,
-    OutOfOrder { previous: u64, next: u64 },
     PublisherBusy,
     NoActiveEffect,
     ActiveSequenceMismatch { expected: u64, actual: u64 },
@@ -91,7 +86,6 @@ pub(crate) struct EffectOutbox<E> {
     active: Option<EffectEnvelope<E>>,
     next_reservation_id: u64,
     next_sequence: u64,
-    last_enqueued_sequence: Option<u64>,
 }
 
 impl<E> EffectOutbox<E> {
@@ -112,7 +106,6 @@ impl<E> EffectOutbox<E> {
             active: None,
             next_reservation_id: 1,
             next_sequence: 1,
-            last_enqueued_sequence: None,
         })
     }
 
@@ -126,12 +119,10 @@ impl<E> EffectOutbox<E> {
     }
 
     pub(crate) fn reserve(&mut self, bytes: usize) -> Result<EffectReservation, EffectOutboxError> {
-        let unbound = self
-            .reservations
-            .values()
-            .filter(|state| state.sequence.is_none())
-            .count();
-        let required = u64::try_from(unbound)
+        // Every outstanding reservation can later commit. Preflight sequence
+        // space for all of them plus this one, so sequence allocation at the
+        // post-mutation commit point is infallible for a valid permit.
+        let required = u64::try_from(self.reservations.len())
             .ok()
             .and_then(|count| count.checked_add(1))
             .ok_or(EffectOutboxError::SequenceExhausted)?;
@@ -158,13 +149,7 @@ impl<E> EffectOutbox<E> {
         let next_id = id
             .checked_add(1)
             .ok_or(EffectOutboxError::ReservationIdExhausted)?;
-        self.reservations.insert(
-            id,
-            ReservationState {
-                bytes,
-                sequence: None,
-            },
-        );
+        self.reservations.insert(id, ReservationState { bytes });
         self.next_reservation_id = next_id;
         self.usage = EffectOutboxUsage {
             batches: next_batches,
@@ -173,50 +158,20 @@ impl<E> EffectOutbox<E> {
         Ok(EffectReservation { id })
     }
 
-    /// Bind publication order while the caller holds the authoritative
-    /// mutation lock. No state mutation should begin if this returns an error.
-    pub(crate) fn bind_sequence(
+    /// Atomically shrink a conservative reservation, allocate the next FIFO
+    /// sequence and enqueue the immutable effect at the authoritative state
+    /// mutation boundary. There is no externally visible "bound but not
+    /// queued" state: commit order is mutation order.
+    pub(crate) fn commit_reserved(
         &mut self,
-        reservation: EffectReservation,
+        reservation: &EffectReservation,
+        bytes: usize,
+        effect: E,
     ) -> Result<u64, EffectOutboxError> {
         let state = self
             .reservations
             .get(&reservation.id)
-            .ok_or(EffectOutboxError::MissingReservation)?;
-        if state.sequence.is_some() {
-            return Err(EffectOutboxError::AlreadyBound);
-        }
-        if self
-            .reservations
-            .values()
-            .any(|pending| pending.sequence.is_some())
-        {
-            return Err(EffectOutboxError::EarlierBoundReservation);
-        }
-        let sequence = self.next_sequence;
-        let next_sequence = sequence
-            .checked_add(1)
-            .ok_or(EffectOutboxError::SequenceExhausted)?;
-        let state = self
-            .reservations
-            .get_mut(&reservation.id)
-            .ok_or(EffectOutboxError::MissingReservation)?;
-        state.sequence = Some(sequence);
-        self.next_sequence = next_sequence;
-        Ok(sequence)
-    }
-
-    /// Reduce a conservative pre-mutation reservation to the immutable
-    /// batch's actual resident charge. Growth is forbidden: callers must
-    /// prove capacity before changing authoritative state.
-    pub(crate) fn shrink_reservation(
-        &mut self,
-        reservation: EffectReservation,
-        bytes: usize,
-    ) -> Result<(), EffectOutboxError> {
-        let state = self
-            .reservations
-            .get_mut(&reservation.id)
+            .copied()
             .ok_or(EffectOutboxError::MissingReservation)?;
         if bytes > state.bytes {
             return Err(EffectOutboxError::AccountingInvariant);
@@ -225,59 +180,32 @@ impl<E> EffectOutbox<E> {
             .bytes
             .checked_sub(bytes)
             .ok_or(EffectOutboxError::AccountingInvariant)?;
-        state.bytes = bytes;
-        self.usage.bytes = self
+        let next_usage_bytes = self
             .usage
             .bytes
             .checked_sub(refunded)
             .ok_or(EffectOutboxError::AccountingInvariant)?;
-        Ok(())
-    }
+        let sequence = self.next_sequence;
+        let next_sequence = sequence
+            .checked_add(1)
+            .ok_or(EffectOutboxError::SequenceExhausted)?;
 
-    /// Enqueue before releasing the authoritative mutation lock. A bound
-    /// reservation with an earlier sequence must be cancelled/enqueued first;
-    /// this catches accidental publication reordering at the call boundary.
-    pub(crate) fn enqueue(
-        &mut self,
-        reservation: EffectReservation,
-        effect: E,
-    ) -> Result<u64, EffectOutboxError> {
-        let state = self
-            .reservations
-            .get(&reservation.id)
-            .copied()
-            .ok_or(EffectOutboxError::MissingReservation)?;
-        let sequence = state
-            .sequence
-            .ok_or(EffectOutboxError::UnboundReservation)?;
-        if self
-            .reservations
-            .iter()
-            .any(|(id, pending)| *id != reservation.id && pending.sequence.is_some())
-        {
-            return Err(EffectOutboxError::EarlierBoundReservation);
-        }
-        if let Some(previous) = self.last_enqueued_sequence
-            && sequence <= previous
-        {
-            return Err(EffectOutboxError::OutOfOrder {
-                previous,
-                next: sequence,
-            });
-        }
+        // Every fallible invariant check is complete. The queue and map were
+        // preallocated to the batch limit at construction.
         self.reservations.remove(&reservation.id);
         self.queued.push_back(EffectEnvelope {
             sequence,
-            bytes: state.bytes,
+            bytes,
             effect,
         });
-        self.last_enqueued_sequence = Some(sequence);
+        self.usage.bytes = next_usage_bytes;
+        self.next_sequence = next_sequence;
         Ok(sequence)
     }
 
     pub(crate) fn cancel(
         &mut self,
-        reservation: EffectReservation,
+        reservation: &EffectReservation,
     ) -> Result<(), EffectOutboxError> {
         let state = self
             .reservations

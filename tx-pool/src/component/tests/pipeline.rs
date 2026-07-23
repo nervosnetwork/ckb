@@ -455,20 +455,16 @@ async fn pipeline_processes_independent_remote_txs() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_submit_bypasses_and_settles_matching_remote_owner() {
     use super::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
     let hash = tx.hash();
     let id = tx.proposal_short_id();
+    let peer = ckb_network::PeerIndex::from(1);
 
     h.service
-        .submit_remote_tx(
-            tx.clone(),
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
-        )
+        .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer })
         .await
         .expect("remote copy enters the coordinator");
     assert!(
@@ -502,6 +498,23 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
             .read(|coordinator| coordinator.contains_hash(&hash)),
         "successful local insertion must invalidate the older async owner"
     );
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("local handoff must settle the consumed remote ingress");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Ok {
+            original_peer: Some(relayed_peer),
+            tx_hash,
+        } if relayed_peer == peer && tx_hash == hash
+    ));
 
     h.cancel.cancel();
 }
@@ -515,6 +528,7 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
     use crate::component::pipeline_coordinator::{
         CoordinatorLocation, CoordinatorSource, RawStage,
     };
+    use crate::service::TxVerificationResult;
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -524,6 +538,13 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer })
         .await
         .unwrap();
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.deadline_len()),
+        1
+    );
     let lease = h
         .service
         .pipeline
@@ -545,6 +566,14 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
             .read(|coordinator| coordinator.view(&hash).unwrap().source),
         CoordinatorSource::Proposal
     );
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.deadline_len()),
+        0,
+        "trusted promotion must cancel the obsolete remote expiry"
+    );
     h.service
         .ban_malformed(peer, "test old remote owner ban".to_string())
         .await;
@@ -556,6 +585,75 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         .read(|coordinator| coordinator.view(&hash).unwrap());
     assert_eq!(view.source, CoordinatorSource::Proposal);
     assert_eq!(view.location, CoordinatorLocation::VerifyQueued);
+
+    let verify = h
+        .service
+        .pipeline
+        .runtime
+        .mutate(|coordinator| {
+            coordinator
+                .checkout_verify(crate::component::pipeline_coordinator::WorkerCapability::Any)
+        })
+        .unwrap()
+        .unwrap();
+    let mut chunk_rx = h.service.pipeline.chunk_rx.clone();
+    h.service
+        .process_pipeline_verify_lease(verify, &mut chunk_rx)
+        .await;
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("promoted remote ingress receives one successful settlement");
+    assert!(
+        matches!(
+            relayed,
+            TxVerificationResult::Ok {
+                original_peer: Some(relayed_peer),
+                tx_hash,
+            } if relayed_peer == peer && tx_hash == hash
+        ),
+        "trusted scheduling priority must not erase immutable relay attribution"
+    );
+
+    h.cancel.cancel();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposal_promoted_remote_terminal_still_releases_ingress_filter() {
+    use super::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(8);
+    h.service
+        .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer })
+        .await
+        .unwrap();
+    assert!(!h.service.notify_tx(tx).await.unwrap());
+
+    h.service.clear_pipeline().await;
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("promoted remote ingress receives one terminal settlement");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
 
     h.cancel.cancel();
 }

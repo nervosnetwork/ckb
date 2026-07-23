@@ -442,18 +442,60 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         hash: &Byte32,
         promotion: TrustedSource,
     ) -> Result<CoordinatorVersion, CoordinatorError> {
-        let (current, charge, old_ticket, queue_kind, version, active) = {
+        let (
+            current,
+            old_charge,
+            new_charge,
+            new_raw_charge_bytes,
+            new_base_metadata_bytes,
+            new_metadata_bytes,
+            old_ticket,
+            queue_kind,
+            version,
+            active,
+            had_expiry,
+            waiting_conflict,
+        ) = {
             let entry = self
                 .entries
                 .get(hash)
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+            let old_charge = CoordinatorResidency::new(1, entry.charge_bytes);
+            let (new_base_metadata_bytes, new_metadata_bytes) = if entry.expires_at.is_some() {
+                (
+                    self.metadata_charge_bytes(entry.dependencies.len(), false, 0)?,
+                    self.metadata_charge_bytes(
+                        entry.dependencies.len(),
+                        false,
+                        entry
+                            .candidate()
+                            .map_or(0, |candidate| candidate.inputs.len()),
+                    )?,
+                )
+            } else {
+                (entry.base_metadata_bytes, entry.metadata_bytes)
+            };
+            let new_charge_bytes = entry
+                .resident_payload_bytes
+                .checked_add(new_metadata_bytes)
+                .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+            let new_raw_charge_bytes = entry
+                .raw_resident_payload_bytes
+                .checked_add(new_base_metadata_bytes)
+                .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
             (
                 entry.source,
-                CoordinatorResidency::new(1, entry.charge_bytes),
+                old_charge,
+                CoordinatorResidency::new(1, new_charge_bytes),
+                new_raw_charge_bytes,
+                new_base_metadata_bytes,
+                new_metadata_bytes,
                 entry.ticket(hash),
                 entry.queue_kind(),
                 entry.version(),
                 entry.uses_active_slot(),
+                entry.expires_at.is_some(),
+                entry.waiting_conflict_blockers().is_some(),
             )
         };
         let target = match promotion {
@@ -475,6 +517,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         } else {
             None
         };
+        let maintenance_sequence = if waiting_conflict {
+            self.ensure_revision_capacity(hash)?;
+            self.conflict_rechecks
+                .try_reserve(1)
+                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+            self.conflict_recheck_set
+                .try_reserve(1)
+                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+            Some(self.maintenance_sequence_range(1)?)
+        } else {
+            None
+        };
         if reticket {
             self.ensure_revision_capacity(hash)?;
             self.queue_mut(queue_kind.ok_or(CoordinatorError::SourceDowngrade)?)?
@@ -487,7 +541,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .copied()
                 .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
             usage
-                .checked_sub(charge)
+                .checked_sub(old_charge)
                 .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
             if !self
                 .by_peer
@@ -501,65 +555,108 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
 
-        if let Some(peer) = current.peer() {
-            let remove_usage = {
-                let usage = self
-                    .peer_usage
-                    .get_mut(&peer)
-                    .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
-                *usage = usage
-                    .checked_sub(charge)
-                    .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
-                *usage == CoordinatorResidency::default()
-            };
-            if remove_usage {
-                self.peer_usage.remove(&peer);
-            }
-            let remove_bucket = if let Some(hashes) = self.by_peer.get_mut(&peer) {
-                hashes.remove(hash);
-                hashes.is_empty()
-            } else {
-                false
-            };
-            if remove_bucket {
-                self.by_peer.remove(&peer);
-            }
-            if active {
-                let remove_active = {
-                    let active = self
-                        .active_work_by_peer
+        self.with_entry_undo(std::slice::from_ref(hash), |coordinator| {
+            if let Some(peer) = current.peer() {
+                let remove_usage = {
+                    let usage = coordinator
+                        .peer_usage
                         .get_mut(&peer)
-                        .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
-                    *active = active
-                        .checked_sub(1)
-                        .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
-                    *active == 0
+                        .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                    *usage = usage
+                        .checked_sub(old_charge)
+                        .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                    *usage == CoordinatorResidency::default()
                 };
-                if remove_active {
-                    self.active_work_by_peer.remove(&peer);
+                if remove_usage {
+                    coordinator.peer_usage.remove(&peer);
+                }
+                let remove_bucket = if let Some(hashes) = coordinator.by_peer.get_mut(&peer) {
+                    hashes.remove(hash);
+                    hashes.is_empty()
+                } else {
+                    false
+                };
+                if remove_bucket {
+                    coordinator.by_peer.remove(&peer);
+                }
+                if active {
+                    let remove_active = {
+                        let active = coordinator
+                            .active_work_by_peer
+                            .get_mut(&peer)
+                            .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                        *active = active
+                            .checked_sub(1)
+                            .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                        *active == 0
+                    };
+                    if remove_active {
+                        coordinator.active_work_by_peer.remove(&peer);
+                    }
+                }
+                coordinator.apply_fault_checkpoint();
+            }
+
+            if old_charge != new_charge {
+                coordinator.global_usage = coordinator
+                    .global_usage
+                    .checked_sub(old_charge)
+                    .and_then(|usage| usage.checked_add(new_charge))
+                    .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+                coordinator.apply_fault_checkpoint();
+            }
+            if had_expiry {
+                coordinator.live_deadlines.remove(hash);
+                coordinator.apply_fault_checkpoint();
+            }
+
+            {
+                let entry = coordinator
+                    .entries
+                    .get_mut(hash)
+                    .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+                entry.source = target;
+                entry.expires_at = None;
+                entry.base_metadata_bytes = new_base_metadata_bytes;
+                entry.metadata_bytes = new_metadata_bytes;
+                entry.raw_charge_bytes = new_raw_charge_bytes;
+                entry.charge_bytes = new_charge.bytes;
+                if let Some(kind) = queue_kind.filter(|_| reticket) {
+                    let (sequence, next_sequence) =
+                        queue_sequence.ok_or(CoordinatorError::QueueSequenceExhausted)?;
+                    entry.queue_sequence = sequence;
+                    entry.revision += 1;
+                    let new_ticket = entry.ticket(hash);
+                    let queue = coordinator.queue_mut(kind)?;
+                    queue.remove_live(&old_ticket);
+                    queue.push_reserved(kind, new_ticket, target.is_proposal())?;
+                    coordinator.next_queue_sequence = next_sequence;
                 }
             }
-        }
-        let entry = self
-            .entries
-            .get_mut(hash)
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        entry.source = target;
-        if let Some(kind) = queue_kind.filter(|_| reticket) {
-            let (sequence, next_sequence) =
-                queue_sequence.ok_or(CoordinatorError::QueueSequenceExhausted)?;
-            entry.queue_sequence = sequence;
-            entry.revision += 1;
-            let new_ticket = entry.ticket(hash);
-            let queue = self.queue_mut(kind)?;
-            queue.remove_live(&old_ticket);
-            queue.push_reserved(kind, new_ticket, target.is_proposal())?;
-            self.next_queue_sequence = next_sequence;
-        }
-        self.entries
-            .get(hash)
-            .map(CoordinatorEntry::version)
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))
+            if let Some((sequence, next_sequence)) = maintenance_sequence {
+                coordinator.remove_conflict_waiter_links(hash)?;
+                let entry = coordinator
+                    .entries
+                    .get_mut(hash)
+                    .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+                let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
+                    return Err(CoordinatorError::ConflictInvariant);
+                };
+                *location = CandidateLocation::Recheck { sequence };
+                entry.revision += 1;
+                if coordinator.conflict_recheck_set.insert(hash.clone()) {
+                    coordinator.conflict_rechecks.push_back(hash.clone());
+                }
+                coordinator.next_maintenance_sequence = next_sequence;
+            }
+            coordinator.apply_fault_checkpoint();
+            coordinator.compact_deadlines();
+            coordinator
+                .entries
+                .get(hash)
+                .map(CoordinatorEntry::version)
+                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))
+        })
     }
 
     pub(crate) fn checkout_raw(
@@ -1485,10 +1582,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ));
             }
         }
-        let (dependencies, has_deadline) = self
+        let (dependencies, has_deadline, source) = self
             .entries
             .get(&lease.hash)
-            .map(|entry| (entry.dependencies.len(), entry.expires_at.is_some()))
+            .map(|entry| {
+                (
+                    entry.dependencies.len(),
+                    entry.expires_at.is_some(),
+                    entry.source,
+                )
+            })
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
         let metadata_bytes =
             self.metadata_charge_bytes(dependencies, has_deadline, candidate.inputs.len())?;
@@ -1516,10 +1619,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                             candidate: blocker_meta,
                             location: CandidateLocation::Ready,
                             ..
-                        } if Self::compare_candidates(
+                        } if Self::compare_candidate_capacity(
                             &lease.hash,
+                            source,
                             &meta,
                             blocker,
+                            entry.source,
                             blocker_meta,
                         ) == Ordering::Greater
                     )
@@ -1996,7 +2101,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     raw,
                     #[cfg(test)]
                     peer: entry.source.peer(),
-                    source: entry.source,
                     #[cfg(test)]
                     ready_children,
                 },
@@ -2078,7 +2182,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(crate) fn external_commit(
         &mut self,
         hash: &Byte32,
-    ) -> Result<Option<ExternalCommitRecord>, CoordinatorError> {
+    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
         let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
         if self.entries.contains_key(hash) {
             self.with_entry_undo(&undo, |coordinator| coordinator.external_commit_apply(hash))
@@ -2099,7 +2203,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<Option<ExternalCommitRecord>, CoordinatorError> {
+    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
         let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
         undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
         undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
@@ -2128,7 +2232,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         committed: &HashSet<Byte32>,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<Vec<ExternalCommitRecord>, CoordinatorError> {
+    ) -> Result<Vec<ExternalCommitRecord<R>>, CoordinatorError> {
         let mut undo = self.parents_unavailable_undo_hashes(unavailable_parents);
         for hash in committed {
             undo.extend(self.causal_undo_hashes(std::slice::from_ref(hash)));
@@ -2157,7 +2261,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     fn external_commit_apply(
         &mut self,
         hash: &Byte32,
-    ) -> Result<Option<ExternalCommitRecord>, CoordinatorError> {
+    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
         let ready_children = self.parent_available(hash)?;
         if !self.entries.contains_key(hash) {
             // The parent may have entered through the synchronous local path
@@ -2166,10 +2270,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
         let entry = self.remove_present_apply(hash)?;
         self.apply_fault_checkpoint();
-        let _ = &entry;
+        let raw = Arc::clone(entry.state.raw());
         #[cfg(not(test))]
         let _ = &ready_children;
         Ok(Some(ExternalCommitRecord {
+            raw,
             #[cfg(test)]
             hash: hash.clone(),
             #[cfg(test)]

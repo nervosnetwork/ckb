@@ -18,6 +18,7 @@ use crate::resolved_tx::ResolvedTx;
 use crate::tx_source::TxSource;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
 use ckb_verification::cache::Completed;
 use std::collections::HashMap;
@@ -27,12 +28,14 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 /// Raw payload retained for the complete pre-pool lifecycle. Source priority
-/// and peer ownership live only in the coordinator; this object retains the
-/// remote-only declared-cycle datum needed by script verification.
+/// lives in the coordinator. Immutable ingress attribution stays with the raw
+/// payload so a later Local/Proposal promotion cannot lose the peer whose
+/// relay filter still requires exactly one terminal settlement.
 #[derive(Clone, Debug)]
 pub(crate) struct PipelineRawTx {
     pub(crate) tx: TransactionView,
     pub(crate) declared_cycles: Option<Cycle>,
+    ingress_peer: Option<PeerIndex>,
     pub(crate) admitted_epoch: u64,
 }
 
@@ -41,8 +44,13 @@ impl PipelineRawTx {
         Self {
             tx,
             declared_cycles: source.cycles(),
+            ingress_peer: source.peer(),
             admitted_epoch,
         }
+    }
+
+    pub(crate) fn ingress_peer(&self) -> Option<PeerIndex> {
+        self.ingress_peer
     }
 
     pub(crate) fn authoritative_source(
@@ -54,10 +62,11 @@ impl PipelineRawTx {
             CoordinatorSource::Proposal => Ok(TxSource::Proposal),
             CoordinatorSource::Remote(peer) => self
                 .declared_cycles
+                .filter(|_| self.ingress_peer == Some(peer))
                 .map(|cycles| TxSource::Remote { cycles, peer })
                 .ok_or_else(|| {
                     Reject::Internal(
-                        "remote pipeline owner is missing declared-cycle metadata".to_string(),
+                        "remote pipeline owner has inconsistent ingress attribution".to_string(),
                     )
                 }),
         }

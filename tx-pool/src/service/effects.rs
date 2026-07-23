@@ -148,12 +148,54 @@ impl Drop for EffectPermit {
         };
         let cancelled = {
             let mut state = self.queue.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.outbox.cancel(reservation)
+            state.outbox.cancel(&reservation)
         };
         if let Err(error) = cancelled {
             error!("failed to cancel unused effect reservation: {:?}", error);
         }
         self.queue.space.notify_waiters();
+    }
+}
+
+impl EffectPermit {
+    /// Commit to the queue that issued this permit. The permit owns both the
+    /// reservation and queue identity, so callers cannot bind a valid credit
+    /// to a different outbox. Sequence allocation and enqueue are one atomic
+    /// operation at the authoritative mutation boundary.
+    pub(crate) fn commit(mut self, batch: EffectBatch) -> Result<(), EffectQueueError> {
+        if batch.charge_bytes > self.bytes {
+            return Err(EffectQueueError::BatchTooLarge {
+                bytes: batch.charge_bytes,
+                max_bytes: self.bytes,
+            });
+        }
+        let reservation = self
+            .reservation
+            .as_ref()
+            .ok_or(EffectQueueError::Invariant(
+                EffectOutboxError::MissingReservation,
+            ))?;
+        let queue = Arc::clone(&self.queue);
+        let batch = Arc::new(batch);
+        let result = {
+            let mut state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
+            state
+                .outbox
+                .commit_reserved(reservation, batch.charge_bytes, batch)
+        };
+        if let Err(error) = result {
+            queue.space.notify_waiters();
+            return Err(EffectQueueError::Invariant(error));
+        }
+        // The reservation was consumed by `commit_reserved`; disarm Drop.
+        self.reservation.take();
+        // A conservative permit may have been shrunk substantially above.
+        // Wake capacity waiters now; waiting for this batch to publish can
+        // deadlock when its head is a causal barrier released by one of those
+        // waiters.
+        queue.space.notify_waiters();
+        queue.ready.notify_one();
+        Ok(())
     }
 }
 
@@ -264,60 +306,12 @@ impl EffectQueue {
         }
     }
 
-    pub(crate) fn commit(
-        self: &Arc<Self>,
-        mut permit: EffectPermit,
-        batch: EffectBatch,
-    ) -> Result<(), EffectQueueError> {
-        if !Arc::ptr_eq(self, &permit.queue) {
-            return Err(EffectQueueError::Invariant(
-                EffectOutboxError::MissingReservation,
-            ));
-        }
-        if batch.charge_bytes > permit.bytes {
-            return Err(EffectQueueError::BatchTooLarge {
-                bytes: batch.charge_bytes,
-                max_bytes: permit.bytes,
-            });
-        }
-        let reservation = permit
-            .reservation
-            .take()
-            .ok_or(EffectQueueError::Invariant(
-                EffectOutboxError::MissingReservation,
-            ))?;
-        let batch = Arc::new(batch);
-        let result = {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            let result = state
-                .outbox
-                .shrink_reservation(reservation, batch.charge_bytes)
-                .and_then(|_| state.outbox.bind_sequence(reservation))
-                .and_then(|_| state.outbox.enqueue(reservation, batch));
-            if result.is_err() {
-                let _ = state.outbox.cancel(reservation);
-            }
-            result
-        };
-        if let Err(error) = result {
-            self.space.notify_waiters();
-            return Err(EffectQueueError::Invariant(error));
-        }
-        // A conservative permit may have been shrunk substantially above.
-        // Wake capacity waiters now; waiting for this batch to publish can
-        // deadlock when its head is a causal barrier released by one of those
-        // waiters.
-        self.space.notify_waiters();
-        self.ready.notify_one();
-        Ok(())
-    }
-
     pub(crate) async fn enqueue(
         self: &Arc<Self>,
         batch: EffectBatch,
     ) -> Result<(), EffectQueueError> {
         let permit = self.reserve(batch.charge_bytes).await?;
-        self.commit(permit, batch)
+        permit.commit(batch)
     }
 
     pub(crate) fn close(&self) {
@@ -439,9 +433,15 @@ pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: Eff
                         "tx-pool effect publisher contained endpoint panic: {}",
                         crate::util::panic_payload_to_string(payload.as_ref())
                     );
-                    // The cursor advances only after a normal return. Retain
-                    // this head effect and retry with bounded backoff.
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    // An endpoint can have performed an arbitrary prefix of
+                    // its side effect before unwinding. Retrying it is neither
+                    // at-most-once nor safe, and a permanent infrastructure
+                    // panic must not pin every later stable-state effect
+                    // behind this FIFO head. Callback panics are already
+                    // contained inside `Callbacks::publish`; this guard is the
+                    // final quarantine boundary for unexpected network or
+                    // publisher endpoint failures.
+                    batch.advance();
                 }
             }
         }
@@ -527,7 +527,7 @@ impl TxPoolService {
             drop(permit);
             return Ok(());
         };
-        self.relay.effects.commit(permit, batch)
+        permit.commit(batch)
     }
 
     pub(crate) async fn publish_effects(&self, effects: Vec<TxPoolEffect>) {
@@ -595,8 +595,9 @@ mod tests {
     use super::*;
     use crate::callback::Callbacks;
     use crate::component::entry::TxEntry;
-    use crate::network::DummyTxPoolNetwork;
+    use crate::network::{DummyTxPoolNetwork, TxPoolNetwork};
     use ckb_types::core::{Capacity, TransactionBuilder};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn endpoints(tx_relay_sender: ckb_channel::Sender<TxVerificationResult>) -> EffectEndpoints {
         EffectEndpoints {
@@ -682,6 +683,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn panicking_endpoint_is_quarantined_once_without_blocking_fifo() {
+        struct PanickingNetwork {
+            attempts: Arc<AtomicUsize>,
+        }
+
+        impl TxPoolNetwork for PanickingNetwork {
+            fn ban_peer(&self, _peer: PeerIndex, _duration: Duration, _reason: String) {
+                self.attempts.fetch_add(1, Ordering::SeqCst);
+                panic!("injected permanent network endpoint panic");
+            }
+        }
+
+        let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
+        let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let expected = Byte32::new([9; 32]);
+        queue
+            .enqueue(
+                EffectBatch::new(vec![
+                    TxPoolEffect::BanPeer {
+                        peer: 1.into(),
+                        duration: Duration::from_secs(1),
+                        reason: "injected".to_owned(),
+                    },
+                    TxPoolEffect::Relay(TxVerificationResult::Reject {
+                        tx_hash: expected.clone(),
+                    }),
+                ])
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let publisher = tokio::spawn(run_effect_publisher(
+            Arc::clone(&queue),
+            EffectEndpoints {
+                network: Arc::new(PanickingNetwork {
+                    attempts: Arc::clone(&attempts),
+                }),
+                tx_relay_sender: relay_tx,
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
+            .await
+            .expect("a permanently panicking endpoint must not retain the FIFO head");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        match relay_rx.try_recv().unwrap() {
+            TxVerificationResult::Reject { tx_hash } => assert_eq!(tx_hash, expected),
+            other => panic!("unexpected relay result: {other:?}"),
+        }
+
+        queue.close();
+        publisher.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn unused_pre_mutation_reservation_is_refunded_on_cancellation() {
         let queue = Arc::new(EffectQueue::new(1, 100).unwrap());
         let permit = queue.reserve(100).await.unwrap();
@@ -705,9 +762,8 @@ mod tests {
         tokio::task::yield_now().await;
         assert!(!waiter.is_finished());
 
-        queue
+        first
             .commit(
-                first,
                 EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
                     tx_hash: Byte32::zero(),
                 })])

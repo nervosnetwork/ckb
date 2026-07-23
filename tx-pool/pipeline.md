@@ -41,6 +41,11 @@ additional lifecycle owner. Queue/deadline/dependency/conflict structures in
 the coordinator contain IDs and versioned tickets only. The verification cache
 is an optimization and may lose updates without affecting ownership.
 
+Scheduling source and ingress attribution are deliberately separate. Source
+may be promoted from Remote to Local/Proposal, changing priority and resource
+ownership; the raw payload retains the immutable first peer until its relay
+filter receives one success or terminal settlement.
+
 ### Cross-authority order
 
 An operation that needs accepted and pre-pool state takes the async `TxPool`
@@ -75,7 +80,10 @@ RawQueued(PreCheck) -> RawActive(PreCheck)
 Each worker receives a lease containing incarnation/revision evidence. A stale
 finish cannot modify a newer owner. Checkout and completion preflight sequence
 capacity before consuming the only live ticket. Source promotion is a typed
-transition, not a second entry.
+transition, not a second entry: it atomically releases remote peer residency,
+cancels the remote expiry and its charge, retickets queued work, and schedules
+an immediate conflict recheck when the promoted candidate was waiting behind a
+weaker owner.
 
 `RawStage`, payload phase, conflict metadata, location, and invalidation are
 closed `EntryState` variants. Invalid combinations such as “verified payload
@@ -194,17 +202,28 @@ equivalent derived index or prove the operation count and performance budget.
 
 Callbacks, relay results, peer bans, and reject notifications are immutable
 `TxPoolEffect` records. Producers reserve bounded outbox capacity before state
-mutation and commit the exact batch at the mutation boundary. A single
-publisher preserves FIFO batch order, retries a full relayer without dropping
-the active head, and runs endpoint code outside state locks.
+mutation and commit the exact batch at the mutation boundary. The permit owns
+its issuing queue; shrinking the conservative credit, allocating the mutation
+sequence, and enqueueing are one outbox operation, with no externally
+representable bound-but-not-queued state. A single publisher preserves FIFO
+batch order, retries a full relayer without dropping the active head, and runs
+endpoint code outside state locks.
 
-Callback panics are contained by the publisher. A callback may issue read-only
-controller queries. Synchronous mutating controller re-entry fails fast because
-waiting for a mutation from the publisher can form a cycle through outbox
-capacity or `recovery_lock`. Each callback observes a completed local
-pool/coordinator mutation; during multi-step detached replay, read-only RPC may
-observe the current stable reorg slice while `recovery_lock` still excludes
-persistence.
+Relay success/reject and malformed-peer attribution use immutable ingress peer
+identity, not the current scheduling source. Proposal promotion therefore
+cannot leave a remote known-transaction filter stranded or erase responsibility
+for the exact payload originally delivered by that peer.
+
+Callback panics are contained inside callback dispatch and the FIFO cursor
+advances. The outer publisher also quarantines an unexpected network-endpoint
+panic after one attempt: the endpoint may already have performed an arbitrary
+prefix, so retrying could duplicate effects and a permanent panic must not pin
+all later batches. A callback may issue read-only controller queries.
+Synchronous mutating controller re-entry fails fast because waiting for a
+mutation from the publisher can form a cycle through outbox capacity or
+`recovery_lock`. Each callback observes a completed local pool/coordinator
+mutation; during multi-step detached replay, read-only RPC may observe the
+current stable reorg slice while `recovery_lock` still excludes persistence.
 
 Block-assembler notification uses a level-triggered dirty bit plus a bounded
 wake channel. A full channel may coalesce a wake edge but cannot erase the

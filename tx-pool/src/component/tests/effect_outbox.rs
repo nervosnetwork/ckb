@@ -19,8 +19,7 @@ fn count_and_byte_limits_cover_reserved_queued_and_active_batches() {
         Err(EffectOutboxError::BatchLimitExceeded)
     );
 
-    outbox.bind_sequence(first).unwrap();
-    outbox.enqueue(first, "first").unwrap();
+    outbox.commit_reserved(&first, 4, "first").unwrap();
     let sequence = outbox.checkout().unwrap().unwrap();
     assert_eq!(outbox.active_effect(sequence).unwrap(), &"first");
     // Checkout does not refund the terminal payload gap.
@@ -39,7 +38,7 @@ fn count_and_byte_limits_cover_reserved_queued_and_active_batches() {
             bytes: 6
         }
     );
-    outbox.cancel(second).unwrap();
+    outbox.cancel(&second).unwrap();
     assert_eq!(
         outbox.usage(),
         EffectOutboxUsage {
@@ -55,8 +54,7 @@ fn retry_retains_fifo_head_and_residency() {
     let mut outbox = EffectOutbox::new(EffectOutboxLimits::new(4, 100)).unwrap();
     for effect in ["first", "second"] {
         let reservation = outbox.reserve(10).unwrap();
-        outbox.bind_sequence(reservation).unwrap();
-        outbox.enqueue(reservation, effect).unwrap();
+        outbox.commit_reserved(&reservation, 10, effect).unwrap();
     }
     let first = outbox.checkout().unwrap().unwrap();
     assert_eq!(outbox.active_effect(first).unwrap(), &"first");
@@ -77,12 +75,10 @@ fn retry_retains_fifo_head_and_residency() {
 }
 
 #[test]
-fn conservative_reservation_is_refunded_when_batch_is_bound() {
+fn conservative_reservation_is_refunded_when_batch_is_committed() {
     let mut outbox = EffectOutbox::new(EffectOutboxLimits::new(2, 100)).unwrap();
     let reservation = outbox.reserve(100).unwrap();
-    outbox.shrink_reservation(reservation, 10).unwrap();
-    outbox.bind_sequence(reservation).unwrap();
-    outbox.enqueue(reservation, "small").unwrap();
+    outbox.commit_reserved(&reservation, 10, "small").unwrap();
     assert_eq!(
         outbox.usage(),
         EffectOutboxUsage {
@@ -94,30 +90,30 @@ fn conservative_reservation_is_refunded_when_batch_is_bound() {
 }
 
 #[test]
-fn earlier_bound_reservation_cannot_be_overtaken() {
+fn fifo_sequence_follows_authoritative_commit_not_reservation_order() {
     let mut outbox = EffectOutbox::new(EffectOutboxLimits::new(4, 100)).unwrap();
     let first = outbox.reserve(10).unwrap();
     let second = outbox.reserve(10).unwrap();
-    outbox.bind_sequence(first).unwrap();
-    assert_eq!(
-        outbox.bind_sequence(second),
-        Err(EffectOutboxError::EarlierBoundReservation)
-    );
-    assert_eq!(outbox.queued_len(), 0);
-    outbox.enqueue(first, "first").unwrap();
-    outbox.bind_sequence(second).unwrap();
-    outbox.enqueue(second, "second").unwrap();
+    let second_sequence = outbox.commit_reserved(&second, 10, "second").unwrap();
+    let first_sequence = outbox.commit_reserved(&first, 10, "first").unwrap();
+    assert!(second_sequence < first_sequence);
+    let checked_out = outbox.checkout().unwrap().unwrap();
+    assert_eq!(checked_out, second_sequence);
+    assert_eq!(outbox.complete_active(checked_out).unwrap(), "second");
+    let checked_out = outbox.checkout().unwrap().unwrap();
+    assert_eq!(checked_out, first_sequence);
+    assert_eq!(outbox.complete_active(checked_out).unwrap(), "first");
     outbox.audit().unwrap();
 }
 
 #[test]
-fn sequence_exhaustion_fails_before_binding_or_enqueue() {
+fn injected_commit_failure_leaves_reservation_intact() {
     let mut outbox: EffectOutbox<&'static str> =
         EffectOutbox::new(EffectOutboxLimits::new(2, 100)).unwrap();
     let reservation = outbox.reserve(10).unwrap();
     outbox.set_next_sequence_for_test(u64::MAX);
     assert_eq!(
-        outbox.bind_sequence(reservation),
+        outbox.commit_reserved(&reservation, 10, "never queued"),
         Err(EffectOutboxError::SequenceExhausted)
     );
     assert_eq!(outbox.queued_len(), 0);
@@ -128,7 +124,7 @@ fn sequence_exhaustion_fails_before_binding_or_enqueue() {
             bytes: 10
         }
     );
-    outbox.cancel(reservation).unwrap();
+    outbox.cancel(&reservation).unwrap();
     outbox.audit().unwrap();
 }
 
@@ -155,8 +151,7 @@ fn stalled_publisher_cannot_escape_the_global_outbox_budget() {
     let mut outbox = EffectOutbox::new(EffectOutboxLimits::new(3, 30)).unwrap();
     for effect in [1u8, 2, 3] {
         let reservation = outbox.reserve(10).unwrap();
-        outbox.bind_sequence(reservation).unwrap();
-        outbox.enqueue(reservation, effect).unwrap();
+        outbox.commit_reserved(&reservation, 10, effect).unwrap();
     }
     let active = outbox.checkout().unwrap().unwrap();
     assert_eq!(

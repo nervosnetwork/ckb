@@ -108,6 +108,7 @@ impl TxPoolService {
             // `post_submit_side_effects` repeats this transition after the
             // lock is released. That call is an idempotent retry for an
             // internal coordinator failure, not the primary handoff.
+            let mut committed_ingress_peer = original_peer;
             if coordinated.outcome.result.is_ok() {
                 let removed_parents = coordinated.removed_parent_hashes();
                 let finalized = catch_unwind(AssertUnwindSafe(|| {
@@ -117,7 +118,13 @@ impl TxPoolService {
                     })
                 }));
                 let finalize_error = match finalized {
-                    Ok(Ok(_record)) => None,
+                    Ok(Ok(record)) => {
+                        if let Some(record) = record {
+                            committed_ingress_peer =
+                                record.raw.ingress_peer().or(committed_ingress_peer);
+                        }
+                        None
+                    }
                     Ok(Err(error)) => Some(Reject::Internal(format!(
                         "synchronous coordinator handoff failed: {error:?}"
                     ))),
@@ -148,7 +155,7 @@ impl TxPoolService {
                 .then(|| {
                     crate::service::effects::TxPoolEffect::Relay(
                         crate::service::TxVerificationResult::Ok {
-                            original_peer,
+                            original_peer: committed_ingress_peer,
                             tx_hash: tx_hash.clone(),
                         },
                     )
@@ -509,14 +516,9 @@ impl TxPoolService {
             }
             let mut extra_effects = Vec::new();
             if let Some(handoff) = &settlement {
-                let winner_source = handoff
-                    .winner
-                    .raw
-                    .authoritative_source(handoff.winner.source)
-                    .unwrap_or(verified.resolved.source);
                 extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
                     crate::service::TxVerificationResult::Ok {
-                        original_peer: winner_source.peer(),
+                        original_peer: handoff.winner.raw.ingress_peer(),
                         tx_hash: verified.resolved.tx.hash(),
                     },
                 ));
@@ -534,7 +536,7 @@ impl TxPoolService {
                     if reject.should_recorded() {
                         self.record_recent_reject(&record.hash, &reject);
                     }
-                    if source.peer().is_some() && reject.is_allowed_relay() {
+                    if record.raw.ingress_peer().is_some() && reject.is_allowed_relay() {
                         extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
                             crate::service::TxVerificationResult::Reject {
                                 tx_hash: record.hash.clone(),
@@ -546,7 +548,7 @@ impl TxPoolService {
                 match record.raw.authoritative_source(record.source) {
                     Ok(source) => {
                         if internal_failure {
-                            if source.peer().is_some() {
+                            if record.raw.ingress_peer().is_some() {
                                 extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
                                     crate::service::TxVerificationResult::Reject {
                                         tx_hash: record.hash.clone(),
@@ -570,7 +572,7 @@ impl TxPoolService {
                             if reject.should_recorded() {
                                 self.record_recent_reject(&record.hash, reject);
                             }
-                            if let Some(peer) = source.peer() {
+                            if let Some(peer) = record.raw.ingress_peer() {
                                 if reject.is_malformed_tx() {
                                     let duration = std::time::Duration::from_secs(
                                         crate::constants::MALFORMED_TX_BAN_SECONDS,

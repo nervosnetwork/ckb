@@ -377,13 +377,16 @@ pub(crate) struct CommitHandoff<R> {
     pub(crate) raw: Arc<R>,
     #[cfg(test)]
     pub(crate) peer: Option<PeerIndex>,
-    pub(crate) source: CoordinatorSource,
     #[cfg(test)]
     pub(crate) ready_children: Vec<CoordinatorTicket>,
 }
 
 #[derive(Debug)]
-pub(crate) struct ExternalCommitRecord {
+pub(crate) struct ExternalCommitRecord<R> {
+    /// Raw payload of the coordinator owner consumed by an external
+    /// Local/chain commit. Besides ownership transfer, production uses this
+    /// to preserve immutable ingress attribution at the success boundary.
+    pub(crate) raw: Arc<R>,
     #[cfg(test)]
     pub(crate) hash: Byte32,
     #[cfg(test)]

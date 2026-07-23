@@ -8,11 +8,9 @@
 use crate::error::Reject;
 use crate::service::TxVerificationResult;
 use crate::service::effects::{EffectBatch, TxPoolEffect};
-use crate::tx_source::TxSource;
 use ckb_logger::warn;
 
 pub(crate) fn journal_recovery_terminal_records(
-    relay: &crate::service::RelayState,
     permit: crate::service::effects::EffectPermit,
     records: &[crate::component::pipeline_coordinator::TerminalRecord<
         crate::component::pipeline_runtime::PipelineRawTx,
@@ -20,18 +18,14 @@ pub(crate) fn journal_recovery_terminal_records(
 ) {
     let mut effects = Vec::new();
     for record in records {
-        let source = record
-            .raw
-            .authoritative_source(record.source)
-            .unwrap_or(TxSource::Local);
-        if source.peer().is_some() {
+        if record.raw.ingress_peer().is_some() {
             effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
                 tx_hash: record.hash.clone(),
             }));
         }
     }
     let result = match EffectBatch::new(effects) {
-        Some(batch) => relay.effects.commit(permit, batch),
+        Some(batch) => permit.commit(batch),
         None => {
             drop(permit);
             Ok(())
@@ -128,7 +122,7 @@ impl crate::service::TxPoolService {
                 candidate.source,
                 epoch,
                 crate::component::pipeline_coordinator::RawStage::Resolve,
-                |records| journal_recovery_terminal_records(&self.relay, permit, records),
+                |records| journal_recovery_terminal_records(permit, records),
             );
             match admitted {
                 Ok((_added, _terminal)) => {

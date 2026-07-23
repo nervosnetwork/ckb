@@ -244,27 +244,12 @@ impl super::TxPoolService {
     ) {
         let mut effects = Vec::new();
         for record in records {
-            match record.raw.authoritative_source(record.source) {
-                Ok(source) if source.peer().is_some() => {
-                    effects.push(crate::service::effects::TxPoolEffect::Relay(
-                        crate::service::TxVerificationResult::Reject {
-                            tx_hash: record.hash.clone(),
-                        },
-                    ));
-                }
-                Ok(_) => {}
-                Err(reject) => {
-                    ckb_logger::error!(
-                        "cannot journal coordinator terminal record for {}: {}",
-                        record.hash,
-                        reject
-                    );
-                    effects.push(crate::service::effects::TxPoolEffect::Relay(
-                        crate::service::TxVerificationResult::Reject {
-                            tx_hash: record.hash.clone(),
-                        },
-                    ));
-                }
+            if record.raw.ingress_peer().is_some() {
+                effects.push(crate::service::effects::TxPoolEffect::Relay(
+                    crate::service::TxVerificationResult::Reject {
+                        tx_hash: record.hash.clone(),
+                    },
+                ));
             }
         }
         if let Err(error) = self.publish_reserved_effects(permit, effects) {
@@ -283,6 +268,7 @@ impl super::TxPoolService {
         reject: Option<&Reject>,
         mut tx_pool: Option<&mut crate::pool::TxPool>,
     ) -> Option<ckb_network::PeerIndex> {
+        let ingress_peer = record.raw.ingress_peer();
         let source = match record.raw.authoritative_source(record.source) {
             Ok(source) => source,
             Err(error) => {
@@ -321,7 +307,7 @@ impl super::TxPoolService {
             if reject.should_recorded() {
                 self.record_recent_reject(&record.hash, reject);
             }
-            if let Some(peer) = source.peer() {
+            if let Some(peer) = ingress_peer {
                 if reject.is_malformed_tx() {
                     let reason = format!("reject {reject}");
                     let duration =
@@ -342,7 +328,7 @@ impl super::TxPoolService {
                     ));
                 }
             }
-        } else if source.peer().is_some() {
+        } else if ingress_peer.is_some() {
             effects.push(crate::service::effects::TxPoolEffect::Relay(
                 crate::service::TxVerificationResult::Reject {
                     tx_hash: record.hash.clone(),
