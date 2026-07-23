@@ -50,9 +50,4 @@ impl TxSource {
             _ => None,
         }
     }
-
-    /// Returns true if the transaction was received as a block proposal.
-    pub(crate) fn is_proposal_tx(&self) -> bool {
-        matches!(self, Self::Proposal)
-    }
 }

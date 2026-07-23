@@ -942,9 +942,16 @@ fn service_with_relay_receiver() -> (
             config.verify_ordering,
             config.verify_queue_tx_size_budget(),
         )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
+        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
+            pre_check_cancel.clone(),
+        ),
         rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
     });
+    let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+        &config,
+        &consensus,
+        pre_check_cancel,
+    ));
     let service = TxPoolService {
         pool: crate::service::PoolCore {
             tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
@@ -952,6 +959,7 @@ fn service_with_relay_receiver() -> (
             tx_pool_config: Arc::new(config),
         },
         pipeline: crate::service::PipelineState {
+            runtime,
             epoch: Arc::new(crate::service::PipelineEpoch::default()),
             queues: Arc::clone(&queues),
             waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
@@ -1741,9 +1749,16 @@ async fn zero_max_workers_is_clamped_to_one() {
             config.verify_ordering,
             config.verify_queue_tx_size_budget(),
         )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
+        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
+            pre_check_cancel.clone(),
+        ),
         rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
     });
+    let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+        &config,
+        &consensus,
+        pre_check_cancel,
+    ));
     let service = TxPoolService {
         pool: crate::service::PoolCore {
             tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
@@ -1751,6 +1766,7 @@ async fn zero_max_workers_is_clamped_to_one() {
             tx_pool_config: Arc::new(config),
         },
         pipeline: crate::service::PipelineState {
+            runtime,
             epoch: Arc::new(crate::service::PipelineEpoch::default()),
             queues: Arc::clone(&queues),
             waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),

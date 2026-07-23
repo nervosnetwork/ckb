@@ -428,6 +428,7 @@ struct BenchServiceHandle {
     service: Option<TxPoolService>,
     signal: CancellationToken,
     worker_handles: Vec<tokio::task::JoinHandle<()>>,
+    effect_publisher: Option<tokio::task::JoinHandle<()>>,
     drain_handle: Option<tokio::task::JoinHandle<()>>,
     runtime: ckb_async_runtime::Handle,
 }
@@ -448,6 +449,16 @@ impl Drop for BenchServiceHandle {
         // drain; doing these in one join set creates a sender/drain deadlock.
         let worker_handles = std::mem::take(&mut self.worker_handles);
         await_handles(&self.runtime, worker_handles, Duration::from_secs(5));
+        if let Some(service) = &self.service {
+            service.relay.effects.close();
+        }
+        if let Some(effect_publisher) = self.effect_publisher.take() {
+            await_handles(
+                &self.runtime,
+                vec![effect_publisher],
+                Duration::from_secs(5),
+            );
+        }
         self.service.take();
         if let Some(drain_handle) = self.drain_handle.take() {
             await_handles(&self.runtime, vec![drain_handle], Duration::from_secs(5));
@@ -502,11 +513,12 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
         worker_handles.push(crate::service::spawn_deferred_worker(
             &handle,
-            Arc::clone(&parts.service.pipeline.queues),
+            Arc::clone(&parts.service.pipeline.runtime),
             Arc::clone(&parts.service.aux.txs_verify_cache),
             parts.deferred_receiver,
             parts.signal.child_token(),
             parts.service.relay.clone(),
+            parts.service.aux.recent_reject.clone(),
             Arc::clone(&parts.service.pipeline.epoch),
         ));
     }
@@ -552,6 +564,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         service: Some(parts.service),
         signal,
         worker_handles,
+        effect_publisher: Some(parts.effect_publisher),
         drain_handle: Some(drain_handle),
         runtime: shared.ckb_handle.clone(),
     }

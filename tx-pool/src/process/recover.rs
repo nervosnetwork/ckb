@@ -1,144 +1,157 @@
-//! Event-driven re-entry of transactions into the pipeline.
+//! Bounded re-entry of pool-conflict recoveries into the authoritative
+//! coordinator.
 //!
-//! This module owns the "who goes where, when" of transaction recovery:
-//! transactions that could not proceed the first time are routed back into
-//! the pipeline from here:
-//! - **conflict recovery** (`enqueue_recover_txs`): txs whose conflicting
-//!   inputs have been freed (failed RBF replacements, evictions) are
-//!   re-enqueued into the ordered resolve queue;
-//! - **orphan orchestration** (`handle_missing_input_orphan`,
-//!   `process_orphan_tx`, `remove_orphan_txs_by_attach`): txs with missing
-//!   parents are parked and re-routed once their parents land;
-//! - **RBF-held restore** (`restore_held_rbf_candidates`): candidates
-//!   displaced by a lost in-flight race resume verification once their
-//!   winner leaves the pipeline.
-//!
-//! Storage stays with its owner: the pipeline-side `WaitingRoom` in
-//! `PipelineState` holds `ParentsMissing` (orphans) and `RaceLost` (RBF
-//! in-flight losers) entries, the pool-side `WaitingRoom` in `TxPool`
-//! holds `InputsBlocked` (conflict recovery), and RBF registrations stay in
-//! `component::rbf_candidates`. Only the orchestration lives here.
-//!
-//! Lock order notes (kept consistent with the global hierarchy
-//! `ordered_resolve_queue → rbf_candidates → verify_queue → waiting_room →
-//! tx_pool`): `handle_missing_input_orphan` holds `waiting_room.write()`
-//! while taking `tx_pool.read()`; `requeue_and_reregister` holds
-//! `rbf_candidates.write()` then `verify_queue.write()` then
-//! `waiting_room.write()`; the ordered-queue fallback is only taken after
-//! all three are released.
+//! Missing-parent and in-flight conflict waiting are coordinator states. This
+//! module only handles transactions recovered from the accepted pool's
+//! historical conflict cache after their inputs become available again.
 
-use crate::component::pipeline_queue::PipelineQueue;
-use crate::component::rbf_candidates::displace_and_commit;
 use crate::error::Reject;
-use crate::resolved_tx::ResolvedTx;
-use crate::service::{TxPoolService, TxVerificationResult};
+use crate::service::TxVerificationResult;
+use crate::service::effects::{EffectBatch, TxPoolEffect, callback_reject};
 use crate::tx_source::TxSource;
-use ckb_logger::{debug, warn};
-use ckb_store::ChainStore;
+use ckb_logger::warn;
 use ckb_types::core::TransactionView;
-use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
-use ckb_util::LinkedHashSet;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-/// Maximum number of attempts to enqueue one recovered transaction before
-/// giving up. The ordered resolve queue is drained continuously by the
-/// single ordered resolver, so `Reject::Full` is transient backpressure, not
-/// a terminal condition; 40 attempts at `LOCAL_ORPHAN_RETRY_DELAY` (~2 s per
-/// tx) is generous headroom over ordinary bursts, while still bounding how
-/// long shutdown or a permanently stuck resolver can block the deferred
-/// worker.
+/// A normal recovery may wait briefly for coordinator capacity to be
+/// reclaimed. Shutdown draining gets one non-blocking attempt so teardown is
+/// not extended by this retry window.
 const RECOVER_ENQUEUE_MAX_ATTEMPTS: usize = 40;
 
-/// How many worklist entries one lock slice of `requeue_and_reregister`
-/// processes before releasing the three write guards, so a large restore
-/// cannot stall the whole pipeline behind it.
-const REQUEUE_LOCK_BATCH: usize = 32;
-
-/// Re-enqueue recovered transactions into the ordered resolve queue,
-/// retrying on transient `Full` backpressure.
-///
-/// The recovered txs' conflict-cache entries have already been removed by
-/// the submit path, so dropping one here would lose a valid transaction
-/// entirely. The queue lock is released between attempts so the resolver
-/// can keep draining, and shutdown is observed between attempts so a full
-/// queue cannot hold the deferred worker hostage. A transaction whose
-/// bounded retries are exhausted still gets a *terminal* outcome (see
-/// [`recover_terminal`]) — never a silent drop.
-pub(crate) async fn enqueue_recover_txs(
-    queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
+pub(crate) async fn enqueue_pipeline_recover_txs(
+    runtime: Arc<crate::component::pipeline_runtime::PipelineRuntime>,
     jobs: Vec<crate::resolved_tx::ResolveJob>,
     cancel: &CancellationToken,
     relay: &crate::service::RelayState,
+    recent_reject: Option<&Arc<crate::component::recent_reject::RecentReject>>,
     epoch: &crate::service::PipelineEpoch,
+    observe_cancel: bool,
 ) {
     for job in jobs {
         let tx = job.tx.clone();
         let source = job.source;
-        debug!("recover back: {:?}", tx.proposal_short_id());
         if !epoch.is_current(job.epoch) {
-            recover_cancelled(relay, &tx, source);
+            recover_cancelled(relay, &tx, source).await;
             continue;
         }
         for attempt in 1..=RECOVER_ENQUEUE_MAX_ATTEMPTS {
-            let result = {
-                let mut queue = queues.ordered_resolve_queue.write().await;
-                if epoch.is_current(job.epoch) {
-                    queue.add_tx(job.clone())
-                } else {
-                    Err(Reject::Internal(
-                        "tx-pool pipeline generation invalidated by clear".to_string(),
-                    ))
+            let permit = match relay
+                .effects
+                .reserve(
+                    crate::service::TxPoolService::pipeline_terminal_effect_bytes(
+                        crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                    ),
+                )
+                .await
+            {
+                Ok(permit) => permit,
+                Err(error) => {
+                    warn!("recovery effect reservation failed: {:?}", error);
+                    recover_terminal(
+                        relay,
+                        recent_reject,
+                        &tx,
+                        source,
+                        Reject::Internal(format!("recovery effect reservation failed: {error:?}")),
+                    )
+                    .await;
+                    break;
                 }
             };
+            let result = runtime.admit_transaction_journaled(
+                tx.clone(),
+                source,
+                job.epoch,
+                crate::component::pipeline_coordinator::RawStage::Resolve,
+                |records| journal_recovery_terminal_records(relay, permit, records),
+            );
             match result {
-                Ok(_) => break,
-                Err(Reject::Internal(_)) if !epoch.is_current(job.epoch) => {
-                    recover_cancelled(relay, &tx, source);
-                    break;
-                }
-                Err(crate::error::Reject::Full(_)) if attempt < RECOVER_ENQUEUE_MAX_ATTEMPTS => {
-                    tokio::select! {
-                        _ = tokio::time::sleep(crate::resolve_mgr::LOCAL_ORPHAN_RETRY_DELAY) => {}
-                        _ = cancel.cancelled() => {
-                            warn!("recover task aborted by shutdown");
-                            return;
+                Ok((_added, _terminal)) => break,
+                Err(error) => {
+                    let reject = crate::component::pipeline_runtime::coordinator_reject(error);
+                    if matches!(reject, Reject::Full(_))
+                        && attempt < RECOVER_ENQUEUE_MAX_ATTEMPTS
+                        && observe_cancel
+                    {
+                        tokio::select! {
+                            _ = tokio::time::sleep(crate::resolve_mgr::LOCAL_ORPHAN_RETRY_DELAY) => {}
+                            _ = cancel.cancelled() => {
+                                recover_terminal(relay, recent_reject, &tx, source, reject).await;
+                                break;
+                            },
                         }
+                    } else {
+                        recover_terminal(relay, recent_reject, &tx, source, reject).await;
+                        break;
                     }
-                }
-                Err(reject) => {
-                    warn!(
-                        "failed to recover tx back to ordered resolve queue after {} attempts: {}",
-                        attempt, reject
-                    );
-                    recover_terminal(relay, &tx, source, reject);
-                    break;
                 }
             }
         }
     }
 }
 
-fn recover_cancelled(relay: &crate::service::RelayState, tx: &TransactionView, source: TxSource) {
-    if source.peer().is_some()
-        && let Err(e) = relay
-            .tx_relay_sender
-            .send(TxVerificationResult::Reject { tx_hash: tx.hash() })
-    {
-        warn!("recover cancellation relayer notify failed: {}", e);
+fn journal_recovery_terminal_records(
+    relay: &crate::service::RelayState,
+    permit: crate::service::effects::EffectPermit,
+    records: &[crate::component::pipeline_coordinator::TerminalRecord<
+        crate::component::pipeline_runtime::PipelineRawTx,
+        crate::resolved_tx::ResolvedTx,
+        crate::component::pipeline_runtime::PipelineVerifiedTx,
+    >],
+) {
+    let mut effects = Vec::new();
+    for record in records {
+        let source = record
+            .raw
+            .authoritative_source(record.source)
+            .unwrap_or(TxSource::Local);
+        if source.peer().is_some() {
+            effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: record.hash.clone(),
+            }));
+        }
+    }
+    let result = match EffectBatch::new(effects) {
+        Some(batch) => relay.effects.commit(permit, batch),
+        None => {
+            drop(permit);
+            Ok(())
+        }
+    };
+    if let Err(error) = result {
+        panic!("reserved recovery terminal journal failed: {error:?}");
     }
 }
 
-/// Terminal routing for a recovered transaction the queue could not take
-/// even after the bounded retries: its earlier reject events were
-/// suppressed in anticipation of this recovery, so the loop must be closed
-/// now — a reject callback for subscribers and a relayer notification for
-/// remote peers (their filter entry must not wait forever). Nothing is
-/// recorded in recent_reject (`Full` is exempt from recording): this is
-/// backpressure, not invalidity.
-fn recover_terminal(
+async fn enqueue_effects(relay: &crate::service::RelayState, effects: Vec<TxPoolEffect>) {
+    let Some(batch) = EffectBatch::new(effects) else {
+        return;
+    };
+    if let Err(error) = relay.effects.enqueue(batch).await {
+        warn!("recover terminal effect journal failed: {:?}", error);
+    }
+}
+
+async fn recover_cancelled(
     relay: &crate::service::RelayState,
+    tx: &TransactionView,
+    source: TxSource,
+) {
+    if source.peer().is_some() {
+        enqueue_effects(
+            relay,
+            vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: tx.hash(),
+            })],
+        )
+        .await;
+    }
+}
+
+async fn recover_terminal(
+    relay: &crate::service::RelayState,
+    recent_reject: Option<&Arc<crate::component::recent_reject::RecentReject>>,
     tx: &TransactionView,
     source: TxSource,
     reject: Reject,
@@ -149,707 +162,32 @@ fn recover_terminal(
         ckb_types::core::Capacity::zero(),
         tx.data().serialized_size_in_block(),
     );
-    relay.callbacks.call_reject(&entry, reject);
-    if source.peer().is_some()
-        && let Err(e) = relay
-            .tx_relay_sender
-            .send(TxVerificationResult::Reject { tx_hash: tx.hash() })
+    let mut effects = Vec::new();
+    if relay.callbacks.reject.is_some() {
+        effects.push(callback_reject(
+            Arc::clone(&relay.callbacks),
+            entry,
+            reject.clone(),
+        ));
+    }
+    if (source.peer().is_some() || reject.is_allowed_relay())
+        && !matches!(reject, Reject::Duplicated(_))
     {
-        warn!("recover terminal relayer notify failed: {}", e);
+        effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
+            tx_hash: tx.hash(),
+        }));
     }
-}
-
-impl TxPoolService {
-    /// Route a transaction with missing inputs to the orphan pool and notify
-    /// the relayer about the missing parents.
-    ///
-    /// Used by both [`Self::after_process`] (which computes parents from the
-    /// tx) and the ordered resolver (which receives parents from the resolve
-    /// stage result).
-    #[cfg(test)]
-    pub(crate) async fn handle_missing_input_orphan(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-        parents: HashSet<Byte32>,
-    ) {
-        let Ok(epoch) = self.current_pipeline_epoch() else {
-            self.terminal_internal(tx, source).await;
-            return;
-        };
-        self.handle_missing_input_orphan_at(tx, source, parents, epoch)
-            .await;
-    }
-
-    pub(crate) async fn handle_missing_input_orphan_at(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-        parents: HashSet<Byte32>,
-        epoch: u64,
-    ) {
-        if !self.is_pipeline_epoch_current(epoch) {
-            self.terminal_internal(tx, source).await;
-            return;
-        }
-        // Recheck parent availability while holding the orphan write lock.
-        // The tx failed resolution a moment ago, but its parents may have
-        // landed since: a parent committing in that window runs its
-        // `process_orphan_tx` *before* this insert could complete, and
-        // nothing would re-trigger for this orphan afterwards — it would be
-        // stuck until expiry (~80 minutes). Lock order orphan -> tx_pool
-        // follows the documented hierarchy (see `remove_tx`); a parent
-        // committing concurrently runs its `process_orphan_tx` only after
-        // we release this lock, and then finds the inserted orphan.
-        let mut orphan = self.pipeline.waiting_room.write().await;
-        if !self.is_pipeline_epoch_current(epoch) {
-            drop(orphan);
-            self.terminal_internal(tx, source).await;
-            return;
-        }
-        let parents_available = self.unavailable_parent_ids(&parents).await.is_empty();
-        if !self.is_pipeline_epoch_current(epoch) {
-            drop(orphan);
-            self.terminal_internal(tx, source).await;
-            return;
-        }
-        if parents_available {
-            drop(orphan);
-            // Everything is resolvable now — route the tx through the
-            // pipeline instead of parking it in the orphan pool.
-            //
-            // Box::pin is required because after_process and
-            // handle_missing_input_orphan -> classify are mutually recursive
-            // async fns (same pattern as process_orphan_tx).
-            match Box::pin(self.classify_and_enqueue_tx_at(tx.clone(), source, epoch)).await {
-                Ok(_) => return,
-                // Only transient backpressure justifies a retry: any other
-                // reject has already been traced by `after_process` inside
-                // classify, so let it drop rather than churn the orphan
-                // pool until expiry.
-                Err(Reject::Full(_)) => {
-                    // Parking as `ParentsMissing` would strand the tx until
-                    // expiry: its parents are all available, so no parent
-                    // event will ever fire to wake it. Retry through the
-                    // ordered queue's delayed section instead, and only
-                    // give up (terminally) if that is full too.
-                    let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
-                    let add_result = if self.is_pipeline_epoch_current(epoch) {
-                        ordered.add_tx_delayed(
-                            crate::resolved_tx::ResolveJob::new_at(tx.clone(), source, epoch),
-                            crate::resolve_mgr::LOCAL_ORPHAN_RETRY_DELAY,
-                        )
-                    } else {
-                        Err(Reject::Internal(
-                            "tx-pool pipeline generation invalidated by clear".to_string(),
-                        ))
-                    };
-                    drop(ordered);
-                    match add_result {
-                        Ok(_) => return,
-                        Err(Reject::Internal(_)) if !self.is_pipeline_epoch_current(epoch) => {
-                            self.terminal_internal(tx, source).await;
-                            return;
-                        }
-                        Err(reject) => {
-                            self.terminal_reject(tx, source, reject).await;
-                            return;
-                        }
-                    }
-                }
-                Err(_) => return,
-            }
-        }
-        // Only notify the relayer after the tx has actually been accepted into
-        // the orphan pool. This avoids telling peers about missing parents for
-        // a tx that we end up dropping (e.g. duplicate orphan or pool full).
-        let (added, evicted) = {
-            let reason = crate::component::waiting_room::WaitReason::ParentsMissing {
-                parents: tx.unique_parents(),
-            };
-            orphan.wait(tx, source, reason)
-        };
-        drop(orphan);
-        // Route evicted entries by reason: orphans are rejected, race-lost
-        // candidates are restored.
-        self.route_waiting_evictions(evicted).await;
-        if added && let Some(peer) = source.peer() {
-            self.send_result_to_relayer(TxVerificationResult::UnknownParents { peer, parents });
+    if reject.should_recorded()
+        && let Some(store) = recent_reject
+    {
+        if let Err(error) = store.put(&tx.hash(), reject.clone()) {
+            warn!(
+                "failed to record recovered reject {} {}: {}",
+                tx.hash(),
+                reject,
+                error
+            );
         }
     }
-
-    /// Test-only convenience wrapper for planting an orphan directly.
-    #[cfg(test)]
-    pub(crate) async fn add_orphan(&self, tx: TransactionView, source: TxSource) -> bool {
-        let reason = crate::component::waiting_room::WaitReason::ParentsMissing {
-            parents: tx.unique_parents(),
-        };
-        let (added, evicted) = self
-            .pipeline
-            .waiting_room
-            .write()
-            .await
-            .wait(tx, source, reason);
-        // for any evicted orphan tx, we should send reject to relayer
-        // so that we mark it as `unknown` in filter
-        for entry in evicted {
-            self.send_result_to_relayer(TxVerificationResult::Reject {
-                tx_hash: entry.tx.hash(),
-            });
-        }
-        added
-    }
-
-    /// Remove all orphans which are directly resolved by the given transaction.
-    ///
-    /// Only the direct children of `tx` are re-routed here, through the same
-    /// pipeline entry point as other remote transactions. When such an orphan
-    /// is eventually verified and submitted, `after_process` recursively
-    /// processes *its* children in the orphan pool — the recursion happens
-    /// through `after_process`, not in this function.
-    ///
-    /// Removals are batched into a single write lock: an orphan's success or
-    /// failure in the pipeline does not depend on its siblings being removed
-    /// first, so there is no need to pay the cost of a write lock per orphan.
-    pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
-        let Ok(epoch) = self.current_pipeline_epoch() else {
-            return;
-        };
-        self.process_orphan_tx_at(tx, epoch).await;
-    }
-
-    pub(crate) async fn process_orphan_tx_at(&self, tx: &TransactionView, epoch: u64) {
-        self.process_orphan_tx_inner(tx, None, epoch).await;
-    }
-
-    /// `skip`: orphan ids that must not be routed in this pass (e.g.
-    /// transactions that are themselves attached in the current reorg —
-    /// routing them would resolve Dead against the new snapshot and poison
-    /// recent_reject for a committed transaction).
-    async fn process_orphan_tx_inner(
-        &self,
-        tx: &TransactionView,
-        skip: Option<&HashSet<ProposalShortId>>,
-        epoch: u64,
-    ) {
-        if !self.is_pipeline_epoch_current(epoch) {
-            return;
-        }
-        // Collect the orphan entries under a single read lock, then process
-        // them outside the lock. This keeps the critical section short and
-        // avoids cloning transactions while holding the write lock.
-        let orphans: Vec<_> = {
-            let orphan = self.pipeline.waiting_room.read().await;
-            orphan
-                .find_by_parent(tx)
-                .into_iter()
-                .cloned()
-                .filter_map(|id| orphan.get(&id).cloned().map(|entry| (id, entry)))
-                .collect()
-        };
-
-        // Batch the parent-availability check: one read guard and one
-        // snapshot for *all* orphans, instead of one guard plus per-parent
-        // store lookups per orphan (reorgs route many orphans through here).
-        let unavailable_hashes: HashSet<Byte32> = {
-            let all_parents: HashSet<Byte32> = orphans
-                .iter()
-                .flat_map(|(_, entry)| entry.tx.unique_parents())
-                .collect();
-            let pool = self.pool.tx_pool.read().await;
-            let snapshot = pool.cloned_snapshot();
-            all_parents
-                .into_iter()
-                .filter(|h| !snapshot.transaction_exists(h))
-                .filter(|h| !pool.contains_proposal_id(&ProposalShortId::from_tx_hash(h)))
-                .collect()
-        };
-
-        let mut to_remove = Vec::new();
-        for (orphan_id, orphan) in orphans.into_iter() {
-            if skip.is_some_and(|skip| skip.contains(&orphan_id)) {
-                continue;
-            }
-            let orphan_hash = orphan.tx.hash();
-
-            // Only route orphans whose parents are *all* available now:
-            // reclassifying one that still has missing parents just bounces
-            // it back into the orphan pool (refreshing its expiry and
-            // re-notifying the relayer on every round trip).
-            if orphan
-                .tx
-                .unique_parents()
-                .iter()
-                .any(|parent| unavailable_hashes.contains(parent))
-            {
-                continue;
-            }
-
-            match self
-                .classify_and_enqueue_tx_at(orphan.tx, orphan.source, epoch)
-                .await
-            {
-                Ok(_) => {
-                    to_remove.push(orphan_id);
-                    // The orphan is now in the pipeline. Its own children
-                    // will be processed once it successfully submits via
-                    // the normal `after_process` -> `handle_verify_success`
-                    // path, so we do not need to push it back here.
-                }
-                Err(reject) => {
-                    // Keep the orphan if the pipeline queues are temporarily
-                    // full. For any other reject reason (malformed, low fee,
-                    // etc.) remove it.
-                    //
-                    // `classify_and_enqueue_tx` already ran `after_process`
-                    // for this reject (relayer notification, ban, recent
-                    // reject), so we must not run `handle_remote_reject`
-                    // again here.
-                    if matches!(reject, Reject::Full(_)) {
-                        warn!(
-                            "process_orphan {} not ready ({reject}); keeping orphan from {}",
-                            orphan_hash,
-                            tx.hash(),
-                        );
-                    } else {
-                        to_remove.push(orphan_id);
-                    }
-                }
-            }
-        }
-
-        if !to_remove.is_empty() {
-            let mut room = self.pipeline.waiting_room.write().await;
-            if !self.is_pipeline_epoch_current(epoch) {
-                return;
-            }
-            for id in to_remove {
-                // Only remove entries that are still parked as orphans: a
-                // tx reclassified into the verify queue may have been
-                // displaced by a stronger candidate while this loop ran,
-                // re-parking it as `RaceLost` — removing that entry would
-                // silently lose the candidate.
-                let is_orphan = room.get(&id).is_some_and(|entry| {
-                    matches!(
-                        entry.reason,
-                        crate::component::waiting_room::WaitReason::ParentsMissing { .. }
-                    )
-                });
-                if is_orphan {
-                    room.remove(&id);
-                }
-            }
-        }
-    }
-
-    pub(crate) async fn remove_orphan_txs_by_attach(&self, txs: &LinkedHashSet<TransactionView>) {
-        // CRITICAL: this must run after `update_tx_pool_for_reorg` has replaced
-        // `tx_pool.snapshot` with the post-attachment snapshot. Because the snapshot
-        // already reflects the attached blocks, an orphan whose input was consumed by
-        // one of those blocks resolves to `CellStatus::Dead` and is rejected here,
-        // instead of being accepted back into the pipeline.
-        //
-        // Orphans that are *themselves* attached must be skipped while
-        // routing: their inputs are consumed by their own block, so routing
-        // them would resolve Dead and poison recent_reject (and the relayer
-        // filter) for a transaction that just committed on-chain. They are
-        // removed from the room by `remove_many` below.
-        let attached_ids: HashSet<ProposalShortId> =
-            txs.iter().map(|tx| tx.proposal_short_id()).collect();
-        for tx in txs.iter() {
-            let Ok(epoch) = self.current_pipeline_epoch() else {
-                return;
-            };
-            self.process_orphan_tx_inner(tx, Some(&attached_ids), epoch)
-                .await;
-        }
-        let mut orphan = self.pipeline.waiting_room.write().await;
-        orphan.remove_many(attached_ids.into_iter());
-    }
-
-    /// Restore held (displaced) candidates back into the verify queue and
-    /// resume their in-flight registrations.
-    ///
-    /// They bypass the entry path entirely — in particular they are *not*
-    /// run through `after_process`, so no recent-reject entry is recorded
-    /// for a rejection that never became real. Duplicate re-insertion is
-    /// harmless (`add_tx` dedups by id, covering a resubmission that
-    /// arrived while the tx was held).
-    ///
-    /// The registration is restored together with the queue slot: a
-    /// restored candidate with only its slot back would be unprotected and
-    /// could be rejected at submit time by a *speculative* competitor,
-    /// re-opening the censorship vector the hold-and-restore design
-    /// removes. Restored candidates are processed highest-fee-rate first,
-    /// so siblings conflicting with each other displace fairly; a restored
-    /// candidate may itself displace a registration that appeared meanwhile
-    /// (the displaced txs are held by its registration), and whatever the
-    /// displaced registrations held is appended to the work list — their
-    /// displacer is gone.
-    ///
-    /// If the verify queue rejects with `Full`, the tx falls back to the
-    /// ordered resolve queue (it will be re-resolved there); if that also
-    /// fails the tx is dropped with a warning — bounded queues force a
-    /// terminal somewhere.
-    pub(crate) async fn restore_held_rbf_candidates(&self, held: Vec<ResolvedTx>) {
-        let (held, cancelled): (Vec<_>, Vec<_>) = held
-            .into_iter()
-            .partition(|resolved| self.is_pipeline_epoch_current(resolved.epoch));
-        for resolved in cancelled {
-            self.terminal_internal(resolved.tx, resolved.source).await;
-        }
-        if held.is_empty() {
-            return;
-        }
-        let (worklist, consumed) = self.sort_and_prefetch(held).await;
-        let (fallbacks, evicted, cancelled) = self.requeue_and_reregister(worklist, consumed).await;
-        for resolved in cancelled {
-            self.terminal_internal(resolved.tx, resolved.source).await;
-        }
-        self.fallback_terminal(fallbacks).await;
-        // Box::pin is required: route → terminal_reject → handle_remote_reject
-        // → ban_malformed → restore is an unboxed recursion cycle otherwise.
-        Box::pin(self.route_waiting_evictions(evicted)).await;
-    }
-
-    /// Route waiting-room evictions by reason: orphans get a Reject
-    /// notification (their wait expired or the room was full). An expired
-    /// `RaceLost` revokes the stalled winner's *speculative* registration
-    /// and restores every loser it held. Merely surviving in a verify backlog
-    /// is not proof that the winner is valid and must never terminally reject
-    /// an already-admitted transaction. Revocation also prevents an
-    /// expired -> restored -> re-held verification loop; the winner may keep
-    /// verifying, but it must compete under the real pool RBF rules.
-    pub(crate) async fn route_waiting_evictions(
-        &self,
-        evicted: Vec<crate::component::waiting_room::WaitingEntry>,
-    ) {
-        let mut restore = Vec::new();
-        let mut stale_winners = HashSet::new();
-        for entry in evicted {
-            match entry.reason {
-                crate::component::waiting_room::WaitReason::ParentsMissing { .. } => {
-                    self.send_result_to_relayer(TxVerificationResult::Reject {
-                        tx_hash: entry.tx.hash(),
-                    });
-                }
-                crate::component::waiting_room::WaitReason::RaceLost { winner } => {
-                    if let Some(resolved) = entry.resolved {
-                        // Join the winner's ownership transition below. If
-                        // finalize/abort already won both locks this is an
-                        // idempotent no-op; otherwise expiry revokes the stale
-                        // speculative registration and wakes all its losers.
-                        stale_winners.insert(winner);
-                        restore.push(*resolved);
-                    } else {
-                        // RaceLost entries are always parked with their
-                        // resolved form; reaching here means a future
-                        // re-park path forgot to carry it.
-                        warn!(
-                            "RaceLost waiting entry without resolved form: {}",
-                            entry.tx.hash()
-                        );
-                    }
-                }
-                crate::component::waiting_room::WaitReason::InputsBlocked { .. } => {
-                    // Conflicts-cache migration (S3): recovered conflicts
-                    // resume through the ordered resolve queue.
-                }
-            }
-        }
-        if !stale_winners.is_empty() {
-            // Lock order: rbf_candidates -> waiting_room. Removing the
-            // registration first makes every subsequent submit observe that
-            // the timeout revoked the speculative preference.
-            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
-            let mut room = self.pipeline.waiting_room.write().await;
-            for winner in stale_winners {
-                rbf.remove(&winner);
-                restore.extend(room.wake_by_winner(&winner));
-            }
-        }
-        // Box::pin is required: restore → route → restore is recursive
-        // (expired race-lost entries resume through this same path).
-        Box::pin(self.restore_held_rbf_candidates(restore)).await;
-    }
-
-    /// Sort held candidates strongest-first (sibling conflicts between
-    /// restored candidates resolve in fee-rate order) and pre-compute their
-    /// conflict inputs with a single `tx_pool` read, so the critical
-    /// section in `requeue_and_reregister` contains only in-memory
-    /// operations and cannot stall the pipeline on per-item lock
-    /// acquisition. The result may be slightly stale by the time
-    /// registrations commit: a freed input merely keeps a conservative
-    /// registration (cleaned up later), and an input consumed meanwhile
-    /// just skips registration and lets the pool-level RBF rules decide.
-    async fn sort_and_prefetch(
-        &self,
-        mut held: Vec<ResolvedTx>,
-    ) -> (std::collections::VecDeque<ResolvedTx>, HashSet<OutPoint>) {
-        held.sort_by_key(|resolved| {
-            std::cmp::Reverse(self.compute_size_based_fee_rate(resolved.fee, resolved.tx_size))
-        });
-        let worklist: std::collections::VecDeque<ResolvedTx> = held.into();
-        let consumed = self
-            .consumed_inputs(worklist.iter().map(|resolved| &resolved.tx))
-            .await;
-        (worklist, consumed)
-    }
-
-    /// Re-queue every worklist entry into the verify queue and resume its
-    /// in-flight registration. The three write guards (`rbf_candidates`,
-    /// `verify_queue`, `waiting_room`) are taken per *slice* of
-    /// [`REQUEUE_LOCK_BATCH`] entries and released between slices, so a
-    /// large restore cannot stall the whole pipeline behind one pass. A
-    /// restored candidate may itself displace a registration that
-    /// appeared meanwhile (the displaced txs are parked as its `RaceLost`),
-    /// and whatever the displaced registrations held is appended to the
-    /// work list — their displacer is gone. Returns the jobs that the
-    /// verify queue rejected with `Full` (for `fallback_terminal`) and the
-    /// entries evicted from the waiting room during the pass (for
-    /// `route_waiting_evictions`).
-    async fn requeue_and_reregister(
-        &self,
-        mut worklist: std::collections::VecDeque<ResolvedTx>,
-        consumed: HashSet<OutPoint>,
-    ) -> (
-        Vec<crate::resolved_tx::ResolveJob>,
-        Vec<crate::component::waiting_room::WaitingEntry>,
-        Vec<ResolvedTx>,
-    ) {
-        let mut fallbacks = Vec::new();
-        let mut evicted = Vec::new();
-        let mut cancelled = Vec::new();
-        while !worklist.is_empty() {
-            let mut batch = 0;
-            {
-                let mut rbf_guard = self.pipeline.queues.rbf_candidates.write().await;
-                let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
-                let mut room = self.pipeline.waiting_room.write().await;
-                while let Some(resolved) = worklist.pop_front() {
-                    if !self.is_pipeline_epoch_current(resolved.epoch) {
-                        cancelled.push(resolved);
-                        continue;
-                    }
-                    let tx = resolved.tx.clone();
-                    let source = resolved.source;
-                    let epoch = resolved.epoch;
-                    let id = tx.proposal_short_id();
-                    let fee_rate = self.compute_size_based_fee_rate(resolved.fee, resolved.tx_size);
-                    match verify_queue.add_tx(resolved) {
-                        Ok(true) => {
-                            let conflict_inputs: Vec<OutPoint> = tx
-                                .input_pts_iter()
-                                .filter(|out_point| consumed.contains(out_point))
-                                .collect();
-                            if conflict_inputs.is_empty() {
-                                batch += 1;
-                                if batch >= REQUEUE_LOCK_BATCH {
-                                    break;
-                                }
-                                continue;
-                            }
-                            if let Ok(registration) =
-                                rbf_guard.register(id, fee_rate, &conflict_inputs)
-                            {
-                                let crate::component::rbf_candidates::DisplaceOutcome {
-                                    to_restore,
-                                    evicted: ev,
-                                } = displace_and_commit(
-                                    &mut rbf_guard,
-                                    &mut verify_queue,
-                                    &mut room,
-                                    registration,
-                                );
-                                worklist.extend(to_restore);
-                                evicted.extend(ev);
-                            }
-                            // A registration error means an equal-or-stronger
-                            // sibling already holds an input: keep the restored
-                            // tx queued; the fee ordering is decided at submit.
-                        }
-                        Ok(false) => {
-                            // Duplicate: resubmitted while held; its own entry
-                            // path already handles registration.
-                        }
-                        Err(_) => fallbacks
-                            .push(crate::resolved_tx::ResolveJob::new_at(tx, source, epoch)),
-                    }
-                    batch += 1;
-                    if batch >= REQUEUE_LOCK_BATCH {
-                        break;
-                    }
-                }
-            }
-            // Let the pipeline breathe between slices: submissions, the
-            // ordered resolver and verify workers all need these locks.
-            tokio::task::yield_now().await;
-        }
-        (fallbacks, evicted, cancelled)
-    }
-
-    /// Chain-end for jobs the verify queue could not take: fall back to the
-    /// ordered resolve queue (re-resolution there), and if that is also
-    /// full, leave a trace through the normal after_process path
-    /// (recent_reject + relay) instead of silently dropping the displaced
-    /// candidate.
-    async fn fallback_terminal(&self, fallbacks: Vec<crate::resolved_tx::ResolveJob>) {
-        if fallbacks.is_empty() {
-            return;
-        }
-        let mut terminal = Vec::new();
-        let mut cancelled = Vec::new();
-        {
-            let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
-            for job in fallbacks {
-                // `add_tx` consumes the job on error; keep the raw parts
-                // for the terminal trace.
-                let tx = job.tx.clone();
-                let source = job.source;
-                let epoch = job.epoch;
-                if !self.is_pipeline_epoch_current(epoch) {
-                    cancelled.push((tx, source));
-                } else if let Err(reject) = ordered.add_tx(job) {
-                    terminal.push((tx, source, reject, epoch));
-                }
-            }
-        }
-        for (tx, source) in cancelled {
-            self.terminal_internal(tx, source).await;
-        }
-        // Box::pin is required because after_process → orphan →
-        // classify → register_rbf_candidate can lead back here, making
-        // the recursion indirect (same pattern as process_orphan_tx).
-        for (tx, source, reject, epoch) in terminal {
-            Box::pin(self.after_process_at(tx, source, &Err(reject), epoch)).await;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::component::verify_queue::VerifyQueue;
-    use ckb_types::core::TransactionBuilder;
-    use std::time::Duration;
-    use tokio::sync::RwLock;
-
-    /// A recovered transaction must not be dropped when the ordered resolve
-    /// queue is momentarily full: the worker retries (releasing the queue
-    /// lock between attempts) until the resolver drains room for it.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn recover_txs_retries_until_ordered_queue_has_room() {
-        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-            ordered_resolve_queue: RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            ),
-            verify_queue: RwLock::new(VerifyQueue::new(
-                70_000_000,
-                ckb_app_config::VerifyOrdering::ArrivalTime,
-                usize::MAX,
-            )),
-            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
-                CancellationToken::new(),
-            ),
-            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-        });
-
-        // Fill the ordered queue to the brim so the first enqueue attempts
-        // fail with `Reject::Full`.
-        {
-            let mut queue = queues.ordered_resolve_queue.write().await;
-            queue.set_total_tx_size_for_test(crate::constants::MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE);
-        }
-
-        let tx = TransactionBuilder::default().build();
-        let id = tx.proposal_short_id();
-        let cancel = CancellationToken::new();
-        let epoch = crate::service::PipelineEpoch::default();
-        let (tx_relay_sender, _relay_rx) = ckb_channel::bounded(16);
-        let (block_assembler_sender, _ba_rx) = tokio::sync::mpsc::channel(1);
-        let relay = crate::service::RelayState {
-            network: Arc::new(crate::network::DummyTxPoolNetwork),
-            tx_relay_sender,
-            block_assembler_sender,
-            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
-            callbacks: Arc::new(crate::callback::Callbacks::new()),
-            banned_peers: Default::default(),
-        };
-
-        // Free room after 120ms, the way the resolver would by draining a job.
-        {
-            let queues = Arc::clone(&queues);
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(120)).await;
-                let mut queue = queues.ordered_resolve_queue.write().await;
-                queue.set_total_tx_size_for_test(0);
-            });
-        }
-
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            enqueue_recover_txs(
-                Arc::clone(&queues),
-                vec![crate::resolved_tx::ResolveJob::new_at(
-                    tx,
-                    TxSource::Local,
-                    0,
-                )],
-                &cancel,
-                &relay,
-                &epoch,
-            ),
-        )
-        .await
-        .expect("recover worker must finish once room is freed");
-        let queue = queues.ordered_resolve_queue.read().await;
-        assert!(
-            queue.contains_key(&id),
-            "recovered tx must eventually be enqueued, not dropped"
-        );
-    }
-
-    #[tokio::test]
-    async fn stale_deferred_recovery_cannot_resurrect_after_clear() {
-        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-            ordered_resolve_queue: RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            ),
-            verify_queue: RwLock::new(VerifyQueue::new(
-                70_000_000,
-                ckb_app_config::VerifyOrdering::ArrivalTime,
-                usize::MAX,
-            )),
-            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
-                CancellationToken::new(),
-            ),
-            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-        });
-        let (tx_relay_sender, _relay_rx) = ckb_channel::bounded(4);
-        let (block_assembler_sender, _ba_rx) = tokio::sync::mpsc::channel(1);
-        let relay = crate::service::RelayState {
-            network: Arc::new(crate::network::DummyTxPoolNetwork),
-            tx_relay_sender,
-            block_assembler_sender,
-            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
-            callbacks: Arc::new(crate::callback::Callbacks::new()),
-            banned_peers: Default::default(),
-        };
-        let epoch = crate::service::PipelineEpoch::default();
-        let tx = TransactionBuilder::default().build();
-        let id = tx.proposal_short_id();
-        let stale = crate::resolved_tx::ResolveJob::new_at(tx, TxSource::Local, 0);
-        assert_eq!(epoch.advance(), Some(1));
-
-        enqueue_recover_txs(
-            Arc::clone(&queues),
-            vec![stale],
-            &CancellationToken::new(),
-            &relay,
-            &epoch,
-        )
-        .await;
-
-        assert!(!queues.ordered_resolve_queue.read().await.contains_key(&id));
-    }
+    enqueue_effects(relay, effects).await;
 }

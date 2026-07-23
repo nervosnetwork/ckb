@@ -1,7 +1,7 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
+use crate::component::conflict_cache::ConflictCache;
 use crate::component::pool_map::{PoolEntry, PoolMap, RemovedPoolEntry, Status};
-use crate::component::waiting_room::{WaitReason, WaitingRoom};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
@@ -51,14 +51,10 @@ pub struct TxPool {
     pub(crate) snapshot: Arc<Snapshot>,
     // expiration milliseconds,
     pub(crate) expiry: u64,
-    /// The pool-side waiting room: transactions parked as `InputsBlocked`
-    /// (conflict recovery) inside the tx-pool lock domain. The pipeline-side
-    /// instance lives in `PipelineState` and holds `ParentsMissing` /
-    /// `RaceLost` entries; the split follows the lock hierarchy, which
-    /// forbids taking the pipeline room's lock inside the tx_pool write
-    /// lock. The two instances share the `WaitingRoom` type and the
-    /// `WaitReason` vocabulary.
-    pub(crate) waiting_room: WaitingRoom,
+    /// Historical, non-executable cache of verified transactions blocked by
+    /// currently accepted pool inputs. Re-entry always goes through the
+    /// coordinator.
+    pub(crate) conflict_cache: ConflictCache,
     /// Whether the post-startup reconcile (`remove_onchain_entries`) has run.
     /// It exists for exactly one window — reorg notifications skipped during
     /// the startup reload — so it runs once on the first reorg and is then
@@ -81,7 +77,7 @@ impl TxPool {
             config,
             snapshot,
             expiry,
-            waiting_room: WaitingRoom::new(),
+            conflict_cache: ConflictCache::new(),
             onchain_reconcile_done: false,
             #[cfg(test)]
             fail_next_status_transition: false,
@@ -156,16 +152,13 @@ impl TxPool {
 
     pub(crate) fn record_conflict(&mut self, tx: TransactionView, source: TxSource) {
         let short_id = tx.proposal_short_id();
-        let inputs: HashSet<OutPoint> = tx.input_pts_iter().collect();
-        let (_added, evicted) =
-            self.waiting_room
-                .wait(tx, source, WaitReason::InputsBlocked { inputs });
+        let (_added, evicted) = self.conflict_cache.insert(tx, source);
         if !evicted.is_empty() {
             // Budget-pressure evictions are otherwise silent: a recoverable
             // transaction disappearing without a trace makes recovery
             // accounting impossible to debug.
             warn!(
-                "conflict waiting room evicted {} entries under budget pressure while recording {}",
+                "conflict cache evicted {} entries under budget pressure while recording {}",
                 evicted.len(),
                 short_id
             );
@@ -173,16 +166,26 @@ impl TxPool {
         debug!(
             "record_conflict {:?} now room size: {}",
             short_id,
-            self.waiting_room.len()
+            self.conflict_cache.len()
         );
     }
 
     pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) -> bool {
-        let removed = self.waiting_room.remove(short_id).is_some();
+        let removed = self.conflict_cache.remove(short_id).is_some();
         debug!(
             "remove_conflict {:?} now room size: {}",
             short_id,
-            self.waiting_room.len()
+            self.conflict_cache.len()
+        );
+        removed
+    }
+
+    pub(crate) fn remove_conflict_hash(&mut self, hash: &Byte32) -> bool {
+        let removed = self.conflict_cache.remove_hash(hash);
+        debug!(
+            "remove_conflict_hash {:?} now room size: {}",
+            hash,
+            self.conflict_cache.len()
         );
         removed
     }
@@ -196,7 +199,7 @@ impl TxPool {
         &self,
         inputs: impl Iterator<Item = OutPoint>,
     ) -> Vec<(TransactionView, TxSource)> {
-        self.waiting_room.recoverable_by_inputs(inputs, |tx| {
+        self.conflict_cache.recoverable_by_inputs(inputs, |tx| {
             self.pool_map.find_conflict_outpoint(tx).is_none()
         })
     }
@@ -257,7 +260,11 @@ impl TxPool {
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
         let short_id = tx.proposal_short_id();
-        if let Some(_entry) = self.pool_map.remove_entry(&short_id) {
+        let exact_resident = self
+            .pool_map
+            .get_by_id(&short_id)
+            .is_some_and(|entry| entry.inner.transaction().hash() == tx.hash());
+        if exact_resident && self.pool_map.remove_entry(&short_id).is_some() {
             debug!("remove_committed_tx for {}", tx.hash());
         }
         {
@@ -351,7 +358,9 @@ impl TxPool {
                     let parent_in_pool = self
                         .pool_map
                         .get_by_id(&ProposalShortId::from_tx_hash(&out_point.tx_hash()))
-                        .is_some();
+                        .is_some_and(|parent| {
+                            parent.inner.transaction().hash() == out_point.tx_hash()
+                        });
                     !parent_in_pool && self.snapshot.get_cell(out_point).is_none()
                 });
                 input_dead
@@ -365,7 +374,9 @@ impl TxPool {
                         let producer_in_pool = self
                             .pool_map
                             .get_by_id(&ProposalShortId::from_tx_hash(&dep.tx_hash()))
-                            .is_some();
+                            .is_some_and(|producer| {
+                                producer.inner.transaction().hash() == dep.tx_hash()
+                            });
                         !producer_in_pool && self.snapshot.get_cell(dep).is_none()
                     })
             })
@@ -644,8 +655,8 @@ impl TxPool {
             .collect();
 
         let conflicted = self
-            .waiting_room
-            .inputs_blocked_entries()
+            .conflict_cache
+            .entries()
             .map(|entry| entry.tx.hash())
             .collect();
         TxPoolEntryInfo {
@@ -667,7 +678,7 @@ impl TxPool {
         self.pool_map.clear();
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
-        self.waiting_room.clear();
+        self.conflict_cache.clear();
     }
 
     pub(crate) fn package_proposals(&self, proposals_limit: u64) -> Vec<ProposalShortId> {

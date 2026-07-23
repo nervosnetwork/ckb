@@ -6,18 +6,16 @@
 //! The service builder (`service::builder`) keeps only assembly, startup
 //! and shutdown orchestration; worker lifecycle lives in this module.
 
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::service::{ChainReorgArgs, DeferredTask, Notify, TxPoolService};
 use crate::verify_mgr::VerifyMgr;
 use ckb_async_runtime::Handle;
 use ckb_logger::{error, info};
 use ckb_script::ChunkCommand;
-use ckb_verification::cache::TxVerificationCache;
 use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::util::panic_payload_to_string;
@@ -123,59 +121,24 @@ async fn run_retained_receiver<T, F, Fut>(
     }
 }
 
-/// The pre-check worker body: pop → classify → finish, with a per-job
-/// panic guard. Shared by the production worker pool and the test/bench
-/// harnesses so the `finish` contract (and the per-job panic semantics)
-/// lives in exactly one place.
+/// The pre-check worker body. Ownership moves queued → active → resolved,
+/// waiting, or terminal entirely inside the coordinator; there is no trailing
+/// `finish` call that a stale worker could apply to a newer incarnation.
 pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
-    while let Some(job) = service.pipeline.queues.pre_check_queue.pop().await {
-        let id = job.tx.proposal_short_id();
-        let epoch = job.epoch;
-        if !service.is_pipeline_epoch_current(epoch) {
-            service.terminal_internal(job.tx, job.source).await;
-            service.pipeline.queues.pre_check_queue.finish(&id, epoch);
-            continue;
-        }
-        if service.is_recently_banned(job.source) {
-            // The peer was banned after this job was popped: its in-flight
-            // jobs must not keep flowing into the pool.
-            service.terminal_internal(job.tx, job.source).await;
-            service.pipeline.queues.pre_check_queue.finish(&id, epoch);
-            continue;
-        }
-        let tx = job.tx.clone();
-        let source = job.source;
-        // Guard each job individually: one bad job must neither kill the
-        // worker nor strand this job's active marker. The outer respawn
-        // (production) stays as the backstop for panics outside the loop.
-        let outcome = crate::worker::catch_job_panic(async {
-            if let Err(reject) = service.classify_and_enqueue_tx(job.tx, job.source).await {
-                // Non-`Full` rejects were already routed terminally inside
-                // classify. `Full` is transient backpressure and
-                // deliberately skips after_process there (nothing is
-                // recorded); still close the loop with the relayer so the
-                // peer's filter entry does not wait forever.
-                if matches!(reject, crate::error::Reject::Full(_)) && source.peer().is_some() {
-                    service.send_result_to_relayer(crate::service::TxVerificationResult::Reject {
-                        tx_hash: tx.hash(),
-                    });
-                }
+    loop {
+        match service
+            .pipeline
+            .runtime
+            .wait_raw(crate::component::pipeline_coordinator::RawStage::PreCheck)
+            .await
+        {
+            Ok(Some(lease)) => service.process_pipeline_raw_lease(lease).await,
+            Ok(None) => break,
+            Err(error) => {
+                error!("tx-pool pre-check checkout failed: {:?}", error);
+                tokio::task::yield_now().await;
             }
-        })
-        .await;
-        if let Err(message) = outcome {
-            error!(
-                "tx-pool pre-check worker panicked on job {}: {}",
-                id, message
-            );
-            // Close the loop with the relayer: nothing is recorded (this
-            // was an internal failure, not the transaction's fault), but
-            // the peer's filter entry must not wait forever.
-            service.terminal_internal(tx, source).await;
         }
-        // Terminal state reached (forwarded, re-enqueued elsewhere,
-        // rejected, or panicked): clear the active marker set at pop time.
-        service.pipeline.queues.pre_check_queue.finish(&id, epoch);
     }
 }
 
@@ -225,6 +188,103 @@ pub(crate) fn spawn_pre_check_workers(
         handles.push(handle);
     }
     handles
+}
+
+/// Drain coordinator cascades, conflict rechecks and remote expiry in bounded
+/// slices. The notification is level-triggered for graph work; a coarse timer
+/// is retained only for wall-clock expiry. No slice can grow with the full
+/// attacker-controlled graph while holding the coordinator mutex.
+pub(crate) fn spawn_pipeline_maintenance_worker(
+    handle: &Handle,
+    service: TxPoolService,
+    cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    const SLICE: usize = 32;
+    const EXPIRY_TICK: Duration = Duration::from_secs(1);
+
+    handle.spawn(async move {
+        let ready = service.pipeline.runtime.subscribe_maintenance();
+        let mut expiry = tokio::time::interval(EXPIRY_TICK);
+        expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = ready.notified() => {}
+                _ = expiry.tick() => {}
+                _ = cancel.cancelled() => break,
+            }
+
+            loop {
+                let now = ckb_systemtime::unix_time().as_secs();
+                let expiry_permit = match service
+                    .reserve_effects(TxPoolService::pipeline_terminal_effect_bytes(SLICE))
+                    .await
+                {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        error!("tx-pool expiry effect reservation failed: {:?}", error);
+                        break;
+                    }
+                };
+                let expired = match service.pipeline.runtime.mutate(|coordinator| {
+                    let result = coordinator.expire_due(now, SLICE);
+                    if let Ok(records) = &result {
+                        service.journal_pipeline_terminal_records(expiry_permit, records);
+                    }
+                    result
+                }) {
+                    Ok(records) => records,
+                    Err(error) => {
+                        error!("tx-pool pipeline expiry failed: {:?}", error);
+                        break;
+                    }
+                };
+                let dependency_permit = match service
+                    .reserve_effects(TxPoolService::pipeline_terminal_effect_bytes(SLICE))
+                    .await
+                {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        error!("tx-pool dependency effect reservation failed: {:?}", error);
+                        break;
+                    }
+                };
+                let failed = match service.pipeline.runtime.mutate(|coordinator| {
+                    let result = coordinator.drain_dependency_failures(SLICE);
+                    if let Ok(records) = &result {
+                        service.journal_pipeline_terminal_records(dependency_permit, records);
+                    }
+                    result
+                }) {
+                    Ok(records) => records,
+                    Err(error) => {
+                        error!("tx-pool dependency maintenance failed: {:?}", error);
+                        break;
+                    }
+                };
+                let rechecked = match service
+                    .pipeline
+                    .runtime
+                    .mutate(|coordinator| coordinator.drain_conflict_rechecks(SLICE))
+                {
+                    Ok(records) => records.len(),
+                    Err(error) => {
+                        error!("tx-pool conflict maintenance failed: {:?}", error);
+                        break;
+                    }
+                };
+                let saturated =
+                    expired.len() == SLICE || failed.len() == SLICE || rechecked == SLICE;
+                if rechecked != 0 {
+                    service.drive_pipeline_commits().await;
+                }
+                if !saturated && !service.pipeline.runtime.maintenance_pending() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        }
+        info!("TxPool pipeline maintenance worker exited");
+    })
 }
 
 /// Spawn the verification manager monitor with panic-respawn protection,
@@ -377,17 +437,16 @@ pub(crate) fn spawn_reorg_handler(
 /// Spawn the deferred task worker with panic-respawn protection.
 ///
 /// Recovery tx re-enqueue and verify cache updates run sequentially in a
-/// single background task. The worker only needs the ordered resolve queue
-/// and the verify cache; it must NOT keep a clone of `TxPoolService`
-/// (which holds `deferred_sender`), because the receiver task itself
-/// holding a sender would keep the channel open forever.
+/// single background task. The worker retains the authoritative runtime and
+/// effect endpoints, but not `TxPoolService` (which owns the channel sender).
 pub(crate) fn spawn_deferred_worker(
     handle: &Handle,
-    queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
-    txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
+    runtime: Arc<crate::component::pipeline_runtime::PipelineRuntime>,
+    txs_verify_cache: Arc<tokio::sync::RwLock<ckb_verification::cache::TxVerificationCache>>,
     deferred_receiver: mpsc::Receiver<DeferredTask>,
     cancel: CancellationToken,
     relay: crate::service::RelayState,
+    recent_reject: Option<Arc<crate::component::recent_reject::RecentReject>>,
     epoch: Arc<crate::service::PipelineEpoch>,
 ) -> tokio::task::JoinHandle<()> {
     handle.spawn(async move {
@@ -399,17 +458,21 @@ pub(crate) fn spawn_deferred_worker(
                 Some(task) = deferred_rx.recv() => task,
                 _ = cancel.cancelled() => {
                     info!("deferred task worker received exit signal, draining remaining tasks");
-                    // Best-effort drain: recovered txs lose their only
-                    // handle when the channel is dropped, so enqueue each
-                    // with a single attempt (no retries) before exiting.
+                    // Best-effort drain: recovered txs lose their only handle
+                    // when the channel is dropped, so coordinator-admit each
+                    // with a single non-blocking attempt before exiting.
                     while let Ok(task) = deferred_rx.try_recv() {
                         if let DeferredTask::RecoverTxs(txs) = task {
-                            let mut queue = queues.ordered_resolve_queue.write().await;
-                            for job in txs {
-                                if epoch.is_current(job.epoch) {
-                                    let _ = queue.add_tx(job);
-                                }
-                            }
+                            crate::process::recover::enqueue_pipeline_recover_txs(
+                                Arc::clone(&runtime),
+                                txs,
+                                &cancel,
+                                &relay,
+                                recent_reject.as_ref(),
+                                &epoch,
+                                false,
+                            )
+                            .await;
                         }
                     }
                     break;
@@ -435,8 +498,8 @@ pub(crate) fn spawn_deferred_worker(
                 }
                 other => other,
             };
-            let queues = Arc::clone(&queues);
-            let queues_retry = Arc::clone(&queues);
+            let runtime_handler = Arc::clone(&runtime);
+            let runtime_retry = Arc::clone(&runtime);
             let txs_verify_cache = Arc::clone(&txs_verify_cache);
             let recover_txs_for_retry = match &task {
                 DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
@@ -444,16 +507,19 @@ pub(crate) fn spawn_deferred_worker(
             };
             let cancel_handler = cancel.clone();
             let relay_handler = relay.clone();
+            let recent_reject_handler = recent_reject.clone();
             let epoch_handler = Arc::clone(&epoch);
             let handler = async move {
                 match task {
                     DeferredTask::RecoverTxs(txs) => {
-                        crate::process::recover::enqueue_recover_txs(
-                            queues,
+                        crate::process::recover::enqueue_pipeline_recover_txs(
+                            runtime_handler,
                             txs,
                             &cancel_handler,
                             &relay_handler,
+                            recent_reject_handler.as_ref(),
                             &epoch_handler,
+                            true,
                         )
                         .await;
                     }
@@ -476,12 +542,14 @@ pub(crate) fn spawn_deferred_worker(
                     // later recovery task.
                     if let Some(txs) = recover_txs_for_retry {
                         let retry = crate::worker::catch_job_panic(
-                            crate::process::recover::enqueue_recover_txs(
-                                queues_retry,
+                            crate::process::recover::enqueue_pipeline_recover_txs(
+                                runtime_retry,
                                 txs,
                                 &cancel,
                                 &relay,
+                                recent_reject.as_ref(),
                                 &epoch,
+                                true,
                             ),
                         )
                         .await;
@@ -656,25 +724,17 @@ mod tests {
     /// handle when the channel is dropped, so they must be enqueued.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancel_drains_deferred_recover_txs() {
-        use crate::component::pipeline_queue::PipelineQueue;
         use crate::service::DeferredTask;
         use ckb_types::core::TransactionBuilder;
 
-        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-            ordered_resolve_queue: RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            ),
-            verify_queue: RwLock::new(crate::component::verify_queue::VerifyQueue::new(
-                70_000_000,
-                ckb_app_config::VerifyOrdering::ArrivalTime,
-                usize::MAX,
-            )),
-            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
-                CancellationToken::new(),
-            ),
-            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-        });
-        let txs_verify_cache = Arc::new(RwLock::new(ckb_verification::cache::init_cache()));
+        let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+            &ckb_app_config::TxPoolConfig::default(),
+            &ckb_chain_spec::consensus::ConsensusBuilder::default().build(),
+            CancellationToken::new(),
+        ));
+        let txs_verify_cache = Arc::new(tokio::sync::RwLock::new(
+            ckb_verification::cache::init_cache(),
+        ));
         let (deferred_tx, deferred_rx) = mpsc::channel(16);
         let cancel = CancellationToken::new();
         let epoch = Arc::new(crate::service::PipelineEpoch::default());
@@ -686,6 +746,7 @@ mod tests {
             block_assembler_sender,
             block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(crate::callback::Callbacks::new()),
+            effects: Arc::new(crate::service::effects::EffectQueue::new(16, 1_000_000).unwrap()),
             banned_peers: Default::default(),
         };
 
@@ -711,11 +772,12 @@ mod tests {
         let ckb_handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
         let handle = spawn_deferred_worker(
             &ckb_handle,
-            Arc::clone(&queues),
+            Arc::clone(&runtime),
             txs_verify_cache,
             deferred_rx,
             cancel.clone(),
             relay,
+            None,
             epoch,
         );
         // Give the worker a moment to start and block on recv.
@@ -727,11 +789,13 @@ mod tests {
             .expect("deferred worker must exit after cancel")
             .expect("task joins");
 
-        // The RecoverTxs must have been drained into the ordered queue.
-        let queue = queues.ordered_resolve_queue.read().await;
+        // The RecoverTxs must have been drained into the coordinator.
         assert!(
-            queue.contains_key(&id1) || queue.contains_key(&id2),
-            "at least one recovered tx must be drained into the ordered queue on cancel"
+            runtime.read(|coordinator| {
+                coordinator.hash_by_short_id(&id1).is_some()
+                    || coordinator.hash_by_short_id(&id2).is_some()
+            }),
+            "at least one recovered tx must be coordinator-owned on cancel"
         );
     }
 }

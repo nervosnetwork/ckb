@@ -1,10 +1,9 @@
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::constants::MALFORMED_TX_BAN_SECONDS;
 use crate::error::Reject;
+use crate::service::effects::TxPoolEffect;
 use crate::service::{TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
-use crate::util::is_missing_input;
-use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
+use ckb_logger::{Level::Trace, debug, error, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::{Cycle, TransactionView};
@@ -51,60 +50,16 @@ impl TxPoolService {
             );
         }
 
-        // A held candidate (parked as `RaceLost`) surfaced here as
-        // `RBFRejected` — e.g. the RPC/direct path flattening
-        // `Superseded` — is not terminally rejected: its fate follows the
-        // winner's, so nothing terminal may happen to it (no conflict
-        // park, no relay, no recent_reject record). Losers woken by a
-        // committed winner (`finalize_rbf_candidate`) are no longer held
-        // by the time they get here and proceed to the real terminal
-        // handling below.
-        if matches!(ret, Err(Reject::RBFRejected(_))) {
-            let held = {
-                let room = self.pipeline.waiting_room.read().await;
-                room.contains_key(&tx.proposal_short_id())
-            };
-            if held {
-                return;
-            }
-        }
-
         if matches!(
             ret,
             Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
         ) {
-            // A tx already held in the pipeline (e.g. a superseded candidate
-            // parked as `RaceLost`) must not be double-parked into the
-            // pool-side waiting room: its fate is decided by the winner's
-            // lifecycle, and a second parked copy would race the
-            // hold-and-restore machinery.
-            let already_held = {
-                let room = self.pipeline.waiting_room.read().await;
-                room.contains_key(&tx.proposal_short_id())
-            };
-            if !already_held {
-                let mut tx_pool = self.pool.tx_pool.write().await;
-                if self.is_pipeline_epoch_current(epoch)
-                    && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
-                {
-                    tx_pool.record_conflict(tx.clone(), source);
-                }
+            let mut tx_pool = self.pool.tx_pool.write().await;
+            if self.is_pipeline_epoch_current(epoch)
+                && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
+            {
+                tx_pool.record_conflict(tx.clone(), source);
             }
-        }
-
-        // Proposal txs (compact-block proposals arriving out of order) are
-        // routed to the orphan pool just like remote ones: their parents
-        // are usually in-flight relay traffic. Local (RPC) submissions with
-        // missing inputs are *not* parked — they are recorded as rejected
-        // (upstream RPC semantics: the caller resubmits when ready).
-        if matches!(source, TxSource::Proposal)
-            && let Err(reject) = ret
-            && is_missing_input(reject)
-        {
-            let parents = tx.unique_parents();
-            self.handle_missing_input_orphan_at(tx, source, parents, epoch)
-                .await;
-            return;
         }
 
         match source {
@@ -136,28 +91,6 @@ impl TxPoolService {
         self.after_process(tx, source, &Err(reject)).await;
     }
 
-    /// Terminally reject a transaction whose bounded retries are exhausted.
-    /// Unlike `after_process`, this bypasses the missing-input orphan
-    /// parking — the whole point of the bounded retry is to give up.
-    /// Recording and relaying behave like any other rejection.
-    pub(crate) async fn terminal_reject(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-        reject: Reject,
-    ) {
-        match source {
-            TxSource::Remote { peer, .. } => {
-                self.handle_remote_reject(&tx.hash(), &reject, peer).await;
-            }
-            _ => {
-                if reject.should_recorded() {
-                    self.put_recent_reject(&tx.hash(), &reject);
-                }
-            }
-        }
-    }
-
     /// Terminal routing for a transaction whose processing failed
     /// *internally* — a panic caught by the per-job guard, or a bounded
     /// recovery that gave up. The transaction itself is not at fault, so
@@ -167,7 +100,8 @@ impl TxPoolService {
     pub(crate) async fn terminal_internal(&self, tx: TransactionView, source: TxSource) {
         debug!("terminal internal drop of {} from {:?}", tx.hash(), source);
         if source.peer().is_some() {
-            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash: tx.hash() });
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash: tx.hash() })
+                .await;
         }
     }
 
@@ -195,7 +129,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         peer: PeerIndex,
-        cycles: Cycle,
+        _cycles: Cycle,
         ret: &Result<Completed, Reject>,
         epoch: u64,
     ) {
@@ -213,16 +147,7 @@ impl TxPoolService {
                     "after_process {} {} remote reject: {} ",
                     tx_hash, peer, reject
                 );
-                if is_missing_input(reject) {
-                    let parents = tx.unique_parents();
-                    // Orphan storage still uses TxSource, so reconstruct the
-                    // remote variant only for the missing-input path.
-                    let source = TxSource::Remote { cycles, peer };
-                    self.handle_missing_input_orphan_at(tx, source, parents, epoch)
-                        .await;
-                } else {
-                    self.handle_remote_reject(&tx_hash, reject, peer).await;
-                }
+                self.handle_remote_reject(&tx_hash, reject, peer).await;
             }
         }
     }
@@ -247,7 +172,7 @@ impl TxPoolService {
             Err(reject) => {
                 debug!("after_process {} reject: {} ", tx_hash, reject);
                 if reject.should_recorded() {
-                    self.put_recent_reject(&tx_hash, reject);
+                    self.record_recent_reject(&tx_hash, reject);
                 }
             }
         }
@@ -274,8 +199,8 @@ impl TxPoolService {
         self.send_result_to_relayer(TxVerificationResult::Ok {
             original_peer,
             tx_hash: tx.hash(),
-        });
-        Box::pin(self.process_orphan_tx_at(tx, epoch)).await;
+        })
+        .await;
     }
     /// Post-processing for a rejected remote transaction: ban the peer if the
     /// tx is malformed, relay the rejection if allowed, and record it in the
@@ -289,97 +214,174 @@ impl TxPoolService {
         reject: &Reject,
         peer: PeerIndex,
     ) {
-        if reject.is_malformed_tx() {
-            self.ban_malformed(peer, format!("reject {reject}")).await;
-        }
         // A duplicate is not relayed as a rejection: the tx is (or will be)
         // in the pool, and a "Reject" would mark a valid transaction as
         // rejected in the relayer's peer filter. Local duplicates already
         // get the Ok re-broadcast treatment (see `after_process_local`).
-        if reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_)) {
-            self.send_result_to_relayer(TxVerificationResult::Reject {
-                tx_hash: tx_hash.clone(),
+        let ban_reason = reject.is_malformed_tx().then(|| format!("reject {reject}"));
+        let relay_reject = reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_));
+        let effect_bytes = ban_reason
+            .as_ref()
+            .map(|reason| {
+                crate::service::effects::EFFECT_ENVELOPE_BYTES.saturating_add(reason.len())
+            })
+            .unwrap_or_default()
+            .saturating_add(
+                relay_reject
+                    .then_some(crate::service::effects::EFFECT_ENVELOPE_BYTES)
+                    .unwrap_or_default(),
+            );
+        let permit = match self.reserve_effects(effect_bytes).await {
+            Ok(permit) => permit,
+            Err(error) => {
+                error!("remote reject effect reservation failed: {:?}", error);
+                return;
+            }
+        };
+
+        let mut effects = Vec::new();
+        if let Some(reason) = ban_reason {
+            const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
+            Self::report_malformed_peer_ban(peer, &reason);
+            self.record_peer_ban(peer, DEFAULT_BAN_TIME);
+            effects.push(TxPoolEffect::BanPeer {
+                peer,
+                duration: DEFAULT_BAN_TIME,
+                reason,
             });
         }
         if reject.should_recorded() {
-            self.put_recent_reject(tx_hash, reject);
+            self.record_recent_reject(tx_hash, reject);
+        }
+        if relay_reject {
+            effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: tx_hash.clone(),
+            }));
+        }
+        if let Err(error) = self.publish_reserved_effects(permit, effects) {
+            panic!("reserved remote reject journal failed: {error:?}");
+        }
+        if reject.is_malformed_tx() {
+            self.remove_banned_peer_entries(peer).await;
         }
     }
-    pub(crate) async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
-        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
+
+    fn report_malformed_peer_ban(peer: PeerIndex, reason: &str) {
+        #[cfg(not(feature = "with_sentry"))]
+        let _ = (peer, reason);
 
         #[cfg(feature = "with_sentry")]
-        use sentry::{Level, capture_message, with_scope};
-
-        #[cfg(feature = "with_sentry")]
-        with_scope(
+        sentry::with_scope(
             |scope| scope.set_fingerprint(Some(&["ckb-tx-pool", "receive-invalid-remote-tx"])),
             || {
-                capture_message(
+                sentry::capture_message(
                     &format!(
-                        "Ban peer {} for {} seconds, reason: \
-                        {}",
-                        peer,
-                        DEFAULT_BAN_TIME.as_secs(),
-                        reason
+                        "Ban peer {} for {} seconds, reason: {}",
+                        peer, MALFORMED_TX_BAN_SECONDS, reason
                     ),
-                    Level::Info,
+                    sentry::Level::Info,
                 )
             },
         );
-        self.relay.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
-        // Record the ban so workers can drop this peer's in-flight jobs
-        // (popped from a queue before the ban) instead of letting them
-        // into the pool; queue-level removal only covers queued jobs.
+    }
+
+    pub(crate) async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
+        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
+
+        let ban_permit = match self
+            .reserve_effects(
+                crate::service::effects::EFFECT_ENVELOPE_BYTES.saturating_add(reason.len()),
+            )
+            .await
         {
-            let mut banned = self.relay.banned_peers.lock().unwrap();
-            let now = std::time::Instant::now();
-            banned.retain(|_, at| now.saturating_duration_since(*at) < DEFAULT_BAN_TIME);
-            banned.insert(peer, now);
-        }
-        self.pipeline
-            .queues
-            .ordered_resolve_queue
-            .write()
-            .await
-            .remove_txs_by_peer(&peer);
-        // Maintain the global lock order rbf_candidates -> verify_queue.
-        // Acquire rbf_candidates first, then verify_queue, and clean up RBF
-        // registrations for the removed txs while holding both locks. This
-        // matches the order used in remove_tx and prevents deadlock with
-        // register_rbf_candidate / update_tx_pool_for_reorg.
-        let held = {
-            let mut rbf = self.pipeline.queues.rbf_candidates.write().await;
-            let removed_ids = self
-                .pipeline
-                .queues
-                .verify_queue
-                .write()
-                .await
-                .remove_txs_by_peer(&peer);
-            let mut held = Vec::new();
-            let mut room = self.pipeline.waiting_room.write().await;
-            for id in &removed_ids {
-                rbf.remove(id);
-                held.extend(room.wake_by_winner(id));
+            Ok(permit) => permit,
+            Err(error) => {
+                error!("peer-ban effect reservation failed: {:?}", error);
+                return;
             }
-            held
         };
-        // Restore candidates that were held by the banned peer's
-        // registrations — unless they themselves came from the banned peer.
-        self.restore_held_rbf_candidates(
-            held.into_iter()
-                .filter(|resolved| resolved.source.peer() != Some(peer))
-                .collect(),
-        )
-        .await;
-        // Remove orphan txs from the banned peer so they are not re-processed
-        // after the ban.
-        self.pipeline
-            .waiting_room
-            .write()
-            .await
-            .remove_by_peer(peer);
-        self.pipeline.queues.pre_check_queue.remove_by_peer(&peer);
+
+        Self::report_malformed_peer_ban(peer, &reason);
+        self.record_peer_ban(peer, DEFAULT_BAN_TIME);
+        if let Err(error) = self.publish_reserved_effects(
+            ban_permit,
+            vec![TxPoolEffect::BanPeer {
+                peer,
+                duration: DEFAULT_BAN_TIME,
+                reason,
+            }],
+        ) {
+            panic!("reserved peer-ban journal failed: {error:?}");
+        }
+        self.remove_banned_peer_entries(peer).await;
+    }
+
+    /// Install the internal fail-closed ban state before external network
+    /// publication. Workers consult this map at every active boundary.
+    pub(crate) fn record_peer_ban(&self, peer: PeerIndex, duration: Duration) {
+        let mut banned = self.relay.banned_peers.lock().unwrap();
+        let now = std::time::Instant::now();
+        banned.retain(|_, at| now.saturating_duration_since(*at) < duration);
+        banned.insert(peer, now);
+    }
+
+    /// Revoke every non-committing Coordinator owner attributed to a banned
+    /// peer in bounded, journaled slices.
+    pub(crate) async fn remove_banned_peer_entries(&self, peer: PeerIndex) {
+        // Revoke coordinator ownership in bounded slices. Active raw/verify
+        // leases become stale immediately; an entry already inside the
+        // write-locked commit boundary is allowed to settle and cannot make
+        // the slice spin forever.
+        const PEER_REMOVAL_SLICE: usize = 32;
+        loop {
+            let hashes = self
+                .pipeline
+                .runtime
+                .read(|coordinator| coordinator.peer_hashes(peer, PEER_REMOVAL_SLICE));
+            if hashes.is_empty() {
+                break;
+            }
+            let terminal_permit = match self
+                .reserve_effects(Self::pipeline_terminal_effect_bytes(PEER_REMOVAL_SLICE))
+                .await
+            {
+                Ok(permit) => permit,
+                Err(error) => {
+                    error!("banned-peer removal effect reservation failed: {:?}", error);
+                    break;
+                }
+            };
+            let removed = self.pipeline.runtime.mutate(|coordinator| {
+                let mut terminal = Vec::new();
+                let mut removed = 0usize;
+                for hash in hashes {
+                    match coordinator.force_terminalize(
+                        &hash,
+                        crate::component::pipeline_coordinator::TerminalDisposition::Removed,
+                    ) {
+                        Ok(Some(record)) => {
+                            terminal.push(record);
+                            removed += 1;
+                        }
+                        Ok(None)
+                        | Err(
+                            crate::component::pipeline_coordinator::CoordinatorError::CommitInProgress(
+                                _,
+                            ),
+                        ) => {}
+                        Err(error) => error!(
+                            "failed to remove banned peer {} transaction {}: {:?}",
+                            peer, hash, error
+                        ),
+                    }
+                }
+                self.journal_pipeline_terminal_records(terminal_permit, &terminal);
+                removed
+            });
+            if removed == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
     }
 }

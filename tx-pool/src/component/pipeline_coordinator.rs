@@ -1,11 +1,8 @@
-//! Single-authority model for the target tx-pool pipeline.
+//! Single authoritative owner for the production pre-pool pipeline.
 //!
-//! This module is intentionally isolated from the production hot path while
-//! the legacy queue/wait/conflict owners are replaced. Unlike the earlier
-//! split prototypes, lifecycle state, payload phase, worker leases,
-//! dependency edges, queue tickets and residency accounting live in one
-//! authoritative store and use one incarnation/revision.
-#![allow(dead_code)]
+//! Lifecycle state, payload phase, worker leases, dependency/conflict edges,
+//! queue tickets and residency accounting share one incarnation/revision and
+//! one short-held transition lock.
 
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
@@ -34,8 +31,6 @@ pub(crate) struct PipelineCoordinator<R, U, V> {
     conflict_rechecks: VecDeque<Byte32>,
     conflict_recheck_set: HashSet<Byte32>,
     conflict_edge_count: usize,
-    pool_waiters_by_input: HashMap<OutPoint, HashSet<Byte32>>,
-    pool_input_edge_count: usize,
     queues: HashMap<QueueKind, TicketQueue>,
     deadlines: BinaryHeap<Reverse<DeadlineTicket>>,
     live_deadlines: HashMap<Byte32, DeadlineTicket>,
@@ -78,8 +73,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             conflict_rechecks: VecDeque::new(),
             conflict_recheck_set: HashSet::new(),
             conflict_edge_count: 0,
-            pool_waiters_by_input: HashMap::new(),
-            pool_input_edge_count: 0,
             queues: HashMap::from([
                 (QueueKind::PreCheck, TicketQueue::new(QueueOrdering::Fifo)),
                 (QueueKind::Resolve, TicketQueue::new(QueueOrdering::Fifo)),
@@ -120,8 +113,67 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.peer_usage.get(&peer).copied().unwrap_or_default()
     }
 
+    pub(crate) fn peer_hashes(&self, peer: PeerIndex, max: usize) -> Vec<Byte32> {
+        let mut hashes: Vec<_> = self
+            .by_peer
+            .get(&peer)
+            .into_iter()
+            .flat_map(|hashes| hashes.iter())
+            .filter(|hash| {
+                self.entries.get(*hash).is_some_and(|entry| {
+                    !matches!(entry.view().location, CoordinatorLocation::Committing)
+                })
+            })
+            .cloned()
+            .collect();
+        hashes.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        hashes.truncate(max);
+        hashes
+    }
+
     pub(crate) fn view(&self, hash: &Byte32) -> Option<CoordinatorView> {
         self.entries.get(hash).map(CoordinatorEntry::view)
+    }
+
+    pub(crate) fn contains_hash(&self, hash: &Byte32) -> bool {
+        self.entries.contains_key(hash)
+    }
+
+    pub(crate) fn raw_by_hash(&self, hash: &Byte32) -> Option<Arc<R>> {
+        self.entries
+            .get(hash)
+            .map(|entry| Arc::clone(entry.state.raw()))
+    }
+
+    pub(crate) fn raw_by_short_id(&self, short_id: &ProposalShortId) -> Option<Arc<R>> {
+        self.by_short_id
+            .get(short_id)
+            .and_then(|hash| self.raw_by_hash(hash))
+    }
+
+    pub(crate) fn unverified_by_short_id(&self, short_id: &ProposalShortId) -> Option<Arc<U>> {
+        let hash = self.by_short_id.get(short_id)?;
+        match &self.entries.get(hash)?.state {
+            EntryState::Unverified { payload, .. }
+            | EntryState::Invalidated {
+                payload: InvalidatedPayload::Unverified(payload),
+                ..
+            } => Some(Arc::clone(payload)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn verified_by_short_id(&self, short_id: &ProposalShortId) -> Option<Arc<V>> {
+        let hash = self.by_short_id.get(short_id)?;
+        match &self.entries.get(hash)?.state {
+            EntryState::PlainVerified { payload, .. }
+            | EntryState::CandidateVerified { payload, .. }
+            | EntryState::Invalidated {
+                payload: InvalidatedPayload::Verified(payload),
+                ..
+            } => Some(Arc::clone(payload)),
+            _ => None,
+        }
     }
 
     pub(crate) fn hash_by_short_id(&self, short_id: &ProposalShortId) -> Option<&Byte32> {
@@ -130,6 +182,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
     pub(crate) fn queue_len(&self, kind: QueueKind) -> usize {
         self.queues.get(&kind).map_or(0, |queue| queue.live.len())
+    }
+
+    pub(crate) fn waiting_parent_len(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| {
+                matches!(
+                    entry.view().location,
+                    CoordinatorLocation::WaitingParents { .. }
+                )
+            })
+            .count()
     }
 
     pub(crate) fn conflict_recheck_len(&self) -> usize {
@@ -209,7 +273,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let protected = self.dependency_ancestor_closure(&hash, &dependencies)?;
         let mut victims = self.dependency_capacity_victims(source, &dependencies, &protected)?;
         let base_metadata_bytes =
-            self.metadata_charge_bytes(dependencies.len(), expires_at.is_some(), 0, 0)?;
+            self.metadata_charge_bytes(dependencies.len(), expires_at.is_some(), 0)?;
         let incoming_charge_bytes = charge_bytes
             .checked_add(base_metadata_bytes)
             .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
@@ -278,7 +342,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
         let base_metadata_bytes =
-            self.metadata_charge_bytes(dependencies.len(), expires_at.is_some(), 0, 0)?;
+            self.metadata_charge_bytes(dependencies.len(), expires_at.is_some(), 0)?;
         let total_charge_bytes = charge_bytes
             .checked_add(base_metadata_bytes)
             .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
@@ -536,7 +600,157 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             stage,
             version: entry.version(),
             payload,
+            source,
         }))
+    }
+
+    /// Terminalize exactly the active raw owner represented by `lease`.
+    /// Administrative hash-only removal remains separate because it has
+    /// different stale-worker semantics.
+    pub(crate) fn terminalize_raw(
+        &mut self,
+        lease: &RawWorkLease<R>,
+        disposition: TerminalDisposition,
+    ) -> Result<TerminalRecord<R, U, V>, CoordinatorError> {
+        let expected = CoordinatorLocation::RawActive(lease.stage);
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &expected,
+            PayloadPhase::Raw,
+        )?;
+        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.mark_children_invalid(&lease.hash, &lease.hash)?;
+            let entry = coordinator.remove_present_apply(&lease.hash)?;
+            coordinator.apply_fault_checkpoint();
+            Ok(Self::terminal_record(
+                lease.hash.clone(),
+                entry,
+                disposition,
+            ))
+        })
+    }
+
+    /// Terminalize exactly one active verification lease. Source promotion
+    /// may update attribution without invalidating the work lease; the final
+    /// terminal record therefore takes its source from the authoritative
+    /// entry, not from a worker snapshot.
+    pub(crate) fn terminalize_verification(
+        &mut self,
+        lease: &VerifyWorkLease<U>,
+        disposition: TerminalDisposition,
+    ) -> Result<TerminalRecord<R, U, V>, CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::VerifyActive,
+            PayloadPhase::Unverified,
+        )?;
+        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.mark_children_invalid(&lease.hash, &lease.hash)?;
+            let entry = coordinator.remove_present_apply(&lease.hash)?;
+            coordinator.apply_fault_checkpoint();
+            Ok(Self::terminal_record(
+                lease.hash.clone(),
+                entry,
+                disposition,
+            ))
+        })
+    }
+
+    /// A chain update can make an input disappear after resolution but before
+    /// script verification completes. Preserve the transaction under the
+    /// coordinator instead of terminalizing it into a second orphan owner:
+    /// discard the stale resolved payload, recharge the raw phase, and either
+    /// wait for the exact still-missing parents or requeue resolution when a
+    /// TxPool/coordinator handoff made every reported parent available.
+    pub(crate) fn verification_retry_resolution(
+        &mut self,
+        lease: &VerifyWorkLease<U>,
+        missing: HashSet<Byte32>,
+    ) -> Result<(CoordinatorVersion, CoordinatorSource), CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::VerifyActive,
+            PayloadPhase::Unverified,
+        )?;
+        let entry = self
+            .entries
+            .get(&lease.hash)
+            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        if let Some(parent) = missing
+            .iter()
+            .find(|parent| !entry.dependencies.contains(*parent))
+        {
+            return Err(CoordinatorError::MissingParentNotDependency {
+                child: lease.hash.clone(),
+                parent: parent.clone(),
+            });
+        }
+        self.ensure_revision_capacity(&lease.hash)?;
+        let requeue = missing.is_empty();
+        let (queue_sequence, next_queue_sequence) = if requeue {
+            let source = self
+                .entries
+                .get(&lease.hash)
+                .map(|entry| entry.source)
+                .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+            self.queue_mut(QueueKind::Resolve)?
+                .reserve_live(source.is_proposal(), source.queue_owner())?;
+            let (first, next) = self.queue_sequence_range(1)?;
+            (Some(first), Some(next))
+        } else {
+            (None, None)
+        };
+        self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
+            let (source, raw_charge) = coordinator
+                .entries
+                .get(&lease.hash)
+                .map(|entry| (entry.source, entry.raw_charge_bytes))
+                .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+            coordinator.deactivate_source(source)?;
+            coordinator.apply_recharge(&lease.hash, raw_charge)?;
+            let version = {
+                let entry = coordinator
+                    .entries
+                    .get_mut(&lease.hash)
+                    .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+                let raw = Arc::clone(entry.state.raw());
+                let location = if requeue {
+                    RawLocation::Queued(RawStage::Resolve)
+                } else {
+                    RawLocation::WaitingParents { missing }
+                };
+                entry.state = EntryState::Raw { raw, location };
+                entry.resident_payload_bytes = entry.raw_resident_payload_bytes;
+                entry.metadata_bytes = entry.base_metadata_bytes;
+                entry.verify_schedule = VerifySchedule::default();
+                if let Some(queue_sequence) = queue_sequence {
+                    entry.queue_sequence = queue_sequence;
+                }
+                entry.revision += 1;
+                entry.version()
+            };
+            if let Some(next_queue_sequence) = next_queue_sequence {
+                let entry = coordinator
+                    .entries
+                    .get(&lease.hash)
+                    .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+                let ticket = entry.ticket(&lease.hash);
+                let priority = entry.source.is_proposal();
+                coordinator.queue_mut(QueueKind::Resolve)?.push_reserved(
+                    QueueKind::Resolve,
+                    ticket,
+                    priority,
+                )?;
+                coordinator.next_queue_sequence = next_queue_sequence;
+            }
+            coordinator.apply_fault_checkpoint();
+            Ok((version, source))
+        })
     }
 
     /// Replace raw work with an unverified phase bundle. `charge_bytes` is
@@ -842,43 +1056,94 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
+    fn parents_unavailable_undo_hashes(&self, parents: &HashSet<Byte32>) -> Vec<Byte32> {
+        let mut affected = HashSet::new();
+        for parent in parents {
+            for child in self.by_parent.get(parent).into_iter().flatten() {
+                let Some(entry) = self.entries.get(child) else {
+                    continue;
+                };
+                if entry.invalidated_cause().is_some()
+                    || matches!(
+                        &entry.state,
+                        EntryState::Raw {
+                            location: RawLocation::WaitingParents { missing },
+                            ..
+                        } if missing.contains(parent)
+                    )
+                {
+                    continue;
+                }
+                affected.insert(child.clone());
+            }
+        }
+        let direct: Vec<_> = affected.iter().cloned().collect();
+        for child in direct {
+            if let Some(waiters) = self.waiters_by_blocker.get(&child) {
+                affected.extend(waiters.iter().cloned());
+            }
+        }
+        affected.into_iter().collect()
+    }
+
     pub(crate) fn parent_unavailable(
         &mut self,
         parent: &Byte32,
     ) -> Result<Vec<Byte32>, CoordinatorError> {
-        let mut children: Vec<_> = self
-            .by_parent
-            .get(parent)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
-        children.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
-        let mut affected = Vec::new();
-        for child in children {
-            let Some(entry) = self.entries.get(&child) else {
-                continue;
-            };
-            // Definitive dependency failure has precedence over a later
-            // availability transition for another parent. The invalidated
-            // entry is already on the terminal maintenance path and must not
-            // be resurrected as ordinary raw waiting work.
-            if entry.invalidated_cause().is_some() {
-                continue;
+        self.parents_unavailable(&HashSet::from([parent.clone()]))
+    }
+
+    /// Atomically demote every coordinator transaction whose dependency is in
+    /// `parents`. Administrative pool removal uses this before deleting a
+    /// root and its accepted descendants, so no already-resolved consumer can
+    /// outlive any member of the removed closure. Every child is transitioned
+    /// once even when several of its parents disappear together.
+    pub(crate) fn parents_unavailable(
+        &mut self,
+        parents: &HashSet<Byte32>,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let mut ordered_parents: Vec<_> = parents.iter().cloned().collect();
+        ordered_parents.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        let mut missing_by_child: HashMap<Byte32, HashSet<Byte32>> = HashMap::new();
+        for parent in ordered_parents {
+            let mut children: Vec<_> = self
+                .by_parent
+                .get(&parent)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect();
+            children.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+            for child in children {
+                let Some(entry) = self.entries.get(&child) else {
+                    continue;
+                };
+                // Definitive dependency failure has precedence over a later
+                // availability transition for another parent.
+                if entry.invalidated_cause().is_some() {
+                    continue;
+                }
+                let already_missing = matches!(
+                    &entry.state,
+                    EntryState::Raw {
+                        location: RawLocation::WaitingParents { missing },
+                        ..
+                    } if missing.contains(&parent)
+                );
+                if !already_missing {
+                    missing_by_child
+                        .entry(child)
+                        .or_default()
+                        .insert(parent.clone());
+                }
             }
-            if matches!(
-                &entry.state,
-                EntryState::Raw {
-                    location: RawLocation::WaitingParents { missing },
-                    ..
-                } if missing.contains(parent)
-            ) {
-                continue;
-            }
-            self.ensure_revision_capacity(&child)?;
-            self.preflight_remove_conflict_indexes(&child)?;
-            self.preflight_remove_pool_input_indexes(&child)?;
-            affected.push(child);
+        }
+
+        let mut affected: Vec<_> = missing_by_child.keys().cloned().collect();
+        affected.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        for child in &affected {
+            self.ensure_revision_capacity(child)?;
+            self.preflight_remove_conflict_indexes(child)?;
         }
 
         let mut undo = affected.clone();
@@ -887,6 +1152,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 undo.extend(waiters.iter().cloned());
             }
         }
+        undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        undo.dedup();
         let result = affected.clone();
         self.with_entry_undo(&undo, |coordinator| {
             for child in &affected {
@@ -898,7 +1165,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     coordinator.deactivate_source(source)?;
                 }
                 coordinator.remove_current_queue_ticket(child)?;
-                coordinator.remove_pool_input_indexes(child)?;
                 coordinator.remove_conflict_indexes(child)?;
                 coordinator.apply_fault_checkpoint();
                 let raw_charge = coordinator
@@ -918,7 +1184,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     } => missing.clone(),
                     _ => HashSet::new(),
                 };
-                missing.insert(parent.clone());
+                missing.extend(
+                    missing_by_child
+                        .get(child)
+                        .ok_or(CoordinatorError::ConflictInvariant)?
+                        .iter()
+                        .cloned(),
+                );
                 entry.resident_payload_bytes = entry.raw_resident_payload_bytes;
                 entry.metadata_bytes = entry.base_metadata_bytes;
                 entry.verify_schedule = VerifySchedule::default();
@@ -1035,7 +1307,52 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             hash: ticket.hash,
             version: entry.version(),
             payload,
+            source,
         }))
+    }
+
+    /// Return an active verification lease to its ordered queue without
+    /// changing payload ownership. Used only when a non-transactional
+    /// service dependency (such as effect-journal shutdown) cannot accept the
+    /// terminal/phase transition yet.
+    pub(crate) fn requeue_verification(
+        &mut self,
+        lease: &VerifyWorkLease<U>,
+    ) -> Result<CoordinatorVersion, CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::VerifyActive,
+            PayloadPhase::Unverified,
+        )?;
+        self.ensure_revision_capacity(&lease.hash)?;
+        let source = self
+            .entries
+            .get(&lease.hash)
+            .map(|entry| entry.source)
+            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        let priority = source.is_proposal();
+        self.queue_mut(QueueKind::Verify)?
+            .reserve_live(priority, source.queue_owner())?;
+        let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
+        self.deactivate_source(source)?;
+        let entry = self
+            .entries
+            .get_mut(&lease.hash)
+            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        let EntryState::Unverified { location, .. } = &mut entry.state else {
+            return Err(CoordinatorError::ConflictInvariant);
+        };
+        *location = UnverifiedLocation::Queued;
+        entry.queue_sequence = queue_sequence;
+        entry.revision += 1;
+        let version = entry.version();
+        let ticket = entry.ticket(&lease.hash);
+        let front = entry.source.is_proposal();
+        self.queue_mut(QueueKind::Verify)?
+            .push_reserved(QueueKind::Verify, ticket, front)?;
+        self.next_queue_sequence = next_queue_sequence;
+        Ok(version)
     }
 
     /// Install a verified phase bundle. `charge_bytes` covers every payload
@@ -1173,7 +1490,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             entry.dependencies.len(),
             entry.expires_at.is_some(),
             candidate.inputs.len(),
-            0,
         )?;
         let total_charge_bytes = charge_bytes
             .checked_add(metadata_bytes)
@@ -1248,7 +1564,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map(|entry| (entry.dependencies.len(), entry.expires_at.is_some()))
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
         let metadata_bytes =
-            self.metadata_charge_bytes(dependencies, has_deadline, candidate.inputs.len(), 0)?;
+            self.metadata_charge_bytes(dependencies, has_deadline, candidate.inputs.len())?;
         let total_charge_bytes = charge_bytes
             .checked_add(metadata_bytes)
             .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
@@ -1453,381 +1769,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
-    /// Park a verified entry on conflicts owned by the accepted `TxPool`.
-    /// Speculative ranking metadata is retained, but active claims are
-    /// relinquished until every accepted input is reported free.
-    pub(crate) fn wait_for_pool_inputs(
-        &mut self,
-        hash: &Byte32,
-        version: CoordinatorVersion,
-        inputs: HashSet<OutPoint>,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
-        if inputs.is_empty() || inputs.len() > self.limits.max_pool_inputs_per_entry {
-            return Err(CoordinatorError::PoolInputLimitExceeded);
-        }
-        let entry = self
-            .entries
-            .get(hash)
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        if entry.incarnation != version.incarnation {
-            return Err(CoordinatorError::IncarnationMismatch {
-                expected: version.incarnation,
-                actual: entry.incarnation,
-            });
-        }
-        if entry.revision != version.revision {
-            return Err(CoordinatorError::RevisionMismatch {
-                expected: version.revision,
-                actual: entry.revision,
-            });
-        }
-        if !matches!(
-            &entry.state,
-            EntryState::PlainVerified {
-                location: PlainVerifiedLocation::Ready,
-                ..
-            } | EntryState::CandidateVerified {
-                location: CandidateLocation::Ready
-                    | CandidateLocation::WaitingConflict { .. }
-                    | CandidateLocation::Recheck { .. },
-                ..
-            }
-        ) {
-            return Err(CoordinatorError::LocationMismatch {
-                expected: CoordinatorLocation::ReadyToCommit,
-                actual: entry.location(),
-            });
-        }
-        let protected = self.dependency_ancestor_closure(hash, &entry.dependencies)?;
-        let mut victims = self.pool_input_capacity_victims(hash, &inputs, &protected)?;
-        let added_metadata = inputs
-            .len()
-            .checked_mul(self.limits.metadata_cost.pool_input_edge_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let next_metadata_bytes = entry
-            .metadata_bytes
-            .checked_add(added_metadata)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let next_charge_bytes = entry
-            .resident_payload_bytes
-            .checked_add(next_metadata_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let selected: HashSet<_> = victims.iter().cloned().collect();
-        self.check_peer_budget_after_victims(
-            Some(hash),
-            entry.source,
-            next_charge_bytes,
-            &selected,
-        )?;
-        victims.extend(self.global_capacity_victims(
-            Some(hash),
-            entry.source,
-            next_charge_bytes,
-            &selected,
-            &protected,
-        )?);
-        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
-        victims.dedup();
-        let subject = CapacitySubject::Present(hash.clone());
-        self.with_capacity_victims(subject, victims, move |coordinator| {
-            coordinator.wait_for_pool_inputs_inner(hash, version, inputs)
-        })
-    }
-
-    fn wait_for_pool_inputs_inner(
-        &mut self,
-        hash: &Byte32,
-        version: CoordinatorVersion,
-        inputs: HashSet<OutPoint>,
-    ) -> Result<CoordinatorVersion, CoordinatorError> {
-        if inputs.is_empty() || inputs.len() > self.limits.max_pool_inputs_per_entry {
-            return Err(CoordinatorError::PoolInputLimitExceeded);
-        }
-        let entry = self
-            .entries
-            .get(hash)
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        if entry.incarnation != version.incarnation {
-            return Err(CoordinatorError::IncarnationMismatch {
-                expected: version.incarnation,
-                actual: entry.incarnation,
-            });
-        }
-        if entry.revision != version.revision {
-            return Err(CoordinatorError::RevisionMismatch {
-                expected: version.revision,
-                actual: entry.revision,
-            });
-        }
-        if !matches!(
-            &entry.state,
-            EntryState::PlainVerified {
-                location: PlainVerifiedLocation::Ready,
-                ..
-            } | EntryState::CandidateVerified {
-                location: CandidateLocation::Ready
-                    | CandidateLocation::WaitingConflict { .. }
-                    | CandidateLocation::Recheck { .. },
-                ..
-            }
-        ) {
-            return Err(CoordinatorError::LocationMismatch {
-                expected: CoordinatorLocation::ReadyToCommit,
-                actual: entry.location(),
-            });
-        }
-        self.ensure_revision_capacity(hash)?;
-        let next_edges = self
-            .pool_input_edge_count
-            .checked_add(inputs.len())
-            .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-        if next_edges > self.limits.max_pool_input_edges {
-            return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
-        }
-        for input in &inputs {
-            if self
-                .pool_waiters_by_input
-                .get(input)
-                .map_or(0, HashSet::len)
-                .saturating_add(1)
-                > self.limits.max_pool_waiters_per_input
-            {
-                return Err(CoordinatorError::PoolInputWaiterLimitExceeded(
-                    input.clone(),
-                ));
-            }
-        }
-        let (resident_payload_bytes, metadata_bytes) = self
-            .entries
-            .get(hash)
-            .map(|entry| (entry.resident_payload_bytes, entry.metadata_bytes))
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        let added_metadata = inputs
-            .len()
-            .checked_mul(self.limits.metadata_cost.pool_input_edge_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let next_metadata_bytes = metadata_bytes
-            .checked_add(added_metadata)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let next_charge_bytes = resident_payload_bytes
-            .checked_add(next_metadata_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        self.check_recharge(hash, next_charge_bytes)?;
-        self.preflight_deactivate_conflict_indexes(hash)?;
-        let mut undo = vec![hash.clone()];
-        if let Some(waiters) = self.waiters_by_blocker.get(hash) {
-            undo.extend(waiters.iter().cloned());
-        }
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.apply_recharge(hash, next_charge_bytes)?;
-            coordinator.remove_current_queue_ticket(hash)?;
-            coordinator.deactivate_conflict_indexes(hash)?;
-            coordinator.apply_fault_checkpoint();
-            for input in &inputs {
-                coordinator
-                    .pool_waiters_by_input
-                    .entry(input.clone())
-                    .or_default()
-                    .insert(hash.clone());
-            }
-            coordinator.pool_input_edge_count = next_edges;
-            let entry = coordinator
-                .entries
-                .get_mut(hash)
-                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-            match &mut entry.state {
-                EntryState::PlainVerified { location, .. } => {
-                    *location = PlainVerifiedLocation::WaitingPoolInputs { inputs };
-                }
-                EntryState::CandidateVerified { location, .. } => {
-                    *location = CandidateLocation::WaitingPoolInputs { inputs };
-                }
-                _ => return Err(CoordinatorError::ConflictInvariant),
-            }
-            entry.metadata_bytes = next_metadata_bytes;
-            entry.revision += 1;
-            let version = entry.version();
-            coordinator.apply_fault_checkpoint();
-            Ok(version)
-        })
-    }
-
-    /// Consume at most `max` waiters for one accepted input. A candidate that
-    /// becomes unblocked enters the bounded conflict-recheck deque and reuses
-    /// its verified proof instead of re-verifying.
-    pub(crate) fn pool_input_freed(
-        &mut self,
-        input: &OutPoint,
-        max: usize,
-    ) -> Result<Vec<Byte32>, CoordinatorError> {
-        let mut affected: Vec<_> = self
-            .pool_waiters_by_input
-            .get(input)
-            .into_iter()
-            .flat_map(|waiters| waiters.iter().cloned())
-            .collect();
-        affected.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
-        affected.truncate(max);
-
-        let mut ready_priority = 0usize;
-        let mut ready_normal = 0usize;
-        let mut recheck_count = 0usize;
-        let mut priority_owners = Vec::new();
-        let mut normal_owners = Vec::new();
-        for hash in &affected {
-            let entry = self
-                .entries
-                .get(hash)
-                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-            let inputs = entry
-                .waiting_pool_inputs()
-                .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-            if !inputs.contains(input) {
-                return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
-            }
-            self.ensure_revision_capacity(hash)?;
-            let next_metadata_bytes = entry
-                .metadata_bytes
-                .checked_sub(self.limits.metadata_cost.pool_input_edge_bytes)
-                .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-            let next_charge_bytes = entry
-                .resident_payload_bytes
-                .checked_add(next_metadata_bytes)
-                .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-            self.check_recharge(hash, next_charge_bytes)?;
-            if inputs.len() == 1 {
-                if entry.candidate().is_some() {
-                    recheck_count = recheck_count.saturating_add(1);
-                } else if entry.source.is_proposal() {
-                    ready_priority = ready_priority.saturating_add(1);
-                    priority_owners.push(entry.source.queue_owner());
-                } else {
-                    ready_normal = ready_normal.saturating_add(1);
-                    normal_owners.push(entry.source.queue_owner());
-                }
-            }
-        }
-        let queue = self.queue_mut(QueueKind::Commit)?;
-        queue.reserve_many(true, priority_owners, ready_priority)?;
-        queue.reserve_many(false, normal_owners, ready_normal)?;
-        self.conflict_rechecks
-            .try_reserve(recheck_count)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        self.conflict_recheck_set
-            .try_reserve(recheck_count)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        let (first_recheck_sequence, next_maintenance_sequence) =
-            self.maintenance_sequence_range(recheck_count)?;
-        let ready_count = ready_priority.saturating_add(ready_normal);
-        let (first_queue_sequence, next_queue_sequence) = self.queue_sequence_range(ready_count)?;
-        if self.pool_input_edge_count < affected.len() {
-            return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
-        }
-
-        let undo = affected.clone();
-        let result = affected.clone();
-        let mut recheck_sequence = first_recheck_sequence;
-        let mut queue_sequence = first_queue_sequence;
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.next_maintenance_sequence = next_maintenance_sequence;
-            coordinator.next_queue_sequence = next_queue_sequence;
-            for hash in &affected {
-                let (next_metadata_bytes, next_charge_bytes) = coordinator
-                    .entries
-                    .get(hash)
-                    .map(|entry| {
-                        let metadata = entry
-                            .metadata_bytes
-                            .checked_sub(coordinator.limits.metadata_cost.pool_input_edge_bytes)?;
-                        Some((
-                            metadata,
-                            entry.resident_payload_bytes.checked_add(metadata)?,
-                        ))
-                    })
-                    .flatten()
-                    .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-                coordinator.apply_recharge(hash, next_charge_bytes)?;
-                let (ticket, priority, recheck) = {
-                    let entry = coordinator
-                        .entries
-                        .get_mut(hash)
-                        .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-                    let (empty, candidate) = match &mut entry.state {
-                        EntryState::PlainVerified {
-                            location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
-                            ..
-                        } => {
-                            inputs.remove(input);
-                            (inputs.is_empty(), false)
-                        }
-                        EntryState::CandidateVerified {
-                            location: CandidateLocation::WaitingPoolInputs { inputs },
-                            ..
-                        } => {
-                            inputs.remove(input);
-                            (inputs.is_empty(), true)
-                        }
-                        _ => return Err(CoordinatorError::PoolInputEdgeLimitExceeded),
-                    };
-                    entry.metadata_bytes = next_metadata_bytes;
-                    entry.revision += 1;
-                    if empty {
-                        if candidate {
-                            let EntryState::CandidateVerified { location, .. } = &mut entry.state
-                            else {
-                                return Err(CoordinatorError::ConflictInvariant);
-                            };
-                            *location = CandidateLocation::Recheck {
-                                sequence: recheck_sequence,
-                            };
-                            recheck_sequence = recheck_sequence
-                                .checked_add(1)
-                                .ok_or(CoordinatorError::MaintenanceSequenceExhausted)?;
-                            (None, false, true)
-                        } else {
-                            let EntryState::PlainVerified { location, .. } = &mut entry.state
-                            else {
-                                return Err(CoordinatorError::ConflictInvariant);
-                            };
-                            *location = PlainVerifiedLocation::Ready;
-                            entry.queue_sequence = queue_sequence;
-                            entry.verify_schedule = VerifySchedule::default();
-                            queue_sequence = queue_sequence
-                                .checked_add(1)
-                                .ok_or(CoordinatorError::QueueSequenceExhausted)?;
-                            (Some(entry.ticket(hash)), entry.source.is_proposal(), false)
-                        }
-                    } else {
-                        (None, false, false)
-                    }
-                };
-                coordinator.pool_input_edge_count -= 1;
-                if let Some(waiters) = coordinator.pool_waiters_by_input.get_mut(input) {
-                    waiters.remove(hash);
-                }
-                if recheck && coordinator.conflict_recheck_set.insert(hash.clone()) {
-                    coordinator.conflict_rechecks.push_back(hash.clone());
-                }
-                if let Some(ticket) = ticket {
-                    coordinator.queue_mut(QueueKind::Commit)?.push_reserved(
-                        QueueKind::Commit,
-                        ticket,
-                        priority,
-                    )?;
-                }
-                coordinator.apply_fault_checkpoint();
-            }
-            if coordinator
-                .pool_waiters_by_input
-                .get(input)
-                .is_some_and(HashSet::is_empty)
-            {
-                coordinator.pool_waiters_by_input.remove(input);
-            }
-            Ok(result)
-        })
-    }
-
     pub(crate) fn begin_next_commit(&mut self) -> Result<Option<CommitLease<V>>, CoordinatorError> {
         let Some(ticket) = self.peek_live_ticket(QueueKind::Commit, WorkerCapability::Any)? else {
             return Ok(None);
@@ -2012,6 +1953,35 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(version)
     }
 
+    /// Definitively fail exactly one committing owner. Unlike
+    /// [`Self::abort_commit`], this is a terminal transition: dependents are
+    /// invalidated and speculative conflict waiters are scheduled for
+    /// re-evaluation. The versioned commit lease prevents a late submit task
+    /// from removing a re-admitted transaction with the same hash.
+    pub(crate) fn fail_commit(
+        &mut self,
+        lease: &CommitLease<V>,
+        disposition: TerminalDisposition,
+    ) -> Result<TerminalRecord<R, U, V>, CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::Committing,
+            PayloadPhase::Verified,
+        )?;
+        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.mark_children_invalid(&lease.hash, &lease.hash)?;
+            let entry = coordinator.remove_present_apply(&lease.hash)?;
+            coordinator.apply_fault_checkpoint();
+            Ok(Self::terminal_record(
+                lease.hash.clone(),
+                entry,
+                disposition,
+            ))
+        })
+    }
+
     pub(crate) fn commit_handoff(
         &mut self,
         lease: &CommitLease<V>,
@@ -2097,10 +2067,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 return Err(CoordinatorError::ConflictInvariant);
             }
             self.preflight_remove_conflict_indexes(hash)?;
-            self.preflight_remove_pool_input_indexes(hash)?;
         }
         self.preflight_remove_conflict_indexes(&lease.hash)?;
-        self.preflight_remove_pool_input_indexes(&lease.hash)?;
 
         let mut rejected: Vec<_> = rejected.into_iter().collect();
         rejected.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
@@ -2154,6 +2122,188 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 rejected: terminal,
             })
         })
+    }
+
+    pub(crate) fn commit_any_handoff(
+        &mut self,
+        lease: &CommitLease<V>,
+    ) -> Result<ConflictCommitHandoff<R, U, V>, CoordinatorError> {
+        if self
+            .entries
+            .get(&lease.hash)
+            .is_some_and(|entry| entry.candidate().is_some())
+        {
+            self.commit_candidate_handoff(lease)
+        } else {
+            self.commit_handoff(lease)
+                .map(|winner| ConflictCommitHandoff {
+                    winner,
+                    rejected: Vec::new(),
+                })
+        }
+    }
+
+    fn commit_handoff_undo_hashes(
+        &self,
+        lease: &CommitLease<V>,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::Committing,
+            PayloadPhase::Verified,
+        )?;
+        let mut roots = vec![lease.hash.clone()];
+        if let Some(candidate) = self
+            .entries
+            .get(&lease.hash)
+            .and_then(CoordinatorEntry::candidate)
+        {
+            let mut rejected = HashSet::new();
+            for input in &candidate.inputs {
+                if let Some(candidates) = self.candidates_by_input.get(input) {
+                    rejected.extend(
+                        candidates
+                            .iter()
+                            .filter(|hash| *hash != &lease.hash)
+                            .cloned(),
+                    );
+                }
+            }
+            roots.extend(rejected);
+        }
+        let mut undo = self.causal_undo_hashes(&roots);
+        let direct = undo.clone();
+        for hash in direct {
+            if let Some(waiters) = self.waiters_by_blocker.get(&hash) {
+                undo.extend(waiters.iter().cloned());
+            }
+        }
+        Ok(undo)
+    }
+
+    /// Finalize a coordinator winner and demote consumers of every accepted
+    /// pool entry removed by the same commit as one undo-protected ownership
+    /// transaction. The outer snapshot is intentionally targeted to the
+    /// bounded conflict/dependency cohorts; it never clones the whole
+    /// coordinator on the commit hot path.
+    pub(crate) fn commit_any_handoff_with_unavailable_parents(
+        &mut self,
+        lease: &CommitLease<V>,
+        unavailable_parents: &HashSet<Byte32>,
+    ) -> Result<ConflictCommitHandoff<R, U, V>, CoordinatorError> {
+        let mut undo = self.commit_handoff_undo_hashes(lease)?;
+        undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
+        undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        undo.dedup();
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.parents_unavailable(unavailable_parents)?;
+            coordinator.commit_any_handoff(lease)
+        })
+    }
+
+    /// Consume a transaction that became committed through an attached block
+    /// rather than this coordinator's submit path. Chain membership is
+    /// authoritative: dependents are woken, not invalidated, and every stale
+    /// worker/commit lease becomes harmless when the entry is removed.
+    pub(crate) fn external_commit(
+        &mut self,
+        hash: &Byte32,
+    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+        let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
+        if self.entries.contains_key(hash) {
+            self.with_entry_undo(&undo, |coordinator| coordinator.external_commit_apply(hash))
+        } else {
+            undo.retain(|affected| affected != hash);
+            self.with_absent_entry_undo(hash, &undo, |coordinator| {
+                coordinator.external_commit_apply(hash)
+            })
+        }
+    }
+
+    /// Synchronous Local/reorg commit counterpart to
+    /// [`Self::commit_any_handoff_with_unavailable_parents`]. The new pool
+    /// member may not have been coordinator-resident, but consumers of every
+    /// journaled pool removal still demote in the same transition that wakes
+    /// consumers of the committed hash.
+    pub(crate) fn external_commit_with_unavailable_parents(
+        &mut self,
+        hash: &Byte32,
+        unavailable_parents: &HashSet<Byte32>,
+    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+        let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
+        undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
+        undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        undo.dedup();
+        if self.entries.contains_key(hash) {
+            self.with_entry_undo(&undo, |coordinator| {
+                coordinator.parents_unavailable(unavailable_parents)?;
+                coordinator.external_commit_apply(hash)
+            })
+        } else {
+            undo.retain(|affected| affected != hash);
+            self.with_absent_entry_undo(hash, &undo, |coordinator| {
+                coordinator.parents_unavailable(unavailable_parents)?;
+                coordinator.external_commit_apply(hash)
+            })
+        }
+    }
+
+    /// Apply a reorg's complete membership delta to the coordinator in one
+    /// targeted transaction. `committed` parents remain available and wake
+    /// consumers; `unavailable_parents` were physically removed from the
+    /// accepted pool and demote consumers. The snapshot records both present
+    /// and absent committed hashes because attached transactions need not
+    /// have entered this node's pipeline.
+    pub(crate) fn external_commits_with_unavailable_parents(
+        &mut self,
+        committed: &HashSet<Byte32>,
+        unavailable_parents: &HashSet<Byte32>,
+    ) -> Result<Vec<ExternalCommitRecord<R>>, CoordinatorError> {
+        let mut undo = self.parents_unavailable_undo_hashes(unavailable_parents);
+        for hash in committed {
+            undo.extend(self.causal_undo_hashes(std::slice::from_ref(hash)));
+        }
+        undo.extend(committed.iter().cloned());
+        undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        undo.dedup();
+        let mut ordered_committed: Vec<_> = committed.iter().cloned().collect();
+        ordered_committed.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        self.with_mixed_entry_undo(&undo, |coordinator| {
+            coordinator.parents_unavailable(unavailable_parents)?;
+            let mut records = Vec::new();
+            records
+                .try_reserve(ordered_committed.len())
+                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+            for hash in ordered_committed {
+                if let Some(record) = coordinator.external_commit_apply(&hash)? {
+                    records.push(record);
+                }
+                coordinator.apply_fault_checkpoint();
+            }
+            Ok(records)
+        })
+    }
+
+    fn external_commit_apply(
+        &mut self,
+        hash: &Byte32,
+    ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+        let ready_children = self.parent_available(hash)?;
+        if !self.entries.contains_key(hash) {
+            // The parent may have entered through the synchronous local path
+            // or an attached block without ever being coordinator resident.
+            return Ok(None);
+        }
+        let entry = self.remove_present_apply(hash)?;
+        self.apply_fault_checkpoint();
+        Ok(Some(ExternalCommitRecord {
+            hash: hash.clone(),
+            short_id: entry.short_id,
+            raw: Arc::clone(entry.state.raw()),
+            source: entry.source,
+            ready_children,
+        }))
     }
 
     pub(crate) fn force_terminalize(
@@ -2299,8 +2449,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_rechecks.clear();
         self.conflict_recheck_set.clear();
         self.conflict_edge_count = 0;
-        self.pool_waiters_by_input.clear();
-        self.pool_input_edge_count = 0;
         self.deadlines.clear();
         self.live_deadlines.clear();
         for queue in self.queues.values_mut() {
@@ -2850,134 +2998,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(victims)
     }
 
-    fn compare_pool_waiter_capacity_strength(
-        left_hash: &Byte32,
-        left: &CoordinatorEntry<R, U, V>,
-        right_hash: &Byte32,
-        right: &CoordinatorEntry<R, U, V>,
-    ) -> Ordering {
-        Self::source_capacity_strength(left.source)
-            .cmp(&Self::source_capacity_strength(right.source))
-            .then_with(|| match (left.candidate(), right.candidate()) {
-                (Some(left_candidate), Some(right_candidate)) => {
-                    Self::compare_candidates(left_hash, left_candidate, right_hash, right_candidate)
-                }
-                _ => Ordering::Equal,
-            })
-    }
-
-    fn compare_pool_waiter_victim_order(
-        left_hash: &Byte32,
-        left: &CoordinatorEntry<R, U, V>,
-        right_hash: &Byte32,
-        right: &CoordinatorEntry<R, U, V>,
-    ) -> Ordering {
-        Self::compare_pool_waiter_capacity_strength(left_hash, left, right_hash, right)
-            .then_with(|| right.queue_sequence.cmp(&left.queue_sequence))
-            .then_with(|| left_hash.as_slice().cmp(right_hash.as_slice()))
-    }
-
-    fn pool_input_capacity_victims(
-        &self,
-        incoming_hash: &Byte32,
-        inputs: &HashSet<OutPoint>,
-        protected: &HashSet<Byte32>,
-    ) -> Result<Vec<Byte32>, CoordinatorError> {
-        let incoming = self
-            .entries
-            .get(incoming_hash)
-            .ok_or_else(|| CoordinatorError::Missing(incoming_hash.clone()))?;
-        let mut inputs: Vec<_> = inputs.iter().cloned().collect();
-        inputs.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
-        let incoming_edge_count = inputs.len();
-        let mut selected = HashSet::new();
-        let mut victims = Vec::new();
-        for input in inputs {
-            let Some(waiters) = self.pool_waiters_by_input.get(&input) else {
-                continue;
-            };
-            let occupied = waiters
-                .iter()
-                .filter(|hash| !selected.contains(*hash))
-                .count();
-            if occupied < self.limits.max_pool_waiters_per_input {
-                continue;
-            }
-            let victim = waiters
-                .iter()
-                .filter(|hash| !selected.contains(*hash))
-                .filter(|hash| !protected.contains(*hash))
-                .filter_map(|hash| self.entries.get(hash).map(|entry| (hash, entry)))
-                .filter(|(hash, entry)| {
-                    !entry.is_committing()
-                        && Self::compare_pool_waiter_capacity_strength(
-                            incoming_hash,
-                            incoming,
-                            hash,
-                            entry,
-                        ) == Ordering::Greater
-                })
-                .min_by(|(left_hash, left), (right_hash, right)| {
-                    Self::compare_pool_waiter_victim_order(left_hash, left, right_hash, right)
-                })
-                .map(|(hash, _)| hash.clone())
-                .ok_or_else(|| CoordinatorError::PoolInputWaiterLimitExceeded(input.clone()))?;
-            selected.insert(victim.clone());
-            victims.push(victim);
-        }
-        let mut projected_edges = self.pool_input_edge_count;
-        for hash in &selected {
-            let edges = self
-                .entries
-                .get(hash)
-                .and_then(CoordinatorEntry::waiting_pool_inputs)
-                .map(HashSet::len)
-                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-            projected_edges = projected_edges
-                .checked_sub(edges)
-                .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-        }
-        projected_edges = projected_edges
-            .checked_add(incoming_edge_count)
-            .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-        while projected_edges > self.limits.max_pool_input_edges {
-            if selected.len() >= self.limits.max_capacity_evictions_per_transition {
-                return Err(CoordinatorError::CapacityEvictionLimitExceeded);
-            }
-            let (victim, edges) = self
-                .entries
-                .iter()
-                .filter(|(hash, _)| *hash != incoming_hash)
-                .filter(|(hash, _)| !selected.contains(*hash) && !protected.contains(*hash))
-                .filter_map(|(hash, entry)| {
-                    entry
-                        .waiting_pool_inputs()
-                        .map(|waiting| (hash, entry, waiting))
-                })
-                .filter(|(hash, entry, _)| {
-                    !entry.is_committing()
-                        && Self::compare_pool_waiter_capacity_strength(
-                            incoming_hash,
-                            incoming,
-                            hash,
-                            entry,
-                        ) == Ordering::Greater
-                })
-                .min_by(|(left_hash, left, _), (right_hash, right, _)| {
-                    Self::compare_pool_waiter_victim_order(left_hash, left, right_hash, right)
-                })
-                .map(|(hash, _, waiting)| (hash.clone(), waiting.len()))
-                .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-            selected.insert(victim.clone());
-            victims.push(victim);
-            projected_edges = projected_edges
-                .checked_sub(edges)
-                .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-        }
-        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
-        Ok(victims)
-    }
-
     fn check_activate_source(&self, source: CoordinatorSource) -> Result<(), CoordinatorError> {
         if self.active_work >= self.limits.max_active_work {
             return Err(CoordinatorError::ActiveWorkLimitExceeded);
@@ -3033,7 +3053,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         dependencies: usize,
         has_deadline: bool,
         conflict_inputs: usize,
-        pool_inputs: usize,
     ) -> Result<usize, CoordinatorError> {
         let cost = self.limits.metadata_cost;
         let mut bytes = cost
@@ -3059,13 +3078,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .ok_or(CoordinatorError::ResidencyChargeOverflow)?,
             )
             .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        bytes
-            .checked_add(
-                pool_inputs
-                    .checked_mul(cost.pool_input_edge_bytes)
-                    .ok_or(CoordinatorError::ResidencyChargeOverflow)?,
-            )
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)
+        Ok(bytes)
     }
 
     fn check_add_budget(
@@ -3169,7 +3182,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut affected = self.causal_undo_hashes(&victims);
         for victim in &victims {
             self.preflight_remove_conflict_indexes(victim)?;
-            self.preflight_remove_pool_input_indexes(victim)?;
         }
         let transaction = move |coordinator: &mut Self| {
             for victim in victims {
@@ -3252,6 +3264,34 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .cloned()
                     .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
                 snapshot.push((hash.clone(), Some(entry)));
+            }
+        }
+        self.with_entry_snapshot(snapshot, apply)
+    }
+
+    /// Snapshot the current presence/absence of an arbitrary bounded cohort.
+    /// Reorg membership deltas legitimately mix coordinator-resident and
+    /// never-admitted hashes, so neither `with_entry_undo` nor
+    /// `with_absent_entry_undo` can express the transaction alone.
+    fn with_mixed_entry_undo<T, F>(
+        &mut self,
+        hashes: &[Byte32],
+        apply: F,
+    ) -> Result<T, CoordinatorError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
+    {
+        let mut unique = HashSet::new();
+        unique
+            .try_reserve(hashes.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut snapshot = Vec::new();
+        snapshot
+            .try_reserve(hashes.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        for hash in hashes {
+            if unique.insert(hash.clone()) {
+                snapshot.push((hash.clone(), self.entries.get(hash).cloned()));
             }
         }
         self.with_entry_snapshot(snapshot, apply)
@@ -3361,7 +3401,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 return Err(CoordinatorError::ActiveWorkLimitExceeded);
             }
             self.preflight_remove_conflict_indexes(child)?;
-            self.preflight_remove_pool_input_indexes(child)?;
             self.check_recharge(child, invalidated_charge)?;
         }
         self.dependency_failures
@@ -3396,7 +3435,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     coordinator.deactivate_source(source)?;
                 }
                 coordinator.remove_current_queue_ticket(child)?;
-                coordinator.remove_pool_input_indexes(child)?;
                 coordinator.remove_conflict_indexes(child)?;
                 coordinator.apply_fault_checkpoint();
                 let invalidated_charge = coordinator
@@ -3481,9 +3519,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
         self.preflight_remove_conflict_indexes(hash)?;
-        self.preflight_remove_pool_input_indexes(hash)?;
         self.remove_current_queue_ticket(hash)?;
-        self.remove_pool_input_indexes(hash)?;
         self.remove_conflict_indexes(hash)?;
         self.apply_fault_checkpoint();
         if let Some(source) = active_source {

@@ -1,12 +1,9 @@
-mod chunk;
 mod effect_outbox;
 mod entry;
 mod estimate;
 mod gap_reorg;
 mod harness;
 mod links;
-mod ordered_retry_cap;
-mod orphan;
 mod pending;
 mod persisted;
 mod pipeline;

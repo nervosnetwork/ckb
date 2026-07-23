@@ -1,9 +1,9 @@
 //! Submission entry and verification orchestration.
 //!
 //! This module carries the pipeline's final stage entry points:
-//! `verify_and_submit_tx` / `verify_and_submit_core` (script verification
-//! and the transition into the write-locked commit), `submit_entry` (the
-//! superseded gate and the commit dispatch), `post_submit_side_effects`,
+//! `verify_and_submit_core` (script verification and the transition into the
+//! write-locked commit), `submit_entry` (the authoritative commit dispatch),
+//! `post_submit_side_effects`,
 //! and the `test_accept_tx` helpers. The write-lock commit transaction
 //! family (RBF prepare / try / commit / aftermath) lives in
 //! [`rbf_commit`].
@@ -11,7 +11,6 @@
 pub(crate) mod rbf_commit;
 
 use crate::component::entry::TxEntry;
-use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::service::TxPoolService;
 use crate::util::verify_rtx;
@@ -20,6 +19,7 @@ use ckb_script::ChunkCommand;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::{CacheEntry, Completed};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
@@ -31,10 +31,6 @@ use super::{PreCheckedTx, status_to_verify_env};
 pub(crate) enum SubmitEntryResult {
     /// The transaction was committed to the pool.
     Committed,
-    /// The transaction was superseded by a stronger in-flight RBF
-    /// registration and is now *held* by it — its fate follows the
-    /// winner's (finalize → rejected, abort → restored).
-    Superseded,
     /// Administrative clear invalidated the job before it could commit.
     Cleared,
 }
@@ -43,10 +39,6 @@ pub(crate) enum SubmitEntryResult {
 pub(crate) enum VerifySubmitOutcome {
     /// Verified and committed to the pool.
     Committed(Completed),
-    /// Verified, but superseded by a stronger in-flight RBF registration
-    /// and held by it. Not a rejection: no `after_process` side effects
-    /// (mirrors register-time displacement).
-    Superseded,
     /// Administrative clear invalidated the job. This is not a transaction
     /// rejection and must not be recorded in recent-reject.
     Cleared,
@@ -65,6 +57,7 @@ impl TxPoolService {
     ) -> Result<SubmitEntryResult, Reject> {
         let status = resolved.status;
         let epoch = resolved.epoch;
+        let original_peer = resolved.source.peer();
         let pre_resolve_tip = resolved.pre_resolve_tip.clone();
         let entry = TxEntry::new(
             Arc::clone(&resolved.rtx),
@@ -73,138 +66,184 @@ impl TxPoolService {
             resolved.tx_size,
         );
         let entry_id = entry.proposal_short_id();
+        let tx_hash = entry.transaction().hash();
 
-        // Hold the RBF read guard from the conflict computation through the
-        // submit: the conflict set and the superseded check are then read
-        // against the same registration state, and no higher-fee-rate
-        // candidate can register in between. The lock ordering here is rbf
-        // (read) -> tx_pool (write), consistent with the intended pipeline
-        // hierarchy.
-        //
-        // The gate stores size-based fee rates (see
-        // `compute_size_based_fee_rate`), so the entry must be compared in
-        // the same unit, not via `TxEntry::fee_rate` (which is
-        // weight-based).
-        let entry_fee_rate = self.compute_size_based_fee_rate(entry.fee, entry.size);
-        let rbf_guard = self.pipeline.queues.rbf_candidates.read().await;
         if !self.is_pipeline_epoch_current(epoch) {
-            drop(rbf_guard);
             return Ok(SubmitEntryResult::Cleared);
         }
-        let conflict_inputs = self.find_conflict_inputs(entry.transaction()).await;
-
-        if !conflict_inputs.is_empty() {
-            if rbf_guard.is_superseded(&entry_id, entry_fee_rate, &conflict_inputs) {
-                drop(rbf_guard);
-                // The superseding decision is speculative — the winner is
-                // still unverified. Become held by the winner's registration
-                // instead of being rejected: the winner's fate decides this
-                // candidate's fate (finalize → really rejected; abort →
-                // restored to the verify queue). This mirrors the
-                // register-time displacement hold and closes the residual
-                // censorship window for candidates that were already active
-                // (mid-verification) when a stronger candidate appeared.
-                if self
-                    .hold_superseded_candidate(resolved, conflict_inputs)
-                    .await
-                {
-                    return Ok(SubmitEntryResult::Superseded);
-                }
-                return Ok(SubmitEntryResult::Cleared);
-            }
-
+        let effect_permit = self
+            .reserve_effects(self.max_submit_effect_bytes())
+            .await
+            .map_err(|error| {
+                Reject::Internal(format!("effect outbox reservation failed: {error:?}"))
+            })?;
+        if !self.is_pipeline_epoch_current(epoch) {
+            return Ok(SubmitEntryResult::Cleared);
+        }
+        // Synchronous local/reorg submissions do not participate in a second
+        // speculative RBF owner. All remote/proposal pipeline competition is
+        // verified-only in the coordinator, while the authoritative complete
+        // replacement closure is recalculated here under the pool write lock.
+        let (outcome, publication_barrier) = {
             let mut tx_pool = self.pool.tx_pool.write().await;
             if !self.is_pipeline_epoch_current(epoch) {
-                drop(tx_pool);
-                drop(rbf_guard);
                 return Ok(SubmitEntryResult::Cleared);
             }
             let snapshot = tx_pool.cloned_snapshot();
-            let outcome = self.try_submit_entry(
+            let mut coordinated = self.try_submit_entry_coordinated(
                 &mut tx_pool,
-                Arc::clone(&snapshot),
+                snapshot,
                 pre_resolve_tip,
-                entry,
+                entry.clone(),
                 status,
                 entry_id.clone(),
             );
-            drop(tx_pool);
-            drop(rbf_guard);
 
-            self.dispatch_submit_aftermath(&entry_id, outcome, epoch)
-                .await?;
-            Ok(SubmitEntryResult::Committed)
-        } else {
-            // Separate the successful result from the collected reject events and
-            // recovered txs. Reject callbacks must be dispatched and displaced txs
-            // must be recovered even if the closure returns an error after
-            // `process_rbf` has already removed old transactions (e.g. the
-            // replacement fails the pool ancestor/size limits). Without this, a
-            // remote peer can evict in-pool txs via a crafted RBF replacement that
-            // is itself rejected, leaving the node with neither transaction.
-            let outcome = {
-                let mut tx_pool = self.pool.tx_pool.write().await;
-                if !self.is_pipeline_epoch_current(epoch) {
-                    drop(tx_pool);
-                    drop(rbf_guard);
-                    return Ok(SubmitEntryResult::Cleared);
+            // Local and reorg recovery are deliberately synchronous and do
+            // not lease work from the coordinator. Once their authoritative
+            // pool insertion succeeds, invalidate any older remote/proposal
+            // owner while the pool write guard is still held. All combined
+            // readers take TxPool -> coordinator in the same order, so they
+            // cannot observe a handoff gap or dual membership.
+            //
+            // `post_submit_side_effects` repeats this transition after the
+            // lock is released. That call is an idempotent retry for an
+            // internal coordinator failure, not the primary handoff.
+            if coordinated.outcome.result.is_ok() {
+                let removed_parents = coordinated.removed_parent_hashes();
+                let finalized = catch_unwind(AssertUnwindSafe(|| {
+                    self.pipeline.runtime.mutate(|coordinator| {
+                        coordinator
+                            .external_commit_with_unavailable_parents(&tx_hash, &removed_parents)
+                    })
+                }));
+                let finalize_error = match finalized {
+                    Ok(Ok(_record)) => None,
+                    Ok(Err(error)) => Some(Reject::Internal(format!(
+                        "synchronous coordinator handoff failed: {error:?}"
+                    ))),
+                    Err(payload) => Some(Reject::Internal(format!(
+                        "synchronous coordinator handoff panicked: {}",
+                        crate::util::panic_payload_to_string(payload.as_ref())
+                    ))),
+                };
+                if let Some(reject) = finalize_error
+                    && let Err(rollback_error) = self.rollback_coordinated_submit(
+                        &mut tx_pool,
+                        &entry,
+                        &mut coordinated,
+                        reject,
+                    )
+                {
+                    warn!(
+                        "failed to roll back synchronous pool commit {}: {}",
+                        tx_hash, rollback_error
+                    );
+                    coordinated.outcome.result = Err(rollback_error);
                 }
-                let snapshot = tx_pool.cloned_snapshot();
-                let outcome = self.try_submit_entry(
-                    &mut tx_pool,
-                    snapshot,
-                    pre_resolve_tip,
-                    entry,
-                    status,
-                    entry_id.clone(),
-                );
-                drop(tx_pool);
-                outcome
-            };
-            drop(rbf_guard);
-
-            self.dispatch_submit_aftermath(&entry_id, outcome, epoch)
-                .await?;
-            Ok(SubmitEntryResult::Committed)
-        }
+            }
+            let extra_effects = coordinated
+                .outcome
+                .result
+                .is_ok()
+                .then(|| {
+                    crate::service::effects::TxPoolEffect::Relay(
+                        crate::service::TxVerificationResult::Ok {
+                            original_peer,
+                            tx_hash: tx_hash.clone(),
+                        },
+                    )
+                })
+                .into_iter()
+                .collect();
+            for status in coordinated.block_assembler_statuses() {
+                self.journal_block_assembler_update(status);
+            }
+            let barrier =
+                self.journal_submit_effects(&mut coordinated.outcome, effect_permit, extra_effects);
+            (coordinated.outcome, barrier)
+        };
+        self.dispatch_submit_aftermath(outcome, epoch, publication_barrier)
+            .await?;
+        Ok(SubmitEntryResult::Committed)
     }
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         self.check_tx_basic_validity(&tx).await?;
         self.test_accept_tx_core(tx.clone()).await
     }
-    /// Verify and submit a transaction whose inputs have already been resolved.
-    ///
-    /// This is the second stage of the tx-pool pipeline: the resolver has
-    /// already produced a [`ResolvedTx`], and this function runs the CPU-heavy
-    /// contextual verification and the final write-locked submit.
-    pub(crate) async fn verify_and_submit_tx(
+    /// Run script verification for a coordinator-owned resolved payload
+    /// without changing lifecycle or pool membership. The caller must settle
+    /// the versioned verify lease with `complete_verification*` or a terminal
+    /// transition after this future returns.
+    pub(crate) async fn verify_pipeline_resolved(
         &self,
-        resolved: crate::resolved_tx::ResolvedTx,
+        mut resolved: crate::resolved_tx::ResolvedTx,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Result<VerifySubmitOutcome, Reject> {
-        self.verify_and_submit_core(resolved, command_rx).await
+    ) -> Result<crate::component::pipeline_runtime::PipelineVerifiedTx, Reject> {
+        let declared_cycles = resolved.source.cycles();
+        let verify_cache = match resolved.verified {
+            Some(verified) => Some(verified),
+            None => self.fetch_tx_verify_cache(&resolved.tx).await,
+        };
+        let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
+        let tip_header = resolved.snapshot.tip_header();
+        let tx_env = Arc::new(status_to_verify_env(resolved.status, tip_header));
+        let started_at = Instant::now();
+        let verified = verify_rtx(
+            Arc::clone(&resolved.snapshot),
+            Arc::clone(&resolved.rtx),
+            tx_env,
+            &verify_cache,
+            max_cycles,
+            command_rx,
+        )
+        .await?;
+
+        if let Some(declared) = declared_cycles
+            && declared != verified.cycles
+        {
+            info!(
+                "declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
+                declared,
+                verified.cycles,
+                resolved.tx.hash()
+            );
+            return Err(Reject::DeclaredWrongCycles(declared, verified.cycles));
+        }
+
+        let verify_cache_hit = verify_cache.is_some();
+        resolved.verified = Some(verified);
+        Ok(crate::component::pipeline_runtime::PipelineVerifiedTx {
+            resolved,
+            completed: verified,
+            verify_cache_hit,
+            started_at,
+        })
     }
-    /// Side effects run after a transaction has been successfully submitted to
-    /// the pool: notify the block assembler, wake the ordered resolver, enqueue
-    /// a verify cache update, and record metrics.
+    /// Non-authoritative maintenance after a transaction has been submitted:
+    /// retry the idempotent coordinator wake, enqueue a verify-cache update,
+    /// and record metrics. The block-assembler delta is already journaled
+    /// synchronously inside the pool commit transaction.
     pub(crate) async fn post_submit_side_effects(
         &self,
-        status: Status,
         verified: Completed,
-        verify_cache: Option<CacheEntry>,
+        verify_cache_hit: bool,
+        tx_hash: &Byte32,
         wtx_hash: &Byte32,
         is_sync_process: bool,
         instant: Instant,
     ) {
-        self.notify_block_assembler(status).await;
-
-        // A newly submitted transaction may resolve dependent transactions that
-        // are waiting in the ordered resolve queue (e.g. children of a parent
-        // that was just re-added after a reorg). Wake the ordered resolver so
-        // those children can be retried promptly.
-        self.wake_ordered_resolver_if_needed().await;
-
-        if verify_cache.is_none() {
+        if let Err(error) = self
+            .pipeline
+            .runtime
+            .mutate(|coordinator| coordinator.external_commit(tx_hash))
+        {
+            warn!(
+                "failed to wake coordinator children of committed {}: {:?}",
+                tx_hash, error
+            );
+        }
+        if !verify_cache_hit {
             self.defer_cache_update(wtx_hash, verified);
         }
 
@@ -256,13 +295,13 @@ impl TxPoolService {
             source,
             epoch,
             verified: carried_verified,
-            resident_permit,
         } = resolved;
         let declared_cycles = source.cycles();
         // Verification uses the snapshot captured at resolve time. If the chain
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
         // prepare_rbf_replacement re-runs check_rtx + time_relative_verify against
         // the current snapshot to catch any state-dependent invalidation.
+        let tx_hash = tx.hash();
         let wtx_hash = tx.witness_hash();
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
@@ -291,8 +330,6 @@ impl TxPoolService {
                 if !self.is_pipeline_epoch_current(epoch) {
                     return Ok(VerifySubmitOutcome::Cleared);
                 }
-                self.abort_rbf_candidate_at(&tx.proposal_short_id(), epoch)
-                    .await;
                 return Err(err);
             }
         };
@@ -309,8 +346,6 @@ impl TxPoolService {
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(VerifySubmitOutcome::Cleared);
             }
-            self.abort_rbf_candidate_at(&tx.proposal_short_id(), epoch)
-                .await;
             return Err(Reject::DeclaredWrongCycles(declared, verified.cycles));
         }
 
@@ -328,7 +363,6 @@ impl TxPoolService {
                     source,
                     epoch,
                     verified: Some(verified),
-                    resident_permit,
                 },
                 entry_cycles,
             )
@@ -337,9 +371,9 @@ impl TxPoolService {
         match submit_result {
             SubmitEntryResult::Committed => {
                 self.post_submit_side_effects(
-                    status,
                     verified,
-                    verify_cache,
+                    verify_cache.is_some(),
+                    &tx_hash,
                     &wtx_hash,
                     is_sync_process,
                     instant,
@@ -347,18 +381,276 @@ impl TxPoolService {
                 .await;
                 Ok(VerifySubmitOutcome::Committed(verified))
             }
-            // Held by the stronger in-flight registration: its fate follows
-            // the winner's. Not a rejection — no after_process side effects.
-            SubmitEntryResult::Superseded => {
-                // Keep the verified cycles in the cache: when the winner
-                // later aborts and this candidate is restored, it must not
-                // pay for a full script re-verification.
-                if verify_cache.is_none() {
-                    self.defer_cache_update(&wtx_hash, verified);
-                }
-                Ok(VerifySubmitOutcome::Superseded)
-            }
             SubmitEntryResult::Cleared => Ok(VerifySubmitOutcome::Cleared),
+        }
+    }
+
+    /// Drain a bounded ordered slice of verified coordinator work. The
+    /// serial guard is acquired before any lease is checked out, so two
+    /// verify workers cannot invert commit order while awaiting `TxPool`.
+    pub(crate) async fn drive_pipeline_commits(&self) {
+        const MAX_COMMITS_PER_DRIVE: usize = 64;
+        let _driver = self.pipeline.runtime.lock_commit_driver().await;
+        for _ in 0..MAX_COMMITS_PER_DRIVE {
+            let effect_permit = match self.reserve_effects(self.max_submit_effect_bytes()).await {
+                Ok(permit) => permit,
+                Err(error) => {
+                    warn!("pipeline commit effect reservation failed: {:?}", error);
+                    break;
+                }
+            };
+            let lease = match self
+                .pipeline
+                .runtime
+                .mutate(|coordinator| coordinator.begin_next_commit())
+            {
+                Ok(Some(lease)) => lease,
+                Ok(None) => break,
+                Err(error) => {
+                    warn!("pipeline commit checkout failed: {:?}", error);
+                    break;
+                }
+            };
+            self.commit_pipeline_lease(lease, effect_permit).await;
+        }
+    }
+
+    async fn commit_pipeline_lease(
+        &self,
+        lease: crate::component::pipeline_coordinator::CommitLease<
+            crate::component::pipeline_runtime::PipelineVerifiedTx,
+        >,
+        effect_permit: crate::service::effects::EffectPermit,
+    ) {
+        use crate::component::pipeline_coordinator::TerminalDisposition;
+
+        let verified = Arc::clone(&lease.payload);
+        let entry = TxEntry::new(
+            Arc::clone(&verified.resolved.rtx),
+            verified.completed.cycles,
+            verified.resolved.fee,
+            verified.resolved.tx_size,
+        );
+        let entry_id = entry.proposal_short_id();
+        let epoch = verified.resolved.epoch;
+
+        let mut settlement = None;
+        let mut failed_terminal = None;
+        let mut internal_failure = false;
+        let mut failed_banned_peer = None;
+        let (coordinated, publication_barrier) = {
+            let mut tx_pool = self.pool.tx_pool.write().await;
+            let snapshot = tx_pool.cloned_snapshot();
+            let mut coordinated = self.try_submit_entry_coordinated(
+                &mut tx_pool,
+                snapshot,
+                verified.resolved.pre_resolve_tip.clone(),
+                entry.clone(),
+                verified.resolved.status,
+                entry_id.clone(),
+            );
+
+            if coordinated.outcome.result.is_ok() {
+                let finalized = catch_unwind(AssertUnwindSafe(|| {
+                    self.pipeline.runtime.mutate(|coordinator| {
+                        coordinator.commit_any_handoff_with_unavailable_parents(
+                            &lease,
+                            &coordinated.removed_parent_hashes(),
+                        )
+                    })
+                }));
+                match finalized {
+                    Ok(Ok(handoff)) => settlement = Some(handoff),
+                    Ok(Err(error)) => {
+                        internal_failure = true;
+                        let reject = Reject::Internal(format!(
+                            "coordinator commit finalization failed: {error:?}"
+                        ));
+                        if let Err(rollback_error) = self.rollback_coordinated_submit(
+                            &mut tx_pool,
+                            &entry,
+                            &mut coordinated,
+                            reject,
+                        ) {
+                            warn!(
+                                "failed to roll back pool after coordinator finalization error: {}",
+                                rollback_error
+                            );
+                            coordinated.outcome.result = Err(rollback_error);
+                        }
+                    }
+                    Err(payload) => {
+                        internal_failure = true;
+                        let reject = Reject::Internal(format!(
+                            "coordinator commit finalization panicked: {}",
+                            crate::util::panic_payload_to_string(payload.as_ref())
+                        ));
+                        if let Err(rollback_error) = self.rollback_coordinated_submit(
+                            &mut tx_pool,
+                            &entry,
+                            &mut coordinated,
+                            reject,
+                        ) {
+                            warn!(
+                                "failed to roll back pool after coordinator finalization panic: {}",
+                                rollback_error
+                            );
+                            coordinated.outcome.result = Err(rollback_error);
+                        }
+                    }
+                }
+            }
+
+            if coordinated.outcome.result.is_err() && settlement.is_none() {
+                match self.pipeline.runtime.mutate(|coordinator| {
+                    coordinator.fail_commit(&lease, TerminalDisposition::Rejected)
+                }) {
+                    Ok(record) => failed_terminal = Some(record),
+                    Err(error) => warn!(
+                        "failed to terminalize rejected coordinator commit {}: {:?}",
+                        lease.hash, error
+                    ),
+                }
+            }
+            let mut extra_effects = Vec::new();
+            if let Some(handoff) = &settlement {
+                let winner_source = handoff
+                    .winner
+                    .raw
+                    .authoritative_source(handoff.winner.source)
+                    .unwrap_or(verified.resolved.source);
+                extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
+                    crate::service::TxVerificationResult::Ok {
+                        original_peer: winner_source.peer(),
+                        tx_hash: verified.resolved.tx.hash(),
+                    },
+                ));
+
+                let reject =
+                    Reject::RBFRejected(Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string());
+                for record in &handoff.rejected {
+                    let Ok(source) = record.raw.authoritative_source(record.source) else {
+                        continue;
+                    };
+                    // The winner now owns the conflicting input. Retain the
+                    // verified loser for bounded future recovery before the
+                    // publication journal makes its terminal outcome visible.
+                    tx_pool.record_conflict(record.raw.tx.clone(), source);
+                    if reject.should_recorded() {
+                        self.record_recent_reject(&record.hash, &reject);
+                    }
+                    if source.peer().is_some() && reject.is_allowed_relay() {
+                        extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
+                            crate::service::TxVerificationResult::Reject {
+                                tx_hash: record.hash.clone(),
+                            },
+                        ));
+                    }
+                }
+            } else if let Some(record) = &failed_terminal {
+                match record.raw.authoritative_source(record.source) {
+                    Ok(source) => {
+                        if internal_failure {
+                            if source.peer().is_some() {
+                                extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
+                                    crate::service::TxVerificationResult::Reject {
+                                        tx_hash: record.hash.clone(),
+                                    },
+                                ));
+                            }
+                        } else if let Some(reject) = coordinated.outcome.result.as_ref().err() {
+                            if matches!(
+                                reject,
+                                Reject::RBFRejected(..)
+                                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(
+                                        _
+                                    ))
+                            ) && tx_pool
+                                .pool_map
+                                .find_conflict_outpoint(&record.raw.tx)
+                                .is_some()
+                            {
+                                tx_pool.record_conflict(record.raw.tx.clone(), source);
+                            }
+                            if reject.should_recorded() {
+                                self.record_recent_reject(&record.hash, reject);
+                            }
+                            if let Some(peer) = source.peer() {
+                                if reject.is_malformed_tx() {
+                                    let duration = std::time::Duration::from_secs(
+                                        crate::constants::MALFORMED_TX_BAN_SECONDS,
+                                    );
+                                    self.record_peer_ban(peer, duration);
+                                    extra_effects.push(
+                                        crate::service::effects::TxPoolEffect::BanPeer {
+                                            peer,
+                                            duration,
+                                            reason: format!("reject {reject}"),
+                                        },
+                                    );
+                                    failed_banned_peer = Some(peer);
+                                }
+                                if reject.is_allowed_relay()
+                                    && !matches!(reject, Reject::Duplicated(_))
+                                {
+                                    extra_effects.push(
+                                        crate::service::effects::TxPoolEffect::Relay(
+                                            crate::service::TxVerificationResult::Reject {
+                                                tx_hash: record.hash.clone(),
+                                            },
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        warn!(
+                            "cannot attribute rejected coordinator commit {}: {}",
+                            record.hash, error
+                        );
+                        extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
+                            crate::service::TxVerificationResult::Reject {
+                                tx_hash: record.hash.clone(),
+                            },
+                        ));
+                    }
+                }
+            }
+            for status in coordinated.block_assembler_statuses() {
+                self.journal_block_assembler_update(status);
+            }
+            let publication_barrier =
+                self.journal_submit_effects(&mut coordinated.outcome, effect_permit, extra_effects);
+            (coordinated, publication_barrier)
+        };
+
+        let dispatch_result = self
+            .dispatch_submit_aftermath(coordinated.outcome, epoch, publication_barrier)
+            .await;
+        if let Some(peer) = failed_banned_peer {
+            self.remove_banned_peer_entries(peer).await;
+        }
+        match (dispatch_result, settlement) {
+            (Ok(()), Some(settlement)) => {
+                self.post_submit_side_effects(
+                    verified.completed,
+                    verified.verify_cache_hit,
+                    &verified.resolved.tx.hash(),
+                    &verified.resolved.tx.witness_hash(),
+                    false,
+                    verified.started_at,
+                )
+                .await;
+                let _ = settlement;
+            }
+            (Err(_reject), _) => {}
+            (Ok(()), None) => {
+                warn!(
+                    "pipeline submit {} succeeded without a coordinator handoff",
+                    entry_id
+                );
+            }
         }
     }
     pub(crate) async fn test_accept_tx_core(

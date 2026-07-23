@@ -8,10 +8,6 @@ pub(crate) const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 pub(crate) const MOCK_CYCLES: Cycle = 0;
 pub(crate) const MOCK_FEE: Capacity = Capacity::zero();
 pub(crate) const MOCK_SIZE: usize = 0;
-/// Budget passed to `VerifyQueue::new` in tests: mirror the production
-/// default (256 MB) without depending on a config object.
-pub(crate) const TEST_MAX_VERIFY_QUEUE_TX_SIZE: usize = 256_000_000;
-
 pub(crate) fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
     TransactionBuilder::default()
         .inputs(

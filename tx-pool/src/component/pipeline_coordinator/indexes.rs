@@ -3,7 +3,6 @@ use super::*;
 pub(super) struct ConflictRecheckPlan {
     blockers: HashSet<Byte32>,
     can_preempt: bool,
-    inherited_waiters: HashSet<Byte32>,
 }
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
@@ -201,78 +200,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(())
     }
 
-    pub(super) fn preflight_deactivate_conflict_indexes(
-        &mut self,
-        hash: &Byte32,
-    ) -> Result<(), CoordinatorError> {
-        self.preflight_remove_conflict_indexes(hash)
-    }
-
-    pub(super) fn deactivate_conflict_indexes(
-        &mut self,
-        hash: &Byte32,
-    ) -> Result<(), CoordinatorError> {
-        self.invalidate_conflict_waiters(hash)?;
-        self.remove_conflict_waiter_links(hash)?;
-        self.release_conflict_claims_if_present(hash);
-        self.conflict_recheck_set.remove(hash);
-        Ok(())
-    }
-
-    pub(super) fn preflight_remove_pool_input_indexes(
-        &self,
-        hash: &Byte32,
-    ) -> Result<(), CoordinatorError> {
-        let entry = self
-            .entries
-            .get(hash)
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-        let Some(inputs) = entry.waiting_pool_inputs() else {
-            return Ok(());
-        };
-        if self.pool_input_edge_count < inputs.len() {
-            return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
-        }
-        for input in inputs {
-            if !self
-                .pool_waiters_by_input
-                .get(input)
-                .is_some_and(|waiters| waiters.contains(hash))
-            {
-                return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn remove_pool_input_indexes(
-        &mut self,
-        hash: &Byte32,
-    ) -> Result<(), CoordinatorError> {
-        let inputs = self
-            .entries
-            .get(hash)
-            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?
-            .waiting_pool_inputs()
-            .cloned();
-        let Some(inputs) = inputs else {
-            return Ok(());
-        };
-        self.pool_input_edge_count = self
-            .pool_input_edge_count
-            .checked_sub(inputs.len())
-            .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-        for input in inputs {
-            if let Some(waiters) = self.pool_waiters_by_input.get_mut(&input) {
-                waiters.remove(hash);
-                if waiters.is_empty() {
-                    self.pool_waiters_by_input.remove(&input);
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub(super) fn preflight_remove_conflict_indexes(
         &mut self,
         hash: &Byte32,
@@ -325,25 +252,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_recheck_set
             .try_reserve(waiters.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)
-    }
-
-    pub(super) fn recheck_conflict_candidate(
-        &mut self,
-        hash: &Byte32,
-    ) -> Result<Option<CoordinatorTicket>, CoordinatorError> {
-        let plan = self.prepare_conflict_recheck(hash)?;
-        let undo_capacity = 1usize
-            .saturating_add(plan.blockers.len())
-            .saturating_add(plan.inherited_waiters.len());
-        let mut undo = Vec::new();
-        undo.try_reserve(undo_capacity)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        undo.push(hash.clone());
-        undo.extend(plan.blockers.iter().cloned());
-        undo.extend(plan.inherited_waiters.iter().cloned());
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.apply_conflict_recheck(hash, &plan)
-        })
     }
 
     pub(super) fn prepare_conflict_recheck(
@@ -432,7 +340,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(ConflictRecheckPlan {
             blockers,
             can_preempt,
-            inherited_waiters,
         })
     }
 

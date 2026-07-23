@@ -1,14 +1,52 @@
 use super::component::TxEntry;
 use crate::error::Reject;
 use ckb_logger::error;
+use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Arc, Mutex};
+
+thread_local! {
+    /// Callbacks are synchronous, so a thread-local depth guard accurately
+    /// marks their complete execution interval even when the Tokio task may
+    /// migrate at later await points. Controller mutations use this to fail
+    /// fast instead of forming publisher/recovery/effect-capacity cycles.
+    static CALLBACK_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct CallbackContextGuard;
+
+impl CallbackContextGuard {
+    fn enter() -> Self {
+        CALLBACK_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        Self
+    }
+}
+
+impl Drop for CallbackContextGuard {
+    fn drop(&mut self) {
+        CALLBACK_DEPTH.with(|depth| {
+            depth.set(
+                depth
+                    .get()
+                    .checked_sub(1)
+                    .expect("callback context depth is balanced"),
+            )
+        });
+    }
+}
+
+/// Read-only controller calls are safe from callbacks. Synchronous mutations
+/// are not: they can wait for the same publisher that is executing the
+/// callback, directly or through `recovery_lock`/effect capacity.
+pub(crate) fn in_callback() -> bool {
+    CALLBACK_DEPTH.with(|depth| depth.get() != 0)
+}
 
 /// User-supplied callbacks are side effects, not part of the authoritative
 /// pool transition. Contain their panics so a notifier cannot unwind a
 /// completed pool mutation, make a reorg delta retry forever, or kill a
 /// pipeline worker.
 fn call_guarded(name: &'static str, call: impl FnOnce()) {
+    let _context = CallbackContextGuard::enter();
     if let Err(payload) = catch_unwind(AssertUnwindSafe(call)) {
         error!(
             "tx-pool {} callback panicked: {}",
@@ -30,32 +68,12 @@ pub struct Callbacks {
     pub(crate) pending: Option<PendingCallback>,
     pub(crate) proposed: Option<ProposedCallback>,
     pub(crate) reject: Option<RejectCallback>,
-    deferred: Mutex<DeferredCallbacks>,
 }
 
-#[derive(Default)]
-struct DeferredCallbacks {
-    depth: usize,
-    events: Vec<CallbackEvent>,
-}
-
-enum CallbackEvent {
+pub(crate) enum CallbackEvent {
     Pending(TxEntry),
     Proposed(TxEntry),
     Reject(TxEntry, Reject),
-}
-
-/// RAII effect barrier. The guard must be declared before the authoritative
-/// lock it protects; reverse drop order then releases that lock before queued
-/// user callbacks are published, including during unwinding/cancellation.
-pub(crate) struct CallbackDeferral {
-    callbacks: Arc<Callbacks>,
-}
-
-impl Drop for CallbackDeferral {
-    fn drop(&mut self) {
-        self.callbacks.finish_deferral();
-    }
 }
 
 impl Default for Callbacks {
@@ -71,23 +89,6 @@ impl Callbacks {
             pending: None,
             proposed: None,
             reject: None,
-            deferred: Mutex::new(DeferredCallbacks::default()),
-        }
-    }
-
-    /// Defer every callback until the outermost returned guard is dropped.
-    /// This is process-wide for the callback set: concurrent submissions may
-    /// be delayed briefly by a reorg, but no callback can re-enter partially
-    /// reconciled state.
-    pub(crate) fn defer(self: &Arc<Self>) -> CallbackDeferral {
-        let mut state = self.deferred.lock().unwrap_or_else(|e| e.into_inner());
-        state.depth = state
-            .depth
-            .checked_add(1)
-            .expect("callback deferral nesting exhausted");
-        drop(state);
-        CallbackDeferral {
-            callbacks: Arc::clone(self),
         }
     }
 
@@ -106,68 +107,16 @@ impl Callbacks {
         self.reject = Some(callback);
     }
 
-    /// Call on after pending
-    pub fn call_pending(&self, entry: &TxEntry) {
-        if self.pending.is_none() {
-            return;
-        }
-        if let Err(CallbackEvent::Pending(entry)) =
-            self.enqueue_if_deferred(CallbackEvent::Pending(entry.clone()))
-        {
-            self.call_pending_now(&entry);
-        }
-    }
-
-    /// Call on after proposed
-    pub fn call_proposed(&self, entry: &TxEntry) {
-        if self.proposed.is_none() {
-            return;
-        }
-        if let Err(CallbackEvent::Proposed(entry)) =
-            self.enqueue_if_deferred(CallbackEvent::Proposed(entry.clone()))
-        {
-            self.call_proposed_now(&entry);
-        }
-    }
-
-    /// Call on after reject
-    pub fn call_reject(&self, entry: &TxEntry, reject: Reject) {
-        if self.reject.is_none() {
-            return;
-        }
-        if let Err(CallbackEvent::Reject(entry, reject)) =
-            self.enqueue_if_deferred(CallbackEvent::Reject(entry.clone(), reject))
-        {
-            self.call_reject_now(&entry, reject);
-        }
-    }
-
-    fn enqueue_if_deferred(&self, event: CallbackEvent) -> Result<(), CallbackEvent> {
-        let mut state = self.deferred.lock().unwrap_or_else(|e| e.into_inner());
-        if state.depth == 0 {
-            return Err(event);
-        }
-        state.events.push(event);
-        Ok(())
-    }
-
-    fn finish_deferral(&self) {
-        let events = {
-            let mut state = self.deferred.lock().unwrap_or_else(|e| e.into_inner());
-            debug_assert!(state.depth > 0, "unbalanced callback deferral guard");
-            state.depth = state.depth.saturating_sub(1);
-            if state.depth == 0 {
-                std::mem::take(&mut state.events)
-            } else {
-                Vec::new()
-            }
-        };
-        for event in events {
-            match event {
-                CallbackEvent::Pending(entry) => self.call_pending_now(&entry),
-                CallbackEvent::Proposed(entry) => self.call_proposed_now(&entry),
-                CallbackEvent::Reject(entry, reject) => self.call_reject_now(&entry, reject),
-            }
+    /// Publish one already-journaled callback effect.
+    ///
+    /// The effect publisher is itself the stable-state barrier, so this path
+    /// deliberately bypasses the legacy in-task deferral queue. It is the only
+    /// callback entry point used by the production effect outbox.
+    pub(crate) fn publish(&self, event: &CallbackEvent) {
+        match event {
+            CallbackEvent::Pending(entry) => self.call_pending_now(entry),
+            CallbackEvent::Proposed(entry) => self.call_proposed_now(entry),
+            CallbackEvent::Reject(entry, reject) => self.call_reject_now(entry, reject.clone()),
         }
     }
 
@@ -192,7 +141,7 @@ impl Callbacks {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, call_guarded};
+    use super::{Callbacks, call_guarded, in_callback};
     use crate::component::entry::TxEntry;
     use ckb_types::core::{Capacity, TransactionBuilder};
     use std::sync::{
@@ -216,14 +165,13 @@ mod tests {
     }
 
     #[test]
-    fn deferral_publishes_only_after_outer_guard_drops() {
+    fn publish_dispatches_the_typed_event() {
         let calls = Arc::new(AtomicUsize::new(0));
         let mut callbacks = Callbacks::new();
         let observed = Arc::clone(&calls);
         callbacks.register_pending(Box::new(move |_| {
             observed.fetch_add(1, Ordering::SeqCst);
         }));
-        let callbacks = Arc::new(callbacks);
         let entry = TxEntry::dummy_resolve(
             TransactionBuilder::default().build(),
             0,
@@ -231,13 +179,19 @@ mod tests {
             0,
         );
 
-        let outer = callbacks.defer();
-        let inner = callbacks.defer();
-        callbacks.call_pending(&entry);
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        drop(inner);
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        drop(outer);
+        callbacks.publish(&super::CallbackEvent::Pending(entry));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn callback_context_is_scoped_across_panics_and_nested_calls() {
+        assert!(!in_callback());
+        call_guarded("outer", || {
+            assert!(in_callback());
+            call_guarded("inner", || assert!(in_callback()));
+            assert!(in_callback());
+            panic!("injected callback panic");
+        });
+        assert!(!in_callback());
     }
 }

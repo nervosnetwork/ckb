@@ -3,6 +3,7 @@
 pub(crate) mod builder;
 pub(crate) mod controller;
 pub(crate) mod dispatch;
+pub(crate) mod effects;
 pub(crate) mod message;
 pub(crate) mod pipeline_ops;
 pub(crate) mod workers;
@@ -26,7 +27,6 @@ use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
 use crate::component::recent_reject::RecentReject;
-use crate::component::waiting_room::WaitingRoom;
 use crate::pool::TxPool;
 #[cfg(feature = "internal")]
 use crate::process::PlugTarget;
@@ -132,7 +132,7 @@ pub(crate) type ChainReorgArgs = (
 );
 
 /// tx verification result
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum TxVerificationResult {
     /// tx is verified
     Ok {
@@ -238,15 +238,10 @@ impl PipelineEpoch {
 /// reaches the pool.
 #[derive(Clone)]
 pub(crate) struct PipelineState {
+    /// Single authoritative pre-pool lifecycle owner.
+    pub(crate) runtime: Arc<crate::component::pipeline_runtime::PipelineRuntime>,
     /// Administrative generation shared by every pipeline stage.
     pub(crate) epoch: Arc<PipelineEpoch>,
-    /// The pipeline queues (pre-check, ordered-resolve, verify) and the
-    /// in-flight RBF gate, bundled behind a single `Arc` because they share
-    /// the same lifecycle and the same lock hierarchy.
-    pub(crate) queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
-    /// The waiting room: transactions parked while they wait for an event
-    /// (missing parents, blocked inputs, a lost in-flight race).
-    pub(crate) waiting_room: Arc<RwLock<WaitingRoom>>,
     /// Chunk command receiver used by the synchronous reorg recovery path so
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
@@ -268,6 +263,10 @@ pub(crate) struct RelayState {
     /// authoritative dirty bit consumed on the next assembler pass.
     pub(crate) block_assembler_dirty: Arc<AtomicU8>,
     pub(crate) callbacks: Arc<Callbacks>,
+    /// Bounded stable-state journal. Its publisher is independent of the
+    /// controller dispatcher, so a callback may synchronously re-enter the
+    /// controller without consuming the permit needed to serve itself.
+    pub(crate) effects: Arc<effects::EffectQueue>,
     /// Peers banned within the ban window. Workers check jobs against this
     /// set so that a banned peer's in-flight jobs (popped from a queue
     /// before the ban) do not keep flowing into the pool afterwards.

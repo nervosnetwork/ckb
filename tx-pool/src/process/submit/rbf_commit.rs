@@ -16,6 +16,7 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::pool::rbf::RbfCheck;
 use crate::service::TxPoolService;
+use crate::service::effects::{PublicationBarrier, TxPoolEffect};
 use crate::tx_source::TxSource;
 use crate::util::time_relative_verify;
 use ckb_logger::{debug, warn};
@@ -105,6 +106,52 @@ pub(crate) struct SubmitEntryOutcome {
     pub(crate) reject_events: Vec<(TxEntry, Reject)>,
     /// Successful accepted callback, also dispatched outside the lock.
     pub(crate) accept_event: Option<(TxEntry, Status)>,
+}
+
+/// Submit result that retains the exact pool mutation journal until the
+/// coordinator has finalized the matching commit lease. The journal is
+/// private to this module so callers cannot publish or partially replay it.
+pub(crate) struct CoordinatedSubmitOutcome {
+    pub(crate) outcome: SubmitEntryOutcome,
+    pool_journal: PoolCommitJournal,
+}
+
+impl CoordinatedSubmitOutcome {
+    /// Accepted transaction hashes physically removed by this successful
+    /// commit. They are the exact dependency-unavailability set that must be
+    /// handed to the coordinator before the pool write guard is released.
+    pub(crate) fn removed_parent_hashes(&self) -> HashSet<Byte32> {
+        if self.outcome.result.is_err() {
+            return HashSet::new();
+        }
+        self.pool_journal
+            .removals
+            .iter()
+            .map(|item| item.removed.entry.transaction().hash())
+            .collect()
+    }
+
+    /// Minimal assembler refresh set for this committed pool transaction.
+    /// A replacement can remove a Proposed entry while inserting a Pending
+    /// one, so the new entry alone is not a complete template delta.
+    pub(crate) fn block_assembler_statuses(&self) -> HashSet<Status> {
+        if self.outcome.result.is_err() {
+            return HashSet::new();
+        }
+        let mut statuses = self
+            .outcome
+            .accept_event
+            .iter()
+            .map(|(_, status)| *status)
+            .collect::<HashSet<_>>();
+        statuses.extend(
+            self.pool_journal
+                .removals
+                .iter()
+                .map(|item| item.removed.status),
+        );
+        statuses
+    }
 }
 
 /// The side effects accumulated by one submit attempt.
@@ -198,10 +245,10 @@ impl SubmitSideEffects {
         TxPoolService::sort_by_dependencies(&mut self.recovered, |(tx, _)| tx);
 
         for (tx, _) in &self.recovered {
-            tx_pool.remove_conflict(&tx.proposal_short_id());
+            tx_pool.remove_conflict_hash(&tx.hash());
         }
         for old in self.pool_journal.by_cause(RemovalCause::Replacement) {
-            tx_pool.remove_conflict(&old.entry.proposal_short_id());
+            tx_pool.remove_conflict_hash(&old.entry.transaction().hash());
         }
 
         // Restore before returning to the caller, while it still owns the
@@ -218,7 +265,7 @@ impl SubmitSideEffects {
             let stray_evictions = std::mem::take(&mut tx_pool.pool_map.evicted_journal);
             match restored {
                 Ok((true, evicted)) if evicted.is_empty() && stray_evictions.is_empty() => {
-                    tx_pool.remove_conflict(&tx.proposal_short_id());
+                    tx_pool.remove_conflict_hash(&tx.hash());
                     self.rolled_back.push((tx, status));
                 }
                 Ok((inserted, evicted)) => {
@@ -405,7 +452,7 @@ impl TxPoolService {
             fx.reject_events.push((evict, reject));
         }
 
-        tx_pool.remove_conflict(&entry.proposal_short_id());
+        tx_pool.remove_conflict_hash(&entry.transaction().hash());
         let mut removed = Vec::new();
         let reject = tx_pool.limit_size_with_journal(
             Some(&entry.proposal_short_id()),
@@ -415,7 +462,7 @@ impl TxPoolService {
         fx.pool_journal.record(RemovalCause::SizeLimit, removed);
         reject.map_or(Ok(()), Err)
     }
-    pub(crate) fn try_submit_entry(
+    fn try_submit_entry_inner(
         &self,
         tx_pool: &mut TxPool,
         snapshot: Arc<Snapshot>,
@@ -423,7 +470,7 @@ impl TxPoolService {
         entry: TxEntry,
         status: Status,
         entry_id: ProposalShortId,
-    ) -> SubmitEntryOutcome {
+    ) -> CoordinatedSubmitOutcome {
         let mut fx = SubmitSideEffects::default();
 
         // The closure is the write-lock transaction boundary: any error rolls
@@ -480,66 +527,149 @@ impl TxPoolService {
                 .retain(|(tx, _)| !removed_ids.contains(&tx.proposal_short_id()));
         }
 
-        SubmitEntryOutcome {
-            result,
-            replaced,
-            rolled_back: fx.rolled_back,
-            recovered: fx.recovered,
-            reject_events: fx.reject_events,
-            accept_event: fx.accept_event,
+        CoordinatedSubmitOutcome {
+            outcome: SubmitEntryOutcome {
+                result,
+                replaced,
+                rolled_back: fx.rolled_back,
+                recovered: fx.recovered,
+                reject_events: fx.reject_events,
+                accept_event: fx.accept_event,
+            },
+            pool_journal: fx.pool_journal,
         }
     }
-    /// Dispatch reject callbacks, enqueue recovered txs, clean up stale RBF
-    /// registrations, and remove the current RBF candidate after the write-locked
-    /// submit is complete.
+
+    pub(crate) fn try_submit_entry(
+        &self,
+        tx_pool: &mut TxPool,
+        snapshot: Arc<Snapshot>,
+        pre_resolve_tip: Byte32,
+        entry: TxEntry,
+        status: Status,
+        entry_id: ProposalShortId,
+    ) -> SubmitEntryOutcome {
+        self.try_submit_entry_inner(tx_pool, snapshot, pre_resolve_tip, entry, status, entry_id)
+            .outcome
+    }
+
+    pub(crate) fn try_submit_entry_coordinated(
+        &self,
+        tx_pool: &mut TxPool,
+        snapshot: Arc<Snapshot>,
+        pre_resolve_tip: Byte32,
+        entry: TxEntry,
+        status: Status,
+        entry_id: ProposalShortId,
+    ) -> CoordinatedSubmitOutcome {
+        self.try_submit_entry_inner(tx_pool, snapshot, pre_resolve_tip, entry, status, entry_id)
+    }
+
+    /// Undo a successful pool commit when coordinator finalization could not
+    /// complete. This runs under the same `TxPool` write guard, before any
+    /// effect is published, and restores every RBF/escape/size-limit removal
+    /// from the retained exact journal.
+    pub(crate) fn rollback_coordinated_submit(
+        &self,
+        tx_pool: &mut TxPool,
+        entry: &TxEntry,
+        coordinated: &mut CoordinatedSubmitOutcome,
+        cause: Reject,
+    ) -> Result<(), Reject> {
+        if coordinated.outcome.result.is_err() {
+            return Ok(());
+        }
+        let entry_id = entry.proposal_short_id();
+        let removed = tx_pool.pool_map.remove_entry_with_status(&entry_id);
+        let Some(removed) = removed else {
+            return Err(Reject::Malformed(
+                "pool".to_string(),
+                format!(
+                    "coordinator rollback could not find newly committed transaction {}",
+                    entry.transaction().hash()
+                ),
+            ));
+        };
+        if removed.entry.transaction().hash() != entry.transaction().hash() {
+            return Err(Reject::Malformed(
+                "pool".to_string(),
+                "coordinator rollback removed a different short-id owner".to_string(),
+            ));
+        }
+
+        let mut effects = SubmitSideEffects {
+            reject_events: std::mem::take(&mut coordinated.outcome.reject_events),
+            pool_journal: std::mem::take(&mut coordinated.pool_journal),
+            recovered: std::mem::take(&mut coordinated.outcome.recovered),
+            rolled_back: std::mem::take(&mut coordinated.outcome.rolled_back),
+            accept_event: None,
+        };
+        effects.rollback_on_failure(tx_pool, entry, &entry_id)?;
+        coordinated.outcome.result = Err(cause);
+        coordinated.outcome.replaced = false;
+        coordinated.outcome.rolled_back = effects.rolled_back;
+        coordinated.outcome.recovered = effects.recovered;
+        coordinated.outcome.reject_events = effects.reject_events;
+        coordinated.outcome.accept_event = None;
+        Ok(())
+    }
+    /// Bind the complete stable-state publication batch while the caller still
+    /// holds the authoritative TxPool write lock. This is the effect
+    /// linearization point: concurrent commits cannot publish in a different
+    /// order from their pool mutations, and cancellation after unlock cannot
+    /// lose the already-journaled result.
+    pub(crate) fn journal_submit_effects(
+        &self,
+        outcome: &mut SubmitEntryOutcome,
+        permit: crate::service::effects::EffectPermit,
+        mut extra_effects: Vec<TxPoolEffect>,
+    ) -> Option<PublicationBarrier> {
+        if outcome.result.is_ok() {
+            debug_assert!(
+                outcome.rolled_back.is_empty(),
+                "successful submit must not export rolled-back entries"
+            );
+        }
+
+        let mut effects = Vec::new();
+        if let Some((entry, status)) = outcome.accept_event.take()
+            && let Some(effect) = self.accepted_effect(entry, status)
+        {
+            effects.push(effect);
+        }
+        for (entry, reject) in std::mem::take(&mut outcome.reject_events) {
+            effects.extend(self.rejected_effects(entry, reject));
+        }
+        effects.append(&mut extra_effects);
+        let barrier = (!effects.is_empty() && !outcome.recovered.is_empty())
+            .then(crate::service::effects::publication_barrier);
+        if let Some(barrier) = &barrier {
+            effects.insert(0, barrier.effect());
+        }
+        if let Err(error) = self.publish_reserved_effects(permit, effects) {
+            panic!("reserved submit effect journal failed inside pool transaction: {error:?}");
+        }
+        barrier
+    }
+
+    /// Schedule causal recovery after the pool lock is released, then open the
+    /// already-journaled publication barrier.
     pub(crate) async fn dispatch_submit_aftermath(
         &self,
-        entry_id: &ProposalShortId,
         outcome: SubmitEntryOutcome,
         epoch: u64,
+        barrier: Option<PublicationBarrier>,
     ) -> Result<(), Reject> {
         let SubmitEntryOutcome {
             result,
-            replaced,
+            replaced: _,
             rolled_back,
             recovered,
             reject_events,
             accept_event,
         } = outcome;
-        // Exact rollback already completed under the pool write guard. The
-        // aftermath can release speculative candidates without opening a
-        // free-input interval or re-verifying prior accepted entries.
-        if result.is_ok() {
-            debug_assert!(
-                rolled_back.is_empty(),
-                "successful submit must not export rolled-back entries"
-            );
-        }
-
-        // In-pool entries that were removed by this submit (RBF-replaced or
-        // evicted by size limits) have freed their inputs. Clean up any RBF
-        // candidates still targeting those inputs so they do not block future
-        // replacements.
-        self.cleanup_rbf_for_removed_entries(reject_events.iter().map(|(entry, _)| entry))
-            .await;
-
-        // The RBF candidate has either been accepted or definitively
-        // rejected; remove it from the in-flight fee-ordering gate. On
-        // success *with an actual replacement* the candidates it displaced
-        // are really rejected (finalize); on failure — or on a success that
-        // removed nothing because the conflicts had already vanished — they
-        // are restored to the verify queue (abort). Finalizing without an
-        // actual replacement would wrongly reject losers whose inputs are
-        // free again (see the hold-and-restore contract in `rbf_candidates`).
-        //
-        // This ownership settlement deliberately precedes the bounded
-        // deferred channel below. Backpressure in publication must never keep
-        // a failed winner registered or its `RaceLost` candidates parked.
-        // Finalized losers are returned for terminal publication only after
-        // every internal ownership transition is stable.
-        let finalized_rbf_losers = self
-            .settle_rbf_candidate_at(entry_id, result.is_ok() && replaced, epoch)
-            .await;
+        debug_assert!(reject_events.is_empty() && accept_event.is_none());
+        debug_assert!(result.is_err() || rolled_back.is_empty());
 
         // Send recovered txs to the deferred worker after the write lock is
         // released and RBF ownership is stable. Use .send().await rather than
@@ -560,25 +690,8 @@ impl TxPoolService {
         {
             warn!("failed to enqueue recovered txs for re-processing: {}", e);
         }
-
-        self.publish_finalized_rbf_candidates(finalized_rbf_losers)
-            .await;
-
-        // User callbacks run last, after every internal ownership and RBF
-        // transition is stable. They are allowed to re-enter the controller;
-        // invoking one before rollback/finalize would let that re-entrant
-        // operation observe a transient state or invalidate the decision about
-        // held candidates. Preserve accepted-before-evicted order and emit
-        // acceptance only after the complete submit (including limits)
-        // succeeded.
-        if let Some((entry, status)) = &accept_event {
-            match status {
-                Status::Proposed => self.relay.callbacks.call_proposed(entry),
-                Status::Pending | Status::Gap => self.relay.callbacks.call_pending(entry),
-            }
-        }
-        for (entry, reject) in &reject_events {
-            self.relay.callbacks.call_reject(entry, reject.clone());
+        if let Some(barrier) = barrier {
+            barrier.release();
         }
 
         result

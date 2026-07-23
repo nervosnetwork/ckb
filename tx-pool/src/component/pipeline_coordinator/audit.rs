@@ -10,8 +10,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.waiters_by_blocker.clear();
         self.conflict_recheck_set.clear();
         self.conflict_edge_count = 0;
-        self.pool_waiters_by_input.clear();
-        self.pool_input_edge_count = 0;
         self.live_deadlines.clear();
         self.dependency_failure_set.clear();
         self.global_usage = CoordinatorResidency::default();
@@ -94,24 +92,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     },
                 );
             }
-            if let Some(inputs) = entry.waiting_pool_inputs() {
-                self.pool_input_edge_count = self
-                    .pool_input_edge_count
-                    .checked_add(inputs.len())
-                    .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
-                if self.pool_input_edge_count > self.limits.max_pool_input_edges {
-                    return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
-                }
-                for input in inputs {
-                    let waiters = self.pool_waiters_by_input.entry(input.clone()).or_default();
-                    waiters.insert(hash.clone());
-                    if waiters.len() > self.limits.max_pool_waiters_per_input {
-                        return Err(CoordinatorError::PoolInputWaiterLimitExceeded(
-                            input.clone(),
-                        ));
-                    }
-                }
-            }
             if entry.invalidated_cause().is_some() {
                 self.dependency_failure_set.insert(hash.clone());
                 dependency_failure_order.push((
@@ -170,7 +150,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         self.conflict_recheck_set.insert(hash.clone());
                         conflict_recheck_order.push((*sequence, hash.clone()));
                     }
-                    CandidateLocation::WaitingPoolInputs { .. } => {}
                 }
             }
         }
@@ -236,8 +215,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut waiters_by_blocker: HashMap<Byte32, HashSet<Byte32>> = HashMap::new();
         let mut conflict_rechecks = HashSet::new();
         let mut live_deadlines = HashMap::new();
-        let mut pool_waiters_by_input: HashMap<OutPoint, HashSet<Byte32>> = HashMap::new();
-        let mut pool_input_edges = 0usize;
         let mut active_work = 0usize;
         let mut active_work_by_peer: HashMap<PeerIndex, usize> = HashMap::new();
         let mut dependency_failures = HashSet::new();
@@ -262,16 +239,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
             }
             let conflict_inputs = entry.candidate().map_or(0, |meta| meta.inputs.len());
-            let pool_inputs = entry.waiting_pool_inputs().map_or(0, HashSet::len);
             let base_metadata = self
-                .metadata_charge_bytes(entry.dependencies.len(), entry.expires_at.is_some(), 0, 0)
+                .metadata_charge_bytes(entry.dependencies.len(), entry.expires_at.is_some(), 0)
                 .map_err(|_| CoordinatorAuditError::MetadataCharge)?;
             let metadata = self
                 .metadata_charge_bytes(
                     entry.dependencies.len(),
                     entry.expires_at.is_some(),
                     conflict_inputs,
-                    pool_inputs,
                 )
                 .map_err(|_| CoordinatorAuditError::MetadataCharge)?;
             if entry.base_metadata_bytes != base_metadata
@@ -345,24 +320,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     expected_priority.entry(kind).or_default().insert(ticket);
                 }
             }
-            if let Some(inputs) = entry.waiting_pool_inputs() {
-                if inputs.is_empty() {
-                    return Err(CoordinatorAuditError::PoolInputIndex);
-                }
-                pool_input_edges = pool_input_edges
-                    .checked_add(inputs.len())
-                    .ok_or(CoordinatorAuditError::PoolInputEdgeCount)?;
-                if pool_input_edges > self.limits.max_pool_input_edges {
-                    return Err(CoordinatorAuditError::PoolInputEdgeCount);
-                }
-                for input in inputs {
-                    let waiters = pool_waiters_by_input.entry(input.clone()).or_default();
-                    waiters.insert(hash.clone());
-                    if waiters.len() > self.limits.max_pool_waiters_per_input {
-                        return Err(CoordinatorAuditError::PoolInputIndex);
-                    }
-                }
-            }
             if entry.invalidated_cause().is_some() {
                 dependency_failures.insert(hash.clone());
                 expected_dependency_failure_order.push((
@@ -432,7 +389,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         conflict_rechecks.insert(hash.clone());
                         expected_conflict_recheck_order.push((*sequence, hash.clone()));
                     }
-                    CandidateLocation::WaitingPoolInputs { .. } => {}
                 }
             }
         }
@@ -499,12 +455,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .collect();
         if physical_dependency_order != expected_dependency_failure_order {
             return Err(CoordinatorAuditError::DependencyMaintenanceIndex);
-        }
-        if pool_input_edges != self.pool_input_edge_count {
-            return Err(CoordinatorAuditError::PoolInputEdgeCount);
-        }
-        if pool_waiters_by_input != self.pool_waiters_by_input {
-            return Err(CoordinatorAuditError::PoolInputIndex);
         }
         if live_deadlines != self.live_deadlines {
             return Err(CoordinatorAuditError::DeadlineIndex);

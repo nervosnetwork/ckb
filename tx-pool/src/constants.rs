@@ -36,6 +36,9 @@ pub(crate) const GAP_PROPOSAL_INDEX: u64 = 0;
 pub(crate) const PROPOSED_PROPOSAL_INDEX: u64 = 1;
 
 pub(crate) const DEFERRED_CHANNEL_SIZE: usize = 1024;
+/// Maximum number of stable-state effect batches retained while external
+/// consumers are slow. Bytes are bounded separately from the tx-pool config.
+pub(crate) const EFFECT_OUTBOX_MAX_BATCHES: usize = 4096;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
 
 /// Maximum number of distinct in-flight registrations one RBF candidate may

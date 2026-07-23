@@ -12,6 +12,7 @@ fn relay_state() -> RelayState {
         block_assembler_sender,
         block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
         callbacks: Arc::new(Callbacks::new()),
+        effects: Arc::new(crate::service::effects::EffectQueue::new(16, 1_000_000).unwrap()),
         banned_peers: Default::default(),
     }
 }

@@ -261,7 +261,7 @@ async fn dispatcher_channel_close_quiesces_workers_and_persists_pool() {
     // Keep this test independent from the process-wide stop token. The only
     // shutdown trigger below is closing every controller sender.
     builder.signal_receiver = CancellationToken::new();
-    let dispatcher = builder.start_with_handle(super::chunk::dummy_network());
+    let dispatcher = builder.start_with_handle(super::harness::dummy_network());
 
     let tx = build_resolvable_tx(&funding[0], 4_000);
     let tx_id = tx.proposal_short_id();
@@ -299,4 +299,98 @@ async fn dispatcher_channel_close_quiesces_workers_and_persists_pool() {
             .any(|loaded| loaded.proposal_short_id() == tx_id),
         "accepted transaction must be durable when all senders are dropped"
     );
+}
+
+/// External callbacks run on the dedicated effect publisher, not under a
+/// message-dispatch permit. Two concurrent submit handlers may therefore fill
+/// the dispatcher semaphore without preventing a callback from synchronously
+/// querying the controller.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn callback_reentry_does_not_depend_on_a_dispatcher_permit() {
+    use ckb_async_runtime::Handle;
+    use ckb_fee_estimator::FeeEstimator;
+    use ckb_stop_handler::CancellationToken;
+    use ckb_verification::cache::init_cache;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::sync::{Notify, RwLock};
+
+    let (consensus, funding) = super::pipeline::test_consensus(2);
+    let consensus = Arc::new(consensus);
+    let (_store, snapshot) = super::pipeline::snapshot_with_genesis(consensus);
+    let mut config = super::pipeline::tx_pool_config();
+    config.max_tx_verify_workers = 1;
+    let tmp = tempfile::TempDir::new().unwrap();
+    config.persisted_data = tmp.path().join("tx_pool");
+
+    let runtime = Handle::new(tokio::runtime::Handle::current(), None);
+    let (relay_sender, relay_receiver) = ckb_channel::bounded(16);
+    let relay_drain = tokio::task::spawn_blocking(move || while relay_receiver.recv().is_ok() {});
+    let (mut builder, controller) = crate::TxPoolServiceBuilder::new(
+        config,
+        snapshot,
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &runtime,
+        relay_sender,
+        FeeEstimator::new_dummy(),
+    );
+    let signal = CancellationToken::new();
+    builder.signal_receiver = signal.clone();
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let changed = Arc::new(Notify::new());
+    let callback_controller = controller.clone();
+    let callback_calls = Arc::clone(&calls);
+    let callback_changed = Arc::clone(&changed);
+    builder.register_pending(Box::new(move |_| {
+        callback_controller
+            .get_tx_pool_info()
+            .expect("callback controller re-entry must be served");
+        assert!(
+            callback_controller.save_pool().is_err(),
+            "a callback mutation must fail fast instead of waiting on its own publisher"
+        );
+        callback_calls.fetch_add(1, Ordering::Release);
+        callback_changed.notify_one();
+    }));
+    let dispatcher = builder.start_with_handle(super::harness::dummy_network());
+
+    let submissions = funding
+        .iter()
+        .enumerate()
+        .map(|(index, out_point)| {
+            let controller = controller.clone();
+            let tx = build_resolvable_tx(out_point, 4_000 + index);
+            tokio::task::spawn_blocking(move || {
+                controller
+                    .submit_local_tx(tx)
+                    .expect("dispatcher responds")
+                    .expect("local transaction commits")
+            })
+        })
+        .collect::<Vec<_>>();
+    for submission in submissions {
+        submission.await.unwrap();
+    }
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while calls.load(Ordering::Acquire) != 2 {
+            changed.notified().await;
+        }
+    })
+    .await
+    .expect("both re-entrant callbacks must complete");
+
+    signal.cancel();
+    drop(controller);
+    tokio::time::timeout(Duration::from_secs(10), dispatcher)
+        .await
+        .expect("dispatcher shutdown")
+        .expect("dispatcher task joins");
+    tokio::time::timeout(Duration::from_secs(10), relay_drain)
+        .await
+        .expect("relay drain shutdown")
+        .expect("relay drain joins");
 }

@@ -77,6 +77,18 @@ macro_rules! send_notify {
     }};
 }
 
+macro_rules! reject_callback_mutation {
+    ($operation:literal) => {
+        if crate::callback::in_callback() {
+            return Err(ckb_error::OtherError::new(format!(
+                "tx-pool callback cannot synchronously invoke mutating controller operation {}",
+                $operation
+            ))
+            .into());
+        }
+    };
+}
+
 impl TxPoolController {
     /// Return whether tx-pool service is started
     pub fn service_started(&self) -> bool {
@@ -129,6 +141,7 @@ impl TxPoolController {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AnyError> {
+        reject_callback_mutation!("update_tx_pool_for_reorg");
         let notify = Notify::new((
             detached_blocks,
             attached_blocks,
@@ -150,6 +163,7 @@ impl TxPoolController {
 
     /// Submit local tx to tx-pool
     pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
+        reject_callback_mutation!("submit_local_tx");
         send_message!(self, SubmitLocalTx, tx)
     }
 
@@ -162,6 +176,7 @@ impl TxPoolController {
 
     /// Remove tx from tx-pool
     pub fn remove_local_tx(&self, tx_hash: Byte32) -> Result<bool, AnyError> {
+        reject_callback_mutation!("remove_local_tx");
         send_message!(self, RemoveLocalTx, tx_hash)
     }
 
@@ -172,6 +187,7 @@ impl TxPoolController {
         declared_cycles: Cycle,
         peer: PeerIndex,
     ) -> Result<(), AnyError> {
+        reject_callback_mutation!("submit_remote_tx");
         let source = TxSource::remote(declared_cycles, peer);
         send_message!(self, SubmitRemoteTx, (tx, source))
     }
@@ -271,12 +287,14 @@ impl TxPoolController {
 
     /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
+        reject_callback_mutation!("clear_pool");
         send_message!(self, ClearPool, new_snapshot)
     }
 
     /// Clears the pipeline queues (ordered resolve, verify, orphan and
     /// pre-check) without touching the already-accepted pool.
     pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
+        reject_callback_mutation!("clear_verify_queue");
         send_message!(self, ClearPipeline, ())
     }
 
@@ -297,6 +315,7 @@ impl TxPoolController {
 
     /// Saves tx pool into disk.
     pub fn save_pool(&self) -> Result<(), AnyError> {
+        reject_callback_mutation!("save_pool");
         info!("Please be patient, tx-pool are saving data into disk ...");
         send_message!(self, SavePool, ())
     }
@@ -370,6 +389,7 @@ impl TxPoolController {
     /// Plug tx-pool entry to tx-pool, skip verification. only for test
     #[cfg(feature = "internal")]
     pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
+        reject_callback_mutation!("plug_entry");
         send_message!(self, PlugEntry, (entries, target))
     }
 
@@ -381,6 +401,7 @@ impl TxPoolController {
 
     /// Submit local test tx to tx-pool, this tx will be put into verify queue directly.
     pub fn submit_local_test_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
+        reject_callback_mutation!("submit_local_test_tx");
         send_message!(self, SubmitLocalTestTx, tx)
     }
 

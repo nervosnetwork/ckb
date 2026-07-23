@@ -198,276 +198,13 @@ fn verify_plain_sourced(
 }
 
 #[test]
-fn accepted_pool_inputs_wake_only_after_the_final_input_is_free() {
-    let mut coordinator = roomy();
-    let (tx_hash, version) = verify_plain(&mut coordinator, 80);
-    let before = coordinator.view(&tx_hash).unwrap();
-    let usage = coordinator.usage();
-    for fault_step in 1..=2 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = coordinator.wait_for_pool_inputs(&tx_hash, version, inputs([180, 181]));
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
-        assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
-        assert_eq!(coordinator.usage(), usage);
-        coordinator.audit().unwrap();
-    }
-    coordinator
-        .wait_for_pool_inputs(&tx_hash, version, inputs([180, 181]))
-        .unwrap();
-    assert_eq!(coordinator.queue_len(QueueKind::Commit), 0);
-    assert_eq!(
-        coordinator.view(&tx_hash).unwrap().location,
-        CoordinatorLocation::WaitingPoolInputs {
-            inputs: inputs([180, 181])
-        }
-    );
-    coordinator.audit().unwrap();
-
-    assert_eq!(
-        coordinator.pool_input_freed(&input(180), 1).unwrap(),
-        vec![tx_hash.clone()]
-    );
-    assert_eq!(
-        coordinator.view(&tx_hash).unwrap().location,
-        CoordinatorLocation::WaitingPoolInputs {
-            inputs: inputs([181])
-        }
-    );
-    assert_eq!(coordinator.queue_len(QueueKind::Commit), 0);
-    coordinator.audit().unwrap();
-
-    coordinator.pool_input_freed(&input(181), 1).unwrap();
-    assert_eq!(
-        coordinator.view(&tx_hash).unwrap().location,
-        CoordinatorLocation::ReadyToCommit
-    );
-    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn accepted_pool_wait_releases_speculative_claim_but_retains_verified_ranking() {
-    let mut coordinator = roomy();
-    let shared = input(182);
-    let accepted = input(183);
-    let strong = verify_candidate(&mut coordinator, 81, HashSet::from([shared.clone()]), 200);
-    let strong_version = coordinator.view(&strong).unwrap().version;
-    coordinator
-        .wait_for_pool_inputs(&strong, strong_version, HashSet::from([accepted.clone()]))
-        .unwrap();
-    assert!(coordinator.active_conflict_owner(&shared).is_none());
-
-    let weak = verify_candidate(&mut coordinator, 82, HashSet::from([shared.clone()]), 100);
-    assert_eq!(coordinator.active_conflict_owner(&shared), Some(&weak));
-    coordinator.pool_input_freed(&accepted, 1).unwrap();
-    assert_eq!(coordinator.conflict_recheck_len(), 1);
-    coordinator.drain_conflict_rechecks(1).unwrap();
-    assert_eq!(coordinator.active_conflict_owner(&shared), Some(&strong));
-    assert!(matches!(
-        coordinator.view(&weak).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn accepted_pool_input_limits_and_wake_slices_are_transactional() {
-    let limits = test_limits(
-        CoordinatorResidency::new(20, 20_000),
-        Some(CoordinatorResidency::new(20, 20_000)),
-        16,
-        16,
-    )
-    .with_pool_input_limits(2, 2, 4);
-    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
-        PipelineCoordinator::new(limits);
-    let (first, first_version) = verify_plain(&mut coordinator, 83);
-    let (second, second_version) = verify_plain(&mut coordinator, 84);
-    let shared = input(184);
-    coordinator
-        .wait_for_pool_inputs(&first, first_version, HashSet::from([shared.clone()]))
-        .unwrap();
-    coordinator
-        .wait_for_pool_inputs(&second, second_version, HashSet::from([shared.clone()]))
-        .unwrap();
-    let before = [first.clone(), second.clone()].map(|hash| coordinator.view(&hash).unwrap());
-    let usage = coordinator.usage();
-    for fault_step in 1..=2 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = coordinator.pool_input_freed(&shared, 2);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
-        let after = [first.clone(), second.clone()].map(|hash| coordinator.view(&hash).unwrap());
-        assert_eq!(after, before);
-        assert_eq!(coordinator.usage(), usage);
-        assert_eq!(coordinator.queue_len(QueueKind::Commit), 0);
-        coordinator.audit().unwrap();
-    }
-    assert_eq!(coordinator.pool_input_freed(&shared, 1).unwrap().len(), 1);
-    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
-    assert_eq!(coordinator.pool_input_freed(&shared, 1).unwrap().len(), 1);
-    assert_eq!(coordinator.queue_len(QueueKind::Commit), 2);
-    coordinator.audit().unwrap();
-
-    let (third, third_version) = verify_plain(&mut coordinator, 85);
-    let too_many = inputs([185, 186, 187]);
-    assert!(matches!(
-        coordinator.wait_for_pool_inputs(&third, third_version, too_many),
-        Err(CoordinatorError::PoolInputLimitExceeded)
-    ));
-    assert_eq!(
-        coordinator.view(&third).unwrap().location,
-        CoordinatorLocation::ReadyToCommit
-    );
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn stronger_verified_work_reconciles_accepted_input_waiter_capacity() {
-    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
-        .with_conflict_limits(1, 4, 8)
-        .with_pool_input_limits(1, 1, 4);
-    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
-        PipelineCoordinator::new(limits);
-    let accepted = input(141);
-    let (weak, verify, candidate) = begin_candidate(
-        &mut coordinator,
-        139,
-        CoordinatorSource::Local,
-        HashSet::from([input(139)]),
-        100,
-    );
-    let (weak_version, evicted) = coordinator
-        .complete_verification_candidate(&verify, Verified("weak"), 30, candidate)
-        .unwrap();
-    assert!(evicted.is_empty());
-    coordinator
-        .wait_for_pool_inputs(&weak, weak_version, HashSet::from([accepted.clone()]))
-        .unwrap();
-
-    let (strong, verify, candidate) = begin_candidate(
-        &mut coordinator,
-        140,
-        CoordinatorSource::Local,
-        HashSet::from([input(140)]),
-        200,
-    );
-    let (strong_version, evicted) = coordinator
-        .complete_verification_candidate(&verify, Verified("strong"), 30, candidate)
-        .unwrap();
-    assert!(evicted.is_empty());
-    let (_, evicted) = coordinator
-        .wait_for_pool_inputs(&strong, strong_version, HashSet::from([accepted.clone()]))
-        .unwrap();
-    assert_eq!(evicted.len(), 1);
-    assert_eq!(evicted[0].hash, weak);
-    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
-    assert!(matches!(
-        coordinator.view(&strong).unwrap().location,
-        CoordinatorLocation::WaitingPoolInputs { inputs } if inputs == HashSet::from([accepted])
-    ));
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn plain_pool_waiter_ties_evict_the_newer_entry_deterministically() {
-    let limits = test_limits(CoordinatorResidency::new(10, 1_000), None, 4, 4)
-        .with_pool_input_limits(1, 2, 4);
-    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
-        PipelineCoordinator::new(limits);
-    let accepted = input(210);
-    let (earlier, earlier_version) =
-        verify_plain_sourced(&mut coordinator, 177, CoordinatorSource::Remote(55.into()));
-    coordinator
-        .wait_for_pool_inputs(&earlier, earlier_version, HashSet::from([accepted.clone()]))
-        .unwrap();
-    let (later, later_version) =
-        verify_plain_sourced(&mut coordinator, 178, CoordinatorSource::Remote(56.into()));
-    coordinator
-        .wait_for_pool_inputs(&later, later_version, HashSet::from([accepted.clone()]))
-        .unwrap();
-
-    let (trusted, trusted_version) =
-        verify_plain_sourced(&mut coordinator, 179, CoordinatorSource::Local);
-    let (_, evicted) = coordinator
-        .wait_for_pool_inputs(&trusted, trusted_version, HashSet::from([accepted]))
-        .unwrap();
-    assert_eq!(evicted.len(), 1);
-    assert_eq!(evicted[0].hash, later);
-    assert!(coordinator.view(&earlier).is_some());
-    assert!(coordinator.view(&trusted).is_some());
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn accepted_input_capacity_reconciliation_rolls_back_every_apply_boundary() {
-    for fault_step in 1..=5 {
-        let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
-            .with_conflict_limits(1, 4, 8)
-            .with_pool_input_limits(1, 1, 4);
-        let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
-            PipelineCoordinator::new(limits);
-        let accepted = input(144);
-        let (weak, verify, candidate) = begin_candidate(
-            &mut coordinator,
-            142,
-            CoordinatorSource::Local,
-            HashSet::from([input(142)]),
-            100,
-        );
-        let weak_version = coordinator
-            .complete_verification_candidate(&verify, Verified("weak"), 30, candidate)
-            .unwrap()
-            .0;
-        coordinator
-            .wait_for_pool_inputs(&weak, weak_version, HashSet::from([accepted.clone()]))
-            .unwrap();
-        let (strong, verify, candidate) = begin_candidate(
-            &mut coordinator,
-            143,
-            CoordinatorSource::Local,
-            HashSet::from([input(143)]),
-            200,
-        );
-        let strong_version = coordinator
-            .complete_verification_candidate(&verify, Verified("strong"), 30, candidate)
-            .unwrap()
-            .0;
-        let before = [weak.clone(), strong.clone()].map(|hash| coordinator.view(&hash).unwrap());
-        let usage = coordinator.usage();
-
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = coordinator.wait_for_pool_inputs(
-                &strong,
-                strong_version,
-                HashSet::from([accepted.clone()]),
-            );
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
-
-        let after = [weak, strong].map(|hash| coordinator.view(&hash).unwrap());
-        assert_eq!(after, before);
-        assert_eq!(coordinator.usage(), usage);
-        coordinator.audit().unwrap();
-    }
-}
-
-#[test]
-fn metadata_residency_is_charged_continuously_across_every_wait_state() {
+fn metadata_residency_is_charged_continuously_across_every_payload_phase() {
     let metadata = CoordinatorMetadataCost {
         entry_bytes: 5,
         dependency_edge_bytes: 7,
         lifecycle_ticket_bytes: 3,
         deadline_ticket_bytes: 11,
         conflict_edge_bytes: 13,
-        pool_input_edge_bytes: 17,
     };
     let limits = test_limits(
         CoordinatorResidency::new(10, 1_000),
@@ -513,17 +250,10 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
     let candidate = CoordinatorFeeGate::new(0, 0)
         .validate(tx_hash.clone(), inputs([187, 188]), 100, 100)
         .unwrap();
-    let version = coordinator
-        .complete_verification_candidate(&verify, Verified("proof"), 30, candidate)
-        .unwrap()
-        .0;
-    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 82));
     coordinator
-        .wait_for_pool_inputs(&tx_hash, version, inputs([189, 190]))
+        .complete_verification_candidate(&verify, Verified("proof"), 30, candidate)
         .unwrap();
-    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 116));
-    coordinator.pool_input_freed(&input(189), 1).unwrap();
-    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 99));
+    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 82));
 
     coordinator.parent_unavailable(&parent).unwrap();
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 36));
@@ -1277,12 +1007,18 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
         .unwrap();
     coordinator.audit().unwrap();
     assert_eq!(coordinator.queue_len(QueueKind::PreCheck), 1);
+    assert!(coordinator.contains_hash(&tx_hash));
+    assert_eq!(
+        coordinator.raw_by_short_id(&short(1)).as_deref(),
+        Some(&Raw("raw"))
+    );
 
     let raw = coordinator
         .checkout_raw(RawStage::PreCheck)
         .unwrap()
         .unwrap();
     assert_eq!(*raw.payload, Raw("raw"));
+    assert_eq!(raw.source, CoordinatorSource::Remote(peer));
     coordinator
         .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
@@ -1297,6 +1033,7 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
         .unwrap()
         .unwrap();
     assert_eq!(*verify.payload, Unverified("resolved"));
+    assert_eq!(verify.source, CoordinatorSource::Remote(peer));
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();
@@ -1391,6 +1128,222 @@ fn parent_invalidation_demotes_payload_and_makes_active_verify_lease_stale() {
     let ready = coordinator.parent_available(&parent).unwrap();
     assert_eq!(ready.len(), 1);
     assert_eq!(coordinator.queue_len(QueueKind::Resolve), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn verify_unknown_parent_demotes_atomically_and_preserves_causal_source() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(4);
+    let parent = hash(31);
+    let peer = PeerIndex::from(9);
+    coordinator
+        .admit_raw_sourced(
+            tx_hash.clone(),
+            short(4),
+            Raw("raw"),
+            RawStage::Resolve,
+            CoordinatorSource::Remote(peer),
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+
+    let (_version, source) = coordinator
+        .verification_retry_resolution(&verify, set([parent.clone()]))
+        .unwrap();
+    assert_eq!(source, CoordinatorSource::Remote(peer));
+    let view = coordinator.view(&tx_hash).unwrap();
+    assert_eq!(view.phase, PayloadPhase::Raw);
+    assert_eq!(view.charge_bytes, 10);
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::WaitingParents {
+            missing: set([parent.clone()])
+        }
+    );
+    assert!(matches!(
+        coordinator.complete_verification(&verify, Verified("stale"), 60),
+        Err(CoordinatorError::RevisionMismatch { .. })
+    ));
+    assert_eq!(coordinator.parent_available(&parent).unwrap().len(), 1);
+    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn verify_unknown_parent_demotion_rejects_non_dependency_and_rolls_back_fault() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(5);
+    let parent = hash(32);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(5),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    let before = coordinator.view(&tx_hash).unwrap();
+    let usage = coordinator.usage();
+
+    assert!(matches!(
+        coordinator.verification_retry_resolution(&verify, set([hash(33)])),
+        Err(CoordinatorError::MissingParentNotDependency { .. })
+    ));
+    assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
+
+    coordinator.set_apply_fault_for_test(Some(1));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.verification_retry_resolution(&verify, set([parent]));
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
+    assert_eq!(coordinator.usage(), usage);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn verify_parent_handoff_requeues_resolution_without_lost_wakeup() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(6);
+    let parent = hash(34);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(6),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    let before = coordinator.view(&tx_hash).unwrap();
+    let usage = coordinator.usage();
+
+    coordinator.set_apply_fault_for_test(Some(1));
+    let fault = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.verification_retry_resolution(&verify, HashSet::new());
+    }));
+    assert!(fault.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
+    assert_eq!(coordinator.usage(), usage);
+    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 0);
+
+    let (_version, source) = coordinator
+        .verification_retry_resolution(&verify, HashSet::new())
+        .unwrap();
+    assert_eq!(source, CoordinatorSource::Local);
+    let view = coordinator.view(&tx_hash).unwrap();
+    assert_eq!(view.phase, PayloadPhase::Raw);
+    assert_eq!(view.charge_bytes, 10);
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::RawQueued(RawStage::Resolve)
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 1);
+    assert!(matches!(
+        coordinator.complete_verification(&verify, Verified("stale"), 60),
+        Err(CoordinatorError::RevisionMismatch { .. })
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn accepted_parent_closure_unavailability_is_one_atomic_batch() {
+    let mut coordinator = roomy();
+    let child = hash(7);
+    let parent_a = hash(35);
+    let parent_b = hash(36);
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(7),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent_a.clone(), parent_b.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
+        .unwrap();
+    let before = coordinator.view(&child).unwrap();
+    let usage = coordinator.usage();
+    let parents = set([parent_a.clone(), parent_b.clone()]);
+
+    for fault_step in 1..=2 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let fault = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.parents_unavailable(&parents);
+        }));
+        assert!(fault.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        assert_eq!(coordinator.view(&child).unwrap(), before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.queue_len(QueueKind::Verify), 1);
+        coordinator.audit().unwrap();
+    }
+
+    assert_eq!(
+        coordinator.parents_unavailable(&parents).unwrap(),
+        vec![child.clone()]
+    );
+    let view = coordinator.view(&child).unwrap();
+    assert_eq!(view.phase, PayloadPhase::Raw);
+    assert_eq!(view.charge_bytes, 10);
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::WaitingParents {
+            missing: set([parent_a, parent_b])
+        }
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Verify), 0);
     coordinator.audit().unwrap();
 }
 
@@ -1926,6 +1879,86 @@ fn removed_and_readmitted_hash_rejects_the_old_worker_incarnation() {
 }
 
 #[test]
+fn raw_worker_terminalization_is_lease_scoped_across_readmission() {
+    let mut coordinator = roomy();
+    let parent = hash(182);
+    let child = hash(183);
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(182),
+            Raw("old-parent"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(183),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let old_lease = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    let before = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+
+    for fault_step in 1..=3 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.terminalize_raw(&old_lease, TerminalDisposition::Rejected);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
+
+    let terminal = coordinator
+        .terminalize_raw(&old_lease, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(terminal.hash, parent);
+    assert_eq!(terminal.disposition, TerminalDisposition::Rejected);
+    assert!(coordinator.view(&parent).is_none());
+    assert!(matches!(
+        coordinator.view(&child).unwrap().location,
+        CoordinatorLocation::Invalidated { cause } if cause == parent
+    ));
+
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(182),
+            Raw("new-parent"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    assert!(matches!(
+        coordinator.terminalize_raw(&old_lease, TerminalDisposition::Rejected),
+        Err(CoordinatorError::IncarnationMismatch { .. })
+    ));
+    assert_eq!(
+        coordinator.view(&parent).unwrap().location,
+        CoordinatorLocation::RawQueued(RawStage::PreCheck)
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn identity_budget_and_fanout_failures_do_not_partially_admit() {
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(test_limits(
@@ -2275,19 +2308,17 @@ fn global_recharge_reconciliation_covers_raw_and_plain_verified_phases() {
 }
 
 #[test]
-fn global_recharge_reconciliation_covers_candidate_and_pool_wait_metadata() {
+fn global_recharge_reconciliation_covers_candidate_metadata() {
     let metadata = CoordinatorMetadataCost {
         conflict_edge_bytes: 10,
-        pool_input_edge_bytes: 10,
         ..CoordinatorMetadataCost::default()
     };
     let limits = test_limits(CoordinatorResidency::new(3, 60), None, 4, 4)
         .with_conflict_limits(1, 4, 8)
-        .with_pool_input_limits(1, 4, 8)
         .with_metadata_cost(metadata);
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(limits);
-    let (candidate_hash, verify, candidate) = begin_candidate(
+    let (_, verify, candidate) = begin_candidate(
         &mut coordinator,
         153,
         CoordinatorSource::Local,
@@ -2305,30 +2336,13 @@ fn global_recharge_reconciliation_covers_candidate_and_pool_wait_metadata() {
             HashSet::new(),
         )
         .unwrap();
-    let (version, evicted) = coordinator
+    let (_, evicted) = coordinator
         .complete_verification_candidate(&verify, Verified("candidate"), 40, candidate)
         .unwrap();
     assert_eq!(evicted.len(), 1);
     assert_eq!(evicted[0].hash, hash(154));
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 50));
 
-    coordinator
-        .admit_raw(
-            hash(155),
-            short(155),
-            Raw("remote filler"),
-            RawStage::Resolve,
-            Some(47.into()),
-            10,
-            HashSet::new(),
-        )
-        .unwrap();
-    let (_, evicted) = coordinator
-        .wait_for_pool_inputs(&candidate_hash, version, HashSet::from([input(156)]))
-        .unwrap();
-    assert_eq!(evicted.len(), 1);
-    assert_eq!(evicted[0].hash, hash(155));
-    assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 60));
     coordinator.audit().unwrap();
 }
 
@@ -2421,52 +2435,6 @@ fn global_conflict_edge_capacity_reconciles_disjoint_lower_priority_work() {
     assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
     assert!(coordinator.view(&local).is_some());
     assert_eq!(coordinator.conflict_edge_count(), 1);
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn global_pool_input_edge_capacity_reconciles_disjoint_lower_priority_work() {
-    let limits = test_limits(CoordinatorResidency::new(4, 400), None, 4, 4)
-        .with_conflict_limits(1, 4, 4)
-        .with_pool_input_limits(1, 4, 1);
-    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
-        PipelineCoordinator::new(limits);
-    let (remote, verify, candidate) = begin_candidate(
-        &mut coordinator,
-        161,
-        CoordinatorSource::Remote(50.into()),
-        HashSet::from([input(161)]),
-        100,
-    );
-    let remote_version = coordinator
-        .complete_verification_candidate(&verify, Verified("remote"), 30, candidate)
-        .unwrap()
-        .0;
-    coordinator
-        .wait_for_pool_inputs(&remote, remote_version, HashSet::from([input(201)]))
-        .unwrap();
-
-    let (local, verify, candidate) = begin_candidate(
-        &mut coordinator,
-        162,
-        CoordinatorSource::Local,
-        HashSet::from([input(162)]),
-        100,
-    );
-    let local_version = coordinator
-        .complete_verification_candidate(&verify, Verified("local"), 30, candidate)
-        .unwrap()
-        .0;
-    let (_, evicted) = coordinator
-        .wait_for_pool_inputs(&local, local_version, HashSet::from([input(202)]))
-        .unwrap();
-    assert_eq!(evicted.len(), 1);
-    assert_eq!(evicted[0].hash, remote);
-    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
-    assert!(matches!(
-        coordinator.view(&local).unwrap().location,
-        CoordinatorLocation::WaitingPoolInputs { .. }
-    ));
     coordinator.audit().unwrap();
 }
 
@@ -2733,6 +2701,96 @@ fn abort_commit_requeues_once_and_makes_the_old_commit_lease_stale() {
     assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     let new_commit = coordinator.begin_next_commit().unwrap().unwrap();
     assert_ne!(old_commit.version, new_commit.version);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn failed_commit_is_lease_scoped_and_causally_terminal() {
+    let mut coordinator = roomy();
+    let parent = hash(13);
+    let child = hash(14);
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(13),
+            Raw("old-parent"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(14),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_verification(&verify, Verified("proof"), 30)
+        .unwrap();
+    let commit = coordinator.begin_next_commit().unwrap().unwrap();
+    let before = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let usage = coordinator.usage();
+
+    for fault_step in 1..=3 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.fail_commit(&commit, TerminalDisposition::Rejected);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
+
+    let terminal = coordinator
+        .fail_commit(&commit, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(terminal.hash, parent);
+    assert_eq!(terminal.disposition, TerminalDisposition::Rejected);
+    assert!(matches!(
+        coordinator.view(&child).unwrap().location,
+        CoordinatorLocation::Invalidated { cause } if cause == parent
+    ));
+
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(13),
+            Raw("new-parent"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    assert!(matches!(
+        coordinator.fail_commit(&commit, TerminalDisposition::Rejected),
+        Err(CoordinatorError::IncarnationMismatch { .. })
+    ));
+    assert_eq!(
+        coordinator.view(&parent).unwrap().location,
+        CoordinatorLocation::RawQueued(RawStage::PreCheck)
+    );
     coordinator.audit().unwrap();
 }
 
@@ -3662,6 +3720,64 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
 }
 
 #[test]
+fn pool_removal_demotion_and_winner_handoff_are_one_transaction() {
+    let mut coordinator = roomy();
+    let winner = verify_candidate(&mut coordinator, 190, inputs([90]), 1_000);
+    let lease = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(lease.hash, winner);
+
+    let removed_parent = hash(191);
+    let consumer = hash(192);
+    coordinator
+        .admit_raw(
+            consumer.clone(),
+            short(192),
+            Raw("consumer"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([removed_parent.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
+        .unwrap();
+    let winner_before = coordinator.view(&winner).unwrap();
+    let consumer_before = coordinator.view(&consumer).unwrap();
+    let usage = coordinator.usage();
+
+    // Two parent-demotion checkpoints run before the candidate handoff's
+    // removal checkpoint. A failure at the latter must restore both halves.
+    coordinator.set_apply_fault_for_test(Some(3));
+    let fault = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator
+            .commit_any_handoff_with_unavailable_parents(&lease, &set([removed_parent.clone()]));
+    }));
+    assert!(fault.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    assert_eq!(coordinator.view(&winner).unwrap(), winner_before);
+    assert_eq!(coordinator.view(&consumer).unwrap(), consumer_before);
+    assert_eq!(coordinator.usage(), usage);
+    coordinator.audit().unwrap();
+
+    coordinator
+        .commit_any_handoff_with_unavailable_parents(&lease, &set([removed_parent.clone()]))
+        .unwrap();
+    assert!(!coordinator.contains_hash(&winner));
+    assert_eq!(
+        coordinator.view(&consumer).unwrap().location,
+        CoordinatorLocation::WaitingParents {
+            missing: set([removed_parent])
+        }
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn clear_is_one_batch_and_does_not_revise_conflict_waiters() {
     let mut coordinator = roomy();
     let contested = input(13);
@@ -4007,4 +4123,243 @@ fn committing_deadline_cannot_block_later_expirations() {
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].hash, committing);
     coordinator.audit().unwrap();
+}
+
+#[test]
+fn active_verification_terminalization_is_causal_and_aba_safe() {
+    let mut coordinator = roomy();
+    let parent = hash(120);
+    let child = hash(121);
+    enqueue_verify(
+        &mut coordinator,
+        120,
+        CoordinatorSource::Remote(PeerIndex::from(7)),
+        VerifySchedule::default(),
+    );
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(121),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let lease = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.hash, parent);
+
+    coordinator
+        .promote_source(&parent, TrustedSource::Proposal)
+        .unwrap();
+    let terminal = coordinator
+        .terminalize_verification(&lease, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(terminal.source, CoordinatorSource::Proposal);
+    assert!(matches!(
+        coordinator.view(&child).unwrap().location,
+        CoordinatorLocation::Invalidated { cause } if cause == parent
+    ));
+
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(120),
+            Raw("new-parent"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    assert!(matches!(
+        coordinator.terminalize_verification(&lease, TerminalDisposition::Rejected),
+        Err(CoordinatorError::IncarnationMismatch { .. })
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn active_verification_terminalization_rolls_back_every_apply_boundary() {
+    for fault_step in 1..=3 {
+        let mut coordinator = roomy();
+        let parent = hash(122);
+        let child = hash(123);
+        enqueue_verify(
+            &mut coordinator,
+            122,
+            CoordinatorSource::Local,
+            VerifySchedule::default(),
+        );
+        coordinator
+            .admit_raw(
+                child.clone(),
+                short(123),
+                Raw("child"),
+                RawStage::Resolve,
+                None,
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+        let lease = coordinator
+            .checkout_verify(WorkerCapability::Any)
+            .unwrap()
+            .unwrap();
+        let before = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.terminalize_verification(&lease, TerminalDisposition::Rejected);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [parent, child].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
+}
+
+#[test]
+fn external_commit_wakes_children_and_invalidates_stale_leases() {
+    let mut coordinator = roomy();
+    let parent = hash(124);
+    let child = hash(125);
+    coordinator
+        .admit_raw(
+            parent.clone(),
+            short(124),
+            Raw("parent"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(125),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let parent_lease = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    let child_lease = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .wait_for_parents(&child_lease, set([parent.clone()]))
+        .unwrap();
+
+    let committed = coordinator.external_commit(&parent).unwrap().unwrap();
+    assert_eq!(committed.hash, parent);
+    assert_eq!(committed.ready_children.len(), 1);
+    assert_eq!(committed.ready_children[0].hash, child);
+    assert_eq!(
+        coordinator.view(&child).unwrap().location,
+        CoordinatorLocation::RawQueued(RawStage::Resolve)
+    );
+    assert!(matches!(
+        coordinator.terminalize_raw(&parent_lease, TerminalDisposition::Rejected),
+        Err(CoordinatorError::Missing(_))
+    ));
+    assert!(coordinator.external_commit(&parent).unwrap().is_none());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn nonresident_external_parent_commit_still_wakes_waiting_child() {
+    let mut coordinator = roomy();
+    let parent = hash(128);
+    let child = hash(129);
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(129),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let child_lease = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .wait_for_parents(&child_lease, set([parent.clone()]))
+        .unwrap();
+
+    assert!(coordinator.external_commit(&parent).unwrap().is_none());
+    assert_eq!(
+        coordinator.view(&child).unwrap().location,
+        CoordinatorLocation::RawQueued(RawStage::Resolve)
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn external_commit_rolls_back_child_wake_at_every_apply_boundary() {
+    for fault_step in 1..=3 {
+        let mut coordinator = roomy();
+        let parent = hash(126);
+        let child = hash(127);
+        coordinator
+            .admit_raw(
+                parent.clone(),
+                short(126),
+                Raw("parent"),
+                RawStage::PreCheck,
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+        coordinator
+            .admit_raw(
+                child.clone(),
+                short(127),
+                Raw("child"),
+                RawStage::Resolve,
+                None,
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+        let child_lease = coordinator
+            .checkout_raw(RawStage::Resolve)
+            .unwrap()
+            .unwrap();
+        coordinator
+            .wait_for_parents(&child_lease, set([parent.clone()]))
+            .unwrap();
+        let before = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.external_commit(&parent);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = [parent, child].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
 }

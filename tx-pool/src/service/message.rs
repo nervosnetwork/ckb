@@ -79,7 +79,7 @@ pub(crate) type SyncRequest<A, T> = Request<oneshot::Sender<T>, A>;
 /// Asynchronous request using the `tokio` oneshot responder.
 pub(crate) type AsyncRequest<A, T> = Request<tokio::sync::oneshot::Sender<T>, A>;
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub(crate) enum BlockAssemblerMessage {
     Pending,
     Proposed,

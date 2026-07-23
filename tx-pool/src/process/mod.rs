@@ -10,7 +10,9 @@ use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
 use ckb_snapshot::Snapshot;
+use ckb_store::ChainStore;
 use ckb_types::packed::OutPoint;
+use ckb_types::prelude::Entity;
 use ckb_types::{
     core::{
         BlockView, Capacity, EstimateMode, FeeRate, HeaderView, TransactionView,
@@ -26,9 +28,7 @@ use tokio::sync::mpsc;
 
 mod classify;
 mod post_process;
-mod rbf;
 pub(crate) mod recover;
-mod remove;
 pub(crate) mod reorg;
 pub(crate) mod submit;
 
@@ -76,7 +76,11 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn notify_block_assembler(&self, status: Status) {
+    /// Record the assembler delta synchronously at the same linearization
+    /// point as the pool mutation. The channel is only a wake edge; the dirty
+    /// bit is the level-triggered authority and therefore cannot be left to a
+    /// cancellable post-commit future.
+    pub(crate) fn journal_block_assembler_update(&self, status: Status) {
         if !self.should_notify_block_assembler() {
             return;
         }
@@ -138,11 +142,22 @@ impl TxPoolService {
         let dup = || Reject::Duplicated(tx.hash());
         let id = tx.proposal_short_id();
 
-        // Active jobs are authoritative pipeline residents too. Panic guards
-        // now finish every popped job, so allowing resubmission while active
-        // only creates duplicate CPU work and lets two workers overwrite the
-        // same ActiveSet slot.
-        if self.pipeline_contains(&id).await {
+        // Membership and pre-pool ownership are checked in the universal
+        // TxPool -> coordinator order. This rejects replay of already accepted
+        // transactions before it can consume bounded pipeline residency/CPU,
+        // while remaining gap-free across a concurrent commit handoff.
+        let duplicate = {
+            let pool = self.pool.tx_pool.read().await;
+            let accepted = pool
+                .get_tx_from_pool(&id)
+                .is_some_and(|resident| resident.hash() == tx.hash());
+            accepted
+                || self
+                    .pipeline
+                    .runtime
+                    .read(|coordinator| coordinator.contains_hash(&tx.hash()))
+        };
+        if duplicate {
             return Err(dup());
         }
 
@@ -158,7 +173,8 @@ impl TxPoolService {
         let ret = self.classify_and_enqueue_tx_spawn(tx, source).await;
 
         if matches!(ret, Err(Reject::Full(_))) {
-            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash })
+                .await;
         }
 
         ret
@@ -183,7 +199,11 @@ impl TxPoolService {
     }
 
     pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
-        if let Err(reject) = self.check_tx_basic_validity(&tx).await {
+        // Proposal is a trusted source promotion, not an ordinary duplicate.
+        // Admission must reach the coordinator so an existing Remote owner is
+        // upgraded in place (priority, peer budget and ban attribution) while
+        // any active versioned lease remains valid.
+        if let Err(reject) = self.non_contextual_verify(&tx).await {
             self.reject_with_after_process(tx, TxSource::Proposal, reject.clone())
                 .await;
             return Err(reject);
@@ -197,34 +217,28 @@ impl TxPoolService {
         tx: TransactionView,
         source: TxSource,
     ) -> Result<Completed, Reject> {
-        if let Err(reject) = self.check_tx_basic_validity(&tx).await {
-            // Same side effects as a pipeline rejection — in particular the
-            // local-duplicate re-broadcast in `after_process_local`.
+        // Local RPC is deliberately synchronous. A matching remote/proposal
+        // coordinator entry must not turn it into an asynchronous duplicate:
+        // run the authoritative checks directly and let a successful pool
+        // commit invalidate the older coordinator lease.
+        if let Err(reject) = self.non_contextual_verify(&tx).await {
             self.reject_with_after_process(tx, source, reject.clone())
                 .await;
             return Err(reject);
         }
 
         let ret = self.process_tx_direct(tx.clone(), source, None).await;
-        self.after_process(tx, source, &ret).await;
+        // A fresh commit journals its Ok relay result inside the authoritative
+        // pool transaction. Only pre-commit failures (including a Local
+        // duplicate, which intentionally re-broadcasts Ok) remain here.
+        if ret.is_err() {
+            self.after_process(tx, source, &ret).await;
+        }
         ret
     }
 
-    pub(crate) fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
-        if let Some(ref recent_reject) = self.aux.recent_reject
-            && let Err(e) = recent_reject.put(tx_hash, reject.clone())
-        {
-            error!(
-                "Failed to record recent_reject {} {} {}",
-                tx_hash, reject, e
-            );
-        }
-    }
-
-    pub(crate) fn send_result_to_relayer(&self, result: TxVerificationResult) {
-        if let Err(e) = self.relay.tx_relay_sender.send(result) {
-            error!("tx-pool tx_relay_sender internal error {}", e);
-        }
+    pub(crate) async fn send_result_to_relayer(&self, result: TxVerificationResult) {
+        self.publish_relay_result(result).await;
     }
     pub(crate) fn sort_txs_by_dependencies(txs: &mut Vec<TransactionView>) {
         Self::sort_by_dependencies(txs, |tx| tx);
@@ -306,15 +320,22 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
-        // Declare the callback effect barrier before the recovery guard.
-        // Rust drops locals in reverse order, so every normal, cancellation,
-        // or unwind path releases recovery_lock before publishing callbacks.
-        // Nested after_process calls during detached-tx recovery use the same
-        // callback set and are therefore covered too.
-        let _callback_deferral = self.relay.callbacks.defer();
-
+        // Reserve before taking `recovery_lock`: publication backpressure
+        // must never form recovery_lock -> effect queue -> callback ->
+        // save_pool -> recovery_lock. The conservative whole-pool credit is
+        // shrunk to the actual batch while the pool mutation is still locked.
+        let reorg_permit = match self
+            .reserve_critical_effects(self.max_reorg_effect_bytes())
+            .await
+        {
+            Ok(permit) => permit,
+            Err(error) => {
+                error!("reorg effect reservation failed: {:?}", error);
+                return;
+            }
+        };
         // Hold the recovery lock for the *whole* reorg — the write-lock
-        // section, the callbacks, and the retained-transaction recovery —
+        // section and the retained-transaction recovery —
         // so `save_pool` can never persist a half-updated pool: a snapshot
         // taken between the write-lock section and the recovery would
         // silently lose the detached transactions that have not been
@@ -349,53 +370,60 @@ impl TxPoolService {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.pool.tx_pool.write().await;
 
-            reorg::update_tx_pool_for_reorg(
+            let outcome = reorg::update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
                 &detached_headers,
                 detached_proposal_id,
                 snapshot,
                 mine_mode,
-            )
-        };
-
-        // Dispatch reject callbacks outside the write lock, then clean up
-        // in-flight RBF candidates targeting inputs that have just been freed
-        // by the reorg (committed, expired, detached, or evicted transactions).
-        // The reconcile's silently-removed entries freed their inputs too and
-        // must join the same cleanup — it is driven by this call alone.
-        for (entry, reject) in &reject_events {
-            self.relay.callbacks.call_reject(entry, reject.clone());
-        }
-        // Proposed/pending notifications collected inside the write-lock
-        // section are dispatched here, outside the lock (user callbacks
-        // must never run in-lock: a blocking or re-entering callback
-        // would stall the whole pool).
-        for (entry, status) in &notify_events {
-            match status {
-                crate::component::pool_map::Status::Proposed => {
-                    self.relay.callbacks.call_proposed(entry)
-                }
-                _ => self.relay.callbacks.call_pending(entry),
-            }
-        }
-        self.cleanup_rbf_for_removed_entries(
-            reject_events
+            );
+            // Apply the complete membership delta under the same pool write
+            // guard. Attached/on-chain parents remain available; every other
+            // physical removal demotes its already-resolved coordinator
+            // consumers. The reorg worker retains and retries this whole delta
+            // on panic, so a coordinator failure must fail closed rather than
+            // release an incoherent pool/coordinator pair.
+            let mut committed: HashSet<_> = attached.iter().map(TransactionView::hash).collect();
+            let mut unavailable = HashSet::new();
+            for entry in outcome
+                .reject_events
                 .iter()
                 .map(|(entry, _)| entry)
-                .chain(silently_removed.iter()),
-        )
-        .await;
-
-        self.remove_orphan_txs_by_attach(&attached).await;
-        // Remove the newly committed transactions from every pipeline
-        // structure with the full terminal sequence (queue removal,
-        // registration removal, and finalize semantics for the candidates
-        // an attached winner held: their race is lost for real — relayed,
-        // but not recorded).
-        let attached_ids: Vec<ProposalShortId> =
-            attached.iter().map(|tx| tx.proposal_short_id()).collect();
-        self.remove_attached_from_pipeline(&attached_ids).await;
+                .chain(outcome.silently_removed.iter())
+            {
+                let hash = entry.transaction().hash();
+                if tx_pool.snapshot().transaction_exists(&hash) {
+                    committed.insert(hash);
+                } else {
+                    unavailable.insert(hash);
+                }
+            }
+            if let Err(error) = self.pipeline.runtime.mutate(|coordinator| {
+                coordinator.external_commits_with_unavailable_parents(&committed, &unavailable)
+            }) {
+                panic!("reorg coordinator membership transaction failed: {error:?}");
+            }
+            let mut effects = Vec::new();
+            for (entry, reject) in &outcome.reject_events {
+                effects.extend(self.rejected_effects(entry.clone(), reject.clone()));
+            }
+            for (entry, status) in &outcome.notify_events {
+                if let Some(effect) = self.accepted_effect(entry.clone(), *status) {
+                    effects.push(effect);
+                }
+            }
+            if let Err(error) = self.publish_reserved_effects(reorg_permit, effects) {
+                panic!("reserved reorg effect journal failed inside pool transaction: {error:?}");
+            }
+            outcome
+        };
+        // Publication was bound before the pool guard opened. The publisher
+        // may run while detached transactions are recovered, but every
+        // callback observes a complete pool-mutation slice;
+        // `recovery_lock` protects persistence, not ordinary RPC visibility.
+        let _ = (reject_events, notify_events);
+        let _ = silently_removed;
 
         // Recover detached transactions through the direct per-tx entry point.
         // Dependent transactions must be processed after their parents have
@@ -411,9 +439,7 @@ impl TxPoolService {
                     .process_tx_direct_outcome(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
                     .await;
                 // Only a definitive failure may cascade-remove dependents.
-                // `Superseded` means the tx is merely held by a stronger
-                // in-flight RBF registration (its fate follows the winner's),
-                // and `Duplicated` means it is already back in the pool
+                // `Duplicated` means it is already back in the pool
                 // (concurrent resubmission, or this same reorg retried after
                 // a panic) — cascading on either would evict healthy
                 // dependents and emit spurious Dead rejections.
@@ -422,14 +448,6 @@ impl TxPoolService {
                     | Err(Reject::Duplicated(_)) => {
                         // The detached tx is back in the pool. Wake up any
                         // orphans that depend on it (including via cell dep).
-                        self.process_orphan_tx(&tx).await;
-                        continue;
-                    }
-                    Ok(crate::process::submit::VerifySubmitOutcome::Superseded) => {
-                        debug!(
-                            "reorg re-add {} held by a stronger in-flight RBF candidate",
-                            tx.hash()
-                        );
                         continue;
                     }
                     Ok(crate::process::submit::VerifySubmitOutcome::Cleared) => {
@@ -440,72 +458,86 @@ impl TxPoolService {
                 };
                 {
                     debug!("reorg re-add failed: {}", reject);
+                    let cascade_permit = self
+                        .reserve_effects(self.max_reorg_effect_bytes())
+                        .await
+                        .unwrap_or_else(|error| {
+                            panic!("reorg cascade effect reservation failed: {error:?}")
+                        });
                     // The detached tx could not be re-added: any in-pool
                     // transactions referencing its outputs — as inputs *or*
                     // as cell deps — can never resolve now and would sit in
                     // the pool as zombies until expiry (the template
                     // builder filters them out every round). Cascade-remove
-                    // them; callbacks are dispatched outside the write lock.
-                    let mut cascaded = Vec::new();
+                    // them and journal their terminal effects before opening
+                    // the same pool write lock.
                     {
                         let mut tx_pool = self.pool.tx_pool.write().await;
+                        let mut roots: HashMap<ProposalShortId, OutPoint> = HashMap::new();
                         for out_point in tx.output_pts() {
-                            let mut dependents: HashSet<ProposalShortId> = HashSet::new();
                             if let Some(id) = tx_pool
                                 .pool_map
                                 .out_point_index
                                 .get_input_ref(&out_point)
                                 .cloned()
                             {
-                                dependents.insert(id);
+                                roots.entry(id).or_insert_with(|| out_point.clone());
                             }
                             if let Some(ids) =
                                 tx_pool.pool_map.out_point_index.get_deps_ref(&out_point)
                             {
-                                dependents.extend(ids.iter().cloned());
-                            }
-                            for child_id in dependents {
-                                let removed =
-                                    tx_pool.pool_map.remove_entry_and_descendants(&child_id);
-                                cascaded.extend(
-                                    removed.into_iter().map(|entry| (entry, out_point.clone())),
-                                );
+                                for id in ids {
+                                    roots.entry(id.clone()).or_insert_with(|| out_point.clone());
+                                }
                             }
                         }
-                    }
-                    // These entries released their inputs outside the main
-                    // reorg reconciliation outcome. Remove speculative RBF
-                    // registrations targeting those inputs as well; otherwise
-                    // a ghost candidate can keep future replacements blocked
-                    // after its conflict target no longer exists in the pool.
-                    self.cleanup_rbf_for_removed_entries(cascaded.iter().map(|(entry, _)| entry))
-                        .await;
-                    for (entry, out_point) in cascaded {
-                        debug!(
-                            "cascade-remove pool tx {}: its reference {:?} died with the failed re-add",
-                            entry.transaction().hash(),
-                            out_point,
-                        );
-                        self.relay.callbacks.call_reject(
-                            &entry,
-                            Reject::Resolve(ckb_types::core::error::OutPointError::Dead(out_point)),
-                        );
-                    }
-                    // Orphans parked on this tx as their missing parent can
-                    // never resolve either — remove them with the same
-                    // Reject notification the orphan-eviction route sends.
-                    let orphan_entries = {
-                        let mut room = self.pipeline.waiting_room.write().await;
-                        let ids: Vec<ProposalShortId> =
-                            room.find_by_parent(&tx).into_iter().cloned().collect();
-                        ids.into_iter()
-                            .filter_map(|id| room.remove(&id))
-                            .collect::<Vec<_>>()
-                    };
-                    for entry in orphan_entries {
-                        self.send_result_to_relayer(TxVerificationResult::Reject {
-                            tx_hash: entry.tx.hash(),
-                        });
+                        let mut removal_ids: HashSet<_> = roots.keys().cloned().collect();
+                        for root in roots.keys() {
+                            removal_ids.extend(tx_pool.pool_map.calc_descendants(root));
+                        }
+                        let removal_hashes: HashSet<_> = removal_ids
+                            .iter()
+                            .filter_map(|id| {
+                                tx_pool
+                                    .pool_map
+                                    .get_by_id(id)
+                                    .map(|entry| entry.inner.transaction().hash())
+                            })
+                            .collect();
+                        if let Err(error) = self
+                            .pipeline
+                            .runtime
+                            .mutate(|coordinator| coordinator.parents_unavailable(&removal_hashes))
+                        {
+                            panic!(
+                                "reorg failed-recovery dependency transaction failed: {error:?}"
+                            );
+                        }
+                        let mut ordered_roots: Vec<_> = roots.into_iter().collect();
+                        ordered_roots
+                            .sort_by(|(left, _), (right, _)| left.as_slice().cmp(right.as_slice()));
+                        let mut effects = Vec::new();
+                        for (child_id, out_point) in ordered_roots {
+                            let removed = tx_pool.pool_map.remove_entry_and_descendants(&child_id);
+                            for entry in removed {
+                                debug!(
+                                    "cascade-remove pool tx {}: its reference {:?} died with the failed re-add",
+                                    entry.transaction().hash(),
+                                    out_point,
+                                );
+                                effects.extend(self.rejected_effects(
+                                    entry,
+                                    Reject::Resolve(ckb_types::core::error::OutPointError::Dead(
+                                        out_point.clone(),
+                                    )),
+                                ));
+                            }
+                        }
+                        if let Err(error) = self.publish_reserved_effects(cascade_permit, effects) {
+                            panic!(
+                                "reserved reorg cascade journal failed inside pool transaction: {error:?}"
+                            );
+                        }
                     }
                     self.after_process(tx, TxSource::Local, &Err(reject)).await;
                 }
@@ -514,6 +546,18 @@ impl TxPoolService {
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
+        let terminal_permit = match self
+            .reserve_effects(Self::pipeline_terminal_effect_bytes(
+                self.pipeline.runtime.max_entries(),
+            ))
+            .await
+        {
+            Ok(permit) => permit,
+            Err(error) => {
+                error!("clear pool effect reservation failed: {:?}", error);
+                return;
+            }
+        };
         // Invalidate popped/active work before waiting for recovery or the
         // pool write lock. Every later pipeline boundary and the final commit
         // reject the old generation, while a submit that already linearized
@@ -524,11 +568,21 @@ impl TxPoolService {
         // otherwise the freshly cleared pool would be repopulated by the
         // recovery and `clear_pool` would return with a non-empty pool.
         let _recovery_guard = self.recovery_lock.lock().await;
-        {
+        let terminal = {
             let mut tx_pool = self.pool.tx_pool.write().await;
             tx_pool.clear(Arc::clone(&new_snapshot));
+            self.pipeline.runtime.mutate(|coordinator| {
+                let result = coordinator.clear();
+                if let Ok(records) = &result {
+                    self.journal_pipeline_terminal_records(terminal_permit, records);
+                }
+                result
+            })
+        };
+        match terminal {
+            Ok(_records) => {}
+            Err(error) => error!("failed to clear pipeline coordinator: {:?}", error),
         }
-        self.clear_pipeline_queues().await;
         // reset block_assembler
         if self
             .relay

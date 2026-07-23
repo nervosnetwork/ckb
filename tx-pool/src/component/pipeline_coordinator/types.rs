@@ -60,7 +60,6 @@ pub(crate) enum CoordinatorLocation {
     VerifyQueued,
     VerifyActive,
     ReadyToCommit,
-    WaitingPoolInputs { inputs: HashSet<OutPoint> },
     WaitingConflict { blockers: HashSet<Byte32> },
     ConflictRecheck,
     Committing,
@@ -154,9 +153,6 @@ pub(crate) struct CoordinatorLimits {
     pub(crate) max_conflict_inputs_per_entry: usize,
     pub(crate) max_candidates_per_input: usize,
     pub(crate) max_conflict_edges: usize,
-    pub(crate) max_pool_inputs_per_entry: usize,
-    pub(crate) max_pool_waiters_per_input: usize,
-    pub(crate) max_pool_input_edges: usize,
     pub(crate) metadata_cost: CoordinatorMetadataCost,
     pub(crate) max_active_work: usize,
     pub(crate) max_active_work_per_peer: usize,
@@ -188,7 +184,6 @@ pub(crate) struct CoordinatorMetadataCost {
     pub(crate) lifecycle_ticket_bytes: usize,
     pub(crate) deadline_ticket_bytes: usize,
     pub(crate) conflict_edge_bytes: usize,
-    pub(crate) pool_input_edge_bytes: usize,
 }
 
 impl CoordinatorLimits {
@@ -210,16 +205,12 @@ impl CoordinatorLimits {
             max_conflict_inputs_per_entry: max_dependencies_per_entry,
             max_candidates_per_input: max_dependents_per_parent,
             max_conflict_edges: global.entries.saturating_mul(max_dependencies_per_entry),
-            max_pool_inputs_per_entry: max_dependencies_per_entry,
-            max_pool_waiters_per_input: max_dependents_per_parent,
-            max_pool_input_edges: global.entries.saturating_mul(max_dependencies_per_entry),
             metadata_cost: CoordinatorMetadataCost {
                 entry_bytes: 0,
                 dependency_edge_bytes: 0,
                 lifecycle_ticket_bytes: 0,
                 deadline_ticket_bytes: 0,
                 conflict_edge_bytes: 0,
-                pool_input_edge_bytes: 0,
             },
             max_active_work: global.entries,
             max_active_work_per_peer: match per_peer {
@@ -249,18 +240,6 @@ impl CoordinatorLimits {
         self.max_conflict_inputs_per_entry = max_conflict_inputs_per_entry;
         self.max_candidates_per_input = max_candidates_per_input;
         self.max_conflict_edges = max_conflict_edges;
-        self
-    }
-
-    pub(crate) const fn with_pool_input_limits(
-        mut self,
-        max_pool_inputs_per_entry: usize,
-        max_pool_waiters_per_input: usize,
-        max_pool_input_edges: usize,
-    ) -> Self {
-        self.max_pool_inputs_per_entry = max_pool_inputs_per_entry;
-        self.max_pool_waiters_per_input = max_pool_waiters_per_input;
-        self.max_pool_input_edges = max_pool_input_edges;
         self
     }
 
@@ -374,6 +353,7 @@ pub(crate) struct RawWorkLease<R> {
     pub(crate) stage: RawStage,
     pub(crate) version: CoordinatorVersion,
     pub(crate) payload: Arc<R>,
+    pub(crate) source: CoordinatorSource,
 }
 
 #[derive(Debug, Clone)]
@@ -381,6 +361,7 @@ pub(crate) struct VerifyWorkLease<U> {
     pub(crate) hash: Byte32,
     pub(crate) version: CoordinatorVersion,
     pub(crate) payload: Arc<U>,
+    pub(crate) source: CoordinatorSource,
 }
 
 #[derive(Debug, Clone)]
@@ -397,6 +378,15 @@ pub(crate) struct CommitHandoff<R, V> {
     pub(crate) raw: Arc<R>,
     pub(crate) verified: Arc<V>,
     pub(crate) peer: Option<PeerIndex>,
+    pub(crate) source: CoordinatorSource,
+    pub(crate) ready_children: Vec<CoordinatorTicket>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ExternalCommitRecord<R> {
+    pub(crate) hash: Byte32,
+    pub(crate) short_id: ProposalShortId,
+    pub(crate) raw: Arc<R>,
     pub(crate) source: CoordinatorSource,
     pub(crate) ready_children: Vec<CoordinatorTicket>,
 }
@@ -477,9 +467,6 @@ pub(crate) enum CoordinatorError {
     ConflictInputLimitExceeded,
     ConflictCandidateLimitExceeded(OutPoint),
     ConflictEdgeLimitExceeded,
-    PoolInputLimitExceeded,
-    PoolInputWaiterLimitExceeded(OutPoint),
-    PoolInputEdgeLimitExceeded,
     CapacityEvictionLimitExceeded,
     ArrivalSequenceExhausted,
     QueueSequenceExhausted,
@@ -538,8 +525,6 @@ pub(crate) enum CoordinatorAuditError {
     ConflictActiveIndex,
     ConflictWaiterIndex,
     ConflictMaintenanceIndex,
-    PoolInputIndex,
-    PoolInputEdgeCount,
     DeadlineIndex,
     StateInvariant(Byte32),
     MetadataCharge,
@@ -564,14 +549,12 @@ pub(super) enum UnverifiedLocation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PlainVerifiedLocation {
     Ready,
-    WaitingPoolInputs { inputs: HashSet<OutPoint> },
     Committing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum CandidateLocation {
     Ready,
-    WaitingPoolInputs { inputs: HashSet<OutPoint> },
     WaitingConflict { blockers: HashSet<Byte32> },
     Recheck { sequence: u64 },
     Committing,
@@ -739,16 +722,6 @@ impl<R, U, V> EntryState<R, U, V> {
                 location: CandidateLocation::Ready,
                 ..
             } => CoordinatorLocation::ReadyToCommit,
-            Self::PlainVerified {
-                location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
-                ..
-            }
-            | Self::CandidateVerified {
-                location: CandidateLocation::WaitingPoolInputs { inputs },
-                ..
-            } => CoordinatorLocation::WaitingPoolInputs {
-                inputs: inputs.clone(),
-            },
             Self::CandidateVerified {
                 location: CandidateLocation::WaitingConflict { blockers },
                 ..
@@ -834,20 +807,6 @@ impl<R, U, V> EntryState<R, U, V> {
     pub(super) fn candidate(&self) -> Option<&CandidateMeta> {
         match self {
             Self::CandidateVerified { candidate, .. } => Some(candidate),
-            _ => None,
-        }
-    }
-
-    pub(super) fn waiting_pool_inputs(&self) -> Option<&HashSet<OutPoint>> {
-        match self {
-            Self::PlainVerified {
-                location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
-                ..
-            }
-            | Self::CandidateVerified {
-                location: CandidateLocation::WaitingPoolInputs { inputs },
-                ..
-            } => Some(inputs),
             _ => None,
         }
     }
@@ -950,10 +909,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
                 location: RawLocation::WaitingParents { missing },
                 ..
             } => !missing.is_empty() && missing.is_subset(&self.dependencies),
-            EntryState::PlainVerified {
-                location: PlainVerifiedLocation::WaitingPoolInputs { inputs },
-                ..
-            } => !inputs.is_empty() && inputs.len() <= limits.max_pool_inputs_per_entry,
             EntryState::CandidateVerified {
                 candidate,
                 location,
@@ -963,9 +918,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
                     && candidate.inputs.len() <= limits.max_conflict_inputs_per_entry
                     && candidate.tx_size != 0
                     && match location {
-                        CandidateLocation::WaitingPoolInputs { inputs } => {
-                            !inputs.is_empty() && inputs.len() <= limits.max_pool_inputs_per_entry
-                        }
                         CandidateLocation::WaitingConflict { blockers } => {
                             !blockers.is_empty()
                                 && blockers.len() <= limits.max_conflict_inputs_per_entry
@@ -1022,10 +974,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
 
     pub(super) fn candidate(&self) -> Option<&CandidateMeta> {
         self.state.candidate()
-    }
-
-    pub(super) fn waiting_pool_inputs(&self) -> Option<&HashSet<OutPoint>> {
-        self.state.waiting_pool_inputs()
     }
 
     pub(super) fn waiting_conflict_blockers(&self) -> Option<&HashSet<Byte32>> {

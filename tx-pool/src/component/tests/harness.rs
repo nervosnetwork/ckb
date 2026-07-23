@@ -11,10 +11,6 @@
 //! call sites change.
 
 use crate::callback::Callbacks;
-use crate::component::pipeline_queue::PipelineQueue;
-use crate::component::pipeline_queues::PipelineQueues;
-use crate::component::verify_queue::VerifyQueue;
-use crate::component::waiting_room::WaitingRoom;
 use crate::pool::TxPool;
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::{TxPoolService, TxVerificationResult};
@@ -34,6 +30,10 @@ use tokio::sync::{RwLock, mpsc, watch};
 use super::pipeline::secp_test_consensus;
 use super::pipeline::{snapshot_with_genesis, test_consensus, tx_pool_config};
 use ckb_snapshot::Snapshot;
+
+pub(crate) fn dummy_network() -> crate::network::TxPoolNetworkHandle {
+    Arc::new(crate::network::DummyTxPoolNetwork)
+}
 
 /// Which background workers the harness spawns.
 pub(crate) enum WorkerSet {
@@ -58,8 +58,6 @@ pub(crate) struct Harness {
     #[allow(dead_code)]
     pub(crate) cell_deps: Option<Vec<CellDep>>,
     pub(crate) chunk_tx: Option<watch::Sender<ChunkCommand>>,
-    #[allow(dead_code)]
-    pub(crate) queues: Arc<PipelineQueues>,
 }
 
 pub(crate) struct HarnessBuilder {
@@ -160,20 +158,6 @@ impl HarnessBuilder {
         let (block_assembler_sender, block_assembler_rx) = mpsc::channel(1);
         let signal = CancellationToken::new();
         let pre_check_cancel = signal.child_token();
-        let queues = Arc::new(PipelineQueues {
-            ordered_resolve_queue: RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            ),
-            verify_queue: RwLock::new(VerifyQueue::new(
-                config.max_tx_verify_cycles,
-                config.verify_ordering,
-                config.verify_queue_tx_size_budget(),
-            )),
-            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
-                pre_check_cancel,
-            ),
-            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-        });
         let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
         // Two command channels, mirroring the previous inline harnesses: the
         // service keeps its own receiver (for direct per-tx verification),
@@ -181,6 +165,23 @@ impl HarnessBuilder {
         // whose sender may be handed to the test.
         let (service_chunk_tx, service_chunk_rx) = watch::channel(ChunkCommand::Resume);
         let (chunk_tx, verify_chunk_rx) = watch::channel(ChunkCommand::Resume);
+        let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+            &config,
+            &consensus,
+            pre_check_cancel,
+        ));
+        let critical_effect_bytes = config
+            .max_tx_pool_size
+            .saturating_mul(crate::service::effects::REORG_EFFECT_CAPACITY_MULTIPLIER);
+        let effects = Arc::new(
+            crate::service::effects::EffectQueue::new_with_critical_capacity(
+                1024,
+                512_000_000,
+                1,
+                critical_effect_bytes,
+            )
+            .unwrap(),
+        );
 
         let service = TxPoolService {
             pool: crate::service::PoolCore {
@@ -189,18 +190,18 @@ impl HarnessBuilder {
                 tx_pool_config: Arc::new(config),
             },
             pipeline: crate::service::PipelineState {
+                runtime,
                 epoch: Arc::new(crate::service::PipelineEpoch::default()),
-                queues: Arc::clone(&queues),
-                waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
                 chunk_rx: service_chunk_rx,
                 deferred_sender,
             },
             relay: crate::service::RelayState {
-                network: super::chunk::dummy_network(),
+                network: dummy_network(),
                 tx_relay_sender,
                 block_assembler_sender,
                 block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
                 callbacks: Arc::new(Callbacks::new()),
+                effects: Arc::clone(&effects),
                 banned_peers: Default::default(),
             },
             aux: crate::service::AuxServices {
@@ -212,21 +213,47 @@ impl HarnessBuilder {
             recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
 
+        // The effect publisher is deliberately independent from pipeline
+        // workers, matching production and allowing callbacks to re-enter the
+        // service without consuming a worker/dispatcher slot.
+        {
+            let queue = Arc::clone(&effects);
+            let endpoints = crate::service::effects::EffectEndpoints {
+                network: Arc::clone(&service.relay.network),
+                tx_relay_sender: service.relay.tx_relay_sender.clone(),
+            };
+            let publisher_cancel = signal.clone();
+            let close_queue = Arc::clone(&queue);
+            tokio::spawn(async move {
+                publisher_cancel.cancelled().await;
+                close_queue.close();
+            });
+            tokio::spawn(crate::service::effects::run_effect_publisher(
+                queue, endpoints,
+            ));
+        }
+
         // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
         {
-            let queues = Arc::clone(&queues);
+            let runtime = Arc::clone(&service.pipeline.runtime);
             let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
             let epoch = Arc::clone(&service.pipeline.epoch);
+            let relay = service.relay.clone();
+            let deferred_cancel = signal.child_token();
             tokio::spawn(async move {
                 while let Some(task) = deferred_receiver.recv().await {
                     match task {
                         crate::service::DeferredTask::RecoverTxs(txs) => {
-                            let mut queue = queues.ordered_resolve_queue.write().await;
-                            for job in txs {
-                                if epoch.is_current(job.epoch) {
-                                    let _ = queue.add_tx(job);
-                                }
-                            }
+                            crate::process::recover::enqueue_pipeline_recover_txs(
+                                Arc::clone(&runtime),
+                                txs,
+                                &deferred_cancel,
+                                &relay,
+                                None,
+                                &epoch,
+                                true,
+                            )
+                            .await;
                         }
                         crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                             let mut guard = txs_verify_cache.write().await;
@@ -294,7 +321,6 @@ impl HarnessBuilder {
             out_points,
             cell_deps,
             chunk_tx: self.with_chunk_sender.then_some(chunk_tx),
-            queues,
         }
     }
 }

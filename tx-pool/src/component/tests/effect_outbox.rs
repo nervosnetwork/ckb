@@ -77,6 +77,23 @@ fn retry_retains_fifo_head_and_residency() {
 }
 
 #[test]
+fn conservative_reservation_is_refunded_when_batch_is_bound() {
+    let mut outbox = EffectOutbox::new(EffectOutboxLimits::new(2, 100)).unwrap();
+    let reservation = outbox.reserve(100).unwrap();
+    outbox.shrink_reservation(reservation, 10).unwrap();
+    outbox.bind_sequence(reservation).unwrap();
+    outbox.enqueue(reservation, "small").unwrap();
+    assert_eq!(
+        outbox.usage(),
+        EffectOutboxUsage {
+            batches: 1,
+            bytes: 10
+        }
+    );
+    outbox.audit().unwrap();
+}
+
+#[test]
 fn earlier_bound_reservation_cannot_be_overtaken() {
     let mut outbox = EffectOutbox::new(EffectOutboxLimits::new(4, 100)).unwrap();
     let first = outbox.reserve(10).unwrap();
@@ -113,6 +130,24 @@ fn sequence_exhaustion_fails_before_binding_or_enqueue() {
     );
     outbox.cancel(reservation).unwrap();
     outbox.audit().unwrap();
+}
+
+#[test]
+fn production_reservation_preflights_sequence_capacity() {
+    let mut outbox: EffectOutbox<&'static str> =
+        EffectOutbox::new(EffectOutboxLimits::new(2, 100)).unwrap();
+    outbox.set_next_sequence_for_test(u64::MAX);
+    assert_eq!(
+        outbox.reserve(10),
+        Err(EffectOutboxError::SequenceExhausted)
+    );
+    assert_eq!(
+        outbox.usage(),
+        EffectOutboxUsage {
+            batches: 0,
+            bytes: 0
+        }
+    );
 }
 
 #[test]

@@ -302,11 +302,11 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
     let reject_calls = Arc::new(AtomicUsize::new(0));
     let mut callbacks = crate::callback::Callbacks::new();
     let pending_calls_cb = Arc::clone(&pending_calls);
-    let recovery_lock = Arc::clone(&h.service.recovery_lock);
+    let pool_for_callback = Arc::clone(&h.service.pool.tx_pool);
     callbacks.register_pending(Box::new(move |_| {
         assert!(
-            recovery_lock.try_lock().is_ok(),
-            "reorg callbacks must publish after recovery_lock is released"
+            pool_for_callback.try_read().is_ok(),
+            "reorg callbacks must publish after the authoritative pool slice"
         );
         pending_calls_cb.fetch_add(1, Ordering::SeqCst);
     }));
@@ -344,6 +344,7 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
     };
 
     run(h.service.clone(), Arc::clone(&snapshot)).await;
+    h.service.relay.effects.wait_idle().await;
     let status_after_failure = {
         let tx_pool = h.service.pool.tx_pool.read().await;
         entry_status(&tx_pool, &id)
@@ -357,6 +358,7 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
     assert_eq!(reject_calls.load(Ordering::SeqCst), 0);
 
     run(h.service.clone(), snapshot).await;
+    h.service.relay.effects.wait_idle().await;
     let status_after_replay = {
         let tx_pool = h.service.pool.tx_pool.read().await;
         entry_status(&tx_pool, &id)

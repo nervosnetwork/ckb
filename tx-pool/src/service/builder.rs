@@ -3,10 +3,9 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::recent_reject::RecentReject;
-use crate::component::verify_queue::VerifyQueue;
-use crate::component::waiting_room::WaitingRoom;
 use crate::constants::{
-    DEFERRED_CHANNEL_SIZE, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
+    DEFERRED_CHANNEL_SIZE, EFFECT_OUTBOX_MAX_BATCHES, MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE,
+    MAX_PRE_CHECK_QUEUE_TX_SIZE, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
     SECONDS_PER_DAY,
 };
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
@@ -81,26 +80,43 @@ fn assemble_service(
     deferred_sender: mpsc::Sender<DeferredTask>,
     chunk_rx: watch::Receiver<ChunkCommand>,
     pre_check_cancel: CancellationToken,
-) -> (
-    TxPoolService,
-    Arc<crate::component::pipeline_queues::PipelineQueues>,
-) {
-    // One `Arc` shared by the service and every worker: the queue fields
-    // inside are plain locks, not per-queue `Arc`s.
-    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
-        ordered_resolve_queue: RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ),
-        verify_queue: RwLock::new(VerifyQueue::new(
-            tx_pool.config.max_tx_verify_cycles,
-            tx_pool.config.verify_ordering,
-            tx_pool.config.verify_queue_tx_size_budget(),
-        )),
-        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
-        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
-    });
-
+) -> TxPoolService {
+    let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool.config,
+        &consensus,
+        pre_check_cancel.clone(),
+    ));
     let tx_pool_config = tx_pool.config.clone();
+    // One batch can carry a complete pool-removal/reorg callback journal.
+    // Keep another complete pre-pool residency available so a stalled sink
+    // cannot create an uncharged payload gap while ownership is transferred.
+    let resident_effect_bytes = tx_pool_config
+        .max_tx_pool_size
+        .saturating_add(tx_pool_config.verify_queue_tx_size_budget())
+        .saturating_add(MAX_PRE_CHECK_QUEUE_TX_SIZE)
+        .saturating_add(MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE)
+        .saturating_mul(2);
+    let submit_effect_bytes = tx_pool_config
+        .max_tx_pool_size
+        .saturating_mul(4)
+        .min(
+            (consensus.max_block_bytes() as usize)
+                .saturating_mul(crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(4)),
+        )
+        .max(4096);
+    let reorg_effect_bytes = tx_pool_config
+        .max_tx_pool_size
+        .saturating_mul(crate::service::effects::REORG_EFFECT_CAPACITY_MULTIPLIER);
+    let ordinary_effect_bytes = resident_effect_bytes.max(submit_effect_bytes);
+    let effects = Arc::new(
+        crate::service::effects::EffectQueue::new_with_critical_capacity(
+            EFFECT_OUTBOX_MAX_BATCHES,
+            ordinary_effect_bytes,
+            1,
+            reorg_effect_bytes,
+        )
+        .unwrap_or_else(|error| panic!("failed to allocate tx-pool effect outbox: {error:?}")),
+    );
     let service = TxPoolService {
         pool: crate::service::PoolCore {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
@@ -108,9 +124,8 @@ fn assemble_service(
             tx_pool_config: Arc::new(tx_pool_config),
         },
         pipeline: crate::service::PipelineState {
+            runtime,
             epoch: Arc::new(crate::service::PipelineEpoch::default()),
-            queues: Arc::clone(&queues),
-            waiting_room: Arc::new(RwLock::new(WaitingRoom::new())),
             chunk_rx,
             deferred_sender,
         },
@@ -120,6 +135,7 @@ fn assemble_service(
             block_assembler_sender,
             block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             callbacks: Arc::new(callbacks),
+            effects,
             banned_peers: Default::default(),
         },
         aux: crate::service::AuxServices {
@@ -130,7 +146,7 @@ fn assemble_service(
         block_assembler,
         recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
-    (service, queues)
+    service
 }
 
 impl TxPoolServiceBuilder {
@@ -192,7 +208,9 @@ impl TxPoolServiceBuilder {
 /// Handles for the background workers that must quiesce before the pool is
 /// persisted on graceful shutdown.
 struct BackgroundWorkerHandles {
+    effects: tokio::task::JoinHandle<()>,
     deferred: tokio::task::JoinHandle<()>,
+    maintenance: tokio::task::JoinHandle<()>,
     pre_check: Vec<tokio::task::JoinHandle<()>>,
     verify_mgr: tokio::task::JoinHandle<()>,
     resolver: tokio::task::JoinHandle<()>,
@@ -206,9 +224,15 @@ impl BackgroundWorkerHandles {
     ///
     /// All workers are awaited in parallel so the total shutdown time is
     /// bounded by `timeout` rather than `N * timeout`.
-    async fn quiesce(self, timeout: Duration) {
+    async fn quiesce(
+        self,
+        timeout: Duration,
+        effect_queue: &crate::service::effects::EffectQueue,
+    ) -> bool {
+        let mut effect_publisher = self.effects;
         let mut tasks: Vec<(String, tokio::task::JoinHandle<()>)> = Vec::new();
         tasks.push(("deferred worker".to_owned(), self.deferred));
+        tasks.push(("pipeline maintenance".to_owned(), self.maintenance));
         for (i, handle) in self.pre_check.into_iter().enumerate() {
             tasks.push((format!("pre-check worker {i}"), handle));
         }
@@ -227,16 +251,112 @@ impl BackgroundWorkerHandles {
         )
         .await;
 
+        let mut state_workers_clean = true;
         match results {
-            Ok(_) => {}
+            Ok(results) => {
+                for ((label, _), result) in tasks.iter().zip(results) {
+                    if let Err(error) = result {
+                        warn!("{label} did not exit cleanly: {error}");
+                        state_workers_clean = false;
+                    }
+                }
+            }
             Err(_) => {
                 for (label, handle) in &tasks {
                     if !handle.is_finished() {
                         warn!("{label} did not exit within shutdown timeout");
+                        handle.abort();
                     }
                 }
+                // A timed-out reorg may be between the snapshot swap and
+                // detached-transaction recovery. Never persist that partial
+                // point. Close/abort publication so shutdown remains bounded;
+                // the next start rebuilds from the last complete pool file.
+                effect_queue.close();
+                effect_publisher.abort();
+                return false;
             }
         }
+
+        // No state worker can enqueue after this point. Close only now, then
+        // drain every stable-state effect before persistence and service exit.
+        effect_queue.close();
+        let effect_publisher_clean =
+            match tokio::time::timeout(timeout, &mut effect_publisher).await {
+                Ok(Ok(())) => true,
+                Ok(Err(error)) => {
+                    warn!("effect publisher did not exit cleanly: {error}");
+                    false
+                }
+                Err(_) => {
+                    warn!("effect publisher did not drain within shutdown timeout; aborting it");
+                    effect_publisher.abort();
+                    false
+                }
+            };
+        state_workers_clean && effect_publisher_clean
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::BackgroundWorkerHandles;
+    use crate::network::DummyTxPoolNetwork;
+    use crate::service::TxVerificationResult;
+    use crate::service::effects::{EffectEndpoints, EffectQueue, run_effect_publisher};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn finished() -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async {})
+    }
+
+    fn handles(
+        effects: tokio::task::JoinHandle<()>,
+        deferred: tokio::task::JoinHandle<()>,
+    ) -> BackgroundWorkerHandles {
+        BackgroundWorkerHandles {
+            effects,
+            deferred,
+            maintenance: finished(),
+            pre_check: vec![finished()],
+            verify_mgr: finished(),
+            resolver: finished(),
+            block_assembler: Some(finished()),
+            reorg: Some(finished()),
+        }
+    }
+
+    #[tokio::test]
+    async fn panicked_state_worker_makes_shutdown_ineligible_for_persistence() {
+        let queue = Arc::new(EffectQueue::new(8, 1_000_000).unwrap());
+        let (relay_tx, _relay_rx) = ckb_channel::bounded::<TxVerificationResult>(8);
+        let publisher = tokio::spawn(run_effect_publisher(
+            Arc::clone(&queue),
+            EffectEndpoints {
+                network: Arc::new(DummyTxPoolNetwork),
+                tx_relay_sender: relay_tx,
+            },
+        ));
+        let panicked = tokio::spawn(async { panic!("injected state-worker failure") });
+
+        assert!(
+            !handles(publisher, panicked)
+                .quiesce(Duration::from_secs(1), &queue)
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn panicked_effect_publisher_makes_shutdown_ineligible_for_persistence() {
+        let queue = Arc::new(EffectQueue::new(8, 1_000_000).unwrap());
+        let publisher = tokio::spawn(async { panic!("injected effect-publisher failure") });
+
+        assert!(
+            !handles(publisher, finished())
+                .quiesce(Duration::from_secs(1), &queue)
+                .await
+        );
     }
 }
 
@@ -364,7 +484,7 @@ impl TxPoolServiceBuilder {
         let (deferred_sender, deferred_receiver) =
             mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
 
-        let (service, queues) = assemble_service(
+        let service = assemble_service(
             tx_pool,
             consensus,
             block_assembler,
@@ -382,12 +502,25 @@ impl TxPoolServiceBuilder {
 
         let deferred_handle = workers::spawn_deferred_worker(
             &handle,
-            Arc::clone(&queues),
+            Arc::clone(&service.pipeline.runtime),
             Arc::clone(&service.aux.txs_verify_cache),
             deferred_receiver,
             signal_receiver.child_token(),
             service.relay.clone(),
+            service.aux.recent_reject.clone(),
             Arc::clone(&service.pipeline.epoch),
+        );
+        let effect_handle = handle.spawn(crate::service::effects::run_effect_publisher(
+            Arc::clone(&service.relay.effects),
+            crate::service::effects::EffectEndpoints {
+                network: Arc::clone(&service.relay.network),
+                tx_relay_sender: service.relay.tx_relay_sender.clone(),
+            },
+        ));
+        let maintenance_handle = workers::spawn_pipeline_maintenance_worker(
+            &handle,
+            service.clone(),
+            signal_receiver.child_token(),
         );
         let pre_check_handles = workers::spawn_pre_check_workers(
             &handle,
@@ -429,7 +562,9 @@ impl TxPoolServiceBuilder {
             receiver,
             signal_receiver,
             BackgroundWorkerHandles {
+                effects: effect_handle,
                 deferred: deferred_handle,
+                maintenance: maintenance_handle,
                 pre_check: pre_check_handles,
                 verify_mgr: verify_mgr_handle,
                 resolver: resolver_handle,
@@ -526,12 +661,21 @@ impl TxPoolServiceBuilder {
                 .await;
 
             info!("TxPool is quiescing background workers...");
-            worker_handles
-                .quiesce(Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS))
+            let clean_shutdown = worker_handles
+                .quiesce(
+                    Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS),
+                    &service.relay.effects,
+                )
                 .await;
 
-            info!("TxPool is saving, please wait...");
-            service.save_pool().await;
+            if clean_shutdown {
+                info!("TxPool is saving, please wait...");
+                service.save_pool().await;
+            } else {
+                warn!(
+                    "TxPool shutdown did not reach a complete recovery/effect boundary; skipping persistence"
+                );
+            }
             info!("TxPool process_service exit now");
         })
     }
@@ -628,7 +772,7 @@ impl TxPoolServiceBuilder {
         let (deferred_sender, deferred_receiver) =
             mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
 
-        let (service, _queues) = assemble_service(
+        let service = assemble_service(
             tx_pool,
             consensus,
             self.block_assembler,
@@ -644,10 +788,21 @@ impl TxPoolServiceBuilder {
             pre_check_cancel,
         );
 
+        let effect_publisher = self
+            .handle
+            .spawn(crate::service::effects::run_effect_publisher(
+                Arc::clone(&service.relay.effects),
+                crate::service::effects::EffectEndpoints {
+                    network: Arc::clone(&service.relay.network),
+                    tx_relay_sender: service.relay.tx_relay_sender.clone(),
+                },
+            ));
+
         BenchServiceParts {
             service,
             signal,
             deferred_receiver,
+            effect_publisher,
         }
     }
 }
@@ -661,4 +816,5 @@ pub(crate) struct BenchServiceParts {
     pub service: TxPoolService,
     pub signal: CancellationToken,
     pub deferred_receiver: mpsc::Receiver<DeferredTask>,
+    pub effect_publisher: tokio::task::JoinHandle<()>,
 }

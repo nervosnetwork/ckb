@@ -5,8 +5,6 @@
 //! corresponding authoritative lock, and enqueues the effect before opening
 //! that lock. Residency remains charged while queued and while the publisher
 //! is actively executing the effect.
-#![allow(dead_code)]
-
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +124,18 @@ impl<E> EffectOutbox<E> {
     }
 
     pub(crate) fn reserve(&mut self, bytes: usize) -> Result<EffectReservation, EffectOutboxError> {
+        let unbound = self
+            .reservations
+            .values()
+            .filter(|state| state.sequence.is_none())
+            .count();
+        let required = u64::try_from(unbound)
+            .ok()
+            .and_then(|count| count.checked_add(1))
+            .ok_or(EffectOutboxError::SequenceExhausted)?;
+        self.next_sequence
+            .checked_add(required)
+            .ok_or(EffectOutboxError::SequenceExhausted)?;
         let next_batches = self
             .usage
             .batches
@@ -192,6 +202,34 @@ impl<E> EffectOutbox<E> {
         state.sequence = Some(sequence);
         self.next_sequence = next_sequence;
         Ok(sequence)
+    }
+
+    /// Reduce a conservative pre-mutation reservation to the immutable
+    /// batch's actual resident charge. Growth is forbidden: callers must
+    /// prove capacity before changing authoritative state.
+    pub(crate) fn shrink_reservation(
+        &mut self,
+        reservation: EffectReservation,
+        bytes: usize,
+    ) -> Result<(), EffectOutboxError> {
+        let state = self
+            .reservations
+            .get_mut(&reservation.id)
+            .ok_or(EffectOutboxError::MissingReservation)?;
+        if bytes > state.bytes {
+            return Err(EffectOutboxError::AccountingInvariant);
+        }
+        let refunded = state
+            .bytes
+            .checked_sub(bytes)
+            .ok_or(EffectOutboxError::AccountingInvariant)?;
+        state.bytes = bytes;
+        self.usage.bytes = self
+            .usage
+            .bytes
+            .checked_sub(refunded)
+            .ok_or(EffectOutboxError::AccountingInvariant)?;
+        Ok(())
     }
 
     /// Enqueue before releasing the authoritative mutation lock. A bound

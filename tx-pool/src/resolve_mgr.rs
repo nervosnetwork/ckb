@@ -1,88 +1,41 @@
-//! Resolve stage of the tx-pool pipeline.
-//!
-//! Transactions that could not be resolved at the submission entry (missing
-//! inputs / dependent on an in-flight tx) land in the ordered resolve queue.
-//! A single `ResolveHandler` worker pops them in arrival order, retries
-//! `pre_check`, and routes the result to `VerifyQueue` or the orphan pool.
-//! Keeping this stage ordered reduces orphan-pool churn for dependent txs.
+//! Ordered resolution worker backed exclusively by the pipeline coordinator.
 
-use crate::component::ordered_resolve_queue::ResolveWork;
-use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::pipeline_coordinator::{
+    CoordinatorError, QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule,
+};
+use crate::component::pipeline_runtime::{
+    PipelineRawTx, coordinator_reject, resolved_charge_bytes,
+};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::TxPoolService;
-use crate::tx_source::TxSource;
+use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
 use ckb_logger::{debug, error};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
-use ckb_types::packed::{Byte32, ProposalShortId};
+use ckb_types::core::FeeRate;
+use ckb_types::packed::Byte32;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-/// Maximum number of times a local orphan transaction is re-enqueued for
-/// retry when none of its missing parents are currently in the pipeline.
-/// This bounds the work we do for genuinely unsatisfiable orphans while still
-/// giving us enough slack to recover from the small race window between a
-/// parent leaving the verify queue and being committed to the pool.
-pub(crate) const MAX_LOCAL_ORPHAN_ATTEMPTS: u16 = 5;
-
-/// Maximum number of times a local orphan transaction is re-enqueued for
-/// retry while all of its missing parents are still in the pipeline.
-///
-/// Skipping the attempt counter entirely in this case assumes "in flight"
-/// implies "will land soon", but a submitter can keep parents in the
-/// pipeline indefinitely (or a parent may simply be stuck), turning the
-/// 50 ms re-enqueue loop into unbounded per-transaction churn. 2400 attempts
-/// at `LOCAL_ORPHAN_RETRY_DELAY` (50 ms) gives a total budget of about 120
-/// seconds per orphan: generous for legitimate dependency chains (each link
-/// only waits for its own parent to verify), while still bounding the work
-/// any single transaction can cause. The counter is shared with
-/// `MAX_LOCAL_ORPHAN_ATTEMPTS`, so a job alternating between the two
-/// branches is bounded by the smaller limit once any parent is permanently
-/// missing.
-///
-/// Tests use a small cap so the bounded-retry behaviour can be exercised
-/// end-to-end in real time.
-#[cfg(not(test))]
-pub(crate) const MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS: u16 = 2400;
-/// Test value of `MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS`, see above.
-#[cfg(test)]
-pub(crate) const MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS: u16 = 30;
-
-/// Delay before re-enqueueing a local orphan whose missing parents are still
-/// in flight. Without this delay the single ordered resolver would retry the
-/// same job in a tight loop until the parent lands, burning CPU and snapshot
-/// I/O. The delay is short enough that it does not materially delay
-/// confirmation once the parent is accepted.
+/// Short retry delay used only by bounded conflict-cache recovery.
 pub(crate) const LOCAL_ORPHAN_RETRY_DELAY: Duration = Duration::from_millis(50);
 
-/// Result of attempting to resolve one transaction.
 #[derive(Debug)]
 pub(crate) enum ResolveStageResult {
-    /// Transaction resolved successfully and is ready for verification.
     Ready(ResolvedTx),
-    /// Transaction has unknown parent transactions and should be sent to the
-    /// orphan pool (remote) or rejected (local).
-    Orphan(ProposalShortId, HashSet<Byte32>),
-    /// Transaction is invalid and should be rejected.
-    Reject(ckb_types::core::TransactionView, Reject),
+    Orphan(HashSet<Byte32>),
+    Reject(Reject),
 }
 
-/// Run `pre_check` for a single resolve job and map the result to a uniform
-/// stage result.
-///
-/// This helper is used both by the entry classifier and by the ordered
-/// resolver, so the resolve logic is not duplicated.
 pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> ResolveStageResult {
-    let id = job.tx.proposal_short_id();
     let tx_size = job.tx.data().serialized_size_in_block();
     let (pre_check_ret, snapshot) = service.pre_check(&job.tx, tx_size).await;
-
     match pre_check_ret {
         Ok(PreCheckedTx {
             pre_resolve_tip,
@@ -91,7 +44,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
             fee,
             tx_size,
         }) => {
-            debug!("resolve stage resolved tx {}", id);
+            debug!("resolve stage resolved tx {}", job.tx.proposal_short_id());
             ResolveStageResult::Ready(ResolvedTx {
                 tx: job.tx,
                 rtx,
@@ -103,16 +56,234 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
                 source: job.source,
                 epoch: job.epoch,
                 verified: None,
-                resident_permit: None,
             })
         }
-        Err(reject) => {
-            if crate::util::is_missing_input(&reject) {
-                let parents = job.tx.unique_parents();
-                ResolveStageResult::Orphan(id, parents)
-            } else {
-                ResolveStageResult::Reject(job.tx, reject)
+        Err(reject) if crate::util::is_missing_input(&reject) => {
+            let parents = match &reject {
+                Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(outpoint)) => {
+                    HashSet::from([outpoint.tx_hash()])
+                }
+                _ => job.tx.unique_parents(),
+            };
+            ResolveStageResult::Orphan(parents)
+        }
+        Err(reject) => ResolveStageResult::Reject(reject),
+    }
+}
+
+impl TxPoolService {
+    async fn settle_pipeline_raw_lease(
+        &self,
+        lease: &RawWorkLease<PipelineRawTx>,
+        disposition: TerminalDisposition,
+        reject: Option<Reject>,
+    ) {
+        let permit = match self
+            .reserve_effects(Self::pipeline_outcome_effect_bytes(reject.as_ref()))
+            .await
+        {
+            Ok(permit) => permit,
+            Err(error) => {
+                error!(
+                    "raw terminal effect reservation failed for {}: {:?}",
+                    lease.hash, error
+                );
+                let _ = self
+                    .pipeline
+                    .runtime
+                    .mutate(|coordinator| coordinator.requeue_raw(lease));
+                return;
             }
+        };
+        let mut tx_pool = if reject.is_some() {
+            Some(self.pool.tx_pool.write().await)
+        } else {
+            None
+        };
+        let mut banned_peer = None;
+        let terminal = self.pipeline.runtime.mutate(|coordinator| {
+            let result = coordinator.terminalize_raw(lease, disposition);
+            if let Ok(record) = &result {
+                banned_peer = self.journal_pipeline_outcome(
+                    permit,
+                    record,
+                    reject.as_ref(),
+                    tx_pool.as_deref_mut(),
+                );
+            }
+            result
+        });
+        drop(tx_pool);
+        match terminal {
+            Ok(_record) => {}
+            Err(
+                CoordinatorError::Missing(_)
+                | CoordinatorError::IncarnationMismatch { .. }
+                | CoordinatorError::RevisionMismatch { .. }
+                | CoordinatorError::LocationMismatch { .. },
+            ) => return,
+            Err(error) => {
+                error!(
+                    "failed to terminalize raw pipeline lease {}: {:?}",
+                    lease.hash, error
+                );
+            }
+        }
+        if let Some(peer) = banned_peer {
+            self.remove_banned_peer_entries(peer).await;
+        }
+    }
+
+    pub(crate) async fn process_pipeline_raw_lease(&self, lease: RawWorkLease<PipelineRawTx>) {
+        let tx = lease.payload.tx.clone();
+        let epoch = lease.payload.admitted_epoch;
+        let Some(current_source) = self
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.view(&lease.hash).map(|view| view.source))
+        else {
+            return;
+        };
+        let source = match lease.payload.authoritative_source(current_source) {
+            Ok(source) => source,
+            Err(_reject) => {
+                self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
+                    .await;
+                return;
+            }
+        };
+
+        if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
+            self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
+                .await;
+            return;
+        }
+
+        let job = ResolveJob::new_at(tx.clone(), source, epoch);
+        let outcome = crate::worker::catch_job_panic(async {
+            match resolve_job(self, job).await {
+                ResolveStageResult::Ready(resolved) => {
+                    let charge_bytes = match resolved_charge_bytes(&resolved) {
+                        Ok(charge) => charge,
+                        Err(error) => {
+                            let reject = coordinator_reject(error);
+                            self.settle_pipeline_raw_lease(
+                                &lease,
+                                TerminalDisposition::Rejected,
+                                Some(reject),
+                            )
+                            .await;
+                            return;
+                        }
+                    };
+                    let fee_rate = FeeRate::calculate(resolved.fee, resolved.tx_size as u64);
+                    let schedule = VerifySchedule::new(
+                        fee_rate.as_u64(),
+                        source.cycles().is_some_and(|cycles| {
+                            cycles > self.pool.tx_pool_config.max_tx_verify_cycles
+                        }),
+                    );
+                    let permit = match self
+                        .reserve_effects(Self::pipeline_terminal_effect_bytes(
+                            crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                        ))
+                        .await
+                    {
+                        Ok(permit) => permit,
+                        Err(error) => {
+                            error!(
+                                "raw completion effect reservation failed for {}: {:?}",
+                                lease.hash, error
+                            );
+                            let _ = self
+                                .pipeline
+                                .runtime
+                                .mutate(|coordinator| coordinator.requeue_raw(&lease));
+                            return;
+                        }
+                    };
+                    match self.pipeline.runtime.mutate(|coordinator| {
+                        let result =
+                            coordinator.complete_raw(&lease, resolved, charge_bytes, schedule);
+                        if let Ok((_version, terminal)) = &result {
+                            self.journal_pipeline_terminal_records(permit, terminal);
+                        }
+                        result
+                    }) {
+                        Ok((_version, _terminal)) => {}
+                        Err(error) => {
+                            let reject = coordinator_reject(error);
+                            let public_reject =
+                                (!matches!(reject, Reject::Full(_))).then_some(reject);
+                            self.settle_pipeline_raw_lease(
+                                &lease,
+                                TerminalDisposition::Rejected,
+                                public_reject,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                ResolveStageResult::Orphan(parents) => {
+                    let permit = match self
+                        .reserve_effects(Self::unknown_parents_effect_bytes(parents.len()))
+                        .await
+                    {
+                        Ok(permit) => permit,
+                        Err(error) => {
+                            error!(
+                                "raw parent-wait effect reservation failed for {}: {:?}",
+                                lease.hash, error
+                            );
+                            let _ = self
+                                .pipeline
+                                .runtime
+                                .mutate(|coordinator| coordinator.requeue_raw(&lease));
+                            return;
+                        }
+                    };
+                    match self.settle_raw_parent_wait(&lease, parents, permit).await {
+                        Ok(ParentWaitOutcome::Parked { .. }) => {}
+                        Ok(ParentWaitOutcome::Requeued) => {}
+                        Ok(ParentWaitOutcome::Unavailable) => {
+                            let reject = first_unknown_input_reject(&tx);
+                            self.settle_pipeline_raw_lease(
+                                &lease,
+                                TerminalDisposition::Rejected,
+                                Some(reject),
+                            )
+                            .await;
+                        }
+                        Err(error) => {
+                            error!(
+                                "failed to settle raw parent wait {}: {:?}",
+                                lease.hash, error
+                            );
+                            self.settle_pipeline_raw_lease(
+                                &lease,
+                                TerminalDisposition::Internal,
+                                None,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                ResolveStageResult::Reject(reject) => {
+                    self.settle_pipeline_raw_lease(
+                        &lease,
+                        TerminalDisposition::Rejected,
+                        Some(reject),
+                    )
+                    .await;
+                }
+            }
+        })
+        .await;
+
+        if let Err(message) = outcome {
+            error!("tx-pool raw worker panicked on {}: {}", lease.hash, message);
+            self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
+                .await;
         }
     }
 }
@@ -123,7 +294,7 @@ struct ResolveHandler {
 }
 
 impl JobHandler for ResolveHandler {
-    type Job = ResolveWork;
+    type Job = RawWorkLease<PipelineRawTx>;
     type Exit = ResolveExit;
 
     fn worker_name(&self) -> &'static str {
@@ -133,117 +304,35 @@ impl JobHandler for ResolveHandler {
     async fn is_queue_empty(&self) -> bool {
         self.service
             .pipeline
-            .queues
-            .ordered_resolve_queue
-            .read()
-            .await
-            .is_empty()
+            .runtime
+            .queue_is_empty(QueueKind::Resolve)
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.service
-            .pipeline
-            .queues
-            .ordered_resolve_queue
-            .read()
-            .await
-            .subscribe()
+        self.service.pipeline.runtime.subscribe(QueueKind::Resolve)
     }
 
-    async fn pop_one(&mut self) -> Option<ResolveWork> {
-        self.service
+    async fn pop_one(&mut self) -> Option<RawWorkLease<PipelineRawTx>> {
+        match self
+            .service
             .pipeline
-            .queues
-            .ordered_resolve_queue
-            .write()
-            .await
-            .pop_front_work()
+            .runtime
+            .checkout_raw(RawStage::Resolve)
+        {
+            Ok(work) => work,
+            Err(error) => {
+                error!("ordered resolver checkout failed: {:?}", error);
+                None
+            }
+        }
     }
 
     async fn next_deadline(&self) -> Option<tokio::time::Instant> {
-        self.service
-            .pipeline
-            .queues
-            .ordered_resolve_queue
-            .read()
-            .await
-            .next_deadline()
-            .map(tokio::time::Instant::from_std)
+        None
     }
 
-    async fn process_one(&mut self, work: ResolveWork) {
-        let ResolveWork { job, active_token } = work;
-        let id = job.tx.proposal_short_id();
-        let tx = job.tx.clone();
-        let source = job.source;
-        let epoch = job.epoch;
-        if !self.service.is_pipeline_epoch_current(epoch) {
-            self.service.terminal_internal(tx, source).await;
-            self.service
-                .pipeline
-                .queues
-                .ordered_resolve_queue
-                .write()
-                .await
-                .finish_work(&id, active_token);
-            return;
-        }
-        if self.service.is_recently_banned(source) {
-            // The peer was banned after this job was popped: its in-flight
-            // jobs must not keep flowing into the pool.
-            self.service.terminal_internal(tx, source).await;
-            self.service
-                .pipeline
-                .queues
-                .ordered_resolve_queue
-                .write()
-                .await
-                .finish_work(&id, active_token);
-            return;
-        }
-        // Guard each job individually: one bad job must neither kill the
-        // resolver nor strand this job's active marker. The runner/monitor
-        // respawn stays as the backstop for panics outside the job guard.
-        let outcome = crate::worker::catch_job_panic(async {
-            match resolve_job(&self.service, job.clone()).await {
-                ResolveStageResult::Ready(resolved) => {
-                    self.push_to_verify_queue(resolved).await;
-                }
-                ResolveStageResult::Orphan(id, parents) => {
-                    self.handle_orphan(job, id, parents, active_token).await;
-                }
-                ResolveStageResult::Reject(tx, reject) => {
-                    self.handle_reject(tx, job.source, reject, epoch).await;
-                }
-            }
-        })
-        .await;
-        if let Err(message) = outcome {
-            error!(
-                "tx-pool ordered resolver panicked on job {}: {}",
-                id, message
-            );
-            // A registration may already exist if the panic hit inside
-            // `enqueue_resolved_tx` after the registration commit; clean it
-            // up so it cannot block future replacements as a ghost.
-            self.service.abort_rbf_candidate_at(&id, epoch).await;
-            // The tx must not vanish silently either: close the loop with
-            // the relayer (nothing is recorded — this was an internal
-            // failure, not the transaction's fault).
-            self.service.terminal_internal(tx, source).await;
-        }
-        // The job has reached its terminal state (forwarded, re-enqueued,
-        // rejected, or panicked). Clear the active marker set at pop time;
-        // the re-enqueue paths above have already made the id visible
-        // through the queue lookup again (and a forwarded tx is visible in
-        // the verify queue), so there is no visibility gap.
-        self.service
-            .pipeline
-            .queues
-            .ordered_resolve_queue
-            .write()
-            .await
-            .finish_work(&id, active_token);
+    async fn process_one(&mut self, work: RawWorkLease<PipelineRawTx>) {
+        self.service.process_pipeline_raw_lease(work).await;
     }
 
     fn make_exit(&self, outcome: WorkerOutcome) -> ResolveExit {
@@ -254,163 +343,6 @@ impl JobHandler for ResolveHandler {
     }
 }
 
-impl ResolveHandler {
-    async fn push_to_verify_queue(&self, resolved: ResolvedTx) {
-        let tx_hash = resolved.tx.hash();
-        // The verify queue has a single entry point so the in-flight RBF gate
-        // and the after_process side effects cannot be bypassed or duplicated.
-        match self.service.enqueue_resolved_tx(resolved).await {
-            Ok(true) => {}
-            Ok(false) => {
-                debug!("resolved tx {} already in verify queue", tx_hash);
-            }
-            // enqueue_resolved_tx already ran after_process for the rejection.
-            Err(_) => {}
-        }
-    }
-
-    async fn handle_orphan(
-        &mut self,
-        job: ResolveJob,
-        id: ProposalShortId,
-        parents: HashSet<Byte32>,
-        active_token: u64,
-    ) {
-        if let Some(peer) = job.source.peer() {
-            debug!(
-                "ordered resolve stage orphan tx {} from peer {}, parents {:?}",
-                id, peer, parents
-            );
-            self.service
-                .handle_missing_input_orphan_at(job.tx.clone(), job.source, parents, job.epoch)
-                .await;
-            return;
-        }
-
-        // Local transactions with missing inputs are normally rejected.
-        // The exception is when every missing parent is currently in the
-        // pipeline (pre-check, ordered, verify, or already committed to
-        // the pool). In that case we put the child back into the ordered
-        // resolve queue so it can be retried once the parent is ready.
-        //
-        // We require *all* missing parents to be in flight: if one parent is
-        // in the pool but another is permanently missing, retrying forever
-        // would never succeed. In that case we burn an attempt so the orphan
-        // is eventually rejected.
-        let all_missing_parents_in_flight =
-            self.service.all_missing_parents_in_flight(&parents).await;
-
-        if all_missing_parents_in_flight && job.attempts < MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS {
-            // The parents are still in flight, so this orphan will resolve
-            // once they land. Park it in the queue's delayed section instead
-            // of retrying immediately: the single ordered resolver would
-            // otherwise spin on this job until the parent is accepted. The
-            // job stays visible to `remove_tx` and RPC the whole time.
-            //
-            // The attempt counter advances here too (bounded by
-            // `MAX_LOCAL_ORPHAN_IN_FLIGHT_ATTEMPTS`): "in flight" does not
-            // guarantee "will land soon", and without a bound a submitter
-            // could keep parents in the pipeline forever and turn this loop
-            // into unbounded per-transaction churn.
-            let mut job = job;
-            job.attempts += 1;
-            debug!(
-                "ordered resolve stage local orphan {} delayed re-enqueue (parents in flight, attempt {})",
-                id, job.attempts
-            );
-            let tx = job.tx.clone();
-            let source = job.source;
-            let epoch = job.epoch;
-            let mut ordered = self
-                .service
-                .pipeline
-                .queues
-                .ordered_resolve_queue
-                .write()
-                .await;
-            if !self.service.is_pipeline_epoch_current(epoch) {
-                drop(ordered);
-                self.service.terminal_internal(tx, source).await;
-                return;
-            }
-            match ordered.requeue_active(job, active_token, Some(LOCAL_ORPHAN_RETRY_DELAY)) {
-                Ok(true) => {}
-                Ok(false) => {
-                    drop(ordered);
-                    self.service.terminal_internal(tx, source).await;
-                }
-                Err(reject) => {
-                    drop(ordered);
-                    self.service
-                        .after_process_at(tx, source, &Err(reject), epoch)
-                        .await;
-                }
-            }
-        } else if job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
-            let mut job = job;
-            job.attempts += 1;
-            debug!(
-                "ordered resolve stage local orphan {} re-enqueue (attempt {})",
-                id, job.attempts
-            );
-            let tx = job.tx.clone();
-            let source = job.source;
-            let epoch = job.epoch;
-            let mut ordered = self
-                .service
-                .pipeline
-                .queues
-                .ordered_resolve_queue
-                .write()
-                .await;
-            if !self.service.is_pipeline_epoch_current(epoch) {
-                drop(ordered);
-                self.service.terminal_internal(tx, source).await;
-                return;
-            }
-            match ordered.requeue_active(job, active_token, None) {
-                Ok(true) => {}
-                Ok(false) => {
-                    drop(ordered);
-                    self.service.terminal_internal(tx, source).await;
-                }
-                Err(reject) => {
-                    drop(ordered);
-                    self.service
-                        .after_process_at(tx, source, &Err(reject), epoch)
-                        .await;
-                }
-            }
-        } else {
-            // The bounded retry budget is exhausted: this is a terminal
-            // rejection, so it must bypass the missing-input orphan
-            // parking (which would otherwise swallow the verdict and park
-            // the tx for another ~80 minutes).
-            let reject = first_unknown_input_reject(&job.tx);
-            self.service
-                .terminal_reject(job.tx, job.source, reject)
-                .await;
-        }
-    }
-
-    async fn handle_reject(
-        &self,
-        tx: ckb_types::core::TransactionView,
-        source: TxSource,
-        reject: Reject,
-        epoch: u64,
-    ) {
-        self.service
-            .after_process_at(tx, source, &Err(reject), epoch)
-            .await;
-    }
-}
-
-/// Single ordered resolver worker runner.
-///
-/// Processes transactions that the entry classifier could not resolve because
-/// of missing inputs. Keeping this worker single-threaded preserves arrival
-/// ordering for dependent transactions.
 pub(crate) struct OrderedResolver {
     runner: WorkerRunner<ResolveHandler>,
 }
@@ -421,9 +353,8 @@ impl OrderedResolver {
         command_rx: watch::Receiver<ChunkCommand>,
         exit_signal: CancellationToken,
     ) -> Self {
-        let handler = ResolveHandler { service };
         Self {
-            runner: WorkerRunner::new(handler, command_rx, exit_signal),
+            runner: WorkerRunner::new(ResolveHandler { service }, command_rx, exit_signal),
         }
     }
 

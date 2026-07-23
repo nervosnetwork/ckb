@@ -1,15 +1,9 @@
-//! Entry classification: the path a transaction takes from submission to
-//! being queued for verification.
-//!
-//! `pre_check` resolves the transaction and computes its fee (chain-only
-//! fast path, falling back to the pool-overlay locked path), dependent
-//! transactions are routed to the ordered resolve queue in arrival order,
-//! and `process_tx_direct` is the direct per-tx entry point shared by RPC,
-//! tests and reorg recovery. Split out of `process/mod.rs`.
+//! Resolution for synchronous submissions and admission into the
+//! coordinator-owned asynchronous pipeline.
 
 use super::{get_tx_status, make_pre_checked_tx, resolve_tx};
-use crate::component::pipeline_queue::PipelineQueue;
-use crate::component::pre_check_queue::PreCheckJob;
+use crate::component::pipeline_coordinator::{RawStage, TerminalRecord};
+use crate::component::pipeline_runtime::{PipelineRawTx, PipelineVerifiedTx, coordinator_reject};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::tx_source::TxSource;
@@ -23,17 +17,6 @@ use ckb_verification::cache::Completed;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::watch;
-
-/// Routing decision from [`TxPoolService::check_and_route_dependent`].
-#[derive(Debug)]
-enum RouteDecision {
-    /// The tx does not depend on any in-flight pipeline tx.
-    Independent,
-    /// The tx was enqueued in the ordered resolve queue.
-    Enqueued,
-    /// The tx is a duplicate of an already-queued tx.
-    Duplicate,
-}
 
 impl super::TxPoolService {
     fn stale_pipeline_reject() -> Reject {
@@ -59,10 +42,6 @@ impl super::TxPoolService {
         tx: &TransactionView,
         tx_size: usize,
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
-        // Fast path: for transactions whose inputs and cell deps all come from the
-        // chain (not from any tx currently in the pool), we can resolve and compute
-        // the fee without holding the tx_pool read lock.  We only take the lock
-        // briefly to check for txid collisions.
         let (collision, snapshot) = self
             .read_tx_pool_with_snapshot(|tx_pool, _snapshot| {
                 check_txid_collision(tx_pool, tx).err()
@@ -104,12 +83,7 @@ impl super::TxPoolService {
                     snapshot,
                 )
             }
-            Err(OutPointError::Unknown(_)) => {
-                // At least one input/cell dep is not in the chain snapshot.  It may
-                // be an output of a tx currently in the pool, so fall back to the
-                // locked path which can resolve through the pool.
-                self.pre_check_with_pool_lock(tx, tx_size).await
-            }
+            Err(OutPointError::Unknown(_)) => self.pre_check_with_pool_lock(tx, tx_size).await,
             Err(err) => (Err(Reject::Resolve(err)), snapshot),
         }
     }
@@ -122,15 +96,8 @@ impl super::TxPoolService {
         let (ret, snapshot) = self
             .read_tx_pool_with_snapshot(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
-
-                // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
-                // It's also not possible for RBF, reject it directly
                 check_txid_collision(tx_pool, tx)?;
-
-                // Try normal path first, if double-spending check success we don't need RBF check
-                // this make sure RBF won't introduce extra performance cost for hot path
-                let res = resolve_tx(tx_pool, &snapshot, tx.clone(), false);
-                match res {
+                match resolve_tx(tx_pool, &snapshot, tx.clone(), false) {
                     Ok((rtx, status)) => {
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
                         Ok(make_pre_checked_tx(tip_hash, rtx, status, fee, tx_size))
@@ -138,20 +105,13 @@ impl super::TxPoolService {
                     Err(Reject::Resolve(OutPointError::Dead(out))) => {
                         let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                        let conflicts = tx_pool.pool_map.find_conflict_outpoint(tx);
-                        if conflicts.is_none() {
-                            // this mean one input's outpoint is dead, but there is no direct conflicted tx in tx_pool
-                            // we should reject it directly and don't need to put it into conflicts pool
+                        if tx_pool.pool_map.find_conflict_outpoint(tx).is_none() {
                             error!(
                                 "{} is resolved as Dead, but there is no direct conflicted tx",
                                 rtx.transaction.proposal_short_id()
                             );
                             return Err(Reject::Resolve(OutPointError::Dead(out)));
                         }
-                        // we also return Ok here, so that the entry will be continue to be verified before submit
-                        // we only want to put it into conflicts pool after the verification stage passed
-                        // then we will double-check conflicts txs in `submit_entry`
-
                         Ok(make_pre_checked_tx(tip_hash, rtx, status, fee, tx_size))
                     }
                     Err(err) => Err(err),
@@ -170,7 +130,6 @@ impl super::TxPoolService {
         let epoch = self.current_pipeline_epoch()?;
         let tx_size = tx.data().serialized_size_in_block();
         let (ret, snapshot) = self.pre_check(&tx, tx_size).await;
-
         let PreCheckedTx {
             pre_resolve_tip,
             rtx,
@@ -191,7 +150,6 @@ impl super::TxPoolService {
                 source,
                 epoch,
                 verified: None,
-                resident_permit: None,
             },
             command_rx,
         )
@@ -206,247 +164,198 @@ impl super::TxPoolService {
     ) -> Result<Completed, Reject> {
         match self.process_tx_direct_outcome(tx, source, command_rx).await {
             Ok(super::submit::VerifySubmitOutcome::Committed(completed)) => Ok(completed),
-            // Held by a stronger in-flight registration (it may be restored
-            // if the winner fails). To this caller the tx is not committed
-            // *now*, so surface the race outcome as a rejection; the hold
-            // machinery decides the rest.
-            Ok(super::submit::VerifySubmitOutcome::Superseded) => Err(Reject::RBFRejected(
-                super::TxPoolService::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
-            )),
             Ok(super::submit::VerifySubmitOutcome::Cleared) => Err(Self::stale_pipeline_reject()),
             Err(reject) => Err(reject),
         }
     }
 
-    /// Check if a transaction depends on any in-flight pipeline transaction.
-    /// If so, route it to the ordered resolve queue.
-    async fn check_and_route_dependent(
-        &self,
-        tx: &TransactionView,
-        source: TxSource,
-        epoch: u64,
-    ) -> Result<RouteDecision, Reject> {
-        let id = tx.proposal_short_id();
-
-        if !self.is_pipeline_epoch_current(epoch) {
-            return Err(Self::stale_pipeline_reject());
-        }
-
-        if self.depends_on_pipeline(tx).await {
-            let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
-            if !self.is_pipeline_epoch_current(epoch) {
-                return Err(Self::stale_pipeline_reject());
-            }
-            if ordered.contains_key(&id) {
-                return Ok(RouteDecision::Duplicate);
-            }
-            return ordered
-                .add_tx(crate::resolved_tx::ResolveJob::new_at(
-                    tx.clone(),
-                    source,
-                    epoch,
-                ))
-                .map(|_| RouteDecision::Enqueued);
-        }
-
-        Ok(RouteDecision::Independent)
-    }
-
-    /// Enqueue a resolved transaction into the verify queue, applying the
-    /// in-flight RBF fee-ordering gate first for remote replacements.
-    ///
-    /// This is the single entry into the verify queue: both the entry
-    /// classifier and the ordered resolver go through here, so the RBF gate
-    /// cannot be bypassed.
-    ///
-    /// For RBF replacements, the candidate is validated and the displacement
-    /// set computed while holding `rbf_candidates.write()`, then inserted into
-    /// the verify queue and the registration committed atomically. This
-    /// guarantees that lower-fee-rate displaced candidates are only removed
-    /// from the pipeline once the higher-fee-rate candidate is successfully
-    /// queued (P0-2 fix), and maintains the global lock order
-    /// `rbf_candidates → verify_queue` (P0-1 fix). Only remote txs register:
-    /// local and proposal txs skip the in-flight fee-rate gate.
-    pub(crate) async fn enqueue_resolved_tx(
-        &self,
-        resolved: crate::resolved_tx::ResolvedTx,
-    ) -> Result<bool, Reject> {
-        let source = resolved.source;
-        let tx = resolved.tx.clone();
-        let epoch = resolved.epoch;
-
-        self.ensure_current_or_terminal(&tx, source, epoch).await?;
-
-        if matches!(source, TxSource::Remote { .. }) {
-            match self
-                .register_rbf_candidate(
-                    tx.clone(),
-                    source,
-                    &resolved,
-                    resolved.fee,
-                    resolved.tx_size,
-                )
-                .await
-            {
-                Ok(true) => return Ok(true),
-                Ok(false) => {}
-                Err(reject) => {
-                    if !self.is_pipeline_epoch_current(epoch) {
-                        self.terminal_internal(tx, source).await;
-                    }
-                    return Err(reject);
-                }
-            }
-            if !self.is_pipeline_epoch_current(epoch) {
-                return self
-                    .ensure_current_or_terminal(&tx, source, epoch)
-                    .await
-                    .map(|_| false);
-            }
-        }
-
-        // Release the verify_queue lock before running after_process:
-        // after_process may acquire tx_pool and other locks, and must never
-        // run while holding a pipeline-queue write lock.
-        let add_result = {
-            let mut verify_queue = self.pipeline.queues.verify_queue.write().await;
-            if self.is_pipeline_epoch_current(epoch) {
-                verify_queue.add_tx(resolved)
-            } else {
-                Err(Self::stale_pipeline_reject())
-            }
-        };
-        match add_result {
-            Ok(added) => Ok(added),
-            Err(reject) => {
-                if self.is_pipeline_epoch_current(epoch) {
-                    self.after_process_at(tx, source, &Err(reject.clone()), epoch)
-                        .await;
-                } else {
-                    self.terminal_internal(tx, source).await;
-                }
-                Err(reject)
-            }
-        }
-    }
-
-    /// Classify a transaction and enqueue it for verification or ordered resolve.
-    ///
-    /// This is the core entry-point classifier.  It checks whether the tx
-    /// depends on an in-flight pipeline tx, runs the shared resolve step, and
-    /// routes the result to the appropriate queue.
-    pub(crate) async fn classify_and_enqueue_tx(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-    ) -> Result<bool, Reject> {
-        let epoch = self.current_pipeline_epoch()?;
-        self.classify_and_enqueue_tx_at(tx, source, epoch).await
-    }
-
-    pub(crate) async fn classify_and_enqueue_tx_at(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-        epoch: u64,
-    ) -> Result<bool, Reject> {
-        let id = tx.proposal_short_id();
-
-        self.ensure_current_or_terminal(&tx, source, epoch).await?;
-
-        let route = self.check_and_route_dependent(&tx, source, epoch).await;
-        let route = match route {
-            Ok(route) => route,
-            Err(reject) if !self.is_pipeline_epoch_current(epoch) => {
-                self.terminal_internal(tx, source).await;
-                return Err(reject);
-            }
-            Err(reject) => return Err(reject),
-        };
-        match route {
-            RouteDecision::Independent => {}
-            RouteDecision::Enqueued => return Ok(true),
-            RouteDecision::Duplicate => return Ok(false),
-        }
-
-        // The resolve step is shared with the ordered resolver so the
-        // pre_check logic exists in exactly one place.
-        match crate::resolve_mgr::resolve_job(
-            self,
-            crate::resolved_tx::ResolveJob::new_at(tx.clone(), source, epoch),
-        )
-        .await
-        {
-            crate::resolve_mgr::ResolveStageResult::Ready(resolved) => {
-                self.enqueue_resolved_tx(resolved).await
-            }
-            crate::resolve_mgr::ResolveStageResult::Orphan(..) => {
-                // Missing inputs: park the tx in the ordered resolve queue so
-                // the ordered resolver retries it once its parents land.
-                let mut ordered = self.pipeline.queues.ordered_resolve_queue.write().await;
-                if !self.is_pipeline_epoch_current(epoch) {
-                    drop(ordered);
-                    self.terminal_internal(tx, source).await;
-                    return Err(Self::stale_pipeline_reject());
-                }
-                if ordered.contains_key(&id) {
-                    return Ok(false);
-                }
-                ordered.add_tx(crate::resolved_tx::ResolveJob::new_at(tx, source, epoch))
-            }
-            crate::resolve_mgr::ResolveStageResult::Reject(tx, reject) => {
-                self.after_process_at(tx, source, &Err(reject.clone()), epoch)
-                    .await;
-                Err(reject)
-            }
-        }
-    }
-
-    /// Entry-point classifier used by remote/local submission and proposal
-    /// notifications (`notify_tx`).
-    ///
-    /// Dependent transactions (those that spend an output currently in flight)
-    /// are handled synchronously so they land in the ordered resolve queue in
-    /// arrival order and errors propagate to the caller.  Independent
-    /// transactions are sent to a fixed-size worker pool so that the expensive
-    /// `pre_check` work does not serialize inside the service actor.
     pub(crate) async fn classify_and_enqueue_tx_spawn(
         &self,
         tx: TransactionView,
         source: TxSource,
     ) -> Result<bool, Reject> {
         let epoch = self.current_pipeline_epoch()?;
+        self.admit_pipeline_raw_at(tx, source, epoch, RawStage::PreCheck)
+            .await
+    }
+
+    async fn admit_pipeline_raw_at(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        epoch: u64,
+        stage: RawStage,
+    ) -> Result<bool, Reject> {
         self.ensure_current_or_terminal(&tx, source, epoch).await?;
-        let route = self.check_and_route_dependent(&tx, source, epoch).await;
-        let route = match route {
-            Ok(route) => route,
-            Err(reject) if !self.is_pipeline_epoch_current(epoch) => {
-                self.terminal_internal(tx, source).await;
-                return Err(reject);
+        let permit = self
+            .reserve_effects(Self::pipeline_terminal_effect_bytes(
+                crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+            ))
+            .await
+            .map_err(|error| {
+                Reject::Internal(format!(
+                    "pipeline admission effect reservation failed: {error:?}"
+                ))
+            })?;
+        self.ensure_current_or_terminal(&tx, source, epoch).await?;
+        match self.pipeline.runtime.admit_transaction_journaled(
+            tx.clone(),
+            source,
+            epoch,
+            stage,
+            |records| {
+                self.journal_pipeline_terminal_records(permit, records);
+            },
+        ) {
+            Ok((added, _terminal)) => Ok(added),
+            Err(error) => {
+                if !self.is_pipeline_epoch_current(epoch) {
+                    self.terminal_internal(tx, source).await;
+                    Err(Self::stale_pipeline_reject())
+                } else {
+                    Err(coordinator_reject(error))
+                }
             }
-            Err(reject) => return Err(reject),
+        }
+    }
+
+    pub(crate) fn pipeline_terminal_effect_bytes(max_records: usize) -> usize {
+        max_records.saturating_mul(crate::service::effects::EFFECT_ENVELOPE_BYTES)
+    }
+
+    pub(crate) fn pipeline_outcome_effect_bytes(reject: Option<&Reject>) -> usize {
+        let ban_reason = reject
+            .filter(|reject| reject.is_malformed_tx())
+            .map(|reject| format!("reject {reject}").len())
+            .unwrap_or_default();
+        crate::service::effects::EFFECT_ENVELOPE_BYTES
+            .saturating_mul(2)
+            .saturating_add(ban_reason)
+    }
+
+    /// Commit relayer terminal handoffs while the caller still owns the
+    /// Coordinator (or outer TxPool→Coordinator) mutation lock. Terminal
+    /// records are already detached from Coordinator residency; journaling
+    /// them here prevents cancellation from creating a relayer filter leak.
+    pub(crate) fn journal_pipeline_terminal_records(
+        &self,
+        permit: crate::service::effects::EffectPermit,
+        records: &[TerminalRecord<
+            PipelineRawTx,
+            crate::resolved_tx::ResolvedTx,
+            PipelineVerifiedTx,
+        >],
+    ) {
+        let mut effects = Vec::new();
+        for record in records {
+            match record.raw.authoritative_source(record.source) {
+                Ok(source) if source.peer().is_some() => {
+                    effects.push(crate::service::effects::TxPoolEffect::Relay(
+                        crate::service::TxVerificationResult::Reject {
+                            tx_hash: record.hash.clone(),
+                        },
+                    ));
+                }
+                Ok(_) => {}
+                Err(reject) => {
+                    ckb_logger::error!(
+                        "cannot journal coordinator terminal record for {}: {}",
+                        record.hash,
+                        reject
+                    );
+                    effects.push(crate::service::effects::TxPoolEffect::Relay(
+                        crate::service::TxVerificationResult::Reject {
+                            tx_hash: record.hash.clone(),
+                        },
+                    ));
+                }
+            }
+        }
+        if let Err(error) = self.publish_reserved_effects(permit, effects) {
+            panic!("reserved coordinator terminal journal failed: {error:?}");
+        }
+    }
+
+    /// Journal the definitive outcome of one active raw/verify owner inside
+    /// the same Coordinator transition that removes it. `reject == None`
+    /// denotes an internal/cancellation terminal and therefore never records
+    /// blame, while still releasing a remote relayer filter.
+    pub(crate) fn journal_pipeline_outcome(
+        &self,
+        permit: crate::service::effects::EffectPermit,
+        record: &TerminalRecord<PipelineRawTx, crate::resolved_tx::ResolvedTx, PipelineVerifiedTx>,
+        reject: Option<&Reject>,
+        mut tx_pool: Option<&mut crate::pool::TxPool>,
+    ) -> Option<ckb_network::PeerIndex> {
+        let source = match record.raw.authoritative_source(record.source) {
+            Ok(source) => source,
+            Err(error) => {
+                ckb_logger::error!(
+                    "cannot attribute coordinator terminal record {}: {}",
+                    record.hash,
+                    error
+                );
+                let effects = vec![crate::service::effects::TxPoolEffect::Relay(
+                    crate::service::TxVerificationResult::Reject {
+                        tx_hash: record.hash.clone(),
+                    },
+                )];
+                if let Err(error) = self.publish_reserved_effects(permit, effects) {
+                    panic!("reserved unattributed terminal journal failed: {error:?}");
+                }
+                return None;
+            }
         };
-        match route {
-            RouteDecision::Independent => {}
-            RouteDecision::Enqueued => return Ok(true),
-            RouteDecision::Duplicate => return Ok(false),
-        }
 
-        let job = PreCheckJob { tx, source, epoch };
-        if let Err(reject) = self
-            .pipeline
-            .queues
-            .pre_check_queue
-            .push_if_current(job.clone(), &self.pipeline.epoch)
-        {
-            if !self.is_pipeline_epoch_current(epoch) {
-                self.terminal_internal(job.tx, job.source).await;
+        let mut effects = Vec::new();
+        let mut banned_peer = None;
+        if let Some(reject) = reject {
+            if matches!(
+                reject,
+                Reject::RBFRejected(..)
+                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_))
+            ) && let Some(pool) = tx_pool.as_mut()
+                && pool
+                    .pool_map
+                    .find_conflict_outpoint(&record.raw.tx)
+                    .is_some()
+            {
+                pool.record_conflict(record.raw.tx.clone(), source);
             }
-            return Err(reject);
+            if reject.should_recorded() {
+                self.record_recent_reject(&record.hash, reject);
+            }
+            if let Some(peer) = source.peer() {
+                if reject.is_malformed_tx() {
+                    let reason = format!("reject {reject}");
+                    let duration =
+                        std::time::Duration::from_secs(crate::constants::MALFORMED_TX_BAN_SECONDS);
+                    self.record_peer_ban(peer, duration);
+                    effects.push(crate::service::effects::TxPoolEffect::BanPeer {
+                        peer,
+                        duration,
+                        reason,
+                    });
+                    banned_peer = Some(peer);
+                }
+                if reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_)) {
+                    effects.push(crate::service::effects::TxPoolEffect::Relay(
+                        crate::service::TxVerificationResult::Reject {
+                            tx_hash: record.hash.clone(),
+                        },
+                    ));
+                }
+            }
+        } else if source.peer().is_some() {
+            effects.push(crate::service::effects::TxPoolEffect::Relay(
+                crate::service::TxVerificationResult::Reject {
+                    tx_hash: record.hash.clone(),
+                },
+            ));
         }
-
-        // Returning Ok(true) only means the tx was accepted into the pipeline;
-        // actual classification/verification happens in the worker pool.
-        Ok(true)
+        if let Err(error) = self.publish_reserved_effects(permit, effects) {
+            panic!("reserved pipeline outcome journal failed: {error:?}");
+        }
+        banned_peer
     }
 }
