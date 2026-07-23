@@ -379,6 +379,7 @@ pub(crate) struct ConflictCommitHandoff<R, U, V> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalDisposition {
     Rejected,
+    CapacityEvicted,
     Removed,
     Cleared,
     Expired,

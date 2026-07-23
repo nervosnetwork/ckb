@@ -71,10 +71,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 }
             }
             for parent in &entry.dependencies {
-                self.by_parent
-                    .entry(parent.clone())
-                    .or_default()
-                    .insert(hash.clone());
+                let children = self.by_parent.entry(parent.clone()).or_default();
+                children.insert(hash.clone());
+                if children.len() > self.limits.max_dependents_per_parent {
+                    return Err(CoordinatorError::ParentFanoutLimitExceeded(parent.clone()));
+                }
             }
             if let Some(kind) = entry.queue_kind() {
                 expected_queues
@@ -98,11 +99,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .pool_input_edge_count
                     .checked_add(inputs.len())
                     .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
+                if self.pool_input_edge_count > self.limits.max_pool_input_edges {
+                    return Err(CoordinatorError::PoolInputEdgeLimitExceeded);
+                }
                 for input in inputs {
-                    self.pool_waiters_by_input
-                        .entry(input.clone())
-                        .or_default()
-                        .insert(hash.clone());
+                    let waiters = self.pool_waiters_by_input.entry(input.clone()).or_default();
+                    waiters.insert(hash.clone());
+                    if waiters.len() > self.limits.max_pool_waiters_per_input {
+                        return Err(CoordinatorError::PoolInputWaiterLimitExceeded(
+                            input.clone(),
+                        ));
+                    }
                 }
             }
             if entry.invalidated_cause().is_some() {
@@ -125,11 +132,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .conflict_edge_count
                     .checked_add(candidate.inputs.len())
                     .ok_or(CoordinatorError::ConflictEdgeLimitExceeded)?;
+                if self.conflict_edge_count > self.limits.max_conflict_edges {
+                    return Err(CoordinatorError::ConflictEdgeLimitExceeded);
+                }
                 for input in &candidate.inputs {
-                    self.candidates_by_input
-                        .entry(input.clone())
-                        .or_default()
-                        .insert(hash.clone());
+                    let candidates = self.candidates_by_input.entry(input.clone()).or_default();
+                    candidates.insert(hash.clone());
+                    if candidates.len() > self.limits.max_candidates_per_input {
+                        return Err(CoordinatorError::ConflictCandidateLimitExceeded(
+                            input.clone(),
+                        ));
+                    }
                 }
                 match location {
                     CandidateLocation::Ready | CandidateLocation::Committing => {
@@ -145,10 +158,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     }
                     CandidateLocation::WaitingConflict { blockers } => {
                         for blocker in blockers {
-                            self.waiters_by_blocker
-                                .entry(blocker.clone())
-                                .or_default()
-                                .insert(hash.clone());
+                            let waiters =
+                                self.waiters_by_blocker.entry(blocker.clone()).or_default();
+                            waiters.insert(hash.clone());
+                            if waiters.len() > self.limits.max_candidates_per_input {
+                                return Err(CoordinatorError::ConflictInvariant);
+                            }
                         }
                     }
                     CandidateLocation::Recheck { sequence } => {
@@ -314,10 +329,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 );
             }
             for parent in &entry.dependencies {
-                by_parent
-                    .entry(parent.clone())
-                    .or_default()
-                    .insert(hash.clone());
+                let children = by_parent.entry(parent.clone()).or_default();
+                children.insert(hash.clone());
+                if children.len() > self.limits.max_dependents_per_parent {
+                    return Err(CoordinatorAuditError::ParentIndex);
+                }
             }
             if let Some(kind) = entry.queue_kind() {
                 let ticket = entry.ticket(hash);
@@ -336,11 +352,15 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 pool_input_edges = pool_input_edges
                     .checked_add(inputs.len())
                     .ok_or(CoordinatorAuditError::PoolInputEdgeCount)?;
+                if pool_input_edges > self.limits.max_pool_input_edges {
+                    return Err(CoordinatorAuditError::PoolInputEdgeCount);
+                }
                 for input in inputs {
-                    pool_waiters_by_input
-                        .entry(input.clone())
-                        .or_default()
-                        .insert(hash.clone());
+                    let waiters = pool_waiters_by_input.entry(input.clone()).or_default();
+                    waiters.insert(hash.clone());
+                    if waiters.len() > self.limits.max_pool_waiters_per_input {
+                        return Err(CoordinatorAuditError::PoolInputIndex);
+                    }
                 }
             }
             if entry.invalidated_cause().is_some() {
@@ -361,11 +381,15 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 conflict_edges = conflict_edges
                     .checked_add(candidate.inputs.len())
                     .ok_or(CoordinatorAuditError::ConflictEdgeCount)?;
+                if conflict_edges > self.limits.max_conflict_edges {
+                    return Err(CoordinatorAuditError::ConflictEdgeCount);
+                }
                 for input in &candidate.inputs {
-                    candidates_by_input
-                        .entry(input.clone())
-                        .or_default()
-                        .insert(hash.clone());
+                    let candidates = candidates_by_input.entry(input.clone()).or_default();
+                    candidates.insert(hash.clone());
+                    if candidates.len() > self.limits.max_candidates_per_input {
+                        return Err(CoordinatorAuditError::ConflictCandidateIndex);
+                    }
                 }
                 match location {
                     CandidateLocation::Ready | CandidateLocation::Committing => {
@@ -397,10 +421,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                             ) {
                                 return Err(CoordinatorAuditError::ConflictWaiterIndex);
                             }
-                            waiters_by_blocker
-                                .entry(blocker.clone())
-                                .or_default()
-                                .insert(hash.clone());
+                            let waiters = waiters_by_blocker.entry(blocker.clone()).or_default();
+                            waiters.insert(hash.clone());
+                            if waiters.len() > self.limits.max_candidates_per_input {
+                                return Err(CoordinatorAuditError::ConflictWaiterIndex);
+                            }
                         }
                     }
                     CandidateLocation::Recheck { sequence } => {

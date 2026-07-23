@@ -160,7 +160,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         peer: Option<PeerIndex>,
         charge_bytes: usize,
         dependencies: HashSet<Byte32>,
-    ) -> Result<CoordinatorVersion, CoordinatorError> {
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
         let source = peer.map_or(CoordinatorSource::Local, CoordinatorSource::Remote);
         self.admit_raw_sourced(
             hash,
@@ -176,6 +176,73 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn admit_raw_sourced(
+        &mut self,
+        hash: Byte32,
+        short_id: ProposalShortId,
+        raw: R,
+        initial_stage: RawStage,
+        source: CoordinatorSource,
+        expires_at: Option<u64>,
+        charge_bytes: usize,
+        dependencies: HashSet<Byte32>,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+        if self.entries.contains_key(&hash) {
+            return Err(CoordinatorError::DuplicateHash(hash));
+        }
+        if let Some(existing_hash) = self.by_short_id.get(&short_id) {
+            return Err(CoordinatorError::ShortIdCollision {
+                short_id,
+                existing_hash: existing_hash.clone(),
+            });
+        }
+        if dependencies.contains(&hash) {
+            return Err(CoordinatorError::SelfDependency(hash));
+        }
+        if dependencies.len() > self.limits.max_dependencies_per_entry {
+            return Err(CoordinatorError::DependencyLimitExceeded);
+        }
+        let victims = self.dependency_capacity_victims(source, &dependencies)?;
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(victims.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut affected = self.causal_undo_hashes(&victims);
+        for victim in &victims {
+            if let Some(waiters) = self.waiters_by_blocker.get(victim) {
+                affected.extend(waiters.iter().cloned());
+            }
+            self.preflight_remove_conflict_indexes(victim)?;
+            self.preflight_remove_pool_input_indexes(victim)?;
+        }
+        let inserted_hash = hash.clone();
+        self.with_absent_entry_undo(&inserted_hash, &affected, move |coordinator| {
+            for victim in victims {
+                coordinator.mark_children_invalid(&victim, &victim)?;
+                let entry = coordinator.remove_present_apply(&victim)?;
+                terminal.push(Self::terminal_record(
+                    victim,
+                    entry,
+                    TerminalDisposition::CapacityEvicted,
+                ));
+                coordinator.apply_fault_checkpoint();
+            }
+            let version = coordinator.admit_raw_sourced_inner(
+                hash,
+                short_id,
+                raw,
+                initial_stage,
+                source,
+                expires_at,
+                charge_bytes,
+                dependencies,
+            )?;
+            coordinator.apply_fault_checkpoint();
+            Ok((version, terminal))
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn admit_raw_sourced_inner(
         &mut self,
         hash: Byte32,
         short_id: ProposalShortId,
@@ -1000,6 +1067,69 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         verified: V,
         charge_bytes: usize,
         candidate: VerifiedCandidate,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+        self.validate_version_location_phase(
+            &lease.hash,
+            lease.version,
+            &CoordinatorLocation::VerifyActive,
+            PayloadPhase::Unverified,
+        )?;
+        if candidate.inputs.len() > self.limits.max_conflict_inputs_per_entry {
+            return Err(CoordinatorError::ConflictInputLimitExceeded);
+        }
+        let source = self
+            .entries
+            .get(&lease.hash)
+            .map(|entry| entry.source)
+            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+        let incoming = CandidateMeta {
+            inputs: candidate.inputs.clone(),
+            fee: candidate.fee,
+            tx_size: candidate.tx_size,
+            arrival: self.next_arrival,
+        };
+        let victims = self.conflict_capacity_victims(&lease.hash, source, &incoming)?;
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(victims.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut affected = vec![lease.hash.clone()];
+        affected.extend(self.causal_undo_hashes(&victims));
+        for victim in &victims {
+            if let Some(waiters) = self.waiters_by_blocker.get(victim) {
+                affected.extend(waiters.iter().cloned());
+            }
+            self.preflight_remove_conflict_indexes(victim)?;
+            self.preflight_remove_pool_input_indexes(victim)?;
+        }
+        self.with_entry_undo(&affected, move |coordinator| {
+            for victim in victims {
+                coordinator.mark_children_invalid(&victim, &victim)?;
+                let entry = coordinator.remove_present_apply(&victim)?;
+                terminal.push(Self::terminal_record(
+                    victim,
+                    entry,
+                    TerminalDisposition::CapacityEvicted,
+                ));
+                coordinator.apply_fault_checkpoint();
+            }
+            let version = coordinator.complete_verification_candidate_inner(
+                lease,
+                verified,
+                charge_bytes,
+                candidate,
+            )?;
+            coordinator.apply_fault_checkpoint();
+            Ok((version, terminal))
+        })
+    }
+
+    fn complete_verification_candidate_inner(
+        &mut self,
+        lease: &VerifyWorkLease<U>,
+        verified: V,
+        charge_bytes: usize,
+        candidate: VerifiedCandidate,
     ) -> Result<CoordinatorVersion, CoordinatorError> {
         self.validate_version_location_phase(
             &lease.hash,
@@ -1246,6 +1376,79 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     /// Speculative ranking metadata is retained, but active claims are
     /// relinquished until every accepted input is reported free.
     pub(crate) fn wait_for_pool_inputs(
+        &mut self,
+        hash: &Byte32,
+        version: CoordinatorVersion,
+        inputs: HashSet<OutPoint>,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R, U, V>>), CoordinatorError> {
+        if inputs.is_empty() || inputs.len() > self.limits.max_pool_inputs_per_entry {
+            return Err(CoordinatorError::PoolInputLimitExceeded);
+        }
+        let entry = self
+            .entries
+            .get(hash)
+            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+        if entry.incarnation != version.incarnation {
+            return Err(CoordinatorError::IncarnationMismatch {
+                expected: version.incarnation,
+                actual: entry.incarnation,
+            });
+        }
+        if entry.revision != version.revision {
+            return Err(CoordinatorError::RevisionMismatch {
+                expected: version.revision,
+                actual: entry.revision,
+            });
+        }
+        if !matches!(
+            &entry.state,
+            EntryState::PlainVerified {
+                location: PlainVerifiedLocation::Ready,
+                ..
+            } | EntryState::CandidateVerified {
+                location: CandidateLocation::Ready
+                    | CandidateLocation::WaitingConflict { .. }
+                    | CandidateLocation::Recheck { .. },
+                ..
+            }
+        ) {
+            return Err(CoordinatorError::LocationMismatch {
+                expected: CoordinatorLocation::ReadyToCommit,
+                actual: entry.location(),
+            });
+        }
+        let victims = self.pool_input_capacity_victims(hash, &inputs)?;
+        let mut terminal = Vec::new();
+        terminal
+            .try_reserve(victims.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut affected = vec![hash.clone()];
+        affected.extend(self.causal_undo_hashes(&victims));
+        for victim in &victims {
+            if let Some(waiters) = self.waiters_by_blocker.get(victim) {
+                affected.extend(waiters.iter().cloned());
+            }
+            self.preflight_remove_conflict_indexes(victim)?;
+            self.preflight_remove_pool_input_indexes(victim)?;
+        }
+        self.with_entry_undo(&affected, |coordinator| {
+            for victim in victims {
+                coordinator.mark_children_invalid(&victim, &victim)?;
+                let entry = coordinator.remove_present_apply(&victim)?;
+                terminal.push(Self::terminal_record(
+                    victim,
+                    entry,
+                    TerminalDisposition::CapacityEvicted,
+                ));
+                coordinator.apply_fault_checkpoint();
+            }
+            let version = coordinator.wait_for_pool_inputs_inner(hash, version, inputs)?;
+            coordinator.apply_fault_checkpoint();
+            Ok((version, terminal))
+        })
+    }
+
+    fn wait_for_pool_inputs_inner(
         &mut self,
         hash: &Byte32,
         version: CoordinatorVersion,
@@ -2225,6 +2428,199 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok((first, next))
     }
 
+    fn source_capacity_strength(source: CoordinatorSource) -> u8 {
+        match source {
+            CoordinatorSource::Remote(_) => 0,
+            CoordinatorSource::Local => 1,
+            CoordinatorSource::Proposal => 2,
+        }
+    }
+
+    fn dependency_capacity_victims(
+        &self,
+        source: CoordinatorSource,
+        dependencies: &HashSet<Byte32>,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let mut parents: Vec<_> = dependencies.iter().cloned().collect();
+        parents.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        let mut selected = HashSet::new();
+        let mut victims = Vec::new();
+        for parent in parents {
+            let Some(children) = self.by_parent.get(&parent) else {
+                continue;
+            };
+            let occupied = children
+                .iter()
+                .filter(|child| !selected.contains(*child))
+                .count();
+            if occupied < self.limits.max_dependents_per_parent {
+                continue;
+            }
+            let incoming_strength = Self::source_capacity_strength(source);
+            let victim = children
+                .iter()
+                .filter(|child| !selected.contains(*child))
+                .filter_map(|child| self.entries.get(child).map(|entry| (child, entry)))
+                .filter(|(_, entry)| {
+                    !entry.is_committing()
+                        && (entry.invalidated_cause().is_some()
+                            || Self::source_capacity_strength(entry.source) < incoming_strength)
+                })
+                .min_by(|(left_hash, left), (right_hash, right)| {
+                    left.invalidated_cause()
+                        .is_none()
+                        .cmp(&right.invalidated_cause().is_none())
+                        .then_with(|| {
+                            Self::source_capacity_strength(left.source)
+                                .cmp(&Self::source_capacity_strength(right.source))
+                        })
+                        .then_with(|| right.queue_sequence.cmp(&left.queue_sequence))
+                        .then_with(|| left_hash.as_slice().cmp(right_hash.as_slice()))
+                })
+                .map(|(hash, _)| hash.clone())
+                .ok_or_else(|| CoordinatorError::ParentFanoutLimitExceeded(parent.clone()))?;
+            selected.insert(victim.clone());
+            victims.push(victim);
+        }
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        Ok(victims)
+    }
+
+    fn compare_candidate_capacity(
+        left_hash: &Byte32,
+        left_source: CoordinatorSource,
+        left: &CandidateMeta,
+        right_hash: &Byte32,
+        right_source: CoordinatorSource,
+        right: &CandidateMeta,
+    ) -> Ordering {
+        Self::source_capacity_strength(left_source)
+            .cmp(&Self::source_capacity_strength(right_source))
+            .then_with(|| Self::compare_candidates(left_hash, left, right_hash, right))
+    }
+
+    fn conflict_capacity_victims(
+        &self,
+        incoming_hash: &Byte32,
+        incoming_source: CoordinatorSource,
+        incoming: &CandidateMeta,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let mut inputs: Vec<_> = incoming.inputs.iter().cloned().collect();
+        inputs.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        let mut selected = HashSet::new();
+        let mut victims = Vec::new();
+        for input in inputs {
+            let Some(candidates) = self.candidates_by_input.get(&input) else {
+                continue;
+            };
+            let occupied = candidates
+                .iter()
+                .filter(|hash| !selected.contains(*hash))
+                .count();
+            if occupied < self.limits.max_candidates_per_input {
+                continue;
+            }
+            let victim = candidates
+                .iter()
+                .filter(|hash| !selected.contains(*hash))
+                .filter_map(|hash| {
+                    self.entries.get(hash).and_then(|entry| {
+                        entry.candidate().map(|candidate| (hash, entry, candidate))
+                    })
+                })
+                .filter(|(hash, entry, candidate)| {
+                    !entry.is_committing()
+                        && Self::compare_candidate_capacity(
+                            incoming_hash,
+                            incoming_source,
+                            incoming,
+                            hash,
+                            entry.source,
+                            candidate,
+                        ) == Ordering::Greater
+                })
+                .min_by(
+                    |(left_hash, left_entry, left), (right_hash, right_entry, right)| {
+                        Self::compare_candidate_capacity(
+                            left_hash,
+                            left_entry.source,
+                            left,
+                            right_hash,
+                            right_entry.source,
+                            right,
+                        )
+                    },
+                )
+                .map(|(hash, _, _)| hash.clone())
+                .ok_or_else(|| CoordinatorError::ConflictCandidateLimitExceeded(input.clone()))?;
+            selected.insert(victim.clone());
+            victims.push(victim);
+        }
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        Ok(victims)
+    }
+
+    fn compare_pool_waiter_capacity(
+        left_hash: &Byte32,
+        left: &CoordinatorEntry<R, U, V>,
+        right_hash: &Byte32,
+        right: &CoordinatorEntry<R, U, V>,
+    ) -> Ordering {
+        Self::source_capacity_strength(left.source)
+            .cmp(&Self::source_capacity_strength(right.source))
+            .then_with(|| match (left.candidate(), right.candidate()) {
+                (Some(left_candidate), Some(right_candidate)) => {
+                    Self::compare_candidates(left_hash, left_candidate, right_hash, right_candidate)
+                }
+                _ => Ordering::Equal,
+            })
+    }
+
+    fn pool_input_capacity_victims(
+        &self,
+        incoming_hash: &Byte32,
+        inputs: &HashSet<OutPoint>,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let incoming = self
+            .entries
+            .get(incoming_hash)
+            .ok_or_else(|| CoordinatorError::Missing(incoming_hash.clone()))?;
+        let mut inputs: Vec<_> = inputs.iter().cloned().collect();
+        inputs.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        let mut selected = HashSet::new();
+        let mut victims = Vec::new();
+        for input in inputs {
+            let Some(waiters) = self.pool_waiters_by_input.get(&input) else {
+                continue;
+            };
+            let occupied = waiters
+                .iter()
+                .filter(|hash| !selected.contains(*hash))
+                .count();
+            if occupied < self.limits.max_pool_waiters_per_input {
+                continue;
+            }
+            let victim = waiters
+                .iter()
+                .filter(|hash| !selected.contains(*hash))
+                .filter_map(|hash| self.entries.get(hash).map(|entry| (hash, entry)))
+                .filter(|(hash, entry)| {
+                    !entry.is_committing()
+                        && Self::compare_pool_waiter_capacity(incoming_hash, incoming, hash, entry)
+                            == Ordering::Greater
+                })
+                .min_by(|(left_hash, left), (right_hash, right)| {
+                    Self::compare_pool_waiter_capacity(left_hash, left, right_hash, right)
+                })
+                .map(|(hash, _)| hash.clone())
+                .ok_or_else(|| CoordinatorError::PoolInputWaiterLimitExceeded(input.clone()))?;
+            selected.insert(victim.clone());
+            victims.push(victim);
+        }
+        victims.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        Ok(victims)
+    }
+
     fn check_activate_source(&self, source: CoordinatorSource) -> Result<(), CoordinatorError> {
         if self.active_work >= self.limits.max_active_work {
             return Err(CoordinatorError::ActiveWorkLimitExceeded);
@@ -2416,9 +2812,55 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .get(hash)
                     .cloned()
                     .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-                snapshot.push((hash.clone(), entry));
+                snapshot.push((hash.clone(), Some(entry)));
             }
         }
+        self.with_entry_snapshot(snapshot, apply)
+    }
+
+    fn with_absent_entry_undo<T, F>(
+        &mut self,
+        absent: &Byte32,
+        hashes: &[Byte32],
+        apply: F,
+    ) -> Result<T, CoordinatorError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
+    {
+        if self.entries.contains_key(absent) {
+            return Err(CoordinatorError::DuplicateHash(absent.clone()));
+        }
+        let mut unique = HashSet::new();
+        unique
+            .try_reserve(hashes.len().saturating_add(1))
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let mut snapshot = Vec::new();
+        snapshot
+            .try_reserve(hashes.len().saturating_add(1))
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        unique.insert(absent.clone());
+        snapshot.push((absent.clone(), None));
+        for hash in hashes {
+            if unique.insert(hash.clone()) {
+                let entry = self
+                    .entries
+                    .get(hash)
+                    .cloned()
+                    .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+                snapshot.push((hash.clone(), Some(entry)));
+            }
+        }
+        self.with_entry_snapshot(snapshot, apply)
+    }
+
+    fn with_entry_snapshot<T, F>(
+        &mut self,
+        snapshot: Vec<(Byte32, Option<CoordinatorEntry<R, U, V>>)>,
+        apply: F,
+    ) -> Result<T, CoordinatorError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
+    {
         let next_incarnation = self.next_incarnation;
         let next_arrival = self.next_arrival;
         let next_maintenance_sequence = self.next_maintenance_sequence;
@@ -2453,14 +2895,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
     fn restore_entry_snapshot(
         &mut self,
-        snapshot: Vec<(Byte32, CoordinatorEntry<R, U, V>)>,
+        snapshot: Vec<(Byte32, Option<CoordinatorEntry<R, U, V>>)>,
         next_incarnation: u64,
         next_arrival: u64,
         next_maintenance_sequence: u64,
         next_queue_sequence: u64,
     ) -> Result<(), CoordinatorError> {
         for (hash, entry) in snapshot {
-            self.entries.insert(hash, entry);
+            if let Some(entry) = entry {
+                self.entries.insert(hash, entry);
+            } else {
+                self.entries.remove(&hash);
+            }
         }
         self.next_incarnation = next_incarnation;
         self.next_arrival = next_arrival;

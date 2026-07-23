@@ -2,7 +2,7 @@ use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorFeeGate, CoordinatorLimits, CoordinatorLocation,
     CoordinatorMetadataCost, CoordinatorResidency, CoordinatorSource, CoordinatorVerifyOrdering,
     PayloadPhase, PipelineCoordinator, QueueKind, RawStage, TerminalDisposition, TrustedSource,
-    VerifySchedule, WorkerCapability,
+    VerifiedCandidate, VerifySchedule, VerifyWorkLease, WorkerCapability,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
@@ -81,13 +81,35 @@ fn verify_candidate(
     conflict_inputs: HashSet<OutPoint>,
     fee: u64,
 ) -> Byte32 {
+    let (tx_hash, verify, candidate) = begin_candidate(
+        coordinator,
+        seed,
+        CoordinatorSource::Local,
+        conflict_inputs,
+        fee,
+    );
+    let (_, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("proof"), 30, candidate)
+        .unwrap();
+    assert!(evicted.is_empty());
+    tx_hash
+}
+
+fn begin_candidate(
+    coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
+    seed: u8,
+    source: CoordinatorSource,
+    conflict_inputs: HashSet<OutPoint>,
+    fee: u64,
+) -> (Byte32, VerifyWorkLease<Unverified>, VerifiedCandidate) {
     let tx_hash = hash(seed);
     coordinator
-        .admit_raw(
+        .admit_raw_sourced(
             tx_hash.clone(),
             short(seed),
             Raw("raw"),
             RawStage::PreCheck,
+            source,
             None,
             10,
             HashSet::new(),
@@ -107,10 +129,7 @@ fn verify_candidate(
     let candidate = CoordinatorFeeGate::new(0, 0)
         .validate(tx_hash.clone(), conflict_inputs, fee, 100)
         .unwrap();
-    coordinator
-        .complete_verification_candidate(&verify, Verified("proof"), 30, candidate)
-        .unwrap();
-    tx_hash
+    (tx_hash, verify, candidate)
 }
 
 fn verify_plain(
@@ -268,15 +287,117 @@ fn accepted_pool_input_limits_and_wake_slices_are_transactional() {
 
     let (third, third_version) = verify_plain(&mut coordinator, 85);
     let too_many = inputs([185, 186, 187]);
-    assert_eq!(
+    assert!(matches!(
         coordinator.wait_for_pool_inputs(&third, third_version, too_many),
         Err(CoordinatorError::PoolInputLimitExceeded)
-    );
+    ));
     assert_eq!(
         coordinator.view(&third).unwrap().location,
         CoordinatorLocation::ReadyToCommit
     );
     coordinator.audit().unwrap();
+}
+
+#[test]
+fn stronger_verified_work_reconciles_accepted_input_waiter_capacity() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        .with_conflict_limits(1, 4, 8)
+        .with_pool_input_limits(1, 1, 4);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let accepted = input(141);
+    let (weak, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        139,
+        CoordinatorSource::Local,
+        HashSet::from([input(139)]),
+        100,
+    );
+    let (weak_version, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("weak"), 30, candidate)
+        .unwrap();
+    assert!(evicted.is_empty());
+    coordinator
+        .wait_for_pool_inputs(&weak, weak_version, HashSet::from([accepted.clone()]))
+        .unwrap();
+
+    let (strong, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        140,
+        CoordinatorSource::Local,
+        HashSet::from([input(140)]),
+        200,
+    );
+    let (strong_version, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("strong"), 30, candidate)
+        .unwrap();
+    assert!(evicted.is_empty());
+    let (_, evicted) = coordinator
+        .wait_for_pool_inputs(&strong, strong_version, HashSet::from([accepted.clone()]))
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, weak);
+    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
+    assert!(matches!(
+        coordinator.view(&strong).unwrap().location,
+        CoordinatorLocation::WaitingPoolInputs { inputs } if inputs == HashSet::from([accepted])
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn accepted_input_capacity_reconciliation_rolls_back_every_apply_boundary() {
+    for fault_step in 1..=4 {
+        let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+            .with_conflict_limits(1, 4, 8)
+            .with_pool_input_limits(1, 1, 4);
+        let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+            PipelineCoordinator::new(limits);
+        let accepted = input(144);
+        let (weak, verify, candidate) = begin_candidate(
+            &mut coordinator,
+            142,
+            CoordinatorSource::Local,
+            HashSet::from([input(142)]),
+            100,
+        );
+        let weak_version = coordinator
+            .complete_verification_candidate(&verify, Verified("weak"), 30, candidate)
+            .unwrap()
+            .0;
+        coordinator
+            .wait_for_pool_inputs(&weak, weak_version, HashSet::from([accepted.clone()]))
+            .unwrap();
+        let (strong, verify, candidate) = begin_candidate(
+            &mut coordinator,
+            143,
+            CoordinatorSource::Local,
+            HashSet::from([input(143)]),
+            200,
+        );
+        let strong_version = coordinator
+            .complete_verification_candidate(&verify, Verified("strong"), 30, candidate)
+            .unwrap()
+            .0;
+        let before = [weak.clone(), strong.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.wait_for_pool_inputs(
+                &strong,
+                strong_version,
+                HashSet::from([accepted.clone()]),
+            );
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+
+        let after = [weak, strong].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
 }
 
 #[test]
@@ -335,7 +456,8 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
         .unwrap();
     let version = coordinator
         .complete_verification_candidate(&verify, Verified("proof"), 30, candidate)
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 82));
     coordinator
         .wait_for_pool_inputs(&tx_hash, version, inputs([189, 190]))
@@ -356,7 +478,7 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
         .with_metadata_cost(metadata);
     let mut tight: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(tight_limits);
-    assert_eq!(
+    assert!(matches!(
         tight.admit_raw_sourced(
             hash(87),
             short(87),
@@ -368,7 +490,7 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
             set([hash(191)]),
         ),
         Err(CoordinatorError::GlobalBudgetExceeded)
-    );
+    ));
     assert!(tight.is_empty());
     tight.audit().unwrap();
 }
@@ -659,7 +781,7 @@ fn scheduling_order_rebuilds_from_authoritative_ticket_keys() {
 fn queue_sequence_exhaustion_fails_before_admission_or_phase_transition() {
     let mut coordinator = roomy();
     coordinator.set_next_queue_sequence_for_test(u64::MAX);
-    assert_eq!(
+    assert!(matches!(
         coordinator.admit_raw(
             hash(111),
             short(111),
@@ -670,7 +792,7 @@ fn queue_sequence_exhaustion_fails_before_admission_or_phase_transition() {
             HashSet::new(),
         ),
         Err(CoordinatorError::QueueSequenceExhausted)
-    );
+    ));
     assert!(coordinator.is_empty());
 
     coordinator.set_next_queue_sequence_for_test(0);
@@ -1774,13 +1896,13 @@ fn identity_budget_and_fanout_failures_do_not_partially_admit() {
             short(9),
             Raw("fanout"),
             RawStage::Resolve,
-            None,
+            Some(2.into()),
             10,
             set([parent.clone()]),
         ),
         Err(CoordinatorError::ParentFanoutLimitExceeded(hash)) if hash == parent
     ));
-    assert_eq!(
+    assert!(matches!(
         coordinator.admit_raw(
             hash(10),
             short(8),
@@ -1791,13 +1913,141 @@ fn identity_budget_and_fanout_failures_do_not_partially_admit() {
             HashSet::new(),
         ),
         Err(CoordinatorError::ShortIdCollision {
-            short_id: short(8),
-            existing_hash: first,
-        })
-    );
+            short_id,
+            existing_hash,
+        }) if short_id == short(8) && existing_hash == first
+    ));
     assert_eq!(coordinator.len(), 1);
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 10));
     coordinator.audit().unwrap();
+}
+
+#[test]
+fn stronger_source_reconciles_parent_capacity_with_explicit_causal_eviction() {
+    let limits = CoordinatorLimits::new(
+        CoordinatorResidency::new(10, 10_000),
+        Some(CoordinatorResidency::new(10, 10_000)),
+        4,
+        1,
+    );
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let parent = hash(116);
+    let remote = hash(117);
+    let remote_child = hash(118);
+    coordinator
+        .admit_raw(
+            remote.clone(),
+            short(117),
+            Raw("remote"),
+            RawStage::Resolve,
+            Some(41.into()),
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    coordinator
+        .admit_raw(
+            remote_child.clone(),
+            short(118),
+            Raw("remote child"),
+            RawStage::Resolve,
+            Some(41.into()),
+            10,
+            set([remote.clone()]),
+        )
+        .unwrap();
+
+    let local = hash(119);
+    let (_, evicted) = coordinator
+        .admit_raw_sourced(
+            local.clone(),
+            short(119),
+            Raw("local"),
+            RawStage::Resolve,
+            CoordinatorSource::Local,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, remote);
+    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
+    assert!(coordinator.view(&local).is_some());
+    assert!(matches!(
+        coordinator.view(&remote_child).unwrap().location,
+        CoordinatorLocation::Invalidated { cause } if cause == hash(117)
+    ));
+
+    let proposal = hash(120);
+    let (_, evicted) = coordinator
+        .admit_raw_sourced(
+            proposal.clone(),
+            short(120),
+            Raw("proposal"),
+            RawStage::Resolve,
+            CoordinatorSource::Proposal,
+            None,
+            10,
+            set([parent]),
+        )
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, local);
+    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
+    assert!(coordinator.view(&proposal).is_some());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
+    for fault_step in 1..=2 {
+        let limits = CoordinatorLimits::new(
+            CoordinatorResidency::new(10, 10_000),
+            Some(CoordinatorResidency::new(10, 10_000)),
+            4,
+            1,
+        );
+        let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+            PipelineCoordinator::new(limits);
+        let parent = hash(121);
+        let remote = hash(122);
+        coordinator
+            .admit_raw(
+                remote.clone(),
+                short(122),
+                Raw("remote"),
+                RawStage::Resolve,
+                Some(42.into()),
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+        let before = coordinator.view(&remote).unwrap();
+        let usage = coordinator.usage();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.admit_raw_sourced(
+                hash(123),
+                short(123),
+                Raw("proposal"),
+                RawStage::Resolve,
+                CoordinatorSource::Proposal,
+                None,
+                10,
+                set([parent.clone()]),
+            );
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+
+        assert_eq!(coordinator.view(&remote).unwrap(), before);
+        assert!(coordinator.view(&hash(123)).is_none());
+        assert_eq!(coordinator.usage(), usage);
+        coordinator.audit().unwrap();
+    }
 }
 
 #[test]
@@ -2460,7 +2710,7 @@ fn conflict_limits_fail_before_verified_state_or_indexes_change() {
         .unwrap()
         .unwrap();
     let candidate = CoordinatorFeeGate::new(0, 0)
-        .validate(second_hash.clone(), inputs([6]), 200, 100)
+        .validate(second_hash.clone(), inputs([6]), 100, 100)
         .unwrap();
     assert!(matches!(
         coordinator.complete_verification_candidate(&verify, Verified("proof"), 30, candidate),
@@ -2474,6 +2724,173 @@ fn conflict_limits_fail_before_verified_state_or_indexes_change() {
     assert_eq!(coordinator.active_conflict_owner(&input(6)), Some(&first));
     assert_eq!(coordinator.conflict_edge_count(), 1);
     coordinator.audit().unwrap();
+}
+
+#[test]
+fn stronger_verified_candidate_reconciles_every_full_input_bucket_atomically() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        .with_conflict_limits(2, 1, 4);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let first_input = input(130);
+    let second_input = input(131);
+    let first = verify_candidate(
+        &mut coordinator,
+        130,
+        HashSet::from([first_input.clone()]),
+        100,
+    );
+    let second = verify_candidate(
+        &mut coordinator,
+        131,
+        HashSet::from([second_input.clone()]),
+        100,
+    );
+    let (strong, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        132,
+        CoordinatorSource::Local,
+        HashSet::from([first_input.clone(), second_input.clone()]),
+        300,
+    );
+
+    let (_, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("strong"), 30, candidate)
+        .unwrap();
+    let evicted_hashes: Vec<_> = evicted.iter().map(|record| record.hash.clone()).collect();
+    assert_eq!(evicted_hashes, vec![first, second]);
+    assert!(
+        evicted
+            .iter()
+            .all(|record| record.disposition == TerminalDisposition::CapacityEvicted)
+    );
+    assert_eq!(
+        coordinator.active_conflict_owner(&first_input),
+        Some(&strong)
+    );
+    assert_eq!(
+        coordinator.active_conflict_owner(&second_input),
+        Some(&strong)
+    );
+    assert_eq!(coordinator.conflict_edge_count(), 2);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn source_priority_protects_verified_reconciliation_capacity() {
+    let limits = CoordinatorLimits::new(
+        CoordinatorResidency::new(10, 10_000),
+        Some(CoordinatorResidency::new(10, 10_000)),
+        4,
+        4,
+    )
+    .with_conflict_limits(1, 1, 2);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let contested = input(133);
+    let (remote, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        133,
+        CoordinatorSource::Remote(43.into()),
+        HashSet::from([contested.clone()]),
+        300,
+    );
+    coordinator
+        .complete_verification_candidate(&verify, Verified("remote"), 30, candidate)
+        .unwrap();
+    let (local, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        134,
+        CoordinatorSource::Local,
+        HashSet::from([contested.clone()]),
+        100,
+    );
+    let (_, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("local"), 30, candidate)
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, remote);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&local));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn committing_candidate_cannot_be_capacity_evicted() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(10, 10_000), None, 4, 4)
+        .with_conflict_limits(1, 1, 2);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let contested = input(135);
+    let owner = verify_candidate(
+        &mut coordinator,
+        135,
+        HashSet::from([contested.clone()]),
+        100,
+    );
+    let commit = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(commit.hash, owner);
+    let (_, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        136,
+        CoordinatorSource::Proposal,
+        HashSet::from([contested.clone()]),
+        1_000,
+    );
+    assert!(matches!(
+        coordinator.complete_verification_candidate(
+            &verify,
+            Verified("proposal"),
+            30,
+            candidate,
+        ),
+        Err(CoordinatorError::ConflictCandidateLimitExceeded(input)) if input == contested
+    ));
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&owner));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn conflict_capacity_reconciliation_rolls_back_every_apply_boundary() {
+    for fault_step in 1..=4 {
+        let limits = CoordinatorLimits::new(CoordinatorResidency::new(10, 10_000), None, 4, 4)
+            .with_conflict_limits(1, 1, 2);
+        let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+            PipelineCoordinator::new(limits);
+        let contested = input(137);
+        let owner = verify_candidate(
+            &mut coordinator,
+            137,
+            HashSet::from([contested.clone()]),
+            100,
+        );
+        let (strong, verify, candidate) = begin_candidate(
+            &mut coordinator,
+            138,
+            CoordinatorSource::Local,
+            HashSet::from([contested.clone()]),
+            200,
+        );
+        let before = [owner.clone(), strong.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
+
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.complete_verification_candidate(
+                &verify,
+                Verified("strong"),
+                30,
+                candidate,
+            );
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+
+        let after = [owner.clone(), strong].map(|hash| coordinator.view(&hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.active_conflict_owner(&contested), Some(&owner));
+        coordinator.audit().unwrap();
+    }
 }
 
 #[test]

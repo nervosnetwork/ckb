@@ -479,7 +479,7 @@ continuous count/byte reservation, mutation-order sequence binding, FIFO retry
 and active-publication residency. The coordinator is split by responsibility
 into state types, derived indexes and invariant audit modules while retaining
 one entry store and one transition authority. The isolated model currently
-contains 57 coordinator and 5 outbox focused tests.
+contains 65 coordinator and 5 outbox focused tests.
 
 Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
 conservative metadata charging and global/per-peer active-work fairness now
@@ -516,12 +516,24 @@ The current selection implementation is intentionally a correctness oracle: it
 computes the total order over live ID tickets. Before production cutover it must
 be replaced by equivalent indexed lookup, with operation-count and final A/B
 evidence, without changing these now-locked semantics. The next correctness
-slice prevents a remote first-filler from monopolizing per-parent/per-input
-caps needed by proposal, local, or strictly better verified work. Before
-mutation cutover the model also needs coordinator/outbox charge transfer, final
-in-lock pool RBF recalculation, cross-authority query tests and production
-publisher/shutdown integration. The obsolete split prototypes and their
-duplicate state authorities have been deleted rather than hardened or
+slice now also prevents a remote or low-score first-filler from monopolizing
+per-parent, verified-conflict or accepted-input buckets. Full buckets admit only
+a strictly stronger replacement: proposal > local > remote, then verified
+size-fee score where both entries have candidate metadata. `Committing` is
+never evictable and exact ties retain the earlier owner. Multi-input victim
+selection, explicit `CapacityEvicted` terminal records, causal child
+invalidation and the incoming transition are one undo transaction; the
+insertion snapshot explicitly records absence, so unwind cannot leave a
+half-admitted entry. Audit/rebuild re-check every per-bucket and global edge
+limit instead of merely comparing index equality.
+
+Before mutation cutover the model still needs global count/byte reconciliation
+headroom, coordinator/outbox charge transfer, final in-lock pool RBF
+recalculation, cross-authority query tests and production publisher/shutdown
+integration. Capacity-eviction records must be appended to the bounded outbox
+in the same production transaction; returning them from the isolated model is
+not permission for callers to discard them. The obsolete split prototypes and
+their duplicate state authorities have been deleted rather than hardened or
 integrated.
 
 ### 5.3 Atomic transition engine
