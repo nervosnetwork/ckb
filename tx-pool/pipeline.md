@@ -470,14 +470,23 @@ leases, dependency wake/invalidation, verified-only conflict scheduling,
 multi-input committing freeze, typed commit handoff, global/per-peer payload
 residency, physical queue-ticket audit and clear/removal. The outbox covers
 continuous count/byte reservation, mutation-order sequence binding, FIFO retry
-and active-publication residency. The complete tx-pool unit suite currently
-contains 18 coordinator and 5 outbox focused tests.
+and active-publication residency. The coordinator is split by responsibility
+into state types, derived indexes and invariant audit modules while retaining
+one entry store and one transition authority. The complete tx-pool unit suite
+currently contains 30 coordinator and 5 outbox focused tests.
+
+Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
+conservative metadata charging and global/per-peer active-work fairness now
+live in the same model. Stage queues use proposal/normal FIFO lanes and
+round-robin peer buckets; a trusted-source promotion transactionally retickets
+the queued entry, so the entry, live set and physical lane never disagree. A
+deterministic 4,000-step state-machine test audits every generated transition
+and found the missing reticket edge during development.
 
 This checkpoint is not a production migration claim. Before raw cutover, the
-model still needs source promotion, expiry/deadline ownership, per-peer active
-fairness, accepted-pool-input waiting, exact conservative metadata charging,
-bounded dependency-cascade maintenance, state-machine/property coverage and
-the multi-entry undo guard. Before mutation cutover it additionally needs
+model still needs configured fee-priority ordering within eligible peer heads,
+bounded dependency-cascade maintenance, wider property/fault coverage and the
+multi-entry undo guard. Before mutation cutover it additionally needs
 coordinator/outbox charge transfer, final in-lock pool RBF recalculation,
 cross-authority query tests and production publisher/shutdown integration.
 The existing split prototypes remain test oracles only until their remaining
