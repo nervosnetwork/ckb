@@ -19,9 +19,24 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.active_work = 0;
         self.active_work_by_peer.clear();
         let mut expected_queues: HashMap<QueueKind, Vec<CoordinatorTicket>> = HashMap::new();
+        let mut maintenance_sequences = HashSet::new();
+        let mut queue_sequences = HashSet::new();
+        let mut conflict_recheck_order = Vec::new();
+        let mut dependency_failure_order = Vec::new();
 
         for (hash, entry) in &self.entries {
             if !entry.state_shape_valid(hash, &self.limits) {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            if let Some(sequence) = entry.maintenance_sequence()
+                && (sequence >= self.next_maintenance_sequence
+                    || !maintenance_sequences.insert(sequence))
+            {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            if entry.queue_sequence >= self.next_queue_sequence
+                || !queue_sequences.insert(entry.queue_sequence)
+            {
                 return Err(CoordinatorError::ConflictInvariant);
             }
             if self
@@ -92,6 +107,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
             if entry.invalidated_cause().is_some() {
                 self.dependency_failure_set.insert(hash.clone());
+                dependency_failure_order.push((
+                    entry
+                        .maintenance_sequence()
+                        .ok_or(CoordinatorError::ConflictInvariant)?,
+                    hash.clone(),
+                ));
                 continue;
             }
             if let EntryState::CandidateVerified {
@@ -130,8 +151,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                                 .insert(hash.clone());
                         }
                     }
-                    CandidateLocation::Recheck => {
+                    CandidateLocation::Recheck { sequence } => {
                         self.conflict_recheck_set.insert(hash.clone());
+                        conflict_recheck_order.push((*sequence, hash.clone()));
                     }
                     CandidateLocation::WaitingPoolInputs { .. } => {}
                 }
@@ -145,7 +167,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             QueueKind::Commit,
         ] {
             let tickets = expected_queues.remove(&kind).unwrap_or_default();
-            self.queue_mut(kind)?.rebuild_live(kind, tickets)?;
+            let expected_ordering = match kind {
+                QueueKind::Verify => match self.limits.verify_ordering {
+                    CoordinatorVerifyOrdering::ArrivalTime => QueueOrdering::Fifo,
+                    CoordinatorVerifyOrdering::FeeRate => QueueOrdering::FeeRate,
+                },
+                QueueKind::PreCheck | QueueKind::Resolve | QueueKind::Commit => QueueOrdering::Fifo,
+            };
+            let queue = self.queue_mut(kind)?;
+            if queue.ordering() != expected_ordering {
+                return Err(CoordinatorError::QueueInvariant(kind));
+            }
+            queue.rebuild_live(kind, tickets)?;
         }
         self.deadlines.retain(|Reverse(ticket)| {
             self.live_deadlines
@@ -161,20 +194,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 self.deadlines.push(Reverse(ticket.clone()));
             }
         }
-        self.conflict_rechecks
-            .retain(|hash| self.conflict_recheck_set.contains(hash));
-        for hash in &self.conflict_recheck_set {
-            if !self.conflict_rechecks.contains(hash) {
-                self.conflict_rechecks.push_back(hash.clone());
-            }
-        }
-        self.dependency_failures
-            .retain(|hash| self.dependency_failure_set.contains(hash));
-        for hash in &self.dependency_failure_set {
-            if !self.dependency_failures.contains(hash) {
-                self.dependency_failures.push_back(hash.clone());
-            }
-        }
+        conflict_recheck_order.sort_by_key(|(sequence, _)| *sequence);
+        self.conflict_rechecks = conflict_recheck_order
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect();
+        dependency_failure_order.sort_by_key(|(sequence, _)| *sequence);
+        self.dependency_failures = dependency_failure_order
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect();
         Ok(())
     }
 
@@ -197,9 +226,24 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut active_work = 0usize;
         let mut active_work_by_peer: HashMap<PeerIndex, usize> = HashMap::new();
         let mut dependency_failures = HashSet::new();
+        let mut maintenance_sequences = HashSet::new();
+        let mut queue_sequences = HashSet::new();
+        let mut expected_conflict_recheck_order = Vec::new();
+        let mut expected_dependency_failure_order = Vec::new();
 
         for (hash, entry) in &self.entries {
             if !entry.state_shape_valid(hash, &self.limits) {
+                return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
+            }
+            if let Some(sequence) = entry.maintenance_sequence()
+                && (sequence >= self.next_maintenance_sequence
+                    || !maintenance_sequences.insert(sequence))
+            {
+                return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
+            }
+            if entry.queue_sequence >= self.next_queue_sequence
+                || !queue_sequences.insert(entry.queue_sequence)
+            {
                 return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
             }
             let conflict_inputs = entry.candidate().map_or(0, |meta| meta.inputs.len());
@@ -301,6 +345,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
             if entry.invalidated_cause().is_some() {
                 dependency_failures.insert(hash.clone());
+                expected_dependency_failure_order.push((
+                    entry
+                        .maintenance_sequence()
+                        .ok_or_else(|| CoordinatorAuditError::StateInvariant(hash.clone()))?,
+                    hash.clone(),
+                ));
             }
             if let EntryState::CandidateVerified {
                 candidate,
@@ -353,8 +403,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                                 .insert(hash.clone());
                         }
                     }
-                    CandidateLocation::Recheck => {
+                    CandidateLocation::Recheck { sequence } => {
                         conflict_rechecks.insert(hash.clone());
+                        expected_conflict_recheck_order.push((*sequence, hash.clone()));
                     }
                     CandidateLocation::WaitingPoolInputs { .. } => {}
                 }
@@ -410,17 +461,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if dependency_failures != self.dependency_failure_set {
             return Err(CoordinatorAuditError::DependencyMaintenanceIndex);
         }
-        let mut physical_dependency_counts = HashMap::new();
-        for hash in &self.dependency_failures {
-            if self.dependency_failure_set.contains(hash) {
-                *physical_dependency_counts.entry(hash).or_insert(0usize) += 1;
-            }
-        }
-        if self
-            .dependency_failure_set
+        expected_dependency_failure_order.sort_by_key(|(sequence, _)| *sequence);
+        let expected_dependency_failure_order: Vec<_> = expected_dependency_failure_order
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect();
+        let physical_dependency_order: Vec<_> = self
+            .dependency_failures
             .iter()
-            .any(|hash| physical_dependency_counts.get(hash) != Some(&1))
-        {
+            .filter(|hash| self.dependency_failure_set.contains(*hash))
+            .cloned()
+            .collect();
+        if physical_dependency_order != expected_dependency_failure_order {
             return Err(CoordinatorAuditError::DependencyMaintenanceIndex);
         }
         if pool_input_edges != self.pool_input_edge_count {
@@ -449,17 +501,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         {
             return Err(CoordinatorAuditError::DeadlineIndex);
         }
-        let mut physical_rechecks = HashMap::new();
-        for hash in &self.conflict_rechecks {
-            if self.conflict_recheck_set.contains(hash) {
-                *physical_rechecks.entry(hash).or_insert(0usize) += 1;
-            }
-        }
-        if self
-            .conflict_recheck_set
+        expected_conflict_recheck_order.sort_by_key(|(sequence, _)| *sequence);
+        let expected_conflict_recheck_order: Vec<_> = expected_conflict_recheck_order
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect();
+        let physical_conflict_recheck_order: Vec<_> = self
+            .conflict_rechecks
             .iter()
-            .any(|hash| physical_rechecks.get(hash) != Some(&1))
-        {
+            .filter(|hash| self.conflict_recheck_set.contains(*hash))
+            .cloned()
+            .collect();
+        if physical_conflict_recheck_order != expected_conflict_recheck_order {
             return Err(CoordinatorAuditError::ConflictMaintenanceIndex);
         }
 
@@ -474,6 +527,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let Some(queue) = self.queues.get(&kind) else {
                 return Err(CoordinatorAuditError::QueueLogicalIndex);
             };
+            let expected_ordering = match kind {
+                QueueKind::Verify => match self.limits.verify_ordering {
+                    CoordinatorVerifyOrdering::ArrivalTime => QueueOrdering::Fifo,
+                    CoordinatorVerifyOrdering::FeeRate => QueueOrdering::FeeRate,
+                },
+                QueueKind::PreCheck | QueueKind::Resolve | QueueKind::Commit => QueueOrdering::Fifo,
+            };
+            if queue.ordering() != expected_ordering {
+                return Err(CoordinatorAuditError::QueueLogicalIndex);
+            }
             if &queue.live != expected || !queue.structure_valid() {
                 return Err(CoordinatorAuditError::QueueLogicalIndex);
             }

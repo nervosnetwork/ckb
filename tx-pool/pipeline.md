@@ -431,10 +431,12 @@ exposed to untrusted clients; it does not receive an unlimited trusted bypass.
 The residency charge covers serialized payload/accounted heap data plus
 conservative index metadata and remains live across queued, active, waiting and
 committing states. Global and per-peer count/byte/active-work caps are checked
-in the same admission/recharge transaction. Per-peer active-work limits and a
-bounded fair peer rotation prevent one peer from occupying every worker with a
-FIFO prefix; proposal priority remains absolute and fee ordering remains the
-configured policy within eligible verify work.
+in the same admission/recharge transaction. Per-peer active-work limits make
+an over-cap peer temporarily ineligible without changing the configured global
+order. Proposal priority remains absolute; arrival mode is FIFO, while fee mode
+orders each priority class by descending size-based fee rate. Worker capability
+(`Any` or `SmallCycleOnly`) is an independent eligibility filter and never a
+hidden scheduling policy.
 
 The required transition families are deliberately small:
 
@@ -477,15 +479,18 @@ continuous count/byte reservation, mutation-order sequence binding, FIFO retry
 and active-publication residency. The coordinator is split by responsibility
 into state types, derived indexes and invariant audit modules while retaining
 one entry store and one transition authority. The isolated model currently
-contains 49 coordinator and 5 outbox focused tests.
+contains 57 coordinator and 5 outbox focused tests.
 
 Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
 conservative metadata charging and global/per-peer active-work fairness now
-live in the same model. Stage queues use proposal/normal FIFO lanes and
-round-robin peer buckets; a trusted-source promotion transactionally retickets
-the queued entry, so the entry, live set and physical lane never disagree. A
-deterministic 4,000-step state-machine test audits every generated transition
-and found the missing reticket edge during development.
+live in the same model. Every queue ticket carries one globally monotonic
+scheduling sequence. Selection preserves the externally configured FIFO or
+size-fee-rate policy, then filters entries only by global/per-peer active caps
+and worker capability. A trusted-source promotion transactionally retickets the
+queued entry and re-promotion gets a new FIFO position, matching the production
+verify-queue contract. A deterministic 4,000-step state-machine test audits
+every generated transition and found the missing reticket edge during
+development.
 
 This checkpoint is not a production migration claim. Every definitive parent
 exit now invalidates direct children synchronously; accepted commit handoff
@@ -499,18 +504,25 @@ handoff and causal child outcomes inject unwind at their apply boundaries and
 prove the observed state is entirely old before retry. Multi-item maintenance
 freezes its bounded entry worklist so work discovered during the slice remains
 level-triggered for the next slice; a late failure cannot discard earlier
-terminal or activation results. Queue rebuild preserves the round-robin cursor
-of surviving owners while removing stale tombstones.
+terminal or activation results. Queue rebuild recovers the exact logical order
+from authoritative scheduling keys while removing stale tombstones.
+Dependency-failure and
+conflict-recheck order is now stored as a monotonic sequence in the typed entry,
+so an undo rebuild reconstructs exact logical enqueue order instead of deriving
+it from hash-map iteration. Sequence exhaustion is preflighted and the allocator
+rolls back with the transition.
 
-The next correctness slice must make maintenance order part of authoritative,
-reconstructible state; define worker capability separately from scheduling
-policy while preserving configured FIFO/fee semantics; and prevent a remote
-first-filler from monopolizing per-parent/per-input caps needed by proposal,
-local, or strictly better verified work. Before mutation cutover the model also
-needs coordinator/outbox charge transfer, final in-lock pool RBF recalculation,
-cross-authority query tests and production publisher/shutdown integration. The
-obsolete split prototypes and their duplicate state authorities have been
-deleted rather than hardened or integrated.
+The current selection implementation is intentionally a correctness oracle: it
+computes the total order over live ID tickets. Before production cutover it must
+be replaced by equivalent indexed lookup, with operation-count and final A/B
+evidence, without changing these now-locked semantics. The next correctness
+slice prevents a remote first-filler from monopolizing per-parent/per-input
+caps needed by proposal, local, or strictly better verified work. Before
+mutation cutover the model also needs coordinator/outbox charge transfer, final
+in-lock pool RBF recalculation, cross-authority query tests and production
+publisher/shutdown integration. The obsolete split prototypes and their
+duplicate state authorities have been deleted rather than hardened or
+integrated.
 
 ### 5.3 Atomic transition engine
 
@@ -689,7 +701,7 @@ following model suites pass with `audit()` after every transition:
 | Typed state and leases | every legal edge, every illegal edge, stale checkout, remove/re-admit ABA, clear, revision/incarnation exhaustion, duplicate batch member and unwind at every apply boundary |
 | Dependency graph | parent-first/child-first, multiple missing parents, cell deps, parent unavailable after dispatch/verification, exact-once final-parent wake, definitive cascade, parent-hash re-admission, fan-out cap and bounded maintenance slices |
 | Conflict graph | preliminary under-fee rejection, unverified high-fee non-preemption, verified total ordering, multi-input all-or-none ownership, committing freeze, late waiter, success cohort, abort rebalance, stale fee proof and final in-lock RBF recalculation |
-| Residency and fairness | exact-fit global/per-peer limits, aggregate metadata charge, resolved recharge, active-work cap, peer rotation, sybil/global cap, proposal reserve/remote eviction, expiry lifetime and terminal outbox charge transfer |
+| Residency and fairness | exact-fit global/per-peer limits, aggregate metadata charge, resolved recharge, active-work eligibility caps, configured FIFO/fee order, proposal priority/re-promotion, small-cycle capability filtering, sybil/global cap, proposal reserve/remote eviction, expiry lifetime and terminal outbox charge transfer |
 | Authoritative pool handoff | exact RBF/size-eviction journal, original status restoration, tip change, clear/remove/reorg races, raw-hash attached/detached identity and combined query during every handoff instruction boundary |
 | Effects and shutdown | full outbox backpressure, publisher panic/cancellation/restart, callback re-entry, FIFO chain/reorg order, miner dirty journal, terminal exactly once and shutdown drain |
 | Complexity | operation counters (not wall-clock alone) prove bounded lock work, monotonic stale-prefix consumption and no full-store scan on normal admission/checkout/completion |

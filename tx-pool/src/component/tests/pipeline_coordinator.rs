@@ -1,7 +1,8 @@
 use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorFeeGate, CoordinatorLimits, CoordinatorLocation,
-    CoordinatorMetadataCost, CoordinatorResidency, CoordinatorSource, PayloadPhase,
-    PipelineCoordinator, QueueKind, RawStage, TerminalDisposition, TrustedSource,
+    CoordinatorMetadataCost, CoordinatorResidency, CoordinatorSource, CoordinatorVerifyOrdering,
+    PayloadPhase, PipelineCoordinator, QueueKind, RawStage, TerminalDisposition, TrustedSource,
+    VerifySchedule, WorkerCapability,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
@@ -46,6 +47,34 @@ fn roomy() -> PipelineCoordinator<Raw, Unverified, Verified> {
     ))
 }
 
+fn enqueue_verify(
+    coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
+    seed: u8,
+    source: CoordinatorSource,
+    schedule: VerifySchedule,
+) {
+    coordinator
+        .admit_raw_sourced(
+            hash(seed),
+            short(seed),
+            Raw("raw"),
+            RawStage::Resolve,
+            source,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    assert_eq!(raw.hash, hash(seed));
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 20, schedule)
+        .unwrap();
+}
+
 fn verify_candidate(
     coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
     seed: u8,
@@ -69,9 +98,12 @@ fn verify_candidate(
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     let candidate = CoordinatorFeeGate::new(0, 0)
         .validate(tx_hash.clone(), conflict_inputs, fee, 100)
         .unwrap();
@@ -105,9 +137,12 @@ fn verify_plain(
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     let version = coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();
@@ -288,10 +323,13 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 46));
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     let candidate = CoordinatorFeeGate::new(0, 0)
         .validate(tx_hash.clone(), inputs([187, 188]), 100, 100)
         .unwrap();
@@ -416,6 +454,9 @@ fn proposal_priority_lane_is_fifo_and_does_not_starve_earlier_proposals() {
     coordinator
         .promote_source(&hash(97), TrustedSource::Proposal)
         .unwrap();
+    coordinator
+        .promote_source(&hash(96), TrustedSource::Proposal)
+        .unwrap();
 
     let first = coordinator
         .checkout_raw(RawStage::PreCheck)
@@ -431,13 +472,13 @@ fn proposal_priority_lane_is_fifo_and_does_not_starve_earlier_proposals() {
         .unwrap();
     assert_eq!(
         [first.hash, second.hash, third.hash],
-        [hash(96), hash(97), hash(95)]
+        [hash(97), hash(96), hash(95)]
     );
     coordinator.audit().unwrap();
 }
 
 #[test]
-fn peer_rotation_and_active_caps_prevent_a_remote_fifo_prefix_monopoly() {
+fn configured_fifo_order_and_active_caps_prevent_a_remote_prefix_monopoly() {
     let limits = CoordinatorLimits::new(
         CoordinatorResidency::new(20, 20_000),
         Some(CoordinatorResidency::new(20, 20_000)),
@@ -494,7 +535,7 @@ fn peer_rotation_and_active_caps_prevent_a_remote_fifo_prefix_monopoly() {
     );
 
     coordinator
-        .complete_raw(&first, Unverified("done"), 20)
+        .complete_raw(&first, Unverified("done"), 20, VerifySchedule::default())
         .unwrap();
     let fourth = coordinator
         .checkout_raw(RawStage::PreCheck)
@@ -502,6 +543,164 @@ fn peer_rotation_and_active_caps_prevent_a_remote_fifo_prefix_monopoly() {
         .unwrap();
     assert_eq!(fourth.hash, hash(102));
     assert_eq!(coordinator.peer_active_work(first_peer), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn verify_fee_ordering_is_descending_with_proposal_priority_above_fee() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        .with_verify_ordering(CoordinatorVerifyOrdering::FeeRate);
+    let mut coordinator = PipelineCoordinator::new(limits);
+    enqueue_verify(
+        &mut coordinator,
+        105,
+        CoordinatorSource::Local,
+        VerifySchedule::new(100, false),
+    );
+    enqueue_verify(
+        &mut coordinator,
+        106,
+        CoordinatorSource::Local,
+        VerifySchedule::new(300, false),
+    );
+    enqueue_verify(
+        &mut coordinator,
+        107,
+        CoordinatorSource::Local,
+        VerifySchedule::new(200, false),
+    );
+    enqueue_verify(
+        &mut coordinator,
+        108,
+        CoordinatorSource::Proposal,
+        VerifySchedule::new(1, false),
+    );
+
+    let order = [0; 4].map(|_| {
+        coordinator
+            .checkout_verify(WorkerCapability::Any)
+            .unwrap()
+            .unwrap()
+            .hash
+    });
+    assert_eq!(order, [hash(108), hash(106), hash(107), hash(105)]);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn worker_capability_filters_eligibility_without_changing_fee_order() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        .with_verify_ordering(CoordinatorVerifyOrdering::FeeRate);
+    let mut coordinator = PipelineCoordinator::new(limits);
+    enqueue_verify(
+        &mut coordinator,
+        109,
+        CoordinatorSource::Local,
+        VerifySchedule::new(300, true),
+    );
+    enqueue_verify(
+        &mut coordinator,
+        110,
+        CoordinatorSource::Local,
+        VerifySchedule::new(200, false),
+    );
+
+    let small = coordinator
+        .checkout_verify(WorkerCapability::SmallCycleOnly)
+        .unwrap()
+        .unwrap();
+    assert_eq!(small.hash, hash(110));
+    let any = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    assert_eq!(any.hash, hash(109));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn scheduling_order_rebuilds_from_authoritative_ticket_keys() {
+    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        .with_verify_ordering(CoordinatorVerifyOrdering::FeeRate);
+    let mut coordinator = PipelineCoordinator::new(limits);
+    enqueue_verify(
+        &mut coordinator,
+        113,
+        CoordinatorSource::Local,
+        VerifySchedule::new(100, false),
+    );
+    enqueue_verify(
+        &mut coordinator,
+        114,
+        CoordinatorSource::Local,
+        VerifySchedule::new(300, false),
+    );
+    enqueue_verify(
+        &mut coordinator,
+        115,
+        CoordinatorSource::Proposal,
+        VerifySchedule::new(1, false),
+    );
+
+    coordinator.rebuild_derived_indexes_for_test().unwrap();
+    coordinator.audit().unwrap();
+    let order = [0; 3].map(|_| {
+        coordinator
+            .checkout_verify(WorkerCapability::Any)
+            .unwrap()
+            .unwrap()
+            .hash
+    });
+    assert_eq!(order, [hash(115), hash(114), hash(113)]);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn queue_sequence_exhaustion_fails_before_admission_or_phase_transition() {
+    let mut coordinator = roomy();
+    coordinator.set_next_queue_sequence_for_test(u64::MAX);
+    assert_eq!(
+        coordinator.admit_raw(
+            hash(111),
+            short(111),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::new(),
+        ),
+        Err(CoordinatorError::QueueSequenceExhausted)
+    );
+    assert!(coordinator.is_empty());
+
+    coordinator.set_next_queue_sequence_for_test(0);
+    coordinator
+        .admit_raw(
+            hash(112),
+            short(112),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    let before = coordinator.view(&hash(112)).unwrap();
+    coordinator.set_next_queue_sequence_for_test(u64::MAX);
+    assert_eq!(
+        coordinator.complete_raw(
+            &raw,
+            Unverified("resolved"),
+            20,
+            VerifySchedule::new(100, false),
+        ),
+        Err(CoordinatorError::QueueSequenceExhausted)
+    );
+    assert_eq!(coordinator.view(&hash(112)).unwrap(), before);
     coordinator.audit().unwrap();
 }
 
@@ -529,7 +728,12 @@ fn active_source_promotion_does_not_invalidate_owned_work() {
         .promote_source(&tx_hash, TrustedSource::Proposal)
         .unwrap();
     coordinator
-        .complete_raw(&lease, Unverified("resolved"), 20)
+        .complete_raw(
+            &lease,
+            Unverified("resolved"),
+            20,
+            VerifySchedule::default(),
+        )
         .unwrap();
     assert_eq!(
         coordinator.peer_usage(peer),
@@ -607,9 +811,12 @@ fn expiry_and_administrative_remove_cannot_steal_a_committing_lease() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();
@@ -728,9 +935,12 @@ fn deadline_tombstones_compact_under_commit_abort_churn() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();
@@ -798,7 +1008,12 @@ fn deterministic_state_machine_audits_every_ownership_boundary() {
             }
             3 => {
                 if let Some(lease) = raw_leases.pop() {
-                    let _ = coordinator.complete_raw(&lease, Unverified("state-machine"), 20);
+                    let _ = coordinator.complete_raw(
+                        &lease,
+                        Unverified("state-machine"),
+                        20,
+                        VerifySchedule::default(),
+                    );
                 }
             }
             4 => {
@@ -807,7 +1022,7 @@ fn deterministic_state_machine_audits_every_ownership_boundary() {
                 }
             }
             5 => {
-                if let Ok(Some(lease)) = coordinator.checkout_verify() {
+                if let Ok(Some(lease)) = coordinator.checkout_verify(WorkerCapability::Any) {
                     verify_leases.push(lease);
                 }
             }
@@ -888,7 +1103,7 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
         .unwrap();
     assert_eq!(*raw.payload, Raw("raw"));
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
     let view = coordinator.view(&tx_hash).unwrap();
     assert_eq!(view.phase, PayloadPhase::Unverified);
@@ -896,7 +1111,10 @@ fn one_entry_and_revision_own_every_payload_phase_until_commit_handoff() {
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 20));
     coordinator.audit().unwrap();
 
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     assert_eq!(*verify.payload, Unverified("resolved"));
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
@@ -964,9 +1182,12 @@ fn parent_invalidation_demotes_payload_and_makes_active_verify_lease_stale() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 50)
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         coordinator.parent_unavailable(&parent).unwrap(),
@@ -1016,9 +1237,17 @@ fn definitive_parent_failure_is_fail_closed_and_drained_in_bounded_slices() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&child_raw, Unverified("child"), 20)
+        .complete_raw(
+            &child_raw,
+            Unverified("child"),
+            20,
+            VerifySchedule::default(),
+        )
         .unwrap();
-    let child_verify = coordinator.checkout_verify().unwrap().unwrap();
+    let child_verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
 
     coordinator
         .admit_raw(
@@ -1036,9 +1265,17 @@ fn definitive_parent_failure_is_fail_closed_and_drained_in_bounded_slices() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&grand_raw, Unverified("grandchild"), 20)
+        .complete_raw(
+            &grand_raw,
+            Unverified("grandchild"),
+            20,
+            VerifySchedule::default(),
+        )
         .unwrap();
-    let grand_verify = coordinator.checkout_verify().unwrap().unwrap();
+    let grand_verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     coordinator
         .complete_verification(&grand_verify, Verified("grandchild"), 30)
         .unwrap();
@@ -1200,6 +1437,111 @@ fn dependency_failure_batch_never_loses_an_earlier_terminal_on_unwind() {
     let terminal = coordinator.drain_dependency_failures(2).unwrap();
     assert_eq!(terminal.len(), 2);
     assert!(coordinator.is_empty());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn dependency_maintenance_rebuild_preserves_authoritative_enqueue_order() {
+    let mut coordinator = roomy();
+    let earlier_parent = hash(20);
+    let earlier_child = hash(21);
+    let later_parent = hash(22);
+    let later_child = hash(23);
+    for (seed, child, parent) in [
+        (21, earlier_child.clone(), earlier_parent.clone()),
+        (23, later_child.clone(), later_parent.clone()),
+    ] {
+        coordinator
+            .admit_raw(
+                child,
+                short(seed),
+                Raw("child"),
+                RawStage::Resolve,
+                None,
+                10,
+                set([parent]),
+            )
+            .unwrap();
+    }
+
+    // Enqueue the larger hash first so a hash-map rebuild cannot accidentally
+    // satisfy this assertion by sorting or iteration order.
+    coordinator.schedule_parent_failure(&later_parent).unwrap();
+    coordinator
+        .schedule_parent_failure(&earlier_parent)
+        .unwrap();
+    coordinator.set_apply_fault_for_test(Some(1));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.drain_dependency_failures(2);
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    coordinator.audit().unwrap();
+
+    let first = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(first[0].hash, later_child);
+    let second = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(second[0].hash, earlier_child);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn maintenance_sequence_exhaustion_fails_before_invalidation() {
+    let mut coordinator = roomy();
+    let parent = hash(24);
+    let child = hash(25);
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(25),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let before = coordinator.view(&child).unwrap();
+    coordinator.set_next_maintenance_sequence_for_test(u64::MAX);
+
+    assert_eq!(
+        coordinator.schedule_parent_failure(&parent),
+        Err(CoordinatorError::MaintenanceSequenceExhausted)
+    );
+    assert_eq!(coordinator.view(&child).unwrap(), before);
+    assert_eq!(coordinator.dependency_failure_len(), 0);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn maintenance_sequence_allocator_rolls_back_with_failed_transition() {
+    let mut coordinator = roomy();
+    let parent = hash(26);
+    let child = hash(27);
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(27),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    coordinator.set_next_maintenance_sequence_for_test(u64::MAX - 1);
+    coordinator.set_apply_fault_for_test(Some(1));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.schedule_parent_failure(&parent);
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+
+    assert_eq!(coordinator.dependency_failure_len(), 0);
+    assert_eq!(
+        coordinator.schedule_parent_failure(&parent).unwrap(),
+        vec![child]
+    );
     coordinator.audit().unwrap();
 }
 
@@ -1390,7 +1732,7 @@ fn removed_and_readmitted_hash_rejects_the_old_worker_incarnation() {
         .unwrap();
 
     assert!(matches!(
-        coordinator.complete_raw(&old, Unverified("stale"), 20),
+        coordinator.complete_raw(&old, Unverified("stale"), 20, VerifySchedule::default()),
         Err(CoordinatorError::IncarnationMismatch { .. })
     ));
     let current = coordinator.view(&tx_hash).unwrap();
@@ -1481,7 +1823,12 @@ fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
         .unwrap();
 
     assert_eq!(
-        coordinator.complete_raw(&lease, Unverified("too large"), 16),
+        coordinator.complete_raw(
+            &lease,
+            Unverified("too large"),
+            16,
+            VerifySchedule::default()
+        ),
         Err(CoordinatorError::GlobalBudgetExceeded)
     );
     let view = coordinator.view(&tx_hash).unwrap();
@@ -1515,9 +1862,12 @@ fn abort_commit_requeues_once_and_makes_the_old_commit_lease_stale() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();
@@ -1566,7 +1916,12 @@ fn unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("unverified high fee"), 20)
+        .complete_raw(
+            &raw,
+            Unverified("unverified high fee"),
+            20,
+            VerifySchedule::default(),
+        )
         .unwrap();
 
     assert_eq!(
@@ -1607,9 +1962,12 @@ fn under_fee_candidate_cannot_become_verified_conflict_state() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let _verify = coordinator.checkout_verify().unwrap().unwrap();
+    let _verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         CoordinatorFeeGate::new(2_000, 0).validate(
@@ -1703,9 +2061,12 @@ fn verified_conflict_preemption_rolls_back_at_every_apply_boundary() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("high"), 20)
+        .complete_raw(&raw, Unverified("high"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     let before = [low.clone(), high.clone()].map(|hash| coordinator.view(&hash).unwrap());
     let usage = coordinator.usage();
     let active_work = coordinator.active_work();
@@ -2023,6 +2384,50 @@ fn conflict_recheck_batch_rolls_back_earlier_preemptions_on_late_unwind() {
 }
 
 #[test]
+fn conflict_maintenance_rebuild_preserves_authoritative_enqueue_order() {
+    let mut coordinator = roomy();
+    let earlier_input = input(212);
+    let later_input = input(213);
+    let earlier_owner = verify_candidate(
+        &mut coordinator,
+        10,
+        HashSet::from([earlier_input.clone()]),
+        200,
+    );
+    let earlier_waiter =
+        verify_candidate(&mut coordinator, 11, HashSet::from([earlier_input]), 100);
+    let later_owner = verify_candidate(
+        &mut coordinator,
+        12,
+        HashSet::from([later_input.clone()]),
+        200,
+    );
+    let later_waiter = verify_candidate(&mut coordinator, 13, HashSet::from([later_input]), 100);
+
+    coordinator
+        .force_terminalize(&later_owner, TerminalDisposition::Rejected)
+        .unwrap();
+    coordinator
+        .force_terminalize(&earlier_owner, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(coordinator.conflict_recheck_len(), 2);
+
+    coordinator.set_apply_fault_for_test(Some(1));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.drain_conflict_rechecks(2);
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    coordinator.audit().unwrap();
+
+    let first = coordinator.drain_conflict_rechecks(1).unwrap();
+    assert_eq!(first[0].hash, later_waiter);
+    let second = coordinator.drain_conflict_rechecks(1).unwrap();
+    assert_eq!(second[0].hash, earlier_waiter);
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn conflict_limits_fail_before_verified_state_or_indexes_change() {
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> = PipelineCoordinator::new(
         CoordinatorLimits::new(CoordinatorResidency::new(10, 1_000), None, 4, 4)
@@ -2048,9 +2453,12 @@ fn conflict_limits_fail_before_verified_state_or_indexes_change() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     let candidate = CoordinatorFeeGate::new(0, 0)
         .validate(second_hash.clone(), inputs([6]), 200, 100)
         .unwrap();
@@ -2549,9 +2957,12 @@ fn committing_deadline_cannot_block_later_expirations() {
         .unwrap()
         .unwrap();
     coordinator
-        .complete_raw(&raw, Unverified("resolved"), 20)
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
-    let verify = coordinator.checkout_verify().unwrap().unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
     coordinator
         .complete_verification(&verify, Verified("proof"), 30)
         .unwrap();

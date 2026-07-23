@@ -115,11 +115,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         blocker: &Byte32,
     ) -> Result<(), CoordinatorError> {
-        let waiters = self
+        let mut waiters: Vec<_> = self
             .waiters_by_blocker
             .get(blocker)
-            .cloned()
-            .unwrap_or_default();
+            .into_iter()
+            .flat_map(|waiters| waiters.iter().cloned())
+            .collect();
+        waiters.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         for waiter in &waiters {
             let entry = self
                 .entries
@@ -143,6 +145,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_recheck_set
             .try_reserve(waiters.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        let (mut sequence, next_maintenance_sequence) =
+            self.maintenance_sequence_range(waiters.len())?;
+        self.next_maintenance_sequence = next_maintenance_sequence;
         self.waiters_by_blocker.remove(blocker);
         for waiter in waiters {
             self.remove_conflict_waiter_links(&waiter)?;
@@ -153,7 +158,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
                 return Err(CoordinatorError::ConflictInvariant);
             };
-            *location = CandidateLocation::Recheck;
+            *location = CandidateLocation::Recheck { sequence };
+            sequence = sequence
+                .checked_add(1)
+                .ok_or(CoordinatorError::MaintenanceSequenceExhausted)?;
             entry.revision += 1;
             if self.conflict_recheck_set.insert(waiter.clone()) {
                 self.conflict_rechecks.push_back(waiter);
@@ -349,7 +357,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if !matches!(
             &entry.state,
             EntryState::CandidateVerified {
-                location: CandidateLocation::Recheck,
+                location: CandidateLocation::Recheck { .. },
                 ..
             }
         ) {
@@ -433,6 +441,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         hash: &Byte32,
         plan: &ConflictRecheckPlan,
     ) -> Result<Option<CoordinatorTicket>, CoordinatorError> {
+        let ready = plan.blockers.is_empty() || plan.can_preempt;
+        let queue_sequence = if ready {
+            Some(self.queue_sequence_range(1)?)
+        } else {
+            None
+        };
         if plan.can_preempt {
             for blocker in &plan.blockers {
                 self.invalidate_conflict_waiters(blocker)?;
@@ -458,7 +472,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
 
-        if plan.blockers.is_empty() || plan.can_preempt {
+        if ready {
             let (ticket, front) = {
                 let entry = self
                     .entries
@@ -468,6 +482,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     return Err(CoordinatorError::ConflictInvariant);
                 };
                 *location = CandidateLocation::Ready;
+                entry.queue_sequence = queue_sequence
+                    .map(|(sequence, _)| sequence)
+                    .ok_or(CoordinatorError::QueueSequenceExhausted)?;
+                entry.verify_schedule = VerifySchedule::default();
                 entry.revision += 1;
                 (entry.ticket(hash), entry.source.is_proposal())
             };
@@ -477,6 +495,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ticket.clone(),
                 front,
             )?;
+            self.next_queue_sequence = queue_sequence
+                .map(|(_, next_sequence)| next_sequence)
+                .ok_or(CoordinatorError::QueueSequenceExhausted)?;
             self.apply_fault_checkpoint();
             Ok(Some(ticket))
         } else {

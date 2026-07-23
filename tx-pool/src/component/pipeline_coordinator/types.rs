@@ -2,7 +2,7 @@ use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_types::prelude::Entity;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,6 +17,39 @@ pub(crate) enum QueueKind {
     Resolve,
     Verify,
     Commit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CoordinatorVerifyOrdering {
+    ArrivalTime,
+    FeeRate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkerCapability {
+    Any,
+    SmallCycleOnly,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub(crate) struct VerifySchedule {
+    pub(crate) fee_rate_per_kb: u64,
+    pub(crate) is_large_cycle: bool,
+}
+
+impl VerifySchedule {
+    pub(crate) const fn new(fee_rate_per_kb: u64, is_large_cycle: bool) -> Self {
+        Self {
+            fee_rate_per_kb,
+            is_large_cycle,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum QueueOrdering {
+    Fifo,
+    FeeRate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +158,7 @@ pub(crate) struct CoordinatorLimits {
     pub(crate) metadata_cost: CoordinatorMetadataCost,
     pub(crate) max_active_work: usize,
     pub(crate) max_active_work_per_peer: usize,
+    pub(crate) verify_ordering: CoordinatorVerifyOrdering,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -168,6 +202,7 @@ impl CoordinatorLimits {
                 Some(limit) => limit.entries,
                 None => global.entries,
             },
+            verify_ordering: CoordinatorVerifyOrdering::ArrivalTime,
         }
     }
 
@@ -210,6 +245,14 @@ impl CoordinatorLimits {
     ) -> Self {
         self.max_active_work = max_active_work;
         self.max_active_work_per_peer = max_active_work_per_peer;
+        self
+    }
+
+    pub(crate) const fn with_verify_ordering(
+        mut self,
+        verify_ordering: CoordinatorVerifyOrdering,
+    ) -> Self {
+        self.verify_ordering = verify_ordering;
         self
     }
 }
@@ -287,6 +330,8 @@ pub(crate) struct CoordinatorTicket {
     pub(crate) version: CoordinatorVersion,
     pub(super) owner: QueueOwner,
     pub(super) priority: bool,
+    pub(super) queue_sequence: u64,
+    pub(super) verify_schedule: VerifySchedule,
 }
 
 #[derive(Debug, Clone)]
@@ -399,6 +444,8 @@ pub(crate) enum CoordinatorError {
     PoolInputWaiterLimitExceeded(OutPoint),
     PoolInputEdgeLimitExceeded,
     ArrivalSequenceExhausted,
+    QueueSequenceExhausted,
+    MaintenanceSequenceExhausted,
     MissingParentNotDependency {
         child: Byte32,
         parent: Byte32,
@@ -488,7 +535,7 @@ pub(super) enum CandidateLocation {
     Ready,
     WaitingPoolInputs { inputs: HashSet<OutPoint> },
     WaitingConflict { blockers: HashSet<Byte32> },
-    Recheck,
+    Recheck { sequence: u64 },
     Committing,
 }
 
@@ -535,6 +582,7 @@ pub(super) enum EntryState<R, U, V> {
         raw: Arc<R>,
         payload: InvalidatedPayload<U, V>,
         cause: Byte32,
+        sequence: u64,
     },
 }
 
@@ -578,10 +626,12 @@ impl<R, U, V> Clone for EntryState<R, U, V> {
                 raw,
                 payload,
                 cause,
+                sequence,
             } => Self::Invalidated {
                 raw: Arc::clone(raw),
                 payload: payload.clone(),
                 cause: cause.clone(),
+                sequence: *sequence,
             },
         }
     }
@@ -668,7 +718,7 @@ impl<R, U, V> EntryState<R, U, V> {
                 blockers: blockers.clone(),
             },
             Self::CandidateVerified {
-                location: CandidateLocation::Recheck,
+                location: CandidateLocation::Recheck { .. },
                 ..
             } => CoordinatorLocation::ConflictRecheck,
             Self::PlainVerified {
@@ -780,6 +830,17 @@ impl<R, U, V> EntryState<R, U, V> {
             _ => None,
         }
     }
+
+    pub(super) fn maintenance_sequence(&self) -> Option<u64> {
+        match self {
+            Self::CandidateVerified {
+                location: CandidateLocation::Recheck { sequence },
+                ..
+            }
+            | Self::Invalidated { sequence, .. } => Some(*sequence),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -802,6 +863,8 @@ pub(crate) struct CoordinatorEntry<R, U, V> {
     pub(super) incarnation: u64,
     pub(super) revision: u64,
     pub(super) deadline_generation: u64,
+    pub(super) queue_sequence: u64,
+    pub(super) verify_schedule: VerifySchedule,
 }
 
 impl<R, U, V> Clone for CoordinatorEntry<R, U, V> {
@@ -821,6 +884,8 @@ impl<R, U, V> Clone for CoordinatorEntry<R, U, V> {
             incarnation: self.incarnation,
             revision: self.revision,
             deadline_generation: self.deadline_generation,
+            queue_sequence: self.queue_sequence,
+            verify_schedule: self.verify_schedule,
         }
     }
 }
@@ -837,6 +902,8 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
     pub(super) fn state_shape_valid(&self, hash: &Byte32, limits: &CoordinatorLimits) -> bool {
         if self.dependencies.contains(hash)
             || self.dependencies.len() > limits.max_dependencies_per_entry
+            || (!matches!(&self.state, EntryState::Unverified { .. })
+                && self.verify_schedule != VerifySchedule::default())
         {
             return false;
         }
@@ -866,7 +933,7 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
                                 && blockers.len() <= limits.max_conflict_inputs_per_entry
                         }
                         CandidateLocation::Ready
-                        | CandidateLocation::Recheck
+                        | CandidateLocation::Recheck { .. }
                         | CandidateLocation::Committing => true,
                     }
             }
@@ -890,6 +957,8 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
             version: self.version(),
             owner: self.source.queue_owner(),
             priority: self.source.is_proposal(),
+            queue_sequence: self.queue_sequence,
+            verify_schedule: self.verify_schedule,
         }
     }
 
@@ -929,6 +998,10 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
         self.state.invalidated_cause()
     }
 
+    pub(super) fn maintenance_sequence(&self) -> Option<u64> {
+        self.state.maintenance_sequence()
+    }
+
     pub(super) fn view(&self) -> CoordinatorView {
         CoordinatorView {
             short_id: self.short_id.clone(),
@@ -943,201 +1016,47 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
     }
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct TicketLane {
-    pub(super) buckets: HashMap<QueueOwner, VecDeque<CoordinatorTicket>>,
-    pub(super) rotation: VecDeque<QueueOwner>,
-    rotating: HashSet<QueueOwner>,
-    physical_len: usize,
-}
-
-impl TicketLane {
-    fn reserve(&mut self, owner: QueueOwner, additional: usize) -> Result<(), CoordinatorError> {
-        self.buckets
-            .try_reserve(1)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        self.rotation
-            .try_reserve(1)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        self.rotating
-            .try_reserve(1)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        self.buckets
-            .entry(owner)
-            .or_default()
-            .try_reserve(additional)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)
-    }
-
-    fn push_reserved(
-        &mut self,
-        kind: QueueKind,
-        ticket: CoordinatorTicket,
-    ) -> Result<(), CoordinatorError> {
-        let bucket = self
-            .buckets
-            .get_mut(&ticket.owner)
-            .ok_or(CoordinatorError::QueueInvariant(kind))?;
-        if bucket.is_empty() && self.rotating.insert(ticket.owner) {
-            self.rotation.push_back(ticket.owner);
-        }
-        bucket.push_back(ticket);
-        self.physical_len = self
-            .physical_len
-            .checked_add(1)
-            .ok_or(CoordinatorError::QueueInvariant(kind))?;
-        Ok(())
-    }
-
-    fn peek_eligible<F>(
-        &mut self,
-        live: &HashSet<CoordinatorTicket>,
-        mut eligible: F,
-    ) -> Option<CoordinatorTicket>
-    where
-        F: FnMut(QueueOwner) -> bool,
-    {
-        let attempts = self.rotation.len();
-        for _ in 0..attempts {
-            let owner = self.rotation.pop_front()?;
-            if !self.rotating.contains(&owner) {
-                continue;
-            }
-            let Some(bucket) = self.buckets.get_mut(&owner) else {
-                self.rotating.remove(&owner);
-                continue;
-            };
-            while bucket.front().is_some_and(|ticket| !live.contains(ticket)) {
-                bucket.pop_front();
-                self.physical_len = self.physical_len.saturating_sub(1);
-            }
-            if bucket.is_empty() {
-                self.buckets.remove(&owner);
-                self.rotating.remove(&owner);
-                continue;
-            }
-            self.rotation.push_back(owner);
-            if eligible(owner) {
-                return bucket.front().cloned();
-            }
-        }
-        None
-    }
-
-    fn consume(
-        &mut self,
-        kind: QueueKind,
-        ticket: &CoordinatorTicket,
-    ) -> Result<(), CoordinatorError> {
-        {
-            let bucket = self
-                .buckets
-                .get_mut(&ticket.owner)
-                .ok_or(CoordinatorError::QueueInvariant(kind))?;
-            if bucket.front() != Some(ticket) {
-                return Err(CoordinatorError::QueueInvariant(kind));
-            }
-            bucket.pop_front();
-        }
-        self.physical_len = self
-            .physical_len
-            .checked_sub(1)
-            .ok_or(CoordinatorError::QueueInvariant(kind))?;
-        Ok(())
-    }
-
-    fn compact(&mut self, live: &HashSet<CoordinatorTicket>) {
-        for bucket in self.buckets.values_mut() {
-            bucket.retain(|ticket| live.contains(ticket));
-        }
-        self.buckets.retain(|_, bucket| !bucket.is_empty());
-        // Preserve the round-robin cursor for every surviving owner. A
-        // transactional rollback may compact stale physical tickets, but it
-        // must not silently reshuffle unrelated peers.
-        self.rotating.clear();
-        {
-            let buckets = &self.buckets;
-            let rotating = &mut self.rotating;
-            self.rotation
-                .retain(|owner| buckets.contains_key(owner) && rotating.insert(*owner));
-        }
-        for owner in self.buckets.keys() {
-            if self.rotating.insert(*owner) {
-                self.rotation.push_back(*owner);
-            }
-        }
-        self.physical_len = 0;
-        for bucket in self.buckets.values() {
-            self.physical_len = self.physical_len.saturating_add(bucket.len());
-        }
-    }
-
-    pub(super) fn physical_len(&self) -> usize {
-        self.physical_len
-    }
-
-    pub(super) fn tickets(&self) -> impl Iterator<Item = &CoordinatorTicket> {
-        self.buckets.values().flat_map(|bucket| bucket.iter())
-    }
-
-    fn structure_valid(&self, priority: bool) -> bool {
-        let mut rotation_counts = HashMap::new();
-        for owner in &self.rotation {
-            *rotation_counts.entry(*owner).or_insert(0usize) += 1;
-        }
-        self.physical_len
-            == self
-                .buckets
-                .values()
-                .map(VecDeque::len)
-                .fold(0usize, usize::saturating_add)
-            && rotation_counts
-                .keys()
-                .all(|owner| self.rotating.contains(owner))
-            && self.rotating.iter().all(|owner| {
-                rotation_counts.get(owner) == Some(&1) && self.buckets.contains_key(owner)
-            })
-            && self.buckets.iter().all(|(owner, bucket)| {
-                (bucket.is_empty() || self.rotating.contains(owner))
-                    && bucket
-                        .iter()
-                        .all(|ticket| ticket.owner == *owner && ticket.priority == priority)
-            })
-    }
-}
-
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct TicketQueue {
-    pub(super) priority: TicketLane,
-    pub(super) normal: TicketLane,
+    ordering: QueueOrdering,
+    physical: VecDeque<CoordinatorTicket>,
     pub(super) live: HashSet<CoordinatorTicket>,
 }
 
 impl TicketQueue {
+    pub(super) fn new(ordering: QueueOrdering) -> Self {
+        Self {
+            ordering,
+            physical: VecDeque::new(),
+            live: HashSet::new(),
+        }
+    }
+
     pub(super) fn reserve_live(
         &mut self,
-        priority: bool,
-        owner: QueueOwner,
+        _priority: bool,
+        _owner: QueueOwner,
     ) -> Result<(), CoordinatorError> {
         self.live
             .try_reserve(1)
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        self.lane_mut(priority).reserve(owner, 1)
+        self.physical
+            .try_reserve(1)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)
     }
 
     pub(super) fn reserve_many(
         &mut self,
-        priority: bool,
-        owners: impl IntoIterator<Item = QueueOwner>,
+        _priority: bool,
+        _owners: impl IntoIterator<Item = QueueOwner>,
         count: usize,
     ) -> Result<(), CoordinatorError> {
         self.live
             .try_reserve(count)
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        for owner in owners {
-            self.lane_mut(priority).reserve(owner, 1)?;
-        }
-        Ok(())
+        self.physical
+            .try_reserve(count)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)
     }
 
     pub(super) fn push_reserved(
@@ -1149,16 +1068,19 @@ impl TicketQueue {
         if ticket.priority != priority || !self.live.insert(ticket.clone()) {
             return Err(CoordinatorError::QueueInvariant(kind));
         }
-        self.lane_mut(priority).push_reserved(kind, ticket)
+        self.physical.push_back(ticket);
+        Ok(())
     }
 
-    pub(super) fn peek_eligible<F>(&mut self, eligible: F) -> Option<CoordinatorTicket>
+    pub(super) fn peek_eligible<F>(&self, mut eligible: F) -> Option<CoordinatorTicket>
     where
-        F: Copy + Fn(QueueOwner) -> bool,
+        F: FnMut(&CoordinatorTicket) -> bool,
     {
-        self.priority
-            .peek_eligible(&self.live, eligible)
-            .or_else(|| self.normal.peek_eligible(&self.live, eligible))
+        self.live
+            .iter()
+            .filter(|ticket| eligible(ticket))
+            .min_by(|left, right| self.compare(left, right))
+            .cloned()
     }
 
     pub(super) fn consume(
@@ -1168,11 +1090,6 @@ impl TicketQueue {
     ) -> Result<(), CoordinatorError> {
         if !self.live.remove(ticket) {
             return Err(CoordinatorError::QueueInvariant(kind));
-        }
-        let result = self.lane_mut(ticket.priority).consume(kind, ticket);
-        if result.is_err() {
-            self.live.insert(ticket.clone());
-            return result;
         }
         self.compact();
         Ok(())
@@ -1185,60 +1102,91 @@ impl TicketQueue {
 
     pub(super) fn compact(&mut self) {
         const STALE_SLACK: usize = 64;
-        if self.physical_len()
+        if self.physical.len()
             > self
                 .live
                 .len()
                 .saturating_mul(2)
                 .saturating_add(STALE_SLACK)
         {
-            self.priority.compact(&self.live);
-            self.normal.compact(&self.live);
+            self.physical.retain(|ticket| self.live.contains(ticket));
         }
     }
 
     pub(super) fn physical_len(&self) -> usize {
-        self.priority
-            .physical_len()
-            .saturating_add(self.normal.physical_len())
+        self.physical.len()
     }
 
     pub(super) fn tickets(&self) -> impl Iterator<Item = &CoordinatorTicket> {
-        self.priority.tickets().chain(self.normal.tickets())
+        self.physical.iter()
     }
 
     pub(super) fn structure_valid(&self) -> bool {
-        self.priority.structure_valid(true) && self.normal.structure_valid(false)
+        self.live.iter().all(|ticket| {
+            self.physical
+                .iter()
+                .filter(|physical| *physical == ticket)
+                .count()
+                == 1
+        })
     }
 
     pub(super) fn rebuild_live(
         &mut self,
-        kind: QueueKind,
+        _kind: QueueKind,
         tickets: Vec<CoordinatorTicket>,
     ) -> Result<(), CoordinatorError> {
         let mut live = HashSet::new();
         live.try_reserve(tickets.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        self.physical
+            .try_reserve(tickets.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         live.extend(tickets.iter().cloned());
         self.live = live;
-        self.priority.compact(&self.live);
-        self.normal.compact(&self.live);
+        self.physical.retain(|ticket| self.live.contains(ticket));
         for ticket in tickets {
-            if self.tickets().any(|physical| physical == &ticket) {
+            if self.physical.iter().any(|physical| physical == &ticket) {
                 continue;
             }
-            self.live.remove(&ticket);
-            self.reserve_live(ticket.priority, ticket.owner)?;
-            self.push_reserved(kind, ticket.clone(), ticket.priority)?;
+            self.physical.push_back(ticket);
         }
         Ok(())
     }
 
-    fn lane_mut(&mut self, priority: bool) -> &mut TicketLane {
-        if priority {
-            &mut self.priority
-        } else {
-            &mut self.normal
+    fn compare(&self, left: &CoordinatorTicket, right: &CoordinatorTicket) -> Ordering {
+        right
+            .priority
+            .cmp(&left.priority)
+            .then_with(|| match self.ordering {
+                QueueOrdering::Fifo => Ordering::Equal,
+                QueueOrdering::FeeRate => right
+                    .verify_schedule
+                    .fee_rate_per_kb
+                    .cmp(&left.verify_schedule.fee_rate_per_kb),
+            })
+            .then_with(|| left.queue_sequence.cmp(&right.queue_sequence))
+            .then_with(|| left.hash.as_slice().cmp(right.hash.as_slice()))
+            .then_with(|| left.version.incarnation.cmp(&right.version.incarnation))
+            .then_with(|| left.version.revision.cmp(&right.version.revision))
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.physical.clear();
+        self.live.clear();
+    }
+
+    pub(super) fn ordering(&self) -> QueueOrdering {
+        self.ordering
+    }
+
+    pub(super) fn ticket_is_eligible(
+        ticket: &CoordinatorTicket,
+        capability: WorkerCapability,
+    ) -> bool {
+        match capability {
+            WorkerCapability::Any => true,
+            WorkerCapability::SmallCycleOnly => !ticket.verify_schedule.is_large_cycle,
         }
     }
 }
