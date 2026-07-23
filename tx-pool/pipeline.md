@@ -368,11 +368,10 @@ from production integration.
 | A15 | Coordinator conflict membership can change while pool validation runs with the coordinator unlocked, making an exact waiter list captured at prepare stale. | `Committing` freezes every input domain; later verified contenders enter its capped waiter buckets. Finalization consumes/reclassifies the current bucket without allocation, while abort schedules bounded rebalance. |
 | A16 | Even with complete preflight, a panic in a multi-entry/index apply could leave half a coordinator batch applied. | A transition undo guard retains old authoritative entries until commit. Unwind restores entries and rebuilds derived indexes; production code contains no panicking invariant accessors. |
 
-These defects do not affect the current production path because the prototypes
-are unreachable (`#![allow(dead_code)]`). They invalidate the prototypes as an
-integration base. Their useful test cases are retained as requirements and
-must move to the single-coordinator model before the prototype modules are
-deleted.
+These defects did not affect the production path because the prototypes were
+unreachable (`#![allow(dead_code)]`). They invalidated the prototypes as an
+integration base. Their useful test properties have now moved to the
+single-coordinator model, and the three split-state modules have been deleted.
 
 ### 5.2 Single authoritative coordinator
 
@@ -472,8 +471,8 @@ residency, physical queue-ticket audit and clear/removal. The outbox covers
 continuous count/byte reservation, mutation-order sequence binding, FIFO retry
 and active-publication residency. The coordinator is split by responsibility
 into state types, derived indexes and invariant audit modules while retaining
-one entry store and one transition authority. The complete tx-pool unit suite
-currently contains 30 coordinator and 5 outbox focused tests.
+one entry store and one transition authority. The isolated model currently
+contains 34 coordinator and 5 outbox focused tests.
 
 Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
 conservative metadata charging and global/per-peer active-work fairness now
@@ -483,15 +482,19 @@ the queued entry, so the entry, live set and physical lane never disagree. A
 deterministic 4,000-step state-machine test audits every generated transition
 and found the missing reticket edge during development.
 
-This checkpoint is not a production migration claim. Before raw cutover, the
-model still needs configured fee-priority ordering within eligible peer heads,
-bounded dependency-cascade maintenance, wider property/fault coverage and the
-multi-entry undo guard. Before mutation cutover it additionally needs
-coordinator/outbox charge transfer, final in-lock pool RBF recalculation,
-cross-authority query tests and production publisher/shutdown integration.
-The existing split prototypes remain test oracles only until their remaining
-properties are ported; they must then be deleted rather than hardened or
-integrated.
+This checkpoint is not a production migration claim. Definitive dependency
+failure now invalidates direct children synchronously and drains transitive
+cleanup through a bounded maintenance deque, so deferred work cannot let a
+descendant commit. Multi-entry dependency, accepted-input and conflict-handoff
+operations use a bounded entry undo guard and deterministic derived-index
+rebuild; an injected unwind regression proves the observed state is entirely
+old before retry. The guard still needs fault injection at every apply
+boundary, and queue scheduling still needs configured fee-priority ordering
+within eligible peer heads. Before mutation cutover the model additionally
+needs coordinator/outbox charge transfer, final in-lock pool RBF
+recalculation, cross-authority query tests and production publisher/shutdown
+integration. The obsolete split prototypes and their duplicate state
+authorities have been deleted rather than hardened or integrated.
 
 ### 5.3 Atomic transition engine
 
@@ -625,10 +628,10 @@ record remains no verdict.
 
 ### 5.6 Migration and deletion sequence
 
-1. **Replace the prototypes.** Build an isolated single-coordinator model,
-   port all lifecycle/dependency/conflict tests, add state-machine/property
-   tests and exhaustion/fault-injection tests, then delete the three split-state
-   prototype modules.
+1. **Replace the prototypes — complete.** The isolated single-coordinator
+   model owns lifecycle/dependency/conflict state, the applicable prototype
+   properties are ported, state-machine/exhaustion/fault tests run against the
+   unified authority, and the three split-state prototype modules are deleted.
 2. **Read-only differential surface.** In test builds, compare coordinator
    queries against legacy queue/active/waiting/RBF queries for full hash, short
    ID, peer, location, dependency and residency results. No production shadow

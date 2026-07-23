@@ -2,11 +2,8 @@ pub mod entry;
 pub mod tx_selector;
 
 pub(crate) mod active_set;
-pub(crate) mod conflict_scheduler;
-pub(crate) mod dependency_scheduler;
 pub(crate) mod effect_outbox;
 pub(crate) mod flight_tracker;
-pub(crate) mod lifecycle_store;
 pub(crate) mod links;
 pub(crate) mod ordered_resolve_queue;
 pub(crate) mod out_point_index;

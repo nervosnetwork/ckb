@@ -6,6 +6,7 @@ use crate::component::pipeline_coordinator::{
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use std::collections::HashSet;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Raw(&'static str);
@@ -882,6 +883,170 @@ fn parent_invalidation_demotes_payload_and_makes_active_verify_lease_stale() {
 }
 
 #[test]
+fn definitive_parent_failure_is_fail_closed_and_drained_in_bounded_slices() {
+    let mut coordinator = roomy();
+    let parent = hash(200);
+    let child = hash(201);
+    let grandchild = hash(202);
+    let great_grandchild = hash(203);
+
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(201),
+            Raw("child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let child_raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&child_raw, Unverified("child"), 20)
+        .unwrap();
+    let child_verify = coordinator.checkout_verify().unwrap().unwrap();
+
+    coordinator
+        .admit_raw(
+            grandchild.clone(),
+            short(202),
+            Raw("grandchild"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([child.clone()]),
+        )
+        .unwrap();
+    let grand_raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&grand_raw, Unverified("grandchild"), 20)
+        .unwrap();
+    let grand_verify = coordinator.checkout_verify().unwrap().unwrap();
+    coordinator
+        .complete_verification(&grand_verify, Verified("grandchild"), 30)
+        .unwrap();
+    let grand_commit = coordinator.begin_next_commit().unwrap().unwrap();
+
+    coordinator
+        .admit_raw(
+            great_grandchild.clone(),
+            short(203),
+            Raw("great-grandchild"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([grandchild.clone()]),
+        )
+        .unwrap();
+    assert_eq!(coordinator.active_work(), 2);
+
+    assert_eq!(
+        coordinator.schedule_parent_failure(&parent).unwrap(),
+        vec![child.clone()]
+    );
+    assert_eq!(coordinator.dependency_failure_len(), 1);
+    assert_eq!(coordinator.active_work(), 1);
+    assert!(matches!(
+        coordinator.complete_verification(&child_verify, Verified("stale"), 30),
+        Err(CoordinatorError::RevisionMismatch { .. })
+    ));
+    assert!(matches!(
+        coordinator.commit_handoff(&grand_commit),
+        Err(CoordinatorError::DependencyInvalidated {
+            child: failed_child,
+            parent: failed_parent,
+        }) if failed_child == grandchild && failed_parent == child
+    ));
+    coordinator.audit().unwrap();
+
+    let first = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].hash, child);
+    assert_eq!(first[0].disposition, TerminalDisposition::DependencyFailed);
+    assert_eq!(coordinator.active_work(), 0);
+    assert!(matches!(
+        coordinator.view(&grandchild).unwrap().location,
+        CoordinatorLocation::Invalidated { .. }
+    ));
+    coordinator.audit().unwrap();
+
+    let second = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].hash, grandchild);
+    assert!(matches!(
+        coordinator.view(&great_grandchild).unwrap().location,
+        CoordinatorLocation::Invalidated { .. }
+    ));
+    coordinator.audit().unwrap();
+
+    let third = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(third.len(), 1);
+    assert_eq!(third[0].hash, great_grandchild);
+    assert!(coordinator.is_empty());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn injected_multi_entry_unwind_restores_entries_and_rebuilds_indexes() {
+    let mut coordinator = roomy();
+    let parent = hash(204);
+    let children = [hash(205), hash(206)];
+    for (seed, child) in [(205, children[0].clone()), (206, children[1].clone())] {
+        coordinator
+            .admit_raw(
+                child,
+                short(seed),
+                Raw("child"),
+                RawStage::Resolve,
+                Some(PeerIndex::from(seed as usize)),
+                10,
+                set([parent.clone()]),
+            )
+            .unwrap();
+    }
+    let before: Vec<_> = children
+        .iter()
+        .map(|child| coordinator.view(child).unwrap())
+        .collect();
+    let usage = coordinator.usage();
+    let physical = coordinator.physical_queue_slots_for_test(QueueKind::Resolve);
+    coordinator.set_invalidation_fault_for_test(Some(1));
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.schedule_parent_failure(&parent);
+    }));
+    assert!(result.is_err());
+    coordinator.set_invalidation_fault_for_test(None);
+    let after: Vec<_> = children
+        .iter()
+        .map(|child| coordinator.view(child).unwrap())
+        .collect();
+    assert_eq!(after, before);
+    assert_eq!(coordinator.usage(), usage);
+    assert_eq!(coordinator.dependency_failure_len(), 0);
+    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 2);
+    assert_eq!(
+        coordinator.physical_queue_slots_for_test(QueueKind::Resolve),
+        physical
+    );
+    coordinator.audit().unwrap();
+
+    assert_eq!(
+        coordinator.schedule_parent_failure(&parent).unwrap().len(),
+        2
+    );
+    assert_eq!(coordinator.drain_dependency_failures(2).unwrap().len(), 2);
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn final_parent_wake_is_exactly_once_and_batch_preflight_is_atomic() {
     let mut coordinator = roomy();
     let parent = hash(40);
@@ -1272,6 +1437,55 @@ fn higher_verified_candidate_preempts_and_removal_rechecks_the_loser() {
         coordinator.view(&low).unwrap().location,
         CoordinatorLocation::ReadyToCommit
     );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn exact_conflict_score_tie_keeps_the_earlier_verified_candidate() {
+    let mut coordinator = roomy();
+    let shared = input(210);
+    let first = verify_candidate(&mut coordinator, 210, HashSet::from([shared.clone()]), 100);
+    let second = verify_candidate(&mut coordinator, 211, HashSet::from([shared.clone()]), 100);
+    assert_eq!(coordinator.active_conflict_owner(&shared), Some(&first));
+    assert!(matches!(
+        coordinator.view(&second).unwrap().location,
+        CoordinatorLocation::WaitingConflict { .. }
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn conflict_preemption_never_disturbs_an_independent_input_domain() {
+    let mut coordinator = roomy();
+    let contested = input(212);
+    let independent = input(213);
+    let weak = verify_candidate(
+        &mut coordinator,
+        212,
+        HashSet::from([contested.clone()]),
+        100,
+    );
+    let other = verify_candidate(
+        &mut coordinator,
+        213,
+        HashSet::from([independent.clone()]),
+        100,
+    );
+    let strong = verify_candidate(
+        &mut coordinator,
+        214,
+        HashSet::from([contested.clone()]),
+        200,
+    );
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&strong));
+    assert_eq!(
+        coordinator.active_conflict_owner(&independent),
+        Some(&other)
+    );
+    assert!(matches!(
+        coordinator.view(&weak).unwrap().location,
+        CoordinatorLocation::WaitingConflict { .. }
+    ));
     coordinator.audit().unwrap();
 }
 

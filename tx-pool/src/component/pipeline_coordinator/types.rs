@@ -362,6 +362,7 @@ pub(crate) enum TerminalDisposition {
     Removed,
     Cleared,
     Expired,
+    DependencyFailed,
     Internal,
 }
 
@@ -456,6 +457,10 @@ pub(crate) enum CoordinatorError {
     ResidencyChargeOverflow,
     ActiveWorkLimitExceeded,
     PeerActiveWorkLimitExceeded(PeerIndex),
+    DependencyInvalidated {
+        child: Byte32,
+        parent: Byte32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -477,6 +482,7 @@ pub(crate) enum CoordinatorAuditError {
     DeadlineIndex,
     MetadataCharge,
     ActiveWork,
+    DependencyMaintenanceIndex,
     InvalidPhaseLocation(Byte32),
     BudgetExceeded,
 }
@@ -486,6 +492,16 @@ pub(crate) enum ResidentPhase<U, V> {
     Raw,
     Unverified(Arc<U>),
     Verified(Arc<V>),
+}
+
+impl<U, V> Clone for ResidentPhase<U, V> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Raw => Self::Raw,
+            Self::Unverified(payload) => Self::Unverified(Arc::clone(payload)),
+            Self::Verified(payload) => Self::Verified(Arc::clone(payload)),
+        }
+    }
 }
 
 impl<U, V> ResidentPhase<U, V> {
@@ -516,6 +532,29 @@ pub(crate) struct CoordinatorEntry<R, U, V> {
     pub(super) candidate: Option<CandidateMeta>,
     pub(super) incarnation: u64,
     pub(super) revision: u64,
+}
+
+impl<R, U, V> Clone for CoordinatorEntry<R, U, V> {
+    fn clone(&self) -> Self {
+        Self {
+            short_id: self.short_id.clone(),
+            raw: Arc::clone(&self.raw),
+            phase: self.phase.clone(),
+            location: self.location.clone(),
+            source: self.source,
+            expires_at: self.expires_at,
+            raw_charge_bytes: self.raw_charge_bytes,
+            raw_payload_bytes: self.raw_payload_bytes,
+            payload_bytes: self.payload_bytes,
+            base_metadata_bytes: self.base_metadata_bytes,
+            metadata_bytes: self.metadata_bytes,
+            charge_bytes: self.charge_bytes,
+            dependencies: self.dependencies.clone(),
+            candidate: self.candidate.clone(),
+            incarnation: self.incarnation,
+            revision: self.revision,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -812,6 +851,29 @@ impl TicketQueue {
 
     pub(super) fn structure_valid(&self) -> bool {
         self.priority.structure_valid(true) && self.normal.structure_valid(false)
+    }
+
+    pub(super) fn rebuild_live(
+        &mut self,
+        kind: QueueKind,
+        tickets: Vec<CoordinatorTicket>,
+    ) -> Result<(), CoordinatorError> {
+        let mut live = HashSet::new();
+        live.try_reserve(tickets.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        live.extend(tickets.iter().cloned());
+        self.live = live;
+        self.priority.compact(&self.live);
+        self.normal.compact(&self.live);
+        for ticket in tickets {
+            if self.tickets().any(|physical| physical == &ticket) {
+                continue;
+            }
+            self.live.remove(&ticket);
+            self.reserve_live(ticket.priority, ticket.owner)?;
+            self.push_reserved(kind, ticket.clone(), ticket.priority)?;
+        }
+        Ok(())
     }
 
     fn lane_mut(&mut self, priority: bool) -> &mut TicketLane {

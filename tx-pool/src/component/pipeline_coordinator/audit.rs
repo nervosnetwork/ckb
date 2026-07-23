@@ -1,6 +1,175 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    pub(super) fn rebuild_derived_indexes(&mut self) -> Result<(), CoordinatorError> {
+        self.by_short_id.clear();
+        self.by_peer.clear();
+        self.by_parent.clear();
+        self.candidates_by_input.clear();
+        self.active_by_input.clear();
+        self.waiters_by_blocker.clear();
+        self.conflict_recheck_set.clear();
+        self.conflict_edge_count = 0;
+        self.pool_waiters_by_input.clear();
+        self.pool_input_edge_count = 0;
+        self.live_deadlines.clear();
+        self.dependency_failure_set.clear();
+        self.global_usage = CoordinatorResidency::default();
+        self.peer_usage.clear();
+        self.active_work = 0;
+        self.active_work_by_peer.clear();
+        let mut expected_queues: HashMap<QueueKind, Vec<CoordinatorTicket>> = HashMap::new();
+
+        for (hash, entry) in &self.entries {
+            if self
+                .by_short_id
+                .insert(entry.short_id.clone(), hash.clone())
+                .is_some()
+            {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            let charge = CoordinatorResidency::new(1, entry.charge_bytes);
+            self.global_usage = self
+                .global_usage
+                .checked_add(charge)
+                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+            if let Some(peer) = entry.source.peer() {
+                let usage = self.peer_usage.entry(peer).or_default();
+                *usage = usage
+                    .checked_add(charge)
+                    .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                self.by_peer.entry(peer).or_default().insert(hash.clone());
+            }
+            if entry.location.uses_active_slot() {
+                self.active_work = self
+                    .active_work
+                    .checked_add(1)
+                    .ok_or(CoordinatorError::ActiveWorkLimitExceeded)?;
+                if let Some(peer) = entry.source.peer() {
+                    let active = self.active_work_by_peer.entry(peer).or_default();
+                    *active = active
+                        .checked_add(1)
+                        .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                }
+            }
+            for parent in &entry.dependencies {
+                self.by_parent
+                    .entry(parent.clone())
+                    .or_default()
+                    .insert(hash.clone());
+            }
+            if let Some(kind) = entry.location.queue_kind() {
+                expected_queues
+                    .entry(kind)
+                    .or_default()
+                    .push(entry.ticket(hash));
+            }
+            if let Some(expires_at) = entry.expires_at {
+                self.live_deadlines.insert(
+                    hash.clone(),
+                    DeadlineTicket {
+                        expires_at,
+                        hash: hash.clone(),
+                        incarnation: entry.incarnation,
+                    },
+                );
+            }
+            if let CoordinatorLocation::WaitingPoolInputs { inputs } = &entry.location {
+                self.pool_input_edge_count = self
+                    .pool_input_edge_count
+                    .checked_add(inputs.len())
+                    .ok_or(CoordinatorError::PoolInputEdgeLimitExceeded)?;
+                for input in inputs {
+                    self.pool_waiters_by_input
+                        .entry(input.clone())
+                        .or_default()
+                        .insert(hash.clone());
+                }
+            }
+            if matches!(entry.location, CoordinatorLocation::Invalidated { .. }) {
+                self.dependency_failure_set.insert(hash.clone());
+                continue;
+            }
+            if let Some(candidate) = &entry.candidate {
+                self.conflict_edge_count = self
+                    .conflict_edge_count
+                    .checked_add(candidate.inputs.len())
+                    .ok_or(CoordinatorError::ConflictEdgeLimitExceeded)?;
+                for input in &candidate.inputs {
+                    self.candidates_by_input
+                        .entry(input.clone())
+                        .or_default()
+                        .insert(hash.clone());
+                }
+                match &entry.location {
+                    CoordinatorLocation::ReadyToCommit | CoordinatorLocation::Committing => {
+                        for input in &candidate.inputs {
+                            if self
+                                .active_by_input
+                                .insert(input.clone(), hash.clone())
+                                .is_some()
+                            {
+                                return Err(CoordinatorError::ConflictInvariant);
+                            }
+                        }
+                    }
+                    CoordinatorLocation::WaitingConflict { blockers } => {
+                        for blocker in blockers {
+                            self.waiters_by_blocker
+                                .entry(blocker.clone())
+                                .or_default()
+                                .insert(hash.clone());
+                        }
+                    }
+                    CoordinatorLocation::ConflictRecheck => {
+                        self.conflict_recheck_set.insert(hash.clone());
+                    }
+                    CoordinatorLocation::WaitingPoolInputs { .. } => {}
+                    _ => return Err(CoordinatorError::ConflictInvariant),
+                }
+            }
+        }
+
+        for kind in [
+            QueueKind::PreCheck,
+            QueueKind::Resolve,
+            QueueKind::Verify,
+            QueueKind::Commit,
+        ] {
+            let tickets = expected_queues.remove(&kind).unwrap_or_default();
+            self.queue_mut(kind)?.rebuild_live(kind, tickets)?;
+        }
+        self.deadlines.retain(|Reverse(ticket)| {
+            self.live_deadlines
+                .get(&ticket.hash)
+                .is_some_and(|live| live == ticket)
+        });
+        for ticket in self.live_deadlines.values() {
+            if !self
+                .deadlines
+                .iter()
+                .any(|Reverse(physical)| physical == ticket)
+            {
+                self.deadlines.push(Reverse(ticket.clone()));
+            }
+        }
+        self.conflict_rechecks
+            .retain(|hash| self.conflict_recheck_set.contains(hash));
+        for hash in &self.conflict_recheck_set {
+            if !self.conflict_rechecks.contains(hash) {
+                self.conflict_rechecks.push_back(hash.clone());
+            }
+        }
+        self.dependency_failures
+            .retain(|hash| self.dependency_failure_set.contains(hash));
+        for hash in &self.dependency_failure_set {
+            if !self.dependency_failures.contains(hash) {
+                self.dependency_failures.push_back(hash.clone());
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn audit(&self) -> Result<(), CoordinatorAuditError> {
         let mut global_usage = CoordinatorResidency::default();
         let mut peer_usage: HashMap<PeerIndex, CoordinatorResidency> = HashMap::new();
@@ -19,6 +188,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut pool_input_edges = 0usize;
         let mut active_work = 0usize;
         let mut active_work_by_peer: HashMap<PeerIndex, usize> = HashMap::new();
+        let mut dependency_failures = HashSet::new();
 
         for (hash, entry) in &self.entries {
             if !Self::phase_location_valid(entry.phase.kind(), &entry.location) {
@@ -123,9 +293,15 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         .insert(hash.clone());
                 }
             }
+            if matches!(entry.location, CoordinatorLocation::Invalidated { .. }) {
+                dependency_failures.insert(hash.clone());
+            }
             if let Some(candidate) = &entry.candidate {
                 if entry.phase.kind() != PayloadPhase::Verified {
                     return Err(CoordinatorAuditError::InvalidPhaseLocation(hash.clone()));
+                }
+                if matches!(entry.location, CoordinatorLocation::Invalidated { .. }) {
+                    continue;
                 }
                 conflict_edges = conflict_edges
                     .checked_add(candidate.inputs.len())
@@ -231,6 +407,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
         if conflict_rechecks != self.conflict_recheck_set {
             return Err(CoordinatorAuditError::ConflictMaintenanceIndex);
+        }
+        if dependency_failures != self.dependency_failure_set {
+            return Err(CoordinatorAuditError::DependencyMaintenanceIndex);
+        }
+        let mut physical_dependency_counts = HashMap::new();
+        for hash in &self.dependency_failures {
+            if self.dependency_failure_set.contains(hash) {
+                *physical_dependency_counts.entry(hash).or_insert(0usize) += 1;
+            }
+        }
+        if self
+            .dependency_failure_set
+            .iter()
+            .any(|hash| physical_dependency_counts.get(hash) != Some(&1))
+        {
+            return Err(CoordinatorAuditError::DependencyMaintenanceIndex);
         }
         if pool_input_edges != self.pool_input_edge_count {
             return Err(CoordinatorAuditError::PoolInputEdgeCount);
