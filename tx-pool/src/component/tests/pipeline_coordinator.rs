@@ -1,8 +1,9 @@
 use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorFeeGate, CoordinatorLimits, CoordinatorLocation,
-    CoordinatorMetadataCost, CoordinatorResidency, CoordinatorSource, CoordinatorVerifyOrdering,
-    PayloadPhase, PipelineCoordinator, QueueKind, RawStage, TerminalDisposition, TrustedSource,
-    VerifiedCandidate, VerifySchedule, VerifyWorkLease, WorkerCapability,
+    CoordinatorMetadataCost, CoordinatorReconciliationLimits, CoordinatorResidency,
+    CoordinatorSource, CoordinatorVerifyOrdering, PayloadPhase, PipelineCoordinator, QueueKind,
+    RawStage, TerminalDisposition, TrustedSource, VerifiedCandidate, VerifySchedule,
+    VerifyWorkLease, WorkerCapability,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
@@ -38,8 +39,23 @@ fn inputs<const N: usize>(items: [u8; N]) -> HashSet<OutPoint> {
     items.into_iter().map(input).collect()
 }
 
+fn test_limits(
+    global: CoordinatorResidency,
+    per_peer: Option<CoordinatorResidency>,
+    max_dependencies_per_entry: usize,
+    max_dependents_per_parent: usize,
+) -> CoordinatorLimits {
+    crate::component::pipeline_coordinator::CoordinatorLimits::new(
+        global,
+        per_peer,
+        max_dependencies_per_entry,
+        max_dependents_per_parent,
+        CoordinatorReconciliationLimits::new(125, 64),
+    )
+}
+
 fn roomy() -> PipelineCoordinator<Raw, Unverified, Verified> {
-    PipelineCoordinator::new(CoordinatorLimits::new(
+    PipelineCoordinator::new(test_limits(
         CoordinatorResidency::new(100, 100_000),
         Some(CoordinatorResidency::new(20, 20_000)),
         16,
@@ -139,13 +155,25 @@ fn verify_plain(
     Byte32,
     crate::component::pipeline_coordinator::CoordinatorVersion,
 ) {
+    verify_plain_sourced(coordinator, seed, CoordinatorSource::Local)
+}
+
+fn verify_plain_sourced(
+    coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
+    seed: u8,
+    source: CoordinatorSource,
+) -> (
+    Byte32,
+    crate::component::pipeline_coordinator::CoordinatorVersion,
+) {
     let tx_hash = hash(seed);
     coordinator
-        .admit_raw(
+        .admit_raw_sourced(
             tx_hash.clone(),
             short(seed),
             Raw("raw"),
             RawStage::PreCheck,
+            source,
             None,
             10,
             HashSet::new(),
@@ -247,7 +275,7 @@ fn accepted_pool_wait_releases_speculative_claim_but_retains_verified_ranking() 
 
 #[test]
 fn accepted_pool_input_limits_and_wake_slices_are_transactional() {
-    let limits = CoordinatorLimits::new(
+    let limits = test_limits(
         CoordinatorResidency::new(20, 20_000),
         Some(CoordinatorResidency::new(20, 20_000)),
         16,
@@ -301,7 +329,7 @@ fn accepted_pool_input_limits_and_wake_slices_are_transactional() {
 
 #[test]
 fn stronger_verified_work_reconciles_accepted_input_waiter_capacity() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
         .with_conflict_limits(1, 4, 8)
         .with_pool_input_limits(1, 1, 4);
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
@@ -347,9 +375,39 @@ fn stronger_verified_work_reconciles_accepted_input_waiter_capacity() {
 }
 
 #[test]
+fn plain_pool_waiter_ties_evict_the_newer_entry_deterministically() {
+    let limits = test_limits(CoordinatorResidency::new(10, 1_000), None, 4, 4)
+        .with_pool_input_limits(1, 2, 4);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let accepted = input(210);
+    let (earlier, earlier_version) =
+        verify_plain_sourced(&mut coordinator, 177, CoordinatorSource::Remote(55.into()));
+    coordinator
+        .wait_for_pool_inputs(&earlier, earlier_version, HashSet::from([accepted.clone()]))
+        .unwrap();
+    let (later, later_version) =
+        verify_plain_sourced(&mut coordinator, 178, CoordinatorSource::Remote(56.into()));
+    coordinator
+        .wait_for_pool_inputs(&later, later_version, HashSet::from([accepted.clone()]))
+        .unwrap();
+
+    let (trusted, trusted_version) =
+        verify_plain_sourced(&mut coordinator, 179, CoordinatorSource::Local);
+    let (_, evicted) = coordinator
+        .wait_for_pool_inputs(&trusted, trusted_version, HashSet::from([accepted]))
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, later);
+    assert!(coordinator.view(&earlier).is_some());
+    assert!(coordinator.view(&trusted).is_some());
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn accepted_input_capacity_reconciliation_rolls_back_every_apply_boundary() {
     for fault_step in 1..=5 {
-        let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
             .with_conflict_limits(1, 4, 8)
             .with_pool_input_limits(1, 1, 4);
         let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
@@ -411,7 +469,7 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
         conflict_edge_bytes: 13,
         pool_input_edge_bytes: 17,
     };
-    let limits = CoordinatorLimits::new(
+    let limits = test_limits(
         CoordinatorResidency::new(10, 1_000),
         Some(CoordinatorResidency::new(10, 1_000)),
         4,
@@ -475,8 +533,8 @@ fn metadata_residency_is_charged_continuously_across_every_wait_state() {
     );
     coordinator.audit().unwrap();
 
-    let tight_limits = CoordinatorLimits::new(CoordinatorResidency::new(1, 35), None, 4, 4)
-        .with_metadata_cost(metadata);
+    let tight_limits =
+        test_limits(CoordinatorResidency::new(1, 35), None, 4, 4).with_metadata_cost(metadata);
     let mut tight: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(tight_limits);
     assert!(matches!(
@@ -602,7 +660,7 @@ fn proposal_priority_lane_is_fifo_and_does_not_starve_earlier_proposals() {
 
 #[test]
 fn configured_fifo_order_and_active_caps_prevent_a_remote_prefix_monopoly() {
-    let limits = CoordinatorLimits::new(
+    let limits = test_limits(
         CoordinatorResidency::new(20, 20_000),
         Some(CoordinatorResidency::new(20, 20_000)),
         4,
@@ -671,7 +729,7 @@ fn configured_fifo_order_and_active_caps_prevent_a_remote_prefix_monopoly() {
 
 #[test]
 fn verify_fee_ordering_is_descending_with_proposal_priority_above_fee() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
         .with_verify_ordering(CoordinatorVerifyOrdering::FeeRate);
     let mut coordinator = PipelineCoordinator::new(limits);
     enqueue_verify(
@@ -712,7 +770,7 @@ fn verify_fee_ordering_is_descending_with_proposal_priority_above_fee() {
 
 #[test]
 fn worker_capability_filters_eligibility_without_changing_fee_order() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
         .with_verify_ordering(CoordinatorVerifyOrdering::FeeRate);
     let mut coordinator = PipelineCoordinator::new(limits);
     enqueue_verify(
@@ -743,7 +801,7 @@ fn worker_capability_filters_eligibility_without_changing_fee_order() {
 
 #[test]
 fn scheduling_order_rebuilds_from_authoritative_ticket_keys() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
         .with_verify_ordering(CoordinatorVerifyOrdering::FeeRate);
     let mut coordinator = PipelineCoordinator::new(limits);
     enqueue_verify(
@@ -1870,7 +1928,7 @@ fn removed_and_readmitted_hash_rejects_the_old_worker_incarnation() {
 #[test]
 fn identity_budget_and_fanout_failures_do_not_partially_admit() {
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
-        PipelineCoordinator::new(CoordinatorLimits::new(
+        PipelineCoordinator::new(test_limits(
             CoordinatorResidency::new(2, 20),
             Some(CoordinatorResidency::new(1, 10)),
             1,
@@ -1924,8 +1982,41 @@ fn identity_budget_and_fanout_failures_do_not_partially_admit() {
 }
 
 #[test]
+fn transitive_dependency_cycle_is_rejected_before_admission() {
+    let mut coordinator = roomy();
+    let first = hash(175);
+    let second = hash(176);
+    coordinator
+        .admit_raw(
+            first.clone(),
+            short(175),
+            Raw("first"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::from([second.clone()]),
+        )
+        .unwrap();
+    assert!(matches!(
+        coordinator.admit_raw(
+            second.clone(),
+            short(176),
+            Raw("cycle"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::from([first.clone()]),
+        ),
+        Err(CoordinatorError::DependencyCycle(hash)) if hash == second
+    ));
+    assert!(coordinator.view(&first).is_some());
+    assert!(coordinator.view(&second).is_none());
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn stronger_source_reconciles_parent_capacity_with_explicit_causal_eviction() {
-    let limits = CoordinatorLimits::new(
+    let limits = test_limits(
         CoordinatorResidency::new(10, 10_000),
         Some(CoordinatorResidency::new(10, 10_000)),
         4,
@@ -2004,7 +2095,7 @@ fn stronger_source_reconciles_parent_capacity_with_explicit_causal_eviction() {
 #[test]
 fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
     for fault_step in 1..=3 {
-        let limits = CoordinatorLimits::new(
+        let limits = test_limits(
             CoordinatorResidency::new(10, 10_000),
             Some(CoordinatorResidency::new(10, 10_000)),
             4,
@@ -2053,7 +2144,7 @@ fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
 
 #[test]
 fn global_admission_reconciliation_preserves_dependency_ancestors() {
-    let limits = CoordinatorLimits::new(
+    let limits = test_limits(
         CoordinatorResidency::new(3, 30),
         Some(CoordinatorResidency::new(3, 30)),
         4,
@@ -2121,7 +2212,7 @@ fn global_admission_reconciliation_preserves_dependency_ancestors() {
 
 #[test]
 fn global_recharge_reconciliation_covers_raw_and_plain_verified_phases() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(2, 25), None, 4, 4);
+    let limits = test_limits(CoordinatorResidency::new(2, 25), None, 4, 4);
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(limits);
     let local = hash(150);
@@ -2154,12 +2245,7 @@ fn global_recharge_reconciliation_covers_raw_and_plain_verified_phases() {
         .unwrap();
     assert_eq!(raw.hash, local);
     let (_, evicted) = coordinator
-        .complete_raw(
-            &raw,
-            Unverified("resolved"),
-            20,
-            VerifySchedule::default(),
-        )
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
     assert_eq!(evicted.len(), 1);
     assert_eq!(evicted[0].hash, hash(151));
@@ -2195,7 +2281,7 @@ fn global_recharge_reconciliation_covers_candidate_and_pool_wait_metadata() {
         pool_input_edge_bytes: 10,
         ..CoordinatorMetadataCost::default()
     };
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(3, 60), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(3, 60), None, 4, 4)
         .with_conflict_limits(1, 4, 8)
         .with_pool_input_limits(1, 4, 8)
         .with_metadata_cost(metadata);
@@ -2249,7 +2335,7 @@ fn global_recharge_reconciliation_covers_candidate_and_pool_wait_metadata() {
 #[test]
 fn global_recharge_reconciliation_rolls_back_after_every_apply_boundary() {
     for fault_step in 1..=3 {
-        let limits = CoordinatorLimits::new(CoordinatorResidency::new(2, 25), None, 4, 4);
+        let limits = test_limits(CoordinatorResidency::new(2, 25), None, 4, 4);
         let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
             PipelineCoordinator::new(limits);
         let local = hash(157);
@@ -2281,8 +2367,7 @@ fn global_recharge_reconciliation_rolls_back_after_every_apply_boundary() {
             .checkout_raw(RawStage::Resolve)
             .unwrap()
             .unwrap();
-        let before = [local.clone(), remote.clone()]
-            .map(|hash| coordinator.view(&hash).unwrap());
+        let before = [local.clone(), remote.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
 
         coordinator.set_apply_fault_for_test(Some(fault_step));
@@ -2305,10 +2390,273 @@ fn global_recharge_reconciliation_rolls_back_after_every_apply_boundary() {
 }
 
 #[test]
-fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
-    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> = PipelineCoordinator::new(
-        CoordinatorLimits::new(CoordinatorResidency::new(1, 15), None, 4, 4),
+fn global_conflict_edge_capacity_reconciles_disjoint_lower_priority_work() {
+    let limits =
+        test_limits(CoordinatorResidency::new(4, 400), None, 4, 4).with_conflict_limits(1, 4, 1);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let (remote, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        159,
+        CoordinatorSource::Remote(49.into()),
+        HashSet::from([input(159)]),
+        100,
     );
+    coordinator
+        .complete_verification_candidate(&verify, Verified("remote"), 30, candidate)
+        .unwrap();
+
+    let (local, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        160,
+        CoordinatorSource::Local,
+        HashSet::from([input(160)]),
+        100,
+    );
+    let (_, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("local"), 30, candidate)
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, remote);
+    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
+    assert!(coordinator.view(&local).is_some());
+    assert_eq!(coordinator.conflict_edge_count(), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn global_pool_input_edge_capacity_reconciles_disjoint_lower_priority_work() {
+    let limits = test_limits(CoordinatorResidency::new(4, 400), None, 4, 4)
+        .with_conflict_limits(1, 4, 4)
+        .with_pool_input_limits(1, 4, 1);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let (remote, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        161,
+        CoordinatorSource::Remote(50.into()),
+        HashSet::from([input(161)]),
+        100,
+    );
+    let remote_version = coordinator
+        .complete_verification_candidate(&verify, Verified("remote"), 30, candidate)
+        .unwrap()
+        .0;
+    coordinator
+        .wait_for_pool_inputs(&remote, remote_version, HashSet::from([input(201)]))
+        .unwrap();
+
+    let (local, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        162,
+        CoordinatorSource::Local,
+        HashSet::from([input(162)]),
+        100,
+    );
+    let local_version = coordinator
+        .complete_verification_candidate(&verify, Verified("local"), 30, candidate)
+        .unwrap()
+        .0;
+    let (_, evicted) = coordinator
+        .wait_for_pool_inputs(&local, local_version, HashSet::from([input(202)]))
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, remote);
+    assert_eq!(evicted[0].disposition, TerminalDisposition::CapacityEvicted);
+    assert!(matches!(
+        coordinator.view(&local).unwrap().location,
+        CoordinatorLocation::WaitingPoolInputs { .. }
+    ));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn capacity_reconciliation_never_selects_an_incoming_dependency_ancestor() {
+    let limits =
+        test_limits(CoordinatorResidency::new(4, 400), None, 4, 4).with_conflict_limits(1, 4, 1);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let (ancestor, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        163,
+        CoordinatorSource::Remote(51.into()),
+        HashSet::from([input(163)]),
+        100,
+    );
+    coordinator
+        .complete_verification_candidate(&verify, Verified("ancestor"), 30, candidate)
+        .unwrap();
+
+    let child = hash(164);
+    coordinator
+        .admit_raw_sourced(
+            child.clone(),
+            short(164),
+            Raw("child"),
+            RawStage::PreCheck,
+            CoordinatorSource::Local,
+            None,
+            10,
+            HashSet::from([ancestor.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("child"), 20, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    let candidate = CoordinatorFeeGate::new(0, 0)
+        .validate(child.clone(), HashSet::from([input(164)]), 200, 100)
+        .unwrap();
+    let before = coordinator.view(&child).unwrap();
+    assert!(matches!(
+        coordinator.complete_verification_candidate(&verify, Verified("child"), 30, candidate),
+        Err(CoordinatorError::ConflictEdgeLimitExceeded)
+    ));
+    assert_eq!(coordinator.view(&child).unwrap(), before);
+    assert!(coordinator.view(&ancestor).is_some());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn capacity_planning_limits_ancestor_walk_and_victim_batch_size() {
+    let chain_limits = test_limits(CoordinatorResidency::new(5, 500), None, 4, 4)
+        .with_capacity_reconciliation_limits(2, 4);
+    let mut chain: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(chain_limits);
+    chain
+        .admit_raw(
+            hash(165),
+            short(165),
+            Raw("root"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    chain
+        .admit_raw(
+            hash(166),
+            short(166),
+            Raw("middle"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::from([hash(165)]),
+        )
+        .unwrap();
+    chain
+        .admit_raw(
+            hash(167),
+            short(167),
+            Raw("leaf"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::from([hash(166)]),
+        )
+        .unwrap();
+    assert!(matches!(
+        chain.admit_raw(
+            hash(168),
+            short(168),
+            Raw("too deep"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::from([hash(167)]),
+        ),
+        Err(CoordinatorError::DependencyAncestorLimitExceeded)
+    ));
+    assert!(chain.view(&hash(168)).is_none());
+    chain.audit().unwrap();
+
+    let victim_limits = test_limits(CoordinatorResidency::new(3, 25), None, 4, 4)
+        .with_capacity_reconciliation_limits(4, 1);
+    let mut victims: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(victim_limits);
+    for seed in [169, 170] {
+        victims
+            .admit_raw(
+                hash(seed),
+                short(seed),
+                Raw("remote"),
+                RawStage::Resolve,
+                Some(52.into()),
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    assert!(matches!(
+        victims.admit_raw_sourced(
+            hash(171),
+            short(171),
+            Raw("large local"),
+            RawStage::Resolve,
+            CoordinatorSource::Local,
+            None,
+            20,
+            HashSet::new(),
+        ),
+        Err(CoordinatorError::CapacityEvictionLimitExceeded)
+    ));
+    assert!(victims.view(&hash(169)).is_some());
+    assert!(victims.view(&hash(170)).is_some());
+    assert!(victims.view(&hash(171)).is_none());
+    victims.audit().unwrap();
+}
+
+#[test]
+fn impossible_peer_budget_fails_before_global_capacity_reconciliation() {
+    let limits = test_limits(
+        CoordinatorResidency::new(2, 20),
+        Some(CoordinatorResidency::new(1, 15)),
+        4,
+        4,
+    );
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    for (seed, peer) in [(172, 53), (173, 54)] {
+        coordinator
+            .admit_raw(
+                hash(seed),
+                short(seed),
+                Raw("remote"),
+                RawStage::Resolve,
+                Some(PeerIndex::from(peer)),
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    assert!(matches!(
+        coordinator.admit_raw(
+            hash(174),
+            short(174),
+            Raw("same peer"),
+            RawStage::Resolve,
+            Some(PeerIndex::from(53)),
+            10,
+            HashSet::new(),
+        ),
+        Err(CoordinatorError::PeerBudgetExceeded(peer)) if peer == PeerIndex::from(53)
+    ));
+    assert_eq!(coordinator.len(), 2);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(test_limits(CoordinatorResidency::new(1, 15), None, 4, 4));
     let tx_hash = hash(11);
     coordinator
         .admit_raw(
@@ -2934,8 +3282,7 @@ fn conflict_maintenance_rebuild_preserves_authoritative_enqueue_order() {
 #[test]
 fn conflict_limits_fail_before_verified_state_or_indexes_change() {
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> = PipelineCoordinator::new(
-        CoordinatorLimits::new(CoordinatorResidency::new(10, 1_000), None, 4, 4)
-            .with_conflict_limits(1, 1, 1),
+        test_limits(CoordinatorResidency::new(10, 1_000), None, 4, 4).with_conflict_limits(1, 1, 1),
     );
     let first = verify_candidate(&mut coordinator, 31, inputs([6]), 100);
     assert_eq!(coordinator.conflict_edge_count(), 1);
@@ -2982,7 +3329,7 @@ fn conflict_limits_fail_before_verified_state_or_indexes_change() {
 
 #[test]
 fn stronger_verified_candidate_reconciles_every_full_input_bucket_atomically() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
         .with_conflict_limits(2, 1, 4);
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(limits);
@@ -3032,7 +3379,7 @@ fn stronger_verified_candidate_reconciles_every_full_input_bucket_atomically() {
 
 #[test]
 fn source_priority_protects_verified_reconciliation_capacity() {
-    let limits = CoordinatorLimits::new(
+    let limits = test_limits(
         CoordinatorResidency::new(10, 10_000),
         Some(CoordinatorResidency::new(10, 10_000)),
         4,
@@ -3070,7 +3417,7 @@ fn source_priority_protects_verified_reconciliation_capacity() {
 
 #[test]
 fn committing_candidate_cannot_be_capacity_evicted() {
-    let limits = CoordinatorLimits::new(CoordinatorResidency::new(10, 10_000), None, 4, 4)
+    let limits = test_limits(CoordinatorResidency::new(10, 10_000), None, 4, 4)
         .with_conflict_limits(1, 1, 2);
     let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
         PipelineCoordinator::new(limits);
@@ -3106,7 +3453,7 @@ fn committing_candidate_cannot_be_capacity_evicted() {
 #[test]
 fn conflict_capacity_reconciliation_rolls_back_every_apply_boundary() {
     for fault_step in 1..=5 {
-        let limits = CoordinatorLimits::new(CoordinatorResidency::new(10, 10_000), None, 4, 4)
+        let limits = test_limits(CoordinatorResidency::new(10, 10_000), None, 4, 4)
             .with_conflict_limits(1, 1, 2);
         let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
             PipelineCoordinator::new(limits);

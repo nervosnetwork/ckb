@@ -149,6 +149,8 @@ pub(crate) struct CoordinatorLimits {
     pub(crate) per_peer: Option<CoordinatorResidency>,
     pub(crate) max_dependencies_per_entry: usize,
     pub(crate) max_dependents_per_parent: usize,
+    pub(crate) max_dependency_ancestors: usize,
+    pub(crate) max_capacity_evictions_per_transition: usize,
     pub(crate) max_conflict_inputs_per_entry: usize,
     pub(crate) max_candidates_per_input: usize,
     pub(crate) max_conflict_edges: usize,
@@ -159,6 +161,24 @@ pub(crate) struct CoordinatorLimits {
     pub(crate) max_active_work: usize,
     pub(crate) max_active_work_per_peer: usize,
     pub(crate) verify_ordering: CoordinatorVerifyOrdering,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CoordinatorReconciliationLimits {
+    pub(crate) max_dependency_ancestors: usize,
+    pub(crate) max_capacity_evictions_per_transition: usize,
+}
+
+impl CoordinatorReconciliationLimits {
+    pub(crate) const fn new(
+        max_dependency_ancestors: usize,
+        max_capacity_evictions_per_transition: usize,
+    ) -> Self {
+        Self {
+            max_dependency_ancestors,
+            max_capacity_evictions_per_transition,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -177,12 +197,16 @@ impl CoordinatorLimits {
         per_peer: Option<CoordinatorResidency>,
         max_dependencies_per_entry: usize,
         max_dependents_per_parent: usize,
+        reconciliation: CoordinatorReconciliationLimits,
     ) -> Self {
         Self {
             global,
             per_peer,
             max_dependencies_per_entry,
             max_dependents_per_parent,
+            max_dependency_ancestors: reconciliation.max_dependency_ancestors,
+            max_capacity_evictions_per_transition: reconciliation
+                .max_capacity_evictions_per_transition,
             max_conflict_inputs_per_entry: max_dependencies_per_entry,
             max_candidates_per_input: max_dependents_per_parent,
             max_conflict_edges: global.entries.saturating_mul(max_dependencies_per_entry),
@@ -204,6 +228,16 @@ impl CoordinatorLimits {
             },
             verify_ordering: CoordinatorVerifyOrdering::ArrivalTime,
         }
+    }
+
+    pub(crate) const fn with_capacity_reconciliation_limits(
+        mut self,
+        max_dependency_ancestors: usize,
+        max_capacity_evictions_per_transition: usize,
+    ) -> Self {
+        self.max_dependency_ancestors = max_dependency_ancestors;
+        self.max_capacity_evictions_per_transition = max_capacity_evictions_per_transition;
+        self
     }
 
     pub(crate) const fn with_conflict_limits(
@@ -424,7 +458,9 @@ pub(crate) enum CoordinatorError {
         existing_hash: Byte32,
     },
     SelfDependency(Byte32),
+    DependencyCycle(Byte32),
     DependencyLimitExceeded,
+    DependencyAncestorLimitExceeded,
     ParentFanoutLimitExceeded(Byte32),
     NoConflictInputs(Byte32),
     ZeroTransactionSize(Byte32),
@@ -444,6 +480,7 @@ pub(crate) enum CoordinatorError {
     PoolInputLimitExceeded,
     PoolInputWaiterLimitExceeded(OutPoint),
     PoolInputEdgeLimitExceeded,
+    CapacityEvictionLimitExceeded,
     ArrivalSequenceExhausted,
     QueueSequenceExhausted,
     MaintenanceSequenceExhausted,

@@ -479,7 +479,7 @@ continuous count/byte reservation, mutation-order sequence binding, FIFO retry
 and active-publication residency. The coordinator is split by responsibility
 into state types, derived indexes and invariant audit modules while retaining
 one entry store and one transition authority. The isolated model currently
-contains 65 coordinator and 5 outbox focused tests.
+contains 76 coordinator and 5 outbox focused tests.
 
 Source promotion, incarnation-scoped expiry, accepted-pool-input waiting,
 conservative metadata charging and global/per-peer active-work fairness now
@@ -512,29 +512,41 @@ so an undo rebuild reconstructs exact logical enqueue order instead of deriving
 it from hash-map iteration. Sequence exhaustion is preflighted and the allocator
 rolls back with the transition.
 
-The current selection implementation is intentionally a correctness oracle: it
-computes the total order over live ID tickets. Before production cutover it must
-be replaced by equivalent indexed lookup, with operation-count and final A/B
-evidence, without changing these now-locked semantics. The next correctness
-slice now also prevents a remote or low-score first-filler from monopolizing
+The current scheduling and capacity-victim selection implementations are
+intentionally correctness oracles: they compute total order over live ID
+tickets or scan the authoritative entry set. Before production acceptance they
+must be replaced by equivalent indexed lookup, with operation-count and final
+A/B evidence, without changing these now-locked semantics. The correctness
+model prevents a remote or low-score first-filler from monopolizing
 per-parent, verified-conflict or accepted-input buckets. Full buckets admit only
 a strictly stronger replacement: proposal > local > remote, then verified
 size-fee score where both entries have candidate metadata. `Committing` is
-never evictable and exact ties retain the earlier owner. Multi-input victim
-selection, explicit `CapacityEvicted` terminal records, causal child
-invalidation and the incoming transition are one undo transaction; the
-insertion snapshot explicitly records absence, so unwind cannot leave a
-half-admitted entry. Audit/rebuild re-check every per-bucket and global edge
-limit instead of merely comparing index equality.
+never evictable and exact ties retain the earlier owner.
 
-Before mutation cutover the model still needs global count/byte reconciliation
-headroom, coordinator/outbox charge transfer, final in-lock pool RBF
-recalculation, cross-authority query tests and production publisher/shutdown
-integration. Capacity-eviction records must be appended to the bounded outbox
-in the same production transaction; returning them from the isolated model is
-not permission for callers to discard them. The obsolete split prototypes and
-their duplicate state authorities have been deleted rather than hardened or
-integrated.
+Global count/byte reconciliation now covers admission and every phase boundary
+that can grow a complete resident bundle: raw completion, plain/candidate
+verification and accepted-pool-input parking. Global conflict and pool-input
+edge caps use the same deterministic reconciliation even when the competing
+entries touch disjoint inputs. An incoming transaction's bounded transitive
+dependency ancestors are never selected as its victims; per-peer impossibility
+is rejected before unrelated global planning; and one transition has explicit
+ancestor-walk and victim-count limits. Multi-input victim union, explicit
+`CapacityEvicted` terminal records, causal child invalidation and the incoming
+transition are one undo transaction. The insertion snapshot explicitly records
+absence, so unwind cannot leave a half-admitted entry. Audit/rebuild re-check
+every per-bucket and global edge limit instead of merely comparing index
+equality.
+
+Before mutation cutover the model still needs coordinator/outbox charge
+transfer, final in-lock pool RBF recalculation, cross-authority query tests and
+production publisher/shutdown integration. Capacity-eviction records must be
+appended to the bounded outbox in the same production transaction; returning
+them from the isolated model is not permission for callers to discard them.
+Whole-store victim discovery is still a security/complexity acceptance blocker
+even though ancestor and apply work are bounded; it is intentionally deferred
+to the final indexed optimization pass rather than hidden by benchmark noise.
+The obsolete split prototypes and their duplicate state authorities have been
+deleted rather than hardened or integrated.
 
 ### 5.3 Atomic transition engine
 
@@ -711,7 +723,7 @@ following model suites pass with `audit()` after every transition:
 |---|---|
 | Identity and payload | full-hash duplicate, proposal-short-id collision, witness variant, remote→proposal promotion, raw→unverified→verified replacement, and no resident snapshot |
 | Typed state and leases | every legal edge, every illegal edge, stale checkout, remove/re-admit ABA, clear, revision/incarnation exhaustion, duplicate batch member and unwind at every apply boundary |
-| Dependency graph | parent-first/child-first, multiple missing parents, cell deps, parent unavailable after dispatch/verification, exact-once final-parent wake, definitive cascade, parent-hash re-admission, fan-out cap and bounded maintenance slices |
+| Dependency graph | parent-first/child-first, multiple missing parents, cell deps, transitive-cycle rejection, parent unavailable after dispatch/verification, exact-once final-parent wake, definitive cascade, parent-hash re-admission, ancestor/fan-out caps and bounded maintenance slices |
 | Conflict graph | preliminary under-fee rejection, unverified high-fee non-preemption, verified total ordering, multi-input all-or-none ownership, committing freeze, late waiter, success cohort, abort rebalance, stale fee proof and final in-lock RBF recalculation |
 | Residency and fairness | exact-fit global/per-peer limits, aggregate metadata charge, resolved recharge, active-work eligibility caps, configured FIFO/fee order, proposal priority/re-promotion, small-cycle capability filtering, sybil/global cap, proposal reserve/remote eviction, expiry lifetime and terminal outbox charge transfer |
 | Authoritative pool handoff | exact RBF/size-eviction journal, original status restoration, tip change, clear/remove/reorg races, raw-hash attached/detached identity and combined query during every handoff instruction boundary |
@@ -790,7 +802,7 @@ remains useful for non-gating historical inspection.
 
 ## 9. Test Coverage
 
-Unit tests (`cargo test -p ckb-tx-pool --features internal`, currently 239/239) cover, among others:
+Unit tests (`cargo test -p ckb-tx-pool --features internal`, currently 286/286) cover, among others:
 
 - Queue invariants: pop/active/finish visibility, delayed retries with bounded attempts, FIFO waiting-room eviction, O(1) lookups.
 - Pool invariants: child-before-parent weight folding, escape-hatch eviction without ghost parents, conflict closure ghost filtering, zombie reconciliation (inputs and cell deps), expiry cascade.
