@@ -352,12 +352,7 @@ impl Logger {
         CONTROL_HANDLE
             .get()
             .ok_or_else(|| "no sender for logger service".to_owned())
-            .and_then(|sender| {
-                sender
-                    .send(message)
-                    .map_err(|err| format!("failed to send message to logger service: {err}"))
-                    .map(|_| ())
-            })
+            .and_then(|sender| try_send_message(sender, message))
     }
 
     /// Updates the main logger.
@@ -475,6 +470,12 @@ impl Log for Logger {
 
 fn try_send_record(sender: &ckb_channel::Sender<Message>, message: Message) -> bool {
     sender.try_send(message).is_ok()
+}
+
+fn try_send_message(sender: &ckb_channel::Sender<Message>, message: Message) -> Result<(), String> {
+    sender
+        .try_send(message)
+        .map_err(|err| format!("failed to send message to logger service: {err}"))
 }
 
 fn sanitize_color(s: &str) -> String {

@@ -1,4 +1,4 @@
-use crate::{Message, convert_compatible_crate_name, try_send_record};
+use crate::{Message, convert_compatible_crate_name, try_send_message, try_send_record};
 use ckb_channel::bounded;
 use log::Level;
 
@@ -28,6 +28,23 @@ fn full_log_channel_drops_newest_record() {
     let (sender, receiver) = bounded(1);
     assert!(try_send_record(&sender, record_message("oldest")));
     assert!(!try_send_record(&sender, record_message("newest")));
+
+    match receiver.try_recv().unwrap() {
+        Message::Record {
+            original_message, ..
+        } => assert_eq!(original_message, "oldest"),
+        _ => unreachable!(),
+    }
+    assert!(receiver.try_recv().is_err());
+}
+
+#[test]
+fn full_log_channel_rejects_control_message_without_blocking() {
+    let (sender, receiver) = bounded(1);
+    assert!(try_send_record(&sender, record_message("oldest")));
+
+    let result = try_send_message(&sender, Message::RemoveExtraLogger("test".to_owned()));
+    assert!(result.is_err());
 
     match receiver.try_recv().unwrap() {
         Message::Record {

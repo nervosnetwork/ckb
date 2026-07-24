@@ -1389,7 +1389,10 @@ impl SyncState {
         results
     }
 
-    pub fn trim_relay_tx_verify_results(&self, limit: usize) -> usize {
+    pub(crate) fn trim_relay_tx_verify_results(&self, limit: usize) -> usize {
+        if self.tx_relay_receiver.len() <= limit {
+            return 0;
+        }
         let excess = self.tx_relay_receiver.len().saturating_sub(limit);
         let dropped = self.tx_relay_receiver.try_iter().take(excess).count();
         self.update_relay_tx_verify_result_queue_size();
