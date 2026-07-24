@@ -128,22 +128,15 @@ impl OnionService {
         );
 
         self.handle.spawn(async move {
-            let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(3));
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        let uptime = tor_controller.get_uptime().await;
-                        if let Err(err) = uptime {
-                            error!("Failed to get tor server uptime: {:?}", err);
-                            drop(tor_server_alive_tx);
-                            return;
-                        }
-                    }
-                    _ = stop_rx.cancelled() => {
-                        info!("OnionService received stop signal, exiting...");
-                        drop(tor_server_alive_tx);
-                        return;
-                    }
+            tokio::select! {
+                _ = tor_controller.wait_for_disconnect() => {
+                    error!("OnionService disconnected, retrying...");
+                    drop(tor_server_alive_tx);
+
+                }
+                _ = stop_rx.cancelled() => {
+                    info!("OnionService received stop signal, exiting...");
+                    drop(tor_server_alive_tx);
                 }
             }
         });
