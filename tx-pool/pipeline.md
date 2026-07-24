@@ -427,3 +427,152 @@ prefix can cause bounded underfill and delay lower-score fitting transactions.
 Removing the cap would restore an O(pool) attack surface. A future fix must use
 a resumable cursor or a fit-aware indexed selector and pass both packing-
 quality and CPU/RSS A/B gates; it is not silently classified as fixed here.
+
+## 12. Frozen root-cause simplification
+
+The production baseline for this simplification is commit
+`53178b830f69fcdcc73ece2e0ea812d4357251bf`. The cutover at that commit is the
+recovery point: later phases may simplify its encoding, but may not weaken its
+ownership, rollback, resource, effect, reorg, or template guarantees.
+
+The target is a thin pre-pool. Persistent state describes ownership and work
+phase only. Scheduling, conflict preference, capacity eligibility, and queue
+membership are derived facts which can be rebuilt and audited from entries.
+No finding may add another lifecycle owner, persistent conflict wait state,
+payload queue, or executable recovery channel.
+
+### 12.1 Identity and resource domains
+
+Three identities are deliberately distinct:
+
+- lifecycle identity is the transaction hash; a trusted witness-bearing
+  duplicate may replace the payload only through the typed promotion path;
+- verification-cache identity is `TxVerificationCacheKey`, derived from the
+  witness hash;
+- proposal short ID is a bounded lookup key and never an ownership identity.
+
+Resource invariants are domain-specific rather than one overloaded `charged`
+predicate:
+
+```text
+entry residency(tx) <=> PipelineCoordinator owns tx
+active work(tx)     <=> tx owns a current checked-out worker lease
+effect charge(e)    <=> e is reserved, queued, or active in EffectOutbox
+```
+
+`AdmissionId` (the current `incarnation`) distinguishes remove/readmit cycles.
+`LeaseRevision` (the current `revision`) invalidates work within one admission.
+They have different semantics and must not be merged.
+
+### 12.2 Target lifecycle
+
+The target persistent locations are:
+
+```text
+RawQueued(stage)
+RawActive(stage, lease)
+WaitingParents
+VerifyQueued
+VerifyActive(lease)
+Verified
+Committing(lease)
+InvalidatedPending(raw-only)
+```
+
+Absence is `Nowhere`. `ReadyToCommit`, `WaitingConflict`, and
+`ConflictRecheck` are deleted. Commit eligibility is not a lifecycle state.
+Local RPC submission and reorg-retained replay remain synchronous direct
+resolve/verify/submit paths by design.
+
+### 12.3 Derived verified-conflict contract
+
+One concrete `CandidateRank` supplies a stable total order for verified
+conflict preference, conflict-capacity victims, and commit candidate ordering.
+It does not replace the stage-specific `TicketQueue` ordering used by
+pre-check, resolve, and verify work. Final RBF validity remains exclusively a
+`PoolMap` decision under the `TxPool` write guard.
+
+`StagedConflictIndex` is a rebuildable derived index containing input buckets
+and, for every verified candidate, its distinct direct-conflict degree and the
+number of directly conflicting candidates with a stronger rank:
+
+```text
+edge(a, b) <=> a and b are Verified and share an input
+degree(v) == number of distinct direct neighbours of v
+stronger_count(v) == number of direct neighbours ranked above v
+eligible(v) <=> Verified(v) && stronger_count(v) == 0
+eligible(v) <=> exactly one live commit ticket for v
+```
+
+A finite conflict graph has at least one local maximum; it need not have only
+one. Independent local maxima may remain eligible concurrently. Checkout
+atomically exchanges the live ticket for `Committing(lease)`.
+
+Any source or metadata change that changes `CandidateRank` is committed with
+the corresponding conflict delta in the same coordinator mutex and undo
+transaction. A short-lived `ConflictDelta` plans entry, degree,
+`stronger_count`, ticket, victim-key, and entry-residency changes. It is not a
+persistent store or a second owner. Capacity is reserved before applying the
+delta; application is all-old, all-new, or fail-stop.
+
+Successful pool handoff terminalizes the winner and its current direct staged
+conflicts only. It never walks a transitive conflict closure. Failure settles
+only the checked-out winner; the derived index makes all surviving eligibility
+changes explicit without restore/waiter/recheck states.
+
+Hot-path work is bounded by transaction inputs and the configured direct
+candidate limit. Batch removal visits each affected direct edge once, refreshes
+each surviving ticket once, and never scans all coordinator entries. Existing
+owner-head queues, capacity/victim indexes, conflict-cache cursors, and effect
+outbox bounds remain mandatory attack-cost controls.
+
+### 12.4 Cancellation, promotion, and failure boundaries
+
+`PipelineEpoch::advance` plus coordinator clear remains the linearizable
+cancellation barrier. Scheduling source may promote Remote -> Local/Proposal;
+immutable ingress attribution remains attached until exactly one relay
+settlement. Missing-parent dependency edges and verified-input conflict edges
+are different causal domains and may not share lifecycle state or wake rules.
+
+Errors remain partitioned:
+
+- stale lease or epoch: harmless no-op;
+- malformed, duplicate, policy, or capacity outcome: typed transaction result;
+- ownership/index contradiction or uncertain authoritative mutation:
+  monotonic fail-stop.
+
+Ordinary hostile input must not reach fail-stop. Genuine invariant failure
+still stops the service generation; the accepted availability residual remains
+documented in the security ledger.
+
+### 12.5 Execution and convergence gates
+
+The phase list is fixed; phase numbers and scope do not drift during execution:
+
+| Phase | Deliverable | Whole-architecture gate |
+|---|---|---|
+| 0 | Frozen specification, evidence manifest, baseline | No production behavior change |
+| 1 | Reference model, property tests, operation-count assertions | Model proves ownership, charge, eligibility, handoff |
+| 2 | `CandidateRank`, derived conflict index/delta, old conflict lifecycle deleted | No dual production path or unbounded scan |
+| 3 | Raw-only invalidation, token/API/generic simplification | Fewer states/APIs; RPC behavior explicit |
+| 4 | Commit/error/effect boundary cleanup and production fault matrix | Ledger #104 and authoritative undo boundary are Covered |
+| 5 | Semantic source/test split and dead-complexity removal | Production code is net smaller and easier to review |
+| 6 | Full nextest/integration/security acceptance | No unexplained Partial or stale current evidence |
+| 7 | Final architecture/attack review and checkpoint | Production-ready except explicit performance gate |
+| 8 | Controlled checkpoint A/B | Deferred until explicit benchmark instruction |
+
+After every phase, review the complete ownership graph, causal exits, lock/wait
+graph, resource equations, attacker-controlled complexity, effects, RPC,
+reorg/template/persistence behavior, security ledger, and production-code
+delta. A failed phase is reverted to its checkpoint instead of being repaired
+by adding lifecycle state. Only a P0/P1 correctness defect, exploitable resource
+or service denial, invariant/authoritative uncertainty, template liveness, or a
+measured performance regression may reopen the frozen architecture.
+
+Current executable evidence is listed in
+[`security-regression-manifest.json`](security-regression-manifest.json) and
+validated against `cargo nextest list` by
+[`devtools/check_tx_pool_security_manifest.py`](../devtools/check_tx_pool_security_manifest.py).
+Historical names in the larger ledger are archival and are intentionally not
+treated as compile-time anchors. Release mode additionally requires the
+manifest's blocker list to be empty. Benchmarking remains outside phases 0-7.

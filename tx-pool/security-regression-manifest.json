@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "package": "ckb-tx-pool",
+  "features": ["internal"],
+  "baseline": {
+    "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
+    "nextest_count": 303
+  },
+  "evidence": {
+    "I1": [
+      "one_entry_and_revision_own_every_payload_phase_until_candidate_handoff",
+      "pool_removal_invalidation_and_winner_handoff_are_one_transaction"
+    ],
+    "I2": [
+      "pipeline_commit_checkout_waits_for_the_pool_sequencer",
+      "pipeline_concurrent_rbf_prefers_highest_fee"
+    ],
+    "I3": [
+      "failed_commit_restores_all_size_evictions_with_original_status_in_lock",
+      "failed_tip_revalidation_recovers_whole_removed_cascade"
+    ],
+    "I4": [
+      "active_verification_terminalization_is_causal_and_aba_safe",
+      "removed_and_readmitted_hash_rejects_the_old_worker_incarnation",
+      "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject"
+    ],
+    "I5": [
+      "metadata_residency_is_charged_continuously_across_every_payload_phase",
+      "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
+      "count_and_byte_limits_cover_reserved_queued_and_active_batches"
+    ],
+    "I6": [
+      "accepted_parent_handoff_wakes_waiting_children_atomically",
+      "every_definitive_parent_exit_invalidates_dependents_in_the_same_transition",
+      "transitive_dependency_cycle_is_rejected_before_admission"
+    ],
+    "I7": [
+      "reorg_status_transition_failure_has_no_false_reject_and_replay_converges",
+      "reorg_retain_duplicate_does_not_cascade_dependents",
+      "retained_receiver_preserves_fifo_across_panics"
+    ],
+    "I8": [
+      "local_commit_waits_for_effect_credit_before_mutating_pool",
+      "fifo_sequence_follows_authoritative_commit_not_reservation_order",
+      "full_relayer_retains_fifo_head_and_outbox_charge"
+    ],
+    "I9": [
+      "under_fee_candidate_cannot_become_verified_conflict_state",
+      "unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain",
+      "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen"
+    ],
+    "I10": [
+      "conflict_closure_ignores_ghost_link_nodes",
+      "status_counter_underflow_recomputes_from_authoritative_entries",
+      "failed_commit_restores_all_size_evictions_with_original_status_in_lock"
+    ],
+    "I11": [
+      "reorg_demotes_stale_gap_to_pending",
+      "pending_proposals_filter_conflicting_uncle_subtree",
+      "full_and_uncle_updates_share_template_serialization_lock"
+    ],
+    "I12": [
+      "conflict_edge_victim_selection_stops_before_stronger_pool_suffix",
+      "global_capacity_victim_selection_stops_before_stronger_pool_suffix",
+      "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions"
+    ]
+  },
+  "source_anchors": [
+    {
+      "id": "normal-mining-reorg-tree",
+      "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
+      "anchor": "ReorgRecoversDependentPendingTree"
+    },
+    {
+      "id": "dependent-reorg-chain",
+      "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
+      "anchor": "ReorgRecoversDependentChain"
+    },
+    {
+      "id": "dependent-reorg-transactions",
+      "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
+      "anchor": "ReorgRecoversDependentTxs"
+    }
+  ],
+  "release_blockers": [
+    {
+      "id": "ledger-104-production-cutover-fault-matrix",
+      "reason": "Repeat the undo fault matrix across the production TxPool/coordinator/outbox cutover."
+    },
+    {
+      "id": "derived-conflict-cutover",
+      "reason": "Replace the persistent waiter/recheck conflict lifecycle and close its model and production regressions."
+    },
+    {
+      "id": "final-security-closure",
+      "reason": "Finish phases 3-7 and close or explicitly accept every current security-ledger item."
+    }
+  ]
+}
