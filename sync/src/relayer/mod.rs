@@ -59,6 +59,7 @@ pub const TX_HASHES_TOKEN: u64 = 2;
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
 pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
+const MAX_PENDING_RELAY_TX_VERIFY_RESULTS: usize = MAX_RELAY_TXS_NUM_PER_BATCH * 2;
 
 type RateLimiter<T> = governor::RateLimiter<
     T,
@@ -631,6 +632,7 @@ impl Relayer {
     pub async fn send_bulk_of_tx_hashes(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         const BUFFER_SIZE: usize = 42;
 
+        self.trim_relay_tx_verify_results();
         let connected_peers = nc.full_relay_connected_peers();
         if connected_peers.is_empty() {
             return;
@@ -703,6 +705,20 @@ impl Relayer {
                     err,
                 );
             }
+        }
+    }
+
+    fn trim_relay_tx_verify_results(&self) {
+        let dropped = self
+            .shared
+            .state()
+            .trim_relay_tx_verify_results(MAX_PENDING_RELAY_TX_VERIFY_RESULTS);
+        if dropped > 0 {
+            warn_target!(
+                crate::LOG_TARGET_RELAY,
+                "Dropped {} oldest transaction verification results from the relay queue",
+                dropped
+            );
         }
     }
 }
@@ -937,6 +953,9 @@ impl CKBProtocolHandler for Relayer {
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         // If self is in the IBD state, don't trigger any relayer notify.
         if self.shared.active_chain().is_initial_block_download() {
+            if token == TX_HASHES_TOKEN {
+                self.trim_relay_tx_verify_results();
+            }
             return;
         }
 
