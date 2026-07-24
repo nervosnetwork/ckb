@@ -61,6 +61,7 @@ const SECP_FEE: u64 = 1_000 * 100_000_000;
 fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
     TxPoolConfig {
         max_tx_pool_size: 180_000_000,
+        max_tx_pool_resident_size: 1_000_000_000,
         min_fee_rate: FeeRate::zero(),
         min_rbf_rate: FeeRate::zero(),
         max_tx_verify_cycles: MAX_TX_VERIFY_CYCLES,
@@ -72,7 +73,7 @@ fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
         recent_reject: Default::default(),
         expiry_hours: 24,
         verify_ordering: VerifyOrdering::ArrivalTime,
-        max_verify_queue_tx_size: 256_000_000,
+        max_tx_pipeline_resident_size: 384_000_000,
     }
 }
 

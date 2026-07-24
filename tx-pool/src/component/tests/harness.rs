@@ -40,8 +40,9 @@ pub(crate) enum WorkerSet {
     /// No pipeline state workers; tests drive coordinator transitions
     /// manually. The effect publisher and cache-update drain remain active.
     None,
-    /// The full pipeline: pre-check workers, verify manager and the ordered
-    /// resolver (with a panic watcher), plus cache updates.
+    /// The full production pipeline: pre-check workers, verify manager, the
+    /// ordered resolver (with a panic watcher), and bounded maintenance, plus
+    /// cache updates.
     All,
 }
 
@@ -157,7 +158,6 @@ impl HarnessBuilder {
         let (tx_relay_sender, relay_rx) = ckb_channel::bounded(1024);
         let (block_assembler_sender, block_assembler_rx) = mpsc::channel(1);
         let signal = CancellationToken::new();
-        let pre_check_cancel = signal.child_token();
         let (verify_cache_sender, mut verify_cache_receiver) = mpsc::channel(1024);
         // Two command channels, mirroring the previous inline harnesses: the
         // service keeps its own receiver (for direct per-tx verification),
@@ -168,15 +168,24 @@ impl HarnessBuilder {
         let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
             &config,
             &consensus,
-            pre_check_cancel,
+            signal.clone(),
         ));
-        let critical_effect_bytes = config
-            .max_tx_pool_size
-            .saturating_mul(crate::service::effects::REORG_EFFECT_CAPACITY_MULTIPLIER);
+        let critical_effect_bytes =
+            crate::service::effects::max_pool_mutation_effect_bytes(config.max_tx_pool_size)
+                .max(4096);
+        // Match the production reservation contract.  A submit transaction
+        // can journal effects for the resident pool plus the incoming
+        // block-sized transaction, even though most tests use far less.
+        let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
+            config.max_tx_pool_size,
+            consensus.max_block_bytes() as usize,
+            runtime.max_entries(),
+        );
+        let ordinary_effect_bytes = 512_000_000usize.max(submit_effect_bytes);
         let effects = Arc::new(
             crate::service::effects::EffectQueue::new_with_critical_capacity(
                 1024,
-                512_000_000,
+                ordinary_effect_bytes,
                 1,
                 critical_effect_bytes,
             )
@@ -199,7 +208,8 @@ impl HarnessBuilder {
                 network: dummy_network(),
                 tx_relay_sender,
                 block_assembler_sender,
-                block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                block_assembler_dirty: Arc::new(Default::default()),
+                block_assembler_reset: Arc::new(Default::default()),
                 callbacks: Arc::new(Callbacks::new()),
                 effects: Arc::clone(&effects),
                 banned_peers: Default::default(),
@@ -221,6 +231,7 @@ impl HarnessBuilder {
             let endpoints = crate::service::effects::EffectEndpoints {
                 network: Arc::clone(&service.relay.network),
                 tx_relay_sender: service.relay.tx_relay_sender.clone(),
+                failure_cancel: signal.clone(),
             };
             let publisher_cancel = signal.clone();
             let close_queue = Arc::clone(&queue);
@@ -239,7 +250,7 @@ impl HarnessBuilder {
             tokio::spawn(async move {
                 while let Some(update) = verify_cache_receiver.recv().await {
                     let mut guard = txs_verify_cache.write().await;
-                    guard.put(update.wtx_hash, update.verified);
+                    guard.put(update.key, update.verified);
                 }
             });
         }
@@ -273,6 +284,19 @@ impl HarnessBuilder {
                     }
                     let _ = resolver_handle.await;
                 });
+
+                // Conflict-cache discovery and dependency/expiry cascades are
+                // part of the production pipeline, not test-only follow-up.
+                // Keeping this worker in the full harness is essential for
+                // end-to-end liveness regressions: manually calling one slice
+                // would bypass notification, saturation, and cascade wiring.
+                let runtime =
+                    ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
+                crate::service::workers::spawn_pipeline_maintenance_worker(
+                    &runtime,
+                    service.clone(),
+                    signal.child_token(),
+                );
             }
         }
 

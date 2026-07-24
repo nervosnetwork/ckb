@@ -209,17 +209,19 @@ enable_deprecated_rpc = false # {{
 
 [tx_pool]
 max_tx_pool_size = 180_000_000 # 180mb
+# Conservative memory charge for accepted transactions, including resolved
+# input/cell-dep metadata and dep-group data. It is distinct from the RPC
+# `total_tx_size`, which remains serialized transaction bytes.
+# max_tx_pool_resident_size = 1_000_000_000 # 1gb
 min_fee_rate = 1_000 # Here fee_rate are calculated directly using size in units of shannons/KB
 # min_rbf_rate > min_fee_rate means RBF is enabled
 min_rbf_rate = 1_500 # Here fee_rate are calculated directly using size in units of shannons/KB
 max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
-# Max total serialized size of transactions queued in the verify queue.
-# Must be >= max_tx_pool_size: after a restart the whole persisted pool is
-# re-submitted through the verify queue with a cold verification cache, and
-# a smaller budget would silently drop transactions during reload. The
-# effective value is clamped up to max_tx_pool_size when misconfigured.
-# max_verify_queue_tx_size = 256_000_000 # 256mb
+# Conservative total memory charge for every pre-pool pipeline state,
+# including raw, dependency-waiting, resolved, verifying, conflict-waiting,
+# and commit-ready transactions plus their indexes.
+# max_tx_pipeline_resident_size = 384_000_000 # 384mb
 
 [store]
 header_cache_size          = 4096

@@ -10,6 +10,7 @@ use ckb_types::core::{
     Capacity, Cycle, FeeRate, TransactionView, cell::ResolvedTransaction,
     tx_pool::TRANSACTION_SIZE_LIMIT,
 };
+use ckb_types::prelude::Entity;
 use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, TxVerifyEnv,
@@ -18,10 +19,32 @@ use ckb_verification::{
 use std::sync::Arc;
 use tokio::{runtime::Handle, sync::watch, task::block_in_place};
 
+/// Copy a packed entity into an allocation that contains only that entity.
+///
+/// Generated molecule accessors are cheap views into their parent's `Bytes`.
+/// Storing such a view as a long-lived hash-map key can therefore retain an
+/// entire transaction or block after the authority that paid for the parent
+/// payload has gone away. Persistent indexes must compact packed keys at
+/// their ownership boundary so their resident charge matches what they keep.
+pub(crate) fn compact_packed<T: Entity>(value: &T) -> T {
+    T::from_slice(value.as_slice()).expect("an existing packed entity always parses from itself")
+}
+
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
     let short_id = tx.proposal_short_id();
-    if tx_pool.contains_proposal_id(&short_id) {
-        return Err(Reject::Duplicated(tx.hash()));
+    if let Some(existing) = tx_pool.pool_map.get_by_id(&short_id) {
+        let tx_hash = tx.hash();
+        if existing.inner.transaction().hash() == tx_hash {
+            return Err(Reject::Duplicated(tx_hash));
+        }
+        // ProposalShortId is a protocol slot, not transaction identity. A
+        // distinct full hash cannot share that slot while the accepted owner
+        // is resident, but it also must not inherit duplicate-success
+        // semantics (which suppress terminal relay settlement). Treat the
+        // occupied namespace as retryable backpressure on every ingress.
+        return Err(Reject::Full(format!(
+            "proposal short-id collision while checking {tx_hash}"
+        )));
     }
     Ok(())
 }
@@ -207,7 +230,13 @@ pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> S
 
 #[cfg(test)]
 mod block_offload_tests {
-    use super::block_offload;
+    use super::{block_offload, compact_packed};
+    use ckb_types::{
+        bytes::Bytes,
+        core::{BlockBuilder, TransactionBuilder},
+        packed::{CellOutput, OutPoint},
+        prelude::{Entity, Pack},
+    };
 
     /// Bug #60: calling the helper from a current-thread runtime must execute
     /// inline. A naked `block_in_place` panics on this runtime flavor.
@@ -220,5 +249,54 @@ mod block_offload_tests {
 
         let value = runtime.block_on(async { block_offload(|| 42) });
         assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn compact_packed_detaches_a_small_view_from_large_backing() {
+        let template = OutPoint::default();
+        let entity_len = template.as_slice().len();
+        let mut bytes = vec![0x5a; 8_192];
+        bytes[4_096..4_096 + entity_len].copy_from_slice(template.as_slice());
+        let backing = Bytes::from(bytes);
+        let shared = OutPoint::new_unchecked(backing.slice(4_096..4_096 + entity_len));
+        let shared_ptr = shared.as_slice().as_ptr();
+
+        let compact = compact_packed(&shared);
+        assert_eq!(compact, shared);
+        assert_ne!(
+            compact.as_slice().as_ptr(),
+            shared_ptr,
+            "a persistent packed key must not retain its parent's allocation"
+        );
+    }
+
+    #[test]
+    fn compact_transaction_view_detaches_from_block_backing_without_rehashing() {
+        let small = TransactionBuilder::default().build();
+        let large = TransactionBuilder::default()
+            .output(CellOutput::default())
+            .output_data(Bytes::from(vec![0x5a; 128 * 1024]).pack())
+            .build();
+        let block = BlockBuilder::default()
+            .transaction(small)
+            .transaction(large)
+            .build();
+        let block_data = block.data();
+        let shared = block.transactions().remove(0);
+        let shared_hash = shared.hash();
+        let shared_witness_hash = shared.witness_hash();
+        let block_start = block_data.as_slice().as_ptr() as usize;
+        let block_end = block_start + block_data.as_slice().len();
+        let shared_start = shared.data().as_slice().as_ptr() as usize;
+        assert!(
+            shared_start >= block_start && shared_start < block_end,
+            "block transaction accessor must demonstrate shared backing"
+        );
+
+        let compact = shared.into_compact();
+        let compact_start = compact.data().as_slice().as_ptr() as usize;
+        assert!(compact_start < block_start || compact_start >= block_end);
+        assert_eq!(compact.hash(), shared_hash);
+        assert_eq!(compact.witness_hash(), shared_witness_hash);
     }
 }

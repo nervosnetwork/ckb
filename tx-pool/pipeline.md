@@ -144,15 +144,21 @@ template components.
 
 ## 5. Historical conflict recovery
 
-`ConflictCache` is a bounded, non-executable store inside `TxPool`, indexed by
-short ID and input outpoint. Count and serialized-byte caps bound retained
-payload. Generation-tagged FIFO tickets and bounded-ratio compaction prevent
-remove/reinsert churn from growing stale metadata or letting an old ticket act
-on a new incarnation.
+`ConflictCache` is a bounded, non-executable store inside `TxPool`, keyed by
+the complete raw transaction hash and indexed by compact input outpoints.
+Proposal short IDs are never identity. Count and resident-byte caps cover the
+payload and reverse-index metadata. Generation-tagged FIFO tickets and
+bounded-ratio compaction prevent remove/reinsert churn from growing stale
+metadata or letting an old ticket act on a new incarnation.
 
-Every pool mutation that frees inputs—RBF, administrative removal, and reorg
-reconciliation—marks fully unblocked cache entries in the same `TxPool` write
-transaction. The shared maintenance worker drains at most 32 per slice:
+Every pool mutation that may free inputs—RBF, administrative removal, and
+reorg reconciliation—registers only the released outpoints while holding the
+`TxPool` write guard. Physical removal is first projected through the active
+snapshot: removing an overlay whose transaction is already committed does not
+advertise its chain-consumed inputs as free. A later maintenance slice probes
+at most 32 cache candidates through a stable per-outpoint cursor; no removal
+path scans an attacker-controlled 10k-candidate fanout while holding the pool
+guard. Eligible candidates then follow the ownership handoff:
 
 1. reserve terminal-effect capacity;
 2. acquire `TxPool`;
@@ -162,13 +168,18 @@ transaction. The shared maintenance worker drains at most 32 per slice:
 6. remove the cache copy only after coordinator admission succeeds.
 
 Thus the cache is sole owner before the handoff and the coordinator is sole
-owner after it. `Full` reschedules the same cache generation and retries on a
-coarse tick without a hot loop. A newly arrived accepted blocker leaves the
-candidate cache-owned and unscheduled until that blocker later frees the input.
+owner after it. A release-event identity prevents RBF victims from being
+immediately re-admitted by the same mutation that archived them. `Full`
+reschedules the same cache generation and retries on a coarse tick without a
+hot loop. A newly arrived accepted blocker leaves the candidate cache-owned
+and unscheduled until that blocker later frees the input.
 
 There is no deferred recovery channel and no publication barrier. The only
 bounded asynchronous auxiliary channel carries best-effort verification-cache
-updates; executable transactions never pass through it.
+updates; executable transactions never pass through it. The verification
+cache itself is keyed by `TxVerificationCacheKey`, whose only constructor takes
+a `TransactionView` and derives its witness hash. Raw transaction hashes cannot
+compile as cache keys, including in detached replay and block verification.
 
 ## 6. Capacity and attack-cost closure
 
@@ -187,16 +198,36 @@ transaction's dependency ancestors. Peer-local impossibility fails before
 unrelated global eviction. Every victim produces a terminal record and the
 whole transition is undo-protected.
 
-The coordinator uses generation/version tickets and compacts physical
-tombstones to a bounded ratio. The conflict cache independently compacts both
-insertion and recovery tickets. The effect outbox continuously charges
-reserved, queued, and active batches, so moving a terminal payload out of a
-state owner does not create an uncharged backlog.
+Each stage queue is a two-level priority index: per-owner small/large heaps
+publish one generation-tagged head into global any/small heaps. A peer at its
+active-work cap therefore costs one skipped owner head, not a scan through all
+of that peer's transactions; ABA-stale publications and tombstones are rejected
+and compacted to bounded ratios. Multi-entry transitions reserve owner-local
+heap credit up front and discard unused credit before releasing the runtime
+mutex.
 
-Known final-audit item: some coordinator priority/capacity victim discovery
-still scans the authoritative live set. Semantics are bounded by victim and
-graph limits, but Stage 6 must replace repeated whole-store selection with an
-equivalent derived index or prove the operation count and performance budget.
+Global residency and verified-conflict reconciliation use weakest-first
+`BTreeSet` indexes derived from the authoritative entries. The outermost undo
+transaction publishes every affected key only after success; failure rebuilds
+all derived indexes. The invariant audit independently reconstructs and
+compares them. Operation-count regressions prove selection stops before a
+100-entry stronger suffix. The remaining `min_by` searches are confined to
+explicitly capped per-parent or per-input buckets, so no production victim or
+scheduling path scans the whole live store.
+
+The conflict cache independently compacts insertion and recovery tickets. The
+effect outbox continuously charges reserved, queued, and active batches, so
+moving a terminal payload out of a state owner does not create an uncharged
+backlog.
+
+Long-lived packed keys and views are materialized at ownership boundaries.
+Coordinator dependencies, PoolMap indexes, conflict history, verification
+cache keys, effects, liveness memo entries, recent-commit keys and candidate
+uncles cannot retain a whole network message, transaction, or block backing
+allocation through a 10/32-byte slice. The internal recently-banned peer race
+fence is an expiring bounded LRU; the network service remains the authority
+for the actual ban. Ordered reorg delivery has capacity one because deltas are
+strictly serial and buffering block trees creates memory without concurrency.
 
 ## 7. Stable-state effects
 
@@ -208,6 +239,15 @@ sequence, and enqueueing are one outbox operation, with no externally
 representable bound-but-not-queued state. A single publisher preserves FIFO
 batch order, retries a full relayer without dropping the active head, and runs
 endpoint code outside state locks.
+
+There is one physical outbox but two producer contracts. A mutation-coupled
+producer must reserve before the authoritative PoolMap/Coordinator transition
+and journal inside that transition. A standalone producer is allowed only when
+no lifecycle ownership is created, removed, or transferred—for example a
+pre-admission rejection, an already-accepted duplicate acknowledgement, or a
+local reject-history write. The current call sites satisfy that distinction,
+but Rust types do not yet prevent a future mutation path from calling the
+standalone helper; that reviewability debt is tracked as O12.
 
 Relay success/reject and malformed-peer attribution use immutable ingress peer
 identity, not the current scheduling source. Proposal promotion therefore
@@ -225,32 +265,77 @@ mutation from the publisher can form a cycle through outbox capacity or
 mutation; during multi-step detached replay, read-only RPC may observe the
 current stable reorg slice while `recovery_lock` still excludes persistence.
 
+Submit reservations are formula-derived: pool-removal callback payloads are
+bounded by the prior pool plus one block-sized incoming transaction, while
+coordinator settlement envelopes are bounded by the coordinator entry limit.
+Reorg reservations are bounded by the prior pool after full-hash notification
+coalescing. Pool-generated reject variants and commit-time ban diagnostics have
+fixed checked display bounds. An unlisted or oversized post-mutation event is a
+fail-stop invariant violation, not an under-reserved publication attempt.
+
 Block-assembler notification uses a level-triggered dirty bit plus a bounded
 wake channel. A full channel may coalesce a wake edge but cannot erase the
 authoritative Pending/Proposed/Uncle/Reset work.
 
+Pipeline invariant failures and accepted-pool failures have distinct monotonic
+failure domains. A coordinator-only invariant stops the current service
+generation and fails closed, but a clean quiescence may still persist the
+unchanged accepted pool. A panic that crosses an authoritative `TxPool` /
+coordinator/effect mutation boundary disables persistence for that generation.
+Ordinary malformed, stale, duplicate, policy and capacity outcomes are typed
+transaction results and never enter either failure domain. Automatic recovery
+from an invariant panic is intentionally not attempted: without a complete
+offending-input journal and rollback proof, continuing could expose poisoned
+indexes or duplicate effects. The remaining availability tradeoff is tracked
+explicitly in the security ledger.
+
 ## 8. Reorg and block-template consistency
 
-The reorg handler retains the FIFO head delta across panic/retry; later deltas
-cannot overtake it. Before mutation it reserves critical outbox headroom that
-ordinary traffic cannot consume. Under `recovery_lock`, the pool and
-coordinator apply attached commits, detached/unavailable parents, status
-changes, conflict recovery scheduling, and terminal effects in their defined
-lock order. Detached replay is topological and compares attached identity by
-raw transaction hash.
+The capacity-one reorg handler retains the FIFO head delta across panic/retry;
+later deltas cannot overtake it. Its two phases retry independently: once the
+pool/coordinator transition succeeds, failure of the derived block-assembler
+refresh cannot replay that authoritative transition or resurrect an older
+snapshot after a concurrent clear. Before mutation it reserves critical
+outbox headroom that ordinary traffic cannot consume. Under `recovery_lock`,
+the pool and coordinator apply attached commits, detached/unavailable parents,
+status changes, conflict recovery scheduling, ingress-peer terminal results,
+and effects in their defined lock order. Detached replay is topological and
+compares attached identity by raw transaction hash.
+
+Overlapping detached proposal roots are removed as one union and replayed
+parent-first exactly once per entry. This avoids repeated descendant mutation
+and duplicate callbacks (`N` dependent detached IDs previously permitted
+quadratic reprocessing). Reorg notifications are coalesced by full hash after
+all expiry/limit/status work, then rebuilt from the final authoritative pool
+entry; a transaction cannot publish an intermediate Pending event before its
+final Proposed or terminal state.
 
 Reorg status reconciliation explicitly demotes stale `Gap` entries when the
 new proposal window no longer justifies them. Block-template proposal
 selection also prevents optional detached-block uncles from suppressing the
 only proposal path for recovered transactions. The regression mines a
 parent/child/grandchild tree through normal `get_block_template`; it does not
-inject a manual proposal block.
+inject a manual proposal block. The first post-startup reorg also performs one
+semantic reconciliation against its fresh snapshot: already-committed
+overlays, dead inputs/cell deps, and header deps no longer on the active main
+chain are removed with their descendant closure.
 
-Template updates use one revisioned template and a serialization lock for full
-reset/full update interactions. Proposal byte accounting uses the consensus
-block-size basis. Uncle selection is capacity bounded, stale/main-chain/
-embedded candidates are removed, and optional uncle content cannot strand a
-valid pool transaction.
+Template updates preserve the original priority model. `reset_template` and
+`update_full` serialize through `template_lock`, and a full rebuild performs
+the unconditional highest-priority swap. Proposal and transaction updates are
+optimistic version-CAS deltas; a skipped delta is safe because a successful
+full swap reissues both authoritative dirty generations. Uncle updates also
+take `template_lock`, specifically because a full rebuild carries forward the
+uncle set it read. Reset generations are acknowledged conditionally, so an old
+reorg refresh cannot erase a newer clear/reset.
+
+Proposal byte accounting uses the consensus block-size basis. Proposal
+selection is computed independently of optional candidate uncles, after which
+conflicting uncle subtrees are filtered. Candidate-uncle insertion validates
+before evicting an existing candidate, compacts accepted views, and only an
+accepted insertion marks template work dirty. Selection is capacity bounded;
+stale/main-chain/embedded candidates are removed, and optional uncle content
+cannot strand a valid pool transaction.
 
 ## 9. Administration, shutdown, and persistence
 
@@ -266,8 +351,9 @@ Graceful shutdown proceeds in causal order:
 
 1. stop controller dispatch and drain in-flight handlers;
 2. quiesce state workers, maintenance, reorg, assembler, and cache worker;
-3. if any worker timed out or panicked, abort remaining work and skip
-   persistence;
+3. if any worker timed out or an authoritative/effect boundary failed, abort
+   remaining work and skip persistence; a coordinator-only failure may retain
+   accepted-pool persistence after clean quiescence;
 4. close and drain the effect outbox;
 5. persist only after all state/effect boundaries completed.
 
@@ -277,9 +363,13 @@ clean shutdown image.
 ## 10. Invariant and regression gates
 
 The coordinator invariant audit reconstructs full-hash, short-ID, peer,
-dependency, conflict, queue, deadline, active-work, and residency indexes from
-typed entries and checks physical live-ticket equality. Transition fault
-injection verifies undo restoration across multi-entry changes.
+dependency, conflict, queue, deadline, active-work, residency, and victim
+priority indexes from typed entries and checks physical live-ticket/head
+equality. Transition fault injection verifies undo restoration across
+multi-entry changes. A separate `PoolMap` audit reconstructs status indexes,
+links, outpoint/header indexes, exact serialized/resident totals and
+ancestor/descendant weights from accepted entries; cached counters repair only
+from that authority and never saturate silently.
 
 A stage is complete only after both reviews pass:
 
@@ -291,10 +381,16 @@ A stage is complete only after both reviews pass:
 Required correctness commands near a checkpoint:
 
 ```bash
-cargo test -p ckb-tx-pool --features internal -- --test-threads=1
+cargo nextest run -p ckb-tx-pool --features internal
+cargo nextest run -p ckb-verification-contextual
 cargo fmt --all -- --check
 git diff --check
 ```
+
+The serial `cargo test ... --test-threads=1` suite is also useful for shared-
+process ordering, but nextest is the acceptance gate for process isolation and
+parallel scheduling. The final normal-mining reorg trio runs against freshly
+built `ckb` and `ckb-test` binaries, never stale artifacts.
 
 Integration acceptance includes the normal-mining reorg dependent-tree test,
 RBF success/failure families, clear/remove races, callback re-entry, shutdown,
@@ -323,3 +419,11 @@ The architectural performance gate is strict:
 
 Performance optimization may change indexes and batching, but not the
 ownership, rollback, capacity, or effect invariants above.
+
+One deliberate residual remains in template packing: after 4,000 consecutive
+packages fail the remaining size/cycle budget, `TxSelector` stops scanning.
+This bounds per-template adversarial CPU, but a crafted high-score non-fitting
+prefix can cause bounded underfill and delay lower-score fitting transactions.
+Removing the cap would restore an O(pool) attack surface. A future fix must use
+a resumable cursor or a fit-aware indexed selector and pass both packing-
+quality and CPU/RSS A/B gates; it is not silently classified as fixed here.

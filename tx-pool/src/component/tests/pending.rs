@@ -7,7 +7,8 @@ use crate::component::{
     pool_map::{PoolMap, Status},
 };
 use ckb_types::core::Capacity;
-use ckb_types::packed::OutPoint;
+use ckb_types::packed::{OutPoint, ProposalShortId};
+use ckb_types::prelude::Entity;
 use ckb_types::{h256, packed::Byte32};
 use std::collections::HashSet;
 use std::time::Duration;
@@ -46,6 +47,46 @@ fn test_basic() {
     assert!(pool.out_point_index.deps.is_empty());
     assert!(pool.out_point_index.inputs.is_empty());
     assert!(pool.out_point_index.header_deps.is_empty());
+}
+
+#[test]
+fn full_hash_lookup_does_not_alias_a_proposal_short_id_collision() {
+    let mut pool = PoolMap::new(100);
+    let parent = build_tx(vec![(&Byte32::zero(), 1)], 1);
+    pool.add_entry(
+        TxEntry::dummy_resolve(parent.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE),
+        Status::Pending,
+    )
+    .unwrap();
+
+    // ProposalShortId uses only a prefix. Preserve that prefix and alter the
+    // remainder to model a collision without brute-forcing one.
+    let mut collision_bytes = [0u8; 32];
+    collision_bytes.copy_from_slice(parent.hash().as_slice());
+    collision_bytes[31] ^= 1;
+    let collision_hash = Byte32::new(collision_bytes);
+    assert_eq!(
+        ProposalShortId::from_tx_hash(&collision_hash),
+        parent.proposal_short_id()
+    );
+    assert!(pool.get_by_hash(&collision_hash).is_none());
+    assert!(
+        pool.get_output_with_data(&OutPoint::new(collision_hash.clone(), 0))
+            .is_none(),
+        "a pool overlay must not resolve another full hash through the same short id"
+    );
+
+    let child = build_tx(vec![(&collision_hash, 0)], 1);
+    let child_id = child.proposal_short_id();
+    pool.add_entry(
+        TxEntry::dummy_resolve(child, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE),
+        Status::Pending,
+    )
+    .unwrap();
+    assert!(
+        pool.calc_ancestors(&child_id).is_empty(),
+        "a colliding hash must not create a false dependency edge"
+    );
 }
 
 #[test]
@@ -268,9 +309,9 @@ fn test_edges() {
     edges.insert_deps(outpoint.clone(), short_id1.clone());
     edges.insert_deps(outpoint.clone(), short_id2.clone());
     assert!(edges.deps.contains_key(&outpoint));
-    edges.delete_txid_by_dep(outpoint.clone(), &short_id1);
+    assert!(edges.delete_txid_by_dep(outpoint.clone(), &short_id1));
     assert!(!edges.deps.is_empty());
-    edges.delete_txid_by_dep(outpoint, &short_id2);
+    assert!(edges.delete_txid_by_dep(outpoint, &short_id2));
     assert!(edges.deps.is_empty());
 }
 

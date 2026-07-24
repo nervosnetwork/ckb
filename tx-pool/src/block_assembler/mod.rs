@@ -47,7 +47,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::TxPool;
 pub(crate) use builder::BlockTemplateBuilder;
-pub(crate) use process::process;
+pub(crate) use process::{ResetApply, process, process_reset};
 pub(crate) use state::{CurrentTemplate, TemplateSize};
 
 /// Block generator
@@ -64,12 +64,11 @@ pub struct BlockAssembler {
     /// reorgs. A successful write increments this counter.
     pub(crate) version: Arc<AtomicU64>,
     /// Serializes `reset_template` with the read-and-swap window of
-    /// `update_full`. `reset_template` holds this lock for its whole duration
-    /// so that the `version` read for non-force resets is consistent with the
-    /// subsequent swap; `update_full` holds it from the read of `current` until
-    /// its own swap. This prevents a reset from swapping between
-    /// `update_full`'s read and swap while still allowing partial updates
-    /// (`update_uncles/proposals/transactions`) to run concurrently.
+    /// `update_full`. The full rebuild is the high-priority unconditional
+    /// writer; proposal/transaction deltas remain optimistic and may lose a
+    /// version race. The service re-dirties both delta classes after a full
+    /// rebuild so a partial update acknowledged just before the full swap is
+    /// reconciled again instead of becoming a lost wakeup.
     pub(crate) template_lock: Arc<Mutex<()>>,
     /// Shared per-tip memo of chain-cell liveness for `calc_dao`. Uses a
     /// `std::sync::Mutex` because the critical sections are short and never
@@ -96,7 +95,9 @@ impl BlockAssembler {
             .epoch();
 
         let work_id = AtomicU64::new(0);
-        let cell_liveness_memo = Arc::new(StdMutex::new(CellLivenessMemo::default()));
+        let cell_liveness_memo = Arc::new(StdMutex::new(CellLivenessMemo::for_block_bytes(
+            snapshot.consensus().max_block_bytes() as usize,
+        )));
         let current = Self::build_base_template(
             &config,
             &work_id,
@@ -315,9 +316,9 @@ impl BlockAssembler {
 
     pub(crate) async fn reset_template(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         // Serialize with `update_full` so that a reorg finalization and an
-        // explicit reset never interleave with each other. Partial updates
-        // (`update_uncles/proposals/transactions`) do not take this lock and
-        // remain concurrent.
+        // explicit reset never interleave with each other. Uncle updates also
+        // take this lock because full rebuilds carry their state forward;
+        // proposal/transaction updates remain concurrent and version-guarded.
         //
         // The swap is always unconditional (`expected_version = None`): both
         // callers (reorg finalization and the management `Reset` message,
@@ -364,13 +365,14 @@ impl BlockAssembler {
         version: u64,
         label: &'static str,
         update: F,
-    ) where
+    ) -> bool
+    where
         F: FnOnce(&mut BlockTemplateBuilder, &mut TemplateSize) -> bool,
     {
         let mut builder = BlockTemplateBuilder::from_template(&current.template);
         let mut size = current.size;
         if !update(&mut builder, &mut size) {
-            return;
+            return false;
         }
 
         builder
@@ -394,10 +396,10 @@ impl BlockAssembler {
             new_current.template.transactions.len(),
         );
 
-        self.try_swap_template(new_current, Some(version)).await;
+        self.try_swap_template(new_current, Some(version)).await
     }
 
-    pub(crate) async fn update_uncles(&self) {
+    pub(crate) async fn update_uncles(&self) -> bool {
         // Serialize with `update_full`/`reset_template`: `update_full`
         // carries the uncle set forward from the template it read, so an
         // uncles update landing between its read and its (unconditional)
@@ -414,7 +416,7 @@ impl BlockAssembler {
         let max_uncles_num = consensus.max_uncles_num();
         let current_uncles_num = current.template.uncles.len();
         if current_uncles_num >= max_uncles_num {
-            return;
+            return true;
         }
 
         let prepared = self.prepare_uncles(&current.snapshot, &current.epoch).await;
@@ -426,22 +428,23 @@ impl BlockAssembler {
             &proposals,
         );
         let compatible_non_empty = !uncles.is_empty();
-        // Truncate to the longest fitting suffix of the prepared (ordered)
+        // Truncate to the longest fitting prefix of the prepared (ordered)
         // candidate list instead of dropping the whole update when the full
         // set overshoots the budget. The size accounting uses the
         // `serialized_size_without_uncle_proposals` basis — the same basis
         // as the consensus block-bytes limit.
-        let mut new_uncle_size = Self::uncles_size(&uncles);
-        let mut new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
-        while !uncles.is_empty() && new_total_size > max_block_bytes {
-            let dropped = uncles.pop().expect("uncles is non-empty");
-            new_uncle_size = new_uncle_size.saturating_sub(Self::uncle_size(&dropped));
-            new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
-        }
+        let Some((new_uncle_size, new_total_size)) =
+            Self::fit_uncle_prefix(&mut uncles, current.size, max_block_bytes)
+        else {
+            // Refuse to publish an update if the cached size ledger is
+            // internally inconsistent or its non-uncle base already exceeds
+            // the consensus limit.
+            return false;
+        };
         if compatible_non_empty && uncles.is_empty() {
             // Nothing fits at all: keep the current set (the original
             // all-or-nothing behavior for this case).
-            return;
+            return true;
         }
 
         self.apply_partial_update(current, version, "update_uncles", |builder, size| {
@@ -450,10 +453,10 @@ impl BlockAssembler {
             size.total = new_total_size;
             true
         })
-        .await;
+        .await
     }
 
-    pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) {
+    pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) -> bool {
         let (current, version) = {
             let guard = self.current.read().await;
             (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
@@ -462,7 +465,7 @@ impl BlockAssembler {
         let mut proposals = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
-                return;
+                return false;
             }
             tx_pool_reader.package_proposals(consensus.max_block_proposals_limit())
         };
@@ -474,14 +477,17 @@ impl BlockAssembler {
         );
 
         let new_uncles_size = Self::uncles_size(&uncles);
-        let base_total_size = current
+        let Some(base_total_size) = current
             .size
-            .calc_total_by_uncles_and_proposals(new_uncles_size, 0);
+            .calc_total_by_uncles_and_proposals(new_uncles_size, 0)
+        else {
+            return false;
+        };
         let max_block_bytes = consensus.max_block_bytes() as usize;
         let Some((new_proposals_size, new_total_size)) =
             Self::fit_proposal_prefix(&mut proposals, base_total_size, max_block_bytes)
         else {
-            return;
+            return false;
         };
 
         self.apply_partial_update(current, version, "update_proposals", |builder, size| {
@@ -491,7 +497,7 @@ impl BlockAssembler {
             size.total = new_total_size;
             true
         })
-        .await;
+        .await
     }
 
     /// Keep the highest-scored proposal prefix that fits the remaining block
@@ -510,6 +516,31 @@ impl BlockAssembler {
         Some((proposals_size, base_total_size + proposals_size))
     }
 
+    /// Keep the prepared uncle prefix that fits after removing the current
+    /// uncle contribution from the cached total. Returning `None` means either
+    /// the size ledger is inconsistent or the non-uncle base already exceeds
+    /// the consensus limit. Exact fits are valid.
+    fn fit_uncle_prefix(
+        uncles: &mut Vec<UncleBlockView>,
+        current_size: TemplateSize,
+        max_block_bytes: usize,
+    ) -> Option<(usize, usize)> {
+        let base_total_size = current_size.total.checked_sub(current_size.uncles)?;
+        let available = max_block_bytes.checked_sub(base_total_size)?;
+        let mut fit_count = 0;
+        let mut uncles_size = 0usize;
+        for uncle in uncles.iter() {
+            let next_size = uncles_size.checked_add(Self::uncle_size(uncle))?;
+            if next_size > available {
+                break;
+            }
+            uncles_size = next_size;
+            fit_count += 1;
+        }
+        uncles.truncate(fit_count);
+        Some((uncles_size, base_total_size.checked_add(uncles_size)?))
+    }
+
     /// Update the transaction set of the current block template.
     ///
     /// Because this is a partial update, the block extension cannot change
@@ -519,7 +550,7 @@ impl BlockAssembler {
     pub(crate) async fn update_transactions(
         &self,
         tx_pool: &RwLock<TxPool>,
-    ) -> Result<(), AnyError> {
+    ) -> Result<bool, AnyError> {
         let (current, version) = {
             let guard = self.current.read().await;
             (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
@@ -530,7 +561,7 @@ impl BlockAssembler {
         let txs = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
-                return Ok(());
+                return Ok(false);
             }
 
             // The extension cannot change without a tip change, so reuse the one
@@ -546,7 +577,7 @@ impl BlockAssembler {
             let txs_size_limit = max_block_bytes.checked_sub(basic_block_size);
 
             if txs_size_limit.is_none() {
-                return Ok(());
+                return Ok(false);
             }
 
             let max_block_cycles = consensus.max_block_cycles();
@@ -564,30 +595,37 @@ impl BlockAssembler {
         ) {
             Ok((dao, checked_txs, _failed_txs)) => {
                 let new_txs_size = Self::checked_entries_size(&checked_txs)?;
-                let new_total_size = current.size.calc_total_by_txs(new_txs_size);
-                self.apply_partial_update(
-                    current,
-                    version,
-                    "update_transactions",
-                    |builder, size| {
-                        // `from_template` already copied the extension; only
-                        // transactions and DAO need to change here.
-                        builder.set_transactions(checked_txs).dao(dao);
-                        size.txs = new_txs_size;
-                        size.total = new_total_size;
-                        true
-                    },
-                )
-                .await;
+                let Some(new_total_size) = current.size.calc_total_by_txs(new_txs_size) else {
+                    warn!(
+                        "[BlockAssembler] update_transactions: inconsistent template size ledger, \
+                         keeping previous transactions and DAO"
+                    );
+                    return Ok(false);
+                };
+                Ok(self
+                    .apply_partial_update(
+                        current,
+                        version,
+                        "update_transactions",
+                        |builder, size| {
+                            // `from_template` already copied the extension; only
+                            // transactions and DAO need to change here.
+                            builder.set_transactions(checked_txs).dao(dao);
+                            size.txs = new_txs_size;
+                            size.total = new_total_size;
+                            true
+                        },
+                    )
+                    .await)
             }
             Err(err) => {
                 warn!(
                     "[BlockAssembler] update_transactions: calc_dao failed, \
                      keeping previous transactions and DAO: {err}"
                 );
+                Err(err)
             }
         }
-        Ok(())
     }
 
     pub(crate) async fn get_current(&self) -> JsonBlockTemplate {
@@ -744,8 +782,15 @@ impl BlockAssembler {
     /// `basic_block_size` and the consensus block-bytes limit): the packed
     /// in-block size minus its proposal ids.
     fn uncle_size(uncle: &UncleBlockView) -> usize {
+        let proposal_bytes = uncle
+            .data()
+            .proposals()
+            .len()
+            .checked_mul(ProposalShortId::serialized_size())
+            .expect("uncle proposal byte count cannot overflow");
         UncleBlockView::serialized_size_in_block()
-            .saturating_sub(uncle.data().proposals().len() * ProposalShortId::serialized_size())
+            .checked_sub(proposal_bytes)
+            .expect("uncle serialization includes its proposal bytes")
     }
 
     fn uncles_size(uncles: &[UncleBlockView]) -> usize {

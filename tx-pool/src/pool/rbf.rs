@@ -9,7 +9,6 @@ use crate::component::TxEntry;
 use crate::component::pool_map::{ConflictClosure, PoolEntry};
 use crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES;
 use crate::error::Reject;
-use crate::tx_source::TxSource;
 use ckb_logger::error;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -43,11 +42,10 @@ impl TxPool {
     /// `size` is the replacement transaction's serialized size in bytes. It is
     /// intentionally not a weight: the replacement threshold must use the same
     /// unit as `min_fee_rate` (shannons per kilo-bytes), which is calculated from
-    /// size because cycles are not available at submission time. The RBF
-    /// in-flight candidate gate ([`RbfCandidates`]) also uses the size-based fee
-    /// rate for ordering: peer-declared cycles are not verified until the verify
-    /// stage, so a weight-based rate would be manipulable before the lie is
-    /// caught. That gate only affects queue scheduling and never lowers the
+    /// size because cycles are not available at submission time. The
+    /// coordinator's verified-conflict gate also uses the size-based fee rate
+    /// for provisional ordering: peer-declared cycles are not trusted before
+    /// verification. That gate only affects scheduling and never lowers the
     /// replacement fee floor computed here.
     pub(super) fn calculate_min_replace_fee(
         &self,
@@ -201,8 +199,9 @@ impl TxPool {
         // which would broaden the disjointness check below and reject
         // replacements that are valid today.
         for input in tx_inputs {
-            let parent_id = ProposalShortId::from_tx_hash(&input.tx_hash());
-            if self.get_pool_entry(&parent_id).is_some() {
+            let parent_hash = input.tx_hash();
+            let parent_id = ProposalShortId::from_tx_hash(&parent_hash);
+            if self.pool_map.get_by_hash(&parent_hash).is_some() {
                 ancestors.insert(parent_id.clone());
                 ancestors.extend(self.pool_map.calc_ancestors(&parent_id));
             }
@@ -291,10 +290,10 @@ impl TxPool {
         Ok(())
     }
 
-    // Remove conflicting transactions for RBF and record them in the conflicts
-    // cache so they can be recovered if the replacement fails. Returns the set
-    // of removed entries; the caller decides which ones to recover and when to
-    // clean up the conflicts cache.
+    // Remove the precomputed conflict closure. Historical-cache publication
+    // is deliberately deferred to the caller's successful commit boundary:
+    // a later revalidation/limit failure restores this exact journal and must
+    // not have evicted unrelated bounded cache history in the meantime.
     pub(crate) fn process_rbf(
         &mut self,
         entry: &TxEntry,
@@ -324,16 +323,6 @@ impl TxPool {
 
             // collect reject events for dispatch outside write lock
             reject_events.push((old.entry.clone(), reject));
-        }
-
-        // Record every removed entry (direct conflicts and their descendants)
-        // in the conflicts cache so that they can all be recovered if the
-        // replacement fails or if their inputs become available again.
-        //
-        // The original pipeline source is not retained once a transaction has
-        // entered the pool, so recovered entries fall back to `TxSource::Local`.
-        for old in &all_removed {
-            self.record_conflict(old.entry.transaction().clone(), TxSource::Local);
         }
 
         all_removed

@@ -1,30 +1,18 @@
-/// Maximum total serialized size (in bytes) of transactions queued in the
-/// pre-check queue.
-///
-/// The pre-check queue only absorbs submission bursts: it is drained by a
-/// pool of parallel workers whose per-job cost (resolve + fee check) is
-/// millisecond-scale, so occupancy stays low even under load. 64 MB holds
-/// on the order of 100k typical transactions (~300-600 bytes each), far
-/// above any legitimate burst; a larger buffer would only grow the flood
-/// footprint without improving throughput.
-pub(crate) const MAX_PRE_CHECK_QUEUE_TX_SIZE: usize = 64_000_000;
-
-/// Maximum total serialized size (in bytes) of transactions queued in the
-/// ordered resolve queue.
-///
-/// Entries in this queue are waiting for their parents to arrive — a
-/// network-time event, not worker throughput — so a larger buffer does not
-/// speed anything up; it only lets more unsatisfiable transactions linger
-/// (each retried by the single ordered resolver on a 50 ms cadence).
-/// 64 MB is far above the size of legitimate dependent backlogs.
-pub(crate) const MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE: usize = 64_000_000;
-
 /// Threshold below which `HashMap`/`HashSet` capacity is allowed to shrink.
 ///
 /// A collection is only shrunk when its len drops below this ratio of its
 /// capacity. 100 is a simple floor: for very small collections the memory
 /// savings are not worth the reallocation cost.
 pub(crate) const SHRINK_THRESHOLD: usize = 100;
+
+/// Shared slack for generation-tagged lazy ticket queues. Physical storage is
+/// rebuilt once it exceeds twice the live set plus this fixed allowance.
+pub(crate) const LAZY_TICKET_STALE_SLACK: usize = 64;
+
+pub(crate) const fn lazy_ticket_compaction_limit(live: usize) -> usize {
+    live.saturating_mul(2)
+        .saturating_add(LAZY_TICKET_STALE_SLACK)
+}
 
 pub(crate) const SECONDS_PER_DAY: i32 = 24 * 60 * 60;
 pub(crate) const MALFORMED_TX_BAN_SECONDS: u64 = 3 * (SECONDS_PER_DAY as u64);

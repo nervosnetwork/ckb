@@ -719,16 +719,38 @@ fn add_entry_eviction_updates_total_stats() {
     let entry_b = TxEntry::dummy_resolve(tx_b, 300, Capacity::shannons(100), 400);
 
     pool.add_proposed(entry_a).unwrap();
-    assert_eq!(pool.stats.total_tx_size.get(), 200);
-    assert_eq!(pool.stats.total_tx_cycles.get(), 100);
+    assert_eq!(pool.stats.total_tx_size, 200);
+    assert_eq!(pool.stats.total_tx_cycles, 100);
 
-    let (added, evicts) = pool.add_entry(entry_b, Status::Proposed).unwrap();
-    assert!(added);
-    assert_eq!(evicts.len(), 1, "cell_ref_parent should be evicted");
+    let outcome = pool.add_entry(entry_b, Status::Proposed).unwrap();
+    assert!(outcome.inserted);
+    assert_eq!(
+        outcome.evicted.len(),
+        1,
+        "cell_ref_parent should be evicted"
+    );
     assert_eq!(pool.entries.len(), 1);
     // The counters must reflect only tx_b, not the pre-eviction sum.
-    assert_eq!(pool.stats.total_tx_size.get(), 400);
-    assert_eq!(pool.stats.total_tx_cycles.get(), 300);
+    assert_eq!(pool.stats.total_tx_size, 400);
+    assert_eq!(pool.stats.total_tx_cycles, 300);
+}
+
+#[test]
+fn status_counter_underflow_recomputes_from_authoritative_entries() {
+    let mut pool = PoolMap::new(10);
+    let tx = TransactionBuilder::default().build();
+    let id = tx.proposal_short_id();
+    let entry = TxEntry::dummy_resolve(tx, 100, Capacity::shannons(100), 200);
+    pool.add_entry(entry, Status::Proposed).unwrap();
+
+    // Simulate legacy/corrupt cached metadata. Removal must not use a
+    // saturating decrement and silently leave the status totals plausible.
+    pool.stats.proposed_count = 0;
+    assert!(pool.remove_entry(&id).is_some());
+    assert_eq!(pool.stats.pending_count, 0);
+    assert_eq!(pool.stats.gap_count, 0);
+    assert_eq!(pool.stats.proposed_count, 0);
+    assert!(pool.entries.is_empty());
 }
 
 #[test]

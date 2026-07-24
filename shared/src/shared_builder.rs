@@ -13,14 +13,16 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
-use ckb_logger::{error, info};
+use ckb_logger::info;
 use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::{ChainDB, ChainStore, Freezer};
-use ckb_tx_pool::{TokioRwLock, TxEntry, TxPoolServiceBuilder, service::TxVerificationResult};
+use ckb_tx_pool::{
+    TokioRwLock, TxEntrySnapshot, TxPoolServiceBuilder, service::TxVerificationResult,
+};
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::{
@@ -544,8 +546,8 @@ fn register_tx_pool_callback(
 ) {
     let notify_pending = notify.clone();
 
-    let create_notify_entry = |entry: &TxEntry| PoolTransactionEntry {
-        transaction: entry.rtx.transaction.clone(),
+    let create_notify_entry = |entry: &TxEntrySnapshot| PoolTransactionEntry {
+        transaction: entry.transaction.clone(),
         cycles: entry.cycles,
         size: entry.size,
         fee: entry.fee,
@@ -553,7 +555,7 @@ fn register_tx_pool_callback(
     };
 
     let fee_estimator_clone = fee_estimator.clone();
-    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntry| {
+    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntrySnapshot| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
@@ -563,14 +565,14 @@ fn register_tx_pool_callback(
     }));
 
     let notify_proposed = notify.clone();
-    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntry| {
+    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntrySnapshot| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_proposed.notify_proposed_transaction(notify_tx_entry);
     }));
 
     let notify_reject = notify;
-    tx_pool_builder.register_reject(Box::new(move |entry: &TxEntry, reject: Reject| {
+    tx_pool_builder.register_reject(Box::new(move |entry: &TxEntrySnapshot, reject: Reject| {
         let tx_hash = entry.transaction().hash();
         // Relayer and recent-reject publication are explicit tx-pool effects.
         // This callback owns only application notification and fee accounting.

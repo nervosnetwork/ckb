@@ -85,10 +85,19 @@ impl RecentReject {
     /// The reject reason is serialized as JSON and written to the shard
     /// selected from the first four bytes of `hash`.
     pub fn put(&self, hash: &Byte32, reject: Reject) -> Result<(), AnyError> {
-        let hash_slice = hash.as_slice();
-        let shard = self.get_shard(hash_slice).to_string();
         let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
         let json_string = serde_json::to_string(&reject)?;
+        self.put_serialized(hash, &json_string)
+    }
+
+    /// Store an already serialized public rejection payload.
+    ///
+    /// The effect outbox uses this entry point so its stable record owns only
+    /// an exact, bounded string rather than a rich verifier error that may
+    /// contain shared packed views or other hidden allocations.
+    pub(crate) fn put_serialized(&self, hash: &Byte32, json_string: &str) -> Result<(), AnyError> {
+        let hash_slice = hash.as_slice();
+        let shard = self.get_shard(hash_slice).to_string();
         let json_bytes = json_string.as_bytes();
 
         // Fast path: hold the read lock across the DB write so that `shrink`

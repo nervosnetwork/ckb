@@ -302,6 +302,25 @@ impl TransactionView {
     define_cache_getter!(hash, Byte32);
     define_cache_getter!(witness_hash, Byte32);
 
+    /// Move this view into allocations that contain only the transaction and
+    /// its cached hashes.
+    ///
+    /// Molecule accessors can construct a `TransactionView` whose packed
+    /// transaction is a small slice of an entire block or relay envelope.
+    /// Long-lived owners should call this once at their residency boundary so
+    /// accounting the transaction's serialized bytes also accounts for the
+    /// backing allocation it keeps alive. Cached hashes are copied rather
+    /// than recomputed.
+    pub fn into_compact(self) -> Self {
+        Self {
+            data: packed::Transaction::new_unchecked(Bytes::copy_from_slice(self.data.as_slice())),
+            hash: packed::Byte32::new_unchecked(Bytes::copy_from_slice(self.hash.as_slice())),
+            witness_hash: packed::Byte32::new_unchecked(Bytes::copy_from_slice(
+                self.witness_hash.as_slice(),
+            )),
+        }
+    }
+
     /// Gets `raw.version`.
     pub fn version(&self) -> Version {
         self.data().raw().version().into()
@@ -511,6 +530,17 @@ impl HeaderView {
 impl UncleBlockView {
     define_data_getter!(UncleBlock);
     define_cache_getter!(hash, Byte32);
+
+    /// Move this view into allocations that contain only the uncle and its
+    /// cached hash. `BlockView::uncles()` returns molecule slices of the whole
+    /// enclosing block; a long-lived candidate-uncle cache must not retain
+    /// every transaction body behind that small slice.
+    pub fn into_compact(self) -> Self {
+        Self {
+            data: packed::UncleBlock::new_unchecked(Bytes::copy_from_slice(self.data.as_slice())),
+            hash: packed::Byte32::new_unchecked(Bytes::copy_from_slice(self.hash.as_slice())),
+        }
+    }
 
     define_inner_getter!(uncle, unpacked, version, Version);
     define_inner_getter!(uncle, unpacked, number, BlockNumber);

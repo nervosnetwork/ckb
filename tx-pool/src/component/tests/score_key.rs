@@ -145,6 +145,7 @@ fn test_remove_entry() {
     map.add_proposed(tx1).unwrap();
     map.add_proposed(tx2).unwrap();
     map.add_proposed(tx3).unwrap();
+    map.audit().unwrap();
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));
@@ -155,6 +156,7 @@ fn test_remove_entry() {
     assert_eq!(tx3_entry.ancestors_count, 3);
 
     map.remove_entry(&tx1_id);
+    map.audit().unwrap();
     assert!(!map.contains_key(&tx1_id));
     assert!(map.contains_key(&tx2_id));
     assert!(map.contains_key(&tx3_id));
@@ -218,10 +220,12 @@ fn test_remove_entry_and_descendants() {
     map.add_proposed(tx1).unwrap();
     map.add_proposed(tx2).unwrap();
     map.add_proposed(tx3).unwrap();
+    map.audit().unwrap();
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));
     map.remove_entry_and_descendants(&tx2_id);
+    map.audit().unwrap();
     assert!(!map.contains_key(&tx2_id));
     assert!(!map.contains_key(&tx3_id));
     let descendants_set = map.calc_descendants(&tx1_id);
@@ -235,7 +239,7 @@ fn test_remove_entry_and_descendants() {
 /// the parent set used to be recounted as an ancestor (links' relation walk
 /// never checks that the id is still linked) and failed the weight fold with
 /// a spurious `Malformed` — or tripped the old `assert!` inside the write
-/// lock, unwinding past the `evicted_journal` recovery protocol.
+/// lock, before the insertion can restore its local eviction cohort.
 #[test]
 fn escape_hatch_eviction_drops_cascaded_parents_from_parent_set() {
     let mut map = PoolMap::new(2);
@@ -303,13 +307,14 @@ fn escape_hatch_eviction_drops_cascaded_parents_from_parent_set() {
         Capacity::shannons(1000),
         100,
     );
-    let (added, evicted) = map
+    let outcome = map
         .add_entry(x, crate::component::pool_map::Status::Proposed)
         .expect("escape-hatch submit must not fail with a ghost-parent Malformed");
-    assert!(added);
-    let evicted_ids: std::collections::HashSet<_> = evicted
+    assert!(outcome.inserted);
+    let evicted_ids: std::collections::HashSet<_> = outcome
+        .evicted
         .iter()
-        .map(|entry| entry.proposal_short_id())
+        .map(|removed| removed.entry.proposal_short_id())
         .collect();
     assert!(evicted_ids.contains(&c1_id));
     assert!(evicted_ids.contains(&c2_id));
@@ -395,12 +400,15 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
         Capacity::shannons(2_000_000),
         100,
     );
-    let (added, evicted) = map
+    let outcome = map
         .add_entry(x, crate::component::pool_map::Status::Proposed)
         .unwrap();
-    assert!(added);
-    let evicted_ids: std::collections::HashSet<_> =
-        evicted.iter().map(TxEntry::proposal_short_id).collect();
+    assert!(outcome.inserted);
+    let evicted_ids: std::collections::HashSet<_> = outcome
+        .evicted
+        .iter()
+        .map(|removed| removed.entry.proposal_short_id())
+        .collect();
     assert_eq!(
         evicted_ids,
         std::collections::HashSet::from([c1_id, c2_id, c3_id])
@@ -448,6 +456,7 @@ fn parent_added_after_child_gets_descendant_weight() {
 
     map.add_proposed(child).unwrap();
     map.add_proposed(parent).unwrap();
+    map.audit().unwrap();
 
     let parent_entry = map.get(&parent_id).unwrap();
     assert_eq!(parent_entry.ancestors_count, 1);
@@ -468,6 +477,7 @@ fn parent_added_after_child_gets_descendant_weight() {
     // When the child leaves, the parent must drop back to self-only — not
     // saturate down to zero.
     map.remove_entry(&child_id);
+    map.audit().unwrap();
     let parent_entry = map.get(&parent_id).unwrap();
     assert_eq!(parent_entry.descendants_count, 1);
     assert_eq!(parent_entry.descendants_size, 100);
@@ -517,4 +527,8 @@ fn conflict_closure_ignores_ghost_link_nodes() {
             panic!("ghost link node must not inflate the closure count")
         }
     }
+    assert!(
+        map.audit().is_err(),
+        "the exhaustive invariant oracle must reject a planted ghost link"
+    );
 }

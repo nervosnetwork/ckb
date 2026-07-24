@@ -9,7 +9,6 @@ pub(crate) mod pipeline_coordinator;
 pub(crate) mod pipeline_runtime;
 pub(crate) mod pool_map;
 pub(crate) mod recent_reject;
-pub(crate) mod saturating_counter;
 pub(crate) mod sort_key;
 #[cfg(test)]
 mod tests;

@@ -46,7 +46,8 @@ fn run_mine_mode_reorg(tx_pool: &mut crate::TxPool, snapshot: Arc<Snapshot>) -> 
         HashSet::default(),
         snapshot,
         true,
-    );
+    )
+    .unwrap();
     outcome
         .notify_events
         .into_iter()
@@ -60,6 +61,130 @@ fn entry_status(tx_pool: &crate::TxPool, id: &ProposalShortId) -> Status {
         .get_by_id(id)
         .expect("entry present")
         .status
+}
+
+#[tokio::test]
+async fn overlapping_detached_proposals_requeue_each_descendant_once() {
+    let h = harness(1).workers(WorkerSet::None).build();
+    let service = h.service;
+    let live = h.out_points[0].clone();
+    let mut tx_pool = service.pool.tx_pool.write().await;
+
+    let parent = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let grandchild = build_tx(vec![(&child.hash(), 0)], 1);
+    let ids = [
+        parent.proposal_short_id(),
+        child.proposal_short_id(),
+        grandchild.proposal_short_id(),
+    ];
+    for tx in [parent, child, grandchild] {
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE),
+                Status::Proposed,
+            )
+            .unwrap();
+    }
+
+    // Child-first order forces overlap: the child removes itself and the
+    // grandchild, then the parent removes the remaining root. The batch
+    // replay must still publish exactly one transition per entry.
+    let detached = [ids[1].clone(), ids[0].clone()];
+    let mut notify_events = Vec::new();
+    let mut reject_events = Vec::new();
+    tx_pool.remove_by_detached_proposal(detached.iter(), &mut notify_events, &mut reject_events);
+
+    assert!(reject_events.is_empty());
+    let notified: HashSet<_> = notify_events
+        .iter()
+        .map(|(entry, status)| {
+            assert_eq!(*status, Status::Pending);
+            entry.transaction().hash()
+        })
+        .collect();
+    assert_eq!(notify_events.len(), 3);
+    assert_eq!(notified.len(), 3, "no descendant may be notified twice");
+    for id in ids {
+        assert_eq!(entry_status(&tx_pool, &id), Status::Pending);
+    }
+}
+
+#[tokio::test]
+async fn reorg_publishes_only_the_final_status_after_multiple_transitions() {
+    let h = harness(1).workers(WorkerSet::None).build();
+    let service = h.service;
+    let live = h.out_points[0].clone();
+    let store = h.store;
+    let mut tx_pool = service.pool.tx_pool.write().await;
+    tx_pool.onchain_reconcile_done = true;
+
+    let tx = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
+    let id = tx.proposal_short_id();
+    tx_pool
+        .pool_map
+        .add_entry(
+            TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE),
+            Status::Proposed,
+        )
+        .unwrap();
+    let snapshot = snapshot_with_proposals(
+        tx_pool.snapshot(),
+        &store,
+        HashSet::new(),
+        HashSet::from([id.clone()]),
+    );
+
+    let outcome = crate::process::reorg::update_tx_pool_for_reorg(
+        &mut tx_pool,
+        &LinkedHashSet::default(),
+        &HashSet::default(),
+        HashSet::from([id.clone()]),
+        snapshot,
+        true,
+    )
+    .unwrap();
+
+    assert!(outcome.reject_events.is_empty());
+    assert_eq!(outcome.notify_events.len(), 1);
+    assert_eq!(outcome.notify_events[0].1, Status::Proposed);
+    assert_eq!(entry_status(&tx_pool, &id), Status::Proposed);
+}
+
+#[tokio::test]
+async fn reorg_suppresses_intermediate_notify_when_entry_exits_terminally() {
+    let h = harness(1).workers(WorkerSet::None).build();
+    let service = h.service;
+    let live = h.out_points[0].clone();
+    let store = h.store;
+    let mut tx_pool = service.pool.tx_pool.write().await;
+    tx_pool.onchain_reconcile_done = true;
+    tx_pool.expiry = 0;
+
+    let tx = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
+    let tx_hash = tx.hash();
+    let id = tx.proposal_short_id();
+    let mut entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE);
+    entry.timestamp = 0;
+    tx_pool.pool_map.add_entry(entry, Status::Proposed).unwrap();
+    let snapshot =
+        snapshot_with_proposals(tx_pool.snapshot(), &store, HashSet::new(), HashSet::new());
+
+    let outcome = crate::process::reorg::update_tx_pool_for_reorg(
+        &mut tx_pool,
+        &LinkedHashSet::default(),
+        &HashSet::default(),
+        HashSet::from([id.clone()]),
+        snapshot,
+        true,
+    )
+    .unwrap();
+
+    assert!(outcome.notify_events.is_empty());
+    assert_eq!(outcome.reject_events.len(), 1);
+    assert_eq!(outcome.reject_events[0].0.transaction().hash(), tx_hash);
+    assert!(tx_pool.pool_map.get_by_id(&id).is_none());
 }
 
 /// Gap short id leaves both windows → demote to Pending and notify.
@@ -250,7 +375,8 @@ async fn reorg_demotes_stale_gap_even_without_mine_mode() {
         HashSet::default(),
         snapshot,
         false, // non-mine mode
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         entry_status(&tx_pool, &id),
@@ -290,9 +416,9 @@ async fn reorg_leaves_true_pending_proposable() {
 }
 
 /// Bug #53: a status-transition failure leaves the entry live in its old
-/// status. It must not be reported as rejected, and replaying the same
-/// authoritative reorg state must converge with exactly one real status
-/// notification.
+/// status. The reorg delta must remain unacknowledged (production retries the
+/// retained head), and replaying it must converge with exactly one real status
+/// notification and no false rejection.
 #[tokio::test]
 async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converges() {
     let mut h = harness(2).workers(WorkerSet::None).build();
@@ -318,8 +444,9 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
 
     let tx = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
     let id = tx.proposal_short_id();
-    let snapshot = {
+    let (snapshot, original_tip) = {
         let mut tx_pool = h.service.pool.tx_pool.write().await;
+        let original_tip = tx_pool.snapshot().tip_hash();
         tx_pool.onchain_reconcile_done = true;
         tx_pool
             .pool_map
@@ -329,7 +456,10 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
             )
             .unwrap();
         tx_pool.fail_next_status_transition = true;
-        snapshot_with_proposals(tx_pool.snapshot(), &h.store, HashSet::new(), HashSet::new())
+        (
+            snapshot_with_proposals(tx_pool.snapshot(), &h.store, HashSet::new(), HashSet::new()),
+            original_tip,
+        )
     };
 
     let run = |service: crate::service::TxPoolService, snapshot: Arc<Snapshot>| async move {
@@ -340,24 +470,28 @@ async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converge
                 HashSet::new(),
                 snapshot,
             )
-            .await;
+            .await
     };
 
-    run(h.service.clone(), Arc::clone(&snapshot)).await;
+    assert!(run(h.service.clone(), Arc::clone(&snapshot)).await.is_err());
     h.service.relay.effects.wait_idle().await;
-    let status_after_failure = {
+    let (status_after_failure, tip_after_failure) = {
         let tx_pool = h.service.pool.tx_pool.read().await;
-        entry_status(&tx_pool, &id)
+        (entry_status(&tx_pool, &id), tx_pool.snapshot().tip_hash())
     };
     assert_eq!(
         status_after_failure,
         Status::Gap,
         "failed transition must leave the live entry in its old status"
     );
+    assert_eq!(
+        tip_after_failure, original_tip,
+        "a retryable preflight error must not expose the new snapshot before the reorg slice commits"
+    );
     assert_eq!(pending_calls.load(Ordering::SeqCst), 0);
     assert_eq!(reject_calls.load(Ordering::SeqCst), 0);
 
-    run(h.service.clone(), snapshot).await;
+    run(h.service.clone(), snapshot).await.unwrap();
     h.service.relay.effects.wait_idle().await;
     let status_after_replay = {
         let tx_pool = h.service.pool.tx_pool.read().await;

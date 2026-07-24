@@ -10,28 +10,23 @@
 //! verification orchestration lives in `super` (`process/submit/mod.rs`).
 
 use crate::component::entry::TxEntry;
-use crate::component::pool_map::{RemovedPoolEntry, Status};
+use crate::component::pool_map::{PoolMapAddOutcome, RemovedPoolEntry, Status};
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::pool::rbf::RbfCheck;
 use crate::service::TxPoolService;
 use crate::service::effects::TxPoolEffect;
-use crate::tx_source::TxSource;
 use crate::util::time_relative_verify;
-use ckb_logger::{debug, warn};
+use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
+use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::{TransactionView, cell::ResolvedTransaction};
-use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
+use ckb_types::packed::{Byte32, ProposalShortId};
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::process::{get_tx_status, status_to_verify_env};
-
-/// Transient references to cache-owned transactions that became eligible for
-/// coordinator admission during one pool mutation. They never cross the pool
-/// write-lock boundary; durable transfer work is recorded in `ConflictCache`.
-type ConflictCandidates = Vec<(TransactionView, TxSource)>;
 
 /// Entries already restored inside the authoritative pool write transaction,
 /// retained only for diagnostics and regression assertions.
@@ -112,13 +107,18 @@ pub(crate) struct SubmitEntryOutcome {
 pub(crate) struct CoordinatedSubmitOutcome {
     pub(crate) outcome: SubmitEntryOutcome,
     pool_journal: PoolCommitJournal,
+    /// Historical-cache publication is deliberately later than the tentative
+    /// pool insertion. It becomes true only after the matching coordinator
+    /// handoff has succeeded under the same TxPool write guard.
+    conflict_cache_finalized: bool,
 }
 
 impl CoordinatedSubmitOutcome {
     /// Accepted transaction hashes physically removed by this successful
-    /// commit. They are the exact dependency-unavailability set that must be
-    /// handed to the coordinator before the pool write guard is released.
-    pub(crate) fn removed_parent_hashes(&self) -> HashSet<Byte32> {
+    /// commit whose outputs are also absent from the active snapshot. This is
+    /// the exact dependency-unavailability set handed to the coordinator
+    /// before the pool write guard is released.
+    pub(crate) fn unavailable_parent_hashes(&self, snapshot: &Snapshot) -> HashSet<Byte32> {
         if self.outcome.result.is_err() {
             return HashSet::new();
         }
@@ -126,6 +126,11 @@ impl CoordinatedSubmitOutcome {
             .removals
             .iter()
             .map(|item| item.removed.entry.transaction().hash())
+            // A startup-reload window can temporarily retain an entry whose
+            // raw transaction is already committed. Removing that overlay
+            // owner does not make its outputs unavailable on the active
+            // snapshot and must not demote coordinator consumers.
+            .filter(|hash| !snapshot.transaction_exists(hash))
             .collect()
     }
 
@@ -154,19 +159,16 @@ impl CoordinatedSubmitOutcome {
 
 /// The side effects accumulated by one submit attempt.
 ///
-/// Everything here is exported *progressively* by `prepare_rbf_replacement`
+/// Everything here is journaled *progressively* by `prepare_rbf_replacement`
 /// and `commit_and_apply_limits`, so every failure path already holds the
 /// full record: `rollback_on_failure` restores every journaled physical
-/// removal under the pool lock, keeps newly unblocked conflict-cache entries
-/// as opportunistic recovery, and suppresses spurious reject events.
+/// removal under the pool lock and suppresses spurious reject events.
 #[derive(Default)]
 pub(crate) struct SubmitSideEffects {
     /// Reject events to dispatch outside the write lock.
     reject_events: Vec<(TxEntry, Reject)>,
     /// Every physical pool removal made by this submit, classified by cause.
     pool_journal: PoolCommitJournal,
-    /// Conflict-cache transactions newly eligible for opportunistic recovery.
-    recoverable: ConflictCandidates,
     /// Entries restored inside the pool write transaction after a failed
     /// commit. Exported only as diagnostic evidence; aftermath never
     /// re-processes them through the pipeline.
@@ -180,110 +182,29 @@ pub(crate) struct SubmitSideEffects {
 
 impl SubmitSideEffects {
     /// Merge every recovery source and suppress spurious events after a
-    /// failed submit. Must be called with the pool write guard held, while
-    /// the conflicts cache still owns the recovered txs.
+    /// failed submit. Must be called with the pool write guard held, before
+    /// any tentative removal is published to the conflict cache.
     fn rollback_on_failure(
         &mut self,
         tx_pool: &mut TxPool,
-        entry: &TxEntry,
         entry_id: &ProposalShortId,
     ) -> Result<(), Reject> {
-        // If the replacement was rejected after `process_rbf` removed the
-        // old conflicting transactions, the new tx's inputs are free
-        // again. Recover any txs stored in the waiting room for those
-        // inputs (in particular the old tx itself) so that a failed
-        // RBF attempt cannot be used to evict in-pool transactions.
-        //
-        // IMPORTANT: exclude the entry transaction itself from recovery.
-        // It was just rejected by RBF; re-enqueueing it would cause a
-        // cycle where both the entry and the in-pool tx keep being
-        // recovered and failing RBF against each other indefinitely.
-        //
-        // `recoverable` may already hold entries that `prepare_rbf_replacement`
-        // exported before the failing step; dedup by short id when extending
-        // from the entry's own inputs.
-        let mut seen: HashSet<ProposalShortId> = self
-            .recoverable
-            .iter()
-            .map(|(tx, _)| tx.proposal_short_id())
-            .collect();
-        self.recoverable.extend(
-            tx_pool
-                .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter())
-                .into_iter()
-                .filter(|(tx, _)| {
-                    tx.proposal_short_id() != *entry_id && seen.insert(tx.proposal_short_id())
-                }),
-        );
-
         // Build one exact physical-removal journal. Besides RBF conflicts and
         // escape-hatch evictions this includes unrelated low-fee entries that
         // `limit_size` may have removed before it rejected the candidate.
         // Those entries were previously omitted from rollback entirely.
-        let mut rollback_entries = self.pool_journal.rollback_entries(entry_id);
-        let rollback_seen: HashSet<_> = rollback_entries
-            .iter()
-            .map(|removed| removed.entry.proposal_short_id())
-            .collect();
-
-        // `prepare_rbf_replacement` may also have exported one of the same
-        // removed entries through the conflict-recovery indexes. It belongs
-        // to the synchronous rollback set exactly once, not to the
-        // cache-owned opportunistic recovery set.
-        self.recoverable.retain(|(tx, _)| {
-            !rollback_seen.contains(&tx.proposal_short_id()) && tx.proposal_short_id() != *entry_id
-        });
-
-        // Recovery order matters: parents must be re-added before
-        // children, while escape-hatch evictions arrive children-first
-        // (post-order removal). Re-sort the merged set by dependency.
-        TxPoolService::sort_by_dependencies(&mut rollback_entries, |removed| {
-            removed.entry.transaction()
-        });
-        TxPoolService::sort_by_dependencies(&mut self.recoverable, |(tx, _)| tx);
-
-        // Opportunistic candidates stay cache-owned until the bounded
-        // maintenance worker can atomically admit them to the coordinator.
-        // Removing them here would recreate the cancellation gap that the
-        // cache→coordinator handoff is meant to close.
-        for old in self.pool_journal.by_cause(RemovalCause::Replacement) {
-            tx_pool.remove_conflict_hash(&old.entry.transaction().hash());
-        }
-
+        let rollback_entries = self.pool_journal.rollback_entries(entry_id);
         // Restore before returning to the caller, while it still owns the
-        // same `TxPool` write guard. Parent-first insertion recreates the
-        // original graph; reset derived weights so they are recomputed once.
+        // same `TxPool` write guard. The PoolMap primitive owns parent-first
+        // ordering and rejects any duplicate/eviction during reconstruction.
         // Because these exact entries formed a valid prior pool state and the
         // rejected candidate is absent, insertion is logically infallible.
-        for mut removed in rollback_entries {
-            let tx = removed.entry.transaction().clone();
-            let tx_hash = tx.hash();
-            let status = removed.status;
-            removed.entry.reset_statistic_state();
-            let restored = tx_pool.pool_map.add_entry(removed.entry, status);
-            let stray_evictions = std::mem::take(&mut tx_pool.pool_map.evicted_journal);
-            match restored {
-                Ok((true, evicted)) if evicted.is_empty() && stray_evictions.is_empty() => {
-                    tx_pool.remove_conflict_hash(&tx.hash());
-                    self.rolled_back.push((tx, status));
-                }
-                Ok((inserted, evicted)) => {
-                    return Err(Reject::Malformed(
-                        "pool".to_string(),
-                        format!(
-                            "failed exact rollback for {tx_hash}: inserted={inserted}, evicted={}, journal={}",
-                            evicted.len(),
-                            stray_evictions.len()
-                        ),
-                    ));
-                }
-                Err(reject) => {
-                    return Err(Reject::Malformed(
-                        "pool".to_string(),
-                        format!("failed exact rollback for {tx_hash}: {reject}"),
-                    ));
-                }
-            }
+        let restored = tx_pool
+            .pool_map
+            .restore_removed_entries_exact(rollback_entries)?;
+        for (tx, status) in restored {
+            tx_pool.remove_conflict_hash(&tx.hash());
+            self.rolled_back.push((tx, status));
         }
 
         // When RBF fails, the old transactions removed by process_rbf are
@@ -292,14 +213,9 @@ impl SubmitSideEffects {
         // subscriber would first hear "tx X was replaced" and then see X
         // reappear as pending.
         let recovered_ids: HashSet<ProposalShortId> = self
-            .recoverable
+            .rolled_back
             .iter()
             .map(|(tx, _)| tx.proposal_short_id())
-            .chain(
-                self.rolled_back
-                    .iter()
-                    .map(|(tx, _)| tx.proposal_short_id()),
-            )
             .collect();
         self.reject_events
             .retain(|(entry, _)| !recovered_ids.contains(&entry.proposal_short_id()));
@@ -307,21 +223,20 @@ impl SubmitSideEffects {
     }
 }
 
-type AddToPoolFn = fn(&mut TxPool, TxEntry) -> Result<(bool, HashSet<TxEntry>), Reject>;
+type AddToPoolFn = fn(&mut TxPool, TxEntry) -> Result<PoolMapAddOutcome, Reject>;
 
 impl TxPoolService {
     /// Check RBF conflicts, re-verify if the tip changed while the tx was in
-    /// flight, remove old conflicting transactions, and collect transactions that
-    /// can be recovered from the waiting room (conflict recovery).
+    /// flight, and journal every removed transaction for exact rollback and
+    /// later bounded conflict discovery.
     ///
     /// All work happens inside the write-lock transaction boundary so that any
     /// error rolls back the `TxPool` mutations.
     ///
     /// `fx` is filled *progressively*, right after the infallible steps that
     /// produce each part and before the fallible tip-change revalidation: on
-    /// every error path the caller already holds the full removal record and
-    /// the partial recovery set, so its recovery and reject-suppression logic
-    /// behaves identically no matter which step failed.
+    /// every error path the caller already holds the full physical-removal
+    /// record needed to restore the pre-submit state.
     pub(crate) fn prepare_rbf_replacement(
         &self,
         tx_pool: &mut TxPool,
@@ -379,33 +294,14 @@ impl TxPoolService {
         //
         // The removed set is exported immediately: every fallible step after
         // this point must leave the caller holding the full removal record,
-        // otherwise its error path cannot recover the cascade (descendants
-        // whose inputs differ from the replacement's would be stranded in
-        // the conflicts cache) or suppress their "replaced" reject events.
-        let removed = tx_pool.process_rbf(entry, &removal, &mut fx.reject_events);
+        // otherwise its error path cannot restore the cascade or suppress its
+        // spurious "replaced" reject events.
+        let removed = if removal.is_empty() {
+            Vec::new()
+        } else {
+            tx_pool.process_rbf(entry, &removal, &mut fx.reject_events)
+        };
         fx.pool_journal.record(RemovalCause::Replacement, removed);
-
-        // Txs whose inputs are not consumed by the new tx can be
-        // recovered immediately, regardless of whether the new tx
-        // ultimately succeeds. This computation is infallible, so it runs
-        // before the tip-change revalidation for the same reason as above:
-        // the caller's recovery set must be complete on every error path.
-        let mut available_inputs: HashSet<OutPoint> = HashSet::new();
-        available_inputs.extend(
-            fx.pool_journal
-                .by_cause(RemovalCause::Replacement)
-                .flat_map(|removed| removed.entry.transaction().input_pts_iter()),
-        );
-        for input in entry.transaction().input_pts_iter() {
-            available_inputs.remove(&input);
-        }
-        fx.recoverable
-            .extend(tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()));
-
-        // Parents must be recovered before children so that the
-        // ordered resolver can re-resolve and accept them in the
-        // correct order.
-        Self::sort_by_dependencies(&mut fx.recoverable, |(tx, _)| tx);
 
         // if snapshot changed by context switch we need redo time_relative verify
         let tip_hash = snapshot.tip_hash();
@@ -437,11 +333,9 @@ impl TxPoolService {
     ) -> Result<(), Reject> {
         let evicted = commit_entry_to_pool(tx_pool, status, entry, &mut fx.pool_journal)?;
 
-        // `commit_entry_to_pool` has already drained `PoolMap::evicted_journal`
-        // (the cell-ref escape-hatch evictions) into `fx.pool_journal`, and
-        // on success it equals the returned evict set — no second merge here.
-        // On the `Err` path that journal is the only channel carrying the
-        // evicted entries (see `SubmitSideEffects::recover_on_failure`).
+        // `commit_entry_to_pool` moves the successful cell-ref escape-hatch
+        // cohort into `fx.pool_journal`. PoolMap itself restores that cohort
+        // before any insertion error is allowed to cross this boundary.
 
         // in a corner case, a tx with lower fee rate may be rejected immediately
         // after inserting into pool, return proper reject error here
@@ -451,7 +345,6 @@ impl TxPoolService {
             fx.reject_events.push((evict, reject));
         }
 
-        tx_pool.remove_conflict_hash(&entry.transaction().hash());
         let mut removed = Vec::new();
         let reject = tx_pool.limit_size_with_journal(
             Some(&entry.proposal_short_id()),
@@ -474,7 +367,7 @@ impl TxPoolService {
 
         // The closure is the write-lock transaction boundary: any error rolls
         // back the `TxPool` mutations made inside it.
-        let mut result = (|| -> Result<(), Reject> {
+        let result = (|| -> Result<(), Reject> {
             let final_status = self.prepare_rbf_replacement(
                 tx_pool,
                 &snapshot,
@@ -498,42 +391,13 @@ impl TxPoolService {
         // be wrong.
         let replaced = fx.pool_journal.contains(RemovalCause::Replacement);
         if result.is_err() {
-            if let Err(rollback_error) = fx.rollback_on_failure(tx_pool, &entry, &entry_id) {
-                warn!(
-                    "tx-pool exact rollback failed after submit error {:?}: {}",
-                    result, rollback_error
+            if let Err(rollback_error) = fx.rollback_on_failure(tx_pool, &entry_id) {
+                self.pipeline.runtime.fail_stop(
+                    "tx-pool exact rollback failed after rejected submit",
+                    &(result, rollback_error),
                 );
-                result = Err(rollback_error);
             }
-        } else {
-            // On success, entries removed by *this* replacement must not be
-            // re-enqueued: they are dead as a cluster (their ancestry was
-            // destroyed), not merely blocked, so recovery would flip their
-            // recorded `RBFRejected` status to a bogus `Pending` in the
-            // pipeline and finally to a misleading `Resolve Unknown`. Only
-            // third-party txs blocked by the removed cluster may recover;
-            // the cluster itself stays in the conflict cache as rejected
-            // candidates (the audit/RPC view). The failure path above keeps
-            // the full set: `recover_on_failure` only queries the entry's
-            // own inputs and relies on the prepare-phase set for
-            // descendants whose inputs differ.
-            let removed_ids: HashSet<ProposalShortId> = fx
-                .pool_journal
-                .by_cause(RemovalCause::Replacement)
-                .map(|removed| removed.entry.proposal_short_id())
-                .collect();
-            fx.recoverable
-                .retain(|(tx, _)| !removed_ids.contains(&tx.proposal_short_id()));
         }
-
-        let scheduled =
-            tx_pool.schedule_conflict_candidates(fx.recoverable.iter().map(|(tx, _)| tx.hash()));
-        if scheduled != 0 {
-            self.pipeline.runtime.request_maintenance();
-        }
-        // Ownership remains in ConflictCache until the maintenance handoff;
-        // nothing executable is exported to a cancellable channel.
-        fx.recoverable.clear();
 
         CoordinatedSubmitOutcome {
             outcome: SubmitEntryOutcome {
@@ -544,7 +408,77 @@ impl TxPoolService {
                 accept_event: fx.accept_event,
             },
             pool_journal: fx.pool_journal,
+            conflict_cache_finalized: false,
         }
+    }
+
+    /// Publish historical ownership only after the tentative PoolMap mutation
+    /// and its matching coordinator handoff have both succeeded. This is the
+    /// state-side counterpart of the effect outbox linearization point: a
+    /// failed cross-authority handoff can still restore the exact prior pool
+    /// without evicting unrelated bounded history or deleting the candidate's
+    /// existing cached copy.
+    pub(crate) fn finalize_coordinated_submit(
+        &self,
+        tx_pool: &mut TxPool,
+        entry: &TxEntry,
+        coordinated: &mut CoordinatedSubmitOutcome,
+    ) {
+        assert!(
+            coordinated.outcome.result.is_ok(),
+            "only a successful pool/coordinator handoff can publish conflict history"
+        );
+        assert!(
+            !coordinated.conflict_cache_finalized,
+            "conflict history is finalized exactly once per submit"
+        );
+
+        tx_pool.remove_conflict_hash(&entry.transaction().hash());
+        let replacement_victims = coordinated
+            .pool_journal
+            .by_cause(RemovalCause::Replacement)
+            .map(|old| old.entry.transaction().clone())
+            .collect::<Vec<_>>();
+        let conflict_release_event = (!replacement_victims.is_empty()).then(|| {
+            let release_event = crate::component::conflict_cache::ConflictReleaseEvent::new();
+            for victim in replacement_victims {
+                tx_pool.record_conflict_for_release(
+                    victim,
+                    crate::tx_source::TxSource::Local,
+                    Arc::clone(&release_event),
+                );
+            }
+            release_event
+        });
+
+        // Register every outpoint that became usable as a dependency: inputs
+        // released by RBF/ancestor/size removals, plus outputs created by the
+        // newly accepted entry. The latter cascades historical parent -> child
+        // recovery without scanning under the pool lock.
+        //
+        // Replacement victims share one exclusion identity so descendants do
+        // not re-enter merely because their removed parent is temporarily
+        // unknown. A later accepted-parent event has a different identity and
+        // makes them eligible normally.
+        let mut available_outpoints = tx_pool.released_inputs_from_removed_entries(
+            coordinated
+                .pool_journal
+                .removals
+                .iter()
+                .map(|item| &item.removed.entry),
+        );
+        available_outpoints.extend(entry.transaction().output_pts());
+        match conflict_release_event {
+            Some(release_event) => tx_pool.schedule_conflicted_txs_from_inputs_for_release(
+                available_outpoints.into_iter(),
+                release_event,
+            ),
+            None => tx_pool.schedule_conflicted_txs_from_inputs(available_outpoints.into_iter()),
+        };
+        if tx_pool.conflict_maintenance_pending() {
+            self.pipeline.runtime.request_maintenance();
+        }
+        coordinated.conflict_cache_finalized = true;
     }
 
     #[cfg(test)]
@@ -557,8 +491,18 @@ impl TxPoolService {
         status: Status,
         entry_id: ProposalShortId,
     ) -> SubmitEntryOutcome {
-        self.try_submit_entry_inner(tx_pool, snapshot, pre_resolve_tip, entry, status, entry_id)
-            .outcome
+        let mut coordinated = self.try_submit_entry_inner(
+            tx_pool,
+            snapshot,
+            pre_resolve_tip,
+            entry.clone(),
+            status,
+            entry_id,
+        );
+        if coordinated.outcome.result.is_ok() {
+            self.finalize_coordinated_submit(tx_pool, &entry, &mut coordinated);
+        }
+        coordinated.outcome
     }
 
     pub(crate) fn try_submit_entry_coordinated(
@@ -587,6 +531,12 @@ impl TxPoolService {
         if coordinated.outcome.result.is_err() {
             return Ok(());
         }
+        if coordinated.conflict_cache_finalized {
+            return Err(Reject::Malformed(
+                "pool".to_string(),
+                "coordinator rollback attempted after conflict history finalization".to_string(),
+            ));
+        }
         let entry_id = entry.proposal_short_id();
         let removed = tx_pool.pool_map.remove_entry_with_status(&entry_id);
         let Some(removed) = removed else {
@@ -608,16 +558,10 @@ impl TxPoolService {
         let mut effects = SubmitSideEffects {
             reject_events: std::mem::take(&mut coordinated.outcome.reject_events),
             pool_journal: std::mem::take(&mut coordinated.pool_journal),
-            recoverable: Vec::new(),
             rolled_back: std::mem::take(&mut coordinated.outcome.rolled_back),
             accept_event: None,
         };
-        effects.rollback_on_failure(tx_pool, entry, &entry_id)?;
-        let scheduled = tx_pool
-            .schedule_conflict_candidates(effects.recoverable.iter().map(|(tx, _)| tx.hash()));
-        if scheduled != 0 {
-            self.pipeline.runtime.request_maintenance();
-        }
+        effects.rollback_on_failure(tx_pool, &entry_id)?;
         coordinated.outcome.result = Err(cause);
         coordinated.outcome.replaced = false;
         coordinated.outcome.rolled_back = effects.rolled_back;
@@ -653,9 +597,11 @@ impl TxPoolService {
             effects.extend(self.rejected_effects(entry, reject));
         }
         effects.append(&mut extra_effects);
-        if let Err(error) = self.publish_reserved_effects(permit, effects) {
-            panic!("reserved submit effect journal failed inside pool transaction: {error:?}");
-        }
+        self.publish_required_reserved_effects(
+            permit,
+            effects,
+            "reserved submit effect journal failed inside pool transaction",
+        );
     }
 }
 
@@ -674,7 +620,11 @@ fn commit_entry_to_pool(
     status: Status,
     entry: &TxEntry,
     journal: &mut PoolCommitJournal,
-) -> Result<HashSet<TxEntry>, Reject> {
+) -> Result<Vec<TxEntry>, Reject> {
+    #[cfg(test)]
+    if std::mem::take(&mut tx_pool.fail_next_pool_commit_panic) {
+        panic!("injected authoritative pool commit panic");
+    }
     let tx_hash = entry.transaction().hash();
     debug!("submit_entry {:?} {}", status, tx_hash);
     let add: AddToPoolFn = match status {
@@ -682,17 +632,8 @@ fn commit_entry_to_pool(
         Status::Gap => TxPool::add_gap,
         Status::Proposed => TxPool::add_proposed,
     };
-    let result = add(tx_pool, entry.clone());
-    // Drain the escape-hatch journal into the caller's recovery set on
-    // *both* outcomes: on success its entries correspond to the returned
-    // evict set; on failure it is the only channel that still carries the
-    // exact entries and original statuses (see `PoolMap::evicted_journal`).
-    journal.record(
-        RemovalCause::AncestorEscape,
-        std::mem::take(&mut tx_pool.pool_map.evicted_journal),
-    );
-    let (succ, evicts) = result?;
-    if !succ {
+    let PoolMapAddOutcome { inserted, evicted } = add(tx_pool, entry.clone())?;
+    if !inserted {
         // `add` returns `succ == false` when the entry's short-id slot is
         // already occupied. The pipeline-wide duplicate checks (classify
         // scans every queue, `check_txid_collision` scans the pool, and each
@@ -704,5 +645,10 @@ fn commit_entry_to_pool(
         // does not punish a later legitimate resubmission.
         return Err(Reject::Duplicated(tx_hash));
     }
-    Ok(evicts)
+    let evicted_entries = evicted
+        .iter()
+        .map(|removed| removed.entry.clone())
+        .collect();
+    journal.record(RemovalCause::AncestorEscape, evicted);
+    Ok(evicted_entries)
 }

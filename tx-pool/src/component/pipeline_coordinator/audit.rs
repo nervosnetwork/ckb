@@ -5,12 +5,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.by_short_id.clear();
         self.by_peer.clear();
         self.by_parent.clear();
+        self.waiting_parent_count = 0;
         self.candidates_by_input.clear();
+        self.candidate_conflict_counts.clear();
         self.active_by_input.clear();
         self.waiters_by_blocker.clear();
         self.conflict_recheck_set.clear();
         self.conflict_edge_count = 0;
         self.live_deadlines.clear();
+        self.capacity_victim_index.clear();
+        self.candidate_victim_index.clear();
         self.dependency_failure_set.clear();
         self.global_usage = CoordinatorResidency::default();
         self.peer_usage.clear();
@@ -23,7 +27,19 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut dependency_failure_order = Vec::new();
 
         for (hash, entry) in &self.entries {
-            if !entry.state_shape_valid(hash, &self.limits) {
+            if !entry.state_shape_valid(hash, &self.limits)
+                || !self.entry_metadata_charge_is_valid(entry)
+            {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            if let Some(key) = Self::capacity_victim_key(hash, entry)
+                && !self.capacity_victim_index.insert(key)
+            {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            if let Some(key) = Self::candidate_victim_key(hash, entry)
+                && !self.candidate_victim_index.insert(key)
+            {
                 return Err(CoordinatorError::ConflictInvariant);
             }
             if let Some(sequence) = entry.maintenance_sequence()
@@ -74,6 +90,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 if children.len() > self.limits.max_dependents_per_parent {
                     return Err(CoordinatorError::ParentFanoutLimitExceeded(parent.clone()));
                 }
+            }
+            if matches!(
+                &entry.state,
+                EntryState::Raw {
+                    location: RawLocation::WaitingParents { .. },
+                    ..
+                }
+            ) {
+                self.waiting_parent_count = self
+                    .waiting_parent_count
+                    .checked_add(1)
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
             }
             if let Some(kind) = entry.queue_kind() {
                 expected_queues
@@ -154,6 +182,49 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
 
+        for entry in self.entries.values() {
+            if let EntryState::CandidateVerified {
+                candidate,
+                location: CandidateLocation::WaitingConflict { blockers },
+                ..
+            } = &entry.state
+                && !self.conflict_blockers_are_valid(candidate, blockers)
+            {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+        }
+
+        if !self.global_usage.fits(self.limits.global)
+            || self
+                .peer_usage
+                .values()
+                .any(|usage| self.limits.per_peer.is_some_and(|limit| !usage.fits(limit)))
+            || self.active_work > self.limits.max_active_work
+            || self
+                .active_work_by_peer
+                .values()
+                .any(|active| *active > self.limits.max_active_work_per_peer)
+        {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+
+        let candidate_inputs: Vec<_> = self
+            .entries
+            .iter()
+            .filter_map(|(hash, entry)| {
+                entry
+                    .candidate()
+                    .map(|candidate| (hash.clone(), candidate.inputs.clone()))
+            })
+            .collect();
+        self.candidate_conflict_counts
+            .try_reserve(candidate_inputs.len())
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        for (hash, inputs) in candidate_inputs {
+            let conflicts = self.bounded_conflicting_candidates(&hash, &inputs)?;
+            self.candidate_conflict_counts.insert(hash, conflicts.len());
+        }
+
         for kind in [
             QueueKind::PreCheck,
             QueueKind::Resolve,
@@ -203,15 +274,20 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
     #[cfg(test)]
     pub(crate) fn audit(&self) -> Result<(), CoordinatorAuditError> {
+        if self.entry_transaction_depth != 0 || !self.entry_transaction_membership.is_empty() {
+            return Err(CoordinatorAuditError::EntryTransactionDepth);
+        }
         let mut global_usage = CoordinatorResidency::default();
         let mut peer_usage: HashMap<PeerIndex, CoordinatorResidency> = HashMap::new();
         let mut by_short_id = HashMap::new();
         let mut by_peer: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::new();
         let mut by_parent: HashMap<Byte32, HashSet<Byte32>> = HashMap::new();
+        let mut waiting_parent_count = 0usize;
         let mut expected_live: HashMap<QueueKind, HashSet<CoordinatorTicket>> = HashMap::new();
         let mut expected_priority: HashMap<QueueKind, HashSet<CoordinatorTicket>> = HashMap::new();
         let mut conflict_edges = 0usize;
         let mut candidates_by_input: HashMap<OutPoint, HashSet<Byte32>> = HashMap::new();
+        let mut candidate_conflict_counts: HashMap<Byte32, usize> = HashMap::new();
         let mut active_by_input: HashMap<OutPoint, Byte32> = HashMap::new();
         let mut waiters_by_blocker: HashMap<Byte32, HashSet<Byte32>> = HashMap::new();
         let mut conflict_rechecks = HashSet::new();
@@ -219,6 +295,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut active_work = 0usize;
         let mut active_work_by_peer: HashMap<PeerIndex, usize> = HashMap::new();
         let mut dependency_failures = HashSet::new();
+        let mut capacity_victim_index = BTreeSet::new();
+        let mut candidate_victim_index = BTreeSet::new();
         let mut maintenance_sequences = HashSet::new();
         let mut queue_sequences = HashSet::new();
         let mut expected_conflict_recheck_order = Vec::new();
@@ -226,6 +304,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
         for (hash, entry) in &self.entries {
             if !entry.state_shape_valid(hash, &self.limits) {
+                return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
+            }
+            if let Some(key) = Self::capacity_victim_key(hash, entry)
+                && !capacity_victim_index.insert(key)
+            {
+                return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
+            }
+            if let Some(key) = Self::candidate_victim_key(hash, entry)
+                && !candidate_victim_index.insert(key)
+            {
                 return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
             }
             if let Some(sequence) = entry.maintenance_sequence()
@@ -239,30 +327,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             {
                 return Err(CoordinatorAuditError::StateInvariant(hash.clone()));
             }
-            let conflict_inputs = entry.candidate().map_or(0, |meta| meta.inputs.len());
-            let base_metadata = self
-                .metadata_charge_bytes(entry.dependencies.len(), entry.expires_at.is_some(), 0)
-                .map_err(|_| CoordinatorAuditError::MetadataCharge)?;
-            let metadata = self
-                .metadata_charge_bytes(
-                    entry.dependencies.len(),
-                    entry.expires_at.is_some(),
-                    conflict_inputs,
-                )
-                .map_err(|_| CoordinatorAuditError::MetadataCharge)?;
-            if entry.base_metadata_bytes != base_metadata
-                || entry.metadata_bytes != metadata
-                || entry.raw_charge_bytes
-                    != entry
-                        .raw_resident_payload_bytes
-                        .checked_add(base_metadata)
-                        .ok_or(CoordinatorAuditError::MetadataCharge)?
-                || entry.charge_bytes
-                    != entry
-                        .resident_payload_bytes
-                        .checked_add(metadata)
-                        .ok_or(CoordinatorAuditError::MetadataCharge)?
-            {
+            if !self.entry_metadata_charge_is_valid(entry) {
                 return Err(CoordinatorAuditError::MetadataCharge);
             }
             let charge = CoordinatorResidency::new(1, entry.charge_bytes);
@@ -310,6 +375,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 if children.len() > self.limits.max_dependents_per_parent {
                     return Err(CoordinatorAuditError::ParentIndex);
                 }
+            }
+            if matches!(
+                &entry.state,
+                EntryState::Raw {
+                    location: RawLocation::WaitingParents { .. },
+                    ..
+                }
+            ) {
+                waiting_parent_count = waiting_parent_count
+                    .checked_add(1)
+                    .ok_or(CoordinatorAuditError::WaitingParentCount)?;
             }
             if let Some(kind) = entry.queue_kind() {
                 let ticket = entry.ticket(hash);
@@ -361,24 +437,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         }
                     }
                     CandidateLocation::WaitingConflict { blockers } => {
-                        if blockers.is_empty() {
+                        if !self.conflict_blockers_are_valid(candidate, blockers) {
                             return Err(CoordinatorAuditError::ConflictWaiterIndex);
                         }
                         for blocker in blockers {
-                            let Some(blocker_entry) = self.entries.get(blocker) else {
-                                return Err(CoordinatorAuditError::ConflictWaiterIndex);
-                            };
-                            if !matches!(
-                                &blocker_entry.state,
-                                EntryState::CandidateVerified {
-                                    candidate: blocker_candidate,
-                                    location: CandidateLocation::Ready
-                                        | CandidateLocation::Committing,
-                                    ..
-                                } if !candidate.inputs.is_disjoint(&blocker_candidate.inputs)
-                            ) {
-                                return Err(CoordinatorAuditError::ConflictWaiterIndex);
-                            }
                             let waiters = waiters_by_blocker.entry(blocker.clone()).or_default();
                             waiters.insert(hash.clone());
                             if waiters.len() > self.limits.max_candidates_per_input {
@@ -394,8 +456,34 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
 
+        for (hash, entry) in &self.entries {
+            let Some(candidate) = entry.candidate() else {
+                continue;
+            };
+            let mut conflicts = HashSet::new();
+            for input in &candidate.inputs {
+                let Some(candidates) = candidates_by_input.get(input) else {
+                    return Err(CoordinatorAuditError::ConflictCohortIndex);
+                };
+                for conflict in candidates {
+                    if conflict != hash {
+                        conflicts.insert(conflict.clone());
+                    }
+                }
+            }
+            if conflicts.len() > self.limits.max_candidates_per_input {
+                return Err(CoordinatorAuditError::ConflictCohortIndex);
+            }
+            candidate_conflict_counts.insert(hash.clone(), conflicts.len());
+        }
+
         if global_usage != self.global_usage {
             return Err(CoordinatorAuditError::GlobalUsage);
+        }
+        if capacity_victim_index != self.capacity_victim_index
+            || candidate_victim_index != self.candidate_victim_index
+        {
+            return Err(CoordinatorAuditError::VictimPriorityIndex);
         }
         if !global_usage.fits(self.limits.global)
             || peer_usage
@@ -425,11 +513,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if by_parent != self.by_parent {
             return Err(CoordinatorAuditError::ParentIndex);
         }
+        if waiting_parent_count != self.waiting_parent_count {
+            return Err(CoordinatorAuditError::WaitingParentCount);
+        }
         if conflict_edges != self.conflict_edge_count {
             return Err(CoordinatorAuditError::ConflictEdgeCount);
         }
         if candidates_by_input != self.candidates_by_input {
             return Err(CoordinatorAuditError::ConflictCandidateIndex);
+        }
+        if candidate_conflict_counts != self.candidate_conflict_counts {
+            return Err(CoordinatorAuditError::ConflictCohortIndex);
         }
         if active_by_input != self.active_by_input {
             return Err(CoordinatorAuditError::ConflictActiveIndex);

@@ -267,7 +267,7 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
                 Status::Pending,
             )
             .unwrap();
-        assert_eq!(tx_pool.pool_map.stats.total_tx_size.get(), 12_500);
+        assert_eq!(tx_pool.pool_map.stats.total_tx_size, 12_500);
     }
 
     // N: spends X, cell-deps on the chain tip, pays no fee.
@@ -392,7 +392,7 @@ async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock(
             Some(Status::Gap)
         );
         assert!(tx_pool.pool_map.get_by_id(&replacement_id).is_none());
-        assert_eq!(tx_pool.pool_map.stats.total_tx_size.get(), 200);
+        assert_eq!(tx_pool.pool_map.stats.total_tx_size, 200);
         outcome
     };
 
@@ -421,11 +421,11 @@ async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock(
     ));
 }
 
-/// The escape-hatch eviction journal must also cover the case where
+/// PoolMap's insertion transaction must also cover the case where
 /// `add_entry` itself fails *after* the escape eviction (here: the dep
 /// pre-validation rejects the entry because another in-pool tx consumes
-/// one of its deps). The returned `Err` carries no evict set, so without
-/// the journal the eviction would be lost.
+/// one of its deps). The local eviction cohort must be restored before the
+/// error crosses into the outer commit transaction.
 #[tokio::test]
 async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
     use super::harness::{WorkerSet, harness};
@@ -497,14 +497,26 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
         "the dep pre-validation must reject after C consumed D'"
     );
     assert!(
-        rolled_back.iter().any(|(tx, _)| tx.hash() == e.hash()),
-        "the escape-hatch eviction of E must be recovered even though add_entry itself failed"
+        rolled_back.is_empty(),
+        "PoolMap-owned insertion rollback must not be replayed by the outer commit transaction"
     );
 
     // The rejected entry must not leave ghost links behind: no links node
     // for N, and no parent→child reference to N anywhere in the graph.
     // (Ancestor links are committed only after every fallible validation.)
     let tx_pool = service.pool.tx_pool.read().await;
+    assert!(
+        tx_pool.pool_map.contains_key(&e.proposal_short_id()),
+        "the failed insertion must restore E before returning"
+    );
+    assert_eq!(
+        tx_pool
+            .pool_map
+            .get_by_id(&e.proposal_short_id())
+            .map(|entry| entry.status),
+        Some(Status::Pending),
+        "the local rollback must preserve E's original status"
+    );
     assert!(
         !tx_pool.pool_map.links.contains_key(&n_id),
         "rejected entry must not have a links node"
@@ -529,15 +541,24 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
 /// conflicts cache, and leaked their "replaced" reject events.
 #[tokio::test]
 async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
+    use crate::tx_source::TxSource;
     use std::collections::HashSet;
 
     let (service, _relay, _cancel, _store, _out_points) = service_with_rbf(2);
+
+    // Keep one unrelated historical candidate under an intentionally tiny
+    // cache budget. A failed replacement must not publish its temporary
+    // victims into ConflictCache: doing so would let a fee-free rejected
+    // attempt evict unrelated recovery history before rollback.
+    let historical = build_tx(vec![(&Byte32::new([0xa5; 32]), 0)], 1);
 
     // In-pool victim cluster: a parent and its child.
     let parent = build_tx(vec![(&Byte32::zero(), 5)], 1);
     let child = build_tx(vec![(&parent.hash(), 0)], 1);
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
+        tx_pool.conflict_cache.set_limits_for_test(1, usize::MAX);
+        tx_pool.record_conflict(historical.clone(), TxSource::Local);
         for tx in [parent.clone(), child.clone()] {
             tx_pool
                 .pool_map
@@ -604,12 +625,93 @@ async fn failed_tip_revalidation_recovers_whole_removed_cascade() {
     // The recovered txs were taken out of the conflict cache: ownership
     // moved to the recovery set.
     let tx_pool = service.pool.tx_pool.read().await;
+    assert!(
+        tx_pool.conflict_cache.contains_hash(&historical.hash()),
+        "a failed replacement must not evict unrelated conflict history"
+    );
+    assert_eq!(
+        tx_pool.conflict_cache.len(),
+        1,
+        "failed RBF must leave ConflictCache exactly as it found it"
+    );
     for tx in [&parent, &child] {
         assert!(
-            !tx_pool.conflict_cache.contains(&tx.proposal_short_id()),
+            !tx_pool.conflict_cache.contains_hash(&tx.hash()),
             "recovered tx must not stay in the conflict cache"
         );
     }
+}
+
+/// A successful PoolMap insertion is still tentative until the matching
+/// coordinator owner has been consumed. If that second half fails, rollback
+/// must see the exact pre-submit ConflictCache: publishing victims at the
+/// PoolMap boundary lets a fee-free failed handoff evict unrelated history.
+#[tokio::test]
+async fn coordinator_handoff_failure_does_not_publish_tentative_conflict_history() {
+    use crate::tx_source::TxSource;
+
+    let (service, _relay, _cancel, _store, _out_points) = service_with_rbf(2);
+    let historical = build_tx(vec![(&Byte32::new([0xa6; 32]), 0)], 1);
+    let parent = build_tx(vec![(&Byte32::zero(), 6)], 1);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let replacement = build_tx(vec![(&Byte32::zero(), 6)], 2);
+    let replacement_entry = TxEntry::dummy_resolve(
+        replacement.clone(),
+        MOCK_CYCLES,
+        Capacity::shannons(1_000_000_000),
+        MOCK_SIZE,
+    );
+    let replacement_id = replacement.proposal_short_id();
+
+    let mut tx_pool = service.pool.tx_pool.write().await;
+    tx_pool.conflict_cache.set_limits_for_test(1, usize::MAX);
+    tx_pool.record_conflict(historical.clone(), TxSource::Local);
+    for tx in [parent.clone(), child.clone()] {
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE),
+                Status::Pending,
+            )
+            .unwrap();
+    }
+
+    let snapshot = tx_pool.cloned_snapshot();
+    let pre_resolve_tip = snapshot.tip_hash();
+    let mut coordinated = service.try_submit_entry_coordinated(
+        &mut tx_pool,
+        snapshot,
+        pre_resolve_tip,
+        replacement_entry.clone(),
+        Status::Pending,
+        replacement_id.clone(),
+    );
+    assert!(
+        coordinated.outcome.result.is_ok(),
+        "the PoolMap half must succeed before the injected handoff failure"
+    );
+    assert!(
+        tx_pool.conflict_cache.contains_hash(&historical.hash()),
+        "tentative PoolMap success must not publish replacement victims"
+    );
+    assert_eq!(tx_pool.conflict_cache.len(), 1);
+
+    service
+        .rollback_coordinated_submit(
+            &mut tx_pool,
+            &replacement_entry,
+            &mut coordinated,
+            Reject::Internal("injected coordinator handoff failure".to_string()),
+        )
+        .expect("the pristine historical cache permits exact pool rollback");
+
+    assert!(tx_pool.pool_map.get_by_hash(&parent.hash()).is_some());
+    assert!(tx_pool.pool_map.get_by_hash(&child.hash()).is_some());
+    assert!(tx_pool.pool_map.get_by_hash(&replacement.hash()).is_none());
+    assert!(tx_pool.conflict_cache.contains_hash(&historical.hash()));
+    assert!(!tx_pool.conflict_cache.contains_hash(&parent.hash()));
+    assert!(!tx_pool.conflict_cache.contains_hash(&child.hash()));
+    assert_eq!(tx_pool.conflict_cache.len(), 1);
 }
 
 /// The waiting-room conflict index is symmetric by construction: entries
@@ -666,8 +768,8 @@ async fn conflict_recovery_index_stays_consistent() {
     assert_eq!(recovered[0].0.hash(), candidate.hash());
 
     // remove_conflict drops the index entry symmetrically.
-    tx_pool.remove_conflict(&candidate.proposal_short_id());
-    tx_pool.remove_conflict(&other.proposal_short_id());
+    tx_pool.remove_conflict(&candidate.hash());
+    tx_pool.remove_conflict(&other.hash());
     let recovered = tx_pool.get_conflicted_txs_from_inputs(
         vec![OutPoint::new(x_hash, 0), OutPoint::new(y_hash, 0)].into_iter(),
     );
@@ -695,7 +797,7 @@ async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once
     let b_hash = Byte32::new([42u8; 32]);
     let victim = build_tx(vec![(&a_hash, 0), (&b_hash, 0)], 1);
     let recovered_tx = build_tx(vec![(&b_hash, 0)], 1);
-    let recovered_id = recovered_tx.proposal_short_id();
+    let recovered_hash = recovered_tx.hash();
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
         tx_pool
@@ -749,10 +851,19 @@ async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once
     {
         let tx_pool = service.pool.tx_pool.read().await;
         assert!(
-            tx_pool.conflict_cache.contains(&recovered_id),
+            tx_pool.conflict_cache.contains_hash(&recovered_hash),
             "the cache owns the candidate before maintenance handoff"
         );
-        assert_eq!(tx_pool.conflict_recovery_len(), 1);
+        assert_eq!(
+            tx_pool.conflict_recovery_len(),
+            0,
+            "submit must not scan and materialize recovery under the pool lock"
+        );
+        assert_eq!(
+            tx_pool.conflict_discovery_len(),
+            2,
+            "both freed victim inputs remain as level-triggered discovery work"
+        );
     }
     assert!(
         !service
@@ -762,8 +873,21 @@ async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once
         "the coordinator must not own the candidate before handoff"
     );
 
-    let progress = service.recover_conflict_cache_slice(1).await;
-    assert!(!progress.capacity_blocked);
+    let mut capacity_blocked = false;
+    let mut transferred = false;
+    for _ in 0..16 {
+        let progress = service.recover_conflict_cache_slice(1).await;
+        capacity_blocked |= progress.capacity_blocked;
+        transferred |= service
+            .pipeline
+            .runtime
+            .mutate(|coordinator| coordinator.contains_hash(&recovered_tx.hash()));
+        if transferred && !progress.saturated {
+            break;
+        }
+    }
+    assert!(!capacity_blocked);
+    assert!(transferred);
     assert!(
         service
             .pipeline
@@ -773,10 +897,11 @@ async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once
     );
     let tx_pool = service.pool.tx_pool.read().await;
     assert!(
-        !tx_pool.conflict_cache.contains(&recovered_id),
+        !tx_pool.conflict_cache.contains_hash(&recovered_hash),
         "cache ownership must end at coordinator admission"
     );
     assert_eq!(tx_pool.conflict_recovery_len(), 0);
+    assert_eq!(tx_pool.conflict_discovery_len(), 0);
 }
 
 /// A successful replacement must not re-enqueue the descendants it
@@ -799,8 +924,8 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     // Chain T1 -> T2 in the pool.
     let t1 = build_tx(vec![(&Byte32::new([61u8; 32]), 0)], 1);
     let t2 = build_tx(vec![(&t1.hash(), 0)], 1);
-    let t1_id = t1.proposal_short_id();
-    let t2_id = t2.proposal_short_id();
+    let t1_hash = t1.hash();
+    let t2_hash = t2.hash();
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
         for (tx, status) in [
@@ -832,15 +957,21 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
-        let coordinated = service.try_submit_entry_coordinated(
+        let mut coordinated = service.try_submit_entry_coordinated(
             &mut tx_pool,
             snapshot,
             pre_resolve_tip,
-            replacement_entry,
+            replacement_entry.clone(),
             Status::Pending,
             replacement_id,
         );
         let statuses = coordinated.block_assembler_statuses();
+        if coordinated.outcome.result.is_ok() {
+            // This pool-focused test has no live coordinator lease. Complete
+            // the same post-handoff history publication that the production
+            // commit driver performs before releasing the pool guard.
+            service.finalize_coordinated_submit(&mut tx_pool, &replacement_entry, &mut coordinated);
+        }
         (coordinated.outcome, statuses)
     };
     assert_eq!(
@@ -862,11 +993,11 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     // candidates (the audit/RPC view, see `RbfReplaceProposedSuccess`).
     let tx_pool = service.pool.tx_pool.read().await;
     assert!(
-        tx_pool.conflict_cache.contains(&t1_id),
+        tx_pool.conflict_cache.contains_hash(&t1_hash),
         "the replaced root must stay in the conflict cache"
     );
     assert!(
-        tx_pool.conflict_cache.contains(&t2_id),
+        tx_pool.conflict_cache.contains_hash(&t2_hash),
         "the removed descendant must stay in the conflict cache"
     );
 }

@@ -418,6 +418,89 @@ fn trusted_source_promotion_rolls_back_peer_expiry_charge_and_queue_together() {
 }
 
 #[test]
+fn trusted_raw_replacement_restarts_active_payload_and_invalidates_old_lease() {
+    let limits = test_limits(
+        CoordinatorResidency::new(3, 35),
+        Some(CoordinatorResidency::new(3, 35)),
+        4,
+        4,
+    );
+    let peer: PeerIndex = 21.into();
+    let tx_hash = hash(93);
+    let victim = hash(94);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    coordinator
+        .admit_raw_sourced(
+            tx_hash.clone(),
+            short(93),
+            Raw("remote witness"),
+            RawStage::PreCheck,
+            CoordinatorSource::Remote(peer),
+            Some(10),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator
+        .admit_raw_sourced(
+            victim.clone(),
+            short(94),
+            Raw("weaker work"),
+            RawStage::PreCheck,
+            CoordinatorSource::Remote(peer),
+            Some(10),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let old_lease = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    assert_eq!(old_lease.hash, tx_hash);
+    assert_eq!(coordinator.active_work(), 1);
+
+    let (_, terminal) = coordinator
+        .replace_raw_payload(
+            &tx_hash,
+            Raw("proposal witness"),
+            30,
+            TrustedSource::Proposal,
+            RawStage::PreCheck,
+        )
+        .unwrap();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(terminal[0].hash, victim);
+    assert_eq!(
+        terminal[0].disposition,
+        TerminalDisposition::CapacityEvicted
+    );
+    assert_eq!(coordinator.active_work(), 0);
+    assert_eq!(coordinator.deadline_len(), 0);
+    assert_eq!(
+        coordinator.peer_usage(peer),
+        CoordinatorResidency::default()
+    );
+    let view = coordinator.view(&tx_hash).unwrap();
+    assert_eq!(view.source, CoordinatorSource::Proposal);
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::RawQueued(RawStage::PreCheck)
+    );
+    assert!(matches!(
+        coordinator.requeue_raw(&old_lease),
+        Err(CoordinatorError::RevisionMismatch { .. })
+    ));
+    let replacement = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    assert_eq!(*replacement.payload, Raw("proposal witness"));
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn proposal_priority_lane_is_fifo_and_does_not_starve_earlier_proposals() {
     let mut coordinator = roomy();
     for seed in [95, 96, 97] {
@@ -528,6 +611,173 @@ fn configured_fifo_order_and_active_caps_prevent_a_remote_prefix_monopoly() {
         .unwrap();
     assert_eq!(fourth.hash, hash(102));
     assert_eq!(coordinator.peer_active_work(first_peer), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn capped_peer_prefix_selection_is_bounded_by_owners_not_transactions() {
+    let limits = test_limits(
+        CoordinatorResidency::new(256, 256_000),
+        Some(CoordinatorResidency::new(256, 256_000)),
+        4,
+        4,
+    )
+    .with_active_limits(2, 1);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let saturated_peer: PeerIndex = 41.into();
+    let eligible_peer: PeerIndex = 42.into();
+
+    for seed in 0..200u8 {
+        coordinator
+            .admit_raw_sourced(
+                hash(seed),
+                short(seed),
+                Raw("capped-prefix"),
+                RawStage::PreCheck,
+                CoordinatorSource::Remote(saturated_peer),
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    coordinator
+        .admit_raw_sourced(
+            hash(200),
+            short(200),
+            Raw("eligible-owner"),
+            RawStage::PreCheck,
+            CoordinatorSource::Remote(eligible_peer),
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+
+    let first = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.hash, hash(0));
+    coordinator.take_queue_selection_probes_for_test(QueueKind::PreCheck);
+
+    let second = coordinator
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.hash, hash(200));
+    let probes = coordinator.take_queue_selection_probes_for_test(QueueKind::PreCheck);
+    assert!(
+        probes <= 4,
+        "selection inspected {probes} heads for two owners and a 200-tx capped prefix"
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn global_capacity_victim_selection_stops_before_stronger_pool_suffix() {
+    let limits = test_limits(CoordinatorResidency::new(101, 1_010), None, 1, 1);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let weak = hash(1);
+    coordinator
+        .admit_raw_sourced(
+            weak.clone(),
+            short(1),
+            Raw("weak remote"),
+            RawStage::Resolve,
+            CoordinatorSource::Remote(1.into()),
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    for seed in 2..=101u8 {
+        coordinator
+            .admit_raw_sourced(
+                hash(seed),
+                short(seed),
+                Raw("strong suffix"),
+                RawStage::Resolve,
+                CoordinatorSource::Proposal,
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    coordinator.take_capacity_victim_probes_for_test();
+
+    let (_, evicted) = coordinator
+        .admit_raw_sourced(
+            hash(102),
+            short(102),
+            Raw("incoming proposal"),
+            RawStage::Resolve,
+            CoordinatorSource::Proposal,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, weak);
+    let probes = coordinator.take_capacity_victim_probes_for_test();
+    assert!(
+        probes <= 2,
+        "capacity reconciliation inspected {probes} keys before a 100-entry stronger suffix"
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn conflict_edge_victim_selection_stops_before_stronger_pool_suffix() {
+    let limits = test_limits(CoordinatorResidency::new(102, 100_000), None, 1, 1)
+        .with_conflict_limits(1, 1, 101);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let (weak, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        1,
+        CoordinatorSource::Remote(1.into()),
+        HashSet::from([input(1)]),
+        1,
+    );
+    coordinator
+        .complete_verification_candidate(&verify, Verified("weak remote"), 30, candidate)
+        .unwrap();
+    for seed in 2..=101u8 {
+        let (_, verify, candidate) = begin_candidate(
+            &mut coordinator,
+            seed,
+            CoordinatorSource::Proposal,
+            HashSet::from([input(seed)]),
+            1_000,
+        );
+        coordinator
+            .complete_verification_candidate(&verify, Verified("strong suffix"), 30, candidate)
+            .unwrap();
+    }
+    let (_, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        102,
+        CoordinatorSource::Local,
+        HashSet::from([input(102)]),
+        100,
+    );
+    coordinator.take_candidate_victim_probes_for_test();
+
+    let (_, evicted) = coordinator
+        .complete_verification_candidate(&verify, Verified("incoming local"), 30, candidate)
+        .unwrap();
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].hash, weak);
+    let probes = coordinator.take_candidate_victim_probes_for_test();
+    assert!(
+        probes <= 2,
+        "conflict reconciliation inspected {probes} keys before a 100-entry stronger suffix"
+    );
     coordinator.audit().unwrap();
 }
 
@@ -736,7 +986,7 @@ fn active_source_promotion_does_not_invalidate_owned_work() {
 }
 
 #[test]
-fn waiting_parent_source_promotion_cancels_expiry_without_losing_dependency_wake() {
+fn waiting_parent_source_promotion_requeues_into_expiring_policy_boundary() {
     let mut coordinator = roomy();
     let tx_hash = hash(86);
     let parent = hash(85);
@@ -770,16 +1020,16 @@ fn waiting_parent_source_promotion_cancels_expiry_without_losing_dependency_wake
     );
     assert!(matches!(
         coordinator.view(&tx_hash).unwrap().location,
-        CoordinatorLocation::WaitingParents { .. }
+        CoordinatorLocation::RawQueued(RawStage::Resolve)
     ));
     assert!(coordinator.expire_due(10, 1).unwrap().is_empty());
     let ready = coordinator.parent_available(&parent).unwrap();
-    assert_eq!(ready.len(), 1);
-    assert_eq!(ready[0].hash, tx_hash);
-    assert_eq!(
-        coordinator.view(&tx_hash).unwrap().location,
-        CoordinatorLocation::RawQueued(RawStage::Resolve)
-    );
+    assert!(ready.is_empty(), "the promoted owner is no longer parked");
+    let lease = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .expect("trusted promotion owns a fresh resolve ticket");
+    assert_eq!(lease.hash, tx_hash);
     coordinator.audit().unwrap();
 }
 
@@ -1026,6 +1276,62 @@ fn expiry_batch_never_loses_an_earlier_terminal_on_unwind() {
     }
 
     assert_eq!(coordinator.expire_due(10, 2).unwrap().len(), 2);
+    assert!(coordinator.is_empty());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn administrative_terminal_cohort_rolls_back_as_one_ownership_transaction() {
+    let mut coordinator = roomy();
+    let hashes = [hash(230), hash(231)];
+    let peer: PeerIndex = 41.into();
+    for (seed, tx_hash) in [(230, hashes[0].clone()), (231, hashes[1].clone())] {
+        coordinator
+            .admit_raw_sourced(
+                tx_hash,
+                short(seed),
+                Raw("peer-owned"),
+                RawStage::Resolve,
+                CoordinatorSource::Remote(peer),
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    let before = hashes
+        .clone()
+        .map(|tx_hash| coordinator.view(&tx_hash).unwrap());
+    let usage = coordinator.usage();
+    let peer_usage = coordinator.peer_usage(peer);
+    let queue_len = coordinator.queue_len(QueueKind::Resolve);
+
+    for fault_step in 1..=6 {
+        coordinator.set_apply_fault_for_test(Some(fault_step));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = coordinator.force_terminalize_many(&hashes, TerminalDisposition::Removed);
+        }));
+        assert!(result.is_err(), "fault step {fault_step} was not reached");
+        coordinator.set_apply_fault_for_test(None);
+        let after = hashes
+            .clone()
+            .map(|tx_hash| coordinator.view(&tx_hash).unwrap());
+        assert_eq!(after, before);
+        assert_eq!(coordinator.usage(), usage);
+        assert_eq!(coordinator.peer_usage(peer), peer_usage);
+        assert_eq!(coordinator.queue_len(QueueKind::Resolve), queue_len);
+        coordinator.audit().unwrap();
+    }
+
+    let terminal = coordinator
+        .force_terminalize_many(&hashes, TerminalDisposition::Removed)
+        .unwrap();
+    assert_eq!(terminal.len(), 2);
+    assert!(
+        terminal
+            .iter()
+            .all(|record| record.disposition == TerminalDisposition::Removed)
+    );
     assert!(coordinator.is_empty());
     coordinator.audit().unwrap();
 }
@@ -1322,7 +1628,7 @@ fn administrative_terminal_api_cannot_express_commit_and_releases_all_indexes() 
 }
 
 #[test]
-fn parent_invalidation_demotes_payload_and_makes_active_verify_lease_stale() {
+fn trusted_parent_invalidation_retains_payload_and_makes_active_verify_lease_stale() {
     let mut coordinator = roomy();
     let tx_hash = hash(3);
     let parent = hash(30);
@@ -1354,22 +1660,35 @@ fn parent_invalidation_demotes_payload_and_makes_active_verify_lease_stale() {
         vec![tx_hash.clone()]
     );
     let view = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Raw);
-    assert_eq!(view.charge_bytes, 10);
+    assert_eq!(view.phase, PayloadPhase::Unverified);
+    assert_eq!(view.charge_bytes, 50);
     assert_eq!(
         view.location,
-        CoordinatorLocation::WaitingParents {
-            missing: set([parent.clone()])
+        CoordinatorLocation::Invalidated {
+            cause: parent.clone()
         }
     );
+    assert_eq!(coordinator.waiting_parent_len(), 0);
+    assert_eq!(coordinator.dependency_failure_len(), 1);
     assert!(matches!(
         coordinator.complete_verification(&verify, Verified("stale"), 60),
         Err(CoordinatorError::RevisionMismatch { .. })
     ));
 
     let ready = coordinator.parent_available(&parent).unwrap();
-    assert_eq!(ready.len(), 1);
-    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 1);
+    assert!(
+        ready.is_empty(),
+        "a definitive failure cannot be resurrected"
+    );
+    assert_eq!(coordinator.waiting_parent_len(), 0);
+    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 0);
+    let terminal = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(
+        terminal[0].disposition,
+        TerminalDisposition::DependencyFailed
+    );
+    assert!(!coordinator.contains_hash(&tx_hash));
     coordinator.audit().unwrap();
 }
 
@@ -1416,11 +1735,13 @@ fn verify_unknown_parent_demotes_atomically_and_preserves_causal_source() {
             missing: set([parent.clone()])
         }
     );
+    assert_eq!(coordinator.waiting_parent_len(), 1);
     assert!(matches!(
         coordinator.complete_verification(&verify, Verified("stale"), 60),
         Err(CoordinatorError::RevisionMismatch { .. })
     ));
     assert_eq!(coordinator.parent_available(&parent).unwrap().len(), 1);
+    assert_eq!(coordinator.waiting_parent_len(), 0);
     assert_eq!(coordinator.queue_len(QueueKind::Resolve), 1);
     coordinator.audit().unwrap();
 }
@@ -1543,7 +1864,7 @@ fn accepted_parent_closure_unavailability_is_one_atomic_batch() {
             short(7),
             Raw("raw"),
             RawStage::Resolve,
-            None,
+            Some(PeerIndex::from(7)),
             10,
             set([parent_a.clone(), parent_b.clone()]),
         )
@@ -1586,6 +1907,51 @@ fn accepted_parent_closure_unavailability_is_one_atomic_batch() {
         }
     );
     assert_eq!(coordinator.queue_len(QueueKind::Verify), 0);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn trusted_parent_unavailability_cannot_park_without_expiry() {
+    let mut coordinator = roomy();
+    let child = hash(37);
+    let parent = hash(38);
+    coordinator
+        .admit_raw(
+            child.clone(),
+            short(37),
+            Raw("trusted child"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 50, VerifySchedule::default())
+        .unwrap();
+
+    assert_eq!(
+        coordinator.parent_unavailable(&parent).unwrap(),
+        vec![child.clone()]
+    );
+    assert_eq!(
+        coordinator.view(&child).unwrap().location,
+        CoordinatorLocation::Invalidated {
+            cause: parent.clone()
+        }
+    );
+    assert_eq!(coordinator.dependency_failure_len(), 1);
+    let terminal = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(
+        terminal[0].disposition,
+        TerminalDisposition::DependencyFailed
+    );
+    assert!(coordinator.view(&child).is_none());
     coordinator.audit().unwrap();
 }
 
@@ -3479,7 +3845,7 @@ fn injected_conflict_recheck_unwind_restores_the_entire_preemption() {
 }
 
 #[test]
-fn conflict_recheck_batch_rolls_back_earlier_preemptions_on_late_unwind() {
+fn conflict_recheck_slice_keeps_earlier_atomic_transition_on_late_unwind() {
     let mut coordinator = roomy();
     let contested = input(224);
     let middle = verify_candidate(
@@ -3509,8 +3875,6 @@ fn conflict_recheck_batch_rolls_back_earlier_preemptions_on_late_unwind() {
         HashSet::from([contested.clone()]),
         50,
     );
-    let before =
-        [low.clone(), middle.clone(), weak.clone()].map(|hash| coordinator.view(&hash).unwrap());
     let usage = coordinator.usage();
     assert_eq!(coordinator.conflict_recheck_len(), 2);
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
@@ -3522,16 +3886,73 @@ fn conflict_recheck_batch_rolls_back_earlier_preemptions_on_late_unwind() {
     assert!(result.is_err());
     coordinator.set_apply_fault_for_test(None);
 
-    let after =
-        [low.clone(), middle.clone(), weak.clone()].map(|hash| coordinator.view(&hash).unwrap());
-    assert_eq!(after, before);
     assert_eq!(coordinator.usage(), usage);
-    assert_eq!(coordinator.conflict_recheck_len(), 2);
-    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
+    // The first candidate owns one complete transaction; the injected fault
+    // rolls back only the second candidate instead of cloning and reverting
+    // the entire maintenance slice.
+    assert_eq!(
+        coordinator.view(&low).unwrap().location,
+        CoordinatorLocation::ReadyToCommit
+    );
+    assert_eq!(
+        coordinator.view(&middle).unwrap().location,
+        CoordinatorLocation::ConflictRecheck
+    );
+    assert!(matches!(
+        coordinator.view(&weak).unwrap().location,
+        CoordinatorLocation::WaitingConflict { ref blockers }
+            if blockers == &HashSet::from([low.clone()])
+    ));
+    assert_eq!(coordinator.conflict_recheck_len(), 1);
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
     coordinator.audit().unwrap();
 
-    assert_eq!(coordinator.drain_conflict_rechecks(2).unwrap().len(), 2);
+    assert_eq!(coordinator.drain_conflict_rechecks(2).unwrap().len(), 1);
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&middle));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn multi_input_conflict_union_is_bounded_even_when_each_bucket_has_capacity() {
+    let limits = test_limits(CoordinatorResidency::new(20, 20_000), None, 4, 4)
+        .with_conflict_limits(3, 3, 32);
+    let mut coordinator: PipelineCoordinator<Raw, Unverified, Verified> =
+        PipelineCoordinator::new(limits);
+    let first = input(230);
+    let second = input(231);
+    let third = input(232);
+    let owner = verify_candidate(
+        &mut coordinator,
+        230,
+        HashSet::from([first.clone(), second.clone(), third.clone()]),
+        1_000,
+    );
+    let first_waiter = verify_candidate(&mut coordinator, 231, HashSet::from([first.clone()]), 100);
+    let _second_waiter = verify_candidate(&mut coordinator, 232, HashSet::from([second]), 100);
+    let _third_waiter = verify_candidate(&mut coordinator, 233, HashSet::from([third]), 100);
+    let (incoming, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        234,
+        CoordinatorSource::Local,
+        HashSet::from([first.clone()]),
+        50,
+    );
+    let before = [owner.clone(), first_waiter.clone(), incoming.clone()]
+        .map(|hash| coordinator.view(&hash).unwrap());
+
+    assert!(matches!(
+        coordinator.complete_verification_candidate(
+            &verify,
+            Verified("cross-bucket overflow"),
+            30,
+            candidate,
+        ),
+        Err(CoordinatorError::ConflictCohortLimitExceeded)
+    ));
+    let after =
+        [owner.clone(), first_waiter, incoming].map(|hash| coordinator.view(&hash).unwrap());
+    assert_eq!(after, before);
+    assert_eq!(coordinator.active_conflict_owner(&first), Some(&owner));
     coordinator.audit().unwrap();
 }
 
@@ -3957,7 +4378,7 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
 }
 
 #[test]
-fn pool_removal_demotion_and_winner_handoff_are_one_transaction() {
+fn pool_removal_invalidation_and_winner_handoff_are_one_transaction() {
     let mut coordinator = roomy();
     let winner = verify_candidate(&mut coordinator, 190, inputs([90]), 1_000);
     let lease = coordinator.begin_next_commit().unwrap().unwrap();
@@ -4007,9 +4428,17 @@ fn pool_removal_demotion_and_winner_handoff_are_one_transaction() {
     assert!(!coordinator.contains_hash(&winner));
     assert_eq!(
         coordinator.view(&consumer).unwrap().location,
-        CoordinatorLocation::WaitingParents {
-            missing: set([removed_parent])
+        CoordinatorLocation::Invalidated {
+            cause: removed_parent
         }
+    );
+    assert_eq!(coordinator.dependency_failure_len(), 1);
+    let terminal = coordinator.drain_dependency_failures(1).unwrap();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(terminal[0].hash, consumer);
+    assert_eq!(
+        terminal[0].disposition,
+        TerminalDisposition::DependencyFailed
     );
     coordinator.audit().unwrap();
 }
@@ -4602,4 +5031,68 @@ fn external_commit_rolls_back_child_wake_at_every_apply_boundary() {
         assert_eq!(coordinator.usage(), usage);
         coordinator.audit().unwrap();
     }
+}
+
+#[test]
+fn undo_cohort_completeness_is_enforced_at_every_entry_write() {
+    let mut coordinator = roomy();
+    let snapshotted = hash(130);
+    let escaped = hash(131);
+    for (tx_hash, seed) in [(&snapshotted, 130), (&escaped, 131)] {
+        coordinator
+            .admit_raw(
+                tx_hash.clone(),
+                short(seed),
+                Raw("raw"),
+                RawStage::PreCheck,
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+    let before = coordinator.view(&escaped).unwrap();
+
+    assert!(matches!(
+        coordinator.mutate_outside_undo_cohort_for_test(&snapshotted, &escaped),
+        Err(CoordinatorError::UndoCohortViolation {
+            hash,
+            active_depth: 1,
+            snapshotted_depth: 0,
+            ..
+        }) if hash == escaped
+    ));
+    assert_eq!(coordinator.view(&escaped).unwrap(), before);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn nested_undo_scope_cannot_expand_the_outer_snapshot() {
+    let mut coordinator = roomy();
+    let outer = hash(132);
+    let escaped = hash(133);
+    for (tx_hash, seed) in [(&outer, 132), (&escaped, 133)] {
+        coordinator
+            .admit_raw(
+                tx_hash.clone(),
+                short(seed),
+                Raw("raw"),
+                RawStage::PreCheck,
+                None,
+                10,
+                HashSet::new(),
+            )
+            .unwrap();
+    }
+
+    assert!(matches!(
+        coordinator.expand_nested_undo_cohort_for_test(&outer, &escaped),
+        Err(CoordinatorError::UndoCohortViolation {
+            hash,
+            active_depth: 1,
+            snapshotted_depth: 0,
+            ..
+        }) if hash == escaped
+    ));
+    coordinator.audit().unwrap();
 }

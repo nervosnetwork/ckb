@@ -1,11 +1,182 @@
 use super::*;
 
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct ConflictRecheckPlan {
-    blockers: HashSet<Byte32>,
-    can_preempt: bool,
+    pub(super) blockers: HashSet<Byte32>,
+    pub(super) can_preempt: bool,
+    pub(super) inherited_waiters: HashSet<Byte32>,
 }
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    pub(super) fn preview_candidate_preemption(
+        &self,
+        hash: &Byte32,
+        source: CoordinatorSource,
+        candidate: &CandidateMeta,
+    ) -> Result<ConflictRecheckPlan, CoordinatorError> {
+        let blockers = self.active_blockers_for_inputs(hash, &candidate.inputs);
+        let can_preempt = !blockers.is_empty()
+            && blockers.iter().all(|blocker| {
+                self.entries.get(blocker).is_some_and(|blocker_entry| {
+                    matches!(
+                        &blocker_entry.state,
+                        EntryState::CandidateVerified {
+                            candidate: blocker_candidate,
+                            location: CandidateLocation::Ready,
+                            ..
+                        } if Self::compare_candidate_capacity(
+                            hash,
+                            source,
+                            candidate,
+                            blocker,
+                            blocker_entry.source,
+                            blocker_candidate,
+                        ) == Ordering::Greater
+                    )
+                })
+            });
+        let mut inherited_waiters = HashSet::new();
+        if can_preempt {
+            for blocker in &blockers {
+                if let Some(waiters) = self.waiters_by_blocker.get(blocker) {
+                    inherited_waiters.extend(waiters.iter().cloned());
+                }
+            }
+            // One full blocker domain plus one full waiter domain is the
+            // largest atomic preemption cohort. Without this union cap, a
+            // multi-input candidate can join many individually bounded
+            // blocker buckets into an unbounded undo transaction.
+            let transition_limit = self
+                .limits
+                .max_candidates_per_input
+                .checked_mul(2)
+                .ok_or(CoordinatorError::ConflictCohortLimitExceeded)?;
+            let transition_size = blockers
+                .len()
+                .checked_add(inherited_waiters.len())
+                .ok_or(CoordinatorError::ConflictCohortLimitExceeded)?;
+            if transition_size > transition_limit {
+                return Err(CoordinatorError::ConflictCohortLimitExceeded);
+            }
+        }
+        Ok(ConflictRecheckPlan {
+            blockers,
+            can_preempt,
+            inherited_waiters,
+        })
+    }
+
+    /// Return the distinct verified conflict cohort across every input, with
+    /// an early hard stop at the same bound used by final RBF replacement.
+    /// Per-input limits alone are insufficient: disjoint 100-candidate
+    /// buckets can otherwise be unioned by one large multi-input transaction.
+    pub(super) fn bounded_conflicting_candidates(
+        &self,
+        hash: &Byte32,
+        inputs: &HashSet<OutPoint>,
+    ) -> Result<HashSet<Byte32>, CoordinatorError> {
+        let mut conflicts = HashSet::new();
+        let reservation = self
+            .limits
+            .max_candidates_per_input
+            .checked_add(1)
+            .ok_or(CoordinatorError::ConflictCohortLimitExceeded)?;
+        conflicts
+            .try_reserve(reservation)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        for input in inputs {
+            let Some(candidates) = self.candidates_by_input.get(input) else {
+                continue;
+            };
+            for candidate in candidates {
+                if candidate != hash
+                    && conflicts.insert(candidate.clone())
+                    && conflicts.len() > self.limits.max_candidates_per_input
+                {
+                    return Err(CoordinatorError::ConflictCohortLimitExceeded);
+                }
+            }
+        }
+        Ok(conflicts)
+    }
+
+    pub(super) fn preflight_register_candidate_conflicts(
+        &mut self,
+        hash: &Byte32,
+        inputs: &HashSet<OutPoint>,
+    ) -> Result<HashSet<Byte32>, CoordinatorError> {
+        if self.candidate_conflict_counts.contains_key(hash) {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+        let conflicts = self.bounded_conflicting_candidates(hash, inputs)?;
+        for conflict in &conflicts {
+            let count = self
+                .candidate_conflict_counts
+                .get(conflict)
+                .copied()
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            if count >= self.limits.max_candidates_per_input {
+                return Err(CoordinatorError::ConflictCohortLimitExceeded);
+            }
+        }
+        self.candidate_conflict_counts
+            .try_reserve(1)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        Ok(conflicts)
+    }
+
+    pub(super) fn register_candidate_conflicts(
+        &mut self,
+        hash: &Byte32,
+        conflicts: &HashSet<Byte32>,
+    ) -> Result<(), CoordinatorError> {
+        if self
+            .candidate_conflict_counts
+            .insert(hash.clone(), conflicts.len())
+            .is_some()
+        {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+        for conflict in conflicts {
+            let count = self
+                .candidate_conflict_counts
+                .get_mut(conflict)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            *count = count
+                .checked_add(1)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            if *count > self.limits.max_candidates_per_input {
+                return Err(CoordinatorError::ConflictCohortLimitExceeded);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn unregister_candidate_conflicts(
+        &mut self,
+        hash: &Byte32,
+        inputs: &HashSet<OutPoint>,
+    ) -> Result<(), CoordinatorError> {
+        let conflicts = self.bounded_conflicting_candidates(hash, inputs)?;
+        let recorded = self
+            .candidate_conflict_counts
+            .remove(hash)
+            .ok_or(CoordinatorError::ConflictInvariant)?;
+        if recorded != conflicts.len() {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+        for conflict in conflicts {
+            let count = self
+                .candidate_conflict_counts
+                .get_mut(&conflict)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            *count = count
+                .checked_sub(1)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn active_blockers_for_inputs(
         &self,
         hash: &Byte32,
@@ -150,10 +321,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.waiters_by_blocker.remove(blocker);
         for waiter in waiters {
             self.remove_conflict_waiter_links(&waiter)?;
-            let entry = self
-                .entries
-                .get_mut(&waiter)
-                .ok_or_else(|| CoordinatorError::Missing(waiter.clone()))?;
+            let entry = self.entry_mut(&waiter)?;
             let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
                 return Err(CoordinatorError::ConflictInvariant);
             };
@@ -185,6 +353,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         else {
             return Ok(());
         };
+        self.unregister_candidate_conflicts(hash, &candidate.inputs)?;
         self.conflict_edge_count = self
             .conflict_edge_count
             .checked_sub(candidate.inputs.len())
@@ -212,6 +381,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             && self.conflict_edge_count < candidate.inputs.len()
         {
             return Err(CoordinatorError::ConflictInvariant);
+        }
+        if let Some(candidate) = entry.candidate() {
+            let conflicts = self.bounded_conflicting_candidates(hash, &candidate.inputs)?;
+            if self.candidate_conflict_counts.get(hash).copied() != Some(conflicts.len()) {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
         }
         if let Some(blockers) = entry.waiting_conflict_blockers() {
             for blocker in blockers {
@@ -254,8 +429,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map_err(|_| CoordinatorError::QueueReservationFailed)
     }
 
-    pub(super) fn prepare_conflict_recheck(
-        &mut self,
+    pub(super) fn preview_conflict_recheck(
+        &self,
         hash: &Byte32,
     ) -> Result<ConflictRecheckPlan, CoordinatorError> {
         let entry = self
@@ -274,76 +449,45 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 actual: entry.location(),
             });
         }
-        self.ensure_revision_capacity(hash)?;
         let candidate = entry
             .candidate()
             .cloned()
             .ok_or(CoordinatorError::ConflictInvariant)?;
         let source = entry.source;
-        let blockers = self.active_blockers_for_inputs(hash, &candidate.inputs);
-        let can_preempt = !blockers.is_empty()
-            && blockers.iter().all(|blocker| {
-                self.entries.get(blocker).is_some_and(|blocker_entry| {
-                    matches!(
-                        &blocker_entry.state,
-                        EntryState::CandidateVerified {
-                            candidate: blocker_candidate,
-                            location: CandidateLocation::Ready,
-                            ..
-                        } if Self::compare_candidate_capacity(
-                            hash,
-                            source,
-                            &candidate,
-                            blocker,
-                            blocker_entry.source,
-                            blocker_candidate,
-                        ) == Ordering::Greater
-                    )
-                })
-            });
-        let mut inherited_waiters = HashSet::new();
-        if can_preempt {
-            for blocker in &blockers {
-                self.ensure_revision_capacity(blocker)?;
-                if let Some(waiters) = self.waiters_by_blocker.get(blocker) {
-                    inherited_waiters.extend(waiters.iter().cloned());
-                }
-            }
-            for waiter in &inherited_waiters {
-                self.ensure_revision_capacity(waiter)?;
-            }
-        } else {
-            for blocker in &blockers {
-                if self
-                    .waiters_by_blocker
-                    .get(blocker)
-                    .map_or(0, HashSet::len)
-                    .saturating_add(1)
-                    > self.limits.max_candidates_per_input
-                {
-                    return Err(CoordinatorError::ConflictInvariant);
-                }
-            }
+        self.preview_candidate_preemption(hash, source, &candidate)
+    }
+
+    pub(super) fn prepare_conflict_recheck(
+        &mut self,
+        hash: &Byte32,
+        plan: &ConflictRecheckPlan,
+    ) -> Result<(), CoordinatorError> {
+        if &self.preview_conflict_recheck(hash)? != plan {
+            return Err(CoordinatorError::ConflictInvariant);
         }
-        if blockers.is_empty() || can_preempt {
+        self.ensure_revision_capacity(hash)?;
+        for blocker in &plan.blockers {
+            self.ensure_revision_capacity(blocker)?;
+        }
+        for waiter in &plan.inherited_waiters {
+            self.ensure_revision_capacity(waiter)?;
+        }
+        if plan.blockers.is_empty() || plan.can_preempt {
             let source = self
                 .entries
                 .get(hash)
                 .map(|entry| entry.source)
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             self.queue_mut(QueueKind::Commit)?
-                .reserve_live(source.is_proposal(), source.queue_owner())?;
+                .reserve_live(source.queue_owner(), false)?;
         }
         self.conflict_rechecks
-            .try_reserve(inherited_waiters.len())
+            .try_reserve(plan.inherited_waiters.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         self.conflict_recheck_set
-            .try_reserve(inherited_waiters.len())
+            .try_reserve(plan.inherited_waiters.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        Ok(ConflictRecheckPlan {
-            blockers,
-            can_preempt,
-        })
+        Ok(())
     }
 
     pub(super) fn apply_conflict_recheck(
@@ -362,10 +506,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 self.invalidate_conflict_waiters(blocker)?;
                 self.remove_current_queue_ticket(blocker)?;
                 self.release_conflict_claims(blocker)?;
-                let blocker_entry = self
-                    .entries
-                    .get_mut(blocker)
-                    .ok_or_else(|| CoordinatorError::Missing(blocker.clone()))?;
+                let blocker_entry = self.entry_mut(blocker)?;
                 let EntryState::CandidateVerified { location, .. } = &mut blocker_entry.state
                 else {
                     return Err(CoordinatorError::ConflictInvariant);
@@ -384,10 +525,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
         if ready {
             let (ticket, front) = {
-                let entry = self
-                    .entries
-                    .get_mut(hash)
-                    .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+                let entry = self.entry_mut(hash)?;
                 let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
                     return Err(CoordinatorError::ConflictInvariant);
                 };
@@ -395,7 +533,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 entry.queue_sequence = queue_sequence
                     .map(|(sequence, _)| sequence)
                     .ok_or(CoordinatorError::QueueSequenceExhausted)?;
-                entry.verify_schedule = VerifySchedule::default();
                 entry.revision += 1;
                 (entry.ticket(hash), entry.source.is_proposal())
             };
@@ -411,10 +548,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             self.apply_fault_checkpoint();
             Ok(Some(ticket))
         } else {
-            let entry = self
-                .entries
-                .get_mut(hash)
-                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+            let entry = self.entry_mut(hash)?;
             let EntryState::CandidateVerified { location, .. } = &mut entry.state else {
                 return Err(CoordinatorError::ConflictInvariant);
             };

@@ -18,29 +18,16 @@ impl TemplateSize {
         &self,
         new_uncles_size: usize,
         new_proposals_size: usize,
-    ) -> usize {
-        let total = self.calc_total_by_uncles(new_uncles_size);
-        if new_proposals_size > self.proposals {
-            total.saturating_add(new_proposals_size - self.proposals)
-        } else {
-            total.saturating_sub(self.proposals - new_proposals_size)
-        }
+    ) -> Option<usize> {
+        self.total
+            .checked_sub(self.uncles)?
+            .checked_sub(self.proposals)?
+            .checked_add(new_uncles_size)?
+            .checked_add(new_proposals_size)
     }
 
-    pub(crate) fn calc_total_by_uncles(&self, new_uncles_size: usize) -> usize {
-        if new_uncles_size > self.uncles {
-            self.total.saturating_add(new_uncles_size - self.uncles)
-        } else {
-            self.total.saturating_sub(self.uncles - new_uncles_size)
-        }
-    }
-
-    pub(crate) fn calc_total_by_txs(&self, new_txs_size: usize) -> usize {
-        if new_txs_size > self.txs {
-            self.total.saturating_add(new_txs_size - self.txs)
-        } else {
-            self.total.saturating_sub(self.txs - new_txs_size)
-        }
+    pub(crate) fn calc_total_by_txs(&self, new_txs_size: usize) -> Option<usize> {
+        self.total.checked_sub(self.txs)?.checked_add(new_txs_size)
     }
 }
 

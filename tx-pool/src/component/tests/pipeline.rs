@@ -27,7 +27,11 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     utilities::merkle_mountain_range::ChainRootMMR,
 };
-use ckb_verification::TxVerifyEnv;
+use ckb_verification::{
+    TxVerifyEnv,
+    cache::{Completed, TxVerificationCacheKey},
+};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -35,9 +39,350 @@ use tokio::sync::watch;
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ISSUE_OUTPUT_CAPACITY: u64 = 5_000;
 
+#[test]
+fn unusable_pipeline_residency_budget_fails_at_startup() {
+    let (consensus, _) = test_consensus(1);
+    let mut config = tx_pool_config();
+    config.max_tx_pipeline_resident_size = 0;
+    let shutdown = CancellationToken::new();
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        crate::component::pipeline_runtime::PipelineRuntime::new(&config, &consensus, shutdown)
+    }));
+    assert!(
+        result.is_err(),
+        "zero must not be silently promoted to an unusable one-byte budget"
+    );
+}
+
+#[test]
+fn pipeline_runtime_panics_fail_closed_instead_of_recovering_poisoned_state() {
+    let (consensus, _) = test_consensus(1);
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+    let tx = TransactionBuilder::default().build();
+
+    let injected = catch_unwind(AssertUnwindSafe(|| {
+        let _ = runtime.admit_transaction_journaled(
+            tx,
+            TxSource::Local,
+            0,
+            crate::component::pipeline_coordinator::RawStage::PreCheck,
+            |_| panic!("injected journal failure after coordinator admission"),
+        );
+    }));
+    assert!(
+        injected.is_err(),
+        "the injected panic must escape the boundary"
+    );
+    assert!(runtime.is_failed(), "the runtime must latch failure");
+    assert!(
+        runtime.pool_persistence_safe(),
+        "a coordinator-only panic must not discard a coherent accepted pool"
+    );
+    assert!(
+        shutdown.is_cancelled(),
+        "a fatal coordinator failure must stop the tx-pool service generation"
+    );
+
+    let reused = catch_unwind(AssertUnwindSafe(|| runtime.read(|_| ())));
+    assert!(
+        reused.is_err(),
+        "poisoned coordinator state must never be recovered into service"
+    );
+}
+
+#[test]
+fn authoritative_boundary_failure_disables_pool_persistence() {
+    let (consensus, _) = test_consensus(1);
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+
+    let injected = catch_unwind(AssertUnwindSafe(|| {
+        runtime.guard_authoritative_mutation("injected pool boundary", || {
+            panic!("injected partial PoolMap mutation")
+        });
+    }));
+    assert!(injected.is_err());
+    assert!(runtime.is_failed());
+    assert!(shutdown.is_cancelled());
+    assert!(
+        !runtime.pool_persistence_safe(),
+        "an interrupted authoritative pool mutation is not a recovery point"
+    );
+}
+
+#[test]
+fn inconsistent_ingress_source_attribution_is_fail_closed() {
+    use crate::component::pipeline_coordinator::CoordinatorSource;
+    use crate::component::pipeline_runtime::PipelineRawTx;
+
+    let (consensus, _) = test_consensus(1);
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+    let raw = PipelineRawTx::new(TransactionBuilder::default().build(), TxSource::Local, 0);
+
+    let mismatch = catch_unwind(AssertUnwindSafe(|| {
+        runtime.require_authoritative_source(
+            &raw,
+            CoordinatorSource::Remote(ckb_network::PeerIndex::from(7)),
+        );
+    }));
+    assert!(mismatch.is_err());
+    assert!(runtime.is_failed());
+    assert!(shutdown.is_cancelled());
+}
+
+#[test]
+fn coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject() {
+    use crate::component::pipeline_coordinator::{CoordinatorError, QueueKind};
+
+    let (consensus, _) = test_consensus(1);
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+    let failed = catch_unwind(AssertUnwindSafe(|| {
+        runtime.reject_or_fail(
+            "injected production adapter invariant",
+            CoordinatorError::QueueInvariant(QueueKind::Resolve),
+        );
+    }));
+    assert!(failed.is_err());
+    assert!(runtime.is_failed());
+    assert!(shutdown.is_cancelled());
+}
+
+#[test]
+fn weaker_duplicate_source_cannot_amplify_into_pipeline_fail_stop() {
+    use crate::component::pipeline_coordinator::{CoordinatorSource, RawStage};
+
+    let (consensus, _) = test_consensus(1);
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+    let proposal = TransactionBuilder::default()
+        .witness(Bytes::from_static(b"proposal"))
+        .build();
+    let hash = proposal.hash();
+    let proposal_witness = proposal.witness_hash();
+    let local_variant = proposal
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"local-history").pack()])
+        .build();
+    assert_eq!(local_variant.hash(), hash);
+    assert_ne!(local_variant.witness_hash(), proposal_witness);
+
+    assert!(
+        runtime
+            .admit_transaction(proposal, TxSource::Proposal, 0, RawStage::PreCheck)
+            .expect("proposal admission")
+            .0
+    );
+    let (added, terminal) = runtime
+        .admit_transaction(local_variant, TxSource::Local, 0, RawStage::Resolve)
+        .expect("weaker duplicate is an ownership no-op");
+    assert!(!added);
+    assert!(terminal.is_empty());
+    runtime.read(|coordinator| {
+        let view = coordinator.view(&hash).expect("proposal owner remains");
+        assert_eq!(view.source, CoordinatorSource::Proposal);
+        assert_eq!(
+            coordinator
+                .raw_by_hash(&hash)
+                .expect("raw payload")
+                .tx
+                .witness_hash(),
+            proposal_witness,
+            "a weaker duplicate cannot replace the authoritative witness"
+        );
+    });
+    assert!(!runtime.is_failed());
+    assert!(!shutdown.is_cancelled());
+}
+
+#[test]
+fn retryable_capacity_classification_excludes_fixed_payload_limits() {
+    use crate::component::pipeline_coordinator::CoordinatorError;
+
+    assert!(
+        CoordinatorError::ParentFanoutLimitExceeded(ckb_types::packed::Byte32::zero())
+            .is_retryable_capacity_rejection()
+    );
+    assert!(CoordinatorError::GlobalBudgetExceeded.is_retryable_capacity_rejection());
+    assert!(CoordinatorError::DependencyLimitExceeded.is_capacity_rejection());
+    assert!(CoordinatorError::ConflictInputLimitExceeded.is_capacity_rejection());
+    assert!(CoordinatorError::ResidencyChargeOverflow.is_capacity_rejection());
+    assert!(
+        !CoordinatorError::DependencyLimitExceeded.is_retryable_capacity_rejection(),
+        "an identical payload cannot retry its way below a fixed dependency limit"
+    );
+    assert!(!CoordinatorError::ConflictInputLimitExceeded.is_retryable_capacity_rejection());
+    assert!(!CoordinatorError::ResidencyChargeOverflow.is_retryable_capacity_rejection());
+}
+
+#[test]
+fn rejected_commit_terminal_failure_is_fail_closed_not_best_effort() {
+    use crate::component::entry::resolved_transaction_charge_bytes;
+    use crate::component::pipeline_coordinator::{
+        CoordinatorFeeGate, RawStage, TerminalDisposition, VerifySchedule, WorkerCapability,
+    };
+    use crate::component::pipeline_runtime::PipelineVerifiedTx;
+    use crate::resolved_tx::ResolvedTx;
+    use ckb_types::core::cell::ResolvedTransaction;
+    use std::collections::HashSet;
+    use std::time::Instant;
+
+    let (consensus, out_points) = test_consensus(1);
+    let (_store, snapshot) = snapshot_with_genesis(Arc::new(consensus.clone()));
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+    let tx = build_tx(&out_points[0], 4_000);
+    let hash = tx.hash();
+    runtime
+        .admit_transaction(tx.clone(), TxSource::Local, 0, RawStage::PreCheck)
+        .unwrap();
+    let raw_lease = runtime.checkout_raw(RawStage::PreCheck).unwrap();
+    let rtx = Arc::new(ResolvedTransaction::dummy_resolve(tx.clone()));
+    let tx_size = tx.data().serialized_size_in_block();
+    let resident_size = resolved_transaction_charge_bytes(tx_size, &rtx);
+    let resolved = ResolvedTx {
+        tx: tx.clone(),
+        rtx,
+        status: Status::Pending,
+        fee: Capacity::zero(),
+        tx_size,
+        resident_size,
+        pre_resolve_tip: snapshot.tip_hash(),
+        source: TxSource::Local,
+        epoch: 0,
+    };
+    runtime
+        .mutate(|coordinator| {
+            coordinator.complete_raw(
+                &raw_lease,
+                resolved,
+                resident_size,
+                VerifySchedule::default(),
+            )
+        })
+        .unwrap();
+    let verify_lease = runtime
+        .mutate(|coordinator| coordinator.checkout_verify(WorkerCapability::Any))
+        .unwrap()
+        .unwrap();
+    let candidate = (*verify_lease.payload).clone().into_pool_candidate();
+    let candidate_charge = candidate.resident_size;
+    let meta = CoordinatorFeeGate::new(0, 0)
+        .validate(
+            hash.clone(),
+            tx.input_pts_iter().collect::<HashSet<_>>(),
+            0,
+            tx_size,
+        )
+        .unwrap();
+    runtime
+        .mutate(|coordinator| {
+            coordinator.complete_verification_candidate(
+                &verify_lease,
+                PipelineVerifiedTx {
+                    candidate,
+                    completed: Completed {
+                        cycles: 0,
+                        fee: Capacity::zero(),
+                    },
+                    verify_cache_hit: false,
+                    started_at: Instant::now(),
+                },
+                candidate_charge,
+                meta,
+            )
+        })
+        .unwrap();
+    let commit = runtime.mutate_required("test commit checkout", |coordinator| {
+        coordinator.begin_next_commit()
+    });
+    let commit = commit.unwrap();
+
+    // Inject the report's closest version-mismatch leaf after checkout. The
+    // coordinator transaction correctly leaves the entry Committing on Err;
+    // production policy must therefore stop the service instead of warning
+    // and leaking the active slot indefinitely.
+    runtime.mutate(|coordinator| {
+        coordinator
+            .set_revision_for_test(&hash, commit.version.revision + 1)
+            .unwrap();
+    });
+    let failure = catch_unwind(AssertUnwindSafe(|| {
+        runtime.mutate_required(
+            "rejected pipeline commit could not leave Committing",
+            |state| state.fail_commit(&commit, TerminalDisposition::Rejected),
+        );
+    }));
+    assert!(failure.is_err());
+    assert!(runtime.is_failed());
+    assert!(shutdown.is_cancelled());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pool_commit_panic_fails_closed_instead_of_stranding_committing() {
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
+    let tx = build_tx(&issue_out_points[0], 4_000);
+    let cycles = measured_cycles(&service, tx.clone()).await;
+    service
+        .pool
+        .tx_pool
+        .write()
+        .await
+        .fail_next_pool_commit_panic = true;
+
+    service
+        .submit_remote_tx(
+            tx,
+            TxSource::Remote {
+                cycles,
+                peer: 1.into(),
+            },
+        )
+        .await
+        .expect("fault-injected transaction should reach the asynchronous pipeline");
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if service.pipeline.runtime.is_failed() && signal.is_cancelled() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("an authoritative pool panic must stop the complete tx-pool service");
+}
+
 pub(crate) fn tx_pool_config() -> TxPoolConfig {
     TxPoolConfig {
         max_tx_pool_size: 180_000_000,
+        max_tx_pool_resident_size: 1_000_000_000,
         min_fee_rate: ckb_types::core::FeeRate::zero(),
         min_rbf_rate: ckb_types::core::FeeRate::zero(),
         max_tx_verify_cycles: MAX_TX_VERIFY_CYCLES,
@@ -49,7 +394,7 @@ pub(crate) fn tx_pool_config() -> TxPoolConfig {
         recent_reject: Default::default(),
         expiry_hours: 24,
         verify_ordering: VerifyOrdering::ArrivalTime,
-        max_verify_queue_tx_size: 256_000_000,
+        max_tx_pipeline_resident_size: 384_000_000,
     }
 }
 
@@ -193,6 +538,138 @@ fn build_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
         )
         .output_data(Bytes::default().pack())
         .build()
+}
+
+fn with_cached_hash(tx: TransactionView, hash: ckb_types::packed::Byte32) -> TransactionView {
+    ckb_types::packed::TransactionView::new_builder()
+        .data(tx.data())
+        .hash(hash)
+        .witness_hash(tx.witness_hash())
+        .build()
+        .unpack()
+}
+
+/// A proposal short ID identifies only one protocol slot, not transaction
+/// equality. Reporting a distinct colliding remote transaction as `Duplicated`
+/// suppresses the relayer Reject terminal and leaves its filter resident. The
+/// admission adapter must expose retryable backpressure and settle it once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pool_short_id_collision_is_not_a_successful_duplicate() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::entry::TxEntry;
+    use crate::service::TxVerificationResult;
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let mut accepted_hash = [0x24; 32];
+    let mut incoming_hash = accepted_hash;
+    accepted_hash[31] = 1;
+    incoming_hash[31] = 2;
+    let accepted = with_cached_hash(
+        build_tx(&h.out_points[0], 4_000),
+        ckb_types::packed::Byte32::new(accepted_hash),
+    );
+    let incoming = with_cached_hash(
+        build_tx(&h.out_points[1], 3_000),
+        ckb_types::packed::Byte32::new(incoming_hash),
+    );
+    assert_eq!(accepted.proposal_short_id(), incoming.proposal_short_id());
+    assert_ne!(accepted.hash(), incoming.hash());
+    let incoming_hash = incoming.hash();
+    let accepted_id = accepted.proposal_short_id();
+    h.service
+        .pool
+        .tx_pool
+        .write()
+        .await
+        .pool_map
+        .add_entry(
+            TxEntry::dummy_resolve(accepted, 0, Capacity::zero(), 100),
+            Status::Pending,
+        )
+        .unwrap();
+
+    let peer = ckb_network::PeerIndex::from(29);
+    let reject = h
+        .service
+        .submit_remote_tx(incoming, TxSource::Remote { cycles: 0, peer })
+        .await
+        .expect_err("the occupied proposal slot must reject the distinct hash");
+    assert!(matches!(reject, crate::error::Reject::Full(_)));
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_pool_entry(&accepted_id)
+            .is_some()
+    );
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&incoming_hash))
+    );
+
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the rejected remote ingress must release its relayer filter");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Reject { tx_hash } if tx_hash == incoming_hash
+    ));
+
+    h.cancel.cancel();
+}
+
+/// Synchronous Local/reorg submissions use `pre_check` before the shared
+/// authoritative commit. They must apply the same full-hash identity rule as
+/// remote admission: an occupied short-id slot is retryable backpressure, not
+/// evidence that the distinct transaction was already accepted.
+#[tokio::test]
+async fn synchronous_precheck_does_not_alias_short_id_collision_as_duplicate() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::entry::TxEntry;
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let mut accepted_hash = [0x25; 32];
+    let mut incoming_hash = accepted_hash;
+    accepted_hash[31] = 1;
+    incoming_hash[31] = 2;
+    let accepted = with_cached_hash(
+        build_tx(&h.out_points[0], 4_000),
+        ckb_types::packed::Byte32::new(accepted_hash),
+    );
+    let incoming = with_cached_hash(
+        build_tx(&h.out_points[1], 3_000),
+        ckb_types::packed::Byte32::new(incoming_hash),
+    );
+    assert_eq!(accepted.proposal_short_id(), incoming.proposal_short_id());
+    assert_ne!(accepted.hash(), incoming.hash());
+    h.service
+        .pool
+        .tx_pool
+        .write()
+        .await
+        .pool_map
+        .add_entry(
+            TxEntry::dummy_resolve(accepted, 0, Capacity::zero(), 100),
+            Status::Pending,
+        )
+        .unwrap();
+
+    let tx_size = incoming.data().serialized_size_in_block();
+    let (result, _) = h.service.pre_check(&incoming, tx_size).await;
+    assert!(matches!(result, Err(crate::error::Reject::Full(_))));
+
+    h.cancel.cancel();
 }
 
 async fn measured_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
@@ -407,6 +884,282 @@ async fn verify_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
     verified.cycles
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn verification_cache_isolated_by_witness_hash_not_raw_hash() {
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
+    let raw = build_tx(&issue_out_points[0], 4_000);
+    let first = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"first").pack()])
+        .build();
+    let second = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"second").pack()])
+        .build();
+    assert_eq!(first.hash(), second.hash());
+    assert_ne!(first.witness_hash(), second.witness_hash());
+
+    let cached = Completed {
+        cycles: 42,
+        fee: Capacity::shannons(7),
+    };
+    service
+        .aux
+        .txs_verify_cache
+        .write()
+        .await
+        .put(TxVerificationCacheKey::from_transaction(&first), cached);
+
+    assert_eq!(service.fetch_tx_verify_cache(&first).await, Some(cached));
+    assert_eq!(service.fetch_tx_verify_cache(&second).await, None);
+    signal.cancel();
+}
+
+/// Detached-transaction recovery must query the verification cache with the
+/// exact witness-bearing transaction being recovered.  The historical
+/// `readd_detached_tx` path built a map by witness hash but looked it up by raw
+/// transaction hash, turning every recovery into an avoidable cache miss.
+/// This also guards against the more dangerous inverse error: reusing a cache
+/// entry produced for another witness variant with the same raw hash.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reorg_recovery_reads_cache_by_exact_witness_hash() {
+    use std::collections::{HashSet, VecDeque};
+
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(2);
+    let exact = build_tx(&issue_out_points[0], 4_000)
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"exact").pack()])
+        .build();
+    let other_raw = build_tx(&issue_out_points[1], 4_000);
+    let cached_variant = other_raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"cached-variant").pack()])
+        .build();
+    let recovered_variant = other_raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"recovered-variant").pack()])
+        .build();
+    assert_eq!(cached_variant.hash(), recovered_variant.hash());
+    assert_ne!(
+        cached_variant.witness_hash(),
+        recovered_variant.witness_hash()
+    );
+
+    let exact_measured = verify_cycles(&service, exact.clone()).await;
+    let recovered_measured = verify_cycles(&service, recovered_variant.clone()).await;
+    let exact_cached = exact_measured + 17;
+    let wrong_variant_cached = recovered_measured + 29;
+    assert!(wrong_variant_cached < MAX_TX_VERIFY_CYCLES);
+
+    {
+        let mut cache = service.aux.txs_verify_cache.write().await;
+        cache.put(
+            TxVerificationCacheKey::from_transaction(&exact),
+            Completed {
+                cycles: exact_cached,
+                fee: Capacity::shannons(0),
+            },
+        );
+        cache.put(
+            TxVerificationCacheKey::from_transaction(&cached_variant),
+            Completed {
+                cycles: wrong_variant_cached,
+                fee: Capacity::shannons(0),
+            },
+        );
+    }
+
+    let detached_block = BlockBuilder::default()
+        .number(1)
+        .parent_hash(service.pool.tx_pool.read().await.snapshot.tip_hash())
+        .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
+        .transaction(
+            TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::null(), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::bytes(1_000).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::default().pack())
+                .build(),
+        )
+        .transaction(exact.clone())
+        .transaction(recovered_variant.clone())
+        .build();
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+
+    service
+        .update_tx_pool_for_reorg(
+            VecDeque::from([detached_block]),
+            VecDeque::new(),
+            HashSet::new(),
+            snapshot,
+        )
+        .await
+        .unwrap();
+
+    let pool = service.pool.tx_pool.read().await;
+    let exact_entry = pool
+        .get_pool_entry(&exact.proposal_short_id())
+        .expect("exact cached detached transaction is recovered");
+    assert_eq!(
+        exact_entry.inner.cycles, exact_cached,
+        "detached recovery must hit the exact witness-hash cache entry"
+    );
+    let recovered_entry = pool
+        .get_pool_entry(&recovered_variant.proposal_short_id())
+        .expect("uncached witness variant is recovered");
+    assert_eq!(
+        recovered_entry.inner.cycles, recovered_measured,
+        "a cache entry for another witness variant must not be reused"
+    );
+    drop(pool);
+
+    signal.cancel();
+}
+
+/// Script verification needs complete expanded cell deps, but retaining their
+/// attacker-controlled outputs/data after verification turns a compact
+/// dep-group reference into an accepted-pool memory multiplier. The typed
+/// verified-to-candidate transition strips that verification-only payload,
+/// preserves the dep identity/maturity metadata, and retains complete inputs
+/// for DAO accounting. The accepted-pool resident budget still accounts for
+/// the payload that must remain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::entry::{
+        TxEntry, accepted_transaction_charge_bytes, resolved_transaction_charge_bytes,
+    };
+    use crate::resolved_tx::ResolvedTx;
+    use ckb_types::core::TransactionInfo;
+    use ckb_types::core::cell::{CellMetaBuilder, ResolvedTransaction};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let transaction = build_tx(&h.out_points[0], 4_000);
+    let tx_size = transaction.data().serialized_size_in_block();
+    let retained_input_data = Bytes::from(vec![0x5a; 1_000_000]);
+    let dep_data = Bytes::from(vec![0xa5; 1_000_000]);
+    let dep_out_point = OutPoint::new(Default::default(), 7);
+    let dep_transaction_info = TransactionInfo::new(
+        1,
+        EpochNumberWithFraction::new(0, 0, 1),
+        Default::default(),
+        0,
+    );
+    let resolved = Arc::new(ResolvedTransaction {
+        transaction: transaction.clone(),
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(
+                CellOutput::new_builder().build(),
+                retained_input_data,
+            )
+            .out_point(h.out_points[0].clone())
+            .build(),
+        ],
+        resolved_cell_deps: vec![
+            CellMetaBuilder::from_cell_output(CellOutput::new_builder().build(), dep_data)
+                .out_point(dep_out_point.clone())
+                .transaction_info(dep_transaction_info.clone())
+                .build(),
+        ],
+        resolved_dep_groups: Vec::new(),
+    });
+    let full_resident_size = resolved_transaction_charge_bytes(tx_size, &resolved);
+    assert!(full_resident_size > tx_size + 2_000_000);
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let candidate = ResolvedTx {
+        tx: transaction,
+        rtx: resolved,
+        status: Status::Pending,
+        fee: Capacity::shannons(1000),
+        tx_size,
+        resident_size: full_resident_size,
+        pre_resolve_tip: snapshot.tip_hash(),
+        source: TxSource::Local,
+        epoch: 0,
+    }
+    .into_pool_candidate();
+
+    let dep = &candidate.rtx.resolved_cell_deps[0];
+    assert_eq!(dep.out_point, dep_out_point);
+    assert_eq!(dep.transaction_info, Some(dep_transaction_info));
+    assert_eq!(dep.cell_output, CellOutput::default());
+    assert_eq!(dep.data_bytes, 0);
+    assert!(dep.mem_cell_data.is_none());
+    assert!(dep.mem_cell_data_hash.is_none());
+    assert_eq!(
+        candidate.rtx.resolved_inputs[0]
+            .mem_cell_data
+            .as_ref()
+            .map(Bytes::len),
+        Some(1_000_000),
+        "DAO-relevant input data must remain available"
+    );
+    assert!(candidate.resident_size > tx_size + 1_000_000);
+    assert!(candidate.resident_size < full_resident_size - 900_000);
+    assert_eq!(
+        candidate.resident_size,
+        accepted_transaction_charge_bytes(tx_size, &candidate.rtx),
+        "verified handoff must reserve accepted payload and index residency"
+    );
+    assert!(
+        candidate.resident_size > resolved_transaction_charge_bytes(tx_size, &candidate.rtx),
+        "accepted-state indexes must not be omitted from the resident budget"
+    );
+
+    let entry = TxEntry::new_with_resident_size(
+        candidate.rtx,
+        42,
+        candidate.fee,
+        tx_size,
+        candidate.resident_size,
+    );
+    let resident_size = entry.resident_size();
+    let id = entry.proposal_short_id();
+
+    let mut pool = h.service.pool.tx_pool.write().await;
+    pool.config.max_tx_pool_size = tx_size;
+    pool.config.max_tx_pool_resident_size = resident_size - 1;
+    pool.add_pending(entry)
+        .expect("entry inserts before limits run");
+    assert_eq!(pool.pool_map.stats.total_tx_size, tx_size);
+    assert_eq!(pool.pool_map.stats.total_tx_resident_size, resident_size);
+
+    let mut rejects = Vec::new();
+    let reject = pool.limit_size(Some(&id), &mut rejects);
+    assert!(matches!(reject, Some(crate::error::Reject::Full(_))));
+    assert!(pool.get_pool_entry(&id).is_none());
+    assert_eq!(pool.pool_map.stats.total_tx_size, 0);
+    assert_eq!(pool.pool_map.stats.total_tx_resident_size, 0);
+    assert_eq!(rejects.len(), 1);
+    drop(pool);
+
+    h.cancel.cancel();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn limit_size_repairs_high_counter_drift_before_returning() {
+    use super::harness::{WorkerSet, harness};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let mut pool = h.service.pool.tx_pool.write().await;
+    let serialized_drift = pool.config.max_tx_pool_size.saturating_add(1);
+    let resident_drift = pool.config.tx_pool_resident_size_budget().saturating_add(1);
+    pool.pool_map.stats.total_tx_size = serialized_drift;
+    pool.pool_map.stats.total_tx_resident_size = resident_drift;
+
+    let mut rejects = Vec::new();
+    assert!(pool.limit_size(None, &mut rejects).is_none());
+    assert!(rejects.is_empty());
+    assert_eq!(pool.pool_map.stats.total_tx_size, 0);
+    assert_eq!(pool.pool_map.stats.total_tx_resident_size, 0);
+    assert_eq!(pool.pool_map.stats.total_tx_cycles, 0);
+    drop(pool);
+    h.cancel.cancel();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_processes_independent_remote_txs() {
     let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(5);
@@ -519,6 +1272,229 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
     h.cancel.cancel();
 }
 
+/// Candidate checkout is part of the authoritative TxPool write transaction.
+/// If it happened before waiting for that guard, a synchronous Local/clear/
+/// reorg handoff could consume the coordinator owner while the old driver was
+/// already carrying a `Committing` lease. Its later failure settlement would
+/// then confuse a legitimate stale lease with coordinator corruption.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pipeline_commit_checkout_waits_for_the_pool_sequencer() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_coordinator::{
+        CoordinatorFeeGate, CoordinatorLocation, RawStage, WorkerCapability,
+    };
+    use crate::component::pipeline_runtime::candidate_charge_bytes;
+    use std::collections::HashSet;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let cycles = measured_cycles(&h.service, tx.clone()).await;
+    h.service
+        .submit_remote_tx(
+            tx.clone(),
+            TxSource::Remote {
+                cycles,
+                peer: 1.into(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let raw = h
+        .service
+        .pipeline
+        .runtime
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap();
+    h.service.process_pipeline_raw_lease(raw).await;
+    let verify = h
+        .service
+        .pipeline
+        .runtime
+        .mutate(|coordinator| coordinator.checkout_verify(WorkerCapability::Any))
+        .unwrap()
+        .unwrap();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let verified = h
+        .service
+        .verify_pipeline_resolved((*verify.payload).clone(), snapshot, None)
+        .await
+        .unwrap();
+    let candidate = CoordinatorFeeGate::new(0, 0)
+        .validate(
+            hash.clone(),
+            tx.input_pts_iter().collect::<HashSet<_>>(),
+            verified.candidate.fee.as_u64(),
+            verified.candidate.tx_size,
+        )
+        .unwrap();
+    let charge = candidate_charge_bytes(&verified.candidate)
+        .unwrap()
+        .checked_add(std::mem::size_of::<
+            crate::component::pipeline_runtime::PipelineVerifiedTx,
+        >())
+        .unwrap();
+    h.service
+        .pipeline
+        .runtime
+        .mutate(|coordinator| {
+            coordinator.complete_verification_candidate(&verify, verified, charge, candidate)
+        })
+        .unwrap();
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.view(&hash).unwrap().location),
+        CoordinatorLocation::ReadyToCommit
+    );
+
+    let pool_guard = h.service.pool.tx_pool.write().await;
+    let service = h.service.clone();
+    let driver = tokio::spawn(async move { service.drive_pipeline_commits().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.view(&hash).unwrap().location),
+        CoordinatorLocation::ReadyToCommit,
+        "waiting for TxPool must not publish a cancellable Committing lease"
+    );
+    assert!(!driver.is_finished());
+
+    drop(pool_guard);
+    tokio::time::timeout(Duration::from_secs(2), driver)
+        .await
+        .expect("driver resumes after the pool sequencer is released")
+        .expect("driver task does not panic");
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_some()
+    );
+    assert!(!h.service.pipeline.runtime.is_failed());
+    h.cancel.cancel();
+}
+
+/// The early duplicate check can become stale before pipeline admission. The
+/// authoritative admission boundary must recheck TxPool while holding its read
+/// guard across the coordinator mutation, so a transaction committed in that
+/// window is never shadowed by a second pre-pool owner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
+    use super::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    h.service
+        .process_tx(tx.clone(), TxSource::Local)
+        .await
+        .expect("local transaction enters the authoritative pool");
+
+    // Consume the local success publication before observing the synthetic
+    // stale-precheck ingress below.
+    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("local success is published");
+
+    let peer = ckb_network::PeerIndex::from(17);
+    assert!(
+        !h.service
+            .classify_and_enqueue_tx_spawn(tx, TxSource::Remote { cycles: 0, peer },)
+            .await
+            .expect("already accepted ingress settles without readmission")
+    );
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash)),
+        "TxPool and coordinator must never both own the same hash"
+    );
+
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the stale remote ingress receives a terminal settlement");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Ok {
+            original_peer: Some(relayed_peer),
+            tx_hash,
+        } if relayed_peer == peer && tx_hash == hash
+    ));
+
+    h.cancel.cancel();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
+    use super::harness::{WorkerSet, harness};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let first = build_tx(&h.out_points[0], 4_000)
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"first").pack()])
+        .build();
+    let second = first
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"second").pack()])
+        .build();
+    assert_eq!(first.hash(), second.hash());
+    assert_ne!(first.witness_hash(), second.witness_hash());
+
+    h.service
+        .submit_remote_tx(
+            first,
+            TxSource::Remote {
+                cycles: 0,
+                peer: 19.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.service
+            .submit_remote_tx(
+                second,
+                TxSource::Remote {
+                    cycles: 0,
+                    peer: 20.into(),
+                },
+            )
+            .await,
+        Err(crate::error::Reject::Duplicated(_))
+    ));
+    tokio::task::yield_now().await;
+    assert!(
+        h.relay_rx.try_recv().is_err(),
+        "a merely coordinator-owned raw hash has no successful result yet"
+    );
+
+    h.cancel.cancel();
+}
+
 /// Proposal notification upgrades an existing remote owner in place. The
 /// old peer can then be banned without revoking the trusted transaction, and
 /// a lease checked out before promotion must settle under the new source.
@@ -550,7 +1526,6 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         .pipeline
         .runtime
         .checkout_raw(RawStage::PreCheck)
-        .unwrap()
         .unwrap();
 
     assert!(
@@ -620,6 +1595,216 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         ),
         "trusted scheduling priority must not erase immutable relay attribution"
     );
+
+    h.cancel.cancel();
+}
+
+/// Resolved work can wait behind expensive verification for many blocks. It
+/// must not pin one RocksDB snapshot per historical tip while queued; a stale
+/// resolution returns to the ordered resolver before script execution.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_coordinator::{CoordinatorLocation, RawStage, WorkerCapability};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(42);
+    h.service
+        .submit_remote_tx(tx, TxSource::Remote { cycles: 0, peer })
+        .await
+        .unwrap();
+    let raw = h
+        .service
+        .pipeline
+        .runtime
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap();
+    h.service.process_pipeline_raw_lease(raw).await;
+    let verify = h
+        .service
+        .pipeline
+        .runtime
+        .mutate_required("test verify checkout", |coordinator| {
+            coordinator.checkout_verify(WorkerCapability::Any)
+        })
+        .unwrap();
+
+    let old_snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let old_snapshot_weak = Arc::downgrade(&old_snapshot);
+    let next_block = BlockBuilder::default()
+        .parent_hash(old_snapshot.tip_hash())
+        .number(old_snapshot.tip_number() + 1)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .build();
+    let next_snapshot = Arc::new(Snapshot::new(
+        next_block.header(),
+        old_snapshot.total_difficulty().clone(),
+        old_snapshot.epoch_ext().clone(),
+        h.store.store().get_snapshot(),
+        Default::default(),
+        old_snapshot.cloned_consensus(),
+    ));
+    h.service.pool.tx_pool.write().await.snapshot = next_snapshot;
+    drop(old_snapshot);
+    assert!(
+        old_snapshot_weak.upgrade().is_none(),
+        "queued/active verification payload must not retain the old database snapshot"
+    );
+
+    let mut chunk_rx = h.service.pipeline.chunk_rx.clone();
+    h.service
+        .process_pipeline_verify_lease(verify, &mut chunk_rx)
+        .await;
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.view(&hash).unwrap().location),
+        CoordinatorLocation::RawQueued(RawStage::Resolve)
+    );
+    h.cancel.cancel();
+}
+
+/// Raw hash equality is insufficient for source promotion because witnesses
+/// remain verification inputs. A proposal carrying another witness variant
+/// must atomically restart normal bounded processing with the trusted payload,
+/// rather than synchronously verifying on the dispatcher or continuing an old
+/// remote lease.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_coordinator::{
+        CoordinatorLocation, CoordinatorSource, RawStage,
+    };
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let remote = build_tx(&h.out_points[0], 4_000)
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"remote").pack()])
+        .build();
+    let proposal = remote
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"proposal").pack()])
+        .build();
+    assert_eq!(remote.hash(), proposal.hash());
+    assert_ne!(remote.witness_hash(), proposal.witness_hash());
+    let hash = remote.hash();
+    let id = remote.proposal_short_id();
+    let peer = ckb_network::PeerIndex::from(18);
+
+    h.service
+        .submit_remote_tx(remote, TxSource::Remote { cycles: 0, peer })
+        .await
+        .expect("remote witness variant enters coordinator");
+    let old_lease = h
+        .service
+        .pipeline
+        .runtime
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap();
+    assert!(!h.service.notify_tx(proposal.clone()).await.unwrap());
+
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool(&id)
+            .is_none(),
+        "proposal notification must not synchronously execute script verification"
+    );
+    let (view, payload_witness, ingress_peer, blame_peer) =
+        h.service.pipeline.runtime.read(|coordinator| {
+            let raw = coordinator.raw_by_hash(&hash).unwrap();
+            (
+                coordinator.view(&hash).unwrap(),
+                raw.tx.witness_hash(),
+                raw.ingress_peer(),
+                raw.blame_peer(),
+            )
+        });
+    assert_eq!(view.source, CoordinatorSource::Proposal);
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::RawQueued(RawStage::PreCheck)
+    );
+    assert_eq!(payload_witness, proposal.witness_hash());
+    assert_eq!(ingress_peer, Some(peer));
+    assert_eq!(
+        blame_peer, None,
+        "a trusted replacement witness must not blame its old ingress peer"
+    );
+    assert!(matches!(
+        h.service
+            .pipeline
+            .runtime
+            .mutate(|coordinator| coordinator.requeue_raw(&old_lease)),
+        Err(crate::component::pipeline_coordinator::CoordinatorError::RevisionMismatch { .. })
+    ));
+
+    let replacement = h
+        .service
+        .pipeline
+        .runtime
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap();
+    assert_eq!(
+        replacement.payload.tx.witness_hash(),
+        proposal.witness_hash()
+    );
+    h.service.process_pipeline_raw_lease(replacement).await;
+    let verify = h
+        .service
+        .pipeline
+        .runtime
+        .mutate(|coordinator| {
+            coordinator
+                .checkout_verify(crate::component::pipeline_coordinator::WorkerCapability::Any)
+        })
+        .unwrap()
+        .unwrap();
+    let mut chunk_rx = h.service.pipeline.chunk_rx.clone();
+    h.service
+        .process_pipeline_verify_lease(verify, &mut chunk_rx)
+        .await;
+
+    let resident = h
+        .service
+        .pool
+        .tx_pool
+        .read()
+        .await
+        .get_tx_from_pool(&id)
+        .cloned()
+        .expect("trusted proposal variant commits");
+    assert_eq!(resident.witness_hash(), proposal.witness_hash());
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash))
+    );
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the older remote ingress is settled by the trusted handoff");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Ok {
+            original_peer: Some(relayed_peer),
+            tx_hash,
+        } if relayed_peer == peer && tx_hash == hash
+    ));
 
     h.cancel.cancel();
 }
@@ -745,7 +1930,6 @@ async fn parent_commit_before_wait_registration_requeues_child() {
         .pipeline
         .runtime
         .checkout_raw(RawStage::Resolve)
-        .unwrap()
         .unwrap();
 
     h.service
@@ -811,7 +1995,6 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .pipeline
         .runtime
         .checkout_raw(RawStage::Resolve)
-        .unwrap()
         .unwrap();
 
     let outcome = h
@@ -939,7 +2122,6 @@ async fn remove_pool_entry_transfers_unblocked_conflict_cache_candidate_once() {
     let blocker = build_tx(&h.out_points[0], 4_000);
     let candidate = build_tx(&h.out_points[0], 3_000);
     let candidate_hash = candidate.hash();
-    let candidate_id = candidate.proposal_short_id();
     {
         let mut pool = h.service.pool.tx_pool.write().await;
         pool.pool_map
@@ -957,8 +2139,9 @@ async fn remove_pool_entry_transfers_unblocked_conflict_cache_candidate_once() {
     );
     {
         let pool = h.service.pool.tx_pool.read().await;
-        assert!(pool.conflict_cache.contains(&candidate_id));
-        assert_eq!(pool.conflict_recovery_len(), 1);
+        assert!(pool.conflict_cache.contains_hash(&candidate_hash));
+        assert_eq!(pool.conflict_recovery_len(), 0);
+        assert_eq!(pool.conflict_discovery_len(), 1);
     }
     assert!(
         !h.service
@@ -976,11 +2159,81 @@ async fn remove_pool_entry_transfers_unblocked_conflict_cache_candidate_once() {
             .read(|coordinator| coordinator.contains_hash(&candidate_hash))
     );
     let pool = h.service.pool.tx_pool.read().await;
-    assert!(!pool.conflict_cache.contains(&candidate_id));
+    assert!(!pool.conflict_cache.contains_hash(&candidate_hash));
     assert_eq!(pool.conflict_recovery_len(), 0);
+    assert_eq!(pool.conflict_discovery_len(), 0);
     drop(pool);
 
     assert!(!h.service.recover_conflict_cache_slice(1).await.saturated);
+    h.cancel.cancel();
+}
+
+/// A historical Local candidate can be scheduled just before the same raw
+/// hash arrives from the higher-trust Proposal path. Recovery must consume the
+/// stale cache owner without asking the coordinator to downgrade or replace
+/// the Proposal witness; the old behavior escalated `SourceDowngrade` into a
+/// service-wide fail-stop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conflict_recovery_yields_to_existing_proposal_without_fail_stop() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_coordinator::{CoordinatorSource, RawStage};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let historical = build_tx(&h.out_points[0], 3_000);
+    let hash = historical.hash();
+    let proposal = historical
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"proposal-variant").pack()])
+        .build();
+    let proposal_witness = proposal.witness_hash();
+    assert_eq!(proposal.hash(), hash);
+    assert_ne!(proposal_witness, historical.witness_hash());
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.record_conflict(historical, TxSource::Local);
+        assert_eq!(
+            pool.schedule_conflict_candidates([hash.clone()].into_iter()),
+            1
+        );
+    }
+    let epoch = h.service.current_pipeline_epoch().expect("current epoch");
+    assert!(
+        h.service
+            .pipeline
+            .runtime
+            .admit_transaction(proposal, TxSource::Proposal, epoch, RawStage::PreCheck)
+            .expect("proposal admission")
+            .0
+    );
+
+    let progress = h.service.recover_conflict_cache_slice(1).await;
+    assert!(!progress.capacity_blocked);
+    assert!(
+        !h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .conflict_cache
+            .contains_hash(&hash),
+        "the stronger coordinator owner consumes stale historical ownership"
+    );
+    h.service.pipeline.runtime.read(|coordinator| {
+        assert_eq!(
+            coordinator.view(&hash).expect("coordinator owner").source,
+            CoordinatorSource::Proposal
+        );
+        assert_eq!(
+            coordinator
+                .raw_by_hash(&hash)
+                .expect("proposal payload")
+                .tx
+                .witness_hash(),
+            proposal_witness
+        );
+    });
+    assert!(!h.service.pipeline.runtime.is_failed());
+    assert!(!h.cancel.is_cancelled());
     h.cancel.cancel();
 }
 
@@ -994,7 +2247,6 @@ async fn clear_pipeline_cancels_conflict_recovery_schedule_without_deleting_hist
     let h = harness(1).workers(WorkerSet::None).build();
     let candidate = build_tx(&h.out_points[0], 4_000);
     let candidate_hash = candidate.hash();
-    let candidate_id = candidate.proposal_short_id();
     {
         let mut pool = h.service.pool.tx_pool.write().await;
         pool.record_conflict(candidate, TxSource::Local);
@@ -1008,7 +2260,7 @@ async fn clear_pipeline_cancels_conflict_recovery_schedule_without_deleting_hist
     h.service.clear_pipeline().await;
     {
         let pool = h.service.pool.tx_pool.read().await;
-        assert!(pool.conflict_cache.contains(&candidate_id));
+        assert!(pool.conflict_cache.contains_hash(&candidate_hash));
         assert_eq!(pool.conflict_recovery_len(), 0);
     }
     assert!(
@@ -1024,6 +2276,198 @@ async fn clear_pipeline_cancels_conflict_recovery_schedule_without_deleting_hist
             .pipeline
             .runtime
             .read(|coordinator| coordinator.contains_hash(&candidate_hash))
+    );
+
+    h.cancel.cancel();
+}
+
+/// ConflictCache owns complete transaction identities, while PoolMap and the
+/// proposal protocol can host only one transaction per short ID. A colliding
+/// accepted entry must therefore park—not delete—the historical candidate;
+/// once the protocol slot is free, the same cache generation can transfer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conflict_recovery_retries_pool_short_id_collision_without_losing_history() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::entry::TxEntry;
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let mut accepted_hash = [0x42; 32];
+    let mut cached_hash = accepted_hash;
+    accepted_hash[31] = 1;
+    cached_hash[31] = 2;
+    let accepted = with_cached_hash(
+        build_tx(&h.out_points[0], 4_000),
+        ckb_types::packed::Byte32::new(accepted_hash),
+    );
+    let candidate = with_cached_hash(
+        build_tx(&h.out_points[1], 3_000),
+        ckb_types::packed::Byte32::new(cached_hash),
+    );
+    assert_eq!(accepted.proposal_short_id(), candidate.proposal_short_id());
+    assert_ne!(accepted.hash(), candidate.hash());
+    let accepted_tx_hash = accepted.hash();
+    let candidate_hash = candidate.hash();
+    let accepted_id = accepted.proposal_short_id();
+
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(accepted.clone(), 0, Capacity::zero(), 100),
+                Status::Pending,
+            )
+            .unwrap();
+        pool.record_conflict(candidate, TxSource::Local);
+        assert_eq!(
+            pool.schedule_conflict_candidates(std::iter::once(candidate_hash.clone())),
+            1
+        );
+    }
+
+    let blocked = h.service.recover_conflict_cache_slice(1).await;
+    assert!(blocked.capacity_blocked);
+    {
+        let pool = h.service.pool.tx_pool.read().await;
+        assert!(pool.conflict_cache.contains_hash(&candidate_hash));
+        assert_eq!(pool.conflict_recovery_len(), 1);
+    }
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&candidate_hash))
+    );
+
+    h.service
+        .pool
+        .tx_pool
+        .write()
+        .await
+        .pool_map
+        .remove_entry(&accepted_id)
+        .expect("colliding accepted entry remains present");
+
+    let epoch = h.service.current_pipeline_epoch().unwrap();
+    h.service
+        .pipeline
+        .runtime
+        .admit_transaction_journaled(
+            accepted,
+            TxSource::Local,
+            epoch,
+            crate::component::pipeline_coordinator::RawStage::Resolve,
+            |_| {},
+        )
+        .unwrap();
+    let coordinator_blocked = h.service.recover_conflict_cache_slice(1).await;
+    assert!(coordinator_blocked.capacity_blocked);
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .conflict_cache
+            .contains_hash(&candidate_hash)
+    );
+    h.service.pipeline.runtime.mutate_required(
+        "test collision owner removal failed",
+        |coordinator| {
+            coordinator.force_terminalize(
+                &accepted_tx_hash,
+                crate::component::pipeline_coordinator::TerminalDisposition::Removed,
+            )
+        },
+    );
+
+    let recovered = h.service.recover_conflict_cache_slice(1).await;
+    assert!(!recovered.capacity_blocked);
+    assert!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&candidate_hash))
+    );
+    assert!(
+        !h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .conflict_cache
+            .contains_hash(&candidate_hash)
+    );
+
+    h.cancel.cancel();
+}
+
+/// Failed detached recovery removes accepted descendants. Their independent
+/// inputs are release events too: without scheduling ConflictCache discovery,
+/// a valid historical competitor remains cache-owned forever even though its
+/// blocker has disappeared.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_reorg_recovery_cascade_wakes_conflict_history() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::entry::TxEntry;
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let failed = build_tx(&h.out_points[0], 4_000);
+    let failed_output = OutPoint::new(failed.hash(), 0);
+    let independent_input = h.out_points[1].clone();
+    let child = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(failed_output, 0))
+        .input(CellInput::new(independent_input.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(3_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
+    let child_id = child.proposal_short_id();
+    let competitor = build_tx(&independent_input, 3_500);
+    let competitor_hash = competitor.hash();
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(child, 0, Capacity::zero(), 100),
+                Status::Pending,
+            )
+            .unwrap();
+        pool.record_conflict(competitor, TxSource::Local);
+    }
+
+    h.service.cascade_failed_reorg_recovery(&failed).await;
+    {
+        let pool = h.service.pool.tx_pool.read().await;
+        assert!(pool.get_pool_entry(&child_id).is_none());
+        assert!(pool.conflict_cache.contains_hash(&competitor_hash));
+        assert_ne!(
+            pool.conflict_discovery_len(),
+            0,
+            "the released independent input must become level-triggered work"
+        );
+    }
+
+    let progress = h.service.recover_conflict_cache_slice(8).await;
+    assert!(!progress.capacity_blocked);
+    assert!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&competitor_hash))
+    );
+    assert!(
+        !h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .conflict_cache
+            .contains_hash(&competitor_hash)
     );
 
     h.cancel.cancel();
@@ -1071,7 +2515,6 @@ async fn local_rbf_commit_demotes_in_flight_consumers_of_removed_parent() {
         .pipeline
         .runtime
         .checkout_raw(RawStage::Resolve)
-        .unwrap()
         .unwrap();
     let resolved = match crate::resolve_mgr::resolve_job(
         &h.service,
@@ -1585,18 +3028,76 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
+/// An attached block can commit a remote transaction before its coordinator
+/// worker reaches verification. Removing that sole lifecycle owner must also
+/// publish the ingress success in the same reorg effect transaction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn attached_commit_settles_pre_pool_remote_ingress() {
+    use super::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+    use std::collections::{HashSet, VecDeque};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(77);
+    assert!(
+        h.service
+            .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer },)
+            .await
+            .unwrap()
+    );
+    assert!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash))
+    );
+
+    let attached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(tx)
+        .build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    h.service
+        .update_tx_pool_for_reorg(
+            VecDeque::new(),
+            VecDeque::from([attached]),
+            HashSet::new(),
+            snapshot,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash))
+    );
+
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("chain commit must release the remote ingress filter");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Ok {
+            original_peer: Some(relayed_peer),
+            tx_hash,
+        } if relayed_peer == peer && tx_hash == hash
+    ));
+    h.cancel.cancel();
+}
+
 /// Test that `update_tx_pool_for_reorg` correctly routes retained (detached)
-/// transactions through the pipeline entry point (`classify_and_enqueue_tx`)
-/// rather than blocking the write lock with inline verification.
-///
-/// Scenario:
-/// 1. Submit 3 independent txs; wait for all to reach pending.
-/// 2. Build a "detached" block containing 2 of those txs (simulating they were
-///    mined in a block that is now being orphaned).
-/// 3. Call `update_tx_pool_for_reorg` with the block as detached, empty attached.
-/// 4. Verify: no panic, pool stays consistent, and `classify_and_enqueue_tx` is
-///    called for the 2 retained txs (errors are expected since they're still in
-///    the pool — the pipeline path logs them at debug level).
+/// transactions through the pipeline entry point rather than blocking the
+/// write lock with inline verification.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_reorg_routes_retained_txs_through_classify() {
     use std::collections::{HashSet, VecDeque};
@@ -1675,7 +3176,8 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
             detached_proposal_id,
             snapshot,
         )
-        .await;
+        .await
+        .unwrap();
 
     // Give the pipeline a moment to process any classify_and_enqueue_tx calls.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1814,7 +3316,7 @@ async fn pipeline_dedup_double_submission() {
 
     // Second submission of the same tx.
     // The coordinator and accepted pool jointly deduplicate the submission;
-    // pool_map.add_entry also returns Ok((false, _)) for an existing short ID.
+    // pool_map.add_entry also returns `inserted == false` for an existing short ID.
     // Either way, the pool must still have exactly 1 tx.
     let second_result = service
         .submit_remote_tx(
@@ -1827,7 +3329,10 @@ async fn pipeline_dedup_double_submission() {
         .await;
     // The result may be Ok (silent dedup in pool_map) or Err(Duplicated).
     // Both are correct behavior — what matters is the pool state.
-    let _ = second_result;
+    assert!(matches!(
+        second_result,
+        Ok(_) | Err(crate::error::Reject::Duplicated(_))
+    ));
 
     // Brief wait for any in-flight processing.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -2224,7 +3729,8 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
                 peer: 1.into(),
             },
         )
-        .await;
+        .await
+        .unwrap();
 
     // Failed replacement rollback restores tx_a synchronously under the pool
     // write guard. The observable outcome is tx_a back in the pool.
@@ -2260,9 +3766,9 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 }
 
 /// Bug #45: a management clear is authoritative state replacement, not a
-/// best-effort incremental update. The reset must cross the service channel,
-/// blank the current template immediately, and notify external miners without
-/// waiting for the periodic assembler interval.
+/// best-effort incremental update. The reset snapshot must survive a saturated
+/// wake channel, blank the current template immediately, and notify external
+/// miners without waiting for the periodic assembler interval.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn clear_pool_resets_template_and_notifies_miner_immediately() {
     use super::harness::{WorkerSet, harness};
@@ -2302,14 +3808,20 @@ async fn clear_pool_resets_template_and_notifies_miner_immediately() {
     let notify_count = Arc::clone(&assembler.notify_count);
     h.service.block_assembler = Some(assembler);
 
+    // Occupy the one-slot wake channel before the clear. Reset authority must
+    // live in the journal, not in the channel payload that now cannot enqueue.
+    h.service
+        .journal_block_assembler_message(BlockAssemblerMessage::Pending);
+
     h.service.clear_pool(Arc::clone(&snapshot)).await;
     let message = tokio::time::timeout(Duration::from_secs(1), h.block_assembler_rx.recv())
         .await
         .expect("clear_pool must not wait for the periodic interval")
-        .expect("clear_pool must publish a reset message");
-    assert!(matches!(message, BlockAssemblerMessage::Reset(_)));
+        .expect("an existing wake must remain available");
+    assert_eq!(message, BlockAssemblerMessage::Pending);
 
-    crate::block_assembler::process(h.service.clone(), &message).await;
+    // The production consumer drains Reset before every received wake.
+    crate::block_assembler::process(h.service.clone(), &BlockAssemblerMessage::Reset).await;
     let current = h
         .service
         .block_assembler
@@ -2321,6 +3833,170 @@ async fn clear_pool_resets_template_and_notifies_miner_immediately() {
     assert!(current.transactions.is_empty());
     assert_eq!(notify_count.load(Ordering::SeqCst), 1);
     assert_eq!(h.service.pool.tx_pool.read().await.pool_map.size(), 0);
+}
+
+/// A template rebuild happens without holding the reset journal lock. If a
+/// newer authoritative reset arrives while the older snapshot is being
+/// rebuilt, acknowledging the older work must not erase the newer request —
+/// even when both requests carry the exact same snapshot Arc.
+#[tokio::test]
+async fn stale_block_assembler_reset_ack_preserves_newer_generation() {
+    use super::harness::harness;
+
+    let h = harness(1).build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+
+    h.service
+        .relay
+        .mark_block_assembler_reset(Arc::clone(&snapshot));
+    let (loaded_generation, loaded_snapshot) = h
+        .service
+        .relay
+        .load_block_assembler_reset()
+        .expect("older reset is journaled");
+    assert!(Arc::ptr_eq(&loaded_snapshot, &snapshot));
+    h.service
+        .relay
+        .mark_block_assembler_reset(Arc::clone(&snapshot));
+
+    h.service
+        .relay
+        .complete_block_assembler_reset(loaded_generation);
+    let (new_generation, still_pending) = h
+        .service
+        .relay
+        .load_block_assembler_reset()
+        .expect("stale acknowledgement must preserve the newer reset");
+    assert!(new_generation > loaded_generation);
+    assert!(Arc::ptr_eq(&still_pending, &snapshot));
+
+    h.service
+        .relay
+        .complete_block_assembler_reset(new_generation);
+    assert!(h.service.relay.load_block_assembler_reset().is_none());
+}
+
+/// A partial template update that observes the pool on a newer tip must not
+/// consume its dirty generation. Once assembler and pool snapshots converge,
+/// the same journal item is retried and conditionally acknowledged.
+#[tokio::test]
+async fn rejected_duplicate_uncle_does_not_retrigger_template_work() {
+    use super::harness::{WorkerSet, harness};
+    use crate::block_assembler::BlockAssembler;
+    use crate::service::BlockAssemblerMessage;
+    use ckb_app_config::BlockAssemblerConfig;
+    use ckb_jsonrpc_types::ScriptHashType;
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    h.service.block_assembler = Some(
+        BlockAssembler::new(
+            BlockAssemblerConfig {
+                code_hash: h256!("0x0"),
+                args: Default::default(),
+                hash_type: ScriptHashType::Data,
+                message: Default::default(),
+                use_binary_version_as_message_prefix: true,
+                binary_version: "TEST".to_string(),
+                update_interval_millis: 60_000,
+                notify: vec![],
+                notify_scripts: vec![],
+                notify_timeout_millis: 800,
+                notify_auth_token: None,
+            },
+            Arc::clone(&snapshot),
+        )
+        .unwrap(),
+    );
+    let uncle = BlockBuilder::default()
+        .parent_hash(snapshot.tip_hash())
+        .number(snapshot.tip_number() + 1)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .build()
+        .as_uncle();
+
+    h.service.receive_candidate_uncle(uncle.clone()).await;
+    let dirty = h.service.relay.load_block_assembler_dirty();
+    let (_, generation) = dirty
+        .iter()
+        .find(|(message, _)| *message == BlockAssemblerMessage::Uncle)
+        .expect("first candidate marks uncle work");
+    h.service
+        .relay
+        .complete_block_assembler_dirty(&BlockAssemblerMessage::Uncle, *generation);
+    assert!(h.service.relay.load_block_assembler_dirty().is_empty());
+
+    h.service.receive_candidate_uncle(uncle).await;
+    assert!(
+        h.service.relay.load_block_assembler_dirty().is_empty(),
+        "a rejected duplicate cannot amplify into repeated template rebuilds"
+    );
+    h.cancel.cancel();
+}
+
+#[tokio::test]
+async fn failed_block_assembler_update_retains_dirty_generation_for_retry() {
+    use super::harness::{WorkerSet, harness};
+    use crate::block_assembler::BlockAssembler;
+    use crate::service::{BlockAssemblerMessage, TxPoolServiceBuilder};
+    use ckb_app_config::BlockAssemblerConfig;
+    use ckb_jsonrpc_types::ScriptHashType;
+    use ckb_util::LinkedHashSet;
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let older = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let assembler = BlockAssembler::new(
+        BlockAssemblerConfig {
+            code_hash: h256!("0x0"),
+            args: Default::default(),
+            hash_type: ScriptHashType::Data,
+            message: Default::default(),
+            use_binary_version_as_message_prefix: true,
+            binary_version: "TEST".to_string(),
+            update_interval_millis: 60_000,
+            notify: vec![],
+            notify_scripts: vec![],
+            notify_timeout_millis: 800,
+            notify_auth_token: None,
+        },
+        Arc::clone(&older),
+    )
+    .unwrap();
+    h.service.block_assembler = Some(assembler);
+
+    let next_block = BlockBuilder::default()
+        .parent_hash(older.tip_hash())
+        .number(older.tip_number() + 1)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .build();
+    let newer = Arc::new(Snapshot::new(
+        next_block.header(),
+        older.total_difficulty().clone(),
+        older.epoch_ext().clone(),
+        h.store.store().get_snapshot(),
+        Default::default(),
+        older.cloned_consensus(),
+    ));
+    h.service.pool.tx_pool.write().await.snapshot = Arc::clone(&newer);
+    h.service
+        .journal_block_assembler_message(BlockAssemblerMessage::Pending);
+
+    let mut queue = LinkedHashSet::new();
+    assert!(
+        !TxPoolServiceBuilder::apply_block_assembler_updates(&h.service, &mut queue).await,
+        "tip mismatch must defer rather than acknowledge the proposal update"
+    );
+    assert_eq!(
+        h.service.relay.load_block_assembler_dirty().len(),
+        1,
+        "failed application retains authoritative dirty work"
+    );
+
+    // Restore the matching authoritative snapshot. The next drain must use
+    // the retained generation rather than requiring another producer edge.
+    h.service.pool.tx_pool.write().await.snapshot = older;
+    assert!(TxPoolServiceBuilder::apply_block_assembler_updates(&h.service, &mut queue).await);
+    assert!(h.service.relay.load_block_assembler_dirty().is_empty());
 }
 
 /// Pool membership and its template delta share one synchronous mutation
@@ -2764,6 +4440,140 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
+/// A successful RBF keeps the removed dependency tree in the historical
+/// conflict cache. Removing the replacement first frees only the original
+/// parent's confirmed input; each recovered parent acceptance must then make
+/// its newly available outputs drive the next cached descendant. Without that
+/// accepted-output event, the parent returns while child and grandchild remain
+/// cache-owned forever.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn successful_rbf_recovery_cascades_from_accepted_parent_outputs() {
+    let (service, _relay, signal, _store, issue_out_points) = service_with_rbf(1);
+    let shared_input = &issue_out_points[0];
+
+    let parent = build_tx(shared_input, 4_998);
+    let child = build_tx(&OutPoint::new(parent.hash(), 0), 4_996);
+    let grandchild = build_tx(&OutPoint::new(child.hash(), 0), 4_994);
+    let original = [parent.clone(), child.clone(), grandchild.clone()];
+
+    for (index, tx) in original.iter().enumerate() {
+        let cycles = measured_cycles(&service, tx.clone()).await;
+        service
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles,
+                    peer: 1.into(),
+                },
+            )
+            .await
+            .expect("original dependency entry should enqueue");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if service
+                    .pool
+                    .tx_pool
+                    .read()
+                    .await
+                    .get_tx_from_pool(&tx.proposal_short_id())
+                    .is_some()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("original dependency entry {index} should reach the pool"));
+    }
+
+    let replacement = build_tx(shared_input, 4_900);
+    let replacement_id = replacement.proposal_short_id();
+    let replacement_cycles = measured_cycles(&service, replacement.clone()).await;
+    service
+        .submit_remote_tx(
+            replacement.clone(),
+            TxSource::Remote {
+                cycles: replacement_cycles,
+                peer: 2.into(),
+            },
+        )
+        .await
+        .expect("higher-fee replacement should enqueue");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let settled = {
+                let pool = service.pool.tx_pool.read().await;
+                pool.get_tx_from_pool(&replacement_id).is_some()
+                    && original.iter().all(|tx| {
+                        pool.get_tx_from_pool(&tx.proposal_short_id()).is_none()
+                            && pool.conflict_cache.contains_hash(&tx.hash())
+                    })
+            };
+            if settled {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("successful RBF should move the complete original tree to history");
+
+    assert_eq!(
+        service.remove_tx(replacement.hash()).await,
+        crate::service::RemoveTxOutcome::Removed
+    );
+
+    let recovered = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let recovered = {
+                let pool = service.pool.tx_pool.read().await;
+                original.iter().all(|tx| {
+                    pool.get_tx_from_pool(&tx.proposal_short_id()).is_some()
+                        && !pool.conflict_cache.contains_hash(&tx.hash())
+                }) && pool.get_tx_from_pool(&replacement_id).is_none()
+            };
+            if recovered
+                && service
+                    .pipeline
+                    .runtime
+                    .read(|coordinator| coordinator.len() == 0)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    if recovered.is_err() {
+        let pool = service.pool.tx_pool.read().await;
+        let locations = original
+            .iter()
+            .map(|tx| {
+                let id = tx.proposal_short_id();
+                (
+                    tx.hash(),
+                    pool.get_tx_from_pool(&id).is_some(),
+                    pool.conflict_cache.contains_hash(&tx.hash()),
+                    service
+                        .pipeline
+                        .runtime
+                        .read(|coordinator| coordinator.view(&tx.hash()).map(|view| view.location)),
+                )
+            })
+            .collect::<Vec<_>>();
+        panic!(
+            "accepted parent outputs should recover the complete cached tree: locations={locations:?}, recovery={}, discovery={}",
+            pool.conflict_recovery_len(),
+            pool.conflict_discovery_len(),
+        );
+    }
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
 /// A retained (detached) tx that is *already back in the pool* must be
 /// treated as recovered, not as a failure: cascading on `Duplicated` would
 /// evict its healthy dependents and emit spurious Dead rejections (this is
@@ -2837,7 +4647,8 @@ async fn reorg_retain_duplicate_does_not_cascade_dependents() {
             HashSet::new(),
             snapshot,
         )
-        .await;
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(200)).await;
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();

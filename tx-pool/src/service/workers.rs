@@ -92,9 +92,35 @@ where
     }
 }
 
+/// Retry two ordered phases independently. Once phase one has completed, a
+/// deterministic phase-two failure must never replay it. Reorg uses this to
+/// keep an assembler refresh retry from reapplying an already-committed
+/// TxPool snapshot/membership transition after a concurrent clear.
+async fn retry_retained_two_phase<T, F1, Fut1, F2, Fut2>(
+    first_name: &'static str,
+    second_name: &'static str,
+    item: T,
+    cancel: &CancellationToken,
+    mut first: F1,
+    mut second: F2,
+) -> bool
+where
+    T: Clone,
+    F1: FnMut(T) -> Fut1,
+    Fut1: std::future::Future<Output = ()>,
+    F2: FnMut(T) -> Fut2,
+    Fut2: std::future::Future<Output = ()>,
+{
+    if !retry_retained_message(first_name, item.clone(), cancel, &mut first).await {
+        return false;
+    }
+    retry_retained_message(second_name, item, cancel, &mut second).await
+}
+
 /// Consume an ordered channel without acknowledging the head item until its
 /// handler succeeds. Later messages stay in the bounded channel, providing
 /// backpressure and preserving transition order.
+#[cfg(test)]
 async fn run_retained_receiver<T, F, Fut>(
     worker_name: &'static str,
     mut receiver: mpsc::Receiver<T>,
@@ -130,12 +156,8 @@ pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
             .wait_raw(crate::component::pipeline_coordinator::RawStage::PreCheck)
             .await
         {
-            Ok(Some(lease)) => service.process_pipeline_raw_lease(lease).await,
-            Ok(None) => break,
-            Err(error) => {
-                error!("tx-pool pre-check checkout failed: {:?}", error);
-                tokio::task::yield_now().await;
-            }
+            Some(lease) => service.process_pipeline_raw_lease(lease).await,
+            None => break,
         }
     }
 }
@@ -218,58 +240,48 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                     .await
                 {
                     Ok(permit) => permit,
-                    Err(error) => {
-                        error!("tx-pool expiry effect reservation failed: {:?}", error);
-                        break;
-                    }
+                    Err(error) => service
+                        .pipeline
+                        .runtime
+                        .fail_stop("tx-pool expiry effect reservation failed", &error),
                 };
-                let expired = match service.pipeline.runtime.mutate(|coordinator| {
-                    let result = coordinator.expire_due(now, SLICE);
-                    if let Ok(records) = &result {
-                        service.journal_pipeline_terminal_records(expiry_permit, records);
-                    }
-                    result
-                }) {
-                    Ok(records) => records,
-                    Err(error) => {
-                        error!("tx-pool pipeline expiry failed: {:?}", error);
-                        break;
-                    }
-                };
+                let expired = service.pipeline.runtime.mutate_required(
+                    "tx-pool pipeline expiry failed",
+                    |coordinator| {
+                        let result = coordinator.expire_due(now, SLICE);
+                        if let Ok(records) = &result {
+                            service.journal_pipeline_terminal_records(expiry_permit, records);
+                        }
+                        result
+                    },
+                );
                 let dependency_permit = match service
                     .reserve_effects(TxPoolService::pipeline_terminal_effect_bytes(SLICE))
                     .await
                 {
                     Ok(permit) => permit,
-                    Err(error) => {
-                        error!("tx-pool dependency effect reservation failed: {:?}", error);
-                        break;
-                    }
+                    Err(error) => service
+                        .pipeline
+                        .runtime
+                        .fail_stop("tx-pool dependency effect reservation failed", &error),
                 };
-                let failed = match service.pipeline.runtime.mutate(|coordinator| {
-                    let result = coordinator.drain_dependency_failures(SLICE);
-                    if let Ok(records) = &result {
-                        service.journal_pipeline_terminal_records(dependency_permit, records);
-                    }
-                    result
-                }) {
-                    Ok(records) => records,
-                    Err(error) => {
-                        error!("tx-pool dependency maintenance failed: {:?}", error);
-                        break;
-                    }
-                };
-                let rechecked = match service
+                let failed = service.pipeline.runtime.mutate_required(
+                    "tx-pool dependency maintenance failed",
+                    |coordinator| {
+                        let result = coordinator.drain_dependency_failures(SLICE);
+                        if let Ok(records) = &result {
+                            service.journal_pipeline_terminal_records(dependency_permit, records);
+                        }
+                        result
+                    },
+                );
+                let rechecked = service
                     .pipeline
                     .runtime
-                    .mutate(|coordinator| coordinator.drain_conflict_rechecks(SLICE))
-                {
-                    Ok(records) => records.len(),
-                    Err(error) => {
-                        error!("tx-pool conflict maintenance failed: {:?}", error);
-                        break;
-                    }
-                };
+                    .mutate_required("tx-pool conflict maintenance failed", |coordinator| {
+                        coordinator.drain_conflict_rechecks(SLICE)
+                    })
+                    .len();
                 let conflict_recovery = service.recover_conflict_cache_slice(SLICE).await;
                 let saturated = expired.len() == SLICE
                     || failed.len() == SLICE
@@ -403,36 +415,60 @@ pub(crate) fn spawn_reorg_handler(
         // commits ignore an already-seen height, and template updates rebuild
         // from the current snapshot. User callbacks contain their own panics,
         // so external side effects cannot trap this retry loop.
-        run_retained_receiver(
-            "tx-pool reorg handler",
-            reorg_receiver,
-            &signal_receiver,
-            |Notify {
-                 arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-             }| {
-                let service = service.clone();
-                async move {
-                    service
-                        .update_block_assembler_before_tx_pool_reorg(
-                            detached_blocks.clone(),
-                            Arc::clone(&snapshot),
-                        )
-                        .await;
-
-                    service
-                        .update_tx_pool_for_reorg(
-                            detached_blocks,
-                            attached_blocks,
-                            detached_proposal_id,
-                            snapshot,
-                        )
-                        .await;
-
-                    service.update_block_assembler_after_tx_pool_reorg().await;
-                }
-            },
-        )
-        .await;
+        let mut reorg_receiver = reorg_receiver;
+        loop {
+            let item = tokio::select! {
+                item = reorg_receiver.recv() => item,
+                _ = signal_receiver.cancelled() => None,
+            };
+            let Some(item) = item else {
+                break;
+            };
+            let first_service = service.clone();
+            let second_service = service.clone();
+            let completed = retry_retained_two_phase(
+                "tx-pool reorg transition",
+                "block-assembler reorg refresh",
+                item,
+                &signal_receiver,
+                move |Notify {
+                          arguments:
+                              (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
+                      }| {
+                    let service = first_service.clone();
+                    async move {
+                        service
+                            .update_tx_pool_for_reorg(
+                                detached_blocks,
+                                attached_blocks,
+                                detached_proposal_id,
+                                snapshot,
+                            )
+                            .await
+                            .unwrap_or_else(|error| {
+                                panic!("retryable tx-pool reorg transition failed: {error}")
+                            });
+                    }
+                },
+                move |Notify {
+                          arguments: (detached_blocks, _, _, _),
+                      }| {
+                    let service = second_service.clone();
+                    async move {
+                        service
+                            .refresh_block_assembler_after_tx_pool_reorg(detached_blocks)
+                            .await
+                            .unwrap_or_else(|error| {
+                                panic!("retryable block-assembler reorg refresh failed: {error}")
+                            });
+                    }
+                },
+            )
+            .await;
+            if !completed {
+                break;
+            }
+        }
         if signal_receiver.is_cancelled() {
             info!("TxPool reorg process service received exit signal, exit now");
         } else {
@@ -458,14 +494,14 @@ pub(crate) fn spawn_verify_cache_worker(
                     info!("verify-cache worker received exit signal, draining buffered updates");
                     while let Ok(update) = receiver.try_recv() {
                         let mut guard = txs_verify_cache.write().await;
-                        guard.put(update.wtx_hash, update.verified);
+                        guard.put(update.key, update.verified);
                     }
                     break;
                 }
                 else => break,
             };
             let mut guard = txs_verify_cache.write().await;
-            guard.put(update.wtx_hash, update.verified);
+            guard.put(update.key, update.verified);
         }
         info!("verify-cache worker exited (channel closed)");
     })
@@ -519,6 +555,42 @@ mod tests {
 
         assert!(completed);
         assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 4);
+    }
+
+    #[tokio::test]
+    async fn second_phase_retry_never_replays_completed_first_phase() {
+        let cancel = CancellationToken::new();
+        let first_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let second_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let first_counter = Arc::clone(&first_attempts);
+        let second_counter = Arc::clone(&second_attempts);
+        let completed = retry_retained_two_phase(
+            "test authoritative phase",
+            "test derived refresh phase",
+            9usize,
+            &cancel,
+            move |item| {
+                let attempts = Arc::clone(&first_counter);
+                async move {
+                    assert_eq!(item, 9);
+                    attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            },
+            move |item| {
+                let attempts = Arc::clone(&second_counter);
+                async move {
+                    assert_eq!(item, 9);
+                    if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                        panic!("injected derived refresh failure");
+                    }
+                }
+            },
+        )
+        .await;
+
+        assert!(completed);
+        assert_eq!(first_attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(second_attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     /// Persistent failure must be cancel-aware while retaining the item; it

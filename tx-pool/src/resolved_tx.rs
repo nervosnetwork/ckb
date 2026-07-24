@@ -5,14 +5,14 @@
 //! in-pool cell overlay.  It runs as a single ordered worker so that dependent
 //! transactions are resolved in the order they arrive.
 
-use crate::component::pool_map::Status;
+use crate::component::{entry::accepted_transaction_charge_bytes, pool_map::Status};
 use crate::tx_source::TxSource;
-use ckb_snapshot::Snapshot;
+use crate::util::compact_packed;
 use ckb_types::{
+    bytes::Bytes,
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::Byte32,
 };
-use ckb_verification::cache::Completed;
 use std::sync::Arc;
 
 /// A job submitted to the resolve queue.
@@ -46,17 +46,14 @@ pub struct ResolvedTx {
     pub fee: Capacity,
     /// Serialized transaction size.
     pub tx_size: usize,
+    /// Conservative resolved payload residency, computed once at resolve.
+    pub resident_size: usize,
     /// Tip hash at resolve time; used to detect snapshot drift before submit.
     pub pre_resolve_tip: Byte32,
-    /// Snapshot used during resolve; reused for verification.
-    pub snapshot: Arc<Snapshot>,
     /// The origin of the transaction (remote, local, or proposal notification).
     pub source: TxSource,
     /// Pipeline generation inherited from the resolve job.
     pub(crate) epoch: u64,
-    /// Completed script verification carried by the authoritative typed
-    /// lifecycle. Correctness never depends on the best-effort global cache.
-    pub(crate) verified: Option<Completed>,
 }
 
 impl PartialEq for ResolvedTx {
@@ -66,10 +63,204 @@ impl PartialEq for ResolvedTx {
             && self.status == other.status
             && self.fee == other.fee
             && self.tx_size == other.tx_size
+            && self.resident_size == other.resident_size
             && self.pre_resolve_tip == other.pre_resolve_tip
-            && self.snapshot == other.snapshot
             && self.source == other.source
             && self.epoch == other.epoch
-            && self.verified == other.verified
+    }
+}
+
+/// Snapshot-independent payload retained after script verification.
+///
+/// A chain snapshot is needed while resolving and verifying, but keeping it in
+/// conflict-waiting or commit-ready entries pins old database snapshots across
+/// arbitrarily many tip changes. This type makes that retention impossible at
+/// the verified lifecycle boundary. Its resolved inputs remain complete for
+/// DAO accounting, while cell deps retain only the outpoint and transaction
+/// information needed by final liveness and cellbase-maturity revalidation.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PoolCandidate {
+    pub(crate) tx: TransactionView,
+    pub(crate) rtx: Arc<ResolvedTransaction>,
+    pub(crate) status: Status,
+    pub(crate) fee: Capacity,
+    pub(crate) tx_size: usize,
+    pub(crate) resident_size: usize,
+    pub(crate) pre_resolve_tip: Byte32,
+    pub(crate) source: TxSource,
+    pub(crate) epoch: u64,
+}
+
+impl ResolvedTx {
+    pub(crate) fn into_pool_candidate(self) -> PoolCandidate {
+        // Script verification is the last consumer of dep outputs and dep
+        // data. A tiny dep-group reference can otherwise pin the expanded
+        // payload of up to thousands of cells for the entire pool lifetime.
+        // Compact exactly at this typed lifecycle boundary: later paths only
+        // run `ResolvedTransaction::check` (outpoints), time-relative checks
+        // (dep transaction_info) and DAO calculation (resolved inputs).
+        let rtx = compact_verified_resolved_transaction(self.rtx);
+        // Reserve the complete accepted-state footprint before publishing the
+        // candidate to the commit path. This includes the PoolMap indexes and
+        // dependency graph that will be allocated during insertion, so the
+        // coordinator cannot hand an already-undercharged object to the pool.
+        let resident_size = accepted_transaction_charge_bytes(self.tx_size, &rtx);
+        debug_assert_eq!(self.tx.hash(), rtx.transaction.hash());
+        debug_assert_eq!(self.tx.witness_hash(), rtx.transaction.witness_hash());
+        // Resolution starts from the compact raw owner, so both views can
+        // share that exact tx-sized allocation instead of retaining two
+        // independently copied transactions in the verified phase bundle.
+        let tx = rtx.transaction.clone();
+        PoolCandidate {
+            tx,
+            rtx,
+            status: self.status,
+            fee: self.fee,
+            tx_size: self.tx_size,
+            resident_size,
+            pre_resolve_tip: self.pre_resolve_tip,
+            source: self.source,
+            epoch: self.epoch,
+        }
+    }
+}
+
+/// Materialize every resolved-cell field before the payload becomes a
+/// coordinator-owned object.
+///
+/// Snapshot and pool providers commonly return packed accessors or `Bytes`
+/// slices into an entire producer transaction/block. Charging only the
+/// logical CellOutput/data length while retaining that shared backing lets a
+/// tiny transaction pin much more memory than its residency budget. Resolve
+/// is the single long-lived ownership boundary, so copy once here and keep
+/// every later state transition move-only.
+pub(crate) fn compact_resolved_transaction_for_residency(
+    rtx: Arc<ResolvedTransaction>,
+) -> Arc<ResolvedTransaction> {
+    fn compact_cell(cell: &mut ckb_types::core::cell::CellMeta) {
+        cell.cell_output = compact_packed(&cell.cell_output);
+        cell.out_point = compact_packed(&cell.out_point);
+        if let Some(info) = &mut cell.transaction_info {
+            info.block_hash = compact_packed(&info.block_hash);
+        }
+        if let Some(data) = cell.mem_cell_data.take() {
+            cell.mem_cell_data = Some(Bytes::copy_from_slice(&data));
+        }
+        if let Some(hash) = &mut cell.mem_cell_data_hash {
+            *hash = compact_packed(hash);
+        }
+    }
+
+    let mut rtx = Arc::try_unwrap(rtx).unwrap_or_else(|shared| (*shared).clone());
+    for cell in rtx
+        .resolved_inputs
+        .iter_mut()
+        .chain(rtx.resolved_cell_deps.iter_mut())
+        .chain(rtx.resolved_dep_groups.iter_mut())
+    {
+        compact_cell(cell);
+    }
+    Arc::new(rtx)
+}
+
+/// Drop verification-only cell-dependency payload after script verification.
+///
+/// Resolved inputs intentionally remain untouched: DAO fee/template
+/// calculation can require their output, data length, transaction information
+/// and in-memory data when the input is produced by another in-pool
+/// transaction. For cell deps, accepted-pool consumers use only liveness and
+/// maturity, so retaining the expanded output/script/data is both unnecessary
+/// and an attacker-controlled resident-memory multiplier.
+pub(crate) fn compact_verified_resolved_transaction(
+    rtx: Arc<ResolvedTransaction>,
+) -> Arc<ResolvedTransaction> {
+    let mut rtx = Arc::try_unwrap(rtx).unwrap_or_else(|shared| (*shared).clone());
+    // Inputs were already materialized at the resolve/coordinator ownership
+    // boundary. Keep them move-only here: DAO calculation still needs their
+    // complete output/data payload.
+    for cell in rtx
+        .resolved_cell_deps
+        .iter_mut()
+        .chain(rtx.resolved_dep_groups.iter_mut())
+    {
+        let out_point = compact_packed(&cell.out_point);
+        let transaction_info = cell.transaction_info.take().map(|mut info| {
+            info.block_hash = compact_packed(&info.block_hash);
+            info
+        });
+        *cell = ckb_types::core::cell::CellMeta {
+            out_point,
+            transaction_info,
+            ..Default::default()
+        };
+    }
+    Arc::new(rtx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compact_resolved_transaction_for_residency;
+    use ckb_types::{
+        bytes::Bytes,
+        core::{TransactionBuilder, cell::CellMeta, cell::ResolvedTransaction},
+        packed::CellOutput,
+        prelude::{Entity, Pack},
+    };
+    use std::sync::Arc;
+
+    fn slice_is_within(inner: &[u8], outer: &[u8]) -> bool {
+        let inner_start = inner.as_ptr() as usize;
+        let inner_end = inner_start.saturating_add(inner.len());
+        let outer_start = outer.as_ptr() as usize;
+        let outer_end = outer_start.saturating_add(outer.len());
+        inner_start >= outer_start && inner_end <= outer_end
+    }
+
+    #[test]
+    fn resolved_residency_detaches_cell_views_and_data_slices() {
+        let producer = TransactionBuilder::default()
+            .output(CellOutput::default())
+            .output_data(Bytes::from(vec![0x5a; 128 * 1024]).pack())
+            .build();
+        let producer_data = producer.data();
+        let shared_output = producer.outputs().get(0).expect("producer output");
+        assert!(slice_is_within(
+            shared_output.as_slice(),
+            producer_data.as_slice()
+        ));
+
+        let data_backing = Bytes::from(vec![0x7b; 128 * 1024]);
+        let shared_data = data_backing.slice(1024..1032);
+        assert!(slice_is_within(&shared_data, &data_backing));
+
+        let input = CellMeta {
+            cell_output: shared_output,
+            out_point: producer
+                .output_pts()
+                .into_iter()
+                .next()
+                .expect("producer outpoint"),
+            data_bytes: shared_data.len() as u64,
+            mem_cell_data: Some(shared_data),
+            ..Default::default()
+        };
+        let resolved = Arc::new(ResolvedTransaction {
+            transaction: TransactionBuilder::default().build(),
+            resolved_cell_deps: Vec::new(),
+            resolved_inputs: vec![input],
+            resolved_dep_groups: Vec::new(),
+        });
+
+        let compact = compact_resolved_transaction_for_residency(resolved);
+        let compact_input = &compact.resolved_inputs[0];
+        assert!(!slice_is_within(
+            compact_input.cell_output.as_slice(),
+            producer_data.as_slice()
+        ));
+        assert!(!slice_is_within(
+            compact_input.mem_cell_data.as_ref().expect("resident data"),
+            &data_backing
+        ));
+        assert_eq!(compact_input.mem_cell_data.as_deref(), Some(&[0x7b; 8][..]));
     }
 }

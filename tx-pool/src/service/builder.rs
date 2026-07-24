@@ -4,14 +4,13 @@ use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::recent_reject::RecentReject;
 use crate::constants::{
-    EFFECT_OUTBOX_MAX_BATCHES, MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE, MAX_PRE_CHECK_QUEUE_TX_SIZE,
-    MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS, SECONDS_PER_DAY,
-    VERIFY_CACHE_CHANNEL_SIZE,
+    EFFECT_OUTBOX_MAX_BATCHES, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
+    SECONDS_PER_DAY, VERIFY_CACHE_CHANNEL_SIZE,
 };
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
 use crate::service::workers;
-use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE};
+use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE, REORG_CHANNEL_SIZE};
 use crate::service::{
     BlockAssemblerMessage, ChainReorgArgs, Message, Notify, TxPoolController, TxPoolService,
     TxVerificationResult, VerifyCacheUpdate, process,
@@ -79,34 +78,38 @@ fn assemble_service(
     block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     verify_cache_sender: mpsc::Sender<VerifyCacheUpdate>,
     chunk_rx: watch::Receiver<ChunkCommand>,
-    pre_check_cancel: CancellationToken,
+    pipeline_shutdown: CancellationToken,
 ) -> TxPoolService {
     let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
         &tx_pool.config,
         &consensus,
-        pre_check_cancel.clone(),
+        pipeline_shutdown,
     ));
     let tx_pool_config = tx_pool.config.clone();
+    let banned_peer_capacity = runtime
+        .max_entries()
+        .saturating_add(DEFAULT_CHANNEL_SIZE)
+        .saturating_add(
+            tx_pool_config
+                .max_tx_verify_workers
+                .max(1)
+                .saturating_mul(MESSAGE_CONCURRENCY_MULTIPLIER),
+        );
     // One batch can carry a complete pool-removal/reorg callback journal.
     // Keep another complete pre-pool residency available so a stalled sink
     // cannot create an uncharged payload gap while ownership is transferred.
     let resident_effect_bytes = tx_pool_config
         .max_tx_pool_size
-        .saturating_add(tx_pool_config.verify_queue_tx_size_budget())
-        .saturating_add(MAX_PRE_CHECK_QUEUE_TX_SIZE)
-        .saturating_add(MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE)
+        .saturating_add(tx_pool_config.tx_pipeline_resident_size_budget())
         .saturating_mul(2);
-    let submit_effect_bytes = tx_pool_config
-        .max_tx_pool_size
-        .saturating_mul(4)
-        .min(
-            (consensus.max_block_bytes() as usize)
-                .saturating_mul(crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(4)),
-        )
-        .max(4096);
-    let reorg_effect_bytes = tx_pool_config
-        .max_tx_pool_size
-        .saturating_mul(crate::service::effects::REORG_EFFECT_CAPACITY_MULTIPLIER);
+    let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
+        tx_pool_config.max_tx_pool_size,
+        consensus.max_block_bytes() as usize,
+        runtime.max_entries(),
+    );
+    let reorg_effect_bytes =
+        crate::service::effects::max_pool_mutation_effect_bytes(tx_pool_config.max_tx_pool_size)
+            .max(4096);
     let ordinary_effect_bytes = resident_effect_bytes.max(submit_effect_bytes);
     let effects = Arc::new(
         crate::service::effects::EffectQueue::new_with_critical_capacity(
@@ -133,10 +136,11 @@ fn assemble_service(
             network,
             tx_relay_sender,
             block_assembler_sender,
-            block_assembler_dirty: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            block_assembler_dirty: Arc::new(Default::default()),
+            block_assembler_reset: Arc::new(Default::default()),
             callbacks: Arc::new(callbacks),
             effects,
-            banned_peers: Default::default(),
+            banned_peers: Arc::new(crate::service::BannedPeerSet::new(banned_peer_capacity)),
         },
         aux: crate::service::AuxServices {
             txs_verify_cache,
@@ -162,7 +166,7 @@ impl TxPoolServiceBuilder {
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let block_assembler_channel = mpsc::channel(BLOCK_ASSEMBLER_CHANNEL_SIZE);
-        let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (reorg_sender, reorg_receiver) = mpsc::channel(REORG_CHANNEL_SIZE);
         let signal_receiver: CancellationToken = new_tokio_exit_rx();
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let started = Arc::new(AtomicBool::new(false));
@@ -306,6 +310,7 @@ mod shutdown_tests {
     use crate::service::effects::{EffectEndpoints, EffectQueue, run_effect_publisher};
     use std::sync::Arc;
     use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
 
     fn finished() -> tokio::task::JoinHandle<()> {
         tokio::spawn(async {})
@@ -336,6 +341,7 @@ mod shutdown_tests {
             EffectEndpoints {
                 network: Arc::new(DummyTxPoolNetwork),
                 tx_relay_sender: relay_tx,
+                failure_cancel: CancellationToken::new(),
             },
         ));
         let panicked = tokio::spawn(async { panic!("injected state-worker failure") });
@@ -417,10 +423,11 @@ impl TxPoolServiceBuilder {
         drop(self.start_inner(network));
     }
 
-    /// Benchmark-only start variant that exposes the main dispatcher handle.
+    /// Test/benchmark start variant that exposes the main dispatcher handle.
     /// Awaiting it after cancellation proves all message handlers and
-    /// background workers have quiesced before the next benchmark iteration.
-    #[cfg(feature = "internal")]
+    /// background workers have quiesced before persistence or the next
+    /// benchmark iteration.
+    #[cfg(any(test, feature = "internal"))]
     pub(crate) fn start_with_handle<N: TxPoolNetwork>(
         self,
         network: N,
@@ -429,11 +436,10 @@ impl TxPoolServiceBuilder {
     }
 
     fn start_inner<N: TxPoolNetwork>(self, network: N) -> tokio::task::JoinHandle<()> {
-        if self.tx_pool_config.max_verify_queue_tx_size < self.tx_pool_config.max_tx_pool_size {
+        if self.tx_pool_config.max_tx_pool_resident_size < self.tx_pool_config.max_tx_pool_size {
             warn!(
-                "max_verify_queue_tx_size ({}) < max_tx_pool_size ({}): clamping the verify-queue \
-                 budget up to max_tx_pool_size for burst/reload headroom",
-                self.tx_pool_config.max_verify_queue_tx_size, self.tx_pool_config.max_tx_pool_size
+                "max_tx_pool_resident_size ({}) < max_tx_pool_size ({}): clamping the accepted-pool residency budget up to max_tx_pool_size",
+                self.tx_pool_config.max_tx_pool_resident_size, self.tx_pool_config.max_tx_pool_size
             );
         }
         let network: TxPoolNetworkHandle = Arc::new(network);
@@ -497,7 +503,7 @@ impl TxPoolServiceBuilder {
             block_assembler_sender,
             verify_cache_sender,
             chunk_rx.clone(),
-            pre_check_cancel.clone(),
+            signal_receiver.clone(),
         );
 
         let verify_cache_handle = workers::spawn_verify_cache_worker(
@@ -511,6 +517,7 @@ impl TxPoolServiceBuilder {
             crate::service::effects::EffectEndpoints {
                 network: Arc::clone(&service.relay.network),
                 tx_relay_sender: service.relay.tx_relay_sender.clone(),
+                failure_cancel: signal_receiver.clone(),
             },
         ));
         let maintenance_handle = workers::spawn_pipeline_maintenance_worker(
@@ -591,7 +598,11 @@ impl TxPoolServiceBuilder {
     ) -> tokio::task::JoinHandle<()> {
         let runtime_handle = handle.clone();
         let max_workers = service.pool.tx_pool_config.max_tx_verify_workers.max(1);
-        let semaphore = Arc::new(Semaphore::new(max_workers * MESSAGE_CONCURRENCY_MULTIPLIER));
+        let message_concurrency = max_workers
+            .checked_mul(MESSAGE_CONCURRENCY_MULTIPLIER)
+            .and_then(|permits| u32::try_from(permits).ok())
+            .expect("tx_pool.max_tx_verify_workers exceeds dispatcher permit capacity");
+        let semaphore = Arc::new(Semaphore::new(message_concurrency as usize));
         handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -653,7 +664,7 @@ impl TxPoolServiceBuilder {
             // The semaphore bounds concurrent handlers, so acquiring every
             // permit proves all dispatched messages reached a stable outcome.
             let _ = semaphore
-                .acquire_many(max_workers as u32 * MESSAGE_CONCURRENCY_MULTIPLIER as u32)
+                .acquire_many(message_concurrency)
                 .await;
 
             info!("TxPool is quiescing background workers...");
@@ -664,7 +675,7 @@ impl TxPoolServiceBuilder {
                 )
                 .await;
 
-            if clean_shutdown {
+            if clean_shutdown && service.pipeline.runtime.pool_persistence_safe() {
                 info!("TxPool is saving, please wait...");
                 service.save_pool().await;
             } else {
@@ -674,6 +685,41 @@ impl TxPoolServiceBuilder {
             }
             info!("TxPool process_service exit now");
         })
+    }
+
+    /// Apply loaded template work and acknowledge only generations that
+    /// reached a coherent template. Failed messages stay both in the local
+    /// queue and in the authoritative journal; a racing newer generation is
+    /// preserved by conditional acknowledgement.
+    pub(crate) async fn apply_block_assembler_updates(
+        service: &TxPoolService,
+        queue: &mut LinkedHashSet<BlockAssemblerMessage>,
+    ) -> bool {
+        let dirty = service.relay.load_block_assembler_dirty();
+        for (message, _) in &dirty {
+            queue.insert(message.clone());
+        }
+
+        let attempted = queue.iter().cloned().collect::<Vec<_>>();
+        let mut retry = LinkedHashSet::new();
+        let mut made_progress = false;
+        for message in attempted {
+            if block_assembler::process(service.clone(), &message).await {
+                if let Some((_, generation)) = dirty
+                    .iter()
+                    .find(|(dirty_message, _)| dirty_message == &message)
+                {
+                    service
+                        .relay
+                        .complete_block_assembler_dirty(&message, *generation);
+                }
+                made_progress = true;
+            } else {
+                retry.insert(message);
+            }
+        }
+        *queue = retry;
+        made_progress
     }
 
     /// Spawn the block assembler message loop.
@@ -693,16 +739,51 @@ impl TxPoolServiceBuilder {
                 This should only be used for tests, as external notification will be disabled."
             );
             handle.spawn(async move {
+                // Even interval-zero configurations need a bounded retry for
+                // authoritative management resets. Otherwise one transient
+                // cellbase/template error consumes the only wake edge and
+                // leaves the old template live forever.
+                let reset_retry_period = Duration::from_secs(1);
+                let mut reset_retry = tokio::time::interval_at(
+                    tokio::time::Instant::now() + reset_retry_period,
+                    reset_retry_period,
+                );
+                let mut queue = LinkedHashSet::new();
                 loop {
                     tokio::select! {
                         Some(message) = block_assembler_receiver.recv() => {
-                            let mut updates = LinkedHashSet::new();
-                            updates.insert(message);
-                            updates.extend(service.relay.take_block_assembler_dirty());
-                            for update in &updates {
-                                let service_clone = service.clone();
-                                block_assembler::process(service_clone, update).await;
+                            if !matches!(message, BlockAssemblerMessage::Reset) {
+                                queue.insert(message);
                             }
+                            // A reset may have shared a saturated channel with
+                            // this wake. Always drain the authoritative reset
+                            // journal first; stale Reset tokens become no-ops.
+                            block_assembler::process(
+                                service.clone(),
+                                &BlockAssemblerMessage::Reset,
+                            )
+                            .await;
+                            // A failed or superseded reset is a hard template
+                            // barrier. Retain every ordinary update until the
+                            // latest authoritative snapshot rebuild succeeds.
+                            if service.relay.block_assembler_reset_pending() {
+                                continue;
+                            }
+                            Self::apply_block_assembler_updates(&service, &mut queue).await;
+                        },
+                        _ = reset_retry.tick() => {
+                            if !service.relay.block_assembler_reset_pending() {
+                                continue;
+                            }
+                            block_assembler::process(
+                                service.clone(),
+                                &BlockAssemblerMessage::Reset,
+                            )
+                            .await;
+                            if service.relay.block_assembler_reset_pending() {
+                                continue;
+                            }
+                            Self::apply_block_assembler_updates(&service, &mut queue).await;
                         },
                         _ = signal_receiver.cancelled() => {
                             info!("TxPool block_assembler process service received exit signal, exit now");
@@ -719,25 +800,32 @@ impl TxPoolServiceBuilder {
                 loop {
                     tokio::select! {
                         Some(message) = block_assembler_receiver.recv() => {
-                            if let BlockAssemblerMessage::Reset(..) = message {
-                                let service_clone = service.clone();
-                                queue.clear();
-                                block_assembler::process(service_clone, &message).await;
-                            } else {
+                            if !matches!(message, BlockAssemblerMessage::Reset) {
                                 queue.insert(message);
                             }
+                            // Reset state is level-triggered and may have been
+                            // coalesced behind any channel token.
+                            block_assembler::process(
+                                service.clone(),
+                                &BlockAssemblerMessage::Reset,
+                            )
+                            .await;
                         },
                         _ = interval.tick() => {
-                            queue.extend(service.relay.take_block_assembler_dirty());
-                            for message in &queue {
-                                let service_clone = service.clone();
-                                block_assembler::process(service_clone, message).await;
+                            block_assembler::process(
+                                service.clone(),
+                                &BlockAssemblerMessage::Reset,
+                            )
+                            .await;
+                            if service.relay.block_assembler_reset_pending() {
+                                continue;
                             }
-                            if !queue.is_empty()
+                            let made_progress =
+                                Self::apply_block_assembler_updates(&service, &mut queue).await;
+                            if made_progress
                                 && let Some(ref block_assembler) = service.block_assembler {
                                     block_assembler.notify().await;
                                 }
-                            queue.clear();
                         }
                         _ = signal_receiver.cancelled() => {
                             info!("TxPool block_assembler process service received exit signal, exit now");
@@ -761,8 +849,6 @@ impl TxPoolServiceBuilder {
     pub(crate) fn build_bench_service(self, network: TxPoolNetworkHandle) -> BenchServiceParts {
         let consensus = self.snapshot.cloned_consensus();
         let signal = self.signal_receiver;
-        let pre_check_cancel = signal.child_token();
-
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
         let (block_assembler_sender, _) = self.block_assembler_channel;
         let (verify_cache_sender, verify_cache_receiver) =
@@ -781,7 +867,7 @@ impl TxPoolServiceBuilder {
             block_assembler_sender,
             verify_cache_sender,
             self.chunk_rx,
-            pre_check_cancel,
+            signal.clone(),
         );
 
         let effect_publisher = self
@@ -791,6 +877,7 @@ impl TxPoolServiceBuilder {
                 crate::service::effects::EffectEndpoints {
                     network: Arc::clone(&service.relay.network),
                     tx_relay_sender: service.relay.tx_relay_sender.clone(),
+                    failure_cancel: signal.clone(),
                 },
             ));
 

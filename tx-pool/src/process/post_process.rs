@@ -3,7 +3,7 @@ use crate::error::Reject;
 use crate::service::effects::TxPoolEffect;
 use crate::service::{TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
-use ckb_logger::{Level::Trace, debug, error, log_enabled_target, trace_target};
+use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::{Cycle, TransactionView};
@@ -55,11 +55,16 @@ impl TxPoolService {
             Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
         ) {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            if self.is_pipeline_epoch_current(epoch)
-                && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
-            {
-                tx_pool.record_conflict(tx.clone(), source);
-            }
+            self.pipeline.runtime.guard_authoritative_mutation(
+                "post-process conflict-cache mutation panicked",
+                || {
+                    if self.is_pipeline_epoch_current(epoch)
+                        && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
+                    {
+                        tx_pool.record_conflict(tx.clone(), source);
+                    }
+                },
+            );
         }
 
         match source {
@@ -110,14 +115,10 @@ impl TxPoolService {
     /// keep flowing into the pool: queue-level removal (`remove_by_peer`)
     /// only covers queued jobs, not ones a worker has already popped.
     pub(crate) fn is_recently_banned(&self, source: TxSource) -> bool {
-        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
         let Some(peer) = source.peer() else {
             return false;
         };
-        let banned = self.relay.banned_peers.lock().unwrap();
-        banned
-            .get(&peer)
-            .is_some_and(|at| at.elapsed() < DEFAULT_BAN_TIME)
+        self.relay.banned_peers.contains(peer)
     }
     /// Post-process a remote transaction result.
     ///
@@ -171,8 +172,8 @@ impl TxPoolService {
             }
             Err(reject) => {
                 debug!("after_process {} reject: {} ", tx_hash, reject);
-                if reject.should_recorded() {
-                    self.record_recent_reject(&tx_hash, reject);
+                if let Some(effect) = self.recent_reject_effect(tx_hash, reject) {
+                    self.publish_effects(vec![effect]).await;
                 }
             }
         }
@@ -218,49 +219,43 @@ impl TxPoolService {
         // in the pool, and a "Reject" would mark a valid transaction as
         // rejected in the relayer's peer filter. Local duplicates already
         // get the Ok re-broadcast treatment (see `after_process_local`).
-        let ban_reason = reject.is_malformed_tx().then(|| format!("reject {reject}"));
+        let ban_reason = reject
+            .is_malformed_tx()
+            .then(|| crate::service::effects::bounded_commit_ban_reason(reject));
         let relay_reject = reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_));
-        let effect_bytes = ban_reason
-            .as_ref()
-            .map(|reason| {
-                crate::service::effects::EFFECT_ENVELOPE_BYTES.saturating_add(reason.len())
-            })
-            .unwrap_or_default()
-            .saturating_add(
-                relay_reject
-                    .then_some(crate::service::effects::EFFECT_ENVELOPE_BYTES)
-                    .unwrap_or_default(),
-            );
-        let permit = match self.reserve_effects(effect_bytes).await {
-            Ok(permit) => permit,
-            Err(error) => {
-                error!("remote reject effect reservation failed: {:?}", error);
-                return;
-            }
-        };
-
         let mut effects = Vec::new();
-        if let Some(reason) = ban_reason {
-            const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
-            Self::report_malformed_peer_ban(peer, &reason);
-            self.record_peer_ban(peer, DEFAULT_BAN_TIME);
+        if let Some(effect) = self.recent_reject_effect(tx_hash.clone(), reject) {
+            effects.push(effect);
+        }
+        if let Some(reason) = &ban_reason {
             effects.push(TxPoolEffect::BanPeer {
                 peer,
-                duration: DEFAULT_BAN_TIME,
-                reason,
+                duration: Duration::from_secs(MALFORMED_TX_BAN_SECONDS),
+                reason: reason.clone(),
             });
-        }
-        if reject.should_recorded() {
-            self.record_recent_reject(tx_hash, reject);
         }
         if relay_reject {
             effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
                 tx_hash: tx_hash.clone(),
             }));
         }
-        if let Err(error) = self.publish_reserved_effects(permit, effects) {
-            panic!("reserved remote reject journal failed: {error:?}");
+        let effect_bytes = effects.iter().fold(0usize, |total, effect| {
+            total.saturating_add(effect.charge_bytes())
+        });
+        let permit = self
+            .reserve_required_effects(effect_bytes, "remote reject effect reservation failed")
+            .await;
+
+        if let Some(reason) = ban_reason {
+            const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
+            Self::report_malformed_peer_ban(peer, &reason);
+            self.record_peer_ban(peer, DEFAULT_BAN_TIME);
         }
+        self.publish_required_reserved_effects(
+            permit,
+            effects,
+            "reserved remote reject journal failed",
+        );
         if reject.is_malformed_tx() {
             self.remove_banned_peer_entries(peer).await;
         }
@@ -289,41 +284,31 @@ impl TxPoolService {
     pub(crate) async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
 
-        let ban_permit = match self
-            .reserve_effects(
+        let ban_permit = self
+            .reserve_required_effects(
                 crate::service::effects::EFFECT_ENVELOPE_BYTES.saturating_add(reason.len()),
+                "peer-ban effect reservation failed",
             )
-            .await
-        {
-            Ok(permit) => permit,
-            Err(error) => {
-                error!("peer-ban effect reservation failed: {:?}", error);
-                return;
-            }
-        };
+            .await;
 
         Self::report_malformed_peer_ban(peer, &reason);
         self.record_peer_ban(peer, DEFAULT_BAN_TIME);
-        if let Err(error) = self.publish_reserved_effects(
+        self.publish_required_reserved_effects(
             ban_permit,
             vec![TxPoolEffect::BanPeer {
                 peer,
                 duration: DEFAULT_BAN_TIME,
                 reason,
             }],
-        ) {
-            panic!("reserved peer-ban journal failed: {error:?}");
-        }
+            "reserved peer-ban journal failed",
+        );
         self.remove_banned_peer_entries(peer).await;
     }
 
     /// Install the internal fail-closed ban state before external network
     /// publication. Workers consult this map at every active boundary.
     pub(crate) fn record_peer_ban(&self, peer: PeerIndex, duration: Duration) {
-        let mut banned = self.relay.banned_peers.lock().unwrap();
-        let now = std::time::Instant::now();
-        banned.retain(|_, at| now.saturating_duration_since(*at) < duration);
-        banned.insert(peer, now);
+        self.relay.banned_peers.record(peer, duration);
     }
 
     /// Revoke every non-committing Coordinator owner attributed to a banned
@@ -347,39 +332,25 @@ impl TxPoolService {
                 .await
             {
                 Ok(permit) => permit,
-                Err(error) => {
-                    error!("banned-peer removal effect reservation failed: {:?}", error);
-                    break;
-                }
+                Err(error) => self
+                    .pipeline
+                    .runtime
+                    .fail_stop("banned-peer removal effect reservation failed", &error),
             };
-            let removed = self.pipeline.runtime.mutate(|coordinator| {
-                let mut terminal = Vec::new();
-                let mut removed = 0usize;
-                for hash in hashes {
-                    match coordinator.force_terminalize(
-                        &hash,
+            let terminal = self.pipeline.runtime.mutate_required(
+                "banned-peer owner cohort could not terminalize",
+                |coordinator| {
+                    let result = coordinator.force_terminalize_many(
+                        &hashes,
                         crate::component::pipeline_coordinator::TerminalDisposition::Removed,
-                    ) {
-                        Ok(Some(record)) => {
-                            terminal.push(record);
-                            removed += 1;
-                        }
-                        Ok(None)
-                        | Err(
-                            crate::component::pipeline_coordinator::CoordinatorError::CommitInProgress(
-                                _,
-                            ),
-                        ) => {}
-                        Err(error) => error!(
-                            "failed to remove banned peer {} transaction {}: {:?}",
-                            peer, hash, error
-                        ),
+                    );
+                    if let Ok(records) = &result {
+                        self.journal_pipeline_terminal_records(terminal_permit, records);
                     }
-                }
-                self.journal_pipeline_terminal_records(terminal_permit, &terminal);
-                removed
-            });
-            if removed == 0 {
+                    result
+                },
+            );
+            if terminal.is_empty() {
                 break;
             }
             tokio::task::yield_now().await;

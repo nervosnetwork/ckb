@@ -1,3 +1,4 @@
+use crate::util::compact_packed;
 use ckb_logger::debug;
 use ckb_types::{
     core::{error::OutPointError, tx_pool::Reject},
@@ -44,6 +45,10 @@ impl OutPointIndex {
         out_point: OutPoint,
         txid: ProposalShortId,
     ) -> Result<(), Reject> {
+        // The accessor may be a slice of the complete transaction. This key
+        // can outlive that transaction when another indexed owner shares the
+        // same outpoint, so make it independently owned before insertion.
+        let out_point = compact_packed(&out_point);
         // inputs is occupied means double spending happened here
         match self.inputs.entry(out_point.clone()) {
             Entry::Occupied(occupied) => {
@@ -74,21 +79,25 @@ impl OutPointIndex {
         self.deps.get(out_point)
     }
 
-    pub(crate) fn remove_deps(&mut self, out_point: &OutPoint) -> Option<HashSet<ProposalShortId>> {
-        self.deps.remove(out_point)
-    }
-
     pub(crate) fn insert_deps(&mut self, out_point: OutPoint, txid: ProposalShortId) {
+        let out_point = compact_packed(&out_point);
         self.deps.entry(out_point).or_default().insert(txid);
     }
 
-    pub(crate) fn delete_txid_by_dep(&mut self, out_point: OutPoint, txid: &ProposalShortId) {
+    pub(crate) fn delete_txid_by_dep(
+        &mut self,
+        out_point: OutPoint,
+        txid: &ProposalShortId,
+    ) -> bool {
         if let Entry::Occupied(mut occupied) = self.deps.entry(out_point) {
             let ids = occupied.get_mut();
-            ids.remove(txid);
+            let removed = ids.remove(txid);
             if ids.is_empty() {
                 occupied.remove();
             }
+            removed
+        } else {
+            false
         }
     }
 
@@ -96,5 +105,42 @@ impl OutPointIndex {
         self.inputs.clear();
         self.deps.clear();
         self.header_deps.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OutPointIndex;
+    use ckb_types::{bytes::Bytes, packed::OutPoint, prelude::Entity};
+
+    fn shared_out_point() -> (OutPoint, *const u8) {
+        let template = OutPoint::default();
+        let len = template.as_slice().len();
+        let mut raw = vec![0x33; 4_096];
+        raw[2_048..2_048 + len].copy_from_slice(template.as_slice());
+        let backing = Bytes::from(raw);
+        let out_point = OutPoint::new_unchecked(backing.slice(2_048..2_048 + len));
+        let ptr = out_point.as_slice().as_ptr();
+        (out_point, ptr)
+    }
+
+    #[test]
+    fn persistent_outpoint_indexes_detach_shared_backing() {
+        let mut index = OutPointIndex::default();
+        let (input, input_ptr) = shared_out_point();
+        index
+            .insert_input(input, Default::default())
+            .expect("vacant input");
+        assert_ne!(
+            index.inputs.keys().next().unwrap().as_slice().as_ptr(),
+            input_ptr
+        );
+
+        let (dep, dep_ptr) = shared_out_point();
+        index.insert_deps(dep, Default::default());
+        assert_ne!(
+            index.deps.keys().next().unwrap().as_slice().as_ptr(),
+            dep_ptr
+        );
     }
 }

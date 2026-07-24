@@ -5,9 +5,12 @@ use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::cell::{CellChecker, TransactionsChecker},
     packed::{Byte32, OutPoint},
+    prelude::Entity,
 };
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
+
+use crate::util::compact_packed;
 
 /// Per-tip memo of chain-cell liveness results, shared across block-template
 /// updates.
@@ -21,13 +24,26 @@ use std::sync::Mutex as StdMutex;
 /// Only the chain-snapshot fallback is memoized: the in-block overlay
 /// (`TransactionsChecker`) changes on every update and is always evaluated
 /// fresh.
-#[derive(Default)]
 pub(crate) struct CellLivenessMemo {
     pub(crate) tip_hash: Option<Byte32>,
     pub(crate) inner: HashMap<OutPoint, Option<bool>>,
+    /// Hard bound proportional to the maximum number of serialized
+    /// outpoints that can fit in one block. Without it, same-tip mempool churn
+    /// can grow this optimization forever even though the pool itself stays
+    /// within its resident budget.
+    max_entries: usize,
 }
 
 impl CellLivenessMemo {
+    pub(crate) fn for_block_bytes(max_block_bytes: usize) -> Self {
+        let packed_out_point_bytes = OutPoint::default().as_slice().len().max(1);
+        Self {
+            tip_hash: None,
+            inner: HashMap::new(),
+            max_entries: max_block_bytes.div_ceil(packed_out_point_bytes).max(1),
+        }
+    }
+
     pub(crate) fn get_or_load(
         &mut self,
         snapshot: &Snapshot,
@@ -42,8 +58,22 @@ impl CellLivenessMemo {
             return live;
         }
         let live = snapshot.is_live(out_point);
-        self.inner.insert(out_point.clone(), live);
+        if self.inner.len() >= self.max_entries {
+            // A whole-map reset is O(1) amortized and keeps the hot path free
+            // of an LRU list. The cap covers a complete maximum-sized block,
+            // so ordinary template reuse is unaffected.
+            self.inner.clear();
+        }
+        self.inner.insert(compact_packed(out_point), live);
         live
+    }
+}
+
+impl Default for CellLivenessMemo {
+    fn default() -> Self {
+        // Tests and standalone helpers get a useful bounded memo. Production
+        // constructs it from the active consensus block-byte limit.
+        Self::for_block_bytes(1 << 20)
     }
 }
 

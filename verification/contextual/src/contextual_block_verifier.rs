@@ -23,7 +23,7 @@ use ckb_types::{
     utilities::merkle_mountain_range::ChainRootMMR,
 };
 use ckb_verification::cache::{
-    TxVerificationCache, {CacheEntry, Completed},
+    TxVerificationCache, TxVerificationCacheKey, {CacheEntry, Completed},
 };
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
@@ -345,24 +345,22 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         }
     }
 
-    fn fetched_cache(&self, rtxs: &'a [Arc<ResolvedTransaction>]) -> HashMap<Byte32, CacheEntry> {
+    fn fetched_cache(
+        &self,
+        rtxs: &'a [Arc<ResolvedTransaction>],
+    ) -> HashMap<TxVerificationCacheKey, CacheEntry> {
         let (sender, receiver) = oneshot::channel();
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
-        let wtx_hashes: Vec<Byte32> = rtxs
+        let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
             .skip(1)
-            .map(|rtx| rtx.transaction.witness_hash())
+            .map(|rtx| TxVerificationCacheKey::from_transaction(&rtx.transaction))
             .collect();
         self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
-            let ret = wtx_hashes
+            let ret = keys
                 .into_iter()
-                .filter_map(|wtx_hash| {
-                    guard
-                        .peek(&wtx_hash)
-                        .cloned()
-                        .map(|value| (wtx_hash, value))
-                })
+                .filter_map(|key| guard.peek(&key).cloned().map(|value| (key, value)))
                 .collect();
 
             if let Err(e) = sender.send(ret) {
@@ -374,7 +372,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .expect("fetched cache no exception")
     }
 
-    fn update_cache(&self, ret: Vec<(Byte32, Completed)>) {
+    fn update_cache(&self, ret: Vec<(TxVerificationCacheKey, Completed)>) {
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
         self.handle.spawn(async move {
             let mut guard = txs_verify_cache.write().await;
@@ -404,9 +402,9 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let wtx_hash = tx.transaction.witness_hash();
+                let cache_key = TxVerificationCacheKey::from_transaction(&tx.transaction);
 
-                if let Some(completed) = fetched_cache.get(&wtx_hash) {
+                if let Some(completed) = fetched_cache.get(&cache_key) {
                     TimeRelativeTransactionVerifier::new(
                             Arc::clone(tx),
                             Arc::clone(&self.context.consensus),
@@ -421,7 +419,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             }
                             .into()
                         })
-                        .map(|_| (wtx_hash, *completed))
+                        .map(|_| (cache_key, *completed))
                 } else {
                     ContextualTransactionVerifier::new(
                         Arc::clone(tx),
@@ -440,7 +438,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                         }
                         .into()
                     })
-                    .map(|completed| (wtx_hash, completed))
+                    .map(|completed| (cache_key, completed))
                 }.and_then(|result| {
                     if self.context.consensus.rfc0044_active(self.parent.epoch().number()) {
                         DaoScriptSizeVerifier::new(
@@ -453,7 +451,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                 })
             })
             .skip(1) // skip cellbase tx
-            .collect::<Result<Vec<(Byte32, Completed)>, Error>>()?;
+            .collect::<Result<Vec<(TxVerificationCacheKey, Completed)>, Error>>()?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
         let cache_entires = ret
@@ -461,7 +459,14 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .map(|(_, completed)| completed)
             .cloned()
             .collect();
-        if !ret.is_empty() {
+        // `DISABLE_SCRIPT` is an assume-valid optimization, not proof that
+        // the witness passed script verification. Publishing its synthetic
+        // (normally zero-cycle) `Completed` value would poison the shared
+        // cache: if the block is later detached, tx-pool recovery could treat
+        // the exact witness as verified and re-admit it without running the
+        // scripts. Existing cache hits are safe to consume, but only a fully
+        // script-verified pass may become a cache producer.
+        if !skip_script_verify && !ret.is_empty() {
             self.update_cache(ret);
         }
 

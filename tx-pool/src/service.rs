@@ -35,7 +35,7 @@ use ckb_app_config::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_logger::{debug, error};
+use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -50,7 +50,7 @@ use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 #[cfg(test)]
 use std::time::Duration;
@@ -63,16 +63,18 @@ use tokio::sync::{RwLock, mpsc, watch};
 /// absorb short bursts without allowing an unbounded backlog.
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 
+/// Reorg messages are ordered authoritative deltas. The sender already
+/// applies backpressure and the retained handler must process them strictly
+/// one at a time, so a single buffered block tree avoids unbounded/deep-fork
+/// backing retention without reducing useful concurrency.
+pub(crate) const REORG_CHANNEL_SIZE: usize = 1;
+
 /// Bounded channel capacity for block-assembler update notifications.
 ///
 /// The block assembler receives notifications for new block templates. 100
 /// slots is sufficient because consumers drain these quickly and stale
 /// notifications are acceptable to drop.
 pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
-
-const BLOCK_ASSEMBLER_DIRTY_PENDING: u8 = 1 << 0;
-const BLOCK_ASSEMBLER_DIRTY_PROPOSED: u8 = 1 << 1;
-const BLOCK_ASSEMBLER_DIRTY_UNCLE: u8 = 1 << 2;
 
 pub(crate) trait OneshotSender<R: fmt::Debug> {
     fn send(self, value: R) -> Result<(), R>;
@@ -261,7 +263,11 @@ pub(crate) struct RelayState {
     /// Level-triggered update journal paired with the bounded notification
     /// channel. A full channel may drop a wake edge, but it cannot erase the
     /// authoritative dirty bit consumed on the next assembler pass.
-    pub(crate) block_assembler_dirty: Arc<AtomicU8>,
+    pub(crate) block_assembler_dirty: Arc<BlockAssemblerDirtyJournal>,
+    /// Latest management reset retained independently of the bounded wake
+    /// channel. `clear_pool` writes this while still holding the pool lock, so
+    /// a later accepted transaction cannot be overwritten by an older reset.
+    pub(crate) block_assembler_reset: Arc<BlockAssemblerResetJournal>,
     pub(crate) callbacks: Arc<Callbacks>,
     /// Bounded stable-state journal. Its publisher is independent of the
     /// controller dispatcher, so a callback may synchronously re-enter the
@@ -273,37 +279,216 @@ pub(crate) struct RelayState {
     pub(crate) banned_peers: BannedPeers,
 }
 
-impl RelayState {
-    pub(crate) fn mark_block_assembler_dirty(&self, message: &BlockAssemblerMessage) {
-        let bit = match message {
-            BlockAssemblerMessage::Pending => BLOCK_ASSEMBLER_DIRTY_PENDING,
-            BlockAssemblerMessage::Proposed => BLOCK_ASSEMBLER_DIRTY_PROPOSED,
-            BlockAssemblerMessage::Uncle => BLOCK_ASSEMBLER_DIRTY_UNCLE,
-            BlockAssemblerMessage::Reset(_) => return,
-        };
-        self.block_assembler_dirty.fetch_or(bit, Ordering::Release);
+/// Generation-tagged, level-triggered template work. Consumers load without
+/// consuming and acknowledge only the exact generation they applied. A
+/// failed update therefore remains retryable, while a producer racing with an
+/// older completion cannot have its newer work erased.
+#[derive(Default)]
+pub(crate) struct BlockAssemblerDirtyJournal {
+    pending: AtomicU64,
+    proposed: AtomicU64,
+    uncle: AtomicU64,
+}
+
+#[derive(Default)]
+pub(crate) struct BlockAssemblerResetJournal {
+    state: std::sync::Mutex<BlockAssemblerResetState>,
+}
+
+#[derive(Default)]
+struct BlockAssemblerResetState {
+    next_generation: u64,
+    pending: Option<(u64, Arc<Snapshot>)>,
+}
+
+impl BlockAssemblerResetJournal {
+    fn mark(&self, snapshot: Arc<Snapshot>) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("block-assembler reset journal mutex poisoned");
+        state.next_generation = state
+            .next_generation
+            .checked_add(1)
+            .expect("block-assembler reset generation exhausted");
+        let generation = state.next_generation;
+        state.pending = Some((generation, snapshot));
     }
 
-    pub(crate) fn take_block_assembler_dirty(&self) -> Vec<BlockAssemblerMessage> {
-        let dirty = self.block_assembler_dirty.swap(0, Ordering::AcqRel);
-        let mut messages = Vec::with_capacity(3);
-        if dirty & BLOCK_ASSEMBLER_DIRTY_PENDING != 0 {
-            messages.push(BlockAssemblerMessage::Pending);
+    fn load(&self) -> Option<(u64, Arc<Snapshot>)> {
+        self.state
+            .lock()
+            .expect("block-assembler reset journal mutex poisoned")
+            .pending
+            .clone()
+    }
+
+    fn complete(&self, completed_generation: u64) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("block-assembler reset journal mutex poisoned");
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|(generation, _)| *generation == completed_generation)
+        {
+            state.pending.take();
         }
-        if dirty & BLOCK_ASSEMBLER_DIRTY_PROPOSED != 0 {
-            messages.push(BlockAssemblerMessage::Proposed);
-        }
-        if dirty & BLOCK_ASSEMBLER_DIRTY_UNCLE != 0 {
-            messages.push(BlockAssemblerMessage::Uncle);
-        }
-        messages
+    }
+
+    fn is_pending(&self) -> bool {
+        self.state
+            .lock()
+            .expect("block-assembler reset journal mutex poisoned")
+            .pending
+            .is_some()
     }
 }
 
-/// Shared set of recently banned peers (ban time per peer). Pruned
-/// opportunistically on insert.
-pub(crate) type BannedPeers =
-    Arc<std::sync::Mutex<std::collections::HashMap<ckb_network::PeerIndex, std::time::Instant>>>;
+impl BlockAssemblerDirtyJournal {
+    fn slot(&self, message: &BlockAssemblerMessage) -> Option<&AtomicU64> {
+        match message {
+            BlockAssemblerMessage::Pending => Some(&self.pending),
+            BlockAssemblerMessage::Proposed => Some(&self.proposed),
+            BlockAssemblerMessage::Uncle => Some(&self.uncle),
+            BlockAssemblerMessage::Reset => None,
+        }
+    }
+
+    fn mark(&self, message: &BlockAssemblerMessage) {
+        let Some(slot) = self.slot(message) else {
+            return;
+        };
+        slot.fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
+            generation.checked_add(1)
+        })
+        .expect("block-assembler dirty generation exhausted");
+    }
+
+    fn load(&self) -> Vec<(BlockAssemblerMessage, u64)> {
+        [
+            (BlockAssemblerMessage::Pending, &self.pending),
+            (BlockAssemblerMessage::Proposed, &self.proposed),
+            (BlockAssemblerMessage::Uncle, &self.uncle),
+        ]
+        .into_iter()
+        .filter_map(|(message, slot)| {
+            let generation = slot.load(Ordering::Acquire);
+            (generation != 0).then_some((message, generation))
+        })
+        .collect()
+    }
+
+    fn complete(&self, message: &BlockAssemblerMessage, generation: u64) {
+        if let Some(slot) = self.slot(message) {
+            // Failure means a producer installed a newer generation. Leaving
+            // that value intact is the desired level-triggered behavior.
+            let _ = slot.compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire);
+        }
+    }
+}
+
+impl RelayState {
+    pub(crate) fn mark_block_assembler_dirty(&self, message: &BlockAssemblerMessage) {
+        self.block_assembler_dirty.mark(message);
+    }
+
+    pub(crate) fn load_block_assembler_dirty(&self) -> Vec<(BlockAssemblerMessage, u64)> {
+        self.block_assembler_dirty.load()
+    }
+
+    pub(crate) fn complete_block_assembler_dirty(
+        &self,
+        message: &BlockAssemblerMessage,
+        generation: u64,
+    ) {
+        self.block_assembler_dirty.complete(message, generation);
+    }
+
+    /// A high-priority full swap may intentionally overwrite optimistic
+    /// proposal/transaction updates that completed while it was building.
+    /// Reissue both level-triggered generations after that swap so an update
+    /// acknowledged immediately before the full writer cannot be lost.
+    pub(crate) fn mark_block_assembler_full_reconcile(&self) {
+        self.block_assembler_dirty
+            .mark(&BlockAssemblerMessage::Pending);
+        self.block_assembler_dirty
+            .mark(&BlockAssemblerMessage::Proposed);
+    }
+
+    pub(crate) fn mark_block_assembler_reset(&self, snapshot: Arc<Snapshot>) {
+        self.block_assembler_reset.mark(snapshot);
+    }
+
+    /// Load the latest required reset without consuming it. The reset journal
+    /// is level-triggered authority: a failed template rebuild must leave the
+    /// snapshot available for the interval consumer's next attempt.
+    pub(crate) fn load_block_assembler_reset(&self) -> Option<(u64, Arc<Snapshot>)> {
+        self.block_assembler_reset.load()
+    }
+
+    pub(crate) fn block_assembler_reset_pending(&self) -> bool {
+        self.block_assembler_reset.is_pending()
+    }
+
+    /// Acknowledge only the exact loaded generation. Pointer identity is not
+    /// sufficient because the same snapshot Arc may be journaled again while
+    /// an earlier rebuild is off-lock.
+    pub(crate) fn complete_block_assembler_reset(&self, completed_generation: u64) {
+        self.block_assembler_reset.complete(completed_generation);
+    }
+}
+
+/// Bounded internal ban fence for controller messages and worker leases that
+/// raced with network-level peer eviction. The network service owns the
+/// durable three-day ban; tx-pool only needs enough markers to cover its
+/// bounded channel, active handlers and coordinator residents. A reconnect
+/// churn attack must not turn those transient markers into an unbounded
+/// three-day HashMap.
+pub(crate) struct BannedPeerSet {
+    entries: std::sync::Mutex<lru::LruCache<ckb_network::PeerIndex, std::time::Instant>>,
+}
+
+impl BannedPeerSet {
+    pub(crate) fn new(capacity: usize) -> Self {
+        Self {
+            entries: std::sync::Mutex::new(lru::LruCache::new(capacity.max(1))),
+        }
+    }
+
+    pub(crate) fn record(&self, peer: ckb_network::PeerIndex, duration: std::time::Duration) {
+        let expires_at = std::time::Instant::now()
+            .checked_add(duration)
+            .unwrap_or_else(std::time::Instant::now);
+        self.entries.lock().unwrap().put(peer, expires_at);
+    }
+
+    pub(crate) fn contains(&self, peer: ckb_network::PeerIndex) -> bool {
+        let mut entries = self.entries.lock().unwrap();
+        match entries.peek(&peer).copied() {
+            Some(expires_at) if expires_at > std::time::Instant::now() => true,
+            Some(_) => {
+                entries.pop(&peer);
+                false
+            }
+            None => false,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.entries.lock().unwrap().len()
+    }
+}
+
+impl Default for BannedPeerSet {
+    fn default() -> Self {
+        Self::new(DEFAULT_CHANNEL_SIZE)
+    }
+}
+
+pub(crate) type BannedPeers = Arc<BannedPeerSet>;
 
 #[derive(Clone)]
 pub(crate) struct TxPoolService {
@@ -354,7 +539,13 @@ pub(crate) enum PipelineTxLocation {
 /// Result of looking up a transaction in the tx-pool or pipeline queues.
 pub(crate) enum ResolvedTxLocation {
     /// Accepted in the main pool.
-    Pool { status: Status, entry: TxEntry },
+    Pool {
+        status: Status,
+        entry: TxEntry,
+        /// Computed under the same pool read guard as `status` and `entry`, so
+        /// one RPC response never combines metadata from different mutations.
+        min_replace_fee: Option<Capacity>,
+    },
     /// In one of the pipeline queues.
     Pipeline(PipelineTxLocation),
     /// Not found in either place; the caller should check recent rejects.
@@ -377,26 +568,21 @@ impl TxPoolService {
 
     pub async fn receive_candidate_uncle(&self, uncle: UncleBlockView) {
         if let Some(ref block_assembler) = self.block_assembler {
-            {
-                block_assembler.candidate_uncles.lock().await.insert(uncle);
-            }
-            if self
-                .relay
-                .block_assembler_sender
-                .send(BlockAssemblerMessage::Uncle)
-                .await
-                .is_err()
-            {
-                error!("block_assembler receiver dropped");
+            let inserted = block_assembler.candidate_uncles.lock().await.insert(uncle);
+            if inserted {
+                self.journal_block_assembler_message(BlockAssemblerMessage::Uncle);
             }
         }
     }
 
-    pub async fn update_block_assembler_before_tx_pool_reorg(
+    /// Rebuild mining state only after the matching pool/coordinator reorg
+    /// transaction and detached-tx recovery have completed. Publishing the
+    /// new template first exposes a future snapshot when the retained reorg
+    /// head later fails its preflight.
+    pub async fn refresh_block_assembler_after_tx_pool_reorg(
         &self,
         detached_blocks: VecDeque<BlockView>,
-        snapshot: Arc<Snapshot>,
-    ) {
+    ) -> Result<(), String> {
         if let Some(ref block_assembler) = self.block_assembler {
             {
                 let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
@@ -405,21 +591,43 @@ impl TxPoolService {
                 }
             }
 
-            if let Err(e) = block_assembler.reset_template(snapshot).await {
-                error!("block_assembler reset_template error {}", e);
+            // Consume the generation-tagged authority journal instead of the
+            // reorg handler's captured snapshot. A later clear may have won
+            // after tx-pool recovery released `recovery_lock`; applying the
+            // captured snapshot here would resurrect a stale template.
+            match crate::block_assembler::process_reset(self.clone(), false).await {
+                crate::block_assembler::ResetApply::Retry => {
+                    return Err("block assembler authoritative reset remains pending".to_string());
+                }
+                crate::block_assembler::ResetApply::Superseded => {
+                    // This reorg refresh was superseded (for example by a
+                    // later clear). The newer generation is now the sole
+                    // template authority; retrying the retained old reorg
+                    // would resurrect stale chain state.
+                    return Ok(());
+                }
+                crate::block_assembler::ResetApply::Idle
+                | crate::block_assembler::ResetApply::Applied => {}
             }
-            block_assembler.notify().await;
-        }
-    }
-
-    pub async fn update_block_assembler_after_tx_pool_reorg(&self) {
-        if let Some(ref block_assembler) = self.block_assembler {
             match block_assembler.update_full(&self.pool.tx_pool).await {
-                Ok(true) => block_assembler.notify().await,
-                Ok(false) => debug!("block_assembler update_full skipped (tip mismatch)"),
+                Ok(true) => self.journal_block_assembler_full_reconcile(),
+                Ok(false) => {
+                    if self.relay.block_assembler_reset_pending() {
+                        return Ok(());
+                    }
+                    return Err(
+                        "block assembler full rebuild observed a tx-pool tip mismatch".to_string(),
+                    );
+                }
                 Err(e) => error!("block_assembler update failed {:?}", e),
             }
+            // A reset is already a valid blank template if the full rebuild
+            // fails; publish at most once after the complete refresh attempt.
+            if !self.relay.block_assembler_reset_pending() {
+                block_assembler.notify().await;
+            }
         }
+        Ok(())
     }
 
     #[cfg(feature = "internal")]
@@ -449,9 +657,7 @@ impl TxPoolService {
                 PlugTarget::Pending => BlockAssemblerMessage::Pending,
                 PlugTarget::Proposed => BlockAssemblerMessage::Proposed,
             };
-            if self.relay.block_assembler_sender.send(msg).await.is_err() {
-                error!("block_assembler receiver dropped");
-            }
+            self.journal_block_assembler_message(msg);
         }
     }
 }

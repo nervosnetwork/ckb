@@ -322,9 +322,62 @@ fn proposal_update_keeps_highest_scored_fitting_prefix() {
     assert_eq!(total, base + 2 * id_size);
 }
 
-/// Bug #37: both full rebuilds and uncle-only refreshes must participate in
-/// the same serialization domain. Otherwise a full rebuild can read the old
-/// uncle set, race an uncle refresh, and unconditionally swap the old set back.
+#[test]
+fn uncle_update_keeps_ordered_fitting_prefix_with_checked_accounting() {
+    let uncles: Vec<_> = (0..3)
+        .map(|timestamp| {
+            BlockBuilder::default()
+                .timestamp(timestamp)
+                .build()
+                .as_uncle()
+        })
+        .collect();
+    let one_uncle = super::BlockAssembler::uncle_size(&uncles[0]);
+    let base = 1_000;
+    let size = super::TemplateSize {
+        txs: 0,
+        proposals: 0,
+        uncles: 0,
+        total: base,
+    };
+
+    let mut exact = uncles.clone();
+    let (uncle_bytes, total) =
+        super::BlockAssembler::fit_uncle_prefix(&mut exact, size, base + 2 * one_uncle)
+            .expect("base template fits");
+    assert_eq!(exact, uncles[..2]);
+    assert_eq!(uncle_bytes, 2 * one_uncle);
+    assert_eq!(total, base + 2 * one_uncle);
+
+    let mut partial = uncles.clone();
+    let (uncle_bytes, total) =
+        super::BlockAssembler::fit_uncle_prefix(&mut partial, size, base + one_uncle)
+            .expect("base template fits");
+    assert_eq!(partial, uncles[..1]);
+    assert_eq!(uncle_bytes, one_uncle);
+    assert_eq!(total, base + one_uncle);
+
+    let mut none = uncles.clone();
+    let (uncle_bytes, total) =
+        super::BlockAssembler::fit_uncle_prefix(&mut none, size, base + one_uncle - 1)
+            .expect("base template still fits");
+    assert!(none.is_empty());
+    assert_eq!(uncle_bytes, 0);
+    assert_eq!(total, base);
+
+    let corrupt = super::TemplateSize {
+        uncles: base + 1,
+        ..size
+    };
+    assert!(
+        super::BlockAssembler::fit_uncle_prefix(&mut uncles.clone(), corrupt, usize::MAX).is_none(),
+        "an internally inconsistent size ledger must not saturate into a valid update"
+    );
+}
+
+/// Bug #37: full rebuilds and uncle-only refreshes participate in the same
+/// serialization domain because a full rebuild carries its uncle state
+/// forward. Proposal/transaction updates deliberately remain optimistic.
 #[tokio::test]
 async fn full_and_uncle_updates_share_template_serialization_lock() {
     use crate::pool::TxPool;
@@ -421,7 +474,6 @@ async fn full_and_uncle_updates_share_template_serialization_lock() {
         !uncle.is_finished(),
         "uncle update must wait for the same template_lock"
     );
-
     full.abort();
     uncle.abort();
     drop(guard);

@@ -1,14 +1,20 @@
-use super::component::TxEntry;
+use super::component::entry::TxEntrySnapshot;
 use crate::error::Reject;
 use ckb_logger::error;
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 thread_local! {
-    /// Callbacks are synchronous, so a thread-local depth guard accurately
-    /// marks their complete execution interval even when the Tokio task may
-    /// migrate at later await points. Controller mutations use this to fail
-    /// fast instead of forming publisher/recovery/effect-capacity cycles.
+    /// The sole effect publisher invokes callbacks synchronously. Mutating
+    /// controller calls made directly by that callback would wait for effects
+    /// whose FIFO publisher is the current stack, so they must fail fast.
+    ///
+    /// This context is deliberately thread-local. A process-wide marker makes
+    /// unrelated chain/RPC threads look re-entrant and can reject an
+    /// authoritative reorg merely because a notification callback overlaps
+    /// it. Callback ancestry cannot safely be inferred across arbitrary
+    /// threads; callers that spawn helper threads must not synchronously join
+    /// helpers which re-enter a mutating controller operation.
     static CALLBACK_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -16,7 +22,14 @@ struct CallbackContextGuard;
 
 impl CallbackContextGuard {
     fn enter() -> Self {
-        CALLBACK_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        CALLBACK_DEPTH.with(|depth| {
+            depth.set(
+                depth
+                    .get()
+                    .checked_add(1)
+                    .expect("callback nesting count cannot overflow"),
+            );
+        });
         Self
     }
 }
@@ -24,12 +37,9 @@ impl CallbackContextGuard {
 impl Drop for CallbackContextGuard {
     fn drop(&mut self) {
         CALLBACK_DEPTH.with(|depth| {
-            depth.set(
-                depth
-                    .get()
-                    .checked_sub(1)
-                    .expect("callback context depth is balanced"),
-            )
+            let previous = depth.get();
+            assert_ne!(previous, 0, "callback context depth is balanced");
+            depth.set(previous - 1);
         });
     }
 }
@@ -56,12 +66,16 @@ fn call_guarded(name: &'static str, call: impl FnOnce()) {
     }
 }
 
-/// Callback boxed fn pointer wrapper
-pub type PendingCallback = Box<dyn Fn(&TxEntry) + Sync + Send>;
-/// Proposed Callback boxed fn pointer wrapper
-pub type ProposedCallback = Box<dyn Fn(&TxEntry) + Sync + Send>;
-/// Reject Callback boxed fn pointer wrapper
-pub type RejectCallback = Box<dyn Fn(&TxEntry, Reject) + Sync + Send>;
+/// Callback boxed fn pointer wrapper.
+///
+/// Callbacks receive a stable accounting snapshot rather than the full
+/// resolved transaction, so deferred publication never pins resolved cell
+/// metadata after pool ownership ends.
+pub type PendingCallback = Box<dyn Fn(&TxEntrySnapshot) + Sync + Send>;
+/// Proposed callback boxed fn pointer wrapper.
+pub type ProposedCallback = Box<dyn Fn(&TxEntrySnapshot) + Sync + Send>;
+/// Reject callback boxed fn pointer wrapper.
+pub type RejectCallback = Box<dyn Fn(&TxEntrySnapshot, Reject) + Sync + Send>;
 
 /// Struct hold callbacks
 pub struct Callbacks {
@@ -71,9 +85,9 @@ pub struct Callbacks {
 }
 
 pub(crate) enum CallbackEvent {
-    Pending(TxEntry),
-    Proposed(TxEntry),
-    Reject(TxEntry, Reject),
+    Pending(TxEntrySnapshot),
+    Proposed(TxEntrySnapshot),
+    Reject(TxEntrySnapshot, Reject),
 }
 
 impl Default for Callbacks {
@@ -120,19 +134,19 @@ impl Callbacks {
         }
     }
 
-    fn call_pending_now(&self, entry: &TxEntry) {
+    fn call_pending_now(&self, entry: &TxEntrySnapshot) {
         if let Some(call) = &self.pending {
             call_guarded("pending", || call(entry));
         }
     }
 
-    fn call_proposed_now(&self, entry: &TxEntry) {
+    fn call_proposed_now(&self, entry: &TxEntrySnapshot) {
         if let Some(call) = &self.proposed {
             call_guarded("proposed", || call(entry));
         }
     }
 
-    fn call_reject_now(&self, entry: &TxEntry, reject: Reject) {
+    fn call_reject_now(&self, entry: &TxEntrySnapshot, reject: Reject) {
         if let Some(call) = &self.reject {
             call_guarded("reject", || call(entry, reject));
         }
@@ -179,7 +193,7 @@ mod tests {
             0,
         );
 
-        callbacks.publish(&super::CallbackEvent::Pending(entry));
+        callbacks.publish(&super::CallbackEvent::Pending(entry.into()));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
@@ -188,6 +202,12 @@ mod tests {
         assert!(!in_callback());
         call_guarded("outer", || {
             assert!(in_callback());
+            // Unrelated threads must never inherit callback ancestry: chain
+            // reorg delivery and ordinary RPC traffic remain authoritative
+            // while this callback is running.
+            std::thread::spawn(|| assert!(!in_callback()))
+                .join()
+                .unwrap();
             call_guarded("inner", || assert!(in_callback()));
             assert!(in_callback());
             panic!("injected callback panic");

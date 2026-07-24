@@ -1,14 +1,14 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
 use crate::component::conflict_cache::ConflictCache;
-use crate::component::pool_map::{PoolEntry, PoolMap, RemovedPoolEntry, Status};
+use crate::component::pool_map::{PoolEntry, PoolMap, PoolMapAddOutcome, RemovedPoolEntry, Status};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
 use crate::tx_source::TxSource;
 use ckb_app_config::TxPoolConfig;
 use ckb_fee_estimator::Error as FeeEstimatorError;
-use ckb_logger::{debug, error, warn};
+use ckb_logger::{debug, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, FeeRate};
@@ -65,6 +65,11 @@ pub struct TxPool {
     /// Production builds have neither the field nor the branch.
     #[cfg(test)]
     pub(crate) fail_next_status_transition: bool,
+    /// One-shot panic injection at the final pool commit boundary. Production
+    /// has no corresponding branch; this proves the service-wide fail-close
+    /// guard rather than a coordinator-only unit transition.
+    #[cfg(test)]
+    pub(crate) fail_next_pool_commit_panic: bool,
 }
 
 impl TxPool {
@@ -81,6 +86,8 @@ impl TxPool {
             onchain_reconcile_done: false,
             #[cfg(test)]
             fail_next_status_transition: false,
+            #[cfg(test)]
+            fail_next_pool_commit_panic: false,
         }
     }
 
@@ -125,23 +132,17 @@ impl TxPool {
 
     /// Add tx with pending status
     /// If did have this value present, false is returned.
-    pub(crate) fn add_pending(
-        &mut self,
-        entry: TxEntry,
-    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
+    pub(crate) fn add_pending(&mut self, entry: TxEntry) -> Result<PoolMapAddOutcome, Reject> {
         self.pool_map.add_entry(entry, Status::Pending)
     }
 
     /// Add tx which proposed but still uncommittable to gap
-    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<(bool, HashSet<TxEntry>), Reject> {
+    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<PoolMapAddOutcome, Reject> {
         self.pool_map.add_entry(entry, Status::Gap)
     }
 
     /// Add tx with proposed status
-    pub(crate) fn add_proposed(
-        &mut self,
-        entry: TxEntry,
-    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
+    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<PoolMapAddOutcome, Reject> {
         self.pool_map.add_entry(entry, Status::Proposed)
     }
 
@@ -151,8 +152,32 @@ impl TxPool {
     }
 
     pub(crate) fn record_conflict(&mut self, tx: TransactionView, source: TxSource) {
+        self.record_conflict_with_release(tx, source, None);
+    }
+
+    pub(crate) fn record_conflict_for_release(
+        &mut self,
+        tx: TransactionView,
+        source: TxSource,
+        release_event: Arc<crate::component::conflict_cache::ConflictReleaseEvent>,
+    ) {
+        self.record_conflict_with_release(tx, source, Some(release_event));
+    }
+
+    fn record_conflict_with_release(
+        &mut self,
+        tx: TransactionView,
+        source: TxSource,
+        release_event: Option<Arc<crate::component::conflict_cache::ConflictReleaseEvent>>,
+    ) {
         let short_id = tx.proposal_short_id();
-        let (_added, evicted) = self.conflict_cache.insert(tx, source);
+        let (_added, evicted) = match release_event {
+            Some(release_event) => {
+                self.conflict_cache
+                    .insert_for_release(tx, source, Some(release_event))
+            }
+            None => self.conflict_cache.insert(tx, source),
+        };
         if !evicted.is_empty() {
             // Budget-pressure evictions are otherwise silent: a recoverable
             // transaction disappearing without a trace makes recovery
@@ -171,11 +196,11 @@ impl TxPool {
     }
 
     #[cfg(test)]
-    pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) -> bool {
-        let removed = self.conflict_cache.remove(short_id).is_some();
+    pub(crate) fn remove_conflict(&mut self, hash: &Byte32) -> bool {
+        let removed = self.conflict_cache.remove(hash).is_some();
         debug!(
             "remove_conflict {:?} now room size: {}",
-            short_id,
+            hash,
             self.conflict_cache.len()
         );
         removed
@@ -196,6 +221,7 @@ impl TxPool {
     /// must not come back: it would be rejected again and, with both
     /// conflicting txs cached, can trigger an infinite recover/reject loop
     /// (RBF cycling).
+    #[cfg(test)]
     pub(crate) fn get_conflicted_txs_from_inputs(
         &self,
         inputs: impl Iterator<Item = OutPoint>,
@@ -205,21 +231,57 @@ impl TxPool {
         })
     }
 
-    /// Mark fully unblocked historical candidates for an atomic
-    /// cache→coordinator ownership transfer. Scheduling stays inside the
-    /// pool mutation that freed the inputs; actual admission is drained in
-    /// bounded maintenance slices without cloning an executable second owner.
+    /// Register freed inputs for bounded discovery. The pool mutation never
+    /// walks the conflict-cache fan-out; maintenance probes candidates and
+    /// performs the later cache→coordinator transfer in separate slices.
     pub(crate) fn schedule_conflicted_txs_from_inputs(
         &mut self,
         inputs: impl Iterator<Item = OutPoint>,
     ) -> usize {
-        let pool_map = &self.pool_map;
         self.conflict_cache
-            .schedule_recoverable_by_inputs(inputs, |tx| {
-                pool_map.find_conflict_outpoint(tx).is_none()
-            })
+            .schedule_discovery_by_inputs(inputs, None)
     }
 
+    /// Project physical pool removals onto the active chain's semantic
+    /// availability delta. Removing a stale overlay for a transaction that is
+    /// already committed does not free any of that transaction's inputs: the
+    /// chain still consumes them. Keeping this projection beside the pool
+    /// snapshot prevents each removal path (RBF, reorg and administration)
+    /// from independently getting that distinction wrong.
+    pub(crate) fn released_inputs_from_removed_entries<'a>(
+        &self,
+        removed: impl IntoIterator<Item = &'a TxEntry>,
+    ) -> Vec<OutPoint> {
+        removed
+            .into_iter()
+            .filter(|entry| {
+                !self
+                    .snapshot
+                    .transaction_exists(&entry.transaction().hash())
+            })
+            .flat_map(|entry| entry.transaction().input_pts_iter())
+            .collect()
+    }
+
+    pub(crate) fn schedule_conflicted_txs_from_inputs_for_release(
+        &mut self,
+        inputs: impl Iterator<Item = OutPoint>,
+        release_event: Arc<crate::component::conflict_cache::ConflictReleaseEvent>,
+    ) -> usize {
+        self.conflict_cache
+            .schedule_discovery_by_inputs(inputs, Some(release_event))
+    }
+
+    pub(crate) fn discover_conflicted_txs(
+        &mut self,
+        limit: usize,
+    ) -> crate::component::conflict_cache::ConflictDiscoveryProgress {
+        let pool_map = &self.pool_map;
+        self.conflict_cache
+            .discover_recoverable(limit, |tx| pool_map.find_conflict_outpoint(tx).is_none())
+    }
+
+    #[cfg(test)]
     pub(crate) fn schedule_conflict_candidates(
         &mut self,
         hashes: impl Iterator<Item = Byte32>,
@@ -241,6 +303,18 @@ impl TxPool {
 
     pub(crate) fn conflict_recovery_len(&self) -> usize {
         self.conflict_cache.recovery_len()
+    }
+
+    pub(crate) fn conflict_discovery_len(&self) -> usize {
+        self.conflict_cache.discovery_len()
+    }
+
+    /// Level-triggered predicate for cache-owned maintenance. Registration
+    /// can coalesce into an already-live discovery cursor and therefore add
+    /// zero new tickets; callers must still issue a wake whenever work is
+    /// present rather than interpreting the registration count as authority.
+    pub(crate) fn conflict_maintenance_pending(&self) -> bool {
+        self.conflict_recovery_len() != 0 || self.conflict_discovery_len() != 0
     }
 
     pub(crate) fn clear_conflict_recovery_schedule(&mut self) {
@@ -267,6 +341,14 @@ impl TxPool {
             .map(|entry| entry.inner.transaction())
     }
 
+    /// Return an accepted transaction only when the complete raw hash
+    /// matches. Proposal short IDs are lookup accelerators, never identity.
+    pub(crate) fn get_tx_from_pool_by_hash(&self, hash: &Byte32) -> Option<&TransactionView> {
+        self.pool_map
+            .get_by_hash(hash)
+            .map(|entry| entry.inner.transaction())
+    }
+
     pub(crate) fn remove_committed_txs<'a>(
         &mut self,
         txs: impl Iterator<Item = &'a TransactionView>,
@@ -274,12 +356,15 @@ impl TxPool {
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
         for tx in txs {
-            let tx_hash = tx.hash();
+            // Attached-block accessors are views into the whole block. This
+            // LRU outlives reorg processing, so materialize both cached values
+            // before a 10/32-byte key retains an entire block allocation.
+            let tx_hash = crate::util::compact_packed(&tx.hash());
+            let short_id = crate::util::compact_packed(&tx.proposal_short_id());
             debug!("try remove_committed_tx {}", tx_hash);
             self.remove_committed_tx(tx, reject_events);
 
-            self.committed_txs_hash_cache
-                .put(tx.proposal_short_id(), tx_hash);
+            self.committed_txs_hash_cache.put(short_id, tx_hash);
         }
 
         if !detached_headers.is_empty() {
@@ -303,10 +388,7 @@ impl TxPool {
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
         let short_id = tx.proposal_short_id();
-        let exact_resident = self
-            .pool_map
-            .get_by_id(&short_id)
-            .is_some_and(|entry| entry.inner.transaction().hash() == tx.hash());
+        let exact_resident = self.pool_map.get_by_hash(&tx.hash()).is_some();
         if exact_resident && self.pool_map.remove_entry(&short_id).is_some() {
             debug!("remove_committed_tx for {}", tx.hash());
         }
@@ -366,9 +448,9 @@ impl TxPool {
     /// Two passes:
     ///   1. entries whose transaction is already committed on-chain
     ///      (children are kept: their inputs resolve on-chain);
-    ///   2. zombies whose inputs are neither produced in-pool nor live
-    ///      on-chain (their parents died in the skipped window, e.g. the
-    ///      parent's output was spent by another on-chain transaction).
+    ///   2. zombies whose inputs/cell deps are neither produced in-pool nor
+    ///      live on-chain, or whose header deps are no longer on the active
+    ///      main chain (their dependencies changed in the skipped window).
     ///      Zombie removal cascades to descendants, which cannot resolve
     ///      either.
     pub(crate) fn remove_onchain_entries(&mut self) -> Vec<TxEntry> {
@@ -398,14 +480,12 @@ impl TxPool {
                 // live on-chain. The pool-side check goes through `entries`
                 // (the authoritative set), not `links`.
                 let input_dead = inputs.iter().any(|out_point| {
-                    let parent_in_pool = self
-                        .pool_map
-                        .get_by_id(&ProposalShortId::from_tx_hash(&out_point.tx_hash()))
-                        .is_some_and(|parent| {
-                            parent.inner.transaction().hash() == out_point.tx_hash()
-                        });
+                    let parent_in_pool = self.pool_map.get_by_hash(&out_point.tx_hash()).is_some();
                     !parent_in_pool && self.snapshot.get_cell(out_point).is_none()
                 });
+                let header_dead = tx
+                    .header_deps_iter()
+                    .any(|header| !self.snapshot.is_main_chain(&header));
                 input_dead
                     || entry.inner.related_dep_out_points().any(|dep| {
                         // A dep that is also an input of this same tx is
@@ -414,14 +494,10 @@ impl TxPool {
                         if inputs.contains(dep) {
                             return false;
                         }
-                        let producer_in_pool = self
-                            .pool_map
-                            .get_by_id(&ProposalShortId::from_tx_hash(&dep.tx_hash()))
-                            .is_some_and(|producer| {
-                                producer.inner.transaction().hash() == dep.tx_hash()
-                            });
+                        let producer_in_pool = self.pool_map.get_by_hash(&dep.tx_hash()).is_some();
                         !producer_in_pool && self.snapshot.get_cell(dep).is_none()
                     })
+                    || header_dead
             })
             .map(|entry| entry.id.clone())
             .collect();
@@ -431,7 +507,8 @@ impl TxPool {
         removed
     }
 
-    // Remove transactions from the pool until total size <= size_limit.
+    // Remove transactions until both serialized and resolved-residency
+    // budgets are satisfied.
     // Return a `Reject` for current inserting entry if it's removed
     pub(crate) fn limit_size(
         &mut self,
@@ -461,7 +538,11 @@ impl TxPool {
         mut removal_journal: Option<&mut Vec<RemovedPoolEntry>>,
     ) -> Option<Reject> {
         let mut ret = None;
-        while self.pool_map.stats.total_tx_size.get() > self.config.max_tx_pool_size {
+        let resident_limit = self.config.tx_pool_resident_size_budget();
+        let mut repaired_counters = false;
+        while self.pool_map.stats.total_tx_size > self.config.max_tx_pool_size
+            || self.pool_map.stats.total_tx_resident_size > resident_limit
+        {
             let next_evict_entry = || {
                 self.pool_map
                     .next_evict_entry(Status::Pending)
@@ -497,17 +578,18 @@ impl TxPool {
                     reject_events.push((entry, reject));
                 }
             } else {
-                // Defensive: with consistent stats this is unreachable (the
-                // candidate scan above covers every status variant, so a
-                // non-empty pool always yields one). If the size counter
-                // ever drifts from the entry set, log and break instead of
-                // spinning forever while holding the tx-pool write lock.
-                error!(
-                    "tx-pool size counter {} exceeds limit {} but no evictable entry exists; breaking eviction loop",
-                    self.pool_map.stats.total_tx_size.get(),
-                    self.config.max_tx_pool_size,
+                // The status index covers every entry, so an empty eviction
+                // scan can only mean cached totals drifted (typically high)
+                // or the multi-index itself is corrupt. Rebuild once from the
+                // authoritative entries. Silently returning over budget would
+                // turn an invariant failure into an attacker-retainable state.
+                assert!(
+                    !repaired_counters,
+                    "tx-pool remains over capacity after authoritative counter repair"
                 );
-                break;
+                self.pool_map
+                    .repair_total_statistics("limit_size_without_candidate");
+                repaired_counters = true;
             }
         }
         ret
@@ -521,53 +603,58 @@ impl TxPool {
         notify_events: &mut Vec<(TxEntry, Status)>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
+        // Remove the complete union before re-adding anything. Re-adding
+        // after each root lets overlapping detached roots process the same
+        // descendant repeatedly (a chain of N detached proposal IDs can
+        // otherwise generate O(N^2) pool mutations and notifications).
+        let mut entries = Vec::new();
         for id in ids {
             if let Some(e) = self.pool_map.get_by_id(id) {
                 let status = e.status;
                 if status == Status::Pending {
                     continue;
                 }
-                let mut entries = self.pool_map.remove_entry_and_descendants(id);
-                entries.sort_unstable_by_key(|entry| entry.ancestors_count);
-                for mut entry in entries {
-                    let tx_hash = entry.transaction().hash();
-                    entry.reset_statistic_state();
-                    let ret = self.add_pending(entry.clone());
-                    match ret {
-                        Ok((true, ref evicted)) => {
-                            // Re-pending notifications are collected and
-                            // dispatched by the caller outside the write
-                            // lock (user callbacks must not run in-lock).
-                            notify_events.push((entry.clone(), Status::Pending));
-                            for evict in evicted {
-                                let reject = reject_full_for_evicted(evict);
-                                reject_events.push((evict.clone(), reject));
-                            }
-                        }
-                        Ok((false, _)) => {} // duplicate
-                        Err(ref reject) => {
-                            // The add failed *after* the cell-ref escape
-                            // hatch may have evicted pool entries (journaled
-                            // in `evicted_journal`). Those entries must not
-                            // be lost silently: park them in the conflicts
-                            // cache so the normal conflict-recovery path can
-                            // bring them back once their inputs are free
-                            // (same policy as `process_rbf`).
-                            for evicted in std::mem::take(&mut self.pool_map.evicted_journal) {
-                                self.record_conflict(
-                                    evicted.entry.transaction().clone(),
-                                    TxSource::Local,
-                                );
-                            }
-                            reject_events.push((entry.clone(), reject.clone()));
-                        }
+                entries.extend(self.pool_map.remove_entry_and_descendants(id));
+            }
+        }
+
+        // The captured ancestor counts describe the pre-removal DAG. Parent-
+        // first replay reconstructs it while every entry is handled exactly
+        // once, independent of detached-ID iteration order.
+        entries.sort_unstable_by_key(|entry| entry.ancestors_count);
+        for mut entry in entries {
+            let tx_hash = entry.transaction().hash();
+            entry.reset_statistic_state();
+            match self.add_pending(entry.clone()) {
+                Ok(PoolMapAddOutcome {
+                    inserted: true,
+                    evicted,
+                }) => {
+                    // Re-pending notifications are collected and dispatched
+                    // by the caller outside the write lock (user callbacks
+                    // must not run in-lock).
+                    notify_events.push((entry.clone(), Status::Pending));
+                    for removed in evicted {
+                        let evict = removed.entry;
+                        let reject = reject_full_for_evicted(&evict);
+                        reject_events.push((evict, reject));
                     }
-                    debug!(
-                        "remove_by_detached_proposal from {:?} {} add_pending {:?}",
-                        status, tx_hash, ret
-                    );
+                }
+                Ok(PoolMapAddOutcome {
+                    inserted: false, ..
+                }) => {
+                    panic!(
+                        "detached-proposal replay found an impossible duplicate short-id owner for {tx_hash}"
+                    )
+                }
+                Err(reject) => {
+                    // PoolMap restores its exact local escape-hatch cohort
+                    // before returning this error, so this caller only owns
+                    // the replay entry's rejection.
+                    reject_events.push((entry.clone(), reject.clone()));
                 }
             }
+            debug!("remove_by_detached_proposal {} replayed", tx_hash);
         }
     }
 
@@ -598,46 +685,36 @@ impl TxPool {
             .map_err(Reject::Resolve)
     }
 
-    pub(crate) fn transition_to_status(
-        &mut self,
-        short_id: &ProposalShortId,
-        target: Status,
-    ) -> Result<(), Reject> {
+    /// Run the only fallible reorg status hook before snapshot or membership
+    /// mutation. Production status plans are derived and applied under one
+    /// write lock, so a later failure would be an internal invariant rather
+    /// than a retryable transaction outcome.
+    pub(crate) fn preflight_reorg_status_transitions(&mut self) -> Result<(), Reject> {
         #[cfg(test)]
         if std::mem::take(&mut self.fail_next_status_transition) {
             return Err(Reject::Malformed(
                 "injected status transition failure".to_string(),
-                format!("target={target:?}"),
+                "before reorg mutation".to_string(),
             ));
         }
-        match self.get_pool_entry(short_id) {
-            Some(entry) => {
-                let tx_hash = entry.inner.transaction().hash();
-                if entry.status == target {
-                    Err(Reject::Duplicated(tx_hash))
-                } else {
-                    debug!("transition_to_status: {:?} => {:?}", tx_hash, short_id);
-                    self.pool_map.set_entry(short_id, target);
-                    Ok(())
-                }
-            }
-            None => Err(Reject::Malformed(
-                String::from("invalid short_id"),
-                Default::default(),
-            )),
-        }
+        Ok(())
     }
 
-    pub(crate) fn pending_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
-        self.transition_to_status(short_id, Status::Pending)
-    }
-
-    pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
-        self.transition_to_status(short_id, Status::Gap)
-    }
-
-    pub(crate) fn proposed_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
-        self.transition_to_status(short_id, Status::Proposed)
+    pub(crate) fn transition_to_status_required(
+        &mut self,
+        short_id: &ProposalShortId,
+        target: Status,
+    ) {
+        let entry = self
+            .get_pool_entry(short_id)
+            .expect("reorg status plan references a live pool entry");
+        let tx_hash = entry.inner.transaction().hash();
+        assert_ne!(
+            entry.status, target,
+            "reorg status plan contains a redundant transition for {tx_hash}"
+        );
+        debug!("transition_to_status: {:?} => {:?}", tx_hash, target);
+        self.pool_map.set_entry(short_id, target);
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.
@@ -648,24 +725,6 @@ impl TxPool {
         exclusion: &HashSet<ProposalShortId>,
     ) -> HashSet<ProposalShortId> {
         self.pool_map.get_proposals(limit, exclusion)
-    }
-
-    /// Returns tx from tx-pool or storage corresponding to the id.
-    ///
-    /// In addition to the in-pool transactions, this also consults a small cache
-    /// of recently committed transaction hashes so that compact blocks can
-    /// retrieve transactions that were just removed from the pool.  Replaced /
-    /// conflicted transactions are intentionally *not* returned: they are no
-    /// longer valid and must not be used to reconstruct a block.
-    pub(crate) fn get_tx_from_pool_or_store(
-        &self,
-        proposal_id: &ProposalShortId,
-    ) -> Option<TransactionView> {
-        self.get_tx_from_pool(proposal_id).cloned().or_else(|| {
-            self.committed_txs_hash_cache
-                .peek(proposal_id)
-                .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
-        })
     }
 
     pub(crate) fn get_ids(&self) -> TxPoolIds {

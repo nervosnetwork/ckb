@@ -17,6 +17,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use ckb_verification::cache::TxVerificationCacheKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -84,13 +85,15 @@ pub(crate) enum BlockAssemblerMessage {
     Pending,
     Proposed,
     Uncle,
-    Reset(Arc<Snapshot>),
+    /// Wake token for the latest reset snapshot retained in `RelayState`.
+    /// Snapshot authority never travels through the bounded channel.
+    Reset,
 }
 
 /// Best-effort verification-cache update. Dropping one only causes a later
 /// re-verification; executable transaction recovery is owned separately by
 /// the level-triggered conflict-cache maintenance path.
 pub(crate) struct VerifyCacheUpdate {
-    pub(crate) wtx_hash: Byte32,
+    pub(crate) key: TxVerificationCacheKey,
     pub(crate) verified: ckb_verification::cache::Completed,
 }

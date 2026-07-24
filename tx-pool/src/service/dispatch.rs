@@ -175,18 +175,18 @@ impl TxPoolService {
 
     /// Look up a transaction in the main pool or in the in-flight pipeline.
     async fn resolve_tx_location(&self, hash: &Byte32) -> ResolvedTxLocation {
-        let id = ProposalShortId::from_tx_hash(hash);
         let (pool_entry, coordinator_location) = {
             let tx_pool = self.pool.tx_pool.read().await;
-            let pool_entry = tx_pool
-                .pool_map
-                .get_by_id(&id)
-                .filter(|entry| entry.inner.transaction().hash() == *hash)
-                .map(|entry| {
-                    let status = entry.status;
-                    let entry = entry.inner.clone();
-                    (status, entry)
-                });
+            let pool_entry = tx_pool.pool_map.get_by_hash(hash).map(|entry| {
+                let status = entry.status;
+                let entry = entry.inner.clone();
+                let min_replace_fee = if status == Status::Proposed {
+                    None
+                } else {
+                    tx_pool.min_replace_fee(&entry)
+                };
+                (status, entry, min_replace_fee)
+            });
             let coordinator_location = if pool_entry.is_none() {
                 // Universal nested order: TxPool -> coordinator. A successful
                 // commit cannot be invisible between the two authorities.
@@ -196,8 +196,12 @@ impl TxPoolService {
             };
             (pool_entry, coordinator_location)
         };
-        if let Some((status, entry)) = pool_entry {
-            return ResolvedTxLocation::Pool { status, entry };
+        if let Some((status, entry, min_replace_fee)) = pool_entry {
+            return ResolvedTxLocation::Pool {
+                status,
+                entry,
+                min_replace_fee,
+            };
         }
         if let Some(location) = coordinator_location {
             return ResolvedTxLocation::Pipeline(location);
@@ -211,7 +215,7 @@ impl TxPoolService {
             arguments: hash,
         } = req;
         let ret = match self.resolve_tx_location(&hash).await {
-            ResolvedTxLocation::Pool { status, entry } => {
+            ResolvedTxLocation::Pool { status, entry, .. } => {
                 Ok((map_pool_status(status), Some(entry.cycles)))
             }
             ResolvedTxLocation::Pipeline(_) => Ok((TxStatus::Pending, None)),
@@ -236,24 +240,18 @@ impl TxPoolService {
             arguments: hash,
         } = req;
         let ret = match self.resolve_tx_location(&hash).await {
-            ResolvedTxLocation::Pool { status, entry } => {
-                let min_replace_fee = {
-                    let tx_pool = self.pool.tx_pool.read().await;
-                    if status == Status::Proposed {
-                        None
-                    } else {
-                        tx_pool.min_replace_fee(&entry)
-                    }
-                };
-                Ok(TransactionWithStatus::with_status(
-                    Some(entry.transaction().clone()),
-                    entry.cycles,
-                    entry.timestamp,
-                    map_pool_status(status),
-                    Some(entry.fee),
-                    min_replace_fee,
-                ))
-            }
+            ResolvedTxLocation::Pool {
+                status,
+                entry,
+                min_replace_fee,
+            } => Ok(TransactionWithStatus::with_status(
+                Some(entry.transaction().clone()),
+                entry.cycles,
+                entry.timestamp,
+                map_pool_status(status),
+                Some(entry.fee),
+                min_replace_fee,
+            )),
             ResolvedTxLocation::Pipeline(location) => {
                 let (tx, tx_status, cycles, fee) = match location {
                     PipelineTxLocation::PreChecking { tx } => (tx, TxStatus::Pending, None, None),
@@ -350,9 +348,7 @@ impl TxPoolService {
         } = req;
         let tx_pool = self.pool.tx_pool.read().await;
         let id = ProposalShortId::from_tx_hash(&tx_hash);
-        let exact = tx_pool
-            .get_tx_from_pool(&id)
-            .is_some_and(|tx| tx.hash() == tx_hash);
+        let exact = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
         let tx_details = exact
             .then(|| tx_pool.get_tx_detail(&id))
             .flatten()
@@ -457,8 +453,8 @@ impl TxPoolService {
                 tip_header.number(),
                 tx_pool.pool_map.pending_size(),
                 tx_pool.pool_map.proposed_size(),
-                tx_pool.pool_map.stats.total_tx_size.get(),
-                tx_pool.pool_map.stats.total_tx_cycles.get(),
+                tx_pool.pool_map.stats.total_tx_size,
+                tx_pool.pool_map.stats.total_tx_cycles,
                 tx_pool.pool_map.get_max_update_time(),
             )
         };

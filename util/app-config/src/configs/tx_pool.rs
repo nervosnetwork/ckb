@@ -27,6 +27,14 @@ pub fn default_verify_ordering() -> VerifyOrdering {
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_tx_pool_size> mb
     pub max_tx_pool_size: usize,
+    /// Maximum conservative resident-byte charge of accepted pool entries.
+    ///
+    /// Unlike `max_tx_pool_size`, this includes resolved input/cell-dep
+    /// metadata and eagerly loaded dep-group data. Keeping the limits
+    /// separate preserves the public serialized-size semantics while
+    /// bounding transactions whose dependency expansion is much larger than
+    /// their wire representation.
+    pub max_tx_pool_resident_size: usize,
     /// txs with lower fee rate than this will not be relayed or be mined
     #[serde(with = "FeeRateDef")]
     pub min_fee_rate: FeeRate,
@@ -59,28 +67,29 @@ pub struct TxPoolConfig {
     /// Verify queue ordering strategy: arrival_time (FIFO) or fee_rate.
     #[serde(default = "default_verify_ordering")]
     pub verify_ordering: VerifyOrdering,
-    /// Max total serialized size (in bytes) of transactions queued in the
-    /// verify queue.
+    /// Maximum conservative resident-byte charge of the complete pre-pool
+    /// pipeline.
     ///
-    /// The verify queue is the slowest tx-pool pipeline stage (VM execution)
-    /// and the one whose entries carry the most completed work, so it gets a
-    /// larger budget than the other pipeline queues. The effective budget is
-    /// clamped up to `max_tx_pool_size` (see
-    /// [`TxPoolConfig::verify_queue_tx_size_budget`]): the pool itself may
-    /// hold that much, and bursts plus reload churn should not squeeze the
-    /// queue below it. (Reload itself goes through the direct sync path and
-    /// does not pass through this queue; the clamp is headroom, not a
-    /// reload requirement.) Note the queue is "full" at
-    /// `total + add >= budget`, i.e. the budget minus one byte effectively.
-    pub max_verify_queue_tx_size: usize,
+    /// The unified coordinator owns raw, dependency-waiting, resolved,
+    /// verifying, conflict-waiting, and commit-ready entries under one global
+    /// budget. Charges include expanded resolved-cell data and lifecycle/index
+    /// metadata, not only serialized transaction bytes.
+    pub max_tx_pipeline_resident_size: usize,
 }
 
 impl TxPoolConfig {
-    /// Effective verify-queue budget in bytes: `max_verify_queue_tx_size`
-    /// clamped up to `max_tx_pool_size` (headroom so bursts and reload
-    /// churn cannot squeeze the queue below the pool's own capacity).
-    pub fn verify_queue_tx_size_budget(&self) -> usize {
-        self.max_verify_queue_tx_size.max(self.max_tx_pool_size)
+    /// Effective accepted-pool residency budget, clamped to the serialized
+    /// transaction budget so ordinary pool capacity is never configured
+    /// below `max_tx_pool_size` accidentally.
+    pub fn tx_pool_resident_size_budget(&self) -> usize {
+        self.max_tx_pool_resident_size.max(self.max_tx_pool_size)
+    }
+
+    /// Configured pre-pool residency budget. Runtime construction validates
+    /// that it can hold at least one conservatively charged entry instead of
+    /// silently turning zero into a different configuration.
+    pub fn tx_pipeline_resident_size_budget(&self) -> usize {
+        self.max_tx_pipeline_resident_size
     }
 }
 

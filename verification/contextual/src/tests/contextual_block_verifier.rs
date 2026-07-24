@@ -20,7 +20,7 @@ use ckb_types::{
     prelude::*,
     utilities::DIFF_TWO,
 };
-use ckb_verification::{CellbaseError, CommitError, EpochError};
+use ckb_verification::{CellbaseError, CommitError, EpochError, cache::TxVerificationCacheKey};
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
@@ -137,6 +137,35 @@ fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
         always_success_script.clone(),
         OutPoint::new(tx_hash, 0),
     )
+}
+
+#[test]
+fn disabled_script_verification_does_not_publish_cache_proof() {
+    let (chain, shared, parent_tx, always_success_script, always_success_out_point) = setup_env();
+    let tx = create_transaction(
+        &parent_tx,
+        &always_success_script,
+        &always_success_out_point,
+    );
+    let key = TxVerificationCacheKey::from_transaction(&tx);
+    let parent = shared.consensus().genesis_block().header();
+    let block = gen_block(&parent, vec![tx], vec![], vec![]);
+    chain
+        .chain_controller()
+        .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
+        .unwrap();
+
+    // Cache publication is asynchronous. Give a wrongly scheduled writer a
+    // chance to run before asserting the negative security property.
+    let cache = shared.txs_verify_cache();
+    let cached = shared.async_handle().block_on(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        cache.read().await.peek(&key).copied()
+    });
+    assert!(
+        cached.is_none(),
+        "assume-valid script skipping is not reusable verification proof"
+    );
 }
 
 #[test]

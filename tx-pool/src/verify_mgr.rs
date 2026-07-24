@@ -3,9 +3,7 @@ use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorFeeGate, CoordinatorSource, QueueKind, TerminalDisposition,
     VerifyWorkLease, WorkerCapability,
 };
-use crate::component::pipeline_runtime::{
-    PipelineVerifiedTx, coordinator_reject, resolved_charge_bytes,
-};
+use crate::component::pipeline_runtime::{PipelineVerifiedTx, candidate_charge_bytes};
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
@@ -53,91 +51,50 @@ impl TxPoolService {
             )) = &reject
         {
             let parents = HashSet::from([outpoint.tx_hash()]);
-            let permit = match self
-                .reserve_effects(Self::unknown_parents_effect_bytes(parents.len()))
-                .await
-            {
-                Ok(permit) => permit,
-                Err(error) => {
-                    error!(
-                        "verify parent-wait effect reservation failed for {}: {:?}",
-                        lease.hash, error
-                    );
-                    let _ = self
-                        .pipeline
-                        .runtime
-                        .mutate(|coordinator| coordinator.requeue_verification(lease));
-                    return;
-                }
-            };
+            let permit = self
+                .reserve_required_effects(
+                    Self::unknown_parents_effect_bytes(parents.len()),
+                    "verify parent-wait effect reservation failed",
+                )
+                .await;
             match self.settle_verify_parent_wait(lease, parents, permit).await {
-                Ok(ParentWaitOutcome::Parked) => return,
-                Ok(ParentWaitOutcome::Requeued) => return,
-                Ok(ParentWaitOutcome::Unavailable) => {}
-                Err(
-                    CoordinatorError::Missing(_)
-                    | CoordinatorError::IncarnationMismatch { .. }
-                    | CoordinatorError::RevisionMismatch { .. }
-                    | CoordinatorError::LocationMismatch { .. },
-                ) => return,
-                Err(error) => error!(
-                    "failed to atomically retry verify lease {} after parent miss: {:?}",
-                    lease.hash, error
-                ),
+                Some(ParentWaitOutcome::Parked) => return,
+                Some(ParentWaitOutcome::Requeued) => return,
+                Some(ParentWaitOutcome::Unavailable) => {}
+                None => return,
             }
         }
         let public_reject = (!internal).then_some(&reject);
-        let permit = match self
-            .reserve_effects(Self::pipeline_outcome_effect_bytes(public_reject))
-            .await
-        {
-            Ok(permit) => permit,
-            Err(error) => {
-                error!(
-                    "verify terminal effect reservation failed for {}: {:?}",
-                    lease.hash, error
-                );
-                let _ = self
-                    .pipeline
-                    .runtime
-                    .mutate(|coordinator| coordinator.requeue_verification(lease));
-                return;
-            }
-        };
+        let permit = self
+            .reserve_required_effects(
+                Self::pipeline_outcome_effect_bytes(public_reject),
+                "verify terminal effect reservation failed",
+            )
+            .await;
         let mut tx_pool = if internal {
             None
         } else {
             Some(self.pool.tx_pool.write().await)
         };
         let mut banned_peer = None;
-        let terminal = self.pipeline.runtime.mutate(|coordinator| {
-            let result = coordinator.terminalize_verification(lease, disposition);
-            if let Ok(record) = &result {
-                banned_peer = self.journal_pipeline_outcome(
-                    permit,
-                    record,
-                    public_reject,
-                    tx_pool.as_deref_mut(),
-                );
-            }
-            result
-        });
+        let terminal = self.pipeline.runtime.mutate_lease(
+            "current verify lease could not terminalize",
+            |coordinator| {
+                let result = coordinator.terminalize_verification(lease, disposition);
+                if let Ok(record) = &result {
+                    banned_peer = self.journal_pipeline_outcome(
+                        permit,
+                        record,
+                        public_reject,
+                        tx_pool.as_deref_mut(),
+                    );
+                }
+                result
+            },
+        );
         drop(tx_pool);
-        match terminal {
-            Ok(_record) => {}
-            Err(
-                CoordinatorError::Missing(_)
-                | CoordinatorError::IncarnationMismatch { .. }
-                | CoordinatorError::RevisionMismatch { .. }
-                | CoordinatorError::LocationMismatch { .. },
-            ) => return,
-            Err(error) => {
-                error!(
-                    "failed to terminalize verify lease {}: {:?}",
-                    lease.hash, error
-                );
-                return;
-            }
+        if terminal.is_none() {
+            return;
         }
         if let Some(peer) = banned_peer {
             self.remove_banned_peer_entries(peer).await;
@@ -159,19 +116,10 @@ impl TxPoolService {
         let Some((current_source, raw)) = authority else {
             return;
         };
-        let source = match raw.authoritative_source(current_source) {
-            Ok(source) => source,
-            Err(reject) => {
-                self.settle_pipeline_verify_failure(
-                    &lease,
-                    TerminalDisposition::Internal,
-                    reject,
-                    true,
-                )
-                .await;
-                return;
-            }
-        };
+        let source = self
+            .pipeline
+            .runtime
+            .require_authoritative_source(&raw, current_source);
         let epoch = raw.admitted_epoch;
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_verify_failure(
@@ -186,11 +134,29 @@ impl TxPoolService {
             return;
         }
 
+        // Queued resolved work is deliberately snapshot-free. Pin a database
+        // snapshot only for this bounded active verification slot, and never
+        // verify a resolution assembled at a different tip. Re-resolution
+        // releases the old payload and produces a fresh, internally
+        // consistent resolved bundle.
+        let verification_snapshot = self.pool.tx_pool.read().await.cloned_snapshot();
+        if verification_snapshot.tip_hash() != lease.payload.pre_resolve_tip {
+            self.pipeline.runtime.mutate_lease(
+                "stale resolved verification could not return to resolve",
+                |coordinator| coordinator.verification_retry_resolution(&lease, HashSet::new()),
+            );
+            return;
+        }
+
         let mut resolved = (*lease.payload).clone();
         resolved.source = source;
         let outcome = crate::worker::catch_job_panic(async {
             let first = self
-                .verify_pipeline_resolved(resolved.clone(), Some(&mut *command_rx))
+                .verify_pipeline_resolved(
+                    resolved.clone(),
+                    Arc::clone(&verification_snapshot),
+                    Some(&mut *command_rx),
+                )
                 .await;
 
             // A remote admission is verified against its declared cycle cap.
@@ -204,23 +170,35 @@ impl TxPoolService {
                 Ok(verified) => verified,
                 Err(first_reject) => {
                     let promoted = if source.peer().is_some() {
-                        self.pipeline.runtime.read(|coordinator| {
+                        let authority = self.pipeline.runtime.read(|coordinator| {
                             coordinator.view(&lease.hash).and_then(|view| {
                                 (!matches!(view.source, CoordinatorSource::Remote(_))).then(|| {
                                     coordinator
                                         .raw_by_hash(&lease.hash)
-                                        .and_then(|raw| raw.authoritative_source(view.source).ok())
+                                        .map(|raw| (view.source, raw))
                                 })
                             })
-                        })
+                        });
+                        match authority.flatten() {
+                            Some((promoted_source, raw)) => Some(
+                                self.pipeline
+                                    .runtime
+                                    .require_authoritative_source(&raw, promoted_source),
+                            ),
+                            None => None,
+                        }
                     } else {
                         None
                     };
-                    match promoted.flatten() {
+                    match promoted {
                         Some(trusted_source) => {
                             resolved.source = trusted_source;
                             match self
-                                .verify_pipeline_resolved(resolved.clone(), Some(&mut *command_rx))
+                                .verify_pipeline_resolved(
+                                    resolved.clone(),
+                                    Arc::clone(&verification_snapshot),
+                                    Some(&mut *command_rx),
+                                )
                                 .await
                             {
                                 Ok(verified) => verified,
@@ -253,23 +231,28 @@ impl TxPoolService {
             // Source promotion is allowed while verification is active. Bind
             // the completed payload to the current coordinator source rather
             // than the worker's checkout snapshot.
-            let final_source = self.pipeline.runtime.read(|coordinator| {
+            let final_authority = self.pipeline.runtime.read(|coordinator| {
                 coordinator.view(&lease.hash).and_then(|view| {
                     coordinator
                         .raw_by_hash(&lease.hash)
-                        .and_then(|raw| raw.authoritative_source(view.source).ok())
+                        .map(|raw| (view.source, raw))
                 })
             });
-            let Some(final_source) = final_source else {
+            let Some((current_source, raw)) = final_authority else {
                 return;
             };
-            verified.resolved.source = final_source;
+            let final_source = self
+                .pipeline
+                .runtime
+                .require_authoritative_source(&raw, current_source);
+            verified.candidate.source = final_source;
 
-            let entry = TxEntry::new(
-                Arc::clone(&verified.resolved.rtx),
+            let entry = TxEntry::new_with_resident_size(
+                Arc::clone(&verified.candidate.rtx),
                 verified.completed.cycles,
-                verified.resolved.fee,
-                verified.resolved.tx_size,
+                verified.candidate.fee,
+                verified.candidate.tx_size,
+                verified.candidate.resident_size,
             );
             let rbf_precheck = {
                 let pool = self.pool.tx_pool.read().await;
@@ -296,16 +279,19 @@ impl TxPoolService {
                 return;
             }
 
-            let inputs: HashSet<_> = verified.resolved.tx.input_pts_iter().collect();
+            let inputs: HashSet<_> = verified.candidate.tx.input_pts_iter().collect();
             let candidate = match CoordinatorFeeGate::new(0, 0).validate(
                 lease.hash.clone(),
                 inputs,
-                verified.resolved.fee.as_u64(),
-                verified.resolved.tx_size,
+                verified.candidate.fee.as_u64(),
+                verified.candidate.tx_size,
             ) {
                 Ok(candidate) => candidate,
                 Err(error) => {
-                    let reject = coordinator_reject(error);
+                    let reject = self.pipeline.runtime.reject_or_fail(
+                        "verified candidate fee gate violated coordinator invariants",
+                        error,
+                    );
                     self.settle_pipeline_verify_failure(
                         &lease,
                         TerminalDisposition::Rejected,
@@ -316,14 +302,17 @@ impl TxPoolService {
                     return;
                 }
             };
-            let charge_bytes = match resolved_charge_bytes(&verified.resolved).and_then(|bytes| {
+            let charge_bytes = match candidate_charge_bytes(&verified.candidate).and_then(|bytes| {
                 bytes
                     .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
                     .ok_or(CoordinatorError::ResidencyChargeOverflow)
             }) {
                 Ok(charge) => charge,
                 Err(error) => {
-                    let reject = coordinator_reject(error);
+                    let reject = self.pipeline.runtime.reject_or_fail(
+                        "verified payload charge violated coordinator invariants",
+                        error,
+                    );
                     self.settle_pipeline_verify_failure(
                         &lease,
                         TerminalDisposition::Rejected,
@@ -335,26 +324,14 @@ impl TxPoolService {
                 }
             };
 
-            let permit = match self
-                .reserve_effects(Self::pipeline_terminal_effect_bytes(
-                    crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
-                ))
-                .await
-            {
-                Ok(permit) => permit,
-                Err(error) => {
-                    self.settle_pipeline_verify_failure(
-                        &lease,
-                        TerminalDisposition::Internal,
-                        crate::error::Reject::Internal(format!(
-                            "verify completion effect reservation failed: {error:?}"
-                        )),
-                        true,
-                    )
-                    .await;
-                    return;
-                }
-            };
+            let permit = self
+                .reserve_required_effects(
+                    Self::pipeline_terminal_effect_bytes(
+                        crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                    ),
+                    "verify completion effect reservation failed",
+                )
+                .await;
             match self.pipeline.runtime.mutate(|coordinator| {
                 let result = coordinator.complete_verification_candidate(
                     &lease,
@@ -370,8 +347,12 @@ impl TxPoolService {
                 Ok((_version, _terminal)) => {
                     self.drive_pipeline_commits().await;
                 }
+                Err(error) if error.is_stale_lease() => {}
                 Err(error) => {
-                    let reject = coordinator_reject(error);
+                    let reject = self.pipeline.runtime.reject_or_fail(
+                        "verification completion violated coordinator invariants",
+                        error,
+                    );
                     let internal = matches!(reject, crate::error::Reject::Full(_));
                     self.settle_pipeline_verify_failure(
                         &lease,
@@ -390,6 +371,14 @@ impl TxPoolService {
                 "tx-pool verify worker panicked on {}: {}",
                 lease.hash, message
             );
+            // An authoritative pool/coordinator boundary panic has already
+            // latched service-wide fail-closed state. Do not attempt to
+            // reserve effects or settle the now-obsolete verify lease during
+            // shutdown; that only creates a second panic and cannot restore a
+            // transaction whose pool mutation may be partial.
+            if self.pipeline.runtime.is_failed() {
+                return;
+            }
             self.settle_pipeline_verify_failure(
                 &lease,
                 TerminalDisposition::Internal,
@@ -426,18 +415,12 @@ impl JobHandler for VerifyHandler {
         } else {
             WorkerCapability::Any
         };
-        match self
-            .service
+        self.service
             .pipeline
             .runtime
-            .mutate(|coordinator| coordinator.checkout_verify(capability))
-        {
-            Ok(work) => work,
-            Err(error) => {
-                error!("verify coordinator checkout failed: {:?}", error);
-                None
-            }
-        }
+            .mutate_required("verify checkout failed", |coordinator| {
+                coordinator.checkout_verify(capability)
+            })
     }
 
     async fn process_one(&mut self, work: VerifyWorkLease<crate::resolved_tx::ResolvedTx>) {

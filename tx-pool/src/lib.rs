@@ -48,7 +48,7 @@ mod verify_mgr;
 mod worker;
 
 pub use ckb_jsonrpc_types::BlockTemplate;
-pub use component::entry::TxEntry;
+pub use component::entry::{TxEntry, TxEntrySnapshot};
 pub use component::recent_reject::RecentReject;
 pub use pool::TxPool;
 pub use process::PlugTarget;

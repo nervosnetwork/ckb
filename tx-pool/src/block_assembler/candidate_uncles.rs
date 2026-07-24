@@ -34,6 +34,18 @@ impl CandidateUncles {
     /// If the map did have this value present, false is returned.
     pub fn insert(&mut self, uncle: UncleBlockView) -> bool {
         let number: BlockNumber = uncle.header().number();
+        // Validate the target bucket before changing global capacity. The old
+        // order evicted the lowest-height set first, then discovered that a
+        // duplicate higher uncle (or a full target height) could not be
+        // inserted. Replaying one rejected candidate could therefore erase
+        // unrelated valid uncles at no residency cost.
+        if self
+            .map
+            .get(&number)
+            .is_some_and(|set| set.contains(&uncle) || set.len() >= MAX_PER_HEIGHT)
+        {
+            return false;
+        }
         if self.count >= MAX_CANDIDATE_UNCLES {
             let first_key = *self.map.keys().next().expect("length checked");
             if number > first_key {
@@ -51,7 +63,10 @@ impl CandidateUncles {
 
         let set = self.map.entry(number).or_default();
         if set.len() < MAX_PER_HEIGHT {
-            let ret = set.insert(uncle);
+            // `BlockView::uncles()` yields a slice into the complete block.
+            // Copy only after all rejection checks so retained uncle bytes
+            // are charged independently without taxing duplicate floods.
+            let ret = set.insert(uncle.into_compact());
             if ret {
                 self.count += 1;
             }
@@ -167,8 +182,10 @@ impl Default for CandidateUncles {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_types::bytes::Bytes;
     use ckb_types::core::UncleBlockView;
     use ckb_types::packed;
+    use ckb_types::prelude::Entity;
 
     fn uncle(number: BlockNumber, seed: u8) -> UncleBlockView {
         ckb_types::core::BlockBuilder::default()
@@ -214,6 +231,71 @@ mod tests {
         assert!(
             !container.values().any(|u| u.header().number() == 1),
             "the lowest height set must be evicted for the higher uncle"
+        );
+    }
+
+    #[test]
+    fn rejected_high_candidate_cannot_evict_lowest_height() {
+        let mut duplicate_container = CandidateUncles::new();
+        let high = uncle(3, 103);
+        assert!(duplicate_container.insert(uncle(1, 100)));
+        assert!(duplicate_container.insert(uncle(2, 101)));
+        assert!(duplicate_container.insert(uncle(2, 102)));
+        assert!(duplicate_container.insert(high.clone()));
+        assert_eq!(duplicate_container.len(), MAX_CANDIDATE_UNCLES);
+        assert!(!duplicate_container.insert(high));
+        assert_eq!(duplicate_container.len(), MAX_CANDIDATE_UNCLES);
+        assert!(
+            duplicate_container
+                .values()
+                .any(|candidate| candidate.number() == 1),
+            "a duplicate rejection cannot mutate global candidate capacity"
+        );
+
+        let mut full_bucket_container = CandidateUncles::new();
+        assert!(full_bucket_container.insert(uncle(1, 110)));
+        assert!(full_bucket_container.insert(uncle(2, 111)));
+        assert!(full_bucket_container.insert(uncle(3, 112)));
+        assert!(full_bucket_container.insert(uncle(3, 113)));
+        assert_eq!(full_bucket_container.len(), MAX_CANDIDATE_UNCLES);
+        assert!(!full_bucket_container.insert(uncle(3, 114)));
+        assert_eq!(full_bucket_container.len(), MAX_CANDIDATE_UNCLES);
+        assert!(
+            full_bucket_container
+                .values()
+                .any(|candidate| candidate.number() == 1),
+            "a full target bucket cannot evict another height"
+        );
+    }
+
+    #[test]
+    fn accepted_uncle_detaches_from_enclosing_block_backing() {
+        let outer = ckb_types::core::BlockBuilder::default()
+            .uncle(uncle(1, 42))
+            .transaction(
+                ckb_types::core::TransactionBuilder::default()
+                    .witness(Bytes::from(vec![7; 64 * 1024]))
+                    .build(),
+            )
+            .build();
+        let outer_data = outer.data();
+        let backing = outer_data.as_slice();
+        let shared = outer.uncles().into_iter().next().unwrap();
+        let shared_data = shared.data();
+        let shared_slice = shared_data.as_slice();
+        let backing_start = backing.as_ptr() as usize;
+        let backing_end = backing_start + backing.len();
+        let shared_start = shared_slice.as_ptr() as usize;
+        assert!(shared_start >= backing_start && shared_start < backing_end);
+
+        let mut container = CandidateUncles::new();
+        assert!(container.insert(shared));
+        let stored_data = container.values().next().unwrap().data();
+        let stored = stored_data.as_slice();
+        let stored_start = stored.as_ptr() as usize;
+        assert!(
+            stored_start < backing_start || stored_start >= backing_end,
+            "candidate uncle must not pin the full source block"
         );
     }
 }

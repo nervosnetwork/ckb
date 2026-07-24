@@ -1,11 +1,12 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
+#[cfg(test)]
+mod audit;
 use super::links::TxLinks;
 use crate::TxEntry;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::out_point_index::OutPointIndex;
-use crate::component::saturating_counter::SaturatingCounter;
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use ckb_logger::{debug, error, trace};
@@ -85,13 +86,27 @@ pub(crate) struct RemovedPoolEntry {
     pub(crate) status: Status,
 }
 
+/// Complete result of one atomic PoolMap insertion.
+///
+/// Escape-hatch evictions are part of this value rather than a mutable
+/// side-channel on `PoolMap`: a successful caller cannot forget to drain
+/// hidden resident state, while every failed insertion restores its exact
+/// pre-call membership before returning `Err`.
+#[derive(Debug, Default)]
+pub(crate) struct PoolMapAddOutcome {
+    pub(crate) inserted: bool,
+    pub(crate) evicted: Vec<RemovedPoolEntry>,
+}
+
 /// Aggregated statistics tracked by [`PoolMap`].
 #[derive(Default)]
 pub struct PoolStats {
     // sum of all tx_pool tx's virtual sizes.
-    pub total_tx_size: SaturatingCounter<usize>,
+    pub total_tx_size: usize,
+    /// Conservative resident bytes held by accepted entries.
+    pub(crate) total_tx_resident_size: usize,
     // sum of all tx_pool tx's cycles.
-    pub total_tx_cycles: SaturatingCounter<Cycle>,
+    pub total_tx_cycles: Cycle,
     pub pending_count: usize,
     pub gap_count: usize,
     pub proposed_count: usize,
@@ -99,28 +114,47 @@ pub struct PoolStats {
 
 impl PoolStats {
     pub fn clear(&mut self) {
-        self.total_tx_size.set(0);
-        self.total_tx_cycles.set(0);
+        self.total_tx_size = 0;
+        self.total_tx_resident_size = 0;
+        self.total_tx_cycles = 0;
         self.pending_count = 0;
         self.gap_count = 0;
         self.proposed_count = 0;
     }
 
-    fn adjust_status_count(&mut self, remove: Option<Status>, add: Option<Status>) {
+    /// Apply one status transition without hiding an impossible underflow or
+    /// overflow. The caller can then rebuild these cached counts from the
+    /// authoritative entry set on the cold invariant-recovery path.
+    fn checked_adjust_status_count(&mut self, remove: Option<Status>, add: Option<Status>) -> bool {
+        let mut pending = self.pending_count;
+        let mut gap = self.gap_count;
+        let mut proposed = self.proposed_count;
         if let Some(status) = remove {
-            match status {
-                Status::Pending => self.pending_count = self.pending_count.saturating_sub(1),
-                Status::Gap => self.gap_count = self.gap_count.saturating_sub(1),
-                Status::Proposed => self.proposed_count = self.proposed_count.saturating_sub(1),
-            }
+            let count = match status {
+                Status::Pending => &mut pending,
+                Status::Gap => &mut gap,
+                Status::Proposed => &mut proposed,
+            };
+            let Some(next) = count.checked_sub(1) else {
+                return false;
+            };
+            *count = next;
         }
         if let Some(status) = add {
-            match status {
-                Status::Pending => self.pending_count += 1,
-                Status::Gap => self.gap_count += 1,
-                Status::Proposed => self.proposed_count += 1,
-            }
+            let count = match status {
+                Status::Pending => &mut pending,
+                Status::Gap => &mut gap,
+                Status::Proposed => &mut proposed,
+            };
+            let Some(next) = count.checked_add(1) else {
+                return false;
+            };
+            *count = next;
         }
+        self.pending_count = pending;
+        self.gap_count = gap;
+        self.proposed_count = proposed;
+        true
     }
 
     /// Atomically adjust cached total size and cycles for a removed tx.
@@ -129,33 +163,40 @@ impl PoolStats {
     fn adjust_totals(
         &mut self,
         tx_size: usize,
+        resident_size: usize,
         cycles: Cycle,
-        recompute: Option<(usize, Cycle)>,
+        recompute: Option<(usize, usize, Cycle)>,
         action: &'static str,
     ) {
         match (
-            self.total_tx_size.get().checked_sub(tx_size),
-            self.total_tx_cycles.get().checked_sub(cycles),
+            self.total_tx_size.checked_sub(tx_size),
+            self.total_tx_resident_size.checked_sub(resident_size),
+            self.total_tx_cycles.checked_sub(cycles),
         ) {
-            (Some(size), Some(cycles)) => {
-                self.total_tx_size.set(size);
-                self.total_tx_cycles.set(cycles);
+            (Some(size), Some(remaining_resident), Some(remaining_cycles)) => {
+                self.total_tx_size = size;
+                self.total_tx_resident_size = remaining_resident;
+                self.total_tx_cycles = remaining_cycles;
             }
             _ => match recompute {
-                Some((size, cycles)) => {
+                Some((recomputed_size, recomputed_resident, recomputed_cycles)) => {
                     error!(
-                        "tx-pool total stats underflowed when removing size {} cycles {} in {}, recomputed size {} cycles {}",
-                        tx_size, cycles, action, size, cycles
+                        "tx-pool total stats underflowed when removing size {} resident {} cycles {} in {}, recomputed size {} resident {} cycles {}",
+                        tx_size,
+                        resident_size,
+                        cycles,
+                        action,
+                        recomputed_size,
+                        recomputed_resident,
+                        recomputed_cycles
                     );
-                    self.total_tx_size.set(size);
-                    self.total_tx_cycles.set(cycles);
+                    self.total_tx_size = recomputed_size;
+                    self.total_tx_resident_size = recomputed_resident;
+                    self.total_tx_cycles = recomputed_cycles;
                 }
-                None => {
-                    error!(
-                        "tx-pool total stats underflowed when removing size {} cycles {} in {}, and recomputing overflowed",
-                        tx_size, cycles, action
-                    );
-                }
+                None => panic!(
+                    "tx-pool authoritative totals overflowed while repairing an underflow in {action}"
+                ),
             },
         }
     }
@@ -170,13 +211,6 @@ pub struct PoolMap {
     pub(crate) links: TxLinksMap,
     pub(crate) max_ancestors_count: usize,
     pub(crate) stats: PoolStats,
-    /// Journal of entries evicted by the cell-ref escape hatch during the
-    /// most recent `add_entry` call. Cleared at the start of every
-    /// `add_entry`; the caller drains it on *both* outcomes, because
-    /// `add_entry` can still fail after the escape eviction (e.g. the dep
-    /// pre-validation) and would otherwise drop the evicted set on the
-    /// error path — a failed commit must not evict in-pool transactions.
-    pub(crate) evicted_journal: Vec<RemovedPoolEntry>,
 }
 
 impl PoolMap {
@@ -187,7 +221,6 @@ impl PoolMap {
             links: TxLinksMap::new(),
             max_ancestors_count,
             stats: PoolStats::default(),
-            evicted_journal: Vec::new(),
         }
     }
 
@@ -226,7 +259,7 @@ impl PoolMap {
     #[cfg(test)]
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         self.add_entry(entry, Status::Proposed)
-            .map(|(succ, _)| succ)
+            .map(|outcome| outcome.inserted)
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
@@ -239,6 +272,16 @@ impl PoolMap {
 
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.entries.get_by_id(id)
+    }
+
+    /// Resolve a full transaction hash through the compact proposal index
+    /// without trusting the 10-byte key as identity. Any caller that starts
+    /// from an outpoint or RPC hash must use this boundary instead of
+    /// `get_by_id`.
+    pub(crate) fn get_by_hash(&self, hash: &Byte32) -> Option<&PoolEntry> {
+        let id = ProposalShortId::from_tx_hash(hash);
+        self.get_by_id(&id)
+            .filter(|entry| entry.inner.transaction().hash() == *hash)
     }
 
     pub(crate) fn pending_size(&self) -> usize {
@@ -289,7 +332,8 @@ impl PoolMap {
     }
 
     pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
-        self.get(&ProposalShortId::from_tx_hash(&out_point.tx_hash()))
+        self.get_by_hash(&out_point.tx_hash())
+            .map(|entry| &entry.inner)
             .and_then(|entry| {
                 entry
                     .transaction()
@@ -301,25 +345,17 @@ impl PoolMap {
     ///
     /// ## Returns
     ///
-    /// Returns `Reject` when any error happened, otherwise return `Ok((succ, evicts))`
-    /// - succ  : means whether the entry is inserted actually into pool,
-    /// - evicts: is the evicted transactions before inserting this `TxEntry`,
-    ///   Currently, evicts when inserting is only due to referring cell dep will be consumed by this new transaction.
+    /// Returns `Reject` only after restoring every tentative escape-hatch
+    /// eviction. On success, `inserted` distinguishes a duplicate short-id
+    /// slot and `evicted` is the exact status-bearing removal cohort.
     pub(crate) fn add_entry(
         &mut self,
         mut entry: TxEntry,
         status: Status,
-    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
-        // The journal belongs to this call: clear it before *any* exit,
-        // including the duplicate early return below, so a stale journal
-        // left by a previous caller (e.g. a successful escape-hatch
-        // eviction that nobody drained) can never be picked up by this
-        // call's caller and misattributed to this entry.
-        self.evicted_journal.clear();
-
+    ) -> Result<PoolMapAddOutcome, Reject> {
         let tx_short_id = entry.proposal_short_id();
         if self.entries.get_by_id(&tx_short_id).is_some() {
-            return Ok((false, Default::default()));
+            return Ok(PoolMapAddOutcome::default());
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
 
@@ -337,17 +373,25 @@ impl PoolMap {
         //      (may free dep conflicts; does not touch the link graph);
         //   4. pre-validate deps (must be after eviction);
         //   5. commit ancestor links, then mutate freely.
-        // Any failure happens before the mutating steps, so the evicted set
-        // can never be lost on the `Err` path, and the link graph is only
-        // written at step 5, so a rejected entry leaves no ghost nodes
-        // behind. Escape-hatch evictions are journaled (see
-        // `evicted_journal`) so the caller can recover them even when a
-        // later step rejects the entry.
+        // Any failure happens before the mutating steps, so the link graph is
+        // only written at step 5 and a rejected entry leaves no ghost nodes.
+        // Escape-hatch removals are held in this call's local undo cohort and
+        // restored before an error crosses the PoolMap authority boundary.
         self.pre_validate_entry_inputs(&entry)?;
-        self.update_stat_for_add_tx(entry.size, entry.cycles)?;
+        self.update_stat_for_add_tx(entry.size, entry.resident_size(), entry.cycles)?;
 
-        let (evicts, parents) = self.check_and_prepare_ancestors(&mut entry)?;
-        self.pre_validate_entry_deps(&entry)?;
+        let mut evicted = Vec::new();
+        let parents = match self.check_and_prepare_ancestors(&mut entry, &mut evicted) {
+            Ok(parents) => parents,
+            Err(reject) => {
+                self.restore_failed_add_evictions(evicted);
+                return Err(reject);
+            }
+        };
+        if let Err(reject) = self.pre_validate_entry_deps(&entry) {
+            self.restore_failed_add_evictions(evicted);
+            return Err(reject);
+        }
         self.commit_ancestor_links(tx_short_id, parents);
 
         self.record_entry_edges(&entry);
@@ -365,18 +409,82 @@ impl PoolMap {
         self.track_entry_statistics(None, Some(status));
         // Apply the stat deltas *after* eviction: applying values computed
         // before it would clobber the decrements `update_stat_for_remove_tx`
-        // made for the evicted entries. The overflow case was already
-        // rejected by the check above, so `add_saturating` cannot actually
-        // overflow here.
-        self.stats
+        // made for the evicted entries. Overflow was prevalidated before the
+        // only intervening operation (removal), so exact addition is now an
+        // invariant rather than a saturating fallback that hides corruption.
+        self.stats.total_tx_size = self
+            .stats
             .total_tx_size
-            .add_saturating(entry.size, "pool_map total_tx_size", "add_entry");
-        self.stats.total_tx_cycles.add_saturating(
-            entry.cycles,
-            "pool_map total_tx_cycles",
-            "add_entry",
-        );
-        Ok((true, evicts))
+            .checked_add(entry.size)
+            .expect("prevalidated tx-pool serialized total cannot overflow");
+        self.stats.total_tx_resident_size = self
+            .stats
+            .total_tx_resident_size
+            .checked_add(entry.resident_size())
+            .expect("prevalidated tx-pool resident total cannot overflow");
+        self.stats.total_tx_cycles = self
+            .stats
+            .total_tx_cycles
+            .checked_add(entry.cycles)
+            .expect("prevalidated tx-pool cycle total cannot overflow");
+        Ok(PoolMapAddOutcome {
+            inserted: true,
+            evicted,
+        })
+    }
+
+    fn restore_failed_add_evictions(&mut self, evicted: Vec<RemovedPoolEntry>) {
+        if evicted.is_empty() {
+            return;
+        }
+        self.restore_removed_entries_exact(evicted)
+            .expect("failed PoolMap insertion must restore its local eviction cohort");
+    }
+
+    /// Restore a journal captured from a previously valid PoolMap state.
+    /// Parent entries have strictly smaller recorded ancestor counts than
+    /// their descendants, so this order reconstructs the original graph while
+    /// every derived weight is recomputed exactly once. Any eviction or
+    /// duplicate during restoration proves the caller is not rolling back the
+    /// state it captured and must be treated as an authoritative failure.
+    pub(crate) fn restore_removed_entries_exact(
+        &mut self,
+        mut removed: Vec<RemovedPoolEntry>,
+    ) -> Result<Vec<(TransactionView, Status)>, Reject> {
+        removed.sort_unstable_by_key(|removed| removed.entry.ancestors_count);
+        let mut restored = Vec::with_capacity(removed.len());
+        for mut removed in removed {
+            let tx = removed.entry.transaction().clone();
+            let tx_hash = tx.hash();
+            let status = removed.status;
+            removed.entry.reset_statistic_state();
+            let result = self.add_entry(removed.entry, status);
+            match result {
+                Ok(PoolMapAddOutcome {
+                    inserted: true,
+                    evicted,
+                }) if evicted.is_empty() => {
+                    restored.push((tx, status));
+                }
+                Ok(outcome) => {
+                    return Err(Reject::Malformed(
+                        "pool".to_string(),
+                        format!(
+                            "failed exact PoolMap restore for {tx_hash}: inserted={}, evicted={}",
+                            outcome.inserted,
+                            outcome.evicted.len()
+                        ),
+                    ));
+                }
+                Err(reject) => {
+                    return Err(Reject::Malformed(
+                        "pool".to_string(),
+                        format!("failed exact PoolMap restore for {tx_hash}: {reject}"),
+                    ));
+                }
+            }
+        }
+        Ok(restored)
     }
 
     /// Defensive read-only check: none of the entry's inputs is already
@@ -393,7 +501,9 @@ impl PoolMap {
                     "pre_validate_entry_inputs: input {:?} already consumed by {}",
                     i, conflict
                 );
-                return Err(Reject::Resolve(OutPointError::Dead(i)));
+                return Err(Reject::Resolve(OutPointError::Dead(
+                    crate::util::compact_packed(&i),
+                )));
             }
         }
         Ok(())
@@ -413,7 +523,9 @@ impl PoolMap {
                 continue;
             }
             if self.out_point_index.get_input_ref(d).is_some() {
-                return Err(Reject::Resolve(OutPointError::Dead(d.clone())));
+                return Err(Reject::Resolve(OutPointError::Dead(
+                    crate::util::compact_packed(d),
+                )));
             }
         }
         Ok(())
@@ -447,7 +559,11 @@ impl PoolMap {
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
             self.track_entry_statistics(Some(entry.status), None);
-            self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
+            self.update_stat_for_remove_tx(
+                entry.inner.size,
+                entry.inner.resident_size(),
+                entry.inner.cycles,
+            );
             RemovedPoolEntry {
                 entry: entry.inner,
                 status: entry.status,
@@ -604,33 +720,34 @@ impl PoolMap {
         tx.input_pts_iter().find_map(|out_point| {
             self.out_point_index
                 .get_input_ref(&out_point)
-                .map(|_| out_point)
+                .map(|_| crate::util::compact_packed(&out_point))
         })
     }
 
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
         let mut conflicts = Vec::new();
-
+        let mut roots = std::collections::HashMap::<ProposalShortId, OutPoint>::new();
         for i in tx.input_pts_iter() {
-            if let Some(id) = self.out_point_index.remove_input(&i) {
-                let entries = self.remove_entry_and_descendants(&id);
-                if !entries.is_empty() {
-                    let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                    let rejects = std::iter::repeat_n(reject, entries.len());
-                    conflicts.extend(entries.into_iter().zip(rejects));
+            if let Some(id) = self.out_point_index.get_input_ref(&i) {
+                roots
+                    .entry(id.clone())
+                    .or_insert_with(|| crate::util::compact_packed(&i));
+            }
+            if let Some(ids) = self.out_point_index.get_deps_ref(&i) {
+                for id in ids {
+                    roots
+                        .entry(id.clone())
+                        .or_insert_with(|| crate::util::compact_packed(&i));
                 }
             }
+        }
 
-            // deps consumed
-            if let Some(x) = self.out_point_index.remove_deps(&i) {
-                for id in x {
-                    let entries = self.remove_entry_and_descendants(&id);
-                    if !entries.is_empty() {
-                        let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                        let rejects = std::iter::repeat_n(reject, entries.len());
-                        conflicts.extend(entries.into_iter().zip(rejects));
-                    }
-                }
+        for (id, out_point) in roots {
+            let entries = self.remove_entry_and_descendants(&id);
+            if !entries.is_empty() {
+                let reject = Reject::Resolve(OutPointError::Dead(out_point));
+                let rejects = std::iter::repeat_n(reject, entries.len());
+                conflicts.extend(entries.into_iter().zip(rejects));
             }
         }
 
@@ -721,15 +838,25 @@ impl PoolMap {
     fn remove_entry_links(&mut self, id: &ProposalShortId) {
         if let Some(parents) = self.links.get_parents(id).cloned() {
             for parent in parents {
-                self.links.remove_child(&parent, id);
+                let removed = self
+                    .links
+                    .remove_child(&parent, id)
+                    .expect("every parent relationship has a live parent node");
+                assert!(removed, "parent relationship must be symmetric");
             }
         }
         if let Some(children) = self.links.get_children(id).cloned() {
             for child in children {
-                self.links.remove_parent(&child, id);
+                let removed = self
+                    .links
+                    .remove_parent(&child, id)
+                    .expect("every child relationship has a live child node");
+                assert!(removed, "child relationship must be symmetric");
             }
         }
-        self.links.remove(id);
+        self.links
+            .remove(id)
+            .expect("every accepted entry has one links node");
     }
 
     fn update_ancestors_index_key(&mut self, child: &TxEntry, op: EntryOp) {
@@ -737,13 +864,15 @@ impl PoolMap {
             self.links.calc_ancestors(&child.proposal_short_id());
         for anc_id in &ancestors {
             // update parent score
-            self.entries.modify_by_id(anc_id, |e| {
-                match op {
-                    EntryOp::Remove => e.inner.sub_descendant_weight(child),
-                    EntryOp::Add => e.inner.add_descendant_weight(child),
-                };
-                e.evict_key = e.inner.as_evict_key();
-            });
+            self.entries
+                .modify_by_id(anc_id, |e| {
+                    match op {
+                        EntryOp::Remove => e.inner.sub_descendant_weight(child),
+                        EntryOp::Add => e.inner.add_descendant_weight(child),
+                    };
+                    e.evict_key = e.inner.as_evict_key();
+                })
+                .expect("every ancestor link resolves to an accepted entry");
         }
     }
 
@@ -752,13 +881,15 @@ impl PoolMap {
             self.links.calc_descendants(&parent.proposal_short_id());
         for desc_id in &descendants {
             // update child score
-            self.entries.modify_by_id(desc_id, |e| {
-                match op {
-                    EntryOp::Remove => e.inner.sub_ancestor_weight(parent),
-                    EntryOp::Add => e.inner.add_ancestor_weight(parent),
-                };
-                e.score = e.inner.as_score_key();
-            });
+            self.entries
+                .modify_by_id(desc_id, |e| {
+                    match op {
+                        EntryOp::Remove => e.inner.sub_ancestor_weight(parent),
+                        EntryOp::Add => e.inner.add_ancestor_weight(parent),
+                    };
+                    e.score = e.inner.as_score_key();
+                })
+                .expect("every descendant link resolves to an accepted entry");
         }
     }
 
@@ -834,19 +965,21 @@ impl PoolMap {
 
         let mut delta = crate::component::entry::WeightDelta::default();
         for child in &children {
-            if let Some(child_entry) = self.get_by_id(child) {
-                delta.add_entry(&child_entry.inner);
-            } else {
-                error!(
-                    "tx-pool: out_point_index references missing child entry {}",
-                    child
-                );
-            }
-            self.links.add_parent(child, tx_short_id.clone());
+            let child_entry = self
+                .get_by_id(child)
+                .expect("out-point index child must resolve to an accepted entry");
+            delta.add_entry(&child_entry.inner);
+            let inserted = self
+                .links
+                .add_parent(child, tx_short_id.clone())
+                .expect("every indexed child has a links node");
+            assert!(inserted, "new parent relationship cannot already exist");
         }
-        if let Some(links) = self.links.get_mut(&tx_short_id) {
-            links.children.extend(children);
-        }
+        self.links
+            .get_mut(&tx_short_id)
+            .expect("new entry links node was committed before child folding")
+            .children
+            .extend(children);
         entry.add_descendants_weight(delta);
     }
 
@@ -871,15 +1004,17 @@ impl PoolMap {
                 parents.extend(deps.iter().cloned());
             }
 
-            let id = ProposalShortId::from_tx_hash(&input_pt.tx_hash());
-            if self.links.contains_key(&id) {
+            let parent_hash = input_pt.tx_hash();
+            let id = ProposalShortId::from_tx_hash(&parent_hash);
+            if self.get_by_hash(&parent_hash).is_some() {
                 parents.insert(id);
             }
         }
         for cell_dep in entry.cell_deps() {
             let dep_pt = cell_dep.out_point();
-            let id = ProposalShortId::from_tx_hash(&dep_pt.tx_hash());
-            if self.links.contains_key(&id) {
+            let parent_hash = dep_pt.tx_hash();
+            let id = ProposalShortId::from_tx_hash(&parent_hash);
+            if self.get_by_hash(&parent_hash).is_some() {
                 parents.insert(id);
             }
         }
@@ -931,7 +1066,11 @@ impl PoolMap {
         parents: HashSet<ProposalShortId>,
     ) {
         for parent in &parents {
-            self.links.add_child(parent, short_id.clone());
+            let inserted = self
+                .links
+                .add_child(parent, short_id.clone())
+                .expect("every planned parent has a links node");
+            assert!(inserted, "new child relationship cannot already exist");
         }
         self.links.add_link(
             short_id,
@@ -972,11 +1111,14 @@ impl PoolMap {
             .iter()
             .filter(|id| effective.contains(id))
             .count();
-        // Mirrors `check_and_record_ancestors`: it fails when
-        // `ancestors_count - cell_ref_parents.len() > max_ancestors_count`,
-        // where `ancestors_count` is `effective.len() + 1` once the removed
-        // entries are gone.
-        if effective.len() + 1 > self.max_ancestors_count + evictable {
+        // Mirrors `check_and_prepare_ancestors` without overflow-prone `+ 1`
+        // arithmetic: after every eligible cell-ref ancestor is removed, the
+        // remaining ancestors plus the entry itself must fit the limit.
+        let non_evictable = effective
+            .len()
+            .checked_sub(evictable)
+            .expect("evictable ancestors are a subset of effective ancestors");
+        if non_evictable >= self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
         Ok(())
@@ -1002,19 +1144,24 @@ impl PoolMap {
     fn check_and_prepare_ancestors(
         &mut self,
         entry: &mut TxEntry,
-    ) -> Result<(HashSet<TxEntry>, HashSet<ProposalShortId>), Reject> {
+        evicted: &mut Vec<RemovedPoolEntry>,
+    ) -> Result<HashSet<ProposalShortId>, Reject> {
         let tx = entry.transaction();
         let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancestors(tx);
 
-        let mut ancestors_count = ancestors.len() + 1;
-        let mut evicted = Default::default();
-
+        let mut ancestors_count = ancestors
+            .len()
+            .checked_add(1)
+            .expect("accepted ancestor count cannot overflow");
         if ancestors_count <= self.max_ancestors_count {
             self.apply_ancestor_weights(entry, &ancestors)?;
-            return Ok((evicted, parents));
+            return Ok(parents);
         }
 
-        if ancestors_count.saturating_sub(cell_ref_parents.len()) <= self.max_ancestors_count {
+        let non_cell_ref_ancestors = ancestors_count
+            .checked_sub(cell_ref_parents.len())
+            .expect("cell-ref parents are a subset of the ancestor closure");
+        if non_cell_ref_ancestors <= self.max_ancestors_count {
             // if ancestors count exceed limitation,
             // try to evict some conflicted transactions due to ref cells
 
@@ -1050,11 +1197,9 @@ impl PoolMap {
                         .links
                         .calc_relation_ids(parents.clone(), Relation::Parents)
                         .len()
-                        .saturating_add(1);
-                    // Journal the escape-hatch evictions so the caller can
-                    // recover them if a later step rejects this entry.
-                    self.evicted_journal.extend(removed.iter().cloned());
-                    evicted.extend(removed.into_iter().map(|removed| removed.entry));
+                        .checked_add(1)
+                        .expect("pool entry count is bounded below usize::MAX");
+                    evicted.extend(removed);
                 } else {
                     break;
                 }
@@ -1069,9 +1214,8 @@ impl PoolMap {
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
         // The recount should be under the limit now. This is a defensive
-        // error, not an `assert!`: the function runs inside the tx-pool
-        // write lock, and a panic would unwind past the `evicted_journal`
-        // recovery protocol, permanently losing the evicted transactions.
+        // error, not an `assert!`: the caller must first restore its local
+        // eviction cohort before the error crosses the write-lock boundary.
         if ancestors.len() >= self.max_ancestors_count {
             error!(
                 "tx-pool escape-hatch eviction left {} ancestors (max {}), rejecting defensively",
@@ -1082,20 +1226,43 @@ impl PoolMap {
         }
 
         self.apply_ancestor_weights(entry, &ancestors)?;
-        Ok((evicted, parents))
+        Ok(parents)
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
-        for i in entry.transaction().input_pts_iter() {
-            // release input record
-            self.out_point_index.remove_input(&i);
-        }
         let id = entry.proposal_short_id();
+        let inputs: HashSet<_> = entry.transaction().input_pts_iter().collect();
+        for input in &inputs {
+            // release input record
+            let indexed = self
+                .out_point_index
+                .remove_input(input)
+                .expect("every accepted input has one index owner");
+            assert_eq!(indexed, id, "accepted input index owner must match entry");
+        }
         for d in entry.related_dep_out_points().cloned() {
-            self.out_point_index.delete_txid_by_dep(d, &id);
+            if !inputs.contains(&d) {
+                assert!(
+                    self.out_point_index.delete_txid_by_dep(d, &id),
+                    "every accepted dep has a reverse index owner"
+                );
+            }
         }
 
-        self.out_point_index.header_deps.remove(&id);
+        let expected_headers = entry
+            .transaction()
+            .header_deps()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let indexed_headers = self.out_point_index.header_deps.remove(&id);
+        if expected_headers.is_empty() {
+            assert!(indexed_headers.is_none());
+        } else {
+            assert_eq!(
+                indexed_headers.as_deref(),
+                Some(expected_headers.as_slice())
+            );
+        }
     }
 
     fn insert_entry(&mut self, entry: &TxEntry, status: Status) {
@@ -1112,7 +1279,16 @@ impl PoolMap {
     }
 
     fn track_entry_statistics(&mut self, remove: Option<Status>, add: Option<Status>) {
-        self.stats.adjust_status_count(remove, add);
+        if !self.stats.checked_adjust_status_count(remove, add) {
+            let (pending, gap, proposed) = self.recompute_status_counts();
+            error!(
+                "tx-pool status counters drifted during transition {:?} -> {:?}; recomputed pending {} gap {} proposed {}",
+                remove, add, pending, gap, proposed
+            );
+            self.stats.pending_count = pending;
+            self.stats.gap_count = gap;
+            self.stats.proposed_count = proposed;
+        }
         debug_assert_eq!(
             self.stats.pending_count + self.stats.gap_count + self.stats.proposed_count,
             self.entries.len()
@@ -1133,72 +1309,98 @@ impl PoolMap {
         }
     }
 
-    fn recompute_total_stat(&self) -> Option<(usize, Cycle)> {
+    fn recompute_status_counts(&self) -> (usize, usize, usize) {
+        self.entries.iter().fold(
+            (0usize, 0usize, 0usize),
+            |(pending, gap, proposed), (_, entry)| match entry.status {
+                Status::Pending => (pending + 1, gap, proposed),
+                Status::Gap => (pending, gap + 1, proposed),
+                Status::Proposed => (pending, gap, proposed + 1),
+            },
+        )
+    }
+
+    fn recompute_total_stat(&self) -> Option<(usize, usize, Cycle)> {
         self.entries.iter().try_fold(
-            (0usize, 0 as Cycle),
-            |(total_size, total_cycles), (_, entry)| {
+            (0usize, 0usize, 0 as Cycle),
+            |(total_size, total_resident_size, total_cycles), (_, entry)| {
                 Some((
                     total_size.checked_add(entry.inner.size)?,
+                    total_resident_size.checked_add(entry.inner.resident_size())?,
                     total_cycles.checked_add(entry.inner.cycles)?,
                 ))
             },
         )
     }
 
+    /// Repair cached totals from the authoritative entries. This is a cold
+    /// invariant-recovery path, never part of ordinary insertion/removal.
+    pub(crate) fn repair_total_statistics(&mut self, action: &'static str) {
+        let (size, resident, cycles) = self
+            .recompute_total_stat()
+            .unwrap_or_else(|| panic!("tx-pool authoritative totals overflowed in {action}"));
+        error!(
+            "tx-pool total counters drifted in {}; recomputed serialized {} resident {} cycles {}",
+            action, size, resident, cycles
+        );
+        self.stats.total_tx_size = size;
+        self.stats.total_tx_resident_size = resident;
+        self.stats.total_tx_cycles = cycles;
+    }
+
     /// Calculate size and cycles statistics for adding a tx.
     fn update_stat_for_add_tx(
         &self,
         tx_size: usize,
+        resident_size: usize,
         cycles: Cycle,
-    ) -> Result<(usize, Cycle), Reject> {
-        let total_tx_size = self
-            .stats
+    ) -> Result<(), Reject> {
+        self.stats
             .total_tx_size
-            .get()
             .checked_add(tx_size)
             .ok_or_else(|| {
                 Reject::Full(format!(
                     "tx-pool total_tx_size {} overflows by add {}",
-                    self.stats.total_tx_size.get(),
-                    tx_size
+                    self.stats.total_tx_size, tx_size
                 ))
             })?;
-        let total_tx_cycles = self
-            .stats
+        self.stats
+            .total_tx_resident_size
+            .checked_add(resident_size)
+            .ok_or_else(|| {
+                Reject::Full(format!(
+                    "tx-pool total_tx_resident_size {} overflows by add {}",
+                    self.stats.total_tx_resident_size, resident_size
+                ))
+            })?;
+        self.stats
             .total_tx_cycles
-            .get()
             .checked_add(cycles)
             .ok_or_else(|| {
                 Reject::Full(format!(
                     "tx-pool total_tx_cycles {} overflows by add {}",
-                    self.stats.total_tx_cycles.get(),
-                    cycles
+                    self.stats.total_tx_cycles, cycles
                 ))
             })?;
-        Ok((total_tx_size, total_tx_cycles))
+        Ok(())
     }
 
     /// Update size and cycles statistics for remove tx.
     /// Cycles overflow is possible because cycle counts are not always accurate.
-    fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        let needs_recompute = self
-            .stats
-            .total_tx_size
-            .get()
-            .checked_sub(tx_size)
-            .is_none()
+    fn update_stat_for_remove_tx(&mut self, tx_size: usize, resident_size: usize, cycles: Cycle) {
+        let needs_recompute = self.stats.total_tx_size.checked_sub(tx_size).is_none()
             || self
                 .stats
-                .total_tx_cycles
-                .get()
-                .checked_sub(cycles)
-                .is_none();
+                .total_tx_resident_size
+                .checked_sub(resident_size)
+                .is_none()
+            || self.stats.total_tx_cycles.checked_sub(cycles).is_none();
         let recompute = if needs_recompute {
             self.recompute_total_stat()
         } else {
             None
         };
         self.stats
-            .adjust_totals(tx_size, cycles, recompute, "remove_tx");
+            .adjust_totals(tx_size, resident_size, cycles, recompute, "remove_tx");
     }
 }

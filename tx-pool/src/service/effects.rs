@@ -10,29 +10,174 @@ use crate::callback::CallbackEvent;
 #[cfg(test)]
 use crate::component::effect_outbox::EffectOutboxUsage;
 use crate::component::effect_outbox::{EffectOutbox, EffectOutboxError, EffectOutboxLimits};
-use crate::component::entry::TxEntry;
+use crate::component::entry::{TxEntry, TxEntrySnapshot};
 use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::network::TxPoolNetworkHandle;
 use crate::service::TxPoolService;
 use crate::service::TxVerificationResult;
+use crate::util::compact_packed;
 use ckb_channel::TrySendError;
-use ckb_logger::{error, info, warn};
+use ckb_logger::{error, info};
 use ckb_network::PeerIndex;
+use ckb_types::core::TransactionBuilder;
+use ckb_types::core::error::OutPointError;
 use ckb_types::packed::Byte32;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 pub(crate) const EFFECT_ENVELOPE_BYTES: usize = 128;
-/// A reorg can reject every resident transaction. Each rejection may retain
-/// the transaction for a callback plus a relay envelope and a bounded reject
-/// description. Eight times the pool's serialized-byte limit is a
-/// conservative whole-pool reservation; commit shrinks it to the actual
-/// immutable batch charge before publication.
-pub(crate) const REORG_EFFECT_CAPACITY_MULTIPLIER: usize = 8;
+/// Conservative allocator-independent charge for one detached parent hash in
+/// an `UnknownParents` `HashSet`. The packed value itself is only part of the
+/// cost: the set also owns bucket/control slack. Parent hashes are detached
+/// from their source transaction before publication, so this charge never
+/// hides retention of an entire packed transaction backing allocation.
+pub(crate) const UNKNOWN_PARENT_HASH_BYTES: usize = 64;
+/// Fixed callback snapshot residency not represented by the serialized
+/// transaction itself: scalar accounting fields, view handles, and the two
+/// cached transaction hashes.
+const CALLBACK_SNAPSHOT_OVERHEAD_BYTES: usize = std::mem::size_of::<TxEntrySnapshot>() + 64;
+/// Pool-mutation reject reasons are generated from fixed-format hashes,
+/// outpoints, counters, and fee rates. Keeping the display bound explicit
+/// turns submit/reorg reservations into a checked formula rather than a
+/// heuristic multiplier. An unexpected variant or longer description is a
+/// fail-stop invariant violation before the effect is journaled.
+pub(crate) const MAX_POOL_MUTATION_REJECT_BYTES: usize = 256;
+/// A malformed commit may append one peer-ban diagnostic to the same batch as
+/// the pool mutation. Diagnostics are not consensus data; cap this one path so
+/// an attacker-controlled error display cannot invalidate a pre-mutation
+/// reservation after the authoritative state has changed.
+pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
+/// Rejections outside the tightly enumerated pool-mutation family may carry
+/// verifier diagnostics. Recent-reject persistence is observability, not
+/// consensus state, so cap the retained diagnostic instead of allowing an
+/// attacker-controlled string to dominate outbox residency.
+pub(crate) const MAX_RECENT_REJECT_BYTES: usize = 1024;
+
+fn minimum_serialized_transaction_bytes() -> usize {
+    static MINIMUM: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+        TransactionBuilder::default()
+            .build()
+            .data()
+            .serialized_size_in_block()
+            .max(1)
+    });
+    *MINIMUM
+}
+
+/// Maximum outbox charge for stable pool-mutation effects whose transaction
+/// payloads total at most `event_transaction_bytes`. Every event retains one
+/// transaction, at most one callback envelope, at most one relay envelope,
+/// and one bounded reject description. The molecule minimum transaction size
+/// converts the serialized-byte bound into a conservative event-count bound.
+pub(crate) fn max_pool_mutation_effect_bytes(event_transaction_bytes: usize) -> usize {
+    let minimum = minimum_serialized_transaction_bytes();
+    let max_events = event_transaction_bytes.div_ceil(minimum);
+    // Worst case for one removed entry: reject callback (which retains the
+    // transaction and reject), relayer settlement, and recent-reject write
+    // (which retains the reject a second time).
+    let per_event_metadata = EFFECT_ENVELOPE_BYTES
+        .saturating_mul(3)
+        .saturating_add(CALLBACK_SNAPSHOT_OVERHEAD_BYTES)
+        .saturating_add(MAX_POOL_MUTATION_REJECT_BYTES.saturating_mul(2));
+    event_transaction_bytes.saturating_add(max_events.saturating_mul(per_event_metadata))
+}
+
+/// Complete reservation for one authoritative submit mutation.
+///
+/// Pool callbacks/relays are bounded by `P + B`. A coordinator commit can also
+/// settle at most every currently resident pre-pool owner: each contributes at
+/// most one relay envelope, and the failed-winner path can add one extra ban
+/// envelope plus its bounded diagnostic. Keeping both terms explicit makes the
+/// bound independent of the relative pool/coordinator configuration sizes.
+pub(crate) fn max_submit_effect_bytes(
+    max_pool_bytes: usize,
+    max_block_bytes: usize,
+    max_pipeline_records: usize,
+) -> usize {
+    let pool_effects =
+        max_pool_mutation_effect_bytes(max_pool_bytes.saturating_add(max_block_bytes));
+    // Every conflict loser can produce one relay plus one bounded
+    // recent-reject write. The failed winner can additionally produce one
+    // bounded ban, relay and larger verifier rejection.
+    let coordinator_effects = max_pipeline_records
+        .saturating_mul(
+            EFFECT_ENVELOPE_BYTES
+                .saturating_mul(2)
+                .saturating_add(MAX_POOL_MUTATION_REJECT_BYTES),
+        )
+        .saturating_add(EFFECT_ENVELOPE_BYTES.saturating_mul(3))
+        .saturating_add(MAX_COMMIT_BAN_REASON_BYTES)
+        .saturating_add(MAX_RECENT_REJECT_BYTES);
+    pool_effects.saturating_add(coordinator_effects).max(4096)
+}
+
+pub(crate) fn bounded_commit_ban_reason(reject: &Reject) -> String {
+    let mut reason = format!("reject {reject}");
+    if reason.len() > MAX_COMMIT_BAN_REASON_BYTES {
+        let mut boundary = MAX_COMMIT_BAN_REASON_BYTES;
+        while !reason.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        reason.truncate(boundary);
+    }
+    reason
+}
+
+fn bounded_recent_reject(reject: &Reject) -> Reject {
+    let rendered = reject.to_string();
+    if rendered.len() <= MAX_RECENT_REJECT_BYTES {
+        return reject.clone();
+    }
+    Reject::Malformed(
+        "tx-pool".to_string(),
+        format!(
+            "rejection diagnostic omitted after exceeding {} bytes",
+            MAX_RECENT_REJECT_BYTES
+        ),
+    )
+}
+
+/// Convert a rich rejection into the exact bounded payload persisted by the
+/// recent-reject database. Doing this before enqueue detaches every packed or
+/// verifier-owned allocation and makes the outbox byte charge exact.
+fn serialized_recent_reject(reject: &Reject) -> String {
+    fn serialize(reject: Reject) -> String {
+        let public: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
+        serde_json::to_string(&public)
+            .expect("serializing a string-only pool rejection cannot fail")
+    }
+
+    let serialized = serialize(bounded_recent_reject(reject));
+    if serialized.len() <= MAX_RECENT_REJECT_BYTES {
+        return serialized;
+    }
+    let fallback = serialize(Reject::Malformed(
+        "tx-pool rejection diagnostic omitted".to_string(),
+        String::new(),
+    ));
+    assert!(
+        fallback.len() <= MAX_RECENT_REJECT_BYTES,
+        "fixed recent-reject fallback exceeds its serialized bound"
+    );
+    fallback
+}
+
+fn bounded_pool_mutation_reject(reject: &Reject) -> bool {
+    matches!(
+        reject,
+        Reject::Full(_)
+            | Reject::ExceededMaximumAncestorsCount
+            | Reject::Resolve(OutPointError::Dead(_) | OutPointError::InvalidHeader(_))
+            | Reject::Expiry(_)
+            | Reject::RBFRejected(_)
+            | Reject::Invalidated(_)
+    ) && reject.to_string().len() <= MAX_POOL_MUTATION_REJECT_BYTES
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EffectQueueError {
@@ -52,10 +197,55 @@ pub(crate) enum TxPoolEffect {
         duration: Duration,
         reason: String,
     },
+    RecentReject {
+        store: Arc<crate::component::recent_reject::RecentReject>,
+        tx_hash: Byte32,
+        serialized: String,
+    },
 }
 
 impl TxPoolEffect {
-    fn charge_bytes(&self) -> usize {
+    /// Detach every small packed identity that may outlive its producer. This
+    /// is the final stable-effect residency boundary, so callers cannot
+    /// accidentally enqueue a 32-byte slice that pins a transaction or block
+    /// backing allocation while the outbox charges only the envelope.
+    fn into_compact(self) -> Self {
+        match self {
+            Self::Relay(TxVerificationResult::Ok {
+                original_peer,
+                tx_hash,
+            }) => Self::Relay(TxVerificationResult::Ok {
+                original_peer,
+                tx_hash: compact_packed(&tx_hash),
+            }),
+            Self::Relay(TxVerificationResult::Reject { tx_hash }) => {
+                Self::Relay(TxVerificationResult::Reject {
+                    tx_hash: compact_packed(&tx_hash),
+                })
+            }
+            Self::Relay(TxVerificationResult::UnknownParents { peer, parents }) => {
+                Self::Relay(TxVerificationResult::UnknownParents {
+                    peer,
+                    parents: parents
+                        .into_iter()
+                        .map(|parent| compact_packed(&parent))
+                        .collect(),
+                })
+            }
+            Self::RecentReject {
+                store,
+                tx_hash,
+                serialized,
+            } => Self::RecentReject {
+                store,
+                tx_hash: compact_packed(&tx_hash),
+                serialized,
+            },
+            effect @ (Self::Callback { .. } | Self::BanPeer { .. }) => effect,
+        }
+    }
+
+    pub(crate) fn charge_bytes(&self) -> usize {
         match self {
             Self::Callback {
                 event: CallbackEvent::Pending(entry),
@@ -64,22 +254,24 @@ impl TxPoolEffect {
             | Self::Callback {
                 event: CallbackEvent::Proposed(entry),
                 ..
-            } => EFFECT_ENVELOPE_BYTES
-                .saturating_add(entry.transaction().data().serialized_size_in_block()),
+            } => EFFECT_ENVELOPE_BYTES.saturating_add(entry.charge_bytes()),
             Self::Callback {
                 event: CallbackEvent::Reject(entry, reject),
                 ..
             } => EFFECT_ENVELOPE_BYTES
-                .saturating_add(entry.transaction().data().serialized_size_in_block())
+                .saturating_add(entry.charge_bytes())
                 .saturating_add(reject.to_string().len()),
             Self::Relay(TxVerificationResult::UnknownParents { parents, .. }) => {
                 EFFECT_ENVELOPE_BYTES
-                    .saturating_add(parents.len().saturating_mul(std::mem::size_of::<Byte32>()))
+                    .saturating_add(parents.len().saturating_mul(UNKNOWN_PARENT_HASH_BYTES))
             }
             Self::Relay(TxVerificationResult::Ok { .. } | TxVerificationResult::Reject { .. }) => {
                 EFFECT_ENVELOPE_BYTES
             }
             Self::BanPeer { reason, .. } => EFFECT_ENVELOPE_BYTES.saturating_add(reason.len()),
+            Self::RecentReject { serialized, .. } => {
+                EFFECT_ENVELOPE_BYTES.saturating_add(serialized.len())
+            }
         }
     }
 }
@@ -95,6 +287,10 @@ impl EffectBatch {
         if effects.is_empty() {
             return None;
         }
+        let effects: Vec<_> = effects
+            .into_iter()
+            .map(TxPoolEffect::into_compact)
+            .collect();
         let charge_bytes = effects.iter().fold(0usize, |total, effect| {
             total.saturating_add(effect.charge_bytes())
         });
@@ -306,6 +502,7 @@ impl EffectQueue {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn enqueue(
         self: &Arc<Self>,
         batch: EffectBatch,
@@ -348,6 +545,10 @@ impl EffectQueue {
 pub(crate) struct EffectEndpoints {
     pub(crate) network: TxPoolNetworkHandle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+    /// Fatal journal invariants cancel the complete tx-pool service. Merely
+    /// logging and exiting would leave producers blocked behind a publisher
+    /// that can no longer consume the bounded outbox.
+    pub(crate) failure_cancel: CancellationToken,
 }
 
 enum PublishOne {
@@ -371,6 +572,17 @@ impl EffectEndpoints {
                 duration,
                 reason,
             } => self.network.ban_peer(*peer, *duration, reason.clone()),
+            TxPoolEffect::RecentReject {
+                store,
+                tx_hash,
+                serialized,
+            } => {
+                // `RecentReject::put` owns the RocksDB blocking boundary; do
+                // not nest another `block_in_place` around it here.
+                if let Err(error) = store.put_serialized(tx_hash, serialized) {
+                    error!("failed to record recent reject {}: {}", tx_hash, error);
+                }
+            }
         }
         PublishOne::Complete
     }
@@ -378,48 +590,56 @@ impl EffectEndpoints {
 
 /// Drain until `close` has been called and every queued/active batch is done.
 pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: EffectEndpoints) {
+    enum Checkout {
+        Idle {
+            closed: bool,
+            empty: bool,
+        },
+        Batch {
+            sequence: u64,
+            batch: Arc<EffectBatch>,
+        },
+        Fatal(EffectOutboxError),
+    }
+
+    let fail = |error: EffectOutboxError| -> ! {
+        queue.close();
+        endpoints.failure_cancel.cancel();
+        panic!("tx-pool effect outbox invariant failure: {error:?}");
+    };
+
     loop {
         let ready = queue.ready.notified();
-        let (closed, sequence, batch) = {
+        let checkout = {
             let mut state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
             let closed = state.closed;
-            let sequence = match state.outbox.checkout() {
-                Ok(sequence) => sequence,
-                Err(EffectOutboxError::PublisherBusy) => None,
-                Err(error) => {
-                    error!("effect outbox checkout invariant failure: {:?}", error);
-                    None
-                }
-            };
-            let batch = sequence.and_then(|sequence| {
-                state
-                    .outbox
-                    .active_effect(sequence)
-                    .map(Arc::clone)
-                    .map_err(|error| error!("effect outbox active invariant failure: {:?}", error))
-                    .ok()
-            });
-            (closed, sequence, batch)
+            match state.outbox.checkout() {
+                Ok(Some(sequence)) => match state.outbox.active_effect(sequence) {
+                    Ok(batch) => Checkout::Batch {
+                        sequence,
+                        batch: Arc::clone(batch),
+                    },
+                    Err(error) => Checkout::Fatal(error),
+                },
+                Ok(None) => Checkout::Idle {
+                    closed,
+                    empty: state.outbox.usage().batches == 0,
+                },
+                Err(error) => Checkout::Fatal(error),
+            }
         };
 
-        let Some(sequence) = sequence else {
-            let empty = {
-                let state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
-                state.outbox.usage().batches == 0
-            };
-            if closed && empty {
-                break;
+        let (sequence, batch) = match checkout {
+            Checkout::Idle { closed, empty } => {
+                if closed && empty {
+                    break;
+                }
+                queue.quiescent.notify_waiters();
+                ready.await;
+                continue;
             }
-            queue.quiescent.notify_waiters();
-            ready.await;
-            continue;
-        };
-        let Some(batch) = batch else {
-            warn!(
-                "effect publisher checked out sequence {} without a batch",
-                sequence
-            );
-            continue;
+            Checkout::Batch { sequence, batch } => (sequence, batch),
+            Checkout::Fatal(error) => fail(error),
         };
 
         while let Some(effect) = batch.current() {
@@ -451,7 +671,7 @@ pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: Eff
                 state.outbox.complete_active(sequence)
             };
             if let Err(error) = completed {
-                error!("effect outbox completion invariant failure: {:?}", error);
+                fail(error);
             }
             queue.space.notify_waiters();
             queue.quiescent.notify_waiters();
@@ -466,8 +686,8 @@ pub(crate) fn callback_accept(
     status: Status,
 ) -> TxPoolEffect {
     let event = match status {
-        Status::Proposed => CallbackEvent::Proposed(entry),
-        Status::Pending | Status::Gap => CallbackEvent::Pending(entry),
+        Status::Proposed => CallbackEvent::Proposed(entry.into()),
+        Status::Pending | Status::Gap => CallbackEvent::Pending(entry.into()),
     };
     TxPoolEffect::Callback { callbacks, event }
 }
@@ -479,29 +699,33 @@ pub(crate) fn callback_reject(
 ) -> TxPoolEffect {
     TxPoolEffect::Callback {
         callbacks,
-        event: CallbackEvent::Reject(entry, reject),
+        event: CallbackEvent::Reject(entry.into(), reject),
     }
 }
 
 impl TxPoolService {
     pub(crate) fn unknown_parents_effect_bytes(parent_count: usize) -> usize {
-        EFFECT_ENVELOPE_BYTES
-            .saturating_add(parent_count.saturating_mul(std::mem::size_of::<Byte32>()))
+        EFFECT_ENVELOPE_BYTES.saturating_add(parent_count.saturating_mul(UNKNOWN_PARENT_HASH_BYTES))
     }
 
     pub(crate) fn max_submit_effect_bytes(&self) -> usize {
-        let by_pool = self.pool.tx_pool_config.max_tx_pool_size.saturating_mul(4);
-        let by_bounded_removals = (self.pool.consensus.max_block_bytes() as usize)
-            .saturating_mul(crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(4));
-        by_pool.min(by_bounded_removals).max(4096)
+        // Successful submit effects reference a disjoint subset of the
+        // pre-commit pool plus the accepted transaction. Failed submissions
+        // restore old entries and suppress their transient reject events.
+        // Therefore their total transaction bytes are bounded by P + B.
+        max_submit_effect_bytes(
+            self.pool.tx_pool_config.max_tx_pool_size,
+            self.pool.consensus.max_block_bytes() as usize,
+            self.pipeline.runtime.max_entries(),
+        )
     }
 
     pub(crate) fn max_reorg_effect_bytes(&self) -> usize {
-        self.pool
-            .tx_pool_config
-            .max_tx_pool_size
-            .saturating_mul(REORG_EFFECT_CAPACITY_MULTIPLIER)
-            .max(4096)
+        // Reorg notifications are coalesced to one final full-hash event per
+        // still-resident entry, and terminal entries emit reject instead of
+        // an intermediate notification. No new entry is inserted inside the
+        // locked reorg mutation, so total referenced tx bytes are at most P.
+        max_pool_mutation_effect_bytes(self.pool.tx_pool_config.max_tx_pool_size).max(4096)
     }
 
     pub(crate) async fn reserve_effects(
@@ -511,6 +735,21 @@ impl TxPoolService {
         self.relay.effects.reserve(bytes).await
     }
 
+    /// Required stable-state publication has no recoverable reservation
+    /// error: ordinary pressure waits inside `reserve`, while Closed,
+    /// BatchTooLarge and outbox invariants mean the service cannot preserve
+    /// its ownership/effect contract.
+    pub(crate) async fn reserve_required_effects(
+        &self,
+        bytes: usize,
+        context: &'static str,
+    ) -> EffectPermit {
+        match self.reserve_effects(bytes).await {
+            Ok(permit) => permit,
+            Err(error) => self.pipeline.runtime.fail_stop(context, &error),
+        }
+    }
+
     pub(crate) async fn reserve_critical_effects(
         &self,
         bytes: usize,
@@ -518,7 +757,7 @@ impl TxPoolService {
         self.relay.effects.reserve_critical(bytes).await
     }
 
-    pub(crate) fn publish_reserved_effects(
+    fn publish_reserved_effects(
         &self,
         permit: EffectPermit,
         effects: Vec<TxPoolEffect>,
@@ -530,15 +769,31 @@ impl TxPoolService {
         permit.commit(batch)
     }
 
+    pub(crate) fn publish_required_reserved_effects(
+        &self,
+        permit: EffectPermit,
+        effects: Vec<TxPoolEffect>,
+        context: &'static str,
+    ) {
+        if let Err(error) = self.publish_reserved_effects(permit, effects) {
+            self.pipeline.runtime.fail_stop(context, &error);
+        }
+    }
+
     pub(crate) async fn publish_effects(&self, effects: Vec<TxPoolEffect>) {
         let Some(batch) = EffectBatch::new(effects) else {
             return;
         };
-        if let Err(error) = self.relay.effects.enqueue(batch).await {
-            // Closing happens only after all state workers have quiesced. An
-            // enqueue error before then is an invariant/configuration failure,
-            // not permission to run the external effect in the caller.
-            error!("failed to journal tx-pool stable-state effect: {:?}", error);
+        let permit = self
+            .reserve_required_effects(
+                batch.charge_bytes,
+                "standalone tx-pool effect reservation failed",
+            )
+            .await;
+        if let Err(error) = permit.commit(batch) {
+            self.pipeline
+                .runtime
+                .fail_stop("reserved standalone tx-pool effect journal failed", &error);
         }
     }
 
@@ -554,10 +809,14 @@ impl TxPoolService {
     /// reject semantics in the tx-pool core instead of hiding them inside a
     /// user callback, so every deployment observes the same outcome.
     pub(crate) fn rejected_effects(&self, entry: TxEntry, reject: Reject) -> Vec<TxPoolEffect> {
-        if reject.should_recorded() {
-            self.record_recent_reject(&entry.transaction().hash(), &reject);
-        }
+        assert!(
+            bounded_pool_mutation_reject(&reject),
+            "unbounded reject escaped a submit/reorg pool mutation: {reject}"
+        );
         let mut effects = Vec::new();
+        if let Some(effect) = self.recent_reject_effect(entry.transaction().hash(), &reject) {
+            effects.push(effect);
+        }
         if self.relay.callbacks.reject.is_some() {
             effects.push(callback_reject(
                 Arc::clone(&self.relay.callbacks),
@@ -573,15 +832,22 @@ impl TxPoolService {
         effects
     }
 
-    pub(crate) fn record_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
-        if let Some(store) = &self.aux.recent_reject
-            && let Err(error) = store.put(tx_hash, reject.clone())
-        {
-            error!(
-                "failed to record recent reject {} {}: {}",
-                tx_hash, reject, error
-            );
+    pub(crate) fn recent_reject_effect(
+        &self,
+        tx_hash: Byte32,
+        reject: &Reject,
+    ) -> Option<TxPoolEffect> {
+        if !reject.should_recorded() {
+            return None;
         }
+        self.aux
+            .recent_reject
+            .as_ref()
+            .map(|store| TxPoolEffect::RecentReject {
+                store: Arc::clone(store),
+                tx_hash,
+                serialized: serialized_recent_reject(reject),
+            })
     }
 
     pub(crate) async fn publish_relay_result(&self, result: TxVerificationResult) {
@@ -596,13 +862,19 @@ mod tests {
     use crate::callback::Callbacks;
     use crate::component::entry::TxEntry;
     use crate::network::{DummyTxPoolNetwork, TxPoolNetwork};
-    use ckb_types::core::{Capacity, TransactionBuilder};
+    use ckb_types::bytes::Bytes;
+    use ckb_types::core::cell::CellMetaBuilder;
+    use ckb_types::core::{Capacity, TransactionBuilder, cell::ResolvedTransaction};
+    use ckb_types::packed::{CellInput, CellOutput, OutPoint};
+    use ckb_types::prelude::{Builder, Entity};
+    use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn endpoints(tx_relay_sender: ckb_channel::Sender<TxVerificationResult>) -> EffectEndpoints {
         EffectEndpoints {
             network: Arc::new(DummyTxPoolNetwork),
             tx_relay_sender,
+            failure_cancel: CancellationToken::new(),
         }
     }
 
@@ -613,6 +885,184 @@ mod tests {
             Capacity::zero(),
             0,
         )
+    }
+
+    #[test]
+    fn stable_effect_hash_detaches_from_transaction_backing() {
+        let tx = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(Byte32::new([9; 32]), 0), 0))
+            .witness(Bytes::from(vec![1; 64 * 1024]))
+            .build();
+        let backing = tx.data();
+        let backing_start = backing.as_slice().as_ptr() as usize;
+        let backing_end = backing_start + backing.as_slice().len();
+        let shared_hash = tx.input_pts_iter().next().unwrap().tx_hash();
+        let shared_start = shared_hash.as_slice().as_ptr() as usize;
+        assert!(shared_start >= backing_start && shared_start < backing_end);
+
+        let batch = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+            tx_hash: shared_hash,
+        })])
+        .unwrap();
+        let TxPoolEffect::Relay(TxVerificationResult::Reject { tx_hash }) = &batch.effects[0]
+        else {
+            panic!("expected relay rejection")
+        };
+        let stored_start = tx_hash.as_slice().as_ptr() as usize;
+        assert!(stored_start < backing_start || stored_start >= backing_end);
+    }
+
+    #[test]
+    fn pool_mutation_effect_formula_covers_every_generated_reject_shape() {
+        let hash = Byte32::new([0xff; 32]);
+        let out_point = OutPoint::new(hash.clone(), u32::MAX);
+        let rejects = [
+            Reject::Full(format!(
+                "tx-pool total_tx_size {} overflows by add {}",
+                usize::MAX,
+                usize::MAX
+            )),
+            Reject::ExceededMaximumAncestorsCount,
+            Reject::Resolve(OutPointError::Dead(out_point)),
+            Reject::Resolve(OutPointError::InvalidHeader(hash.clone())),
+            Reject::Expiry(u64::MAX),
+            Reject::RBFRejected(format!("replaced by tx {hash}")),
+            Reject::Invalidated(format!("invalidated by tx {hash}")),
+        ];
+        let transaction_bytes = minimum_serialized_transaction_bytes();
+        let one_event_bound = max_pool_mutation_effect_bytes(transaction_bytes);
+        for reject in rejects {
+            assert!(bounded_pool_mutation_reject(&reject), "{reject}");
+            let actual_worst_case = transaction_bytes
+                .saturating_add(CALLBACK_SNAPSHOT_OVERHEAD_BYTES)
+                .saturating_add(EFFECT_ENVELOPE_BYTES.saturating_mul(3))
+                .saturating_add(reject.to_string().len().saturating_mul(2));
+            assert!(
+                actual_worst_case <= one_event_bound,
+                "{reject}: {actual_worst_case} > {one_event_bound}"
+            );
+        }
+    }
+
+    #[test]
+    fn callback_effect_drops_resolved_payload_at_journal_boundary() {
+        let transaction = TransactionBuilder::default().build();
+        let transaction_bytes = transaction.data().serialized_size_in_block();
+        let resolved = Arc::new(ResolvedTransaction {
+            transaction: transaction.clone(),
+            resolved_cell_deps: vec![
+                CellMetaBuilder::from_cell_output(
+                    CellOutput::new_builder().build(),
+                    Bytes::from(vec![0x5a; 1_000_000]),
+                )
+                .build(),
+            ],
+            resolved_inputs: Vec::new(),
+            resolved_dep_groups: Vec::new(),
+        });
+        let resolved_owner = Arc::downgrade(&resolved);
+        let entry = TxEntry::new(resolved, 42, Capacity::shannons(7), transaction_bytes);
+
+        let effect = callback_accept(Arc::new(Callbacks::new()), entry, Status::Pending);
+
+        assert!(
+            resolved_owner.upgrade().is_none(),
+            "the effect outbox must not retain resolved cell metadata"
+        );
+        assert!(
+            effect.charge_bytes() < 4096,
+            "callback charge must describe the compact snapshot, not the 1 MB resolved payload"
+        );
+        match effect {
+            TxPoolEffect::Callback {
+                event: CallbackEvent::Pending(snapshot),
+                ..
+            } => {
+                assert_eq!(snapshot.transaction(), &transaction);
+                assert_eq!(snapshot.cycles, 42);
+                assert_eq!(snapshot.fee, Capacity::shannons(7));
+            }
+            _ => panic!("unexpected effect variant"),
+        }
+    }
+
+    #[test]
+    fn submit_effect_formula_covers_coordinator_settlement_and_bounded_ban() {
+        let records = 3;
+        let bound = max_submit_effect_bytes(0, minimum_serialized_transaction_bytes(), records);
+        let mut effects = (0..records)
+            .map(|seed| {
+                TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: Byte32::new([seed as u8; 32]),
+                })
+            })
+            .collect::<Vec<_>>();
+        effects.push(TxPoolEffect::BanPeer {
+            peer: 1.into(),
+            duration: Duration::from_secs(1),
+            reason: "x".repeat(MAX_COMMIT_BAN_REASON_BYTES),
+        });
+        let actual = EffectBatch::new(effects).unwrap().charge_bytes;
+        assert!(actual <= bound, "{actual} > {bound}");
+
+        let reject = Reject::Malformed("test".to_string(), "界".repeat(1024));
+        let reason = bounded_commit_ban_reason(&reject);
+        assert!(reason.len() <= MAX_COMMIT_BAN_REASON_BYTES);
+        assert!(reason.is_char_boundary(reason.len()));
+    }
+
+    #[test]
+    fn unknown_parent_effect_charges_hash_table_residency() {
+        let parents = HashSet::from([Byte32::new([0; 32]), Byte32::new([0xff; 32])]);
+        let effect = TxPoolEffect::Relay(TxVerificationResult::UnknownParents {
+            peer: 1.into(),
+            parents,
+        });
+        assert_eq!(
+            effect.charge_bytes(),
+            EFFECT_ENVELOPE_BYTES + 2 * UNKNOWN_PARENT_HASH_BYTES
+        );
+    }
+
+    #[test]
+    fn oversized_recent_reject_diagnostic_is_bounded_without_changing_original() {
+        let reject = Reject::Full("界".repeat(2_000));
+        let bounded = bounded_recent_reject(&reject);
+        assert!(bounded.to_string().len() <= MAX_RECENT_REJECT_BYTES);
+        assert!(serialized_recent_reject(&reject).len() <= MAX_RECENT_REJECT_BYTES);
+        assert!(reject.to_string().len() > MAX_RECENT_REJECT_BYTES);
+    }
+
+    #[tokio::test]
+    async fn recent_reject_database_write_runs_as_a_journaled_effect() {
+        let temp = tempfile::Builder::new().tempdir().unwrap();
+        let store = Arc::new(
+            crate::component::recent_reject::RecentReject::build(temp.path(), 1, 100, -1).unwrap(),
+        );
+        let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
+        let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
+        let tx_hash = Byte32::new([0x42; 32]);
+        queue
+            .enqueue(
+                EffectBatch::new(vec![TxPoolEffect::RecentReject {
+                    store: Arc::clone(&store),
+                    tx_hash: tx_hash.clone(),
+                    serialized: serialized_recent_reject(&Reject::Expiry(42)),
+                }])
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let publisher = tokio::spawn(run_effect_publisher(
+            Arc::clone(&queue),
+            endpoints(relay_tx),
+        ));
+        tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
+            .await
+            .unwrap();
+        assert!(store.get(&tx_hash).unwrap().is_some());
+        queue.close();
+        publisher.await.unwrap();
     }
 
     #[tokio::test]
@@ -723,6 +1173,7 @@ mod tests {
                     attempts: Arc::clone(&attempts),
                 }),
                 tx_relay_sender: relay_tx,
+                failure_cancel: CancellationToken::new(),
             },
         ));
         tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
@@ -736,6 +1187,47 @@ mod tests {
 
         queue.close();
         publisher.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn publisher_invariant_failure_closes_outbox_and_cancels_service() {
+        let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
+        let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
+        queue
+            .enqueue(
+                EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: Byte32::zero(),
+                })])
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Simulate a second/failed publisher that left an active checkout.
+        // The production publisher must fail the complete service instead of
+        // logging and waiting forever behind that impossible state.
+        {
+            let mut state = queue.state.lock().unwrap();
+            assert!(state.outbox.checkout().unwrap().is_some());
+        }
+
+        let failure_cancel = CancellationToken::new();
+        let publisher = tokio::spawn(run_effect_publisher(
+            Arc::clone(&queue),
+            EffectEndpoints {
+                network: Arc::new(DummyTxPoolNetwork),
+                tx_relay_sender: relay_tx,
+                failure_cancel: failure_cancel.clone(),
+            },
+        ));
+        let result = tokio::time::timeout(Duration::from_secs(1), publisher)
+            .await
+            .expect("fatal publisher invariant must not hang");
+        assert!(result.is_err());
+        assert!(failure_cancel.is_cancelled());
+        assert!(matches!(
+            queue.reserve(1).await,
+            Err(EffectQueueError::Closed)
+        ));
     }
 
     #[tokio::test]

@@ -1,11 +1,9 @@
 //! Ordered resolution worker backed exclusively by the pipeline coordinator.
 
 use crate::component::pipeline_coordinator::{
-    CoordinatorError, QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule,
+    QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule,
 };
-use crate::component::pipeline_runtime::{
-    PipelineRawTx, coordinator_reject, resolved_charge_bytes,
-};
+use crate::component::pipeline_runtime::{PipelineRawTx, resolved_charge_bytes};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
@@ -31,7 +29,7 @@ pub(crate) enum ResolveStageResult {
 
 pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> ResolveStageResult {
     let tx_size = job.tx.data().serialized_size_in_block();
-    let (pre_check_ret, snapshot) = service.pre_check(&job.tx, tx_size).await;
+    let (pre_check_ret, _snapshot) = service.pre_check(&job.tx, tx_size).await;
     match pre_check_ret {
         Ok(PreCheckedTx {
             pre_resolve_tip,
@@ -39,6 +37,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
             status,
             fee,
             tx_size,
+            resident_size,
         }) => {
             debug!("resolve stage resolved tx {}", job.tx.proposal_short_id());
             ResolveStageResult::Ready(ResolvedTx {
@@ -47,11 +46,10 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
                 status,
                 fee,
                 tx_size,
+                resident_size,
                 pre_resolve_tip,
-                snapshot,
                 source: job.source,
                 epoch: job.epoch,
-                verified: None,
             })
         }
         Err(reject) if crate::util::is_missing_input(&reject) => {
@@ -74,56 +72,36 @@ impl TxPoolService {
         disposition: TerminalDisposition,
         reject: Option<Reject>,
     ) {
-        let permit = match self
-            .reserve_effects(Self::pipeline_outcome_effect_bytes(reject.as_ref()))
-            .await
-        {
-            Ok(permit) => permit,
-            Err(error) => {
-                error!(
-                    "raw terminal effect reservation failed for {}: {:?}",
-                    lease.hash, error
-                );
-                let _ = self
-                    .pipeline
-                    .runtime
-                    .mutate(|coordinator| coordinator.requeue_raw(lease));
-                return;
-            }
-        };
+        let permit = self
+            .reserve_required_effects(
+                Self::pipeline_outcome_effect_bytes(reject.as_ref()),
+                "raw terminal effect reservation failed",
+            )
+            .await;
         let mut tx_pool = if reject.is_some() {
             Some(self.pool.tx_pool.write().await)
         } else {
             None
         };
         let mut banned_peer = None;
-        let terminal = self.pipeline.runtime.mutate(|coordinator| {
-            let result = coordinator.terminalize_raw(lease, disposition);
-            if let Ok(record) = &result {
-                banned_peer = self.journal_pipeline_outcome(
-                    permit,
-                    record,
-                    reject.as_ref(),
-                    tx_pool.as_deref_mut(),
-                );
-            }
-            result
-        });
+        let terminal = self.pipeline.runtime.mutate_lease(
+            "current raw lease could not terminalize",
+            |coordinator| {
+                let result = coordinator.terminalize_raw(lease, disposition);
+                if let Ok(record) = &result {
+                    banned_peer = self.journal_pipeline_outcome(
+                        permit,
+                        record,
+                        reject.as_ref(),
+                        tx_pool.as_deref_mut(),
+                    );
+                }
+                result
+            },
+        );
         drop(tx_pool);
-        match terminal {
-            Ok(_record) => {}
-            Err(
-                CoordinatorError::Missing(_)
-                | CoordinatorError::IncarnationMismatch { .. }
-                | CoordinatorError::RevisionMismatch { .. }
-                | CoordinatorError::LocationMismatch { .. },
-            ) => return,
-            Err(error) => {
-                error!(
-                    "failed to terminalize raw pipeline lease {}: {:?}",
-                    lease.hash, error
-                );
-            }
+        if terminal.is_none() {
+            return;
         }
         if let Some(peer) = banned_peer {
             self.remove_banned_peer_entries(peer).await;
@@ -140,14 +118,10 @@ impl TxPoolService {
         else {
             return;
         };
-        let source = match lease.payload.authoritative_source(current_source) {
-            Ok(source) => source,
-            Err(_reject) => {
-                self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
-                    .await;
-                return;
-            }
-        };
+        let source = self
+            .pipeline
+            .runtime
+            .require_authoritative_source(&lease.payload, current_source);
 
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
@@ -162,7 +136,10 @@ impl TxPoolService {
                     let charge_bytes = match resolved_charge_bytes(&resolved) {
                         Ok(charge) => charge,
                         Err(error) => {
-                            let reject = coordinator_reject(error);
+                            let reject = self.pipeline.runtime.reject_or_fail(
+                                "resolved payload charge violated coordinator invariants",
+                                error,
+                            );
                             self.settle_pipeline_raw_lease(
                                 &lease,
                                 TerminalDisposition::Rejected,
@@ -179,25 +156,14 @@ impl TxPoolService {
                             cycles > self.pool.tx_pool_config.max_tx_verify_cycles
                         }),
                     );
-                    let permit = match self
-                        .reserve_effects(Self::pipeline_terminal_effect_bytes(
-                            crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
-                        ))
-                        .await
-                    {
-                        Ok(permit) => permit,
-                        Err(error) => {
-                            error!(
-                                "raw completion effect reservation failed for {}: {:?}",
-                                lease.hash, error
-                            );
-                            let _ = self
-                                .pipeline
-                                .runtime
-                                .mutate(|coordinator| coordinator.requeue_raw(&lease));
-                            return;
-                        }
-                    };
+                    let permit = self
+                        .reserve_required_effects(
+                            Self::pipeline_terminal_effect_bytes(
+                                crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                            ),
+                            "raw completion effect reservation failed",
+                        )
+                        .await;
                     match self.pipeline.runtime.mutate(|coordinator| {
                         let result =
                             coordinator.complete_raw(&lease, resolved, charge_bytes, schedule);
@@ -207,8 +173,12 @@ impl TxPoolService {
                         result
                     }) {
                         Ok((_version, _terminal)) => {}
+                        Err(error) if error.is_stale_lease() => {}
                         Err(error) => {
-                            let reject = coordinator_reject(error);
+                            let reject = self.pipeline.runtime.reject_or_fail(
+                                "raw completion violated coordinator invariants",
+                                error,
+                            );
                             let public_reject =
                                 (!matches!(reject, Reject::Full(_))).then_some(reject);
                             self.settle_pipeline_raw_lease(
@@ -221,27 +191,16 @@ impl TxPoolService {
                     }
                 }
                 ResolveStageResult::Orphan(parents) => {
-                    let permit = match self
-                        .reserve_effects(Self::unknown_parents_effect_bytes(parents.len()))
-                        .await
-                    {
-                        Ok(permit) => permit,
-                        Err(error) => {
-                            error!(
-                                "raw parent-wait effect reservation failed for {}: {:?}",
-                                lease.hash, error
-                            );
-                            let _ = self
-                                .pipeline
-                                .runtime
-                                .mutate(|coordinator| coordinator.requeue_raw(&lease));
-                            return;
-                        }
-                    };
+                    let permit = self
+                        .reserve_required_effects(
+                            Self::unknown_parents_effect_bytes(parents.len()),
+                            "raw parent-wait effect reservation failed",
+                        )
+                        .await;
                     match self.settle_raw_parent_wait(&lease, parents, permit).await {
-                        Ok(ParentWaitOutcome::Parked) => {}
-                        Ok(ParentWaitOutcome::Requeued) => {}
-                        Ok(ParentWaitOutcome::Unavailable) => {
+                        Some(ParentWaitOutcome::Parked) => {}
+                        Some(ParentWaitOutcome::Requeued) => {}
+                        Some(ParentWaitOutcome::Unavailable) => {
                             let reject = first_unknown_input_reject(&tx);
                             self.settle_pipeline_raw_lease(
                                 &lease,
@@ -250,18 +209,7 @@ impl TxPoolService {
                             )
                             .await;
                         }
-                        Err(error) => {
-                            error!(
-                                "failed to settle raw parent wait {}: {:?}",
-                                lease.hash, error
-                            );
-                            self.settle_pipeline_raw_lease(
-                                &lease,
-                                TerminalDisposition::Internal,
-                                None,
-                            )
-                            .await;
-                        }
+                        None => {}
                     }
                 }
                 ResolveStageResult::Reject(reject) => {
@@ -278,6 +226,9 @@ impl TxPoolService {
 
         if let Err(message) = outcome {
             error!("tx-pool raw worker panicked on {}: {}", lease.hash, message);
+            if self.pipeline.runtime.is_failed() {
+                return;
+            }
             self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
                 .await;
         }
@@ -309,18 +260,10 @@ impl JobHandler for ResolveHandler {
     }
 
     async fn pop_one(&mut self) -> Option<RawWorkLease<PipelineRawTx>> {
-        match self
-            .service
+        self.service
             .pipeline
             .runtime
             .checkout_raw(RawStage::Resolve)
-        {
-            Ok(work) => work,
-            Err(error) => {
-                error!("ordered resolver checkout failed: {:?}", error);
-                None
-            }
-        }
     }
 
     async fn next_deadline(&self) -> Option<tokio::time::Instant> {
