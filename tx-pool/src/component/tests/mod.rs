@@ -7,6 +7,7 @@ mod links;
 mod pending;
 mod persisted;
 mod pipeline;
+mod pipeline_conflict_model;
 mod pipeline_coordinator;
 mod proposed;
 mod rbf_prevalidation;

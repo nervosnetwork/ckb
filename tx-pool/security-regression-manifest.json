@@ -47,7 +47,8 @@
     "I9": [
       "under_fee_candidate_cannot_become_verified_conflict_state",
       "unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain",
-      "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen"
+      "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen",
+      "model_random_transitions_always_match_full_rebuild"
     ],
     "I10": [
       "conflict_closure_ignores_ghost_link_nodes",
@@ -62,7 +63,8 @@
     "I12": [
       "conflict_edge_victim_selection_stops_before_stronger_pool_suffix",
       "global_capacity_victim_selection_stops_before_stronger_pool_suffix",
-      "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions"
+      "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
+      "model_conflict_probe_cost_ignores_independent_population"
     ]
   },
   "source_anchors": [

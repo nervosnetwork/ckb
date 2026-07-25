@@ -497,16 +497,19 @@ and, for every verified candidate, its distinct direct-conflict degree and the
 number of directly conflicting candidates with a stronger rank:
 
 ```text
-edge(a, b) <=> a and b are Verified and share an input
+edge(a, b) <=> a and b are staged (Verified or Committing) and share an input
 degree(v) == number of distinct direct neighbours of v
 stronger_count(v) == number of direct neighbours ranked above v
 eligible(v) <=> Verified(v) && stronger_count(v) == 0
 eligible(v) <=> exactly one live commit ticket for v
 ```
 
-A finite conflict graph has at least one local maximum; it need not have only
-one. Independent local maxima may remain eligible concurrently. Checkout
-atomically exchanges the live ticket for `Committing(lease)`.
+A finite conflict graph without a committing member has at least one local
+maximum; it need not have only one. Independent local maxima may remain
+eligible concurrently. Checkout atomically exchanges the live ticket for
+`Committing(lease)`. A committing member remains in the graph with frozen
+priority above every verified neighbour until success or abort, but is never
+itself represented by a queue ticket.
 
 Any source or metadata change that changes `CandidateRank` is committed with
 the corresponding conflict delta in the same coordinator mutex and undo
@@ -576,3 +579,15 @@ validated against `cargo nextest list` by
 Historical names in the larger ledger are archival and are intentionally not
 treated as compile-time anchors. Release mode additionally requires the
 manifest's blocker list to be empty. Benchmarking remains outside phases 0-7.
+
+### 12.6 Execution record
+
+This table is append-only during the refactor so a resumed session can recover
+the architectural state without reconstructing chat history.
+
+| Phase | State | Evidence and correction |
+|---|---|---|
+| 0 | Complete (`4245c1a5d`) | Frozen contract, nextest-backed evidence manifest and Ubuntu CI check; no production behavior change. |
+| 1 | Complete (checkpoint is the commit containing this row) | Seven independent conflict-model tests; 310/310 nextest green. The model corrected the edge definition so `Committing` remains a frozen staged neighbour. No production path changed and no new clippy warning was added; 23 baseline lint findings remain for semantic cleanup/Phase 5. |
+| 2-7 | Pending | Execute in fixed order above. |
+| 8 | Deferred | Run only after explicit benchmark instruction. |
