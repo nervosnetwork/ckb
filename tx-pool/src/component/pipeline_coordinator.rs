@@ -66,6 +66,12 @@ pub(crate) struct PipelineCoordinator<R, U, V> {
     fault_after_apply_steps: Option<usize>,
     #[cfg(test)]
     apply_steps_seen: usize,
+    /// One-shot recoverable error after a commit handoff has exercised its
+    /// complete apply path. The enclosing undo scope must restore it before
+    /// the production PoolMap cutover rolls back. Test-only: production has
+    /// no alternate handoff state or failure channel.
+    #[cfg(test)]
+    fail_next_handoff_after_apply: Option<CoordinatorError>,
 }
 
 enum CapacitySubject {
@@ -120,6 +126,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             fault_after_apply_steps: None,
             #[cfg(test)]
             apply_steps_seen: 0,
+            #[cfg(test)]
+            fail_next_handoff_after_apply: None,
         }
     }
 
@@ -1017,13 +1025,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.ensure_revision_capacity(&lease.hash)?;
         let requeue = missing.is_empty();
         let (queue_sequence, next_queue_sequence) = if requeue {
-            let source = self
-                .entries
-                .get(&lease.hash)
-                .map(|entry| entry.source)
-                .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-            self.queue_mut(QueueKind::Resolve)?
-                .reserve_live(source.queue_owner(), false)?;
             let (first, next) = self.queue_sequence_range(1)?;
             (Some(first), Some(next))
         } else {
@@ -1035,6 +1036,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .get(&lease.hash)
                 .map(|entry| (entry.source, entry.raw_charge_bytes))
                 .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
+            if requeue {
+                coordinator
+                    .queue_mut(QueueKind::Resolve)?
+                    .reserve_live(source.queue_owner(), false)?;
+            }
             coordinator.deactivate_source(source)?;
             coordinator.apply_recharge(&lease.hash, raw_charge)?;
             if !requeue {
@@ -1225,22 +1231,28 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .get(&lease.hash)
             .map(|entry| entry.source)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        self.queue_mut(kind)?
-            .reserve_live(source.queue_owner(), false)?;
         let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
-        self.deactivate_source(source)?;
-        let entry = self.entry_mut(&lease.hash)?;
-        let EntryState::Raw { location, .. } = &mut entry.state else {
-            return Err(CoordinatorError::ConflictInvariant);
-        };
-        *location = RawLocation::Queued(lease.stage);
-        entry.queue_sequence = queue_sequence;
-        entry.revision += 1;
-        let version = entry.version();
-        let ticket = entry.ticket(&lease.hash);
-        let front = entry.source.is_proposal();
-        self.queue_mut(kind)?.push_reserved(kind, ticket, front)?;
-        self.next_queue_sequence = next_queue_sequence;
+        let version = self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
+            coordinator
+                .queue_mut(kind)?
+                .reserve_live(source.queue_owner(), false)?;
+            coordinator.deactivate_source(source)?;
+            let entry = coordinator.entry_mut(&lease.hash)?;
+            let EntryState::Raw { location, .. } = &mut entry.state else {
+                return Err(CoordinatorError::ConflictInvariant);
+            };
+            *location = RawLocation::Queued(lease.stage);
+            entry.queue_sequence = queue_sequence;
+            entry.revision += 1;
+            let version = entry.version();
+            let ticket = entry.ticket(&lease.hash);
+            let front = entry.source.is_proposal();
+            coordinator
+                .queue_mut(kind)?
+                .push_reserved(kind, ticket, front)?;
+            coordinator.next_queue_sequence = next_queue_sequence;
+            Ok(version)
+        })?;
         self.refresh_victim_indexes(&lease.hash, old_victim_keys);
         Ok(version)
     }
@@ -1283,8 +1295,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
             affected.push(child);
         }
-        self.queue_mut(QueueKind::Resolve)?
-            .reserve_many(ready_owners, false)?;
         let mut ready = Vec::new();
         ready
             .try_reserve(ready_count)
@@ -1294,6 +1304,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let undo = affected.clone();
         let mut queue_sequence = first_queue_sequence;
         self.with_entry_undo(&undo, |coordinator| {
+            coordinator
+                .queue_mut(QueueKind::Resolve)?
+                .reserve_many(ready_owners, false)?;
             coordinator.next_queue_sequence = next_queue_sequence;
             for child in affected {
                 let entry = coordinator.entry_mut(&child)?;
@@ -2185,7 +2198,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         undo.dedup();
         self.with_entry_undo(&undo, |coordinator| {
             coordinator.parents_unavailable(unavailable_parents)?;
-            coordinator.commit_candidate_handoff(lease)
+            let handoff = coordinator.commit_candidate_handoff(lease)?;
+            #[cfg(test)]
+            coordinator.handoff_error_checkpoint()?;
+            Ok(handoff)
         })
     }
 
@@ -2226,13 +2242,19 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if self.entries.contains_key(hash) {
             self.with_entry_undo(&undo, |coordinator| {
                 coordinator.parents_unavailable(unavailable_parents)?;
-                coordinator.external_commit_apply(hash)
+                let record = coordinator.external_commit_apply(hash)?;
+                #[cfg(test)]
+                coordinator.handoff_error_checkpoint()?;
+                Ok(record)
             })
         } else {
             undo.retain(|affected| affected != hash);
             self.with_absent_entry_undo(hash, &undo, |coordinator| {
                 coordinator.parents_unavailable(unavailable_parents)?;
-                coordinator.external_commit_apply(hash)
+                let record = coordinator.external_commit_apply(hash)?;
+                #[cfg(test)]
+                coordinator.handoff_error_checkpoint()?;
+                Ok(record)
             })
         }
     }
@@ -2585,6 +2607,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     }
 
     #[cfg(test)]
+    pub(crate) fn fail_next_handoff_after_apply_for_test(&mut self, error: CoordinatorError) {
+        self.fail_next_handoff_after_apply = Some(error);
+    }
+
+    #[cfg(test)]
+    fn handoff_error_checkpoint(&mut self) -> Result<(), CoordinatorError> {
+        self.fail_next_handoff_after_apply
+            .take()
+            .map_or(Ok(()), Err)
+    }
+
+    #[cfg(test)]
     fn apply_fault_checkpoint(&mut self) {
         self.apply_steps_seen = self.apply_steps_seen.saturating_add(1);
         if self.fault_after_apply_steps == Some(self.apply_steps_seen) {
@@ -2600,15 +2634,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.queues
             .get_mut(&kind)
             .ok_or(CoordinatorError::QueueInvariant(kind))
-    }
-
-    /// Reservation credits protect a queue owner across multi-entry apply
-    /// steps. Any credit left after the enclosing coordinator mutation did not
-    /// become live work and must not persist as attack-controlled metadata.
-    pub(crate) fn discard_unused_queue_reservations(&mut self) {
-        for queue in self.queues.values_mut() {
-            queue.discard_unused_reservations();
-        }
     }
 
     fn peek_live_ticket(

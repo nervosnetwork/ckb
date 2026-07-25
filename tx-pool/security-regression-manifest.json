@@ -9,7 +9,8 @@
   "evidence": {
     "I1": [
       "one_entry_and_revision_own_every_payload_phase_until_candidate_handoff",
-      "pool_removal_invalidation_and_winner_handoff_are_one_transaction"
+      "pool_removal_invalidation_and_winner_handoff_are_one_transaction",
+      "production_pool_coordinator_outbox_fault_matrix_is_atomic"
     ],
     "I2": [
       "pipeline_commit_worker_waits_for_the_pool_sequencer",
@@ -17,13 +18,18 @@
     ],
     "I3": [
       "failed_commit_restores_all_size_evictions_with_original_status_in_lock",
-      "failed_tip_revalidation_recovers_whole_removed_cascade"
+      "failed_tip_revalidation_recovers_whole_removed_cascade",
+      "production_pool_coordinator_outbox_fault_matrix_is_atomic"
     ],
     "I4": [
       "active_verification_terminalization_is_causal_and_aba_safe",
       "removed_and_readmitted_hash_rejects_the_old_worker_incarnation",
       "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject",
-      "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale"
+      "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale",
+      "queue_sequence_exhaustion_cannot_strand_transition_reservations",
+      "production_pool_coordinator_outbox_fault_matrix_is_atomic",
+      "coordinator_handoff_panic_preserves_pool_recovery_point",
+      "production_handoff_invariant_settles_then_fails_closed"
     ],
     "I5": [
       "metadata_residency_is_charged_continuously_across_every_payload_phase",
@@ -41,12 +47,17 @@
     "I7": [
       "reorg_status_transition_failure_has_no_false_reject_and_replay_converges",
       "reorg_retain_duplicate_does_not_cascade_dependents",
-      "retained_receiver_preserves_fifo_across_panics"
+      "retained_receiver_preserves_fifo_across_panics",
+      "coordinator_handoff_panic_preserves_pool_recovery_point",
+      "stable_effect_journal_failure_preserves_pool_persistence",
+      "production_handoff_invariant_settles_then_fails_closed"
     ],
     "I8": [
       "local_commit_waits_for_effect_credit_before_mutating_pool",
       "fifo_sequence_follows_authoritative_commit_not_reservation_order",
-      "full_relayer_retains_fifo_head_and_outbox_charge"
+      "full_relayer_retains_fifo_head_and_outbox_charge",
+      "production_pool_coordinator_outbox_fault_matrix_is_atomic",
+      "stable_effect_journal_failure_preserves_pool_persistence"
     ],
     "I9": [
       "under_fee_candidate_cannot_become_verified_conflict_state",
@@ -91,10 +102,6 @@
     }
   ],
   "release_blockers": [
-    {
-      "id": "ledger-104-production-cutover-fault-matrix",
-      "reason": "Repeat the undo fault matrix across the production TxPool/coordinator/outbox cutover."
-    },
     {
       "id": "final-security-closure",
       "reason": "Finish phases 3-7 and close or explicitly accept every current security-ledger item."

@@ -120,6 +120,30 @@ fn authoritative_boundary_failure_disables_pool_persistence() {
 }
 
 #[test]
+fn stable_effect_journal_failure_preserves_pool_persistence() {
+    let (consensus, _) = test_consensus(1);
+    let shutdown = CancellationToken::new();
+    let runtime = crate::component::pipeline_runtime::PipelineRuntime::new(
+        &tx_pool_config(),
+        &consensus,
+        shutdown.clone(),
+    );
+
+    let injected = catch_unwind(AssertUnwindSafe(|| {
+        runtime.guard_stable_effect_journal("injected stable effect boundary", || {
+            panic!("injected effect journal failure")
+        });
+    }));
+    assert!(injected.is_err());
+    assert!(runtime.is_failed());
+    assert!(shutdown.is_cancelled());
+    assert!(
+        runtime.pool_persistence_safe(),
+        "effect publication cannot invalidate an already-stable accepted pool"
+    );
+}
+
+#[test]
 fn inconsistent_ingress_source_attribution_is_fail_closed() {
     use crate::component::pipeline_coordinator::CoordinatorSource;
     use crate::component::pipeline_runtime::PipelineRawTx;
@@ -377,6 +401,176 @@ async fn pool_commit_panic_fails_closed_instead_of_stranding_committing() {
     })
     .await
     .expect("an authoritative pool panic must stop the complete tx-pool service");
+    assert!(
+        !service.pipeline.runtime.pool_persistence_safe(),
+        "an unwind inside the PoolMap mutation boundary has no proven recovery point"
+    );
+}
+
+/// Exercise the recoverable error edge of the real production cutover, not
+/// only the isolated coordinator undo. The injected error is raised after the
+/// coordinator handoff has run its complete apply path; its outer undo must
+/// restore `Committing`, the PoolMap journal must remove the tentative insert,
+/// required failure settlement must consume the coordinator owner, and the
+/// reserved outbox credit must publish exactly that stable terminal result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn production_pool_coordinator_outbox_fault_matrix_is_atomic() {
+    use super::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let tx_hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(41);
+    stage_verified_remote_candidate(&h.service, tx, peer).await;
+    h.service.pipeline.runtime.mutate(|coordinator| {
+        coordinator.fail_next_handoff_after_apply_for_test(
+            crate::component::pipeline_coordinator::CoordinatorError::QueueReservationFailed,
+        );
+    });
+
+    h.service.drive_pipeline_commits().await;
+
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&tx_hash)
+            .is_none(),
+        "the tentative PoolMap insert must be rolled back before unlock"
+    );
+    h.service.pipeline.runtime.read(|coordinator| {
+        assert!(
+            !coordinator.contains_hash(&tx_hash),
+            "required failed-commit settlement must consume restored Committing ownership"
+        );
+        coordinator.audit().unwrap();
+    });
+    assert!(
+        !h.service.pipeline.runtime.is_failed(),
+        "an error returned through a proven undo boundary is a settled attempt, not poisoned state"
+    );
+
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the stable failed outcome must consume its reserved effect credit");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Reject { tx_hash: rejected } if rejected == tx_hash
+    ));
+    h.service.relay.effects.wait_idle().await;
+    let effect_usage = h.service.relay.effects.usage();
+    assert_eq!(effect_usage.batches, 0);
+    assert_eq!(
+        effect_usage.bytes, 0,
+        "publication must release the complete reserved/queued/active charge"
+    );
+
+    h.cancel.cancel();
+}
+
+/// A panic inside an undo-protected coordinator handoff stops the pipeline,
+/// but the exact PoolMap journal still proves the accepted pool is a safe
+/// recovery point. The commit driver must not re-enter the already failed
+/// runtime and accidentally escalate this to authoritative uncertainty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn coordinator_handoff_panic_preserves_pool_recovery_point() {
+    use super::harness::{WorkerSet, harness};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let tx_hash = tx.hash();
+    stage_verified_remote_candidate(&h.service, tx, ckb_network::PeerIndex::from(42)).await;
+    h.service.pipeline.runtime.mutate(|coordinator| {
+        coordinator.set_apply_fault_for_test(Some(1));
+    });
+
+    h.service.drive_pipeline_commits().await;
+
+    assert!(h.service.pipeline.runtime.is_failed());
+    assert!(h.cancel.is_cancelled());
+    assert!(
+        h.service.pipeline.runtime.pool_persistence_safe(),
+        "coordinator undo plus exact PoolMap rollback must not be escalated to authoritative failure"
+    );
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&tx_hash)
+            .is_none(),
+        "the tentative pool insertion must be gone before the failed driver exits"
+    );
+    h.service.relay.effects.wait_idle().await;
+    let effect_usage = h.service.relay.effects.usage();
+    assert_eq!(effect_usage.batches, 0);
+    assert_eq!(effect_usage.bytes, 0);
+    assert!(
+        h.relay_rx.try_recv().is_err(),
+        "an interrupted attempt has no stable terminal effect to publish"
+    );
+}
+
+/// A returned invariant error is different from a capacity-class rollback:
+/// first restore PoolMap, settle the live commit lease and bind its terminal
+/// effect, then stop the service outside the authoritative lock domain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn production_handoff_invariant_settles_then_fails_closed() {
+    use super::harness::{WorkerSet, harness};
+    use crate::component::pipeline_coordinator::CoordinatorError;
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let tx_hash = tx.hash();
+    stage_verified_remote_candidate(&h.service, tx, ckb_network::PeerIndex::from(43)).await;
+    h.service.pipeline.runtime.mutate(|coordinator| {
+        coordinator.fail_next_handoff_after_apply_for_test(CoordinatorError::ConflictInvariant);
+    });
+
+    let service = h.service.clone();
+    let join = tokio::spawn(async move { service.drive_pipeline_commits().await }).await;
+    assert!(join.is_err_and(|error| error.is_panic()));
+    assert!(h.service.pipeline.runtime.is_failed());
+    assert!(h.cancel.is_cancelled());
+    assert!(
+        h.service.pipeline.runtime.pool_persistence_safe(),
+        "exact rollback completes before invariant fail-stop leaves the pool guard"
+    );
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&tx_hash)
+            .is_none()
+    );
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("lease settlement must be journaled before invariant fail-stop");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Reject { tx_hash: rejected } if rejected == tx_hash
+    ));
 }
 
 pub(crate) fn tx_pool_config() -> TxPoolConfig {
@@ -538,6 +732,64 @@ fn build_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
         )
         .output_data(Bytes::default().pack())
         .build()
+}
+
+/// Drive one remote transaction to the coordinator's verified boundary
+/// without spawning workers. Tests can then exercise the production commit
+/// sequencer deterministically.
+async fn stage_verified_remote_candidate(
+    service: &TxPoolService,
+    tx: TransactionView,
+    peer: ckb_network::PeerIndex,
+) {
+    use crate::component::pipeline_coordinator::{CoordinatorFeeGate, RawStage, WorkerCapability};
+    use crate::component::pipeline_runtime::candidate_charge_bytes;
+    use std::collections::HashSet;
+
+    let tx_hash = tx.hash();
+    let cycles = measured_cycles(service, tx.clone()).await;
+    service
+        .submit_remote_tx(tx.clone(), TxSource::Remote { cycles, peer })
+        .await
+        .unwrap();
+    let raw = service
+        .pipeline
+        .runtime
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap();
+    service.process_pipeline_raw_lease(raw).await;
+    let verify = service
+        .pipeline
+        .runtime
+        .mutate(|coordinator| coordinator.checkout_verify(WorkerCapability::Any))
+        .unwrap()
+        .unwrap();
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+    let verified = service
+        .verify_pipeline_resolved((*verify.payload).clone(), snapshot, None)
+        .await
+        .unwrap();
+    let candidate = CoordinatorFeeGate::new(0, 0)
+        .validate(
+            tx_hash,
+            tx.input_pts_iter().collect::<HashSet<_>>(),
+            verified.candidate.fee.as_u64(),
+            verified.candidate.tx_size,
+        )
+        .unwrap();
+    let charge = candidate_charge_bytes(&verified.candidate)
+        .unwrap()
+        .checked_add(std::mem::size_of::<
+            crate::component::pipeline_runtime::PipelineVerifiedTx,
+        >())
+        .unwrap();
+    service
+        .pipeline
+        .runtime
+        .mutate(|coordinator| {
+            coordinator.complete_verification_candidate(&verify, verified, charge, candidate)
+        })
+        .unwrap();
 }
 
 fn with_cached_hash(tx: TransactionView, hash: ckb_types::packed::Byte32) -> TransactionView {
@@ -1280,68 +1532,12 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
     use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_coordinator::{
-        CoordinatorFeeGate, CoordinatorLocation, RawStage, WorkerCapability,
-    };
-    use crate::component::pipeline_runtime::candidate_charge_bytes;
-    use std::collections::HashSet;
+    use crate::component::pipeline_coordinator::CoordinatorLocation;
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
     let hash = tx.hash();
-    let cycles = measured_cycles(&h.service, tx.clone()).await;
-    h.service
-        .submit_remote_tx(
-            tx.clone(),
-            TxSource::Remote {
-                cycles,
-                peer: 1.into(),
-            },
-        )
-        .await
-        .unwrap();
-
-    let raw = h
-        .service
-        .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
-        .unwrap();
-    h.service.process_pipeline_raw_lease(raw).await;
-    let verify = h
-        .service
-        .pipeline
-        .runtime
-        .mutate(|coordinator| coordinator.checkout_verify(WorkerCapability::Any))
-        .unwrap()
-        .unwrap();
-    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
-    let verified = h
-        .service
-        .verify_pipeline_resolved((*verify.payload).clone(), snapshot, None)
-        .await
-        .unwrap();
-    let candidate = CoordinatorFeeGate::new(0, 0)
-        .validate(
-            hash.clone(),
-            tx.input_pts_iter().collect::<HashSet<_>>(),
-            verified.candidate.fee.as_u64(),
-            verified.candidate.tx_size,
-        )
-        .unwrap();
-    let charge = candidate_charge_bytes(&verified.candidate)
-        .unwrap()
-        .checked_add(std::mem::size_of::<
-            crate::component::pipeline_runtime::PipelineVerifiedTx,
-        >())
-        .unwrap();
-    h.service
-        .pipeline
-        .runtime
-        .mutate(|coordinator| {
-            coordinator.complete_verification_candidate(&verify, verified, charge, candidate)
-        })
-        .unwrap();
+    stage_verified_remote_candidate(&h.service, tx, 1.into()).await;
     assert_eq!(
         h.service
             .pipeline

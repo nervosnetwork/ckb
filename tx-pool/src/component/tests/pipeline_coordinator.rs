@@ -940,6 +940,90 @@ fn queue_sequence_exhaustion_fails_before_admission_or_phase_transition() {
 }
 
 #[test]
+fn queue_sequence_exhaustion_cannot_strand_transition_reservations() {
+    // Active raw work must remain exactly active when requeue cannot allocate
+    // its ticket sequence. In particular, the failed transition must not
+    // leave a reservation-only queue owner behind.
+    let mut requeue = roomy();
+    requeue
+        .admit_raw(
+            hash(116),
+            short(116),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = requeue.checkout_raw(RawStage::Resolve).unwrap().unwrap();
+    let before = requeue.view(&hash(116)).unwrap();
+    requeue.set_next_queue_sequence_for_test(u64::MAX);
+    assert!(matches!(
+        requeue.requeue_raw(&raw),
+        Err(CoordinatorError::QueueSequenceExhausted)
+    ));
+    assert_eq!(requeue.view(&hash(116)).unwrap(), before);
+    requeue.audit().unwrap();
+
+    // The same boundary applies when a verify worker has to discard its
+    // resolved payload and retry resolution after a tip race.
+    let mut retry = roomy();
+    retry
+        .admit_raw(
+            hash(117),
+            short(117),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    let raw = retry.checkout_raw(RawStage::Resolve).unwrap().unwrap();
+    retry
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
+        .unwrap();
+    let verify = retry
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    let before = retry.view(&hash(117)).unwrap();
+    retry.set_next_queue_sequence_for_test(u64::MAX);
+    assert!(matches!(
+        retry.verification_retry_resolution(&verify, HashSet::new()),
+        Err(CoordinatorError::QueueSequenceExhausted)
+    ));
+    assert_eq!(retry.view(&hash(117)).unwrap(), before);
+    retry.audit().unwrap();
+
+    // A final-parent wake reserves a batch of queue slots. Exhausting its
+    // shared sequence range must leave the complete waiting cohort unchanged.
+    let mut wake = roomy();
+    let parent = hash(118);
+    wake.admit_raw(
+        hash(119),
+        short(119),
+        Raw("raw"),
+        RawStage::Resolve,
+        None,
+        10,
+        set([parent.clone()]),
+    )
+    .unwrap();
+    let raw = wake.checkout_raw(RawStage::Resolve).unwrap().unwrap();
+    wake.wait_for_parents(&raw, set([parent.clone()])).unwrap();
+    let before = wake.view(&hash(119)).unwrap();
+    wake.set_next_queue_sequence_for_test(u64::MAX);
+    assert!(matches!(
+        wake.parent_available(&parent),
+        Err(CoordinatorError::QueueSequenceExhausted)
+    ));
+    assert_eq!(wake.view(&hash(119)).unwrap(), before);
+    wake.audit().unwrap();
+}
+
+#[test]
 fn active_source_promotion_does_not_invalidate_owned_work() {
     let mut coordinator = roomy();
     let tx_hash = hash(92);

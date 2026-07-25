@@ -1737,15 +1737,6 @@ impl TicketQueue {
         }
     }
 
-    pub(super) fn discard_unused_reservations(&mut self) {
-        for owner in self.owners.values_mut() {
-            owner.reserved_small = 0;
-            owner.reserved_large = 0;
-        }
-        self.owners.retain(|_, owner| owner.live_len() != 0);
-        self.compact();
-    }
-
     #[cfg(test)]
     pub(super) fn physical_len(&self) -> usize {
         self.physical_len

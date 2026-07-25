@@ -551,6 +551,16 @@ Errors remain partitioned:
 - ownership/index contradiction or uncertain authoritative mutation:
   monotonic fail-stop.
 
+The commit cutover reserves effect credit before locking, treats PoolMap
+insertion as tentative, and publishes conflict history and effects only after
+the coordinator handoff. A returned capacity-class handoff error is fully
+undone, rolls PoolMap back from its exact journal, settles the commit lease and
+may reject only that attempt. A returned invariant error follows the same
+cleanup but latches Pipeline failure after the pool guard opens. A coordinator
+panic already latched by `PipelineRuntime` is never re-entered: its entry undo
+and the PoolMap journal preserve the pool recovery point, while a panic or
+rollback failure with uncertain PoolMap mutation remains Authoritative.
+
 Ordinary hostile input must not reach fail-stop. Genuine invariant failure
 still stops the service generation; the accepted availability residual remains
 documented in the security ledger.
@@ -598,5 +608,6 @@ the architectural state without reconstructing chat history.
 | 1 | Complete (`efc2702d3`) | Seven independent conflict-model tests; 310/310 nextest green. The model corrected the edge definition so `Committing` remains a frozen staged neighbour. No production path changed and no new clippy warning was added; 23 baseline lint findings remain for semantic cleanup/Phase 5. |
 | 2 | Complete (checkpoint is the commit containing this row) | Replaced `ReadyToCommit`/`WaitingConflict`/`ConflictRecheck` and blocker/waiter indexes with one total `CandidateRank`, bounded input buckets, derived `(degree, stronger_count)`, and atomic `ConflictDelta` ticket reconciliation. A sole derived committing identity serializes independent maxima. Pre-eviction undo uses an input-local upper bound while final membership retains the direct-cohort bound. Global review found and closed the lost non-verify wake path with one level-triggered commit consumer; verify keeps only an eager fast path through the same serial driver. No new lifecycle state, recovery protocol, global scan, or second authority was added. 310/310 nextest green. |
 | 3 | Complete (checkpoint is the commit containing this row) | Invalidated entries are now raw-only: typed payload ownership, typed lookup and conflict scheduling disappear in the same undo transaction, residency is recharged to the canonical raw equation, and stale worker completion is rejected by the existing lease revision. Deleted the redundant `PayloadPhase`/`PhaseMismatch` projection and changed typed lookups to borrowed views. Global review deliberately retained the three payload generics as compile-time phase isolation and retained `incarnation` plus `revision` as distinct admission/lease identities; adding aliases, a detached-worker ledger, or a compensating state would weaken reviewability. Production source is net smaller, no persistent state or hot-path scan was added, 311/311 nextest is green, and the clippy finding set remains the same 23-item baseline. |
-| 4-7 | Pending | Execute in fixed order above. |
+| 4 | Complete (checkpoint is the commit containing this row) | Queue sequence allocation now precedes reservation and every fallible reservation is protected by existing entry undo; deleted the runtime's owner-map-wide post-transition cleanup, so reservation leaks are no longer hidden and the common mutation path loses an attacker-sized scan. The production fault matrix crosses reserved effects, tentative PoolMap insertion, a fully applied then undone coordinator handoff, exact pool rollback, required lease settlement and FIFO effect publication. Coordinator panic now stops the driver without re-entering failed state or falsely disabling an exactly restored pool recovery point; returned invariant errors settle and then fail-stop outside the pool guard. Stable-effect journaling remains under the pool lock for ordering but outside the Authoritative panic domain. Ledger #91/#104 are Covered, the dedicated release blocker is removed, 316/316 nextest is green, and the clippy set remains the same 23-item baseline. No lifecycle state, recovery queue or second authority was added. |
+| 5-7 | Pending | Execute in fixed order above. |
 | 8 | Deferred | Run only after explicit benchmark instruction. |

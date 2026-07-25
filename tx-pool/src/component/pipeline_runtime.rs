@@ -301,6 +301,25 @@ impl PipelineRuntime {
         }
     }
 
+    /// Guard publication that is ordered under an authoritative lock but
+    /// cannot invalidate the already-stable PoolMap. A panic here loses an
+    /// effect and must stop this service generation, yet the accepted pool
+    /// remains a valid persistence source; classifying it as Authoritative
+    /// would discard an exact recovery point.
+    pub(crate) fn guard_stable_effect_journal<T>(
+        &self,
+        context: &'static str,
+        apply: impl FnOnce() -> T,
+    ) -> T {
+        match catch_unwind(AssertUnwindSafe(apply)) {
+            Ok(result) => result,
+            Err(payload) => {
+                self.fail_closed(FailureDomain::Pipeline, context);
+                resume_unwind(payload)
+            }
+        }
+    }
+
     pub(crate) fn is_failed(&self) -> bool {
         self.failure_domain.load(Ordering::Acquire) != FailureDomain::Healthy as u8
     }
@@ -348,7 +367,6 @@ impl PipelineRuntime {
         let transition = catch_unwind(AssertUnwindSafe(|| {
             let mut state = self.lock();
             let result = apply(&mut state);
-            state.discard_unused_queue_reservations();
             let non_empty = [
                 QueueKind::PreCheck,
                 QueueKind::Resolve,
