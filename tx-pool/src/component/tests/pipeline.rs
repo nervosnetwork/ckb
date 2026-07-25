@@ -1278,7 +1278,7 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
 /// already carrying a `Committing` lease. Its later failure settlement would
 /// then confuse a legitimate stale lease with coordinator corruption.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pipeline_commit_checkout_waits_for_the_pool_sequencer() {
+async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
     use super::harness::{WorkerSet, harness};
     use crate::component::pipeline_coordinator::{
         CoordinatorFeeGate, CoordinatorLocation, RawStage, WorkerCapability,
@@ -1347,28 +1347,45 @@ async fn pipeline_commit_checkout_waits_for_the_pool_sequencer() {
             .pipeline
             .runtime
             .read(|coordinator| coordinator.view(&hash).unwrap().location),
-        CoordinatorLocation::ReadyToCommit
+        CoordinatorLocation::Verified
     );
 
     let pool_guard = h.service.pool.tx_pool.write().await;
+    let commit_cancel = h.cancel.child_token();
     let service = h.service.clone();
-    let driver = tokio::spawn(async move { service.drive_pipeline_commits().await });
+    let driver = tokio::spawn(crate::service::workers::run_pipeline_commit_worker(
+        service,
+        commit_cancel,
+    ));
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(
         h.service
             .pipeline
             .runtime
             .read(|coordinator| coordinator.view(&hash).unwrap().location),
-        CoordinatorLocation::ReadyToCommit,
+        CoordinatorLocation::Verified,
         "waiting for TxPool must not publish a cancellable Committing lease"
     );
     assert!(!driver.is_finished());
 
     drop(pool_guard);
-    tokio::time::timeout(Duration::from_secs(2), driver)
-        .await
-        .expect("driver resumes after the pool sequencer is released")
-        .expect("driver task does not panic");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if h.service
+                .pool
+                .tx_pool
+                .read()
+                .await
+                .get_tx_from_pool_by_hash(&hash)
+                .is_some()
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("commit worker resumes after the pool sequencer is released");
     assert!(
         h.service
             .pool
@@ -1380,6 +1397,10 @@ async fn pipeline_commit_checkout_waits_for_the_pool_sequencer() {
     );
     assert!(!h.service.pipeline.runtime.is_failed());
     h.cancel.cancel();
+    tokio::time::timeout(Duration::from_secs(1), driver)
+        .await
+        .expect("commit worker observes cancellation")
+        .expect("commit worker does not panic");
 }
 
 /// The early duplicate check can become stale before pipeline admission. The

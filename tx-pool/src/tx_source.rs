@@ -10,7 +10,7 @@ use ckb_types::core::Cycle;
 /// One canonical trust order shared by every lifecycle authority. Keeping the
 /// order in a typed enum prevents ConflictCache and PipelineCoordinator from
 /// silently drifting to different source-preference policies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum SourceTrust {
     Remote,
     Local,

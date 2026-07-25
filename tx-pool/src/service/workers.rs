@@ -6,6 +6,7 @@
 //! The service builder (`service::builder`) keeps only assembly, startup
 //! and shutdown orchestration; worker lifecycle lives in this module.
 
+use crate::component::pipeline_coordinator::QueueKind;
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
 use crate::verify_mgr::VerifyMgr;
 use ckb_async_runtime::Handle;
@@ -210,9 +211,50 @@ pub(crate) fn spawn_pre_check_workers(
     handles
 }
 
-/// Drain coordinator cascades, conflict rechecks and remote expiry in bounded
-/// slices. The notification is level-triggered for graph work; a coarse timer
-/// is retained only for wall-clock expiry. No slice can grow with the full
+/// Consume the derived commit queue independently of the transition that made
+/// a candidate eligible. Eligibility can change after verification, expiry,
+/// dependency failure, administrative removal, or a failed commit; tying the
+/// consumer to verify completion would therefore lose wake paths.
+pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: CancellationToken) {
+    let ready = service.pipeline.runtime.subscribe(QueueKind::Commit);
+    loop {
+        tokio::select! {
+            _ = ready.notified() => {}
+            _ = cancel.cancelled() => break,
+        }
+        if cancel.is_cancelled() {
+            break;
+        }
+        let outcome = AssertUnwindSafe(service.drive_pipeline_commits())
+            .catch_unwind()
+            .await;
+        if let Err(payload) = outcome {
+            if service.pipeline.runtime.is_failed() {
+                break;
+            }
+            let message = crate::util::panic_payload_to_string(payload.as_ref());
+            service
+                .pipeline
+                .runtime
+                .fail_stop("tx-pool commit driver panicked", &message);
+        }
+    }
+    info!("TxPool pipeline commit worker exited");
+}
+
+pub(crate) fn spawn_pipeline_commit_worker(
+    handle: &Handle,
+    service: TxPoolService,
+    cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    handle.spawn(run_pipeline_commit_worker(service, cancel))
+}
+
+/// Drain dependency cascades and remote expiry in bounded slices. Conflict
+/// eligibility is derived synchronously inside each coordinator transition,
+/// so maintenance is never part of the candidate liveness path. The
+/// notification is level-triggered for graph work; a coarse timer is retained
+/// only for wall-clock expiry. No slice can grow with the full
 /// attacker-controlled graph while holding the coordinator mutex.
 pub(crate) fn spawn_pipeline_maintenance_worker(
     handle: &Handle,
@@ -275,21 +317,9 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                         result
                     },
                 );
-                let rechecked = service
-                    .pipeline
-                    .runtime
-                    .mutate_required("tx-pool conflict maintenance failed", |coordinator| {
-                        coordinator.drain_conflict_rechecks(SLICE)
-                    })
-                    .len();
                 let conflict_recovery = service.recover_conflict_cache_slice(SLICE).await;
-                let saturated = expired.len() == SLICE
-                    || failed.len() == SLICE
-                    || rechecked == SLICE
-                    || conflict_recovery.saturated;
-                if rechecked != 0 {
-                    service.drive_pipeline_commits().await;
-                }
+                let saturated =
+                    expired.len() == SLICE || failed.len() == SLICE || conflict_recovery.saturated;
                 if conflict_recovery.capacity_blocked {
                     // Avoid a hot loop against a globally full coordinator or
                     // outbox. The one-second maintenance tick retries the

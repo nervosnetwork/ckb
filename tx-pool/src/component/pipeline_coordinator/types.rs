@@ -48,24 +48,30 @@ impl VerifySchedule {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum QueueOrdering {
     Fifo,
     FeeRate,
+    Candidate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CoordinatorLocation {
     RawQueued(RawStage),
     RawActive(RawStage),
-    WaitingParents { missing: HashSet<Byte32> },
+    WaitingParents {
+        missing: HashSet<Byte32>,
+    },
     VerifyQueued,
     VerifyActive,
-    ReadyToCommit,
-    WaitingConflict { blockers: HashSet<Byte32> },
-    ConflictRecheck,
+    /// A fully verified candidate. Commit eligibility is derived from the
+    /// staged-conflict relation and deliberately is not another lifecycle
+    /// location.
+    Verified,
     Committing,
-    Invalidated { cause: Byte32 },
+    Invalidated {
+        cause: Byte32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,6 +362,7 @@ pub(crate) struct CoordinatorTicket {
     pub(super) priority: bool,
     pub(super) queue_sequence: u64,
     pub(super) verify_schedule: VerifySchedule,
+    pub(super) candidate_rank: Option<CandidateRank>,
 }
 
 #[derive(Debug, Clone)]
@@ -411,7 +418,7 @@ pub(crate) struct ConflictCommitHandoff<R> {
 
 /// Administrative/negative terminal outcomes deliberately exclude commit.
 /// A committed payload can leave only through `commit_handoff` with a valid
-/// `CommitLease` created from `ReadyToCommit`.
+/// `CommitLease` created from an eligible `Verified` candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalDisposition {
     Rejected,
@@ -646,9 +653,7 @@ pub(crate) enum CoordinatorAuditError {
     ConflictEdgeCount,
     ConflictCandidateIndex,
     ConflictCohortIndex,
-    ConflictActiveIndex,
-    ConflictWaiterIndex,
-    ConflictMaintenanceIndex,
+    ConflictRelationIndex,
     DeadlineIndex,
     StateInvariant(Byte32),
     MetadataCharge,
@@ -674,9 +679,7 @@ pub(super) enum UnverifiedLocation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum CandidateLocation {
-    Ready,
-    WaitingConflict { blockers: HashSet<Byte32> },
-    Recheck { sequence: u64 },
+    Verified,
     Committing,
 }
 
@@ -822,19 +825,9 @@ impl<R, U, V> EntryState<R, U, V> {
                 ..
             } => CoordinatorLocation::VerifyActive,
             Self::CandidateVerified {
-                location: CandidateLocation::Ready,
+                location: CandidateLocation::Verified,
                 ..
-            } => CoordinatorLocation::ReadyToCommit,
-            Self::CandidateVerified {
-                location: CandidateLocation::WaitingConflict { blockers },
-                ..
-            } => CoordinatorLocation::WaitingConflict {
-                blockers: blockers.clone(),
-            },
-            Self::CandidateVerified {
-                location: CandidateLocation::Recheck { .. },
-                ..
-            } => CoordinatorLocation::ConflictRecheck,
+            } => CoordinatorLocation::Verified,
             Self::CandidateVerified {
                 location: CandidateLocation::Committing,
                 ..
@@ -887,17 +880,10 @@ impl<R, U, V> EntryState<R, U, V> {
             )
             | (
                 Self::CandidateVerified {
-                    location: CandidateLocation::Ready,
+                    location: CandidateLocation::Verified,
                     ..
                 },
-                CoordinatorLocation::ReadyToCommit,
-            )
-            | (
-                Self::CandidateVerified {
-                    location: CandidateLocation::Recheck { .. },
-                    ..
-                },
-                CoordinatorLocation::ConflictRecheck,
+                CoordinatorLocation::Verified,
             )
             | (
                 Self::CandidateVerified {
@@ -906,13 +892,6 @@ impl<R, U, V> EntryState<R, U, V> {
                 },
                 CoordinatorLocation::Committing,
             ) => true,
-            (
-                Self::CandidateVerified {
-                    location: CandidateLocation::WaitingConflict { blockers: actual },
-                    ..
-                },
-                CoordinatorLocation::WaitingConflict { blockers: expected },
-            ) => actual == expected,
             (
                 Self::Invalidated { cause: actual, .. },
                 CoordinatorLocation::Invalidated { cause: expected },
@@ -944,10 +923,6 @@ impl<R, U, V> EntryState<R, U, V> {
                 location: UnverifiedLocation::Queued,
                 ..
             } => Some(QueueKind::Verify),
-            Self::CandidateVerified {
-                location: CandidateLocation::Ready,
-                ..
-            } => Some(QueueKind::Commit),
             _ => None,
         }
     }
@@ -985,16 +960,6 @@ impl<R, U, V> EntryState<R, U, V> {
         }
     }
 
-    pub(super) fn waiting_conflict_blockers(&self) -> Option<&HashSet<Byte32>> {
-        match self {
-            Self::CandidateVerified {
-                location: CandidateLocation::WaitingConflict { blockers },
-                ..
-            } => Some(blockers),
-            _ => None,
-        }
-    }
-
     pub(super) fn invalidated_cause(&self) -> Option<&Byte32> {
         match self {
             Self::Invalidated { cause, .. } => Some(cause),
@@ -1004,11 +969,7 @@ impl<R, U, V> EntryState<R, U, V> {
 
     pub(super) fn maintenance_sequence(&self) -> Option<u64> {
         match self {
-            Self::CandidateVerified {
-                location: CandidateLocation::Recheck { sequence },
-                ..
-            }
-            | Self::Invalidated { sequence, .. } => Some(*sequence),
+            Self::Invalidated { sequence, .. } => Some(*sequence),
             _ => None,
         }
     }
@@ -1067,6 +1028,81 @@ pub(crate) struct CandidateMeta {
     pub(super) arrival: u64,
 }
 
+/// The complete, deterministic preference order for staged conflict
+/// candidates. Greater ranks win. `Committing` is an absolute freeze above
+/// every verified neighbour; the remaining fields are the admission policy
+/// shared by conflict scheduling and capacity victim selection.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(super) struct CandidateRank {
+    pub(super) committing: bool,
+    pub(super) source_strength: SourceTrust,
+    pub(super) fee: u64,
+    pub(super) tx_size: usize,
+    pub(super) arrival: u64,
+    pub(super) hash: Byte32,
+}
+
+impl CandidateRank {
+    pub(super) fn verified(
+        hash: &Byte32,
+        source: CoordinatorSource,
+        candidate: &CandidateMeta,
+    ) -> Self {
+        Self {
+            committing: false,
+            source_strength: source.trust(),
+            fee: candidate.fee,
+            tx_size: candidate.tx_size,
+            arrival: candidate.arrival,
+            hash: hash.clone(),
+        }
+    }
+
+    pub(super) fn from_entry(
+        hash: &Byte32,
+        source: CoordinatorSource,
+        candidate: &CandidateMeta,
+        location: &CandidateLocation,
+    ) -> Self {
+        let mut rank = Self::verified(hash, source, candidate);
+        rank.committing = *location == CandidateLocation::Committing;
+        rank
+    }
+}
+
+impl Ord for CandidateRank {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let self_rate = u128::from(self.fee) * other.tx_size as u128;
+        let other_rate = u128::from(other.fee) * self.tx_size as u128;
+        self.committing
+            .cmp(&other.committing)
+            .then_with(|| self.source_strength.cmp(&other.source_strength))
+            .then_with(|| self_rate.cmp(&other_rate))
+            .then_with(|| self.fee.cmp(&other.fee))
+            // Earlier arrival and then the smaller stable identity win.
+            .then_with(|| other.arrival.cmp(&self.arrival))
+            .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
+            // Preserve Ord/Eq even for synthetic zero-fee ranks whose other
+            // fields are identical. Real lifecycle hashes are unique.
+            .then_with(|| self.tx_size.cmp(&other.tx_size))
+    }
+}
+
+impl PartialOrd for CandidateRank {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Derived relation state for one staged candidate. `degree` bounds direct
+/// conflict fanout; `stronger_count == 0` is commit eligibility for a
+/// `Verified` candidate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct CandidateRelation {
+    pub(super) degree: usize,
+    pub(super) stronger_count: usize,
+}
+
 /// Weakest-first key for global residency reconciliation. Invalidated work is
 /// always reclaimable, then lower source trust, larger charge and later queue
 /// arrival lose in that order. Committing entries are deliberately absent.
@@ -1111,15 +1147,22 @@ pub(super) struct CandidateVictimKey {
 
 impl Ord for CandidateVictimKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        let self_rate = u128::from(self.fee) * other.tx_size as u128;
-        let other_rate = u128::from(other.fee) * self.tx_size as u128;
-        self.source_strength
-            .cmp(&other.source_strength)
-            .then_with(|| self_rate.cmp(&other_rate))
-            .then_with(|| self.fee.cmp(&other.fee))
-            .then_with(|| other.arrival.cmp(&self.arrival))
-            .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
-            .then_with(|| self.tx_size.cmp(&other.tx_size))
+        CandidateRank {
+            committing: false,
+            source_strength: self.source_strength,
+            fee: self.fee,
+            tx_size: self.tx_size,
+            arrival: self.arrival,
+            hash: self.hash.clone(),
+        }
+        .cmp(&CandidateRank {
+            committing: false,
+            source_strength: other.source_strength,
+            fee: other.fee,
+            tx_size: other.tx_size,
+            arrival: other.arrival,
+            hash: other.hash.clone(),
+        })
     }
 }
 
@@ -1149,15 +1192,10 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
                 !candidate.inputs.is_empty()
                     && candidate.inputs.len() <= limits.max_conflict_inputs_per_entry
                     && candidate.tx_size != 0
-                    && match location {
-                        CandidateLocation::WaitingConflict { blockers } => {
-                            !blockers.is_empty()
-                                && blockers.len() <= limits.max_conflict_inputs_per_entry
-                        }
-                        CandidateLocation::Ready
-                        | CandidateLocation::Recheck { .. }
-                        | CandidateLocation::Committing => true,
-                    }
+                    && matches!(
+                        location,
+                        CandidateLocation::Verified | CandidateLocation::Committing
+                    )
             }
             EntryState::Raw { .. }
             | EntryState::Unverified { .. }
@@ -1173,6 +1211,19 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
     }
 
     pub(super) fn ticket(&self, hash: &Byte32) -> CoordinatorTicket {
+        let candidate_rank = match &self.state {
+            EntryState::CandidateVerified {
+                candidate,
+                location,
+                ..
+            } => Some(CandidateRank::from_entry(
+                hash,
+                self.source,
+                candidate,
+                location,
+            )),
+            _ => None,
+        };
         CoordinatorTicket {
             hash: hash.clone(),
             version: self.version(),
@@ -1180,6 +1231,7 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
             priority: self.source.is_proposal(),
             queue_sequence: self.queue_sequence,
             verify_schedule: self.state.verify_schedule(),
+            candidate_rank,
         }
     }
 
@@ -1205,10 +1257,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
 
     pub(super) fn candidate(&self) -> Option<&CandidateMeta> {
         self.state.candidate()
-    }
-
-    pub(super) fn waiting_conflict_blockers(&self) -> Option<&HashSet<Byte32>> {
-        self.state.waiting_conflict_blockers()
     }
 
     pub(super) fn invalidated_cause(&self) -> Option<&Byte32> {
@@ -1238,25 +1286,29 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
 /// containing queue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RankedTicket {
-    fee_ordered: bool,
+    ordering: QueueOrdering,
     ticket: CoordinatorTicket,
 }
 
 impl Ord for RankedTicket {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.ticket
-            .priority
-            .cmp(&other.ticket.priority)
-            .then_with(|| {
-                if self.fee_ordered && other.fee_ordered {
+        let policy = match (self.ordering, other.ordering) {
+            (QueueOrdering::Candidate, QueueOrdering::Candidate) => {
+                self.ticket.candidate_rank.cmp(&other.ticket.candidate_rank)
+            }
+            (QueueOrdering::FeeRate, QueueOrdering::FeeRate) => self
+                .ticket
+                .priority
+                .cmp(&other.ticket.priority)
+                .then_with(|| {
                     self.ticket
                         .verify_schedule
                         .fee_rate_per_kb
                         .cmp(&other.ticket.verify_schedule.fee_rate_per_kb)
-                } else {
-                    Ordering::Equal
-                }
-            })
+                }),
+            _ => self.ticket.priority.cmp(&other.ticket.priority),
+        };
+        policy
             // Earlier sequence/hash/version wins; reverse those comparisons
             // because BinaryHeap exposes the maximum key.
             .then_with(|| {
@@ -1299,7 +1351,7 @@ impl Ord for RankedTicket {
                     .is_large_cycle
                     .cmp(&other.ticket.verify_schedule.is_large_cycle)
             })
-            .then_with(|| self.fee_ordered.cmp(&other.fee_ordered))
+            .then_with(|| self.ordering.cmp(&other.ordering))
     }
 }
 
@@ -1393,7 +1445,7 @@ impl TicketQueue {
 
     fn ranked(&self, ticket: CoordinatorTicket) -> RankedTicket {
         RankedTicket {
-            fee_ordered: self.ordering == QueueOrdering::FeeRate,
+            ordering: self.ordering,
             ticket,
         }
     }

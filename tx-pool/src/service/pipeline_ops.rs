@@ -377,10 +377,7 @@ impl TxPoolService {
                         PipelineTxLocation::Ordered { tx: raw.tx.clone() }
                     }
                 }
-                CoordinatorLocation::ReadyToCommit
-                | CoordinatorLocation::WaitingConflict { .. }
-                | CoordinatorLocation::ConflictRecheck
-                | CoordinatorLocation::Committing => {
+                CoordinatorLocation::Verified | CoordinatorLocation::Committing => {
                     if let Some(verified) = verified {
                         PipelineTxLocation::Verifying {
                             tx: raw.tx.clone(),

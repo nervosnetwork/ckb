@@ -1089,7 +1089,7 @@ fn verified_source_promotion_cancels_remote_expiry_across_commit_abort() {
 }
 
 #[test]
-fn waiting_candidate_source_promotion_rechecks_conflict_strength_immediately() {
+fn verified_candidate_source_promotion_reorders_conflict_immediately() {
     let mut coordinator = roomy();
     let contested = input(88);
     let (blocker, blocker_verify, blocker_candidate) = begin_candidate(
@@ -1112,7 +1112,7 @@ fn waiting_candidate_source_promotion_rechecks_conflict_strength_immediately() {
         &mut coordinator,
         88,
         CoordinatorSource::Remote(peer),
-        HashSet::from([contested]),
+        HashSet::from([contested.clone()]),
         1,
     );
     coordinator
@@ -1123,30 +1123,34 @@ fn waiting_candidate_source_promotion_rechecks_conflict_strength_immediately() {
             promoted_candidate,
         )
         .unwrap();
-    assert!(matches!(
+    assert_eq!(
         coordinator.view(&promoted).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
+        CoordinatorLocation::Verified
+    );
+    assert_eq!(
+        coordinator.active_conflict_owner(&contested),
+        Some(&blocker)
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
 
     coordinator
         .promote_source(&promoted, TrustedSource::Proposal)
         .unwrap();
     assert_eq!(
         coordinator.view(&promoted).unwrap().location,
-        CoordinatorLocation::ConflictRecheck
+        CoordinatorLocation::Verified
     );
-    assert_eq!(coordinator.conflict_recheck_len(), 1);
-    let activated = coordinator.drain_conflict_rechecks(1).unwrap();
-    assert_eq!(activated.len(), 1);
-    assert_eq!(activated[0].hash, promoted);
     assert_eq!(
-        coordinator.view(&promoted).unwrap().location,
-        CoordinatorLocation::ReadyToCommit
+        coordinator.active_conflict_owner(&contested),
+        Some(&promoted)
     );
-    assert!(matches!(
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
+    let commit = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(commit.hash, promoted);
+    assert_eq!(
         coordinator.view(&blocker).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
+        CoordinatorLocation::Verified
+    );
     coordinator.audit().unwrap();
 }
 
@@ -3510,7 +3514,7 @@ fn under_fee_candidate_cannot_become_verified_conflict_state() {
 }
 
 #[test]
-fn higher_verified_candidate_preempts_and_removal_rechecks_the_loser() {
+fn higher_verified_candidate_wins_and_removal_activates_loser_synchronously() {
     let mut coordinator = roomy();
     let contested = input(2);
     let low = verify_candidate(
@@ -3527,27 +3531,21 @@ fn higher_verified_candidate_preempts_and_removal_rechecks_the_loser() {
     );
 
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&high));
-    assert!(matches!(
+    assert_eq!(
         coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::WaitingConflict { ref blockers }
-            if blockers == &HashSet::from([high.clone()])
-    ));
+        CoordinatorLocation::Verified
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     coordinator.audit().unwrap();
 
     coordinator
         .force_terminalize(&high, TerminalDisposition::Rejected)
         .unwrap();
-    assert_eq!(
-        coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::ConflictRecheck
-    );
-    assert_eq!(coordinator.conflict_recheck_len(), 1);
-    let activated = coordinator.drain_conflict_rechecks(1).unwrap();
-    assert_eq!(activated.len(), 1);
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
     assert_eq!(
         coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::ReadyToCommit
+        CoordinatorLocation::Verified
     );
     coordinator.audit().unwrap();
 }
@@ -3629,10 +3627,11 @@ fn exact_conflict_score_tie_keeps_the_earlier_verified_candidate() {
     let first = verify_candidate(&mut coordinator, 210, HashSet::from([shared.clone()]), 100);
     let second = verify_candidate(&mut coordinator, 211, HashSet::from([shared.clone()]), 100);
     assert_eq!(coordinator.active_conflict_owner(&shared), Some(&first));
-    assert!(matches!(
+    assert_eq!(
         coordinator.view(&second).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
+        CoordinatorLocation::Verified
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     coordinator.audit().unwrap();
 }
 
@@ -3664,10 +3663,11 @@ fn conflict_preemption_never_disturbs_an_independent_input_domain() {
         coordinator.active_conflict_owner(&independent),
         Some(&other)
     );
-    assert!(matches!(
+    assert_eq!(
         coordinator.view(&weak).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
+        CoordinatorLocation::Verified
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 2);
     coordinator.audit().unwrap();
 }
 
@@ -3698,11 +3698,10 @@ fn multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen() {
     assert_eq!(coordinator.active_conflict_owner(&left_input), Some(&both));
     assert_eq!(coordinator.active_conflict_owner(&right_input), Some(&both));
     for loser in [&left, &right] {
-        assert!(matches!(
+        assert_eq!(
             coordinator.view(loser).unwrap().location,
-            CoordinatorLocation::WaitingConflict { ref blockers }
-                if blockers == &HashSet::from([both.clone()])
-        ));
+            CoordinatorLocation::Verified
+        );
     }
 
     let committing = coordinator.begin_next_commit().unwrap().unwrap();
@@ -3713,11 +3712,11 @@ fn multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen() {
         HashSet::from([left_input.clone(), right_input.clone()]),
         300,
     );
-    assert!(matches!(
+    assert_eq!(
         coordinator.view(&later).unwrap().location,
-        CoordinatorLocation::WaitingConflict { ref blockers }
-            if blockers == &HashSet::from([committing.hash.clone()])
-    ));
+        CoordinatorLocation::Verified
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 0);
     assert_eq!(
         coordinator.active_conflict_owner(&left_input),
         Some(&committing.hash)
@@ -3730,7 +3729,24 @@ fn multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen() {
 }
 
 #[test]
-fn preempted_blockers_move_their_old_waiters_to_bounded_recheck_work() {
+fn second_independent_commit_checkout_waits_for_first_terminal_transition() {
+    let mut coordinator = roomy();
+    let lower = verify_candidate(&mut coordinator, 221, inputs([221]), 100);
+    let higher = verify_candidate(&mut coordinator, 222, inputs([222]), 200);
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 2);
+
+    let first = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(first.hash, higher);
+    assert!(coordinator.begin_next_commit().unwrap().is_none());
+    coordinator.commit_candidate_handoff(&first).unwrap();
+
+    let second = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(second.hash, lower);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn derived_conflict_relation_has_no_maintenance_gap() {
     let mut coordinator = roomy();
     let contested = input(5);
     let middle = verify_candidate(
@@ -3745,11 +3761,6 @@ fn preempted_blockers_move_their_old_waiters_to_bounded_recheck_work() {
         HashSet::from([contested.clone()]),
         100,
     );
-    assert!(matches!(
-        coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
-
     let high = verify_candidate(
         &mut coordinator,
         30,
@@ -3757,159 +3768,58 @@ fn preempted_blockers_move_their_old_waiters_to_bounded_recheck_work() {
         300,
     );
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&high));
-    assert!(matches!(
-        coordinator.view(&middle).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
-    assert_eq!(
-        coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::ConflictRecheck
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
+    assert!(
+        [&low, &middle, &high].iter().all(|hash| {
+            coordinator.view(hash).unwrap().location == CoordinatorLocation::Verified
+        })
     );
-    assert_eq!(coordinator.conflict_recheck_len(), 1);
-    coordinator.audit().unwrap();
 
-    assert!(coordinator.drain_conflict_rechecks(1).unwrap().is_empty());
-    assert!(matches!(
-        coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::WaitingConflict { ref blockers }
-            if blockers == &HashSet::from([high])
-    ));
+    coordinator
+        .force_terminalize(&high, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&middle));
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
+    coordinator
+        .force_terminalize(&middle, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     coordinator.audit().unwrap();
 }
 
 #[test]
-fn injected_conflict_recheck_unwind_restores_the_entire_preemption() {
-    let mut coordinator = roomy();
+fn derived_conflict_removal_unwind_restores_relation_and_ticket() {
     let contested = input(215);
-    let middle = verify_candidate(
-        &mut coordinator,
-        215,
-        HashSet::from([contested.clone()]),
-        200,
-    );
-    let low = verify_candidate(
-        &mut coordinator,
-        216,
-        HashSet::from([contested.clone()]),
-        100,
-    );
-    let high = verify_candidate(
-        &mut coordinator,
-        217,
-        HashSet::from([contested.clone()]),
-        300,
-    );
-    coordinator
-        .force_terminalize(&high, TerminalDisposition::Rejected)
-        .unwrap();
-    let weak = verify_candidate(
-        &mut coordinator,
-        218,
-        HashSet::from([contested.clone()]),
-        50,
-    );
-    assert_eq!(coordinator.conflict_recheck_len(), 2);
-    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
-    let before =
-        [low.clone(), middle.clone(), weak.clone()].map(|hash| coordinator.view(&hash).unwrap());
-    let usage = coordinator.usage();
-
     for fault_step in 1..=3 {
+        let mut coordinator = roomy();
+        let low = verify_candidate(
+            &mut coordinator,
+            215,
+            HashSet::from([contested.clone()]),
+            100,
+        );
+        let high = verify_candidate(
+            &mut coordinator,
+            216,
+            HashSet::from([contested.clone()]),
+            300,
+        );
+        let before = [low.clone(), high.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let usage = coordinator.usage();
         coordinator.set_apply_fault_for_test(Some(fault_step));
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = coordinator.drain_conflict_rechecks(1);
+            let _ = coordinator.force_terminalize(&high, TerminalDisposition::Rejected);
         }));
         assert!(result.is_err(), "fault step {fault_step} was not reached");
         coordinator.set_apply_fault_for_test(None);
-
-        let after = [low.clone(), middle.clone(), weak.clone()]
-            .map(|hash| coordinator.view(&hash).unwrap());
+        let after = [low, high.clone()].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
-        assert_eq!(coordinator.conflict_recheck_len(), 2);
-        assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
-        assert_eq!(
-            coordinator.physical_queue_slots_for_test(QueueKind::Commit),
-            coordinator.queue_len(QueueKind::Commit)
-        );
+        assert_eq!(coordinator.active_conflict_owner(&contested), Some(&high));
+        assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
         coordinator.audit().unwrap();
     }
-
-    assert_eq!(coordinator.drain_conflict_rechecks(1).unwrap().len(), 1);
-    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
-    assert!(matches!(
-        coordinator.view(&weak).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
-    coordinator.audit().unwrap();
-}
-
-#[test]
-fn conflict_recheck_slice_keeps_earlier_atomic_transition_on_late_unwind() {
-    let mut coordinator = roomy();
-    let contested = input(224);
-    let middle = verify_candidate(
-        &mut coordinator,
-        224,
-        HashSet::from([contested.clone()]),
-        200,
-    );
-    let low = verify_candidate(
-        &mut coordinator,
-        225,
-        HashSet::from([contested.clone()]),
-        100,
-    );
-    let high = verify_candidate(
-        &mut coordinator,
-        226,
-        HashSet::from([contested.clone()]),
-        300,
-    );
-    coordinator
-        .force_terminalize(&high, TerminalDisposition::Rejected)
-        .unwrap();
-    let weak = verify_candidate(
-        &mut coordinator,
-        227,
-        HashSet::from([contested.clone()]),
-        50,
-    );
-    let usage = coordinator.usage();
-    assert_eq!(coordinator.conflict_recheck_len(), 2);
-    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&weak));
-
-    coordinator.set_apply_fault_for_test(Some(4));
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = coordinator.drain_conflict_rechecks(2);
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
-
-    assert_eq!(coordinator.usage(), usage);
-    // The first candidate owns one complete transaction; the injected fault
-    // rolls back only the second candidate instead of cloning and reverting
-    // the entire maintenance slice.
-    assert_eq!(
-        coordinator.view(&low).unwrap().location,
-        CoordinatorLocation::ReadyToCommit
-    );
-    assert_eq!(
-        coordinator.view(&middle).unwrap().location,
-        CoordinatorLocation::ConflictRecheck
-    );
-    assert!(matches!(
-        coordinator.view(&weak).unwrap().location,
-        CoordinatorLocation::WaitingConflict { ref blockers }
-            if blockers == &HashSet::from([low.clone()])
-    ));
-    assert_eq!(coordinator.conflict_recheck_len(), 1);
-    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&low));
-    coordinator.audit().unwrap();
-
-    assert_eq!(coordinator.drain_conflict_rechecks(2).unwrap().len(), 1);
-    assert_eq!(coordinator.active_conflict_owner(&contested), Some(&middle));
-    coordinator.audit().unwrap();
 }
 
 #[test]
@@ -3957,46 +3867,23 @@ fn multi_input_conflict_union_is_bounded_even_when_each_bucket_has_capacity() {
 }
 
 #[test]
-fn conflict_maintenance_rebuild_preserves_authoritative_enqueue_order() {
+fn conflict_rebuild_preserves_candidate_rank_order() {
     let mut coordinator = roomy();
-    let earlier_input = input(212);
-    let later_input = input(213);
-    let earlier_owner = verify_candidate(
-        &mut coordinator,
-        10,
-        HashSet::from([earlier_input.clone()]),
-        200,
-    );
-    let earlier_waiter =
-        verify_candidate(&mut coordinator, 11, HashSet::from([earlier_input]), 100);
-    let later_owner = verify_candidate(
-        &mut coordinator,
-        12,
-        HashSet::from([later_input.clone()]),
-        200,
-    );
-    let later_waiter = verify_candidate(&mut coordinator, 13, HashSet::from([later_input]), 100);
-
-    coordinator
-        .force_terminalize(&later_owner, TerminalDisposition::Rejected)
-        .unwrap();
-    coordinator
-        .force_terminalize(&earlier_owner, TerminalDisposition::Rejected)
-        .unwrap();
-    assert_eq!(coordinator.conflict_recheck_len(), 2);
-
-    coordinator.set_apply_fault_for_test(Some(1));
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = coordinator.drain_conflict_rechecks(2);
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    let lower = verify_candidate(&mut coordinator, 10, HashSet::from([input(212)]), 100);
+    let higher = verify_candidate(&mut coordinator, 11, HashSet::from([input(213)]), 300);
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 2);
+    coordinator.rebuild_derived_indexes().unwrap();
     coordinator.audit().unwrap();
-
-    let first = coordinator.drain_conflict_rechecks(1).unwrap();
-    assert_eq!(first[0].hash, later_waiter);
-    let second = coordinator.drain_conflict_rechecks(1).unwrap();
-    assert_eq!(second[0].hash, earlier_waiter);
+    let lease = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(lease.hash, higher);
+    coordinator.abort_commit(&lease).unwrap();
+    coordinator
+        .force_terminalize(&higher, TerminalDisposition::Rejected)
+        .unwrap();
+    assert_eq!(
+        coordinator.begin_next_commit().unwrap().unwrap().hash,
+        lower
+    );
     coordinator.audit().unwrap();
 }
 
@@ -4216,7 +4103,7 @@ fn conflict_capacity_reconciliation_rolls_back_every_apply_boundary() {
 }
 
 #[test]
-fn waiter_revision_exhaustion_cannot_half_remove_its_active_blocker() {
+fn newly_eligible_revision_exhaustion_cannot_half_remove_stronger_candidate() {
     let mut coordinator = roomy();
     let contested = input(10);
     let owner = verify_candidate(
@@ -4225,30 +4112,29 @@ fn waiter_revision_exhaustion_cannot_half_remove_its_active_blocker() {
         HashSet::from([contested.clone()]),
         200,
     );
-    let waiter = verify_candidate(
+    let newly_eligible = verify_candidate(
         &mut coordinator,
         36,
         HashSet::from([contested.clone()]),
         100,
     );
     coordinator
-        .set_revision_for_test(&waiter, u64::MAX)
+        .set_revision_for_test(&newly_eligible, u64::MAX)
         .unwrap();
 
     assert!(matches!(
         coordinator.force_terminalize(&owner, TerminalDisposition::Rejected),
-        Err(CoordinatorError::RevisionExhausted(hash)) if hash == waiter
+        Err(CoordinatorError::RevisionExhausted(hash)) if hash == newly_eligible
     ));
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&owner));
     assert_eq!(
         coordinator.view(&owner).unwrap().location,
-        CoordinatorLocation::ReadyToCommit
+        CoordinatorLocation::Verified
     );
-    assert!(matches!(
-        coordinator.view(&waiter).unwrap().location,
-        CoordinatorLocation::WaitingConflict { ref blockers }
-            if blockers == &HashSet::from([owner])
-    ));
+    assert_eq!(
+        coordinator.view(&newly_eligible).unwrap().location,
+        CoordinatorLocation::Verified
+    );
     assert_eq!(coordinator.queue_len(QueueKind::Commit), 1);
     coordinator.audit().unwrap();
 }
@@ -4264,16 +4150,16 @@ fn every_conflict_owner_removal_apply_boundary_rolls_back_atomically() {
             HashSet::from([contested.clone()]),
             200,
         );
-        let waiter = verify_candidate(
+        let newly_eligible = verify_candidate(
             &mut coordinator,
             220,
             HashSet::from([contested.clone()]),
             100,
         );
-        let before = [owner.clone(), waiter.clone()].map(|hash| coordinator.view(&hash).unwrap());
+        let before =
+            [owner.clone(), newly_eligible.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
         let commit_len = coordinator.queue_len(QueueKind::Commit);
-        let recheck_len = coordinator.conflict_recheck_len();
 
         coordinator.set_apply_fault_for_test(Some(fault_step));
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -4282,11 +4168,10 @@ fn every_conflict_owner_removal_apply_boundary_rolls_back_atomically() {
         assert!(result.is_err(), "fault step {fault_step} was not reached");
         coordinator.set_apply_fault_for_test(None);
 
-        let after = [owner.clone(), waiter].map(|hash| coordinator.view(&hash).unwrap());
+        let after = [owner.clone(), newly_eligible].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
         assert_eq!(coordinator.queue_len(QueueKind::Commit), commit_len);
-        assert_eq!(coordinator.conflict_recheck_len(), recheck_len);
         assert_eq!(coordinator.active_conflict_owner(&contested), Some(&owner));
         coordinator.audit().unwrap();
     }
@@ -4323,10 +4208,10 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
         HashSet::from([contested.clone()]),
         400,
     );
-    assert!(matches!(
+    assert_eq!(
         coordinator.view(&late_loser).unwrap().location,
-        CoordinatorLocation::WaitingConflict { .. }
-    ));
+        CoordinatorLocation::Verified
+    );
     let before = [
         winner.clone(),
         loser.clone(),
@@ -4444,7 +4329,7 @@ fn pool_removal_invalidation_and_winner_handoff_are_one_transaction() {
 }
 
 #[test]
-fn clear_is_one_batch_and_does_not_revise_conflict_waiters() {
+fn clear_is_one_batch_and_ignores_candidate_revision_exhaustion() {
     let mut coordinator = roomy();
     let contested = input(13);
     let owner = verify_candidate(
@@ -4453,19 +4338,19 @@ fn clear_is_one_batch_and_does_not_revise_conflict_waiters() {
         HashSet::from([contested.clone()]),
         200,
     );
-    let waiter = verify_candidate(&mut coordinator, 42, HashSet::from([contested]), 100);
+    let weaker = verify_candidate(&mut coordinator, 42, HashSet::from([contested]), 100);
     coordinator
-        .set_revision_for_test(&waiter, u64::MAX)
+        .set_revision_for_test(&weaker, u64::MAX)
         .unwrap();
 
-    let before = [owner.clone(), waiter.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let before = [owner.clone(), weaker.clone()].map(|hash| coordinator.view(&hash).unwrap());
     coordinator.set_apply_fault_for_test(Some(1));
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = coordinator.clear();
     }));
     assert!(result.is_err());
     coordinator.set_apply_fault_for_test(None);
-    let after = [owner, waiter.clone()].map(|hash| coordinator.view(&hash).unwrap());
+    let after = [owner, weaker.clone()].map(|hash| coordinator.view(&hash).unwrap());
     assert_eq!(after, before);
     coordinator.audit().unwrap();
 
@@ -4479,7 +4364,6 @@ fn clear_is_one_batch_and_does_not_revise_conflict_waiters() {
     assert!(coordinator.is_empty());
     assert_eq!(coordinator.usage(), CoordinatorResidency::default());
     assert_eq!(coordinator.conflict_edge_count(), 0);
-    assert_eq!(coordinator.conflict_recheck_len(), 0);
     coordinator.audit().unwrap();
 }
 

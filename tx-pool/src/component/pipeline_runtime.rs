@@ -356,8 +356,7 @@ impl PipelineRuntime {
                 QueueKind::Commit,
             ]
             .map(|kind| (kind, state.queue_len(kind) != 0));
-            let maintenance_pending =
-                state.dependency_failure_len() != 0 || state.conflict_recheck_len() != 0;
+            let maintenance_pending = state.dependency_failure_len() != 0;
             (result, non_empty, maintenance_pending)
         }));
         let (result, non_empty, maintenance_pending) = match transition {
@@ -445,7 +444,7 @@ impl PipelineRuntime {
     }
 
     pub(crate) fn maintenance_pending(&self) -> bool {
-        self.read(|state| state.dependency_failure_len() != 0 || state.conflict_recheck_len() != 0)
+        self.read(|state| state.dependency_failure_len() != 0)
     }
 
     pub(crate) fn max_entries(&self) -> usize {

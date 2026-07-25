@@ -588,6 +588,7 @@ the architectural state without reconstructing chat history.
 | Phase | State | Evidence and correction |
 |---|---|---|
 | 0 | Complete (`4245c1a5d`) | Frozen contract, nextest-backed evidence manifest and Ubuntu CI check; no production behavior change. |
-| 1 | Complete (checkpoint is the commit containing this row) | Seven independent conflict-model tests; 310/310 nextest green. The model corrected the edge definition so `Committing` remains a frozen staged neighbour. No production path changed and no new clippy warning was added; 23 baseline lint findings remain for semantic cleanup/Phase 5. |
-| 2-7 | Pending | Execute in fixed order above. |
+| 1 | Complete (`efc2702d3`) | Seven independent conflict-model tests; 310/310 nextest green. The model corrected the edge definition so `Committing` remains a frozen staged neighbour. No production path changed and no new clippy warning was added; 23 baseline lint findings remain for semantic cleanup/Phase 5. |
+| 2 | Complete (checkpoint is the commit containing this row) | Replaced `ReadyToCommit`/`WaitingConflict`/`ConflictRecheck` and blocker/waiter indexes with one total `CandidateRank`, bounded input buckets, derived `(degree, stronger_count)`, and atomic `ConflictDelta` ticket reconciliation. A sole derived committing identity serializes independent maxima. Pre-eviction undo uses an input-local upper bound while final membership retains the direct-cohort bound. Global review found and closed the lost non-verify wake path with one level-triggered commit consumer; verify keeps only an eager fast path through the same serial driver. No new lifecycle state, recovery protocol, global scan, or second authority was added. 310/310 nextest green. |
+| 3-7 | Pending | Execute in fixed order above. |
 | 8 | Deferred | Run only after explicit benchmark instruction. |

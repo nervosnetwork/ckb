@@ -12,7 +12,7 @@
       "pool_removal_invalidation_and_winner_handoff_are_one_transaction"
     ],
     "I2": [
-      "pipeline_commit_checkout_waits_for_the_pool_sequencer",
+      "pipeline_commit_worker_waits_for_the_pool_sequencer",
       "pipeline_concurrent_rbf_prefers_highest_fee"
     ],
     "I3": [
@@ -48,6 +48,8 @@
       "under_fee_candidate_cannot_become_verified_conflict_state",
       "unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain",
       "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen",
+      "derived_conflict_relation_has_no_maintenance_gap",
+      "second_independent_commit_checkout_waits_for_first_terminal_transition",
       "model_random_transitions_always_match_full_rebuild"
     ],
     "I10": [
@@ -88,10 +90,6 @@
     {
       "id": "ledger-104-production-cutover-fault-matrix",
       "reason": "Repeat the undo fault matrix across the production TxPool/coordinator/outbox cutover."
-    },
-    {
-      "id": "derived-conflict-cutover",
-      "reason": "Replace the persistent waiter/recheck conflict lifecycle and close its model and production regressions."
     },
     {
       "id": "final-security-closure",

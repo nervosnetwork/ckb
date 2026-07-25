@@ -1,17 +1,16 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
-    pub(super) fn rebuild_derived_indexes(&mut self) -> Result<(), CoordinatorError> {
+    /// Rebuild every derived projection from authoritative lifecycle entries.
+    /// This is the rollback/recovery path, never the production scheduling hot
+    /// path. Conflict relations are reconstructed independently from input
+    /// buckets so a failed delta cannot survive an undo boundary.
+    pub(crate) fn rebuild_derived_indexes(&mut self) -> Result<(), CoordinatorError> {
         self.by_short_id.clear();
         self.by_peer.clear();
         self.by_parent.clear();
         self.waiting_parent_count = 0;
-        self.candidates_by_input.clear();
-        self.candidate_conflict_counts.clear();
-        self.active_by_input.clear();
-        self.waiters_by_blocker.clear();
-        self.conflict_recheck_set.clear();
-        self.conflict_edge_count = 0;
+        self.conflicts.clear();
         self.live_deadlines.clear();
         self.capacity_victim_index.clear();
         self.candidate_victim_index.clear();
@@ -20,11 +19,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.peer_usage.clear();
         self.active_work = 0;
         self.active_work_by_peer.clear();
+
         let mut expected_queues: HashMap<QueueKind, Vec<CoordinatorTicket>> = HashMap::new();
         let mut maintenance_sequences = HashSet::new();
         let mut queue_sequences = HashSet::new();
-        let mut conflict_recheck_order = Vec::new();
         let mut dependency_failure_order = Vec::new();
+        let mut candidate_hashes = Vec::new();
+        let mut committing = 0usize;
 
         for (hash, entry) in &self.entries {
             if !entry.state_shape_valid(hash, &self.limits)
@@ -136,15 +137,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ..
             } = &entry.state
             {
-                self.conflict_edge_count = self
-                    .conflict_edge_count
+                committing += usize::from(*location == CandidateLocation::Committing);
+                if *location == CandidateLocation::Committing
+                    && self.conflicts.committing.replace(hash.clone()).is_some()
+                {
+                    return Err(CoordinatorError::ConflictInvariant);
+                }
+                self.conflicts.input_memberships = self
+                    .conflicts
+                    .input_memberships
                     .checked_add(candidate.inputs.len())
                     .ok_or(CoordinatorError::ConflictEdgeLimitExceeded)?;
-                if self.conflict_edge_count > self.limits.max_conflict_edges {
+                if self.conflicts.input_memberships > self.limits.max_conflict_edges {
                     return Err(CoordinatorError::ConflictEdgeLimitExceeded);
                 }
                 for input in &candidate.inputs {
-                    let candidates = self.candidates_by_input.entry(input.clone()).or_default();
+                    let candidates = self.conflicts.by_input.entry(input.clone()).or_default();
                     candidates.insert(hash.clone());
                     if candidates.len() > self.limits.max_candidates_per_input {
                         return Err(CoordinatorError::ConflictCandidateLimitExceeded(
@@ -152,49 +160,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         ));
                     }
                 }
-                match location {
-                    CandidateLocation::Ready | CandidateLocation::Committing => {
-                        for input in &candidate.inputs {
-                            if self
-                                .active_by_input
-                                .insert(input.clone(), hash.clone())
-                                .is_some()
-                            {
-                                return Err(CoordinatorError::ConflictInvariant);
-                            }
-                        }
-                    }
-                    CandidateLocation::WaitingConflict { blockers } => {
-                        for blocker in blockers {
-                            let waiters =
-                                self.waiters_by_blocker.entry(blocker.clone()).or_default();
-                            waiters.insert(hash.clone());
-                            if waiters.len() > self.limits.max_candidates_per_input {
-                                return Err(CoordinatorError::ConflictInvariant);
-                            }
-                        }
-                    }
-                    CandidateLocation::Recheck { sequence } => {
-                        self.conflict_recheck_set.insert(hash.clone());
-                        conflict_recheck_order.push((*sequence, hash.clone()));
-                    }
-                }
+                self.conflicts
+                    .relations
+                    .insert(hash.clone(), CandidateRelation::default());
+                candidate_hashes.push(hash.clone());
             }
         }
-
-        for entry in self.entries.values() {
-            if let EntryState::CandidateVerified {
-                candidate,
-                location: CandidateLocation::WaitingConflict { blockers },
-                ..
-            } = &entry.state
-                && !self.conflict_blockers_are_valid(candidate, blockers)
-            {
-                return Err(CoordinatorError::ConflictInvariant);
-            }
-        }
-
-        if !self.global_usage.fits(self.limits.global)
+        if committing > 1
+            || !self.global_usage.fits(self.limits.global)
             || self
                 .peer_usage
                 .values()
@@ -208,21 +181,76 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             return Err(CoordinatorError::ConflictInvariant);
         }
 
-        let candidate_inputs: Vec<_> = self
-            .entries
-            .iter()
-            .filter_map(|(hash, entry)| {
-                entry
-                    .candidate()
-                    .map(|candidate| (hash.clone(), candidate.inputs.clone()))
-            })
-            .collect();
-        self.candidate_conflict_counts
-            .try_reserve(candidate_inputs.len())
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        for (hash, inputs) in candidate_inputs {
-            let conflicts = self.bounded_conflicting_candidates(&hash, &inputs)?;
-            self.candidate_conflict_counts.insert(hash, conflicts.len());
+        candidate_hashes.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        for hash in &candidate_hashes {
+            let inputs = self
+                .entries
+                .get(hash)
+                .and_then(CoordinatorEntry::candidate)
+                .map(|candidate| candidate.inputs.clone())
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            let mut neighbours: Vec<_> = self
+                .bounded_conflicting_candidates(hash, &inputs)?
+                .into_iter()
+                .filter(|neighbour| hash.as_slice() < neighbour.as_slice())
+                .collect();
+            neighbours.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+            for neighbour in neighbours {
+                let left_rank = self.candidate_rank(hash)?;
+                let right_rank = self.candidate_rank(&neighbour)?;
+                {
+                    let left = self
+                        .conflicts
+                        .relations
+                        .get_mut(hash)
+                        .ok_or(CoordinatorError::ConflictInvariant)?;
+                    left.degree = left
+                        .degree
+                        .checked_add(1)
+                        .ok_or(CoordinatorError::ConflictInvariant)?;
+                    if right_rank > left_rank {
+                        left.stronger_count = left
+                            .stronger_count
+                            .checked_add(1)
+                            .ok_or(CoordinatorError::ConflictInvariant)?;
+                    }
+                }
+                {
+                    let right = self
+                        .conflicts
+                        .relations
+                        .get_mut(&neighbour)
+                        .ok_or(CoordinatorError::ConflictInvariant)?;
+                    right.degree = right
+                        .degree
+                        .checked_add(1)
+                        .ok_or(CoordinatorError::ConflictInvariant)?;
+                    if left_rank > right_rank {
+                        right.stronger_count = right
+                            .stronger_count
+                            .checked_add(1)
+                            .ok_or(CoordinatorError::ConflictInvariant)?;
+                    }
+                }
+            }
+        }
+        if self
+            .conflicts
+            .relations
+            .values()
+            .any(|relation| relation.degree > self.limits.max_candidates_per_input)
+        {
+            return Err(CoordinatorError::ConflictCohortLimitExceeded);
+        }
+        for hash in candidate_hashes {
+            if self.candidate_is_eligible(&hash) {
+                expected_queues.entry(QueueKind::Commit).or_default().push(
+                    self.entries
+                        .get(&hash)
+                        .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?
+                        .ticket(&hash),
+                );
+            }
         }
 
         for kind in [
@@ -237,7 +265,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     CoordinatorVerifyOrdering::ArrivalTime => QueueOrdering::Fifo,
                     CoordinatorVerifyOrdering::FeeRate => QueueOrdering::FeeRate,
                 },
-                QueueKind::PreCheck | QueueKind::Resolve | QueueKind::Commit => QueueOrdering::Fifo,
+                QueueKind::Commit => QueueOrdering::Candidate,
+                QueueKind::PreCheck | QueueKind::Resolve => QueueOrdering::Fifo,
             };
             let queue = self.queue_mut(kind)?;
             if queue.ordering() != expected_ordering {
@@ -259,11 +288,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 self.deadlines.push(Reverse(ticket.clone()));
             }
         }
-        conflict_recheck_order.sort_by_key(|(sequence, _)| *sequence);
-        self.conflict_rechecks = conflict_recheck_order
-            .into_iter()
-            .map(|(_, hash)| hash)
-            .collect();
         dependency_failure_order.sort_by_key(|(sequence, _)| *sequence);
         self.dependency_failures = dependency_failure_order
             .into_iter()
@@ -285,12 +309,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut waiting_parent_count = 0usize;
         let mut expected_live: HashMap<QueueKind, HashSet<CoordinatorTicket>> = HashMap::new();
         let mut expected_priority: HashMap<QueueKind, HashSet<CoordinatorTicket>> = HashMap::new();
-        let mut conflict_edges = 0usize;
-        let mut candidates_by_input: HashMap<OutPoint, HashSet<Byte32>> = HashMap::new();
-        let mut candidate_conflict_counts: HashMap<Byte32, usize> = HashMap::new();
-        let mut active_by_input: HashMap<OutPoint, Byte32> = HashMap::new();
-        let mut waiters_by_blocker: HashMap<Byte32, HashSet<Byte32>> = HashMap::new();
-        let mut conflict_rechecks = HashSet::new();
+        let mut input_memberships = 0usize;
+        let mut by_input: HashMap<OutPoint, HashSet<Byte32>> = HashMap::new();
+        let mut relations: HashMap<Byte32, CandidateRelation> = HashMap::new();
         let mut live_deadlines = HashMap::new();
         let mut active_work = 0usize;
         let mut active_work_by_peer: HashMap<PeerIndex, usize> = HashMap::new();
@@ -299,8 +320,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut candidate_victim_index = BTreeSet::new();
         let mut maintenance_sequences = HashSet::new();
         let mut queue_sequences = HashSet::new();
-        let mut expected_conflict_recheck_order = Vec::new();
         let mut expected_dependency_failure_order = Vec::new();
+        let mut candidate_hashes = Vec::new();
+        let mut committing = 0usize;
 
         for (hash, entry) in &self.entries {
             if !entry.state_shape_valid(hash, &self.limits) {
@@ -412,69 +434,122 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ..
             } = &entry.state
             {
-                conflict_edges = conflict_edges
+                committing += usize::from(*location == CandidateLocation::Committing);
+                input_memberships = input_memberships
                     .checked_add(candidate.inputs.len())
                     .ok_or(CoordinatorAuditError::ConflictEdgeCount)?;
-                if conflict_edges > self.limits.max_conflict_edges {
-                    return Err(CoordinatorAuditError::ConflictEdgeCount);
-                }
                 for input in &candidate.inputs {
-                    let candidates = candidates_by_input.entry(input.clone()).or_default();
+                    let candidates = by_input.entry(input.clone()).or_default();
                     candidates.insert(hash.clone());
                     if candidates.len() > self.limits.max_candidates_per_input {
                         return Err(CoordinatorAuditError::ConflictCandidateIndex);
                     }
                 }
-                match location {
-                    CandidateLocation::Ready | CandidateLocation::Committing => {
-                        for input in &candidate.inputs {
-                            if active_by_input
-                                .insert(input.clone(), hash.clone())
-                                .is_some()
-                            {
-                                return Err(CoordinatorAuditError::ConflictActiveIndex);
-                            }
-                        }
+                relations.insert(hash.clone(), CandidateRelation::default());
+                candidate_hashes.push(hash.clone());
+            }
+        }
+        if committing > 1 || input_memberships > self.limits.max_conflict_edges {
+            return Err(CoordinatorAuditError::StateInvariant(
+                candidate_hashes.first().cloned().unwrap_or_default(),
+            ));
+        }
+        candidate_hashes.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
+        for hash in &candidate_hashes {
+            let entry = self
+                .entries
+                .get(hash)
+                .ok_or_else(|| CoordinatorAuditError::StateInvariant(hash.clone()))?;
+            let candidate = entry
+                .candidate()
+                .ok_or_else(|| CoordinatorAuditError::StateInvariant(hash.clone()))?;
+            let left_rank = match &entry.state {
+                EntryState::CandidateVerified { location, .. } => {
+                    CandidateRank::from_entry(hash, entry.source, candidate, location)
+                }
+                _ => return Err(CoordinatorAuditError::StateInvariant(hash.clone())),
+            };
+            let mut neighbours = HashSet::new();
+            for input in &candidate.inputs {
+                let bucket = by_input
+                    .get(input)
+                    .ok_or(CoordinatorAuditError::ConflictCandidateIndex)?;
+                neighbours.extend(bucket.iter().filter(|other| *other != hash).cloned());
+            }
+            if neighbours.len() > self.limits.max_candidates_per_input {
+                return Err(CoordinatorAuditError::ConflictCohortIndex);
+            }
+            for neighbour in neighbours
+                .into_iter()
+                .filter(|neighbour| hash.as_slice() < neighbour.as_slice())
+            {
+                let right_entry = self
+                    .entries
+                    .get(&neighbour)
+                    .ok_or_else(|| CoordinatorAuditError::StateInvariant(neighbour.clone()))?;
+                let right_candidate = right_entry
+                    .candidate()
+                    .ok_or_else(|| CoordinatorAuditError::StateInvariant(neighbour.clone()))?;
+                let right_location = match &right_entry.state {
+                    EntryState::CandidateVerified { location, .. } => location,
+                    _ => {
+                        return Err(CoordinatorAuditError::StateInvariant(neighbour.clone()));
                     }
-                    CandidateLocation::WaitingConflict { blockers } => {
-                        if !self.conflict_blockers_are_valid(candidate, blockers) {
-                            return Err(CoordinatorAuditError::ConflictWaiterIndex);
-                        }
-                        for blocker in blockers {
-                            let waiters = waiters_by_blocker.entry(blocker.clone()).or_default();
-                            waiters.insert(hash.clone());
-                            if waiters.len() > self.limits.max_candidates_per_input {
-                                return Err(CoordinatorAuditError::ConflictWaiterIndex);
-                            }
-                        }
-                    }
-                    CandidateLocation::Recheck { sequence } => {
-                        conflict_rechecks.insert(hash.clone());
-                        expected_conflict_recheck_order.push((*sequence, hash.clone()));
-                    }
+                };
+                let right_rank = CandidateRank::from_entry(
+                    &neighbour,
+                    right_entry.source,
+                    right_candidate,
+                    right_location,
+                );
+                let left = relations
+                    .get_mut(hash)
+                    .ok_or(CoordinatorAuditError::ConflictRelationIndex)?;
+                left.degree += 1;
+                if right_rank > left_rank {
+                    left.stronger_count += 1;
+                }
+                let right = relations
+                    .get_mut(&neighbour)
+                    .ok_or(CoordinatorAuditError::ConflictRelationIndex)?;
+                right.degree += 1;
+                if left_rank > right_rank {
+                    right.stronger_count += 1;
                 }
             }
         }
-
-        for (hash, entry) in &self.entries {
-            let Some(candidate) = entry.candidate() else {
-                continue;
-            };
-            let mut conflicts = HashSet::new();
-            for input in &candidate.inputs {
-                let Some(candidates) = candidates_by_input.get(input) else {
-                    return Err(CoordinatorAuditError::ConflictCohortIndex);
-                };
-                for conflict in candidates {
-                    if conflict != hash {
-                        conflicts.insert(conflict.clone());
-                    }
-                }
-            }
-            if conflicts.len() > self.limits.max_candidates_per_input {
+        for hash in &candidate_hashes {
+            let entry = self
+                .entries
+                .get(hash)
+                .ok_or_else(|| CoordinatorAuditError::StateInvariant(hash.clone()))?;
+            let relation = relations
+                .get(hash)
+                .ok_or(CoordinatorAuditError::ConflictRelationIndex)?;
+            if relation.degree > self.limits.max_candidates_per_input {
                 return Err(CoordinatorAuditError::ConflictCohortIndex);
             }
-            candidate_conflict_counts.insert(hash.clone(), conflicts.len());
+            if relation.stronger_count == 0
+                && matches!(
+                    &entry.state,
+                    EntryState::CandidateVerified {
+                        location: CandidateLocation::Verified,
+                        ..
+                    }
+                )
+            {
+                let ticket = entry.ticket(hash);
+                expected_live
+                    .entry(QueueKind::Commit)
+                    .or_default()
+                    .insert(ticket.clone());
+                if entry.source.is_proposal() {
+                    expected_priority
+                        .entry(QueueKind::Commit)
+                        .or_default()
+                        .insert(ticket);
+                }
+            }
         }
 
         if global_usage != self.global_usage {
@@ -516,23 +591,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if waiting_parent_count != self.waiting_parent_count {
             return Err(CoordinatorAuditError::WaitingParentCount);
         }
-        if conflict_edges != self.conflict_edge_count {
+        if input_memberships != self.conflicts.input_memberships {
             return Err(CoordinatorAuditError::ConflictEdgeCount);
         }
-        if candidates_by_input != self.candidates_by_input {
+        if by_input != self.conflicts.by_input {
             return Err(CoordinatorAuditError::ConflictCandidateIndex);
         }
-        if candidate_conflict_counts != self.candidate_conflict_counts {
-            return Err(CoordinatorAuditError::ConflictCohortIndex);
+        if relations != self.conflicts.relations {
+            return Err(CoordinatorAuditError::ConflictRelationIndex);
         }
-        if active_by_input != self.active_by_input {
-            return Err(CoordinatorAuditError::ConflictActiveIndex);
-        }
-        if waiters_by_blocker != self.waiters_by_blocker {
-            return Err(CoordinatorAuditError::ConflictWaiterIndex);
-        }
-        if conflict_rechecks != self.conflict_recheck_set {
-            return Err(CoordinatorAuditError::ConflictMaintenanceIndex);
+        let expected_committing = candidate_hashes.iter().find_map(|hash| {
+            self.entries
+                .get(hash)
+                .and_then(|entry| entry.is_committing().then_some(hash.clone()))
+        });
+        if expected_committing != self.conflicts.committing {
+            return Err(CoordinatorAuditError::ConflictRelationIndex);
         }
         if dependency_failures != self.dependency_failure_set {
             return Err(CoordinatorAuditError::DependencyMaintenanceIndex);
@@ -571,21 +645,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         {
             return Err(CoordinatorAuditError::DeadlineIndex);
         }
-        expected_conflict_recheck_order.sort_by_key(|(sequence, _)| *sequence);
-        let expected_conflict_recheck_order: Vec<_> = expected_conflict_recheck_order
-            .into_iter()
-            .map(|(_, hash)| hash)
-            .collect();
-        let physical_conflict_recheck_order: Vec<_> = self
-            .conflict_rechecks
-            .iter()
-            .filter(|hash| self.conflict_recheck_set.contains(*hash))
-            .cloned()
-            .collect();
-        if physical_conflict_recheck_order != expected_conflict_recheck_order {
-            return Err(CoordinatorAuditError::ConflictMaintenanceIndex);
-        }
-
         for kind in [
             QueueKind::PreCheck,
             QueueKind::Resolve,
@@ -602,12 +661,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     CoordinatorVerifyOrdering::ArrivalTime => QueueOrdering::Fifo,
                     CoordinatorVerifyOrdering::FeeRate => QueueOrdering::FeeRate,
                 },
-                QueueKind::PreCheck | QueueKind::Resolve | QueueKind::Commit => QueueOrdering::Fifo,
+                QueueKind::Commit => QueueOrdering::Candidate,
+                QueueKind::PreCheck | QueueKind::Resolve => QueueOrdering::Fifo,
             };
-            if queue.ordering() != expected_ordering {
-                return Err(CoordinatorAuditError::QueueLogicalIndex);
-            }
-            if &queue.live != expected || !queue.structure_valid() {
+            if queue.ordering() != expected_ordering
+                || &queue.live != expected
+                || !queue.structure_valid()
+            {
                 return Err(CoordinatorAuditError::QueueLogicalIndex);
             }
             let mut physical_live_counts: HashMap<&CoordinatorTicket, usize> = HashMap::new();

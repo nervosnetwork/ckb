@@ -41,8 +41,8 @@ pub(crate) enum WorkerSet {
     /// manually. The effect publisher and cache-update drain remain active.
     None,
     /// The full production pipeline: pre-check workers, verify manager, the
-    /// ordered resolver (with a panic watcher), and bounded maintenance, plus
-    /// cache updates.
+    /// ordered resolver (with a panic watcher), commit consumer, and bounded
+    /// maintenance, plus cache updates.
     All,
 }
 
@@ -293,6 +293,11 @@ impl HarnessBuilder {
                 let runtime =
                     ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
                 crate::service::workers::spawn_pipeline_maintenance_worker(
+                    &runtime,
+                    service.clone(),
+                    signal.child_token(),
+                );
+                crate::service::workers::spawn_pipeline_commit_worker(
                     &runtime,
                     service.clone(),
                     signal.child_token(),

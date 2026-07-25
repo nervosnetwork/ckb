@@ -215,6 +215,7 @@ struct BackgroundWorkerHandles {
     effects: tokio::task::JoinHandle<()>,
     verify_cache: tokio::task::JoinHandle<()>,
     maintenance: tokio::task::JoinHandle<()>,
+    commit: tokio::task::JoinHandle<()>,
     pre_check: Vec<tokio::task::JoinHandle<()>>,
     verify_mgr: tokio::task::JoinHandle<()>,
     resolver: tokio::task::JoinHandle<()>,
@@ -237,6 +238,7 @@ impl BackgroundWorkerHandles {
         let mut tasks: Vec<(String, tokio::task::JoinHandle<()>)> = Vec::new();
         tasks.push(("verify-cache worker".to_owned(), self.verify_cache));
         tasks.push(("pipeline maintenance".to_owned(), self.maintenance));
+        tasks.push(("pipeline commit worker".to_owned(), self.commit));
         for (i, handle) in self.pre_check.into_iter().enumerate() {
             tasks.push((format!("pre-check worker {i}"), handle));
         }
@@ -324,6 +326,7 @@ mod shutdown_tests {
             effects,
             verify_cache,
             maintenance: finished(),
+            commit: finished(),
             pre_check: vec![finished()],
             verify_mgr: finished(),
             resolver: finished(),
@@ -525,6 +528,11 @@ impl TxPoolServiceBuilder {
             service.clone(),
             signal_receiver.child_token(),
         );
+        let commit_handle = workers::spawn_pipeline_commit_worker(
+            &handle,
+            service.clone(),
+            signal_receiver.child_token(),
+        );
         let pre_check_handles = workers::spawn_pre_check_workers(
             &handle,
             service.clone(),
@@ -568,6 +576,7 @@ impl TxPoolServiceBuilder {
                 effects: effect_handle,
                 verify_cache: verify_cache_handle,
                 maintenance: maintenance_handle,
+                commit: commit_handle,
                 pre_check: pre_check_handles,
                 verify_mgr: verify_mgr_handle,
                 resolver: resolver_handle,

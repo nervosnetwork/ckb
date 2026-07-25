@@ -344,6 +344,10 @@ impl TxPoolService {
                 }
                 result
             }) {
+                // Eagerly drain the candidate produced by this verify task.
+                // The dedicated commit consumer is still the level-triggered
+                // liveness path for eligibility created by every other
+                // transition; both paths share the same serial driver.
                 Ok((_version, _terminal)) => {
                     self.drive_pipeline_commits().await;
                 }
