@@ -2501,9 +2501,7 @@ async fn failed_reorg_recovery_cascade_wakes_conflict_history() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_rbf_commit_demotes_in_flight_consumers_of_removed_parent() {
     use super::harness::{WorkerSet, harness};
-    use crate::component::pipeline_coordinator::{
-        CoordinatorLocation, PayloadPhase, RawStage, VerifySchedule,
-    };
+    use crate::component::pipeline_coordinator::{CoordinatorLocation, RawStage, VerifySchedule};
     use crate::component::pipeline_runtime::resolved_charge_bytes;
     use crate::resolved_tx::ResolveJob;
     use std::collections::HashSet;
@@ -2582,7 +2580,6 @@ async fn local_rbf_commit_demotes_in_flight_consumers_of_removed_parent() {
         .pipeline
         .runtime
         .read(|coordinator| coordinator.view(&consumer_hash).unwrap());
-    assert_eq!(view.phase, PayloadPhase::Raw);
     assert_eq!(
         view.location,
         CoordinatorLocation::WaitingParents {

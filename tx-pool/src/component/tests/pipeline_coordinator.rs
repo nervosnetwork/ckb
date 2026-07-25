@@ -1,9 +1,9 @@
 use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorFeeGate, CoordinatorLimits, CoordinatorLocation,
     CoordinatorMetadataCost, CoordinatorReconciliationLimits, CoordinatorResidency,
-    CoordinatorSource, CoordinatorVerifyOrdering, PayloadPhase, PipelineCoordinator, QueueKind,
-    RawStage, TerminalDisposition, TrustedSource, VerifiedCandidate, VerifySchedule,
-    VerifyWorkLease, WorkerCapability,
+    CoordinatorSource, CoordinatorVerifyOrdering, PipelineCoordinator, QueueKind, RawStage,
+    TerminalDisposition, TrustedSource, VerifiedCandidate, VerifySchedule, VerifyWorkLease,
+    WorkerCapability,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
@@ -1575,7 +1575,6 @@ fn one_entry_and_revision_own_every_payload_phase_until_candidate_handoff() {
         .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
         .unwrap();
     let view = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Unverified);
     assert_eq!(view.location, CoordinatorLocation::VerifyQueued);
     assert_eq!(coordinator.usage(), CoordinatorResidency::new(1, 20));
     coordinator.audit().unwrap();
@@ -1632,7 +1631,7 @@ fn administrative_terminal_api_cannot_express_commit_and_releases_all_indexes() 
 }
 
 #[test]
-fn trusted_parent_invalidation_retains_payload_and_makes_active_verify_lease_stale() {
+fn trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale() {
     let mut coordinator = roomy();
     let tx_hash = hash(3);
     let parent = hash(30);
@@ -1664,8 +1663,7 @@ fn trusted_parent_invalidation_retains_payload_and_makes_active_verify_lease_sta
         vec![tx_hash.clone()]
     );
     let view = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Unverified);
-    assert_eq!(view.charge_bytes, 50);
+    assert_eq!(view.charge_bytes, 10);
     assert_eq!(
         view.location,
         CoordinatorLocation::Invalidated {
@@ -1674,6 +1672,12 @@ fn trusted_parent_invalidation_retains_payload_and_makes_active_verify_lease_sta
     );
     assert_eq!(coordinator.waiting_parent_len(), 0);
     assert_eq!(coordinator.dependency_failure_len(), 1);
+    assert_eq!(
+        coordinator.raw_by_hash(&tx_hash).as_deref(),
+        Some(&Raw("raw"))
+    );
+    assert!(coordinator.unverified_by_hash(&tx_hash).is_none());
+    assert!(coordinator.verified_by_hash(&tx_hash).is_none());
     assert!(matches!(
         coordinator.complete_verification(&verify, Verified("stale"), 60),
         Err(CoordinatorError::RevisionMismatch { .. })
@@ -1693,6 +1697,62 @@ fn trusted_parent_invalidation_retains_payload_and_makes_active_verify_lease_sta
         TerminalDisposition::DependencyFailed
     );
     assert!(!coordinator.contains_hash(&tx_hash));
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn verified_parent_invalidation_is_raw_only_and_releases_conflict_projection() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(200);
+    let parent = hash(201);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(200),
+            Raw("raw"),
+            RawStage::Resolve,
+            None,
+            10,
+            set([parent.clone()]),
+        )
+        .unwrap();
+    let raw = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+    coordinator
+        .complete_raw(&raw, Unverified("resolved"), 20, VerifySchedule::default())
+        .unwrap();
+    let verify = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    let candidate = CoordinatorFeeGate::new(0, 0)
+        .validate(tx_hash.clone(), inputs([200]), 100, 100)
+        .unwrap();
+    coordinator
+        .complete_verification_candidate(&verify, Verified("proof"), 30, candidate)
+        .unwrap();
+    assert_eq!(coordinator.conflict_edge_count(), 1);
+
+    assert_eq!(
+        coordinator.parent_unavailable(&parent).unwrap(),
+        vec![tx_hash.clone()]
+    );
+    let view = coordinator.view(&tx_hash).unwrap();
+    assert_eq!(view.charge_bytes, 10);
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::Invalidated { cause: parent }
+    );
+    assert_eq!(
+        coordinator.raw_by_hash(&tx_hash).as_deref(),
+        Some(&Raw("raw"))
+    );
+    assert!(coordinator.unverified_by_hash(&tx_hash).is_none());
+    assert!(coordinator.verified_by_hash(&tx_hash).is_none());
+    assert_eq!(coordinator.conflict_edge_count(), 0);
+    assert_eq!(coordinator.queue_len(QueueKind::Commit), 0);
     coordinator.audit().unwrap();
 }
 
@@ -1731,7 +1791,6 @@ fn verify_unknown_parent_demotes_atomically_and_preserves_causal_source() {
         .unwrap();
     assert_eq!(source, CoordinatorSource::Remote(peer));
     let view = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Raw);
     assert_eq!(view.charge_bytes, 10);
     assert_eq!(
         view.location,
@@ -1842,7 +1901,6 @@ fn verify_parent_handoff_requeues_resolution_without_lost_wakeup() {
         .unwrap();
     assert_eq!(source, CoordinatorSource::Local);
     let view = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Raw);
     assert_eq!(view.charge_bytes, 10);
     assert_eq!(
         view.location,
@@ -1902,7 +1960,6 @@ fn accepted_parent_closure_unavailability_is_one_atomic_batch() {
         vec![child.clone()]
     );
     let view = coordinator.view(&child).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Raw);
     assert_eq!(view.charge_bytes, 10);
     assert_eq!(
         view.location,
@@ -2482,7 +2539,6 @@ fn removed_and_readmitted_hash_rejects_the_old_worker_incarnation() {
         Err(CoordinatorError::IncarnationMismatch { .. })
     ));
     let current = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(current.phase, PayloadPhase::Raw);
     assert_eq!(
         current.location,
         CoordinatorLocation::RawQueued(RawStage::PreCheck)
@@ -3264,7 +3320,6 @@ fn failed_phase_recharge_leaves_payload_location_and_queue_unchanged() {
         Err(CoordinatorError::GlobalBudgetExceeded)
     ));
     let view = coordinator.view(&tx_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Raw);
     assert_eq!(
         view.location,
         CoordinatorLocation::RawActive(RawStage::PreCheck)
@@ -3506,8 +3561,8 @@ fn under_fee_candidate_cannot_become_verified_conflict_state() {
     );
     assert_eq!(coordinator.active_conflict_owner(&contested), Some(&owner));
     assert_eq!(
-        coordinator.view(&candidate_hash).unwrap().phase,
-        PayloadPhase::Unverified
+        coordinator.view(&candidate_hash).unwrap().location,
+        CoordinatorLocation::VerifyActive
     );
     assert_eq!(coordinator.conflict_edge_count(), 1);
     coordinator.audit().unwrap();
@@ -3928,7 +3983,6 @@ fn conflict_limits_fail_before_verified_state_or_indexes_change() {
     ));
 
     let view = coordinator.view(&second_hash).unwrap();
-    assert_eq!(view.phase, PayloadPhase::Unverified);
     assert_eq!(view.location, CoordinatorLocation::VerifyActive);
     assert_eq!(coordinator.active_conflict_owner(&input(6)), Some(&first));
     assert_eq!(coordinator.conflict_edge_count(), 1);

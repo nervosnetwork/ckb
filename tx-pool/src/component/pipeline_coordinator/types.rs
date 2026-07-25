@@ -75,13 +75,6 @@ pub(crate) enum CoordinatorLocation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PayloadPhase {
-    Raw,
-    Unverified,
-    Verified,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CoordinatorSource {
     Remote(PeerIndex),
     Local,
@@ -442,7 +435,6 @@ pub(crate) struct TerminalRecord<R> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CoordinatorView {
     pub(crate) short_id: ProposalShortId,
-    pub(crate) phase: PayloadPhase,
     pub(crate) location: CoordinatorLocation,
     pub(crate) peer: Option<PeerIndex>,
     pub(crate) source: CoordinatorSource,
@@ -504,10 +496,6 @@ pub(crate) enum CoordinatorError {
     LocationMismatch {
         expected: CoordinatorLocation,
         actual: CoordinatorLocation,
-    },
-    PhaseMismatch {
-        expected: PayloadPhase,
-        actual: PayloadPhase,
     },
     QueueInvariant(QueueKind),
     QueueReservationFailed,
@@ -633,7 +621,6 @@ impl CoordinatorError {
                 | Self::IncarnationMismatch { .. }
                 | Self::RevisionMismatch { .. }
                 | Self::LocationMismatch { .. }
-                | Self::PhaseMismatch { .. }
                 | Self::DependencyInvalidated { .. }
         )
     }
@@ -684,23 +671,6 @@ pub(super) enum CandidateLocation {
 }
 
 #[derive(Debug)]
-pub(super) enum InvalidatedPayload<U, V> {
-    Raw,
-    Unverified(Arc<U>),
-    Verified(Arc<V>),
-}
-
-impl<U, V> Clone for InvalidatedPayload<U, V> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Raw => Self::Raw,
-            Self::Unverified(payload) => Self::Unverified(Arc::clone(payload)),
-            Self::Verified(payload) => Self::Verified(Arc::clone(payload)),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub(super) enum EntryState<R, U, V> {
     Raw {
         raw: Arc<R>,
@@ -720,7 +690,6 @@ pub(super) enum EntryState<R, U, V> {
     },
     Invalidated {
         raw: Arc<R>,
-        payload: InvalidatedPayload<U, V>,
         cause: Byte32,
         sequence: u64,
     },
@@ -757,12 +726,10 @@ impl<R, U, V> Clone for EntryState<R, U, V> {
             },
             Self::Invalidated {
                 raw,
-                payload,
                 cause,
                 sequence,
             } => Self::Invalidated {
                 raw: Arc::clone(raw),
-                payload: payload.clone(),
                 cause: cause.clone(),
                 sequence: *sequence,
             },
@@ -777,26 +744,6 @@ impl<R, U, V> EntryState<R, U, V> {
             | Self::Unverified { raw, .. }
             | Self::CandidateVerified { raw, .. }
             | Self::Invalidated { raw, .. } => raw,
-        }
-    }
-
-    pub(super) fn phase_kind(&self) -> PayloadPhase {
-        match self {
-            Self::Raw { .. }
-            | Self::Invalidated {
-                payload: InvalidatedPayload::Raw,
-                ..
-            } => PayloadPhase::Raw,
-            Self::Unverified { .. }
-            | Self::Invalidated {
-                payload: InvalidatedPayload::Unverified(_),
-                ..
-            } => PayloadPhase::Unverified,
-            Self::CandidateVerified { .. }
-            | Self::Invalidated {
-                payload: InvalidatedPayload::Verified(_),
-                ..
-            } => PayloadPhase::Verified,
         }
     }
 
@@ -1235,10 +1182,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
         }
     }
 
-    pub(super) fn phase_kind(&self) -> PayloadPhase {
-        self.state.phase_kind()
-    }
-
     pub(super) fn location(&self) -> CoordinatorLocation {
         self.state.location()
     }
@@ -1270,7 +1213,6 @@ impl<R, U, V> CoordinatorEntry<R, U, V> {
     pub(super) fn view(&self) -> CoordinatorView {
         CoordinatorView {
             short_id: self.short_id.clone(),
-            phase: self.phase_kind(),
             location: self.location(),
             peer: self.source.peer(),
             source: self.source,

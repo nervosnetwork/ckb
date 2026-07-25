@@ -464,6 +464,13 @@ effect charge(e)    <=> e is reserved, queued, or active in EffectOutbox
 `LeaseRevision` (the current `revision`) invalidates work within one admission.
 They have different semantics and must not be merged.
 
+Entry residency and physical worker retention are deliberately separate
+domains. Invalidating an entry drops every coordinator-owned resolved or
+verified payload and retains only raw ingress. A stale worker may still hold
+its checked-out `Arc` until it returns, but that bounded physical-worker tail
+is not a current lease, cannot be looked up or committed, and does not justify
+a second detached-work ledger.
+
 ### 12.2 Target lifecycle
 
 The target persistent locations are:
@@ -557,7 +564,7 @@ The phase list is fixed; phase numbers and scope do not drift during execution:
 | 0 | Frozen specification, evidence manifest, baseline | No production behavior change |
 | 1 | Reference model, property tests, operation-count assertions | Model proves ownership, charge, eligibility, handoff |
 | 2 | `CandidateRank`, derived conflict index/delta, old conflict lifecycle deleted | No dual production path or unbounded scan |
-| 3 | Raw-only invalidation, token/API/generic simplification | Fewer states/APIs; RPC behavior explicit |
+| 3 | Raw-only invalidation and token/API/generic simplification decision | Fewer states/APIs; RPC behavior explicit |
 | 4 | Commit/error/effect boundary cleanup and production fault matrix | Ledger #104 and authoritative undo boundary are Covered |
 | 5 | Semantic source/test split and dead-complexity removal | Production code is net smaller and easier to review |
 | 6 | Full nextest/integration/security acceptance | No unexplained Partial or stale current evidence |
@@ -590,5 +597,6 @@ the architectural state without reconstructing chat history.
 | 0 | Complete (`4245c1a5d`) | Frozen contract, nextest-backed evidence manifest and Ubuntu CI check; no production behavior change. |
 | 1 | Complete (`efc2702d3`) | Seven independent conflict-model tests; 310/310 nextest green. The model corrected the edge definition so `Committing` remains a frozen staged neighbour. No production path changed and no new clippy warning was added; 23 baseline lint findings remain for semantic cleanup/Phase 5. |
 | 2 | Complete (checkpoint is the commit containing this row) | Replaced `ReadyToCommit`/`WaitingConflict`/`ConflictRecheck` and blocker/waiter indexes with one total `CandidateRank`, bounded input buckets, derived `(degree, stronger_count)`, and atomic `ConflictDelta` ticket reconciliation. A sole derived committing identity serializes independent maxima. Pre-eviction undo uses an input-local upper bound while final membership retains the direct-cohort bound. Global review found and closed the lost non-verify wake path with one level-triggered commit consumer; verify keeps only an eager fast path through the same serial driver. No new lifecycle state, recovery protocol, global scan, or second authority was added. 310/310 nextest green. |
-| 3-7 | Pending | Execute in fixed order above. |
+| 3 | Complete (checkpoint is the commit containing this row) | Invalidated entries are now raw-only: typed payload ownership, typed lookup and conflict scheduling disappear in the same undo transaction, residency is recharged to the canonical raw equation, and stale worker completion is rejected by the existing lease revision. Deleted the redundant `PayloadPhase`/`PhaseMismatch` projection and changed typed lookups to borrowed views. Global review deliberately retained the three payload generics as compile-time phase isolation and retained `incarnation` plus `revision` as distinct admission/lease identities; adding aliases, a detached-worker ledger, or a compensating state would weaken reviewability. Production source is net smaller, no persistent state or hot-path scan was added, 311/311 nextest is green, and the clippy finding set remains the same 23-item baseline. |
+| 4-7 | Pending | Execute in fixed order above. |
 | 8 | Deferred | Run only after explicit benchmark instruction. |

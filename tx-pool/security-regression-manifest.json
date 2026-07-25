@@ -22,17 +22,21 @@
     "I4": [
       "active_verification_terminalization_is_causal_and_aba_safe",
       "removed_and_readmitted_hash_rejects_the_old_worker_incarnation",
-      "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject"
+      "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject",
+      "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale"
     ],
     "I5": [
       "metadata_residency_is_charged_continuously_across_every_payload_phase",
       "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
-      "count_and_byte_limits_cover_reserved_queued_and_active_batches"
+      "count_and_byte_limits_cover_reserved_queued_and_active_batches",
+      "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection"
     ],
     "I6": [
       "accepted_parent_handoff_wakes_waiting_children_atomically",
       "every_definitive_parent_exit_invalidates_dependents_in_the_same_transition",
-      "transitive_dependency_cycle_is_rejected_before_admission"
+      "transitive_dependency_cycle_is_rejected_before_admission",
+      "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale",
+      "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection"
     ],
     "I7": [
       "reorg_status_transition_failure_has_no_false_reject_and_replay_converges",
