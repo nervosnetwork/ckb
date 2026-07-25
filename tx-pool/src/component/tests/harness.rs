@@ -163,19 +163,17 @@ impl HarnessBuilder {
         let critical_effect_bytes =
             crate::service::effects::max_pool_mutation_effect_bytes(config.max_tx_pool_size)
                 .max(4096);
-        // Match the production reservation contract.  A submit transaction
-        // can journal effects for the resident pool plus the incoming
-        // block-sized transaction, even though most tests use far less.
         let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
             config.max_tx_pool_size,
             consensus.max_block_bytes() as usize,
-            kernel.max_entries(),
         );
         let ordinary_effect_bytes = 512_000_000usize.max(submit_effect_bytes);
         let effects = Arc::new(
-            crate::service::effects::EffectQueue::new_with_critical_capacity(
+            crate::service::effects::EffectJournal::new_partitioned(
                 1024,
                 ordinary_effect_bytes,
+                64,
+                submit_effect_bytes,
                 1,
                 critical_effect_bytes,
             )
@@ -221,7 +219,6 @@ impl HarnessBuilder {
             let endpoints = crate::service::effects::EffectEndpoints {
                 network: Arc::clone(&service.relay.network),
                 tx_relay_sender: service.relay.tx_relay_sender.clone(),
-                failure_cancel: signal.clone(),
             };
             let publisher_cancel = signal.clone();
             let close_queue = Arc::clone(&queue);

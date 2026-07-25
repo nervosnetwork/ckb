@@ -1,7 +1,6 @@
 pub mod entry;
 pub mod tx_selector;
 
-pub(crate) mod effect_outbox;
 pub(crate) mod links;
 pub(crate) mod out_point_index;
 pub(crate) mod pool_map;

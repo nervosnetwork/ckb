@@ -14,7 +14,7 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::pool::rbf::RbfCheck;
 use crate::service::TxPoolService;
-use crate::service::effects::TxPoolEffect;
+use crate::service::effects::{EffectBatch, TxPoolEffect};
 use crate::util::time_relative_verify;
 use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
@@ -333,17 +333,15 @@ impl TxPoolService {
         )
     }
 
-    /// Bind the complete stable-state publication batch while the caller still
-    /// holds the authoritative TxPool write lock. This is the effect
-    /// linearization point: concurrent commits cannot publish in a different
-    /// order from their pool mutations, and cancellation after unlock cannot
-    /// lose the already-journaled result.
-    pub(crate) fn journal_submit_effects(
+    /// Materialize the complete stable-state publication batch from the
+    /// already validated/applied plan. The caller runs this inside the
+    /// journal's bounded `try_apply_bounded` closure so state Apply and append
+    /// remain one critical section without a carried reservation.
+    pub(crate) fn prepare_submit_effects(
         &self,
         outcome: &mut SubmitEntryOutcome,
-        permit: crate::service::effects::EffectPermit,
         mut extra_effects: Vec<TxPoolEffect>,
-    ) {
+    ) -> Option<EffectBatch> {
         let mut effects = Vec::new();
         if let Some((entry, status)) = outcome.accept_event.take()
             && let Some(effect) = self.accepted_effect(entry, status)
@@ -354,11 +352,7 @@ impl TxPoolService {
             effects.extend(self.rejected_effects(entry, reject));
         }
         effects.append(&mut extra_effects);
-        self.publish_required_reserved_effects(
-            permit,
-            effects,
-            "reserved submit effect journal failed inside pool transaction",
-        );
+        EffectBatch::new(effects)
     }
 }
 

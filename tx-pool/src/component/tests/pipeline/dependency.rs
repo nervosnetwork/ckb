@@ -95,10 +95,6 @@ async fn parent_commit_before_wait_registration_requeues_child() {
                     parent.hash(),
                     0,
                 ))]),
-                h.service
-                    .reserve_effects(TxPoolService::unknown_parents_effect_bytes(1))
-                    .await
-                    .unwrap(),
             )
             .await
             .unwrap(),
@@ -169,10 +165,6 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
                 discovered_parent.clone(),
                 0,
             ))]),
-            h.service
-                .reserve_effects(TxPoolService::unknown_parents_effect_bytes(1))
-                .await
-                .unwrap(),
         )
         .await
         .unwrap();

@@ -1,4 +1,3 @@
-mod effect_outbox;
 mod entry;
 mod estimate;
 mod gap_reorg;

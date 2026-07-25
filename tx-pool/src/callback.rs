@@ -84,6 +84,7 @@ pub struct Callbacks {
     pub(crate) reject: Option<RejectCallback>,
 }
 
+#[derive(Clone)]
 pub(crate) enum CallbackEvent {
     Pending(TxEntrySnapshot),
     Proposed(TxEntrySnapshot),
@@ -125,7 +126,7 @@ impl Callbacks {
     ///
     /// The effect publisher is itself the stable-state barrier, so this path
     /// deliberately bypasses the legacy in-task deferral queue. It is the only
-    /// callback entry point used by the production effect outbox.
+    /// callback entry point used by the production effect journal.
     pub(crate) fn publish(&self, event: &CallbackEvent) {
         match event {
             CallbackEvent::Pending(entry) => self.call_pending_now(entry),

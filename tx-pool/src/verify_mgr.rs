@@ -53,16 +53,7 @@ impl TxPoolService {
             let dependencies = std::collections::BTreeSet::from([DependencyKey::Cell(
                 crate::util::compact_packed(outpoint),
             )]);
-            let permit = self
-                .reserve_required_effects(
-                    Self::unknown_parents_effect_bytes(dependencies.len()),
-                    "verify parent-wait effect reservation failed",
-                )
-                .await;
-            match self
-                .settle_verify_parent_wait(lease, dependencies, permit)
-                .await
-            {
+            match self.settle_verify_parent_wait(lease, dependencies).await {
                 Some(ParentWaitOutcome::Parked) => return,
                 Some(ParentWaitOutcome::Requeued) => return,
                 Some(ParentWaitOutcome::Unavailable) => {}
@@ -74,7 +65,6 @@ impl TxPoolService {
         self.settle_pipeline_terminal(
             &lease.hash,
             public_reject,
-            "verify terminal effect reservation failed",
             "current verify lease could not terminalize",
             |coordinator, retain_conflict| {
                 if retain_conflict {
@@ -308,18 +298,8 @@ impl TxPoolService {
                 }
             };
 
-            let permit = self
-                .reserve_required_effects(
-                    Self::pipeline_terminal_effect_bytes(
-                        crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
-                    ),
-                    "verify completion effect reservation failed",
-                )
-                .await;
             match self.pipeline.kernel.mutate(|coordinator| {
-                let result = coordinator.complete_verify(&lease, verified, charge_bytes, candidate);
-                drop(permit);
-                result
+                coordinator.complete_verify(&lease, verified, charge_bytes, candidate)
             }) {
                 // Eagerly drain the candidate produced by this verify task.
                 // The dedicated commit consumer is still the level-triggered

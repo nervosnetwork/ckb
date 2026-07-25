@@ -12,13 +12,15 @@
 //!
 //! `recovery_lock` is taken before `tx_pool` and never the other way
 //! around: reorg recovery and persistence use it to exclude an incomplete
-//! retained-transaction snapshot. Normal pool mutations reserve effect/outbox
-//! capacity before `tx_pool`; recovery-serialized reorg/clear operations use
-//! the stricter order `recovery_lock -> effect credit -> tx_pool` because a
-//! retained transaction may need effect credit while recovery remains locked.
-//! No caller may hold effect credit while waiting for `recovery_lock`.
+//! retained-transaction snapshot. A capacity wait owns no state and occurs
+//! before authority locks. The actual transition order is
+//! `recovery_lock -> tx_pool -> PrePoolKernel -> EffectJournal`; the journal
+//! lock is always innermost and atomically binds a total state Apply to its
+//! immutable effect batch. No reservation or capacity token crosses an await
+//! or lock boundary. P4 removes the remaining recovery-wide lock by making
+//! detached replay an explicit retained owner.
 //! Callback-originated mutations fail fast, so the effect publisher cannot
-//! create a reverse edge. Callbacks, relay I/O, and cache-update I/O run only
+//! create a reverse edge. Callbacks, relay I/O, and persistence I/O run only
 //! after state mutation has been journaled and no state lock is held.
 //!
 //! `block_assembler.template_lock` guards the current block template.

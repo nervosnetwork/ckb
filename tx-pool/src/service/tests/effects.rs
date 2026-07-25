@@ -1,6 +1,5 @@
 use super::*;
 use crate::callback::Callbacks;
-use crate::component::effect_outbox::EffectOutboxUsage;
 use crate::component::entry::TxEntry;
 use crate::network::{DummyTxPoolNetwork, TxPoolNetwork};
 use ckb_types::bytes::Bytes;
@@ -11,25 +10,16 @@ use ckb_types::prelude::{Builder, Entity};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-impl EffectQueue {
-    pub(crate) fn new(max_batches: usize, max_bytes: usize) -> Result<Self, EffectOutboxError> {
-        Self::new_with_critical_capacity(max_batches, max_bytes, 0, 0)
+impl EffectJournal {
+    pub(crate) fn new(max_batches: usize, max_bytes: usize) -> Result<Self, EffectJournalError> {
+        Self::new_partitioned(max_batches, max_bytes, 0, 0, 0, 0)
     }
 
     pub(crate) async fn enqueue(
         self: &Arc<Self>,
         batch: EffectBatch,
-    ) -> Result<(), EffectQueueError> {
-        let permit = self.reserve(batch.charge_bytes).await?;
-        permit.commit(batch)
-    }
-
-    pub(crate) fn usage(&self) -> EffectOutboxUsage {
-        self.state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .outbox
-            .usage()
+    ) -> Result<(), EffectJournalError> {
+        self.append(batch, EffectClass::Trusted).await
     }
 
     pub(crate) async fn wait_idle(&self) {
@@ -45,20 +35,17 @@ impl EffectQueue {
     }
 }
 
-impl TxPoolService {
-    pub(crate) async fn reserve_effects(
-        &self,
-        bytes: usize,
-    ) -> Result<EffectPermit, EffectQueueError> {
-        self.relay.effects.reserve(bytes).await
-    }
+fn reject_batch(seed: u8) -> EffectBatch {
+    EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+        tx_hash: Byte32::new([seed; 32]),
+    })])
+    .unwrap()
 }
 
 fn endpoints(tx_relay_sender: ckb_channel::Sender<TxVerificationResult>) -> EffectEndpoints {
     EffectEndpoints {
         network: Arc::new(DummyTxPoolNetwork),
         tx_relay_sender,
-        failure_cancel: CancellationToken::new(),
     }
 }
 
@@ -150,7 +137,7 @@ fn callback_effect_drops_resolved_payload_at_journal_boundary() {
 
     assert!(
         resolved_owner.upgrade().is_none(),
-        "the effect outbox must not retain resolved cell metadata"
+        "the effect journal must not retain resolved cell metadata"
     );
     assert!(
         effect.charge_bytes() < 4096,
@@ -172,7 +159,7 @@ fn callback_effect_drops_resolved_payload_at_journal_boundary() {
 #[test]
 fn submit_effect_formula_covers_coordinator_settlement_and_bounded_ban() {
     let records = 3;
-    let bound = max_submit_effect_bytes(0, minimum_serialized_transaction_bytes(), records);
+    let bound = max_submit_effect_bytes(0, minimum_serialized_transaction_bytes());
     let mut effects = (0..records)
         .map(|seed| {
             TxPoolEffect::Relay(TxVerificationResult::Reject {
@@ -222,7 +209,7 @@ async fn recent_reject_database_write_runs_as_a_journaled_effect() {
     let store = Arc::new(
         crate::component::recent_reject::RecentReject::build(temp.path(), 1, 100, -1).unwrap(),
     );
-    let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
+    let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
     let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
     let tx_hash = Byte32::new([0x42; 32]);
     queue
@@ -249,8 +236,8 @@ async fn recent_reject_database_write_runs_as_a_journaled_effect() {
 }
 
 #[tokio::test]
-async fn full_relayer_retains_fifo_head_and_outbox_charge() {
-    let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
+async fn full_relayer_retains_fifo_head_and_journal_charge() {
+    let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
     let (relay_tx, relay_rx) = ckb_channel::bounded(1);
     relay_tx
         .send(TxVerificationResult::Reject {
@@ -288,7 +275,7 @@ async fn full_relayer_retains_fifo_head_and_outbox_charge() {
 
 #[tokio::test]
 async fn close_drains_every_queued_batch_in_order() {
-    let queue = Arc::new(EffectQueue::new(4, 1_000_000).unwrap());
+    let queue = Arc::new(EffectJournal::new(4, 1_000_000).unwrap());
     let (relay_tx, _relay_rx) = ckb_channel::bounded(4);
     let order = Arc::new(std::sync::Mutex::new(Vec::new()));
     for value in [1usize, 2] {
@@ -328,7 +315,7 @@ async fn panicking_endpoint_is_quarantined_once_without_blocking_fifo() {
         }
     }
 
-    let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
+    let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
     let (relay_tx, relay_rx) = ckb_channel::bounded(1);
     let attempts = Arc::new(AtomicUsize::new(0));
     let expected = Byte32::new([9; 32]);
@@ -356,7 +343,6 @@ async fn panicking_endpoint_is_quarantined_once_without_blocking_fifo() {
                 attempts: Arc::clone(&attempts),
             }),
             tx_relay_sender: relay_tx,
-            failure_cancel: CancellationToken::new(),
         },
     ));
     tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
@@ -373,69 +359,105 @@ async fn panicking_endpoint_is_quarantined_once_without_blocking_fifo() {
 }
 
 #[tokio::test]
-async fn publisher_invariant_failure_closes_outbox_and_cancels_service() {
-    let queue = Arc::new(EffectQueue::new(2, 1_000_000).unwrap());
-    let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
+async fn hung_callback_opens_one_stable_circuit_and_does_not_pin_relay() {
+    let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
+    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut callbacks = Callbacks::new();
+    let observed = Arc::clone(&calls);
+    callbacks.register_pending(Box::new(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(250));
+    }));
+    let callbacks = Arc::new(callbacks);
+    let expected = Byte32::new([0x66; 32]);
+    queue
+        .enqueue(
+            EffectBatch::new(vec![
+                callback_accept(Arc::clone(&callbacks), entry(), Status::Pending),
+                callback_accept(callbacks, entry(), Status::Pending),
+                TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: expected.clone(),
+                }),
+            ])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let publisher = tokio::spawn(run_effect_publisher(
+        Arc::clone(&queue),
+        endpoints(relay_tx),
+    ));
+    tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
+        .await
+        .expect("hung callback must not pin the journal");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(queue.callback_circuit_open.load(Ordering::Acquire));
+    assert!(matches!(
+        relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == expected
+    ));
+    queue.close();
+    publisher.await.unwrap();
+}
+
+#[tokio::test]
+async fn replacement_publisher_resumes_the_charged_active_batch() {
+    let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
+    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+    let expected = Byte32::new([0x44; 32]);
     queue
         .enqueue(
             EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
-                tx_hash: Byte32::zero(),
+                tx_hash: expected.clone(),
             })])
             .unwrap(),
         )
         .await
         .unwrap();
-    // Simulate a second/failed publisher that left an active checkout.
-    // The production publisher must fail the complete service instead of
-    // logging and waiting forever behind that impossible state.
-    {
-        let mut state = queue.state.lock().unwrap();
-        assert!(state.outbox.checkout().unwrap().is_some());
-    }
+    assert!(
+        queue.checkout().is_some(),
+        "simulate a publisher dying after checkout"
+    );
 
-    let failure_cancel = CancellationToken::new();
-    let publisher = tokio::spawn(run_effect_publisher(
-        Arc::clone(&queue),
-        EffectEndpoints {
-            network: Arc::new(DummyTxPoolNetwork),
-            tx_relay_sender: relay_tx,
-            failure_cancel: failure_cancel.clone(),
-        },
-    ));
-    let result = tokio::time::timeout(Duration::from_secs(1), publisher)
-        .await
-        .expect("fatal publisher invariant must not hang");
-    assert!(result.is_err());
-    assert!(failure_cancel.is_cancelled());
+    queue.close();
+    run_effect_publisher(Arc::clone(&queue), endpoints(relay_tx)).await;
+    assert_eq!(queue.usage().batches, 0);
     assert!(matches!(
-        queue.reserve(1).await,
-        Err(EffectQueueError::Closed)
+        relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == expected
     ));
 }
 
 #[tokio::test]
-async fn unused_pre_mutation_reservation_is_refunded_on_cancellation() {
-    let queue = Arc::new(EffectQueue::new(1, 100).unwrap());
-    let permit = queue.reserve(100).await.unwrap();
-    assert_eq!(queue.usage().batches, 1);
-    drop(permit);
-    assert_eq!(queue.usage().batches, 0);
-
-    // The exact same full-capacity reservation must be available again;
-    // no abandoned async operation can strand an outbox credit.
-    let permit = queue.reserve(100).await.unwrap();
-    drop(permit);
-    assert_eq!(queue.usage().batches, 0);
+async fn capacity_wait_is_not_a_reservation_or_resident_owner() {
+    let queue = EffectJournal::new(1, 100).unwrap();
+    queue
+        .wait_capacity(100, EffectClass::Trusted)
+        .await
+        .unwrap();
+    assert_eq!(queue.usage(), EffectUsage::default());
 }
 
 #[tokio::test]
 async fn close_wakes_every_blocked_capacity_waiter() {
-    let queue = Arc::new(EffectQueue::new(1, 100).unwrap());
-    let full = queue.reserve(100).await.unwrap();
+    let queue = Arc::new(EffectJournal::new(1, 256).unwrap());
+    queue
+        .try_apply_bounded(EFFECT_ENVELOPE_BYTES, EffectClass::Trusted, || {
+            (
+                (),
+                EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: Byte32::zero(),
+                })]),
+            )
+        })
+        .unwrap();
     let first_queue = Arc::clone(&queue);
     let second_queue = Arc::clone(&queue);
-    let first = tokio::spawn(async move { first_queue.reserve(1).await });
-    let second = tokio::spawn(async move { second_queue.reserve(1).await });
+    let first =
+        tokio::spawn(async move { first_queue.wait_capacity(1, EffectClass::Trusted).await });
+    let second =
+        tokio::spawn(async move { second_queue.wait_capacity(1, EffectClass::Trusted).await });
     tokio::task::yield_now().await;
     assert!(!first.is_finished());
     assert!(!second.is_finished());
@@ -446,14 +468,13 @@ async fn close_wakes_every_blocked_capacity_waiter() {
             .await
             .expect("close must wake every registered capacity waiter")
             .unwrap();
-        assert!(matches!(result, Err(EffectQueueError::Closed)));
+        assert!(matches!(result, Err(EffectJournalError::Closed)));
     }
-    drop(full);
 }
 
 #[tokio::test]
 async fn idle_publisher_observes_close_without_a_later_ready_event() {
-    let queue = Arc::new(EffectQueue::new(1, 100).unwrap());
+    let queue = Arc::new(EffectJournal::new(1, 100).unwrap());
     let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
     let publisher = tokio::spawn(run_effect_publisher(
         Arc::clone(&queue),
@@ -468,50 +489,204 @@ async fn idle_publisher_observes_close_without_a_later_ready_event() {
 }
 
 #[tokio::test]
-async fn binding_conservative_reservation_wakes_byte_capacity_waiter() {
-    let queue = Arc::new(EffectQueue::new(2, 1_000).unwrap());
-    let first = queue.reserve(1_000).await.unwrap();
-    let waiting_queue = Arc::clone(&queue);
-    let waiter = tokio::spawn(async move { waiting_queue.reserve(872).await.unwrap() });
-    tokio::task::yield_now().await;
-    assert!(!waiter.is_finished());
-
-    first
-        .commit(
-            EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
-                tx_hash: Byte32::zero(),
-            })])
-            .unwrap(),
-        )
+async fn full_journal_does_not_run_the_state_apply_closure() {
+    let queue = EffectJournal::new(1, 1_000).unwrap();
+    queue
+        .try_apply(Some(reject_batch(0)), EffectClass::Trusted, || ())
         .unwrap();
-
-    let second = tokio::time::timeout(Duration::from_secs(1), waiter)
-        .await
-        .expect("reservation shrink must wake the waiter")
-        .unwrap();
-    drop(second);
+    let applied = AtomicUsize::new(0);
+    assert_eq!(
+        queue.try_apply(Some(reject_batch(1)), EffectClass::Trusted, || {
+            applied.fetch_add(1, Ordering::SeqCst);
+        }),
+        Err(EffectJournalError::Full)
+    );
+    assert_eq!(applied.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
 async fn ordinary_backpressure_cannot_consume_critical_reorg_headroom() {
-    let queue = Arc::new(EffectQueue::new_with_critical_capacity(1, 128, 1, 1_000).unwrap());
-    let ordinary = queue.reserve(128).await.unwrap();
+    let queue = Arc::new(EffectJournal::new_partitioned(1, 128, 0, 0, 1, 1_000).unwrap());
+    let remote = reject_batch(0);
+    let remote_bytes = remote.charge_bytes();
+    queue
+        .try_apply(Some(remote), EffectClass::Remote, || ())
+        .unwrap();
     let waiting_queue = Arc::clone(&queue);
-    let ordinary_waiter = tokio::spawn(async move { waiting_queue.reserve(1).await });
+    let ordinary_waiter = tokio::spawn(async move {
+        waiting_queue
+            .wait_capacity(remote_bytes, EffectClass::Remote)
+            .await
+    });
     tokio::task::yield_now().await;
     assert!(!ordinary_waiter.is_finished());
 
-    let critical = tokio::time::timeout(Duration::from_secs(1), queue.reserve_critical(1_000))
-        .await
-        .expect("ordinary saturation must leave critical headroom")
-        .unwrap();
+    queue
+        .try_apply(Some(reject_batch(1)), EffectClass::Critical, || ())
+        .expect("Remote saturation must leave trusted/critical headroom");
+    queue.close();
+    ordinary_waiter.await.unwrap().unwrap_err();
+}
 
-    drop(critical);
-    drop(ordinary);
-    let waiter = tokio::time::timeout(Duration::from_secs(1), ordinary_waiter)
-        .await
-        .unwrap()
-        .unwrap()
+#[test]
+fn journal_usage_charges_queued_and_active_batches_exactly() {
+    let journal = EffectJournal::new(2, 1_000).unwrap();
+    journal
+        .try_apply(Some(reject_batch(0)), EffectClass::Trusted, || ())
         .unwrap();
-    drop(waiter);
+    journal
+        .try_apply(Some(reject_batch(1)), EffectClass::Trusted, || ())
+        .unwrap();
+    assert_eq!(
+        journal.usage(),
+        EffectUsage {
+            batches: 2,
+            bytes: 256
+        }
+    );
+    let (sequence, _) = journal.checkout().unwrap();
+    assert_eq!(
+        journal.usage(),
+        EffectUsage {
+            batches: 2,
+            bytes: 256
+        }
+    );
+    journal.complete(sequence);
+    assert_eq!(
+        journal.usage(),
+        EffectUsage {
+            batches: 1,
+            bytes: 128
+        }
+    );
+}
+
+#[test]
+fn journal_sequence_is_total_apply_order() {
+    let journal = EffectJournal::new(2, 1_000).unwrap();
+    for seed in [1u8, 2] {
+        let batch = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([seed; 32]),
+        })])
+        .unwrap();
+        journal
+            .try_apply(Some(batch), EffectClass::Trusted, || ())
+            .unwrap();
+    }
+    let state = journal.state.lock().unwrap();
+    assert_eq!(
+        state
+            .queued
+            .iter()
+            .map(|envelope| envelope.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+}
+
+#[test]
+fn remote_byte_ceiling_cannot_borrow_trusted_headroom() {
+    let journal = EffectJournal::new_partitioned(2, 128, 1, 128, 1, 128).unwrap();
+    journal
+        .try_apply(Some(reject_batch(0)), EffectClass::Remote, || ())
+        .unwrap();
+    assert_eq!(
+        journal.try_apply(Some(reject_batch(1)), EffectClass::Remote, || ()),
+        Err(EffectJournalError::Full)
+    );
+    journal
+        .try_apply(Some(reject_batch(2)), EffectClass::Trusted, || ())
+        .expect("trusted headroom is a separate byte partition");
+}
+
+#[test]
+fn trusted_saturation_cannot_consume_critical_headroom() {
+    let journal = EffectJournal::new_partitioned(1, 128, 1, 128, 1, 128).unwrap();
+    journal
+        .try_apply(Some(reject_batch(0)), EffectClass::Remote, || ())
+        .unwrap();
+    journal
+        .try_apply(Some(reject_batch(1)), EffectClass::Trusted, || ())
+        .unwrap();
+    journal
+        .try_apply(Some(reject_batch(2)), EffectClass::Critical, || ())
+        .expect("critical authority has independent capacity");
+}
+
+#[test]
+fn active_critical_batch_does_not_consume_ordinary_headroom() {
+    let journal = EffectJournal::new_partitioned(1, 128, 1, 128, 1, 128).unwrap();
+    journal
+        .try_apply(Some(reject_batch(0)), EffectClass::Critical, || ())
+        .unwrap();
+    journal
+        .try_apply(Some(reject_batch(1)), EffectClass::Remote, || ())
+        .unwrap();
+    journal
+        .try_apply(Some(reject_batch(2)), EffectClass::Trusted, || ())
+        .unwrap();
+    assert_eq!(journal.usage().batches, 3);
+}
+
+#[tokio::test]
+async fn permanently_full_relayer_has_bounded_fifo_residency() {
+    let journal = Arc::new(EffectJournal::new(1, 1_000).unwrap());
+    let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
+    relay_tx
+        .send(TxVerificationResult::Reject {
+            tx_hash: Byte32::zero(),
+        })
+        .unwrap();
+    journal
+        .enqueue(
+            EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([3; 32]),
+            })])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let publisher = tokio::spawn(run_effect_publisher(
+        Arc::clone(&journal),
+        endpoints(relay_tx),
+    ));
+    tokio::time::timeout(Duration::from_secs(1), journal.wait_idle())
+        .await
+        .expect("relay retry timeout must release journal capacity");
+    journal.close();
+    publisher.await.unwrap();
+}
+
+#[test]
+fn oversized_batch_never_executes_total_apply() {
+    let journal = EffectJournal::new(1, 127).unwrap();
+    let applied = AtomicUsize::new(0);
+    let batch = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+        tx_hash: Byte32::zero(),
+    })])
+    .unwrap();
+    assert!(matches!(
+        journal.try_apply(Some(batch), EffectClass::Trusted, || {
+            applied.fetch_add(1, Ordering::SeqCst);
+        }),
+        Err(EffectJournalError::BatchTooLarge { .. })
+    ));
+    assert_eq!(applied.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn bounded_apply_charges_actual_not_conservative_ceiling() {
+    let journal = EffectJournal::new(1, 1_000).unwrap();
+    journal
+        .try_apply_bounded(1_000, EffectClass::Trusted, || {
+            (
+                (),
+                EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: Byte32::zero(),
+                })]),
+            )
+        })
+        .unwrap();
+    assert_eq!(journal.usage().bytes, EFFECT_ENVELOPE_BYTES);
 }

@@ -6,7 +6,7 @@ review is [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), staged gates are in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), and executable review
 evidence is generated in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
 
-Status: **P2 accepted-pool cutover complete at C4**. The old
+Status: **P3 stable-effect cutover complete at C5**. The old
 `PipelineCoordinator`, `PipelineRuntime` and `ConflictCache` have been deleted.
 PoolCommitJournal, nested restoration and persistent cell-ref ancestry are now
 also deleted. P3-P4 migration debt is named explicitly below; it must be removed by the
@@ -206,8 +206,9 @@ availability before the write guard opens.
 Ordinary acceptance follows one paired boundary:
 
 ```text
-effect permit -> TxPool write -> Pool Plan -> PrePoolKernel handoff/settlement
-              -> total Pool Apply -> stable effect journal -> unlock
+capacity hint (owns no state) -> TxPool write -> Pool Plan
+  -> PrePoolKernel handoff/settlement -> EffectJournal exact/static predicate
+  -> total Pool Apply + append -> unlock
 ```
 
 Every transaction-shaped, policy, conflict, liveness, arithmetic and capacity
@@ -217,10 +218,11 @@ not reclassified as transaction rejects.
 
 ## 9. Effects, chain changes and templates
 
-Stable external effects remain reserve-before-mutation FIFO records published
-outside authority locks. The current `EffectOutbox`, conservative dynamic
-reservation and authoritative failure latch are P3 debt; P1 did not reproduce
-them inside the kernel.
+Stable external effects are immutable, statically partitioned journal records
+published outside authority locks. P3 deleted `EffectOutbox`, reservation IDs,
+credit-across-lock ownership and journal-triggered service fail-stop. Remote
+cannot consume trusted/critical progress; queued and active batches remain
+exactly charged and publisher replacement resumes the active cursor.
 
 Reorg reconciliation still uses `recovery_lock` to serialize detached replay,
 clear and persistence. Attached outputs and released accepted inputs advance
@@ -239,19 +241,18 @@ Block assembler priority is unchanged:
 Normal `get_block_template` mining, not a hand-authored proposal block, is the
 required regression for recovered dependent transactions.
 
-## 10. Failure domains at P2
+## 10. Failure domains at P3
 
 Typed transaction, backpressure and stale outcomes do not stop the service.
 Worker panics are contained by worker supervision, and conflict-history
 saturation terminalizes only that history owner.
 
-Two declared migration debts remain:
-
-1. the dynamic effect reservation/outbox and stable publication failure latch
-   remain P3 debt;
-2. `PrePool::mutate_required`, poisoned-mutex recovery and the service-wide
-   authoritative failure latch remain compatibility boundaries; P3/P4 replace
-   them with the designed `DefectDomain` rebuild/generation swap.
+One declared migration boundary remains: `PrePool::mutate_required`,
+poisoned-mutex recovery, `recovery_lock` and the service-wide authoritative
+failure latch are P4 compatibility debt. P4 replaces them with retained chain
+ownership plus the designed `DefectDomain` rebuild/generation swap. The current
+critical effect region is isolated, while P4 completes the constant-size
+`GenerationReset` fallback for oversized chain/admin detail.
 
 No hostile or legal capacity input may be routed to those structural paths.
 Any newly discovered reachable trigger is a phase blocker and must be fixed at
@@ -312,7 +313,7 @@ DAO and hardfork ingress outside `test/src/specs/tx_pool`.
 | P0 / C2 | Complete (`8596c6c5d`) | architecture contract, independent reference model, 152-finding bridge and 149-spec impact universe |
 | P1 / C3 | Complete (`1d9e0cf5b`) | concrete seven-state kernel cut over; old coordinator/runtime/conflict owner deleted; production Rust is 18,957 raw lines versus C2's 24,236 (−5,279, tests and benchmark excluded); test Rust is reported separately at 12,745 versus 21,650 and benchmark remains 1,422; 204/204 internal nextest, zero-warning all-target clippy and all document gates are green; all 18 targeted process integrations passed through `make integration`, including normal-mining reorg, RBF status/history, relay, orphan, collision and dependency-order boundaries |
 | P2 / C4 | Complete | immutable accepted `PoolMutationPlan`, full-hash primary index, causal-only graph, role-aware resolution and selected-set SCC ordering cut over; nested undo/journal rollback/cell-ref escape deleted; internal instrumentation also uses Plan/Apply while permissive child-first construction is test-only; tx-pool production Rust is 18,757 lines (−200 from C3), test Rust is separately 13,051 and benchmark remains 1,422; 209/209 internal-feature nextest, production/internal clippy, all document gates and 16 targeted process integrations pass |
-| P3 / C5 | Pending | stable bounded effect journal and deletion of dynamic effect-credit/fail-stop protocol |
+| P3 / C5 | Complete | concrete static `EffectJournal`; generic outbox/reservation IDs and credit-across-lock paths deleted; Remote/ordinary/critical region lattice, exact queued+active charge, total Apply+append, publisher cursor restart, one bounded callback circuit and allocation-free relay retry/timeout isolation; tx-pool production Rust is 18,751 raw lines (−6 from C4), tests are separately 12,885 and benchmark remains 1,422; 210/210 internal-feature nextest, two clippy profiles, all document gates and 12 targeted process integrations pass |
 | P4 / C6 | Pending | `RecoveryRetained`, v2 persistence, `DefectDomain`, exact assembler generation and deletion of `recovery_lock` |
 | P5 / C7 | Pending | final correctness, static, source-size and review acceptance |
 | P6 / C8 | Pending | complete 149-spec process acceptance and classification |

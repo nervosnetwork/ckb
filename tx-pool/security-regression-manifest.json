@@ -7,8 +7,8 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "P2/C4",
-    "unit_test_count": 209,
+    "checkpoint": "P3/C5",
+    "unit_test_count": 210,
     "integration_spec_count": 149
   },
   "baseline": {

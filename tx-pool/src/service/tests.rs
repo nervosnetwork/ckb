@@ -47,7 +47,7 @@ fn relay_state() -> RelayState {
         block_assembler_dirty: Arc::new(Default::default()),
         block_assembler_reset: Arc::new(Default::default()),
         callbacks: Arc::new(Callbacks::new()),
-        effects: Arc::new(crate::service::effects::EffectQueue::new(16, 1_000_000).unwrap()),
+        effects: Arc::new(crate::service::effects::EffectJournal::new(16, 1_000_000).unwrap()),
         banned_peers: Default::default(),
     }
 }

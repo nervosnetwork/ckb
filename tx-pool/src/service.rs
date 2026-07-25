@@ -262,7 +262,7 @@ pub(crate) struct RelayState {
     /// Bounded stable-state journal. Its publisher is independent of the
     /// controller dispatcher, so a callback may synchronously re-enter the
     /// controller without consuming the permit needed to serve itself.
-    pub(crate) effects: Arc<effects::EffectQueue>,
+    pub(crate) effects: Arc<effects::EffectJournal>,
     /// Peers banned within the ban window. Workers check jobs against this
     /// set so that a banned peer's in-flight jobs (popped from a queue
     /// before the ban) do not keep flowing into the pool afterwards.

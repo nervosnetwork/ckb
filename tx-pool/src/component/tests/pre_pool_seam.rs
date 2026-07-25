@@ -1,21 +1,7 @@
 use super::*;
 use crate::resolved_tx::ResolvedTx;
-use crate::tx_source::TxSource;
-use ckb_types::core::TransactionView;
 use std::collections::BTreeSet;
 use std::collections::{HashMap, HashSet, VecDeque};
-
-impl PrePool {
-    pub(crate) fn admit_transaction(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-        epoch: u64,
-        lane: ResolveLane,
-    ) -> Result<(bool, Vec<TerminalRecord>), PrePoolError> {
-        self.admit_transaction_journaled(tx, source, epoch, lane, |_| {})
-    }
-}
 
 impl PrePoolKernel {
     fn independently_retained_wait_keys(entry: &Entry) -> BTreeSet<DependencyKey> {

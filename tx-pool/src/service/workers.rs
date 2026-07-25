@@ -7,6 +7,7 @@
 //! and shutdown orchestration; worker lifecycle lives in this module.
 
 use crate::component::pre_pool::WorkLane;
+use crate::service::effects::{EffectClass, EffectJournalError};
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
 use crate::verify_mgr::VerifyMgr;
 use ckb_async_runtime::Handle;
@@ -264,27 +265,50 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
 
             while !cancel.is_cancelled() {
                 let now = ckb_systemtime::unix_time().as_secs();
-                let expiry_permit = service
-                    .reserve_required_effects(
-                        TxPoolService::pipeline_terminal_effect_bytes(SLICE),
-                        "tx-pool expiry effect reservation failed",
-                    )
-                    .await;
+                let preview = service
+                    .pipeline
+                    .kernel
+                    .read(|kernel| kernel.due_terminal_records(now, SLICE, true));
+                if let Some(batch) = service.pipeline_terminal_effects(&preview)
+                    && service
+                        .relay
+                        .effects
+                        .wait_capacity(batch.charge_bytes(), EffectClass::Trusted)
+                        .await
+                        .is_err()
+                {
+                    break;
+                }
                 // Ready has no transient commit state. Serializing expiry
                 // with the commit driver is therefore the proof that a
                 // read-only commit ticket remains owned until its paired
                 // pool/kernel settlement finishes.
                 let commit_guard = service.pipeline.kernel.try_lock_commit_driver();
-                let expired = service.pipeline.kernel.mutate_required(
-                    "tx-pool pipeline expiry failed",
-                    |coordinator| {
-                        let result = coordinator.expire_due(now, SLICE, commit_guard.is_some());
-                        if let Ok(records) = &result {
-                            service.journal_pipeline_terminal_records(expiry_permit, records);
-                        }
-                        result
-                    },
-                );
+                let expired = match service.pipeline.kernel.mutate(|coordinator| {
+                    let records =
+                        coordinator.due_terminal_records(now, SLICE, commit_guard.is_some());
+                    let batch = service.pipeline_terminal_effects(&records);
+                    service
+                        .relay
+                        .effects
+                        .try_apply(batch, EffectClass::Trusted, || {
+                            coordinator.expire_due(now, SLICE, commit_guard.is_some())
+                        })
+                }) {
+                    Ok(Ok(records)) => records,
+                    Ok(Err(error)) => {
+                        ckb_logger::error!("tx-pool pipeline expiry failed: {error:?}");
+                        break;
+                    }
+                    Err(EffectJournalError::Full) => {
+                        drop(commit_guard);
+                        continue;
+                    }
+                    Err(error) => {
+                        ckb_logger::error!("tx-pool expiry journal unavailable: {error:?}");
+                        break;
+                    }
+                };
                 drop(commit_guard);
                 let woke = service
                     .pipeline

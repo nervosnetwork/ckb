@@ -142,27 +142,34 @@ async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
     let tx = TransactionBuilder::default().build();
     let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE);
     let id = entry.proposal_short_id();
-    let effect_permit = service
-        .reserve_effects(service.max_submit_effect_bytes())
-        .await
-        .unwrap();
+    let effect_bound = service.max_submit_effect_bytes();
     let outcome = {
         let mut guard = service.pool.tx_pool.write().await;
         let snapshot = guard.cloned_snapshot();
-        let mut outcome = service.try_submit_entry(
-            &mut guard,
-            Arc::clone(&snapshot),
-            snapshot.tip_hash(),
-            entry,
-            Status::Pending,
-            id.clone(),
-        );
-        assert!(
-            !callback_ran.load(Ordering::SeqCst),
-            "try_submit_entry must only collect callback side effects"
-        );
-        service.journal_submit_effects(&mut outcome, effect_permit, Vec::new());
-        outcome
+        service
+            .relay
+            .effects
+            .try_apply_bounded(
+                effect_bound,
+                crate::service::effects::EffectClass::Trusted,
+                || {
+                    let mut outcome = service.try_submit_entry(
+                        &mut guard,
+                        Arc::clone(&snapshot),
+                        snapshot.tip_hash(),
+                        entry,
+                        Status::Pending,
+                        id.clone(),
+                    );
+                    assert!(
+                        !callback_ran.load(Ordering::SeqCst),
+                        "try_submit_entry must only collect callback side effects"
+                    );
+                    let batch = service.prepare_submit_effects(&mut outcome, Vec::new());
+                    (outcome, batch)
+                },
+            )
+            .unwrap()
     };
     outcome.result.unwrap();
     service.relay.effects.wait_idle().await;

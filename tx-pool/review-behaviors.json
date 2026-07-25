@@ -108,7 +108,6 @@
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/mod.rs",
         "tx-pool/src/component/pre_pool/runtime.rs",
-        "tx-pool/src/component/effect_outbox.rs",
         "tx-pool/src/service/effects.rs"
       ],
       "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects.",
@@ -160,21 +159,21 @@
     },
     {
       "id": "TP-EFFECT-001",
-      "title": "Reserved stable-state effects",
+      "title": "Statically partitioned stable-state effects",
       "change_surfaces": [
-        "tx-pool/src/component/effect_outbox.rs",
         "tx-pool/src/service/effects.rs",
+        "tx-pool/src/service/builder.rs",
         "tx-pool/src/callback.rs"
       ],
-      "required_behavior": "Mutation-coupled effects reserve capacity before state change, enter one FIFO sequence while state is stable and publish outside authority locks; capacity/close waits cannot lose wakeups.",
-      "hostile_case": "A full or panicking consumer, callback re-entry, close race or check-before-wait window must not expose intermediate state, reorder outcomes, lose charges or sleep forever.",
+      "required_behavior": "A mutation-coupled immutable batch passes one exact static-region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; no reservation or capacity token crosses a lock or await. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and bounded publication occurs outside authority locks.",
+      "hostile_case": "Remote saturation, a permanently full relay endpoint, callback re-entry/panic/hang, publisher unwind, close race or check-before-wait window must not mutate without a matching record, consume trusted/critical progress, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
       "reviewer_questions": [
-        "Was sufficient effect credit reserved before every coupled mutation?",
-        "Is publication outside locks while FIFO ownership and charge remain retained?",
-        "Do waiters register before checking and does close use the correct stored/broadcast wake semantic?"
+        "Is the immutable batch exact before Apply, or covered by one statically proved largest-indivisible Plan bound?",
+        "Does Full/Closed/Oversize return before Apply, with the journal lock innermost and no capacity token crossing a lock or await?",
+        "Are Remote, trusted and critical usage accounted independently while queued and active, and are endpoint failure/circuit dispositions bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(effect_credit|fifo_sequence|full_relayer|close_wakes|idle_publisher)/)'",
-      "performance_bound": "One bounded publisher/outbox; no unbounded channel, callback-under-lock, busy retry or task per effect."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|remote_byte_ceiling|critical_headroom|permanently_full_relayer|hung_callback|replacement_publisher|close_wakes|idle_publisher)/)'",
+      "performance_bound": "One bounded journal publisher and one bounded callback endpoint worker; O(1) admission/accounting, no per-effect task, unbounded channel, callback-under-lock or busy retry."
     },
     {
       "id": "TP-REORG-001",
@@ -185,9 +184,9 @@
         "tx-pool/src/service/pipeline_ops.rs"
       ],
       "required_behavior": "Reorg deltas remain ordered and retained through retry; recovery_lock serializes complete detached replay, clear and persistence, while final effects describe only authoritative post-replay state.",
-      "hostile_case": "Repeated callback panic, duplicate detached roots, clear/save races or partial replay must not drop/overtake a delta, expose an ownership gap, deadlock effect credit or persist an intermediate pool.",
+      "hostile_case": "Repeated callback panic, duplicate detached roots, clear/save races or partial replay must not drop/overtake a delta, expose an ownership gap, block on a capacity resource held across recovery or persist an intermediate pool.",
       "reviewer_questions": [
-        "Is lock order recovery_lock then effect credit then TxPool preserved?",
+        "Is the compatibility order recovery_lock then TxPool then PrePoolKernel then innermost EffectJournal preserved, with capacity waits owning no state?",
         "Can retry replay an already completed authoritative phase or an obsolete snapshot?",
         "Are duplicate recovery, final-state effects and attached/detached identities exact?"
       ],
@@ -329,7 +328,7 @@
     {"test": "admission_budget_failure_leaves_primary_and_views_unchanged", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
     {"test": "parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
     {"test": "remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5", "I12"]},
-    {"test": "count_and_byte_limits_cover_reserved_queued_and_active_batches", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
+    {"test": "journal_usage_charges_queued_and_active_batches_exactly", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
     {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
     {"test": "verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
 
@@ -340,9 +339,13 @@
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
     {"test": "malformed_remote_preflight_is_banned_recorded_and_not_relayed", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I8"]},
 
-    {"test": "local_commit_waits_for_effect_credit_before_mutating_pool", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
-    {"test": "fifo_sequence_follows_authoritative_commit_not_reservation_order", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
-    {"test": "full_relayer_retains_fifo_head_and_outbox_charge", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
+    {"test": "full_journal_does_not_run_the_state_apply_closure", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8"]},
+    {"test": "journal_sequence_is_total_apply_order", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
+    {"test": "remote_byte_ceiling_cannot_borrow_trusted_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
+    {"test": "active_critical_batch_does_not_consume_ordinary_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
+    {"test": "permanently_full_relayer_has_bounded_fifo_residency", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
+    {"test": "hung_callback_opens_one_stable_circuit_and_does_not_pin_relay", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
+    {"test": "replacement_publisher_resumes_the_charged_active_batch", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8"]},
     {"test": "close_wakes_every_blocked_capacity_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
 

@@ -12,6 +12,9 @@ pub(crate) mod rbf_commit;
 use crate::component::entry::TxEntry;
 use crate::error::Reject;
 use crate::service::TxPoolService;
+use crate::service::effects::{
+    EffectClass, EffectJournalError, TxPoolEffect, bounded_commit_ban_reason,
+};
 use crate::util::verify_rtx;
 use ckb_logger::{info, warn};
 use ckb_script::ChunkCommand;
@@ -68,122 +71,140 @@ impl TxPoolService {
         );
         let tx_hash = entry.transaction().hash();
 
-        if !self.is_pipeline_epoch_current(epoch) {
-            return Ok(SubmitEntryResult::Cleared);
-        }
-        let effect_permit = self
-            .reserve_required_effects(
-                self.max_submit_effect_bytes(),
-                "submit effect reservation failed",
-            )
-            .await;
-        if !self.is_pipeline_epoch_current(epoch) {
-            return Ok(SubmitEntryResult::Cleared);
-        }
+        let effect_bound = self.max_submit_effect_bytes();
+        let effect_class = if matches!(source, crate::tx_source::TxSource::Remote { .. }) {
+            EffectClass::Remote
+        } else {
+            EffectClass::Trusted
+        };
         // Synchronous local/reorg submissions do not participate in a second
         // speculative RBF owner. All remote/proposal pipeline competition is
         // verified-only in the coordinator, while the authoritative complete
         // replacement closure is recalculated here under the pool write lock.
-        let outcome = {
+        let outcome = loop {
+            if !self.is_pipeline_epoch_current(epoch) {
+                return Ok(SubmitEntryResult::Cleared);
+            }
+            if let Err(error) = self
+                .relay
+                .effects
+                .wait_capacity(effect_bound, effect_class)
+                .await
+            {
+                return Err(Reject::Full(format!(
+                    "tx-pool effect journal unavailable: {error:?}"
+                )));
+            }
             let mut tx_pool = self.pool.tx_pool.write().await;
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
             }
-            let (mut coordinated, committed_ingress_peer) =
-                self.pipeline.kernel.guard_authoritative_mutation(
+            let applied = self.pipeline.kernel.guard_authoritative_mutation(
                     "synchronous authoritative pool commit panicked",
                     || {
                         let snapshot = tx_pool.cloned_snapshot();
-                        let mut committed_ingress_peer = original_peer;
-                        let (coordinated, record) = self.pipeline.kernel.mutate(|kernel| {
-                            self.try_submit_entry_with_handoff(
-                                &mut tx_pool,
-                                snapshot,
-                                pre_resolve_tip,
-                                entry.clone(),
-                                |tx_pool, plan| {
-                                    let unavailable = self.planned_unavailable_parent_hashes(
-                                        plan,
-                                        tx_pool.snapshot(),
+                        self.pipeline.kernel.mutate(|kernel| {
+                            self.relay.effects.try_apply_bounded(
+                                effect_bound,
+                                effect_class,
+                                || {
+                                    let mut committed_ingress_peer = original_peer;
+                                    let (mut coordinated, record) = self
+                                        .try_submit_entry_with_handoff(
+                                            &mut tx_pool,
+                                            snapshot,
+                                            pre_resolve_tip.clone(),
+                                            entry.clone(),
+                                            |tx_pool, plan| {
+                                                let unavailable = self
+                                                    .planned_unavailable_parent_hashes(
+                                                        plan,
+                                                        tx_pool.snapshot(),
+                                                    );
+                                                let record = kernel
+                                                    .external_commit_with_unavailable_parents(
+                                                        &tx_hash,
+                                                        &unavailable,
+                                                    )?;
+                                                self.settle_kernel_for_pool_plan(
+                                                    kernel, tx_pool, &entry, plan,
+                                                )?;
+                                                Ok(record)
+                                            },
+                                        );
+                                    if let Some(Some(record)) = record {
+                                        committed_ingress_peer = record
+                                            .raw
+                                            .ingress_peer()
+                                            .or(committed_ingress_peer);
+                                    }
+                                    if matches!(
+                                        coordinated.outcome.result.as_ref(),
+                                        Err(Reject::RBFRejected(..)
+                                            | Reject::Resolve(
+                                                ckb_types::core::error::OutPointError::Dead(_)
+                                            ))
+                                    ) && tx_pool
+                                        .pool_map
+                                        .find_conflict_outpoint(entry.transaction())
+                                        .is_some()
+                                    {
+                                        let tx = entry.transaction().clone();
+                                        let keys = crate::component::pre_pool::conflict_dependency_keys(
+                                            &tx,
+                                            entry.related_dep_out_points().cloned(),
+                                        );
+                                        let raw = crate::component::pre_pool::PipelineRawTx::new(
+                                            tx, source, epoch,
+                                        );
+                                        let owner =
+                                            crate::component::pre_pool::historical_source(source);
+                                        let expires_at =
+                                            crate::component::pre_pool::historical_deadline(owner);
+                                        if let Err(error) = kernel.retain_conflict(
+                                            raw, owner, keys, expires_at,
+                                        ) {
+                                            warn!(
+                                                "dropping bounded direct-submit conflict history for {tx_hash}: {error:?}"
+                                            );
+                                        }
+                                    }
+                                    let extra_effects = coordinated
+                                        .outcome
+                                        .result
+                                        .is_ok()
+                                        .then(|| {
+                                            TxPoolEffect::Relay(
+                                                crate::service::TxVerificationResult::Ok {
+                                                    original_peer: committed_ingress_peer,
+                                                    tx_hash: tx_hash.clone(),
+                                                },
+                                            )
+                                        })
+                                        .into_iter()
+                                        .collect();
+                                    for status in coordinated.block_assembler_statuses() {
+                                        self.journal_block_assembler_update(status);
+                                    }
+                                    let batch = self.prepare_submit_effects(
+                                        &mut coordinated.outcome,
+                                        extra_effects,
                                     );
-                                    let record = kernel.external_commit_with_unavailable_parents(
-                                        &tx_hash,
-                                        &unavailable,
-                                    )?;
-                                    self.settle_kernel_for_pool_plan(
-                                        kernel, tx_pool, &entry, plan,
-                                    )?;
-                                    Ok(record)
+                                    (coordinated.outcome, batch)
                                 },
                             )
-                        });
-                        if let Some(Some(record)) = record {
-                            committed_ingress_peer =
-                                record.raw.ingress_peer().or(committed_ingress_peer);
-                        }
-                        (coordinated, committed_ingress_peer)
+                        })
                     },
                 );
-            if matches!(
-                coordinated.outcome.result.as_ref(),
-                Err(Reject::RBFRejected(..)
-                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_)))
-            ) && tx_pool
-                .pool_map
-                .find_conflict_outpoint(entry.transaction())
-                .is_some()
-            {
-                // This direct path still owns the verified entry. Preserve
-                // expanded dep-group wake metadata before `after_process`
-                // sees only the raw transaction and records the public
-                // terminal outcome.
-                let tx = entry.transaction().clone();
-                let keys = crate::component::pre_pool::conflict_dependency_keys(
-                    &tx,
-                    entry.related_dep_out_points().cloned(),
-                );
-                let raw = crate::component::pre_pool::PipelineRawTx::new(tx, source, epoch);
-                let owner = crate::component::pre_pool::historical_source(source);
-                let expires_at = crate::component::pre_pool::historical_deadline(owner);
-                if let Err(error) = self
-                    .pipeline
-                    .kernel
-                    .mutate(|kernel| kernel.retain_conflict(raw, owner, keys, expires_at))
-                {
-                    warn!(
-                        "dropping bounded direct-submit conflict history for {tx_hash}: {error:?}"
-                    );
+            match applied {
+                Ok(outcome) => break outcome,
+                Err(EffectJournalError::Full) => continue,
+                Err(error) => {
+                    return Err(Reject::Full(format!(
+                        "tx-pool effect journal unavailable: {error:?}"
+                    )));
                 }
             }
-            let extra_effects = coordinated
-                .outcome
-                .result
-                .is_ok()
-                .then(|| {
-                    crate::service::effects::TxPoolEffect::Relay(
-                        crate::service::TxVerificationResult::Ok {
-                            original_peer: committed_ingress_peer,
-                            tx_hash: tx_hash.clone(),
-                        },
-                    )
-                })
-                .into_iter()
-                .collect();
-            let assembler_statuses = coordinated.block_assembler_statuses();
-            self.pipeline.kernel.guard_stable_effect_journal(
-                "synchronous stable-effect journal panicked",
-                || {
-                    for status in assembler_statuses {
-                        self.journal_block_assembler_update(status);
-                    }
-                    self.journal_submit_effects(
-                        &mut coordinated.outcome,
-                        effect_permit,
-                        extra_effects,
-                    );
-                },
-            );
-            coordinated.outcome
         };
         outcome.result?;
         Ok(SubmitEntryResult::Committed)
@@ -370,13 +391,17 @@ impl TxPoolService {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
         let _driver = self.pipeline.kernel.lock_commit_driver().await;
         for _ in 0..MAX_COMMITS_PER_DRIVE {
-            let effect_permit = self
-                .reserve_required_effects(
-                    self.max_submit_effect_bytes(),
-                    "pipeline commit effect reservation failed",
-                )
-                .await;
-            if !self.commit_next_pipeline_entry(effect_permit).await {
+            let bound = self.max_submit_effect_bytes();
+            if self
+                .relay
+                .effects
+                .wait_capacity(bound, EffectClass::Remote)
+                .await
+                .is_err()
+            {
+                break;
+            }
+            if !self.commit_next_pipeline_entry(bound).await {
                 break;
             }
         }
@@ -387,10 +412,7 @@ impl TxPoolService {
     /// Local/clear/reorg handoff cannot consume the Ready owner between ticket
     /// validation and pool insertion. The kernel mutex is held only for the
     /// constant-time ticket transition; no transient commit location exists.
-    async fn commit_next_pipeline_entry(
-        &self,
-        effect_permit: crate::service::effects::EffectPermit,
-    ) -> bool {
+    async fn commit_next_pipeline_entry(&self, effect_bound: usize) -> bool {
         use crate::component::pre_pool::TerminalDisposition;
 
         let transaction = {
@@ -401,16 +423,12 @@ impl TxPoolService {
                     // Checkout must be inside the TxPool write boundary. Every
                     // operation allowed to consume coordinator ownership from
                     // outside this driver takes the same guard first.
-                    let Some(lease) = self
+                    let lease = self
                         .pipeline
                         .kernel
                         .mutate_required("pipeline commit checkout failed", |coordinator| {
                             coordinator.begin_next_commit()
-                        })
-                    else {
-                        drop(effect_permit);
-                        return None;
-                    };
+                        })?;
                     let verified = Arc::clone(&lease.payload);
                     let entry = TxEntry::new_with_resident_size(
                         Arc::clone(&verified.candidate.rtx),
@@ -420,172 +438,154 @@ impl TxPoolService {
                         verified.candidate.resident_size,
                     );
                     let entry_id = entry.proposal_short_id();
-                    let mut failed_terminal = None;
-                    let internal_failure = false;
-                    let mut failed_banned_peer = None;
                     let snapshot = tx_pool.cloned_snapshot();
-                    let (coordinated, settlement) = self.pipeline.kernel.mutate(|kernel| {
-                        self.try_submit_entry_with_handoff(
-                            &mut tx_pool,
-                            snapshot,
-                            verified.candidate.pre_resolve_tip.clone(),
-                            entry.clone(),
-                            |tx_pool, plan| {
-                                let unavailable = self
-                                    .planned_unavailable_parent_hashes(plan, tx_pool.snapshot());
-                                let handoff = kernel.commit_any_handoff_with_unavailable_parents(
-                                    &lease,
-                                    &unavailable,
-                                )?;
-                                self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan)?;
-                                Ok(handoff)
+                    Some(self.pipeline.kernel.mutate(|kernel| {
+                        self.relay.effects.try_apply_bounded(
+                            effect_bound,
+                            EffectClass::Remote,
+                            || {
+                                let (mut coordinated, settlement) = self
+                                    .try_submit_entry_with_handoff(
+                                        &mut tx_pool,
+                                        snapshot,
+                                        verified.candidate.pre_resolve_tip.clone(),
+                                        entry.clone(),
+                                        |tx_pool, plan| {
+                                            let unavailable = self
+                                                .planned_unavailable_parent_hashes(
+                                                    plan,
+                                                    tx_pool.snapshot(),
+                                                );
+                                            let handoff = kernel
+                                                .commit_any_handoff_with_unavailable_parents(
+                                                    &lease,
+                                                    &unavailable,
+                                                )?;
+                                            self.settle_kernel_for_pool_plan(
+                                                kernel, tx_pool, &entry, plan,
+                                            )?;
+                                            Ok(handoff)
+                                        },
+                                    );
+                                let failed_terminal = if coordinated.outcome.result.is_err()
+                                    && settlement.is_none()
+                                {
+                                    let retain_conflict = matches!(
+                                        coordinated.outcome.result.as_ref(),
+                                        Err(Reject::RBFRejected(..)
+                                            | Reject::Resolve(
+                                                ckb_types::core::error::OutPointError::Dead(_)
+                                            ))
+                                    ) && tx_pool
+                                        .pool_map
+                                        .find_conflict_outpoint(entry.transaction())
+                                        .is_some();
+                                    Some(if retain_conflict {
+                                        kernel
+                                            .park_failed_commit(&lease)
+                                            .expect("validated Ready lease must park")
+                                    } else {
+                                        kernel
+                                            .fail_commit(&lease, TerminalDisposition::Rejected)
+                                            .expect("validated Ready lease must terminalize")
+                                    })
+                                } else {
+                                    None
+                                };
+                                let mut failed_banned_peer = None;
+                                let mut extra_effects = Vec::new();
+                                if let Some(handoff) = &settlement {
+                                    extra_effects.push(TxPoolEffect::Relay(
+                                        crate::service::TxVerificationResult::Ok {
+                                            original_peer: handoff.winner.raw.ingress_peer(),
+                                            tx_hash: verified.candidate.tx.hash(),
+                                        },
+                                    ));
+                                    let reject = Reject::RBFRejected(
+                                        Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
+                                    );
+                                    for record in &handoff.retained_conflicts {
+                                        self.pipeline.kernel.require_authoritative_source(
+                                            &record.raw,
+                                            record.source,
+                                        );
+                                        if let Some(effect) =
+                                            self.recent_reject_effect(record.hash.clone(), &reject)
+                                        {
+                                            extra_effects.push(effect);
+                                        }
+                                        if record.raw.ingress_peer().is_some()
+                                            && reject.is_allowed_relay()
+                                        {
+                                            extra_effects.push(TxPoolEffect::Relay(
+                                                crate::service::TxVerificationResult::Reject {
+                                                    tx_hash: record.hash.clone(),
+                                                },
+                                            ));
+                                        }
+                                    }
+                                } else if let Some(record) = &failed_terminal
+                                    && let Some(reject) = coordinated.outcome.result.as_ref().err()
+                                {
+                                    if let Some(effect) =
+                                        self.recent_reject_effect(record.hash.clone(), reject)
+                                    {
+                                        extra_effects.push(effect);
+                                    }
+                                    if reject.is_malformed_tx()
+                                        && let Some(peer) = record.raw.blame_peer()
+                                    {
+                                        let duration = std::time::Duration::from_secs(
+                                            crate::constants::MALFORMED_TX_BAN_SECONDS,
+                                        );
+                                        self.record_peer_ban(peer, duration);
+                                        extra_effects.push(TxPoolEffect::BanPeer {
+                                            peer,
+                                            duration,
+                                            reason: bounded_commit_ban_reason(reject),
+                                        });
+                                        failed_banned_peer = Some(peer);
+                                    }
+                                    if record.raw.ingress_peer().is_some()
+                                        && reject.is_allowed_relay()
+                                        && !matches!(reject, Reject::Duplicated(_))
+                                    {
+                                        extra_effects.push(TxPoolEffect::Relay(
+                                            crate::service::TxVerificationResult::Reject {
+                                                tx_hash: record.hash.clone(),
+                                            },
+                                        ));
+                                    }
+                                }
+                                for status in coordinated.block_assembler_statuses() {
+                                    self.journal_block_assembler_update(status);
+                                }
+                                let batch = self.prepare_submit_effects(
+                                    &mut coordinated.outcome,
+                                    extra_effects,
+                                );
+                                (
+                                    (
+                                        coordinated,
+                                        settlement,
+                                        failed_banned_peer,
+                                        verified,
+                                        entry_id,
+                                    ),
+                                    batch,
+                                )
                             },
                         )
-                    });
-                    if coordinated.outcome.result.is_err() && settlement.is_none() {
-                        let retain_conflict = matches!(
-                            coordinated.outcome.result.as_ref(),
-                            Err(Reject::RBFRejected(..)
-                                | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_)))
-                        ) && tx_pool
-                            .pool_map
-                            .find_conflict_outpoint(entry.transaction())
-                            .is_some();
-                        failed_terminal = Some(self.pipeline.kernel.mutate_required(
-                            "rejected pipeline commit could not settle Ready",
-                            |coordinator| {
-                                if retain_conflict {
-                                    coordinator.park_failed_commit(&lease)
-                                } else {
-                                    coordinator.fail_commit(&lease, TerminalDisposition::Rejected)
-                                }
-                            },
-                        ));
-                    }
-                    let mut extra_effects = Vec::new();
-                    if let Some(handoff) = &settlement {
-                        extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
-                            crate::service::TxVerificationResult::Ok {
-                                original_peer: handoff.winner.raw.ingress_peer(),
-                                tx_hash: verified.candidate.tx.hash(),
-                            },
-                        ));
-
-                        let reject = Reject::RBFRejected(
-                            Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
-                        );
-                        for record in &handoff.retained_conflicts {
-                            let source = self
-                                .pipeline
-                                .kernel
-                                .require_authoritative_source(&record.raw, record.source);
-                            // The winner now owns the conflicting input. The
-                            // same pre-pool entry already moved to Wait; this
-                            // record is publication metadata, not ownership.
-                            let _ = source;
-                            if let Some(effect) =
-                                self.recent_reject_effect(record.hash.clone(), &reject)
-                            {
-                                extra_effects.push(effect);
-                            }
-                            if record.raw.ingress_peer().is_some() && reject.is_allowed_relay() {
-                                extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
-                                    crate::service::TxVerificationResult::Reject {
-                                        tx_hash: record.hash.clone(),
-                                    },
-                                ));
-                            }
-                        }
-                    } else if let Some(record) = &failed_terminal {
-                        if internal_failure {
-                            if record.raw.ingress_peer().is_some() {
-                                extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
-                                    crate::service::TxVerificationResult::Reject {
-                                        tx_hash: record.hash.clone(),
-                                    },
-                                ));
-                            }
-                        } else if let Some(reject) = coordinated.outcome.result.as_ref().err() {
-                            if let Some(effect) =
-                                self.recent_reject_effect(record.hash.clone(), reject)
-                            {
-                                extra_effects.push(effect);
-                            }
-                            if reject.is_malformed_tx()
-                                && let Some(peer) = record.raw.blame_peer()
-                            {
-                                let duration = std::time::Duration::from_secs(
-                                    crate::constants::MALFORMED_TX_BAN_SECONDS,
-                                );
-                                self.record_peer_ban(peer, duration);
-                                extra_effects.push(
-                                    crate::service::effects::TxPoolEffect::BanPeer {
-                                        peer,
-                                        duration,
-                                        reason: crate::service::effects::bounded_commit_ban_reason(
-                                            reject,
-                                        ),
-                                    },
-                                );
-                                failed_banned_peer = Some(peer);
-                            }
-                            if record.raw.ingress_peer().is_some()
-                                && reject.is_allowed_relay()
-                                && !matches!(reject, Reject::Duplicated(_))
-                            {
-                                extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
-                                    crate::service::TxVerificationResult::Reject {
-                                        tx_hash: record.hash.clone(),
-                                    },
-                                ));
-                            }
-                        }
-                    }
-                    let assembler_statuses = coordinated.block_assembler_statuses();
-                    Some((
-                        coordinated,
-                        settlement,
-                        failed_banned_peer,
-                        verified,
-                        entry_id,
-                        assembler_statuses,
-                        extra_effects,
-                        effect_permit,
-                    ))
+                    }))
                 },
             );
             match prepared {
                 None => None,
-                Some((
-                    mut coordinated,
-                    settlement,
-                    failed_banned_peer,
-                    verified,
-                    entry_id,
-                    assembler_statuses,
-                    extra_effects,
-                    effect_permit,
-                )) => {
-                    self.pipeline.kernel.guard_stable_effect_journal(
-                        "pipeline stable-effect journal panicked",
-                        || {
-                            for status in assembler_statuses {
-                                self.journal_block_assembler_update(status);
-                            }
-                            self.journal_submit_effects(
-                                &mut coordinated.outcome,
-                                effect_permit,
-                                extra_effects,
-                            );
-                        },
-                    );
-                    Some((
-                        coordinated,
-                        settlement,
-                        failed_banned_peer,
-                        verified,
-                        entry_id,
-                    ))
+                Some(Ok(value)) => Some(value),
+                Some(Err(EffectJournalError::Full)) => return true,
+                Some(Err(error)) => {
+                    ckb_logger::error!("pipeline commit effect journal unavailable: {error:?}");
+                    return true;
                 }
             }
         };

@@ -68,7 +68,7 @@ not sufficient to freeze the current HEAD topology.
 | Conflict relation counts and victim indexes are required for bounded work | Not proven | A global ready order plus per-input ordered buckets, and reject-on-full admission with trusted reserve, may provide stronger bounds with fewer projections |
 | HEAD already realizes `Plan -> Apply -> Publish` | Only partially true | Generic undo and fallible post-mutation handoff show that Apply is not yet total; the redesign must move every ordinary failure before mutation |
 | Legal input does not reach invariant fail-stop | False on the reviewed checkpoint | A valid duplicate expanded dependency reached a PoolMap removal assertion and Authoritative fail-stop; this is an explicit topology-unfreeze falsifier |
-| `effect reserve -> recovery_lock -> TxPool` is the lock order | Incorrect for reorg/clear | The verified deadlock-free order is `recovery_lock -> effect credit -> TxPool`; ordinary commits do not acquire `recovery_lock` |
+| `effect reserve -> recovery_lock -> TxPool` is the lock order | Incorrect and the premise is deleted | P3 has no effect reservation/credit owner. Capacity waits own no state; the current compatibility mutation order is `recovery_lock -> TxPool -> PrePoolKernel -> EffectJournal`, with the journal innermost. P4 deletes `recovery_lock`. |
 | Correctness superiority is enough to freeze HEAD | Does not meet the requested gate | Complexity, availability, maintainability, and static performance are part of the required superiority proof |
 
 The report therefore contributes evidence for leaving `develop`, but its
@@ -1817,7 +1817,18 @@ Exit: every failed candidate is mutation-free; successful plan/model states
 match; CPFP/status/RBF/ancestor behavior matrix passes; no production `undo` or
 ordinary fallible Apply remains.
 
-### P3 — Dependency and chain failure-domain convergence
+### P3 — Effect journal simplification
+
+- Replace population formulas/reservation IDs with preallocated slot/byte
+  ordinary/critical static regions sized by bounded plan cohorts and reset
+  effects; capacity is an exact Plan predicate, not a held credit.
+- Isolate endpoint hangs/panics/retries and preserve critical headroom/FIFO.
+- Delete generic EffectOutbox state and journal-triggered fail-stop.
+
+Exit: exact charge model, saturation/restart/endpoint tests pass; no state lock
+waits for effect capacity or I/O.
+
+### P4 — Dependency and chain failure-domain convergence
 
 - Finish sliced Wait wake and resolved-dependency demotion.
 - Move detached replay into bounded/charged/persistable `RecoveryRetained` plus
@@ -1831,17 +1842,6 @@ ordinary fallible Apply remains.
 Exit: legal/hostile integration inputs cannot cancel tx-pool service; full
 reorg/clear/save/template matrix passes; fault injection exposes only typed
 outcomes or authority-local reset.
-
-### P4 — Effect journal simplification
-
-- Replace population formulas/reservation IDs with preallocated slot/byte
-  ordinary/critical static regions sized by bounded plan cohorts and reset
-  effects; capacity is an exact Plan predicate, not a held credit.
-- Isolate endpoint hangs/panics/retries and preserve critical headroom/FIFO.
-- Delete generic EffectOutbox state and journal-triggered fail-stop.
-
-Exit: exact charge model, saturation/restart/endpoint tests pass; no state lock
-waits for effect capacity or I/O.
 
 ### P5 — Test isolation, review guide and full correctness acceptance
 

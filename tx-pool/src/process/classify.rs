@@ -5,6 +5,8 @@ use super::{get_tx_status, make_pre_checked_tx, resolve_tx};
 use crate::component::pre_pool::{ResolveLane, TerminalRecord};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
+use crate::service::TxVerificationResult;
+use crate::service::effects::{EffectBatch, EffectClass, TxPoolEffect, bounded_commit_ban_reason};
 use crate::tx_source::TxSource;
 use crate::util::{check_tx_fee, check_tx_fee_with_min_fee_rate, check_txid_collision};
 use ckb_logger::error;
@@ -211,15 +213,6 @@ impl super::TxPoolService {
         stage: ResolveLane,
     ) -> Result<bool, Reject> {
         self.ensure_current(epoch)?;
-        let permit = self
-            .reserve_required_effects(
-                Self::pipeline_terminal_effect_bytes(
-                    crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
-                ),
-                "pipeline admission effect reservation failed",
-            )
-            .await;
-        self.ensure_current(epoch)?;
         let tx_hash = tx.hash();
         let proposal_id = tx.proposal_short_id();
         // The early duplicate check is only a cheap filter. Admission itself
@@ -231,19 +224,15 @@ impl super::TxPoolService {
             let effects = source
                 .peer()
                 .map(|peer| {
-                    vec![crate::service::effects::TxPoolEffect::Relay(
-                        crate::service::TxVerificationResult::Ok {
-                            original_peer: Some(peer),
-                            tx_hash,
-                        },
-                    )]
+                    vec![TxPoolEffect::Relay(TxVerificationResult::Ok {
+                        original_peer: Some(peer),
+                        tx_hash,
+                    })]
                 })
                 .unwrap_or_default();
-            self.publish_required_reserved_effects(
-                permit,
-                effects,
-                "reserved accepted-duplicate journal failed",
-            );
+            drop(tx_pool);
+            self.publish_effects_class(effects, EffectClass::Remote)
+                .await;
             return Ok(false);
         }
         if tx_pool.contains_proposal_id(&proposal_id) {
@@ -255,18 +244,13 @@ impl super::TxPoolService {
                 "proposal short-id collision while admitting {tx_hash}"
             )));
         }
-        let admitted = self.pipeline.kernel.admit_transaction_journaled(
-            tx.clone(),
-            source,
-            epoch,
-            stage,
-            |records| {
-                self.journal_pipeline_terminal_records(permit, records);
-            },
-        );
+        let admitted = self
+            .pipeline
+            .kernel
+            .admit_transaction(tx.clone(), source, epoch, stage);
         drop(tx_pool);
         match admitted {
-            Ok((added, _terminal)) => Ok(added),
+            Ok(added) => Ok(added),
             Err(error) => {
                 if !self.is_pipeline_epoch_current(epoch) {
                     Err(Self::stale_pipeline_reject())
@@ -280,70 +264,42 @@ impl super::TxPoolService {
         }
     }
 
-    pub(crate) fn pipeline_terminal_effect_bytes(max_records: usize) -> usize {
-        max_records.saturating_mul(crate::service::effects::EFFECT_ENVELOPE_BYTES)
-    }
-
-    pub(crate) fn pipeline_outcome_effect_bytes(reject: Option<&Reject>) -> usize {
-        let ban_reason = reject
-            .filter(|reject| reject.is_malformed_tx())
-            .map(crate::service::effects::bounded_commit_ban_reason)
-            .map(|reason| reason.len())
-            .unwrap_or_default();
-        let recent_reject = reject
-            .filter(|reject| reject.should_recorded())
-            .map(|_| {
-                crate::service::effects::EFFECT_ENVELOPE_BYTES
-                    .saturating_add(crate::service::effects::MAX_RECENT_REJECT_BYTES)
-            })
-            .unwrap_or_default();
-        crate::service::effects::EFFECT_ENVELOPE_BYTES
-            .saturating_mul(2)
-            .saturating_add(ban_reason)
-            .saturating_add(recent_reject)
-    }
-
-    /// Commit relayer terminal handoffs while the caller still owns the
-    /// Coordinator (or outer TxPool→Coordinator) mutation lock. Terminal
-    /// records are already detached from Coordinator residency; journaling
-    /// them here prevents cancellation from creating a relayer filter leak.
-    pub(crate) fn journal_pipeline_terminal_records(
+    /// Build the immutable remote-settlement batch before the matching total
+    /// coordinator transition. The batch is later passed to the journal's
+    /// `try_apply`, so capacity and ownership change share one inner critical
+    /// section without a reservation token.
+    pub(crate) fn pipeline_terminal_effects(
         &self,
-        permit: crate::service::effects::EffectPermit,
         records: &[TerminalRecord],
-    ) {
+    ) -> Option<EffectBatch> {
         let mut effects = Vec::new();
         for record in records {
             if record.raw.ingress_peer().is_some() {
-                effects.push(crate::service::effects::TxPoolEffect::Relay(
-                    crate::service::TxVerificationResult::Reject {
-                        tx_hash: record.hash.clone(),
-                    },
-                ));
+                effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: record.hash.clone(),
+                }));
             }
         }
-        self.publish_required_reserved_effects(
-            permit,
-            effects,
-            "reserved coordinator terminal journal failed",
-        );
+        EffectBatch::new(effects)
     }
 
     /// Journal the definitive outcome of one active raw/verify owner inside
     /// the same Coordinator transition that removes it. `reject == None`
     /// denotes an internal/cancellation terminal and therefore never records
     /// blame, while still releasing a remote relayer filter.
-    pub(crate) fn journal_pipeline_outcome(
+    pub(crate) fn pipeline_outcome_effects(
         &self,
-        permit: crate::service::effects::EffectPermit,
         record: &TerminalRecord,
         reject: Option<&Reject>,
-    ) -> Option<ckb_network::PeerIndex> {
+    ) -> (
+        Option<EffectBatch>,
+        Option<(ckb_network::PeerIndex, std::time::Duration)>,
+    ) {
         let ingress_peer = record.raw.ingress_peer();
         let blame_peer = record.raw.blame_peer();
 
         let mut effects = Vec::new();
-        let mut banned_peer = None;
+        let mut peer_ban = None;
         if let Some(reject) = reject {
             if let Some(effect) = self.recent_reject_effect(record.hash.clone(), reject) {
                 effects.push(effect);
@@ -351,39 +307,29 @@ impl super::TxPoolService {
             if reject.is_malformed_tx()
                 && let Some(peer) = blame_peer
             {
-                let reason = crate::service::effects::bounded_commit_ban_reason(reject);
+                let reason = bounded_commit_ban_reason(reject);
                 let duration =
                     std::time::Duration::from_secs(crate::constants::MALFORMED_TX_BAN_SECONDS);
-                self.record_peer_ban(peer, duration);
-                effects.push(crate::service::effects::TxPoolEffect::BanPeer {
+                effects.push(TxPoolEffect::BanPeer {
                     peer,
                     duration,
                     reason,
                 });
-                banned_peer = Some(peer);
+                peer_ban = Some((peer, duration));
             }
             if ingress_peer.is_some()
                 && reject.is_allowed_relay()
                 && !matches!(reject, Reject::Duplicated(_))
             {
-                effects.push(crate::service::effects::TxPoolEffect::Relay(
-                    crate::service::TxVerificationResult::Reject {
-                        tx_hash: record.hash.clone(),
-                    },
-                ));
+                effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: record.hash.clone(),
+                }));
             }
         } else if ingress_peer.is_some() {
-            effects.push(crate::service::effects::TxPoolEffect::Relay(
-                crate::service::TxVerificationResult::Reject {
-                    tx_hash: record.hash.clone(),
-                },
-            ));
+            effects.push(TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: record.hash.clone(),
+            }));
         }
-        self.publish_required_reserved_effects(
-            permit,
-            effects,
-            "reserved pipeline outcome journal failed",
-        );
-        banned_peer
+        (EffectBatch::new(effects), peer_ban)
     }
 }

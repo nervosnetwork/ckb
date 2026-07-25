@@ -4,7 +4,7 @@ Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Status: plan frozen; P2/C4 is complete and P3/C5 is next. Correctness and static
+Status: plan frozen; P3/C5 is complete and P4/C6 is next. Correctness and static
 safety precede the final separately measured performance gate. Each phase is a
 recoverable commit and ends with a whole-architecture review, not only a review
 of edited files.
@@ -182,10 +182,10 @@ P2 fails and returns to design audit.
   latest chain-authority register.
 - Account bounded ingress requests before admission and make ordinary capacity
   a final Plan predicate. No state lock waits for capacity.
-- Add generation-checked endpoint publication, publisher restart, bounded relay
-  retry/reconcile, callback panic/hang isolation and validated endpoint-count
-  permits. A chain/admin plan degrades oversized/full detail to
-  `GenerationReset` before mutation.
+- Add publisher restart, bounded relay retry/reconcile, callback panic/hang
+  isolation and validated endpoint-count permits. Preserve the existing
+  latest-generation assembler reset register; P4 binds it to chain plans and
+  installs the constant `GenerationReset` fallback.
 - Delete generic EffectOutbox/reservation IDs, credit-across-lock paths and
   journal-triggered service fail-stop.
 
@@ -215,6 +215,8 @@ records and critical authority. Reject any new deferred payload channel.
 - Implement exact reorg Gap/Proposed/Pending classification, proposal-wins
   optional-uncle filtering, immediate blank authority and latest-generation
   full refresh.
+- Make oversized/full chain detail choose one constant `GenerationReset`
+  authority before mutation rather than waiting on ordinary publication.
 - Require every returned template to match current chain generation/parent;
   preserve reset/full mutual exclusion and same-generation full priority.
 - Implement v2 explicit-save snapshot of causal-parent-first accepted and

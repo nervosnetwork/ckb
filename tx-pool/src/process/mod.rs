@@ -2,6 +2,7 @@ use crate::component::pool_map::Status;
 use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
 use crate::error::Reject;
 use crate::pool::TxPool;
+use crate::service::effects::{EffectBatch, EffectClass, EffectJournalError, TxPoolEffect};
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
 use crate::util::non_contextual_verify;
@@ -364,24 +365,7 @@ impl TxPoolService {
         // nothing holding tx_pool ever acquires recovery_lock.
         let _recovery_guard = self.recovery_lock.lock().await;
 
-        // Every operation that needs recovery serialization acquires it before
-        // reserving effect credit. A retained transaction may itself reserve
-        // submit/reject effects while this guard is held; allowing a concurrent
-        // clear to hold effect credit while waiting for the guard creates the
-        // opposite edge and deadlocks. Callback-originated mutations fail fast,
-        // so the publisher cannot re-enter recovery serialization while this
-        // reservation waits. The conservative credit is shrunk to the actual
-        // batch while the pool mutation is still locked.
-        let reorg_permit = match self
-            .reserve_critical_effects(self.max_reorg_effect_bytes())
-            .await
-        {
-            Ok(permit) => permit,
-            Err(error) => self
-                .pipeline
-                .kernel
-                .fail_stop("reorg effect reservation failed", &error),
-        };
+        let effect_bound = self.max_reorg_effect_bytes();
 
         let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
@@ -406,108 +390,144 @@ impl TxPoolService {
         }
         let mut retain = reorg::detached_not_attached(&detached, &attached);
 
-        {
+        loop {
+            self.relay
+                .effects
+                .wait_capacity(effect_bound, EffectClass::Critical)
+                .await
+                .map_err(|error| {
+                    Reject::Full(format!("reorg effect journal unavailable: {error:?}"))
+                })?;
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.pool.tx_pool.write().await;
             let transition = self.pipeline.kernel.guard_authoritative_mutation(
                 "reorg authoritative pool mutation panicked",
-                || -> Result<reorg::ReorgOutcome, Reject> {
-                    let outcome = reorg::update_tx_pool_for_reorg(
-                        &mut tx_pool,
-                        &attached,
-                        &detached_headers,
-                        detached_proposal_id,
-                        Arc::clone(&snapshot),
-                        mine_mode,
-                    )?;
-                    // Apply the complete membership delta under the same pool write
-                    // guard. Attached/on-chain parents remain available; every other
-                    // physical removal demotes its already-resolved coordinator
-                    // consumers. A coordinator failure is service-fatal: replay cannot
-                    // make a partially published pool/coordinator pair coherent.
-                    let mut committed: HashSet<_> =
-                        attached.iter().map(TransactionView::hash).collect();
-                    let mut unavailable = HashSet::new();
-                    for entry in outcome
-                        .reject_events
-                        .iter()
-                        .map(|(entry, _)| entry)
-                        .chain(outcome.silently_removed.iter())
-                    {
-                        let hash = entry.transaction().hash();
-                        if tx_pool.snapshot().transaction_exists(&hash) {
-                            committed.insert(hash);
-                        } else {
-                            unavailable.insert(hash);
-                        }
-                    }
-                    let mut available_outpoints = tx_pool.released_inputs_from_removed_entries(
-                        outcome
-                            .reject_events
-                            .iter()
-                            .map(|(entry, _)| entry)
-                            .chain(outcome.silently_removed.iter()),
-                    );
-                    // A historical candidate may have observed its conflicting
-                    // input release before another required parent was mined.
-                    // Attached outputs and headers are potential availability
-                    // edges, but only the post-reorg overlay decides their
-                    // level: an output created and consumed in the same
-                    // attached branch is not available and must not wake a
-                    // rejected conflict into a bogus second rejection.
-                    available_outpoints
-                        .extend(attached.iter().flat_map(TransactionView::output_pts));
-                    let mut available_dependencies =
-                        crate::service::pipeline_ops::available_cell_dependencies(
-                            &tx_pool,
-                            available_outpoints,
-                        );
-                    available_dependencies.extend(attached_headers.iter().filter_map(|hash| {
-                        let key = crate::component::pre_pool::DependencyKey::Header(
-                            crate::util::compact_packed(hash),
-                        );
-                        crate::service::pipeline_ops::dependency_is_available(&tx_pool, &key)
-                            .then_some(key)
-                    }));
-                    let externally_committed = self.pipeline.kernel.mutate_required(
-                        "reorg pre-pool membership transaction failed",
-                        |kernel| {
-                            let records = kernel.external_commits_with_unavailable_parents(
-                                &committed,
-                                &unavailable,
-                            )?;
-                            kernel.note_available(available_dependencies)?;
-                            Ok(records)
-                        },
-                    );
-                    let mut effects = Vec::new();
-                    for (entry, reject) in &outcome.reject_events {
-                        effects.extend(self.rejected_effects(entry.clone(), reject.clone()));
-                    }
-                    for (entry, status) in &outcome.notify_events {
-                        if let Some(effect) = self.accepted_effect(entry.clone(), *status) {
-                            effects.push(effect);
-                        }
-                    }
-                    for record in externally_committed {
-                        if let Some(peer) = record.raw.ingress_peer() {
-                            effects.push(crate::service::effects::TxPoolEffect::Relay(
-                                crate::service::TxVerificationResult::Ok {
-                                    original_peer: Some(peer),
-                                    tx_hash: record.raw.tx.hash(),
-                                },
-                            ));
-                        }
-                    }
-                    self.publish_required_reserved_effects(
-                        reorg_permit,
-                        effects,
-                        "reserved reorg effect journal failed inside pool transaction",
-                    );
-                    Ok(outcome)
+                || {
+                    self.pipeline.kernel.mutate(|kernel| {
+                        self.relay.effects.try_apply_bounded(
+                            effect_bound,
+                            EffectClass::Critical,
+                            || {
+                                let applied = (|| -> Result<_, Reject> {
+                                    let outcome = reorg::update_tx_pool_for_reorg(
+                                        &mut tx_pool,
+                                        &attached,
+                                        &detached_headers,
+                                        detached_proposal_id.clone(),
+                                        Arc::clone(&snapshot),
+                                        mine_mode,
+                                    )?;
+                                    // Apply the complete membership delta under the same pool write
+                                    // guard. Attached/on-chain parents remain available; every other
+                                    // physical removal demotes its already-resolved coordinator
+                                    // consumers. A coordinator failure is service-fatal: replay cannot
+                                    // make a partially published pool/coordinator pair coherent.
+                                    let mut committed: HashSet<_> =
+                                        attached.iter().map(TransactionView::hash).collect();
+                                    let mut unavailable = HashSet::new();
+                                    for entry in outcome
+                                        .reject_events
+                                        .iter()
+                                        .map(|(entry, _)| entry)
+                                        .chain(outcome.silently_removed.iter())
+                                    {
+                                        let hash = entry.transaction().hash();
+                                        if tx_pool.snapshot().transaction_exists(&hash) {
+                                            committed.insert(hash);
+                                        } else {
+                                            unavailable.insert(hash);
+                                        }
+                                    }
+                                    let mut available_outpoints = tx_pool
+                                        .released_inputs_from_removed_entries(
+                                            outcome
+                                                .reject_events
+                                                .iter()
+                                                .map(|(entry, _)| entry)
+                                                .chain(outcome.silently_removed.iter()),
+                                        );
+                                    // A historical candidate may have observed its conflicting
+                                    // input release before another required parent was mined.
+                                    // Attached outputs and headers are potential availability
+                                    // edges, but only the post-reorg overlay decides their
+                                    // level: an output created and consumed in the same
+                                    // attached branch is not available and must not wake a
+                                    // rejected conflict into a bogus second rejection.
+                                    available_outpoints.extend(
+                                        attached.iter().flat_map(TransactionView::output_pts),
+                                    );
+                                    let mut available_dependencies =
+                                        crate::service::pipeline_ops::available_cell_dependencies(
+                                            &tx_pool,
+                                            available_outpoints,
+                                        );
+                                    available_dependencies.extend(
+                                        attached_headers.iter().filter_map(|hash| {
+                                            let key =
+                                                crate::component::pre_pool::DependencyKey::Header(
+                                                    crate::util::compact_packed(hash),
+                                                );
+                                            crate::service::pipeline_ops::dependency_is_available(
+                                                &tx_pool, &key,
+                                            )
+                                            .then_some(key)
+                                        }),
+                                    );
+                                    let externally_committed = kernel
+                                        .external_commits_with_unavailable_parents(
+                                            &committed,
+                                            &unavailable,
+                                        )
+                                        .expect("planned reorg pre-pool membership update");
+                                    kernel
+                                        .note_available(available_dependencies)
+                                        .expect("planned reorg availability update");
+                                    let mut effects = Vec::new();
+                                    for (entry, reject) in &outcome.reject_events {
+                                        effects.extend(
+                                            self.rejected_effects(entry.clone(), reject.clone()),
+                                        );
+                                    }
+                                    for (entry, status) in &outcome.notify_events {
+                                        if let Some(effect) =
+                                            self.accepted_effect(entry.clone(), *status)
+                                        {
+                                            effects.push(effect);
+                                        }
+                                    }
+                                    for record in externally_committed {
+                                        if let Some(peer) = record.raw.ingress_peer() {
+                                            effects.push(TxPoolEffect::Relay(
+                                                crate::service::TxVerificationResult::Ok {
+                                                    original_peer: Some(peer),
+                                                    tx_hash: record.raw.tx.hash(),
+                                                },
+                                            ));
+                                        }
+                                    }
+                                    Ok((outcome, effects))
+                                })();
+                                match applied {
+                                    Ok((outcome, effects)) => {
+                                        (Ok(outcome), EffectBatch::new(effects))
+                                    }
+                                    Err(reject) => (Err(reject), None),
+                                }
+                            },
+                        )
+                    })
                 },
             );
-            transition?;
+            match transition {
+                Ok(Ok(_)) => break,
+                Ok(Err(reject)) => return Err(reject),
+                Err(EffectJournalError::Full) => continue,
+                Err(error) => {
+                    return Err(Reject::Full(format!(
+                        "reorg effect journal unavailable: {error:?}"
+                    )));
+                }
+            }
         }
         // Publication was bound before the pool guard opened. The publisher
         // may run while detached transactions are recovered, but every
@@ -569,39 +589,51 @@ impl TxPoolService {
         // otherwise the freshly cleared pool would be repopulated by the
         // recovery and `clear_pool` would return with a non-empty pool.
         let _recovery_guard = self.recovery_lock.lock().await;
-        // Do not hold effect credit while waiting for `recovery_lock`: an
-        // in-flight reorg owns that lock and its retained-transaction submits
-        // need the same ordinary credit. Recovery-serialized operations use
-        // the single order recovery_lock -> effect credit -> TxPool.
-        let terminal_permit = self
-            .reserve_required_effects(
-                Self::pipeline_terminal_effect_bytes(self.pipeline.kernel.max_entries()),
-                "clear pool effect reservation failed",
-            )
-            .await;
-        {
+        loop {
+            let preview = self
+                .pipeline
+                .kernel
+                .read(crate::component::pre_pool::PrePoolKernel::clear_terminal_records);
+            if let Some(batch) = self.pipeline_terminal_effects(&preview)
+                && self
+                    .relay
+                    .effects
+                    .wait_capacity(batch.charge_bytes(), EffectClass::Critical)
+                    .await
+                    .is_err()
+            {
+                return;
+            }
             let mut tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.kernel.guard_authoritative_mutation(
+            let result = self.pipeline.kernel.guard_authoritative_mutation(
                 "clear-pool authoritative mutation panicked",
                 || {
-                    tx_pool.clear(Arc::clone(&new_snapshot));
-                    self.pipeline.kernel.mutate_required(
-                        "clear pool could not clear pipeline coordinator",
-                        |coordinator| {
-                            let result = coordinator.clear();
-                            if let Ok(records) = &result {
-                                self.journal_pipeline_terminal_records(terminal_permit, records);
-                            }
-                            result
-                        },
-                    );
-                    // Record the reset before releasing the pool lock. A
-                    // later commit can only journal Pending/Proposed after
-                    // this reset, never before an older blank template
-                    // overwrites it.
-                    self.journal_block_assembler_reset(new_snapshot);
+                    self.pipeline.kernel.mutate(|coordinator| {
+                        let records = coordinator.clear_terminal_records();
+                        let batch = self.pipeline_terminal_effects(&records);
+                        self.relay
+                            .effects
+                            .try_apply(batch, EffectClass::Critical, || {
+                                tx_pool.clear(Arc::clone(&new_snapshot));
+                                let records = coordinator.clear()?;
+                                self.journal_block_assembler_reset(Arc::clone(&new_snapshot));
+                                Ok::<_, crate::component::pre_pool::PrePoolError>(records)
+                            })
+                    })
                 },
             );
+            match result {
+                Ok(Ok(_)) => break,
+                Err(EffectJournalError::Full) => continue,
+                Ok(Err(error)) => {
+                    ckb_logger::error!("clear pool failed: {error:?}");
+                    break;
+                }
+                Err(error) => {
+                    ckb_logger::error!("clear pool journal unavailable: {error:?}");
+                    break;
+                }
+            }
         }
     }
 

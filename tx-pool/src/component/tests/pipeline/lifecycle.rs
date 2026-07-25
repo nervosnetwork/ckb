@@ -757,60 +757,6 @@ async fn proposal_promoted_remote_terminal_still_releases_ingress_filter() {
     h.cancel.cancel();
 }
 
-/// A saturated external-effect budget must backpressure before the
-/// authoritative pool mutation. Otherwise cancellation while waiting to
-/// journal the callback/relay result could leave an accepted transaction with
-/// no terminal publication record.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn local_commit_waits_for_effect_credit_before_mutating_pool() {
-    use crate::component::tests::harness::{WorkerSet, harness};
-
-    let h = harness(1).workers(WorkerSet::None).build();
-    let tx = build_tx(&h.out_points[0], 4_000);
-    let tx_hash = tx.hash();
-    let held = h
-        .service
-        .relay
-        .effects
-        .reserve(512_000_000)
-        .await
-        .expect("test owns the complete outbox byte budget");
-
-    let service = h.service.clone();
-    let submit = tokio::spawn(async move { service.process_tx(tx, TxSource::Local).await });
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(
-        !h.service
-            .pool
-            .tx_pool
-            .read()
-            .await
-            .pool_map
-            .iter()
-            .any(|entry| entry.inner.transaction().hash() == tx_hash),
-        "pool membership must not change while effect preflight is blocked"
-    );
-
-    drop(held);
-    tokio::time::timeout(Duration::from_secs(5), submit)
-        .await
-        .expect("submission resumes after effect credit is released")
-        .expect("submission task joins")
-        .expect("local transaction commits");
-    assert!(
-        h.service
-            .pool
-            .tx_pool
-            .read()
-            .await
-            .pool_map
-            .iter()
-            .any(|entry| entry.inner.transaction().hash() == tx_hash)
-    );
-
-    h.cancel.cancel();
-}
-
 fn hold_coordinator_read(
     runtime: Arc<crate::component::pre_pool::PrePool>,
 ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {

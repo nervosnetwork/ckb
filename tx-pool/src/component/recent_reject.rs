@@ -92,7 +92,7 @@ impl RecentReject {
 
     /// Store an already serialized public rejection payload.
     ///
-    /// The effect outbox uses this entry point so its stable record owns only
+    /// The effect journal uses this entry point so its stable record owns only
     /// an exact, bounded string rather than a rich verifier error that may
     /// contain shared packed views or other hidden allocations.
     pub(crate) fn put_serialized(&self, hash: &Byte32, json_string: &str) -> Result<(), AnyError> {

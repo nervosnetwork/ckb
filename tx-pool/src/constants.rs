@@ -10,7 +10,10 @@ pub(crate) const PROPOSED_PROPOSAL_INDEX: u64 = 1;
 pub(crate) const VERIFY_CACHE_CHANNEL_SIZE: usize = 1024;
 /// Maximum number of stable-state effect batches retained while external
 /// consumers are slow. Bytes are bounded separately from the tx-pool config.
-pub(crate) const EFFECT_OUTBOX_MAX_BATCHES: usize = 4096;
+pub(crate) const EFFECT_JOURNAL_REMOTE_MAX_BATCHES: usize = 4096;
+/// Batches unavailable to Remote publication, preserving Local/Proposal and
+/// bounded maintenance progress while an untrusted sink is saturated.
+pub(crate) const EFFECT_TRUSTED_HEADROOM_BATCHES: usize = 64;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
 
 /// Maximum number of entries one indexed conflict, capacity, or ancestor

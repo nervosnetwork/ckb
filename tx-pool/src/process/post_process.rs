@@ -1,6 +1,8 @@
 use crate::constants::MALFORMED_TX_BAN_SECONDS;
 use crate::error::Reject;
-use crate::service::effects::TxPoolEffect;
+use crate::service::effects::{
+    EffectClass, EffectJournalError, TxPoolEffect, bounded_commit_ban_reason,
+};
 use crate::service::{TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
 use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
@@ -243,7 +245,7 @@ impl TxPoolService {
         // get the Ok re-broadcast treatment (see `after_process_local`).
         let ban_reason = reject
             .is_malformed_tx()
-            .then(|| crate::service::effects::bounded_commit_ban_reason(reject));
+            .then(|| bounded_commit_ban_reason(reject));
         let relay_reject = reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_));
         let mut effects = Vec::new();
         if let Some(effect) = self.recent_reject_effect(tx_hash.clone(), reject) {
@@ -261,23 +263,13 @@ impl TxPoolService {
                 tx_hash: tx_hash.clone(),
             }));
         }
-        let effect_bytes = effects.iter().fold(0usize, |total, effect| {
-            total.saturating_add(effect.charge_bytes())
-        });
-        let permit = self
-            .reserve_required_effects(effect_bytes, "remote reject effect reservation failed")
-            .await;
-
         if let Some(reason) = ban_reason {
             const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
             Self::report_malformed_peer_ban(peer, &reason);
             self.record_peer_ban(peer, DEFAULT_BAN_TIME);
         }
-        self.publish_required_reserved_effects(
-            permit,
-            effects,
-            "reserved remote reject journal failed",
-        );
+        self.publish_effects_class(effects, EffectClass::Remote)
+            .await;
         if reject.is_malformed_tx() {
             self.remove_banned_peer_entries(peer).await;
         }
@@ -324,25 +316,49 @@ impl TxPoolService {
             if hashes.is_empty() {
                 break;
             }
-            let terminal_permit = self
-                .reserve_required_effects(
-                    Self::pipeline_terminal_effect_bytes(PEER_REMOVAL_SLICE),
-                    "banned-peer removal effect reservation failed",
-                )
-                .await;
-            let terminal = self.pipeline.kernel.mutate_required(
-                "banned-peer owner cohort could not terminalize",
-                |coordinator| {
-                    let result = coordinator.force_terminalize_many(
-                        &hashes,
-                        crate::component::pre_pool::TerminalDisposition::Removed,
-                    );
-                    if let Ok(records) = &result {
-                        self.journal_pipeline_terminal_records(terminal_permit, records);
-                    }
-                    result
-                },
-            );
+            let preview = self.pipeline.kernel.read(|coordinator| {
+                hashes
+                    .iter()
+                    .filter_map(|hash| coordinator.terminal_record(hash))
+                    .collect::<Vec<_>>()
+            });
+            let preview_batch = self.pipeline_terminal_effects(&preview);
+            if let Some(batch) = &preview_batch
+                && self
+                    .relay
+                    .effects
+                    .wait_capacity(batch.charge_bytes(), EffectClass::Remote)
+                    .await
+                    .is_err()
+            {
+                break;
+            }
+            let terminal = match self.pipeline.kernel.mutate(|coordinator| {
+                let current = hashes
+                    .iter()
+                    .filter_map(|hash| coordinator.terminal_record(hash))
+                    .collect::<Vec<_>>();
+                let batch = self.pipeline_terminal_effects(&current);
+                self.relay
+                    .effects
+                    .try_apply(batch, EffectClass::Remote, || {
+                        coordinator.force_terminalize_many(
+                            &hashes,
+                            crate::component::pre_pool::TerminalDisposition::Removed,
+                        )
+                    })
+            }) {
+                Ok(Ok(records)) => records,
+                Ok(Err(error)) => {
+                    ckb_logger::error!("banned-peer owner cohort failed: {error:?}");
+                    break;
+                }
+                Err(EffectJournalError::Full) => continue,
+                Err(error) => {
+                    ckb_logger::error!("banned-peer effect journal unavailable: {error:?}");
+                    break;
+                }
+            };
             if terminal.is_empty() {
                 break;
             }

@@ -1,13 +1,10 @@
 //! Bounded publication of stable-state tx-pool effects.
 //!
-//! State owners enqueue immutable batches after their authoritative mutation.
-//! A single publisher, independent of the controller dispatcher, preserves
-//! batch order and contains callback re-entry. The outbox charges queued and
-//! active payloads continuously; a full outbox applies backpressure without
-//! retaining an unbounded task/channel backlog.
+//! The journal's innermost `try_apply` section proves static capacity, executes
+//! total state Apply and appends its immutable batch. No capacity token crosses
+//! an await/lock; a supervised publisher isolates fallible endpoints.
 
 use crate::callback::CallbackEvent;
-use crate::component::effect_outbox::{EffectOutbox, EffectOutboxError, EffectOutboxLimits};
 use crate::component::entry::{TxEntry, TxEntrySnapshot};
 use crate::component::pool_map::Status;
 use crate::error::Reject;
@@ -21,39 +18,26 @@ use ckb_network::PeerIndex;
 use ckb_types::core::TransactionBuilder;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::Byte32;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use futures_util::FutureExt;
+use std::collections::VecDeque;
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 pub(crate) const EFFECT_ENVELOPE_BYTES: usize = 128;
-/// Conservative allocator-independent charge for one detached parent hash in
-/// an `UnknownParents` `HashSet`. The packed value itself is only part of the
-/// cost: the set also owns bucket/control slack. Parent hashes are detached
-/// from their source transaction before publication, so this charge never
-/// hides retention of an entire packed transaction backing allocation.
+/// Conservative charge for a detached parent hash plus its hash-table slack;
+/// publication never retains the source transaction backing allocation.
 pub(crate) const UNKNOWN_PARENT_HASH_BYTES: usize = 64;
-/// Fixed callback snapshot residency not represented by the serialized
-/// transaction itself: scalar accounting fields, view handles, and the two
-/// cached transaction hashes.
+/// Callback snapshot scalars, view handles and cached hashes beyond tx bytes.
 const CALLBACK_SNAPSHOT_OVERHEAD_BYTES: usize = std::mem::size_of::<TxEntrySnapshot>() + 64;
-/// Pool-mutation reject reasons are generated from fixed-format hashes,
-/// outpoints, counters, and fee rates. Keeping the display bound explicit
-/// turns submit/reorg reservations into a checked formula rather than a
-/// heuristic multiplier. An unexpected variant or longer description is a
-/// fail-stop invariant violation before the effect is journaled.
+/// Pool-mutation rejects contain fixed-format identities/counters. This bound
+/// makes the largest-indivisible batch a checked formula, not a heuristic.
 pub(crate) const MAX_POOL_MUTATION_REJECT_BYTES: usize = 256;
-/// A malformed commit may append one peer-ban diagnostic to the same batch as
-/// the pool mutation. Diagnostics are not consensus data; cap this one path so
-/// an attacker-controlled error display cannot invalidate a pre-mutation
-/// reservation after the authoritative state has changed.
+/// Cap the non-consensus peer-ban diagnostic included in a commit batch.
 pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
-/// Rejections outside the tightly enumerated pool-mutation family may carry
-/// verifier diagnostics. Recent-reject persistence is observability, not
-/// consensus state, so cap the retained diagnostic instead of allowing an
-/// attacker-controlled string to dominate outbox residency.
+/// Cap attacker-controlled verifier diagnostics retained for observability.
 pub(crate) const MAX_RECENT_REJECT_BYTES: usize = 1024;
 
 fn minimum_serialized_transaction_bytes() -> usize {
@@ -67,11 +51,8 @@ fn minimum_serialized_transaction_bytes() -> usize {
     *MINIMUM
 }
 
-/// Maximum outbox charge for stable pool-mutation effects whose transaction
-/// payloads total at most `event_transaction_bytes`. Every event retains one
-/// transaction, at most one callback envelope, at most one relay envelope,
-/// and one bounded reject description. The molecule minimum transaction size
-/// converts the serialized-byte bound into a conservative event-count bound.
+/// Bound pool-mutation effects from total tx bytes and molecule's minimum tx
+/// size; each event may retain callback, relay and bounded reject metadata.
 pub(crate) fn max_pool_mutation_effect_bytes(event_transaction_bytes: usize) -> usize {
     let minimum = minimum_serialized_transaction_bytes();
     let max_events = event_transaction_bytes.div_ceil(minimum);
@@ -85,24 +66,15 @@ pub(crate) fn max_pool_mutation_effect_bytes(event_transaction_bytes: usize) -> 
     event_transaction_bytes.saturating_add(max_events.saturating_mul(per_event_metadata))
 }
 
-/// Complete reservation for one authoritative submit mutation.
-///
-/// Pool callbacks/relays are bounded by `P + B`. A coordinator commit can also
-/// settle at most every currently resident pre-pool owner: each contributes at
-/// most one relay envelope, and the failed-winner path can add one extra ban
-/// envelope plus its bounded diagnostic. Keeping both terms explicit makes the
-/// bound independent of the relative pool/coordinator configuration sizes.
-pub(crate) fn max_submit_effect_bytes(
-    max_pool_bytes: usize,
-    max_block_bytes: usize,
-    max_pipeline_records: usize,
-) -> usize {
-    let pool_effects =
-        max_pool_mutation_effect_bytes(max_pool_bytes.saturating_add(max_block_bytes));
-    // Every conflict loser can produce one relay plus one bounded
-    // recent-reject write. The failed winner can additionally produce one
-    // bounded ban, relay and larger verifier rejection.
-    let coordinator_effects = max_pipeline_records
+/// Static largest admission batch derived from P2's cohort cap and configured
+/// pool/block limits, never live population.
+pub(crate) fn max_submit_effect_bytes(max_pool_bytes: usize, max_block_bytes: usize) -> usize {
+    let max_events = crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1);
+    let transaction_bytes = max_pool_bytes
+        .saturating_add(max_block_bytes)
+        .min(max_events.saturating_mul(max_block_bytes));
+    let pool_effects = max_pool_mutation_effect_bytes(transaction_bytes);
+    let coordinator_effects = max_events
         .saturating_mul(
             EFFECT_ENVELOPE_BYTES
                 .saturating_mul(2)
@@ -142,7 +114,7 @@ fn bounded_recent_reject(reject: &Reject) -> Reject {
 
 /// Convert a rich rejection into the exact bounded payload persisted by the
 /// recent-reject database. Doing this before enqueue detaches every packed or
-/// verifier-owned allocation and makes the outbox byte charge exact.
+/// verifier-owned allocation and makes the journal byte charge exact.
 fn serialized_recent_reject(reject: &Reject) -> String {
     fn serialize(reject: Reject) -> String {
         let public: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
@@ -178,12 +150,35 @@ fn bounded_pool_mutation_reject(reject: &Reject) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum EffectQueueError {
+pub(crate) enum EffectJournalError {
     Closed,
+    Full,
     BatchTooLarge { bytes: usize, max_bytes: usize },
-    Invariant(EffectOutboxError),
+    AllocationFailed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub(crate) enum EffectClass {
+    /// Peer-originated work may use only the untrusted portion of the journal.
+    Remote,
+    /// Local, proposal and bounded maintenance work may borrow unused Remote
+    /// capacity and the separately provisioned trusted headroom.
+    Trusted,
+    /// Compatibility lane for the P3->P4 chain cutover. P4 replaces detailed
+    /// population effects with the latest generation authority register.
+    Critical,
+}
+
+impl EffectClass {
+    const REGION_COUNT: usize = 3;
+
+    fn region(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Clone)]
 pub(crate) enum TxPoolEffect {
     Callback {
         callbacks: Arc<crate::callback::Callbacks>,
@@ -203,10 +198,8 @@ pub(crate) enum TxPoolEffect {
 }
 
 impl TxPoolEffect {
-    /// Detach every small packed identity that may outlive its producer. This
-    /// is the final stable-effect residency boundary, so callers cannot
-    /// accidentally enqueue a 32-byte slice that pins a transaction or block
-    /// backing allocation while the outbox charges only the envelope.
+    /// Detach packed identities so an envelope cannot pin a transaction/block
+    /// backing allocation that its byte charge does not cover.
     fn into_compact(self) -> Self {
         match self {
             Self::Relay(TxVerificationResult::Ok {
@@ -299,6 +292,10 @@ impl EffectBatch {
         })
     }
 
+    pub(crate) fn charge_bytes(&self) -> usize {
+        self.charge_bytes
+    }
+
     fn current(&self) -> Option<&TxPoolEffect> {
         self.effects.get(self.next.load(Ordering::Acquire))
     }
@@ -312,190 +309,321 @@ impl EffectBatch {
     }
 }
 
-struct QueueState {
-    outbox: EffectOutbox<Arc<EffectBatch>>,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct EffectUsage {
+    pub(crate) batches: usize,
+    pub(crate) bytes: usize,
+}
+
+impl EffectUsage {
+    const fn new(batches: usize, bytes: usize) -> Self {
+        Self { batches, bytes }
+    }
+
+    fn fits(self, bytes: usize, limit: Self) -> bool {
+        self.batches
+            .checked_add(1)
+            .is_some_and(|value| value <= limit.batches)
+            && self
+                .bytes
+                .checked_add(bytes)
+                .is_some_and(|value| value <= limit.bytes)
+    }
+
+    fn charge(&mut self, bytes: usize) {
+        self.batches += 1;
+        self.bytes += bytes;
+    }
+
+    fn release(&mut self, bytes: usize) -> bool {
+        let Some(batches) = self.batches.checked_sub(1) else {
+            return false;
+        };
+        let Some(total_bytes) = self.bytes.checked_sub(bytes) else {
+            return false;
+        };
+        self.batches = batches;
+        self.bytes = total_bytes;
+        true
+    }
+}
+
+struct EffectEnvelope {
+    sequence: u128,
+    class: EffectClass,
+    batch: Arc<EffectBatch>,
+}
+
+struct JournalState {
+    queued: VecDeque<EffectEnvelope>,
+    active: Option<EffectEnvelope>,
+    /// Cumulative region lattice: Remote batches charge all three slots,
+    /// Trusted batches charge ordinary+total, and Critical charges total.
+    usage: [EffectUsage; EffectClass::REGION_COUNT],
+    next_sequence: u128,
     closed: bool,
 }
 
-/// Shared bounded journal. All methods that mutate the core are synchronous;
-/// the only await in `enqueue` happens while waiting for pre-mutation capacity.
-pub(crate) struct EffectQueue {
-    state: Mutex<QueueState>,
+impl JournalState {
+    fn charge(&mut self, class: EffectClass, bytes: usize) {
+        for usage in &mut self.usage[class.region()..] {
+            usage.charge(bytes);
+        }
+    }
+
+    fn release(&mut self, class: EffectClass, bytes: usize) -> bool {
+        self.usage[class.region()..]
+            .iter_mut()
+            .all(|usage| usage.release(bytes))
+    }
+
+    fn push(&mut self, class: EffectClass, batch: EffectBatch) {
+        let sequence = self.next_sequence;
+        self.next_sequence = self
+            .next_sequence
+            .checked_add(1)
+            .expect("u128 effect sequence exhausted");
+        self.charge(class, batch.charge_bytes);
+        self.queued.push_back(EffectEnvelope {
+            sequence,
+            class,
+            batch: Arc::new(batch),
+        });
+    }
+
+    /// Rebuild accounting from the two authoritative resident containers.
+    /// This is cold defect recovery only; normal publication is O(1).
+    fn recompute_usage(&mut self) {
+        let mut usage = [EffectUsage::default(); EffectClass::REGION_COUNT];
+        for envelope in self.active.iter().chain(self.queued.iter()) {
+            for region in &mut usage[envelope.class.region()..] {
+                region.charge(envelope.batch.charge_bytes);
+            }
+        }
+        self.usage = usage;
+    }
+}
+
+struct CallbackJob {
+    callbacks: Arc<crate::callback::Callbacks>,
+    event: CallbackEvent,
+    done: tokio::sync::oneshot::Sender<()>,
+}
+
+/// Stable, statically partitioned effect journal.
+///
+/// Callers construct immutable batches before mutation. The innermost journal
+/// lock checks capacity, executes total Apply and appends before opening;
+/// Full therefore never changes state.
+pub(crate) struct EffectJournal {
+    state: Mutex<JournalState>,
     ready: Notify,
     space: Notify,
-    ordinary_max_batches: usize,
-    ordinary_max_bytes: usize,
-    max_bytes: usize,
+    limits: [EffectUsage; EffectClass::REGION_COUNT],
+    publisher_running: AtomicBool,
+    callback_circuit_open: AtomicBool,
+    callback_sender: std::sync::mpsc::SyncSender<CallbackJob>,
 }
 
-pub(crate) struct EffectPermit {
-    queue: Arc<EffectQueue>,
-    reservation: Option<crate::component::effect_outbox::EffectReservation>,
-    bytes: usize,
-}
-
-impl Drop for EffectPermit {
-    fn drop(&mut self) {
-        let Some(reservation) = self.reservation.take() else {
-            return;
-        };
-        let cancelled = {
-            let mut state = self.queue.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.outbox.cancel(&reservation)
-        };
-        if let Err(error) = cancelled {
-            error!("failed to cancel unused effect reservation: {:?}", error);
-        }
-        self.queue.space.notify_waiters();
-    }
-}
-
-impl EffectPermit {
-    /// Commit to the queue that issued this permit. The permit owns both the
-    /// reservation and queue identity, so callers cannot bind a valid credit
-    /// to a different outbox. Sequence allocation and enqueue are one atomic
-    /// operation at the authoritative mutation boundary.
-    pub(crate) fn commit(mut self, batch: EffectBatch) -> Result<(), EffectQueueError> {
-        if batch.charge_bytes > self.bytes {
-            return Err(EffectQueueError::BatchTooLarge {
-                bytes: batch.charge_bytes,
-                max_bytes: self.bytes,
-            });
-        }
-        let reservation = self
-            .reservation
-            .as_ref()
-            .ok_or(EffectQueueError::Invariant(
-                EffectOutboxError::MissingReservation,
-            ))?;
-        let queue = Arc::clone(&self.queue);
-        let batch = Arc::new(batch);
-        let result = {
-            let mut state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
-            state
-                .outbox
-                .commit_reserved(reservation, batch.charge_bytes, batch)
-        };
-        if let Err(error) = result {
-            queue.space.notify_waiters();
-            return Err(EffectQueueError::Invariant(error));
-        }
-        // The reservation was consumed by `commit_reserved`; disarm Drop.
-        self.reservation.take();
-        // A conservative permit may have been shrunk substantially above.
-        // Wake capacity waiters now; waiting for this batch to publish can
-        // deadlock when its head is a causal barrier released by one of those
-        // waiters.
-        queue.space.notify_waiters();
-        queue.ready.notify_one();
-        Ok(())
-    }
-}
-
-impl EffectQueue {
-    pub(crate) fn new_with_critical_capacity(
-        ordinary_max_batches: usize,
-        ordinary_max_bytes: usize,
+impl EffectJournal {
+    pub(crate) fn new_partitioned(
+        remote_max_batches: usize,
+        remote_max_bytes: usize,
+        trusted_headroom_batches: usize,
+        trusted_headroom_bytes: usize,
         critical_batches: usize,
         critical_bytes: usize,
-    ) -> Result<Self, EffectOutboxError> {
-        let max_batches = ordinary_max_batches
+    ) -> Result<Self, EffectJournalError> {
+        let ordinary_batches = remote_max_batches
+            .checked_add(trusted_headroom_batches)
+            .ok_or(EffectJournalError::AllocationFailed)?;
+        let ordinary_bytes = remote_max_bytes
+            .checked_add(trusted_headroom_bytes)
+            .ok_or(EffectJournalError::AllocationFailed)?;
+        let total_batches = ordinary_batches
             .checked_add(critical_batches)
-            .ok_or(EffectOutboxError::AllocationFailed)?;
-        let max_bytes = ordinary_max_bytes
+            .ok_or(EffectJournalError::AllocationFailed)?;
+        let total_bytes = ordinary_bytes
             .checked_add(critical_bytes)
-            .ok_or(EffectOutboxError::AllocationFailed)?;
+            .ok_or(EffectJournalError::AllocationFailed)?;
+        if remote_max_batches == 0 || remote_max_bytes == 0 {
+            return Err(EffectJournalError::AllocationFailed);
+        }
+        let mut queued = VecDeque::new();
+        queued
+            .try_reserve(total_batches)
+            .map_err(|_| EffectJournalError::AllocationFailed)?;
+        let (callback_sender, callback_receiver) = std::sync::mpsc::sync_channel::<CallbackJob>(1);
+        std::thread::Builder::new()
+            .name("tx-pool-callback".to_owned())
+            .spawn(move || {
+                while let Ok(job) = callback_receiver.recv() {
+                    job.callbacks.publish(&job.event);
+                    let _ = job.done.send(());
+                }
+            })
+            .map_err(|_| EffectJournalError::AllocationFailed)?;
         Ok(Self {
-            state: Mutex::new(QueueState {
-                outbox: EffectOutbox::new(EffectOutboxLimits::new(max_batches, max_bytes))?,
+            state: Mutex::new(JournalState {
+                queued,
+                active: None,
+                usage: [EffectUsage::default(); EffectClass::REGION_COUNT],
+                next_sequence: 1,
                 closed: false,
             }),
             ready: Notify::new(),
             space: Notify::new(),
-            ordinary_max_batches,
-            ordinary_max_bytes,
-            max_bytes,
+            limits: [
+                EffectUsage::new(remote_max_batches, remote_max_bytes),
+                EffectUsage::new(ordinary_batches, ordinary_bytes),
+                EffectUsage::new(total_batches, total_bytes),
+            ],
+            publisher_running: AtomicBool::new(false),
+            callback_circuit_open: AtomicBool::new(false),
+            callback_sender,
         })
     }
 
-    pub(crate) async fn reserve(
-        self: &Arc<Self>,
-        bytes: usize,
-    ) -> Result<EffectPermit, EffectQueueError> {
-        self.reserve_inner(bytes, false).await
+    fn class_limit(&self, class: EffectClass) -> EffectUsage {
+        self.limits[class.region()]
     }
 
-    /// Reserve from the capacity kept outside the ordinary traffic budget.
-    /// Critical batches still share the same FIFO sequence/outbox; the extra
-    /// headroom prevents ordinary relay/callback backpressure from starving a
-    /// chain-state transition before it begins.
-    pub(crate) async fn reserve_critical(
-        self: &Arc<Self>,
-        bytes: usize,
-    ) -> Result<EffectPermit, EffectQueueError> {
-        self.reserve_inner(bytes, true).await
+    fn fits(&self, state: &JournalState, class: EffectClass, bytes: usize) -> bool {
+        state.usage[class.region()..]
+            .iter()
+            .zip(&self.limits[class.region()..])
+            .all(|(usage, limit)| usage.fits(bytes, *limit))
     }
 
-    async fn reserve_inner(
-        self: &Arc<Self>,
+    /// Wait only for a level-triggered capacity *hint*. This does not reserve
+    /// anything. The caller must re-plan and call `try_apply` under authority
+    /// locks; a racing append may legitimately return `Full` again.
+    pub(crate) async fn wait_capacity(
+        &self,
         bytes: usize,
-        critical: bool,
-    ) -> Result<EffectPermit, EffectQueueError> {
-        let class_max_bytes = if critical {
-            self.max_bytes
-        } else {
-            self.ordinary_max_bytes
-        };
-        if bytes > class_max_bytes {
-            return Err(EffectQueueError::BatchTooLarge {
-                bytes,
-                max_bytes: class_max_bytes,
-            });
+        class: EffectClass,
+    ) -> Result<(), EffectJournalError> {
+        let max_bytes = self.class_limit(class).bytes;
+        if bytes > max_bytes {
+            return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
         loop {
             let space = self.space.notified();
             tokio::pin!(space);
-            // `notify_waiters` does not store a permit. Register before the
-            // capacity check so a release/close between the check and await
-            // cannot leave this producer asleep forever.
             space.as_mut().enable();
-            enum Attempt<T> {
-                Reserved(T),
-                Wait,
-                Error(EffectOutboxError),
-            }
-            let attempt = {
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            {
+                let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 if state.closed {
-                    return Err(EffectQueueError::Closed);
+                    return Err(EffectJournalError::Closed);
                 }
-                let usage = state.outbox.usage();
-                if !critical
-                    && (usage.batches.saturating_add(1) > self.ordinary_max_batches
-                        || usage.bytes.saturating_add(bytes) > self.ordinary_max_bytes)
-                {
-                    Attempt::Wait
-                } else {
-                    match state.outbox.reserve(bytes) {
-                        Ok(reservation) => Attempt::Reserved(reservation),
-                        Err(EffectOutboxError::BatchLimitExceeded)
-                        | Err(EffectOutboxError::ByteLimitExceeded) => Attempt::Wait,
-                        Err(error) => Attempt::Error(error),
-                    }
+                if self.fits(&state, class, bytes) {
+                    return Ok(());
                 }
-            };
-            match attempt {
-                Attempt::Reserved(reservation) => {
-                    return Ok(EffectPermit {
-                        queue: Arc::clone(self),
-                        reservation: Some(reservation),
-                        bytes,
-                    });
-                }
-                Attempt::Wait => space.await,
-                Attempt::Error(error) => return Err(EffectQueueError::Invariant(error)),
             }
+            space.await;
         }
+    }
+
+    /// Atomically validate exact journal capacity, execute a total state Apply
+    /// and append its immutable effect batch. `apply` is never called on
+    /// `Closed`, `Full`, or oversized input.
+    pub(crate) fn try_apply<T>(
+        &self,
+        batch: Option<EffectBatch>,
+        class: EffectClass,
+        apply: impl FnOnce() -> T,
+    ) -> Result<T, EffectJournalError> {
+        let Some(batch) = batch else {
+            return Ok(apply());
+        };
+        let bytes = batch.charge_bytes;
+        let max_bytes = self.class_limit(class).bytes;
+        if bytes > max_bytes {
+            return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.closed {
+            return Err(EffectJournalError::Closed);
+        }
+        if !self.fits(&state, class, bytes) {
+            return Err(EffectJournalError::Full);
+        }
+        let result = apply();
+        state.push(class, batch);
+        drop(state);
+        self.ready.notify_one();
+        Ok(result)
+    }
+
+    /// Transitional form for effects materialized from an immutable pool plan
+    /// during total Apply; its static upper bound is checked before Apply.
+    pub(crate) fn try_apply_bounded<T>(
+        &self,
+        max_bytes: usize,
+        class: EffectClass,
+        apply: impl FnOnce() -> (T, Option<EffectBatch>),
+    ) -> Result<T, EffectJournalError> {
+        let class_max = self.class_limit(class).bytes;
+        if max_bytes > class_max {
+            return Err(EffectJournalError::BatchTooLarge {
+                bytes: max_bytes,
+                max_bytes: class_max,
+            });
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.closed {
+            return Err(EffectJournalError::Closed);
+        }
+        if !self.fits(&state, class, max_bytes) {
+            return Err(EffectJournalError::Full);
+        }
+        let (result, batch) = apply();
+        let Some(batch) = batch else {
+            return Ok(result);
+        };
+        let bytes = batch.charge_bytes;
+        if bytes > max_bytes {
+            error!(
+                "tx-pool effect plan exceeded its proven bound: actual {bytes}, bound {max_bytes}"
+            );
+            debug_assert!(bytes <= max_bytes);
+        }
+        state.push(class, batch);
+        drop(state);
+        self.ready.notify_one();
+        Ok(result)
+    }
+
+    pub(crate) async fn append(
+        &self,
+        batch: EffectBatch,
+        class: EffectClass,
+    ) -> Result<(), EffectJournalError> {
+        let bytes = batch.charge_bytes;
+        let max_bytes = self.class_limit(class).bytes;
+        if bytes > max_bytes {
+            return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
+        }
+        let mut batch = Some(batch);
+        loop {
+            self.wait_capacity(bytes, class).await?;
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if state.closed {
+                return Err(EffectJournalError::Closed);
+            }
+            if !self.fits(&state, class, bytes) {
+                continue;
+            }
+            state.push(class, batch.take().expect("batch appended once"));
+            drop(state);
+            self.ready.notify_one();
+            return Ok(());
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn usage(&self) -> EffectUsage {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).usage[EffectClass::Critical.region()]
     }
 
     pub(crate) fn close(&self) {
@@ -514,134 +642,201 @@ impl EffectQueue {
 pub(crate) struct EffectEndpoints {
     pub(crate) network: TxPoolNetworkHandle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
-    /// Fatal journal invariants cancel the complete tx-pool service. Merely
-    /// logging and exiting would leave producers blocked behind a publisher
-    /// that can no longer consume the bounded outbox.
-    pub(crate) failure_cancel: CancellationToken,
 }
 
-enum PublishOne {
-    Complete,
-    Retry,
+struct PublisherClaim<'a>(&'a AtomicBool);
+
+impl Drop for PublisherClaim<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
-impl EffectEndpoints {
-    fn publish_one(&self, effect: &TxPoolEffect) -> PublishOne {
-        match effect {
-            TxPoolEffect::Callback { callbacks, event } => callbacks.publish(event),
-            TxPoolEffect::Relay(result) => match self.tx_relay_sender.try_send(result.clone()) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => return PublishOne::Retry,
-                Err(TrySendError::Disconnected(_)) => {
-                    error!("tx-pool relayer result receiver dropped")
-                }
-            },
-            TxPoolEffect::BanPeer {
-                peer,
-                duration,
-                reason,
-            } => self.network.ban_peer(*peer, *duration, reason.clone()),
-            TxPoolEffect::RecentReject {
-                store,
-                tx_hash,
-                serialized,
-            } => {
-                // `RecentReject::put` owns the RocksDB blocking boundary; do
-                // not nest another `block_in_place` around it here.
-                if let Err(error) = store.put_serialized(tx_hash, serialized) {
-                    error!("failed to record recent reject {}: {}", tx_hash, error);
+impl EffectJournal {
+    fn checkout(&self) -> Option<(u128, Arc<EffectBatch>)> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.active.is_none() {
+            state.active = state.queued.pop_front();
+        }
+        state
+            .active
+            .as_ref()
+            .map(|envelope| (envelope.sequence, Arc::clone(&envelope.batch)))
+    }
+
+    fn complete(&self, sequence: u128) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(active) = state.active.as_ref() else {
+            error!("effect publisher completion had no active batch");
+            return;
+        };
+        if active.sequence != sequence {
+            error!(
+                "effect publisher completion sequence mismatch: expected {}, got {}",
+                active.sequence, sequence
+            );
+            return;
+        }
+        let bytes = active.batch.charge_bytes;
+        let class = active.class;
+        state.active.take();
+        if !state.release(class, bytes) {
+            error!("effect journal accounting drift detected; rebuilding from resident batches");
+            state.recompute_usage();
+            drop(state);
+            self.space.notify_waiters();
+            return;
+        }
+        drop(state);
+        self.space.notify_waiters();
+    }
+
+    fn closed_and_empty(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.closed && state.active.is_none() && state.queued.is_empty()
+    }
+}
+
+#[cfg(not(test))]
+const CALLBACK_TIMEOUT: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const CALLBACK_TIMEOUT: Duration = Duration::from_millis(50);
+const RELAY_RETRY_TIMEOUT: Duration = Duration::from_millis(250);
+
+async fn publish_callback(
+    queue: &EffectJournal,
+    callbacks: Arc<crate::callback::Callbacks>,
+    event: CallbackEvent,
+) {
+    if queue.callback_circuit_open.load(Ordering::Acquire) {
+        error!("tx-pool callback circuit is open; dropping callback notification");
+        return;
+    }
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    if let Err(error) = queue.callback_sender.try_send(CallbackJob {
+        callbacks,
+        event,
+        done: done_tx,
+    }) {
+        queue.callback_circuit_open.store(true, Ordering::Release);
+        error!("tx-pool callback endpoint unavailable: {error}");
+        return;
+    }
+    if !matches!(
+        tokio::time::timeout(CALLBACK_TIMEOUT, done_rx).await,
+        Ok(Ok(()))
+    ) {
+        queue.callback_circuit_open.store(true, Ordering::Release);
+        error!("tx-pool callback timed out; callback circuit opened");
+    }
+}
+
+async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect: TxPoolEffect) {
+    match effect {
+        TxPoolEffect::Callback { callbacks, event } => {
+            publish_callback(queue, callbacks, event).await;
+        }
+        TxPoolEffect::Relay(result) => {
+            let started = tokio::time::Instant::now();
+            let mut pending = result;
+            loop {
+                match endpoints.tx_relay_sender.try_send(pending) {
+                    Ok(()) => break,
+                    Err(TrySendError::Full(returned))
+                        if started.elapsed() < RELAY_RETRY_TIMEOUT =>
+                    {
+                        pending = returned;
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                    Err(TrySendError::Full(_)) => {
+                        error!("tx-pool relayer endpoint remained full; dropping bounded effect");
+                        break;
+                    }
+                    Err(TrySendError::Disconnected(_)) => {
+                        error!("tx-pool relayer result receiver dropped");
+                        break;
+                    }
                 }
             }
         }
-        PublishOne::Complete
+        TxPoolEffect::BanPeer {
+            peer,
+            duration,
+            reason,
+        } => endpoints.network.ban_peer(peer, duration, reason),
+        TxPoolEffect::RecentReject {
+            store,
+            tx_hash,
+            serialized,
+        } => {
+            if let Err(error) = store.put_serialized(&tx_hash, &serialized) {
+                error!("failed to record recent reject {}: {}", tx_hash, error);
+            }
+        }
     }
 }
 
-/// Drain until `close` has been called and every queued/active batch is done.
-pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: EffectEndpoints) {
-    enum Checkout {
-        Idle {
-            closed: bool,
-            empty: bool,
-        },
-        Batch {
-            sequence: u64,
-            batch: Arc<EffectBatch>,
-        },
-        Fatal(EffectOutboxError),
+async fn run_effect_publisher_once(queue: Arc<EffectJournal>, endpoints: EffectEndpoints) {
+    if queue
+        .publisher_running
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        error!("refusing concurrent tx-pool effect publisher");
+        return;
     }
-
-    let fail = |error: EffectOutboxError| -> ! {
-        queue.close();
-        endpoints.failure_cancel.cancel();
-        panic!("tx-pool effect outbox invariant failure: {error:?}");
-    };
-
+    let _claim = PublisherClaim(&queue.publisher_running);
     loop {
         let ready = queue.ready.notified();
-        let checkout = {
-            let mut state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
-            let closed = state.closed;
-            match state.outbox.checkout() {
-                Ok(Some(sequence)) => match state.outbox.active_effect(sequence) {
-                    Ok(batch) => Checkout::Batch {
-                        sequence,
-                        batch: Arc::clone(batch),
-                    },
-                    Err(error) => Checkout::Fatal(error),
-                },
-                Ok(None) => Checkout::Idle {
-                    closed,
-                    empty: state.outbox.usage().batches == 0,
-                },
-                Err(error) => Checkout::Fatal(error),
+        let Some((sequence, batch)) = queue.checkout() else {
+            if queue.closed_and_empty() {
+                return;
             }
+            ready.await;
+            continue;
         };
-
-        let (sequence, batch) = match checkout {
-            Checkout::Idle { closed, empty } => {
-                if closed && empty {
-                    break;
-                }
-                ready.await;
-                continue;
-            }
-            Checkout::Batch { sequence, batch } => (sequence, batch),
-            Checkout::Fatal(error) => fail(error),
-        };
-
-        while let Some(effect) = batch.current() {
-            match catch_unwind(AssertUnwindSafe(|| endpoints.publish_one(effect))) {
-                Ok(PublishOne::Complete) => batch.advance(),
-                Ok(PublishOne::Retry) => {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                }
+        while let Some(effect) = batch.current().cloned() {
+            match AssertUnwindSafe(publish_one(&queue, &endpoints, effect))
+                .catch_unwind()
+                .await
+            {
+                Ok(()) => batch.advance(),
                 Err(payload) => {
                     error!(
-                        "tx-pool effect publisher contained endpoint panic: {}",
+                        "tx-pool effect endpoint panicked and was quarantined: {}",
                         crate::util::panic_payload_to_string(payload.as_ref())
                     );
-                    // An endpoint can have performed an arbitrary prefix of
-                    // its side effect before unwinding. Retrying it is neither
-                    // at-most-once nor safe, and a permanent infrastructure
-                    // panic must not pin every later stable-state effect
-                    // behind this FIFO head. Callback panics are already
-                    // contained inside `Callbacks::publish`; this guard is the
-                    // final quarantine boundary for unexpected network or
-                    // publisher endpoint failures.
                     batch.advance();
                 }
             }
         }
         if batch.is_complete() {
-            let completed = {
-                let mut state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
-                state.outbox.complete_active(sequence)
-            };
-            if let Err(error) = completed {
-                fail(error);
+            queue.complete(sequence);
+        }
+    }
+}
+
+/// Supervise the sole publisher. An unwind releases only the publisher claim;
+/// the active batch remains charged in the stable journal and is resumed from
+/// its per-effect cursor by the replacement loop.
+pub(crate) async fn run_effect_publisher(queue: Arc<EffectJournal>, endpoints: EffectEndpoints) {
+    loop {
+        let result = AssertUnwindSafe(run_effect_publisher_once(
+            Arc::clone(&queue),
+            endpoints.clone(),
+        ))
+        .catch_unwind()
+        .await;
+        match result {
+            Ok(()) if queue.closed_and_empty() => break,
+            Ok(()) => tokio::task::yield_now().await,
+            Err(payload) => {
+                error!(
+                    "restarting tx-pool effect publisher after panic: {}",
+                    crate::util::panic_payload_to_string(payload.as_ref())
+                );
+                tokio::task::yield_now().await;
             }
-            queue.space.notify_waiters();
         }
     }
     info!("tx-pool effect publisher drained and exited");
@@ -676,14 +871,9 @@ impl TxPoolService {
     }
 
     pub(crate) fn max_submit_effect_bytes(&self) -> usize {
-        // Successful submit effects reference a disjoint subset of the
-        // pre-commit pool plus the accepted transaction. Failed submissions
-        // restore old entries and suppress their transient reject events.
-        // Therefore their total transaction bytes are bounded by P + B.
         max_submit_effect_bytes(
             self.pool.tx_pool_config.max_tx_pool_size,
             self.pool.consensus.max_block_bytes() as usize,
-            self.pipeline.kernel.max_entries(),
         )
     }
 
@@ -695,65 +885,24 @@ impl TxPoolService {
         max_pool_mutation_effect_bytes(self.pool.tx_pool_config.max_tx_pool_size).max(4096)
     }
 
-    /// Required stable-state publication has no recoverable reservation
-    /// error: ordinary pressure waits inside `reserve`, while Closed,
-    /// BatchTooLarge and outbox invariants mean the service cannot preserve
-    /// its ownership/effect contract.
-    pub(crate) async fn reserve_required_effects(
-        &self,
-        bytes: usize,
-        context: &'static str,
-    ) -> EffectPermit {
-        match self.relay.effects.reserve(bytes).await {
-            Ok(permit) => permit,
-            Err(error) => self.pipeline.kernel.fail_stop(context, &error),
-        }
-    }
-
-    pub(crate) async fn reserve_critical_effects(
-        &self,
-        bytes: usize,
-    ) -> Result<EffectPermit, EffectQueueError> {
-        self.relay.effects.reserve_critical(bytes).await
-    }
-
-    fn publish_reserved_effects(
-        &self,
-        permit: EffectPermit,
-        effects: Vec<TxPoolEffect>,
-    ) -> Result<(), EffectQueueError> {
-        let Some(batch) = EffectBatch::new(effects) else {
-            drop(permit);
-            return Ok(());
-        };
-        permit.commit(batch)
-    }
-
-    pub(crate) fn publish_required_reserved_effects(
-        &self,
-        permit: EffectPermit,
-        effects: Vec<TxPoolEffect>,
-        context: &'static str,
-    ) {
-        if let Err(error) = self.publish_reserved_effects(permit, effects) {
-            self.pipeline.kernel.fail_stop(context, &error);
-        }
-    }
-
     pub(crate) async fn publish_effects(&self, effects: Vec<TxPoolEffect>) {
+        self.publish_effects_class(effects, EffectClass::Trusted)
+            .await;
+    }
+
+    pub(crate) async fn publish_effects_class(
+        &self,
+        effects: Vec<TxPoolEffect>,
+        class: EffectClass,
+    ) {
         let Some(batch) = EffectBatch::new(effects) else {
             return;
         };
-        let permit = self
-            .reserve_required_effects(
-                batch.charge_bytes,
-                "standalone tx-pool effect reservation failed",
-            )
-            .await;
-        if let Err(error) = permit.commit(batch) {
-            self.pipeline
-                .kernel
-                .fail_stop("reserved standalone tx-pool effect journal failed", &error);
+        if let Err(error) = self.relay.effects.append(batch, class).await {
+            // Closure means service shutdown. Oversize is a construction or
+            // configuration defect, but it must not turn attacker input into
+            // a process-wide fail-stop.
+            error!("tx-pool standalone effect was not journaled: {error:?}");
         }
     }
 

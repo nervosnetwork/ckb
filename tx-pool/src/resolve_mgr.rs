@@ -70,7 +70,6 @@ impl TxPoolService {
         self.settle_pipeline_terminal(
             &lease.hash,
             reject,
-            "raw terminal effect reservation failed",
             "current raw lease could not terminalize",
             |coordinator, retain_conflict| {
                 if retain_conflict {
@@ -135,24 +134,14 @@ impl TxPoolService {
                             cycles > self.pool.tx_pool_config.max_tx_verify_cycles
                         }),
                     );
-                    let permit = self
-                        .reserve_required_effects(
-                            Self::pipeline_terminal_effect_bytes(
-                                crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
-                            ),
-                            "raw completion effect reservation failed",
-                        )
-                        .await;
                     match self.pipeline.kernel.mutate(|coordinator| {
-                        let result = coordinator.complete_resolve(
+                        coordinator.complete_resolve(
                             &lease,
                             resolved,
                             charge_bytes,
                             schedule,
                             resolved_dependencies,
-                        );
-                        drop(permit);
-                        result
+                        )
                     }) {
                         Ok(_version) => {}
                         Err(error) if error.is_stale_lease() => {}
@@ -173,13 +162,7 @@ impl TxPoolService {
                     }
                 }
                 ResolveStageResult::Orphan(parents) => {
-                    let permit = self
-                        .reserve_required_effects(
-                            Self::unknown_parents_effect_bytes(parents.len()),
-                            "raw parent-wait effect reservation failed",
-                        )
-                        .await;
-                    match self.settle_raw_parent_wait(&lease, parents, permit).await {
+                    match self.settle_raw_parent_wait(&lease, parents).await {
                         Some(ParentWaitOutcome::Parked) => {}
                         Some(ParentWaitOutcome::Requeued) => {}
                         Some(ParentWaitOutcome::Unavailable) => {

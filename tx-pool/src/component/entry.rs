@@ -176,7 +176,7 @@ pub(crate) fn accepted_transaction_charge_bytes(
 /// A pool entry retains complete resolved inputs for DAO accounting and a
 /// compact liveness-only dep representation. Stable-state callbacks need
 /// neither; they only need the transaction and accounting snapshot.
-/// Keeping this compact type in the effect outbox prevents a stalled callback
+/// Keeping this compact type in the effect journal prevents a stalled callback
 /// from extending the lifetime of arbitrarily large resolved metadata after
 /// the authoritative pool entry has been removed.
 #[derive(Debug, Clone, Eq, PartialEq)]

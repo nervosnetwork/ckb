@@ -4,11 +4,16 @@ use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::recent_reject::RecentReject;
 use crate::constants::{
-    EFFECT_OUTBOX_MAX_BATCHES, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
-    SECONDS_PER_DAY, VERIFY_CACHE_CHANNEL_SIZE,
+    EFFECT_JOURNAL_REMOTE_MAX_BATCHES, EFFECT_TRUSTED_HEADROOM_BATCHES,
+    MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS, SECONDS_PER_DAY,
+    VERIFY_CACHE_CHANNEL_SIZE,
 };
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
+use crate::service::effects::{
+    EffectEndpoints, EffectJournal, max_pool_mutation_effect_bytes, max_submit_effect_bytes,
+    run_effect_publisher,
+};
 use crate::service::workers;
 use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE, REORG_CHANNEL_SIZE};
 use crate::service::{
@@ -95,30 +100,31 @@ fn assemble_service(
                 .max(1)
                 .saturating_mul(MESSAGE_CONCURRENCY_MULTIPLIER),
         );
-    // One batch can carry a complete pool-removal/reorg callback journal.
-    // Keep another complete pre-pool residency available so a stalled sink
-    // cannot create an uncharged payload gap while ownership is transferred.
+    // Static effect regions: Remote owns the ordinary ceiling, trusted work
+    // has one largest-admission byte cohort plus fixed batch headroom, and
+    // chain authority has one independent reorg cohort. None is a dynamic
+    // reservation and Remote traffic cannot consume either higher class.
     let resident_effect_bytes = tx_pool_config
         .max_tx_pool_size
         .saturating_add(tx_pool_config.tx_pipeline_resident_size_budget())
         .saturating_mul(2);
-    let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
+    let submit_effect_bytes = max_submit_effect_bytes(
         tx_pool_config.max_tx_pool_size,
         consensus.max_block_bytes() as usize,
-        kernel.max_entries(),
     );
     let reorg_effect_bytes =
-        crate::service::effects::max_pool_mutation_effect_bytes(tx_pool_config.max_tx_pool_size)
-            .max(4096);
+        max_pool_mutation_effect_bytes(tx_pool_config.max_tx_pool_size).max(4096);
     let ordinary_effect_bytes = resident_effect_bytes.max(submit_effect_bytes);
     let effects = Arc::new(
-        crate::service::effects::EffectQueue::new_with_critical_capacity(
-            EFFECT_OUTBOX_MAX_BATCHES,
+        EffectJournal::new_partitioned(
+            EFFECT_JOURNAL_REMOTE_MAX_BATCHES,
             ordinary_effect_bytes,
+            EFFECT_TRUSTED_HEADROOM_BATCHES,
+            submit_effect_bytes,
             1,
             reorg_effect_bytes,
         )
-        .unwrap_or_else(|error| panic!("failed to allocate tx-pool effect outbox: {error:?}")),
+        .unwrap_or_else(|error| panic!("failed to allocate tx-pool effect journal: {error:?}")),
     );
     TxPoolService {
         pool: crate::service::PoolCore {
@@ -228,11 +234,7 @@ impl BackgroundWorkerHandles {
     ///
     /// All workers are awaited in parallel so the total shutdown time is
     /// bounded by `timeout` rather than `N * timeout`.
-    async fn quiesce(
-        self,
-        timeout: Duration,
-        effect_queue: &crate::service::effects::EffectQueue,
-    ) -> bool {
+    async fn quiesce(self, timeout: Duration, effect_journal: &EffectJournal) -> bool {
         let mut effect_publisher = self.effects;
         let mut tasks: Vec<(String, tokio::task::JoinHandle<()>)> = Vec::new();
         tasks.push(("verify-cache worker".to_owned(), self.verify_cache));
@@ -277,7 +279,7 @@ impl BackgroundWorkerHandles {
                 // detached-transaction recovery. Never persist that partial
                 // point. Close/abort publication so shutdown remains bounded;
                 // the next start rebuilds from the last complete pool file.
-                effect_queue.close();
+                effect_journal.close();
                 effect_publisher.abort();
                 return false;
             }
@@ -285,7 +287,7 @@ impl BackgroundWorkerHandles {
 
         // No state worker can enqueue after this point. Close only now, then
         // drain every stable-state effect before persistence and service exit.
-        effect_queue.close();
+        effect_journal.close();
         let effect_publisher_clean =
             match tokio::time::timeout(timeout, &mut effect_publisher).await {
                 Ok(Ok(())) => true,
@@ -449,12 +451,11 @@ impl TxPoolServiceBuilder {
             verify_cache_receiver,
             signal_receiver.child_token(),
         );
-        let effect_handle = handle.spawn(crate::service::effects::run_effect_publisher(
+        let effect_handle = handle.spawn(run_effect_publisher(
             Arc::clone(&service.relay.effects),
-            crate::service::effects::EffectEndpoints {
+            EffectEndpoints {
                 network: Arc::clone(&service.relay.network),
                 tx_relay_sender: service.relay.tx_relay_sender.clone(),
-                failure_cancel: signal_receiver.clone(),
             },
         ));
         let maintenance_handle = workers::spawn_pipeline_maintenance_worker(
@@ -813,16 +814,13 @@ impl TxPoolServiceBuilder {
             signal.clone(),
         );
 
-        let effect_publisher = self
-            .handle
-            .spawn(crate::service::effects::run_effect_publisher(
-                Arc::clone(&service.relay.effects),
-                crate::service::effects::EffectEndpoints {
-                    network: Arc::clone(&service.relay.network),
-                    tx_relay_sender: service.relay.tx_relay_sender.clone(),
-                    failure_cancel: signal.clone(),
-                },
-            ));
+        let effect_publisher = self.handle.spawn(run_effect_publisher(
+            Arc::clone(&service.relay.effects),
+            EffectEndpoints {
+                network: Arc::clone(&service.relay.network),
+                tx_relay_sender: service.relay.tx_relay_sender.clone(),
+            },
+        ));
 
         BenchServiceParts {
             service,

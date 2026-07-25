@@ -2,6 +2,7 @@ use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::pool::TxPool;
+use crate::service::effects::{EffectBatch, EffectClass};
 use crate::util::compact_packed;
 use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
@@ -51,16 +52,25 @@ impl crate::service::TxPoolService {
     /// pre-pool boundary, then bind callbacks and Wait availability changes
     /// before the pool mutation becomes visible.
     pub(crate) async fn cascade_failed_reorg_recovery(&self, tx: &TransactionView) {
-        let permit = self
-            .reserve_required_effects(
-                self.max_reorg_effect_bytes(),
-                "reorg cascade effect reservation failed",
-            )
-            .await;
+        let effect_bound = self.max_reorg_effect_bytes();
+        if self
+            .relay
+            .effects
+            .wait_capacity(effect_bound, EffectClass::Critical)
+            .await
+            .is_err()
+        {
+            return;
+        }
         let mut tx_pool = self.pool.tx_pool.write().await;
         self.pipeline.kernel.guard_authoritative_mutation(
             "reorg recovery cascade mutation panicked",
             || {
+                let result = self.pipeline.kernel.mutate(|kernel| {
+                    self.relay.effects.try_apply_bounded(
+                        effect_bound,
+                        EffectClass::Critical,
+                        || {
                 let mut roots: HashMap<ProposalShortId, ckb_types::packed::OutPoint> =
                     HashMap::new();
                 for out_point in tx.output_pts() {
@@ -97,10 +107,9 @@ impl crate::service::TxPoolService {
                     })
                     .filter(|hash| !tx_pool.snapshot().transaction_exists(hash))
                     .collect();
-                self.pipeline.kernel.mutate_required(
-                    "reorg failed-recovery dependency transaction failed",
-                    |coordinator| coordinator.parents_unavailable(&removal_hashes),
-                );
+                kernel
+                    .parents_unavailable(&removal_hashes)
+                    .expect("planned reorg cascade parent demotion");
 
                 let mut ordered_roots: Vec<_> = roots.into_iter().collect();
                 ordered_roots
@@ -125,22 +134,19 @@ impl crate::service::TxPoolService {
                         ));
                     }
                 }
-                self.pipeline.kernel.mutate_required(
-                    "reorg cascade availability update failed",
-                    |kernel| {
-                        kernel.note_available(
-                            crate::service::pipeline_ops::available_cell_dependencies(
-                                &tx_pool,
-                                available_outpoints,
-                            ),
-                        )
-                    },
-                );
-                self.publish_required_reserved_effects(
-                    permit,
-                    effects,
-                    "reserved reorg cascade journal failed inside pool transaction",
-                );
+                kernel
+                    .note_available(crate::service::pipeline_ops::available_cell_dependencies(
+                        &tx_pool,
+                        available_outpoints,
+                    ))
+                    .expect("planned reorg cascade availability update");
+                ((), EffectBatch::new(effects))
+                        },
+                    )
+                });
+                if let Err(error) = result {
+                    ckb_logger::error!("reorg cascade effect journal unavailable: {error:?}");
+                }
             },
         );
     }

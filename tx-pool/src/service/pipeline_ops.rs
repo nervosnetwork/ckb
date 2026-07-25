@@ -11,6 +11,7 @@ use crate::component::pre_pool::{
     DependencyKey, PrePoolError, PrePoolSource, ResolveLease, TerminalRecord, VerifyLease,
 };
 use crate::error::Reject;
+use crate::service::effects::{EffectBatch, EffectClass, EffectJournalError, TxPoolEffect};
 use crate::service::{PipelineTxLocation, RemoveTxOutcome, TxPoolService};
 use ckb_store::ChainStore;
 use ckb_types::core::TransactionView;
@@ -104,20 +105,23 @@ impl TxPoolService {
         &self,
         hash: &Byte32,
         mut dependencies: BTreeSet<DependencyKey>,
-        permit: crate::service::effects::EffectPermit,
-        transition: impl FnOnce(&mut PrePoolKernel, BTreeSet<DependencyKey>) -> Result<(), PrePoolError>,
-        journal_context: &'static str,
+        mut transition: impl FnMut(
+            &mut PrePoolKernel,
+            BTreeSet<DependencyKey>,
+        ) -> Result<(), PrePoolError>,
         error_context: &'static str,
     ) -> Option<ParentWaitOutcome> {
-        let pool = self.pool.tx_pool.read().await;
-        retain_unavailable_dependencies(&pool, &mut dependencies);
-        let parents = dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<HashSet<_>>();
-        let mut permit = Some(permit);
-        let outcome: Result<ParentWaitOutcome, PrePoolError> =
-            self.pipeline.kernel.mutate(|coordinator| {
+        loop {
+            let pool = self.pool.tx_pool.read().await;
+            retain_unavailable_dependencies(&pool, &mut dependencies);
+            let parents = dependencies
+                .iter()
+                .map(DependencyKey::parent_hash)
+                .collect::<HashSet<_>>();
+            let outcome: Result<
+                Result<Result<ParentWaitOutcome, PrePoolError>, EffectJournalError>,
+                PrePoolError,
+            > = self.pipeline.kernel.mutate(|coordinator| {
                 let source = coordinator
                     .source_by_hash(hash)
                     .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
@@ -127,36 +131,66 @@ impl TxPoolService {
                         .iter()
                         .any(|parent| !coordinator.contains_hash(parent))
                 {
-                    return Ok(ParentWaitOutcome::Unavailable);
+                    return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
                 }
-                transition(coordinator, dependencies.clone())?;
-                if dependencies.is_empty() {
-                    return Ok(ParentWaitOutcome::Requeued);
-                }
-                if let PrePoolSource::Remote(peer) = source {
-                    let effect = crate::service::effects::TxPoolEffect::Relay(
+                let batch = if let PrePoolSource::Remote(peer) = source
+                    && !dependencies.is_empty()
+                {
+                    EffectBatch::new(vec![TxPoolEffect::Relay(
                         crate::service::TxVerificationResult::UnknownParents {
                             peer,
                             parents: parents.clone(),
                         },
-                    );
-                    self.publish_required_reserved_effects(
-                        permit
-                            .take()
-                            .expect("parent-wait effect permit is consumed at most once"),
-                        vec![effect],
-                        journal_context,
-                    );
-                }
-                Ok(ParentWaitOutcome::Parked)
+                    )])
+                } else {
+                    None
+                };
+                let class = if matches!(source, PrePoolSource::Remote(_)) {
+                    EffectClass::Remote
+                } else {
+                    EffectClass::Trusted
+                };
+                Ok(self.relay.effects.try_apply(batch, class, || {
+                    transition(coordinator, dependencies.clone())?;
+                    Ok(if dependencies.is_empty() {
+                        ParentWaitOutcome::Requeued
+                    } else {
+                        ParentWaitOutcome::Parked
+                    })
+                }))
             });
-        drop(permit);
-        match outcome {
-            Ok(outcome) => Some(outcome),
-            Err(error) if error.is_stale_lease() => None,
-            Err(error) => Some(ParentWaitOutcome::Rejected(
-                self.pipeline.kernel.reject_or_fail(error_context, error),
-            )),
+            drop(pool);
+            match outcome {
+                Ok(Ok(Ok(outcome))) => return Some(outcome),
+                Ok(Ok(Err(error))) | Err(error) if error.is_stale_lease() => return None,
+                Ok(Ok(Err(error))) | Err(error) => {
+                    return Some(ParentWaitOutcome::Rejected(
+                        self.pipeline.kernel.reject_or_fail(error_context, error),
+                    ));
+                }
+                Ok(Err(EffectJournalError::Full)) => {
+                    if self
+                        .relay
+                        .effects
+                        .wait_capacity(
+                            Self::unknown_parents_effect_bytes(dependencies.len()),
+                            EffectClass::Remote,
+                        )
+                        .await
+                        .is_err()
+                    {
+                        return Some(ParentWaitOutcome::Rejected(Reject::Full(
+                            "effect journal unavailable".to_owned(),
+                        )));
+                    }
+                }
+                Ok(Err(error)) => {
+                    ckb_logger::error!("{error_context}: effect journal unavailable: {error:?}");
+                    return Some(ParentWaitOutcome::Rejected(Reject::Full(
+                        "effect journal unavailable".to_owned(),
+                    )));
+                }
+            }
         }
     }
 
@@ -169,54 +203,90 @@ impl TxPoolService {
         &self,
         subject: &Byte32,
         reject: Option<Reject>,
-        reservation_context: &'static str,
         mutation_context: &'static str,
-        terminalize: impl FnOnce(&mut PrePoolKernel, bool) -> Result<TerminalRecord, PrePoolError>
+        mut terminalize: impl FnMut(&mut PrePoolKernel, bool) -> Result<TerminalRecord, PrePoolError>
         + Send,
     ) {
-        let permit = self
-            .reserve_required_effects(
-                Self::pipeline_outcome_effect_bytes(reject.as_ref()),
-                reservation_context,
-            )
-            .await;
-        let tx_pool = if reject.is_some() {
-            Some(self.pool.tx_pool.write().await)
-        } else {
-            None
-        };
-        let mut banned_peer = None;
-        let retain_conflict = reject.as_ref().is_some_and(|reject| {
-            matches!(
-                reject,
-                Reject::RBFRejected(..)
-                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_))
-            ) && tx_pool.as_ref().is_some_and(|pool| {
-                // The raw payload remains kernel-owned until the transition
-                // below, so this check and the transition share the universal
-                // TxPool -> kernel order.
-                self.pipeline.kernel.read(|kernel| {
-                    kernel
-                        .raw_by_hash(subject)
-                        .is_some_and(|raw| pool.pool_map.find_conflict_outpoint(&raw.tx).is_some())
+        loop {
+            let Some(preview) = self
+                .pipeline
+                .kernel
+                .read(|kernel| kernel.terminal_record(subject))
+            else {
+                return;
+            };
+            let (preview_batch, _) = self.pipeline_outcome_effects(&preview, reject.as_ref());
+            let class = if matches!(preview.source, PrePoolSource::Remote(_)) {
+                EffectClass::Remote
+            } else {
+                EffectClass::Trusted
+            };
+            if let Some(batch) = &preview_batch
+                && self
+                    .relay
+                    .effects
+                    .wait_capacity(batch.charge_bytes(), class)
+                    .await
+                    .is_err()
+            {
+                return;
+            }
+
+            let tx_pool = if reject.is_some() {
+                Some(self.pool.tx_pool.write().await)
+            } else {
+                None
+            };
+            let retain_conflict = reject.as_ref().is_some_and(|reject| {
+                matches!(
+                    reject,
+                    Reject::RBFRejected(..)
+                        | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_))
+                ) && tx_pool.as_ref().is_some_and(|pool| {
+                    self.pipeline.kernel.read(|kernel| {
+                        kernel.raw_by_hash(subject).is_some_and(|raw| {
+                            pool.pool_map.find_conflict_outpoint(&raw.tx).is_some()
+                        })
+                    })
                 })
-            })
-        });
-        let terminal = self
-            .pipeline
-            .kernel
-            .mutate_lease(mutation_context, |coordinator| {
-                let result = terminalize(coordinator, retain_conflict);
-                if let Ok(record) = &result {
-                    banned_peer = self.journal_pipeline_outcome(permit, record, reject.as_ref());
-                }
-                result
             });
-        drop(tx_pool);
-        if terminal.is_some()
-            && let Some(peer) = banned_peer
-        {
-            self.remove_banned_peer_entries(peer).await;
+            let result = self.pipeline.kernel.mutate(|coordinator| {
+                let Some(record) = coordinator.terminal_record(subject) else {
+                    return Ok(Err(PrePoolError::Missing(subject.clone())));
+                };
+                let (batch, peer_ban) = self.pipeline_outcome_effects(&record, reject.as_ref());
+                let class = if matches!(record.source, PrePoolSource::Remote(_)) {
+                    EffectClass::Remote
+                } else {
+                    EffectClass::Trusted
+                };
+                self.relay.effects.try_apply(batch, class, || {
+                    let terminal = terminalize(coordinator, retain_conflict)?;
+                    if let Some((peer, duration)) = peer_ban {
+                        self.record_peer_ban(peer, duration);
+                    }
+                    Ok((terminal, peer_ban.map(|(peer, _)| peer)))
+                })
+            });
+            drop(tx_pool);
+            match result {
+                Ok(Ok((_, banned_peer))) => {
+                    if let Some(peer) = banned_peer {
+                        self.remove_banned_peer_entries(peer).await;
+                    }
+                    return;
+                }
+                Ok(Err(error)) if error.is_stale_lease() => return,
+                Ok(Err(error)) => {
+                    let _ = self.pipeline.kernel.reject_or_fail(mutation_context, error);
+                    return;
+                }
+                Err(EffectJournalError::Full) => continue,
+                Err(error) => {
+                    ckb_logger::error!("{mutation_context}: effect journal unavailable: {error:?}");
+                    return;
+                }
+            }
         }
     }
 
@@ -228,12 +298,24 @@ impl TxPoolService {
         &self,
         lease: &ResolveLease,
         dependencies: BTreeSet<DependencyKey>,
-        permit: crate::service::effects::EffectPermit,
     ) -> Option<ParentWaitOutcome> {
+        if self
+            .relay
+            .effects
+            .wait_capacity(
+                Self::unknown_parents_effect_bytes(dependencies.len()),
+                EffectClass::Remote,
+            )
+            .await
+            .is_err()
+        {
+            return Some(ParentWaitOutcome::Rejected(Reject::Full(
+                "effect journal unavailable".to_owned(),
+            )));
+        }
         self.settle_parent_wait(
             &lease.hash,
             dependencies,
-            permit,
             |coordinator, dependencies| {
                 if dependencies.is_empty() {
                     coordinator.requeue_resolve(lease).map(|_| ())
@@ -241,7 +323,6 @@ impl TxPoolService {
                     coordinator.wait_resolve(lease, dependencies).map(|_| ())
                 }
             },
-            "reserved raw parent-wait journal failed",
             "current raw lease could not extend parent-wait dependencies",
         )
         .await
@@ -254,18 +335,29 @@ impl TxPoolService {
         &self,
         lease: &VerifyLease,
         dependencies: BTreeSet<DependencyKey>,
-        permit: crate::service::effects::EffectPermit,
     ) -> Option<ParentWaitOutcome> {
+        if self
+            .relay
+            .effects
+            .wait_capacity(
+                Self::unknown_parents_effect_bytes(dependencies.len()),
+                EffectClass::Remote,
+            )
+            .await
+            .is_err()
+        {
+            return Some(ParentWaitOutcome::Rejected(Reject::Full(
+                "effect journal unavailable".to_owned(),
+            )));
+        }
         self.settle_parent_wait(
             &lease.hash,
             dependencies,
-            permit,
             |coordinator, dependencies| {
                 coordinator
                     .verification_retry_resolution(lease, dependencies)
                     .map(|_| ())
             },
-            "reserved verify parent-wait journal failed",
             "current verify lease could not extend parent-wait dependencies",
         )
         .await
@@ -275,12 +367,22 @@ impl TxPoolService {
     /// occupy (pre-check, ordered resolve, verify, RBF registrations,
     /// orphan and the main pool).
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> RemoveTxOutcome {
-        let terminal_permit = self
-            .reserve_required_effects(
-                Self::pipeline_terminal_effect_bytes(1),
-                "remove effect reservation failed",
-            )
-            .await;
+        let preview = self
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.terminal_record(&tx_hash));
+        if let Some(batch) = preview
+            .as_ref()
+            .and_then(|record| self.pipeline_terminal_effects(std::slice::from_ref(record)))
+            && self
+                .relay
+                .effects
+                .wait_capacity(batch.charge_bytes(), EffectClass::Trusted)
+                .await
+                .is_err()
+        {
+            return RemoveTxOutcome::InProgress;
+        }
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
             let mut tx_pool = self.pool.tx_pool.write().await;
@@ -336,28 +438,36 @@ impl TxPoolService {
                         (None, removed)
                     } else {
                         let record = match self.pipeline.kernel.mutate(|coordinator| {
-                            coordinator.force_terminalize(
-                                &tx_hash,
-                                crate::component::pre_pool::TerminalDisposition::Removed,
-                            )
+                            let preview = coordinator.terminal_record(&tx_hash);
+                            let batch = preview.as_ref().and_then(|record| {
+                                self.pipeline_terminal_effects(std::slice::from_ref(record))
+                            });
+                            self.relay
+                                .effects
+                                .try_apply(batch, EffectClass::Trusted, || {
+                                    coordinator.force_terminalize(
+                                        &tx_hash,
+                                        crate::component::pre_pool::TerminalDisposition::Removed,
+                                    )
+                                })
                         }) {
-                            Ok(record) => record,
-                            Err(error) => self.pipeline.kernel.fail_stop(
-                                "administrative pipeline owner could not terminalize",
-                                &error,
-                            ),
+                            Ok(Ok(record)) => record,
+                            Ok(Err(error)) => {
+                                ckb_logger::error!(
+                                    "administrative pipeline owner could not terminalize: {error:?}"
+                                );
+                                return None;
+                            }
+                            Err(error) => {
+                                ckb_logger::error!(
+                                    "administrative removal journal unavailable: {error:?}"
+                                );
+                                return None;
+                            }
                         };
                         (record, Vec::new())
                     };
                     let conflict_removed = false;
-                    if let Some(record) = &record {
-                        self.journal_pipeline_terminal_records(
-                            terminal_permit,
-                            std::slice::from_ref(record),
-                        );
-                    } else {
-                        drop(terminal_permit);
-                    }
                     Some((record, removed_entries, conflict_removed))
                 },
             )
@@ -376,34 +486,51 @@ impl TxPoolService {
     /// Linearizably clear queued and active pipeline work without touching
     /// transactions that already committed to the main pool.
     pub(crate) async fn clear_pipeline(&self) {
-        let terminal_permit = self
-            .reserve_required_effects(
-                Self::pipeline_terminal_effect_bytes(self.pipeline.kernel.max_entries()),
-                "clear pipeline effect reservation failed",
-            )
-            .await;
         self.advance_pipeline_epoch();
         // A submit that acquired the pool write lock and validated its epoch
         // before the generation advance is allowed to finish. Waiting on the
         // same lock makes that ordering explicit before this method returns;
         // later submitters observe the stale generation and cannot commit.
-        {
+        loop {
+            let preview = self
+                .pipeline
+                .kernel
+                .read(PrePoolKernel::clear_terminal_records);
+            if let Some(batch) = self.pipeline_terminal_effects(&preview)
+                && self
+                    .relay
+                    .effects
+                    .wait_capacity(batch.charge_bytes(), EffectClass::Critical)
+                    .await
+                    .is_err()
+            {
+                return;
+            }
             let _tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.kernel.guard_authoritative_mutation(
+            let result = self.pipeline.kernel.guard_authoritative_mutation(
                 "clear-pipeline authoritative mutation panicked",
                 || {
-                    self.pipeline.kernel.mutate_required(
-                        "clear pipeline could not clear coordinator",
-                        |coordinator| {
-                            let result = coordinator.clear();
-                            if let Ok(records) = &result {
-                                self.journal_pipeline_terminal_records(terminal_permit, records);
-                            }
-                            result
-                        },
-                    );
+                    self.pipeline.kernel.mutate(|coordinator| {
+                        let records = coordinator.clear_terminal_records();
+                        let batch = self.pipeline_terminal_effects(&records);
+                        self.relay
+                            .effects
+                            .try_apply(batch, EffectClass::Critical, || coordinator.clear())
+                    })
                 },
             );
+            match result {
+                Ok(Ok(_)) => break,
+                Err(EffectJournalError::Full) => continue,
+                Ok(Err(error)) => {
+                    ckb_logger::error!("clear pipeline failed: {error:?}");
+                    break;
+                }
+                Err(error) => {
+                    ckb_logger::error!("clear pipeline journal unavailable: {error:?}");
+                    break;
+                }
+            }
         }
     }
 

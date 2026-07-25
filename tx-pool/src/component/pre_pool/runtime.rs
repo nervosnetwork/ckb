@@ -7,7 +7,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
 use ckb_verification::cache::Completed;
-use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
     Arc, Mutex, MutexGuard,
     atomic::{AtomicBool, Ordering},
@@ -234,12 +234,6 @@ impl PrePool {
         }
     }
 
-    pub(crate) fn fail_stop(&self, context: &'static str, error: &impl std::fmt::Debug) -> ! {
-        // Compatibility for P1 callers that still use the old name. This is a
-        // task-local defect panic and deliberately does not cancel the service.
-        panic!("{context}: {error:?}")
-    }
-
     pub(crate) fn guard_authoritative_mutation<T>(
         &self,
         context: &'static str,
@@ -253,17 +247,6 @@ impl PrePool {
                 let message = crate::util::panic_payload_to_string(payload.as_ref());
                 panic!("{context}: {message}")
             }
-        }
-    }
-
-    pub(crate) fn guard_stable_effect_journal<T>(
-        &self,
-        _context: &'static str,
-        apply: impl FnOnce() -> T,
-    ) -> T {
-        match catch_unwind(AssertUnwindSafe(apply)) {
-            Ok(value) => value,
-            Err(payload) => resume_unwind(payload),
         }
     }
 
@@ -316,21 +299,20 @@ impl PrePool {
         self.read(|state| state.queue_len(lane) == 0)
     }
 
-    pub(crate) fn admit_transaction_journaled(
+    pub(crate) fn admit_transaction(
         &self,
         tx: TransactionView,
         source: TxSource,
         epoch: u64,
         lane: ResolveLane,
-        journal: impl FnOnce(&[TerminalRecord]),
-    ) -> Result<(bool, Vec<TerminalRecord>), PrePoolError> {
+    ) -> Result<bool, PrePoolError> {
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
-        let result = self.mutate(|kernel| {
+        self.mutate(|kernel| {
             if let Some(existing) = kernel.entries.get(&hash).cloned() {
                 return match source {
                     TxSource::Local => Err(PrePoolError::LocalMustRunDirect),
-                    TxSource::Remote { .. } => Ok((false, Vec::new())),
+                    TxSource::Remote { .. } => Ok(false),
                     TxSource::Proposal => {
                         if existing.raw.tx.witness_hash() != tx.witness_hash() {
                             let raw = existing.raw.trusted_variant(tx, epoch);
@@ -339,7 +321,7 @@ impl PrePool {
                         } else {
                             kernel.promote_source(&hash)?;
                         }
-                        Ok((false, Vec::new()))
+                        Ok(false)
                     }
                 };
             }
@@ -358,12 +340,8 @@ impl PrePool {
                 raw_bytes,
                 dependencies,
             )?;
-            Ok((true, Vec::new()))
-        });
-        if let Ok((_, terminal)) = &result {
-            journal(terminal);
-        }
-        result
+            Ok(true)
+        })
     }
 
     pub(crate) fn checkout_resolve(&self, lane: ResolveLane) -> Option<ResolveLease> {

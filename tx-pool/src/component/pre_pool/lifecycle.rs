@@ -1,6 +1,17 @@
 use super::*;
 
 impl PrePoolKernel {
+    /// Snapshot terminal publication metadata without changing ownership.
+    /// Callers pair this immutable record with an effect-journal capacity
+    /// check before executing the matching total terminal transition.
+    pub(crate) fn terminal_record(&self, hash: &Byte32) -> Option<TerminalRecord> {
+        self.entries.get(hash).map(|entry| TerminalRecord {
+            hash: hash.clone(),
+            raw: Arc::clone(&entry.raw),
+            source: entry.source,
+        })
+    }
+
     pub(super) fn validate_entry_shape(
         &self,
         hash: &Byte32,
@@ -766,14 +777,8 @@ impl PrePoolKernel {
             .collect()
     }
 
-    pub(crate) fn expire_due(
-        &mut self,
-        now: u64,
-        limit: usize,
-        include_ready: bool,
-    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
-        let due = self
-            .deadlines
+    fn due_hashes(&self, now: u64, limit: usize, include_ready: bool) -> Vec<Byte32> {
+        self.deadlines
             .iter()
             .take_while(|deadline| deadline.expires_at <= now)
             .filter(|deadline| {
@@ -783,15 +788,38 @@ impl PrePoolKernel {
                 })
             })
             .take(limit)
-            .cloned()
-            .collect::<Vec<_>>();
-        let present = due
-            .into_iter()
-            .map(|deadline| deadline.hash)
-            .collect::<Vec<_>>();
-        present
+            .map(|deadline| deadline.hash.clone())
+            .collect()
+    }
+
+    pub(crate) fn due_terminal_records(
+        &self,
+        now: u64,
+        limit: usize,
+        include_ready: bool,
+    ) -> Vec<TerminalRecord> {
+        self.due_hashes(now, limit, include_ready)
+            .iter()
+            .filter_map(|hash| self.terminal_record(hash))
+            .collect()
+    }
+
+    pub(crate) fn expire_due(
+        &mut self,
+        now: u64,
+        limit: usize,
+        include_ready: bool,
+    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
+        self.due_hashes(now, limit, include_ready)
             .into_iter()
             .map(|hash| self.remove_entry(&hash, TerminalDisposition::Expired))
+            .collect()
+    }
+
+    pub(crate) fn clear_terminal_records(&self) -> Vec<TerminalRecord> {
+        self.entries
+            .keys()
+            .filter_map(|hash| self.terminal_record(hash))
             .collect()
     }
 
