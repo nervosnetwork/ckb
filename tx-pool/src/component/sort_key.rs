@@ -1,6 +1,7 @@
 use ckb_types::core::{
     Capacity, FeeRate, tx_pool::AncestorsScoreSortKey as CoreAncestorsScoreSortKey,
 };
+use ckb_types::packed::ProposalShortId;
 use std::cmp::Ordering;
 
 /// A struct to use as a sorted key
@@ -80,6 +81,7 @@ pub struct EvictKey {
     pub fee_rate: FeeRate,
     pub timestamp: u64,
     pub descendants_count: usize,
+    pub id: ProposalShortId,
 }
 
 impl PartialOrd for EvictKey {
@@ -92,7 +94,9 @@ impl Ord for EvictKey {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.fee_rate == other.fee_rate {
             if self.descendants_count == other.descendants_count {
-                self.timestamp.cmp(&other.timestamp)
+                self.timestamp
+                    .cmp(&other.timestamp)
+                    .then_with(|| self.id.cmp(&other.id))
             } else {
                 self.descendants_count.cmp(&other.descendants_count)
             }

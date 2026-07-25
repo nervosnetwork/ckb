@@ -625,15 +625,17 @@ impl TxPoolService {
                 PlugTarget::Pending => {
                     for entry in entries {
                         tx_pool
-                            .add_pending(entry)
-                            .expect("Plug entry add_pending error");
+                            .pool_map
+                            .plug_entry(entry, Status::Pending)
+                            .expect("administrative pool insertion failed");
                     }
                 }
                 PlugTarget::Proposed => {
                     for entry in entries {
                         tx_pool
-                            .add_proposed(entry)
-                            .expect("Plug entry add_proposed error");
+                            .pool_map
+                            .plug_entry(entry, Status::Proposed)
+                            .expect("administrative pool insertion failed");
                     }
                 }
             };

@@ -28,8 +28,6 @@ use std::collections::{HashMap, HashSet};
 /// pre-validation and `process_rbf` can reuse them without re-walking the
 /// descendants.
 pub(crate) struct RbfCheck {
-    /// Direct conflicts of the replacement (the RBF roots).
-    pub conflicts: HashSet<ProposalShortId>,
     /// Conflicts + descendants, post-ordered for removal.
     pub removal: Vec<ProposalShortId>,
     /// The same set as `removal`, for membership/count checks.
@@ -87,7 +85,6 @@ impl TxPool {
 
         if conflict_ids.is_empty() {
             return Ok(RbfCheck {
-                conflicts: conflict_ids,
                 removal: Vec::new(),
                 removal_set: HashSet::new(),
             });
@@ -136,7 +133,6 @@ impl TxPool {
         self.check_rbf_fee(&all_conflicted, entry)?;
 
         Ok(RbfCheck {
-            conflicts: conflict_ids,
             removal,
             removal_set,
         })
@@ -288,43 +284,5 @@ impl TxPool {
             ));
         }
         Ok(())
-    }
-
-    // Remove the precomputed conflict closure. Historical-cache publication
-    // is deliberately deferred to the caller's successful commit boundary:
-    // a later revalidation/limit failure restores this exact journal and must
-    // not have evicted unrelated bounded cache history in the meantime.
-    pub(crate) fn process_rbf(
-        &mut self,
-        entry: &TxEntry,
-        removal: &[ProposalShortId],
-        reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Vec<crate::component::pool_map::RemovedPoolEntry> {
-        if removal.is_empty() {
-            return Vec::new();
-        }
-
-        // Apply the caller's removal plan (conflicts + descendants, already
-        // post-ordered by `PoolMap::conflict_closure`) instead of
-        // re-walking the descendants of every conflict here.
-        let all_removed: Vec<_> = removal
-            .iter()
-            .filter_map(|id| self.pool_map.remove_entry_with_status(id))
-            .collect();
-
-        for old in &all_removed {
-            ckb_logger::debug!(
-                "remove conflict tx {} for RBF by new tx {}",
-                old.entry.transaction().hash(),
-                entry.transaction().hash()
-            );
-            let reject =
-                Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
-
-            // collect reject events for dispatch outside write lock
-            reject_events.push((old.entry.clone(), reject));
-        }
-
-        all_removed
     }
 }

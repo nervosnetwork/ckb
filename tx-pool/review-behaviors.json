@@ -34,32 +34,32 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/pool.rs"
       ],
-      "required_behavior": "The existing TxPool write guard is the only final membership/RBF sequencer; the current pool journal, kernel handoff, exact rollback and stable effects form one causally ordered boundary until P2 replaces them with total Plan/Apply.",
-      "hostile_case": "Concurrent commits, handoff failure or panic must not expose a pool/kernel ownership gap, strand Ready work or report success for a rolled-back mutation.",
+      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable PoolMutationPlan, completes the versioned kernel handoff while accepted membership is unchanged, and then performs total PoolMap Apply before stable effects are journaled.",
+      "hostile_case": "Concurrent commits, stale leases, rejected RBF, capacity failure or a structural defect must not expose a pool/kernel ownership gap, strand Ready work or publish success for an unapplied plan.",
       "reviewer_questions": [
         "Is every final fee/conflict decision recomputed under the pool write guard?",
-        "Can any error release the guard before coordinator settlement and pool rollback are exact?",
+        "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(pipeline_commit_worker|local_commit_waits|target_model_exercises_every_plan_outcome|failed_commit_restores)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(pipeline_commit_worker|local_commit_waits|target_model_exercises_every_plan_outcome|sparse_plan_matches)/)'",
       "performance_bound": "Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation."
     },
     {
       "id": "TP-RBF-001",
-      "title": "Deterministic RBF preference and rollback",
+      "title": "Deterministic mutation-free RBF planning",
       "change_surfaces": [
         "tx-pool/src/process/submit/rbf_commit.rs",
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/component/pre_pool/wait.rs"
       ],
       "required_behavior": "Only verified candidates participate in deterministic conflict ordering, while TxPool recomputes the complete replacement closure and both fee gates before atomic victim displacement.",
-      "hostile_case": "An under-fee, multi-input, dep-group or concurrent candidate must not preempt through speculative state; failed replacement must restore the complete original closure before competitors advance.",
+      "hostile_case": "An under-fee, multi-input, dep-group, self-evicted or concurrent candidate must not preempt through speculative state; every failed replacement must leave the complete original pool unchanged.",
       "reviewer_questions": [
         "Is coordinator ordering still provisional rather than an admission verdict?",
-        "Are all input and expanded dependency conflicts included in final closure and rollback?",
+        "Are all input and expanded dependency conflicts included in the immutable removal union?",
         "Does every failed path preserve original statuses, accounting and descendant order?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(rbf|replacement|pipeline_rejects_conflicting_double_spend|full_conflict_history)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(rbf|replacement|self_eviction_plan|failed_size_plan|pipeline_rejects_conflicting_double_spend|full_conflict_history)/)'",
       "performance_bound": "Conflict work stays within indexed bounded cohorts and immutable mutation plans; no full-pool scan under the write guard."
     },
     {
@@ -69,16 +69,18 @@
         "tx-pool/src/component/pre_pool/wait.rs",
         "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/resolved_tx.rs",
-        "tx-pool/src/component/links.rs"
+        "tx-pool/src/component/links.rs",
+        "tx-pool/src/pool_cell.rs",
+        "tx-pool/src/component/tx_selector.rs"
       ],
       "required_behavior": "Raw, resolved and accepted exact dependency keys—including headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection.",
-      "hostile_case": "Late-discovered parents, transitive cycles, stale resolved children or parent replacement must not strand a child, lose its wake edge or let it commit against unavailable inputs.",
+      "hostile_case": "Late-discovered parents, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, lose its wake edge or let a template commit an invalid order.",
       "reviewer_questions": [
         "Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?",
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|dependency_epochs|dependency|dep_group|unknown_outpoint)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
@@ -116,7 +118,7 @@
         "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
         "Does an impossible peer admission fail before global eviction planning?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|count_and_byte_limits|escape_hatch_rejects)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|count_and_byte_limits|conflict_closure_aborts|self_eviction_plan)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
@@ -218,14 +220,14 @@
         "tx-pool/src/component/links.rs",
         "tx-pool/src/pool.rs"
       ],
-      "required_behavior": "Pool entries, status counters, dependency links, conflict closure, ancestor/descendant weights and exact rollback journals mutate as one authoritative graph.",
-      "hostile_case": "Ghost links, counter drift, late-parent insertion, expired-parent cascades or escape-hatch eviction must not corrupt graph weights, preserve impossible children or remove required ancestors.",
+      "required_behavior": "Full-hash pool entries are authoritative; proposal slots, status counters, causal links, outpoint indexes, sort keys and aggregate totals are rebuildable projections changed by one immutable bounded plan and total Apply.",
+      "hostile_case": "Ghost links, short-ID collision, counter drift, late-parent insertion, expired-parent cascades or virtual self-eviction must not corrupt graph weights, preserve impossible children or partially remove accepted entries.",
       "reviewer_questions": [
         "Does one immutable plan cover the complete mutation before any write?",
-        "Does the independent audit rebuild agree after success and rollback?",
+        "Does the independent audit rebuild agree after Apply and remain unchanged after every rejection?",
         "Are required parents distinguished from ordering-only references?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(conflict_closure_ignores|status_counter_underflow|escape_hatch_never|test_dep_group|parent_added_after_child|reorg_expiry_cascades)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(sparse_plan_matches|conflict_closure_ignores|status_counter_underflow|causal_ancestor_limit|popular_dep_readers|test_dep_group|parent_added_after_child|reorg_expiry_cascades)/)'",
       "performance_bound": "Mutation and audit work is bounded by explicit graph/victim caps; cold repair must never hide hot-path drift."
     },
     {
@@ -243,7 +245,7 @@
         "Can uncle proposal filtering exclude the sole proposal path of a recovered transaction?",
         "Are Gap/Pending/Proposed transitions reflected to assembler selection?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_and_uncle_updates)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_and_uncle_updates|selected_reader|conditional_cycle)/)'",
       "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."
     },
     {
@@ -296,8 +298,8 @@
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I9"]},
 
     {"test": "successful_replacement_does_not_recover_removed_descendants", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
-    {"test": "failed_commit_restores_all_size_evictions_with_original_status_in_lock", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
-    {"test": "escape_hatch_evictions_are_recovered_on_commit_failure", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I10"]},
+    {"test": "failed_size_plan_is_mutation_free_with_original_statuses", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
+    {"test": "self_eviction_plan_leaves_cell_dep_readers_untouched", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I10"]},
     {"test": "rbf_replacement_certain_to_fail_commit_cannot_churn_pool", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I4", "I9", "I12"]},
     {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9", "I10"]},
@@ -311,6 +313,12 @@
     {"test": "successive_expanded_parent_losses_keep_exact_causal_keys_in_wait", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "behavior_id": "TP-DEP-001", "invariants": ["I4"]},
     {"test": "sort_txs_by_dependencies_orders_parents_before_children", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "pipeline_accepts_dep_reader_after_in_flight_spender", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6", "I10"]},
+    {"test": "selected_reader_is_ordered_before_spender", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I11"]},
+    {"test": "conditional_cycle_drops_weakest_member", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I11", "I12"]},
+    {"test": "conditional_cycle_does_not_drop_acyclic_downstream_entry", "behavior_id": "TP-DEP-001", "invariants": ["I5", "I6", "I11", "I12"]},
+    {"test": "dense_conditional_scc_uses_bounded_fallback_and_keeps_strongest", "behavior_id": "TP-DEP-001", "invariants": ["I5", "I6", "I11", "I12"]},
+    {"test": "over_budget_dep_entry_does_not_censor_independent_suffix", "behavior_id": "TP-DEP-001", "invariants": ["I5", "I6", "I11", "I12"]},
 
     {"test": "full_conflict_history_terminalizes_rejected_owner_without_panicking", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I5", "I9"]},
     {"test": "remote_peer_order_cannot_hijack_an_existing_conflict_owner", "behavior_id": "TP-CACHE-001", "invariants": ["I1", "I9"]},
@@ -322,7 +330,7 @@
     {"test": "parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
     {"test": "remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5", "I12"]},
     {"test": "count_and_byte_limits_cover_reserved_queued_and_active_batches", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
-    {"test": "escape_hatch_rejects_mutation_larger_than_displacement_bound", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
+    {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
     {"test": "verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
 
     {"test": "ready_expiry_filter_does_not_starve_later_non_ready_deadlines", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
@@ -350,10 +358,13 @@
 
     {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "status_counter_underflow_recomputes_from_authoritative_entries", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
-    {"test": "escape_hatch_never_evicts_a_required_parent", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "causal_ancestor_limit_never_evicts_existing_entries", "behavior_id": "TP-POOL-001", "invariants": ["I3", "I10"]},
     {"test": "test_dep_group", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "parent_added_after_child_gets_descendant_weight", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "reorg_expiry_cascades_from_expired_parent_to_fresh_child", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "sparse_plan_matches_stepwise_reference_across_small_graphs", "behavior_id": "TP-POOL-001", "invariants": ["I2", "I3", "I10", "I12"]},
+    {"test": "dep_readers_do_not_count_as_spender_ancestors", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "popular_dep_readers_coexist_with_spender", "behavior_id": "TP-POOL-001", "invariants": ["I5", "I10", "I12"]},
 
     {"test": "reorg_demotes_stale_gap_to_pending", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
     {"test": "pending_proposals_filter_conflicting_uncle_subtree", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
@@ -370,10 +381,27 @@
     {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I9"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
-    {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
     {"test": "descendants_cache_members_stay_within_budget", "behavior_id": "TP-PERF-001", "invariants": ["I12"]}
   ],
   "integration_evidence": [
+    {
+      "id": "cell-dep-arrival-order",
+      "behavior_ids": ["TP-DEP-001", "TP-TEMPLATE-001"],
+      "path": "test/src/specs/tx_pool/dead_cell_deps.rs",
+      "anchor": "CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate",
+      "invariants": ["I6", "I10", "I11"],
+      "unit_anchors": ["pipeline_accepts_dep_reader_after_in_flight_spender", "selected_reader_is_ordered_before_spender", "conditional_cycle_drops_weakest_member"],
+      "boundary": "Both reader-first and spender-first RPC arrival orders retain the valid pair; normal get_block_template deterministically places the cell-dep reader before the spender and commits both."
+    },
+    {
+      "id": "conditional-reader-fanout",
+      "behavior_ids": ["TP-DEP-001", "TP-POOL-001", "TP-PERF-001"],
+      "path": "test/src/specs/tx_pool/limit.rs",
+      "anchor": "TxPoolLimitAncestorCount",
+      "invariants": ["I5", "I10", "I12"],
+      "unit_anchors": ["popular_dep_readers_coexist_with_spender", "dep_readers_do_not_count_as_spender_ancestors", "causal_ancestor_limit_never_evicts_existing_entries"],
+      "boundary": "Two thousand cell-dep readers coexist with a spender without becoming persistent ancestors, while a genuine causal chain still stops at the configured ancestor limit."
+    },
     {
       "id": "normal-mining-reorg-tree",
       "behavior_ids": ["TP-REORG-001", "TP-TEMPLATE-001"],

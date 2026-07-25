@@ -1,4 +1,4 @@
-use super::{PoolEntry, PoolMap, Status};
+use super::{EntryOp, EntryOutPointEdges, PoolEntry, PoolMap, Relation, Status};
 use crate::component::entry::TxEntry;
 use crate::error::Reject;
 use ckb_types::core::Cycle;
@@ -83,6 +83,9 @@ impl PoolMap {
         for (id, entry) in &entries {
             if entry.inner.proposal_short_id() != (*id).clone() {
                 return Err(format!("entry key differs from transaction short id {id}"));
+            }
+            if entry.hash != entry.inner.transaction().hash() {
+                return Err(format!("entry full-hash key differs from transaction {id}"));
             }
             if hash_to_id
                 .insert(entry.inner.transaction().hash(), (*id).clone())
@@ -180,9 +183,6 @@ impl PoolMap {
             for input in entry.inner.transaction().input_pts_iter() {
                 if let Some(parent) = hash_to_id.get(&input.tx_hash()) {
                     parents.insert(parent.clone());
-                }
-                if let Some(dep_users) = expected_deps.get(&input) {
-                    parents.extend(dep_users.iter().cloned());
                 }
             }
             for dep in entry.inner.related_dep_out_points() {
@@ -306,9 +306,107 @@ impl PoolMap {
             .map(|entry| entry.inner.transaction())
     }
 
+    /// Permissive graph constructor used only by component fixtures that must
+    /// build historical child-first states. Production and internal plug
+    /// paths use immutable Plan/total Apply and cannot bypass its policy.
+    pub(crate) fn add_entry(&mut self, mut entry: TxEntry, status: Status) -> Result<bool, Reject> {
+        let id = entry.proposal_short_id();
+        let hash = entry.transaction().hash();
+        if self.entries.get_by_hash(&hash).is_some() {
+            return Ok(false);
+        }
+        if self.entries.get_by_id(&id).is_some() {
+            return Err(Reject::Full(format!(
+                "proposal short-id collision while inserting {hash}"
+            )));
+        }
+
+        let edges = EntryOutPointEdges::from_entry(&entry);
+        self.pre_validate_entry_inputs(&edges)?;
+        self.prevalidate_add_totals(&entry)?;
+        let parents = self.prepare_ancestors_for_test(&mut entry)?;
+        self.commit_ancestor_links(id.clone(), parents);
+        self.record_entry_edges(&entry, &edges);
+        let descendants = self.link_existing_children_for_test(&mut entry, &id);
+        self.insert_entry(&entry, status);
+        self.update_descendants_index_key_for(&entry, EntryOp::Add, &descendants);
+        self.update_ancestors_index_key(&entry, EntryOp::Add);
+        self.track_entry_statistics(None, Some(status));
+        self.stats.total_tx_size += entry.size;
+        self.stats.total_tx_resident_size += entry.resident_size();
+        self.stats.total_tx_cycles += entry.cycles;
+        Ok(true)
+    }
+
+    fn prepare_ancestors_for_test(
+        &self,
+        entry: &mut TxEntry,
+    ) -> Result<HashSet<ProposalShortId>, Reject> {
+        let parents = self
+            .get_tx_parents(entry, self.max_ancestors_count.saturating_sub(1))
+            .ok_or(Reject::ExceededMaximumAncestorsCount)?;
+        let ancestors = self
+            .links
+            .calc_relation_ids(parents.clone(), Relation::Parents);
+        if ancestors.len() >= self.max_ancestors_count {
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+        self.apply_ancestor_weights(entry, &ancestors)?;
+        Ok(parents)
+    }
+
+    fn link_existing_children_for_test(
+        &mut self,
+        entry: &mut TxEntry,
+        id: &ProposalShortId,
+    ) -> HashSet<ProposalShortId> {
+        let mut children = HashSet::new();
+        for output in entry.transaction().output_pts() {
+            if let Some(readers) = self.out_point_index.get_deps_ref(&output) {
+                children.extend(readers.iter().cloned());
+            }
+            if let Some(spender) = self.out_point_index.get_input_ref(&output) {
+                children.insert(spender.clone());
+            }
+        }
+        for child in &children {
+            assert!(self.links.add_parent(child, id.clone()).unwrap());
+        }
+        self.links
+            .get_mut(id)
+            .expect("test parent links were committed")
+            .children
+            .extend(children);
+        let descendants = self.links.calc_descendants(id);
+        for descendant in &descendants {
+            entry.add_descendant_weight(&self.get_by_id(descendant).unwrap().inner);
+        }
+        descendants
+    }
+
+    fn prevalidate_add_totals(&self, entry: &TxEntry) -> Result<(), Reject> {
+        let overflow = self.stats.total_tx_size.checked_add(entry.size).is_none()
+            || self
+                .stats
+                .total_tx_resident_size
+                .checked_add(entry.resident_size())
+                .is_none()
+            || self
+                .stats
+                .total_tx_cycles
+                .checked_add(entry.cycles)
+                .is_none();
+        if overflow {
+            Err(Reject::Full(
+                "tx-pool test fixture totals overflow".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         self.add_entry(entry, Status::Proposed)
-            .map(|outcome| outcome.inserted)
     }
 
     pub(crate) fn get_proposals(

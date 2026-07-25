@@ -91,10 +91,6 @@ impl TxLinksMap {
         self.inner.get(short_id).map(|link| &link.parents)
     }
 
-    pub fn get_mut(&mut self, short_id: &ProposalShortId) -> Option<&mut TxLinks> {
-        self.inner.get_mut(short_id)
-    }
-
     pub fn remove(&mut self, short_id: &ProposalShortId) -> Option<TxLinks> {
         self.inner.remove(short_id)
     }
@@ -127,16 +123,6 @@ impl TxLinksMap {
         self.inner
             .get_mut(short_id)
             .map(|links| links.children.insert(child))
-    }
-
-    pub fn add_parent(
-        &mut self,
-        short_id: &ProposalShortId,
-        parent: ProposalShortId,
-    ) -> Option<bool> {
-        self.inner
-            .get_mut(short_id)
-            .map(|links| links.parents.insert(parent))
     }
 
     pub fn clear(&mut self) {

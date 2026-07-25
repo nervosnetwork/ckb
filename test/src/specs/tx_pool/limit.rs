@@ -87,8 +87,9 @@ impl Spec for TxPoolLimitAncestorCount {
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
 
-        // Create 250 transactions cell dep on tx_a
-        // we can have more than config.max_ancestors_count number of txs using one cell ref
+        // Create 2,000 transactions that read tx_a's output as a cell dep. A
+        // reader is not a causal ancestor of a later spender, so this fanout
+        // must not consume the spender's ancestor budget.
         let mut cell_ref_txs = vec![];
         for i in 1..=2000 {
             let cur = always_success_transaction(node0, initial_inputs.get(i).unwrap());
@@ -106,29 +107,23 @@ impl Spec for TxPoolLimitAncestorCount {
             .build();
         let last = always_success_transaction(node0, &input);
 
-        // now there are 2002 ancestors for the last tx in the pool:
-        // 2002 = 2000 ref cell + 1 parent + 1 for self
-        // Making it fit would evict 1002 entries in one write-lock transition.
-        // That remote-input-controlled work is deliberately bounded, so an
-        // over-bound request is retryable backpressure and must not partially
-        // mutate the existing pool.
+        // The spender has one genuine causal parent (tx_a). The 2,000 readers
+        // coexist and are ordered before the spender only if selected into
+        // the same block template.
         let before = node0.get_tip_tx_pool_info();
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
-        let error = res.expect_err("an over-bound eviction cohort must be rejected");
         assert!(
-            error
-                .to_string()
-                .contains("cell-ref eviction exceeds the per-transition limit"),
-            "unexpected rejection: {error}"
+            res.is_ok(),
+            "conditional readers are not ancestors: {res:?}"
         );
         let after = node0.get_tip_tx_pool_info();
-        assert_eq!(before.pending, after.pending);
+        assert_eq!(after.pending.value(), before.pending.value() + 1);
         assert_eq!(before.proposed, after.proposed);
         assert_eq!(before.orphan, after.orphan);
-        assert_eq!(before.total_tx_size, after.total_tx_size);
-        assert_eq!(before.total_tx_cycles, after.total_tx_cycles);
+        assert!(after.total_tx_size > before.total_tx_size);
+        assert!(after.total_tx_cycles > before.total_tx_cycles);
         for tx in &cell_ref_txs {
             let result = node0
                 .rpc_client()

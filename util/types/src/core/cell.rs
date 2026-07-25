@@ -312,8 +312,34 @@ impl ResolvedTransaction {
         cell_checker: &CC,
         header_checker: &HC,
     ) -> Result<(), OutPointError> {
-        let mut checked_cells: HashSet<OutPoint> = HashSet::new();
-        let mut check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
+        self.check_with_cell_checkers(seen_inputs, cell_checker, cell_checker, header_checker)
+    }
+
+    /// Check inputs and cell dependencies against role-specific live-cell
+    /// views.
+    ///
+    /// Most callers use the same view for both roles through [`Self::check`].
+    /// A transaction pool needs a stricter input view (an accepted spender
+    /// makes the input unavailable) and a pre-spend dependency view (the same
+    /// accepted spender must not hide a chain or accepted-producer cell from a
+    /// cell-dep reader). Keeping the distinction in this primitive prevents
+    /// admission order from changing the accepted transaction set.
+    pub fn check_with_cell_checkers<
+        IC: CellChecker,
+        DC: CellChecker,
+        HC: HeaderChecker,
+        S: BuildHasher,
+    >(
+        &self,
+        seen_inputs: &mut HashSet<OutPoint, S>,
+        input_checker: &IC,
+        dep_checker: &DC,
+        header_checker: &HC,
+    ) -> Result<(), OutPointError> {
+        let check_cell = |out_point: &OutPoint,
+                          checker: &dyn CellChecker,
+                          checked_cells: &mut HashSet<OutPoint>|
+         -> Result<(), OutPointError> {
             if seen_inputs.contains(out_point) {
                 return Err(OutPointError::Dead(out_point.clone()));
             }
@@ -322,7 +348,7 @@ impl ResolvedTransaction {
                 return Ok(());
             }
 
-            match cell_checker.is_live(out_point) {
+            match checker.is_live(out_point) {
                 Some(true) => {
                     checked_cells.insert(out_point.clone());
                     Ok(())
@@ -332,9 +358,12 @@ impl ResolvedTransaction {
             }
         };
 
+        let mut checked_inputs = HashSet::new();
+        let mut checked_deps = HashSet::new();
+
         // // check input
         for cell_meta in &self.resolved_inputs {
-            check_cell(&cell_meta.out_point)?;
+            check_cell(&cell_meta.out_point, input_checker, &mut checked_inputs)?;
         }
 
         let mut resolved_system_deps: HashSet<&OutPoint> = HashSet::new();
@@ -349,7 +378,7 @@ impl ResolvedTransaction {
                 if let Some(ResolvedDep::Group(_, cell_deps)) = dep_group {
                     resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
                 } else {
-                    check_cell(&cell_meta.out_point)?;
+                    check_cell(&cell_meta.out_point, dep_checker, &mut checked_deps)?;
                 }
             }
 
@@ -362,7 +391,7 @@ impl ResolvedTransaction {
                 if system_cell.get(&cell_dep).is_none()
                     && !resolved_system_deps.contains(&cell_meta.out_point)
                 {
-                    check_cell(&cell_meta.out_point)?;
+                    check_cell(&cell_meta.out_point, dep_checker, &mut checked_deps)?;
                 }
             }
         } else {
@@ -371,7 +400,7 @@ impl ResolvedTransaction {
                 .iter()
                 .chain(self.resolved_dep_groups.iter())
             {
-                check_cell(&cell_meta.out_point)?;
+                check_cell(&cell_meta.out_point, dep_checker, &mut checked_deps)?;
             }
         }
 
@@ -686,6 +715,34 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     cell_provider: &CP,
     header_checker: &HC,
 ) -> Result<ResolvedTransaction, OutPointError> {
+    resolve_transaction_with_cell_providers(
+        transaction,
+        seen_inputs,
+        cell_provider,
+        cell_provider,
+        header_checker,
+    )
+}
+
+/// Resolve a transaction using role-specific cell views.
+///
+/// Consensus and block callers normally pass the same provider for both
+/// roles via [`resolve_transaction`]. A transaction-pool overlay may expose a
+/// cell as spent to an input while still exposing its pre-spend value to a
+/// cell-dep reader. The two caches are deliberately separate because one
+/// transaction may legally name the same outpoint in both roles.
+pub fn resolve_transaction_with_cell_providers<
+    IP: CellProvider,
+    DP: CellProvider,
+    HC: HeaderChecker,
+    S: BuildHasher,
+>(
+    transaction: TransactionView,
+    seen_inputs: &mut HashSet<OutPoint, S>,
+    input_cell_provider: &IP,
+    dep_cell_provider: &DP,
+    header_checker: &HC,
+) -> Result<ResolvedTransaction, OutPointError> {
     let (mut resolved_inputs, mut resolved_cell_deps, mut resolved_dep_groups) = (
         Vec::with_capacity(transaction.inputs().len()),
         Vec::with_capacity(transaction.cell_deps().len()),
@@ -693,28 +750,32 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     );
     let mut current_inputs = HashSet::new();
 
-    let mut resolved_cells: HashMap<(OutPoint, bool), CellMeta> = HashMap::new();
-    let mut resolve_cell =
-        |out_point: &OutPoint, eager_load: bool| -> Result<CellMeta, OutPointError> {
-            if seen_inputs.contains(out_point) {
-                return Err(OutPointError::Dead(out_point.clone()));
-            }
+    let resolve_cell = |out_point: &OutPoint,
+                        eager_load: bool,
+                        provider: &dyn CellProvider,
+                        resolved_cells: &mut HashMap<(OutPoint, bool), CellMeta>|
+     -> Result<CellMeta, OutPointError> {
+        if seen_inputs.contains(out_point) {
+            return Err(OutPointError::Dead(out_point.clone()));
+        }
 
-            match resolved_cells.entry((out_point.clone(), eager_load)) {
-                Entry::Occupied(entry) => Ok(entry.get().clone()),
-                Entry::Vacant(entry) => {
-                    let cell_status = cell_provider.cell(out_point, eager_load);
-                    match cell_status {
-                        CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
-                        CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
-                        CellStatus::Live(cell_meta) => {
-                            entry.insert(cell_meta.clone());
-                            Ok(cell_meta)
-                        }
+        match resolved_cells.entry((out_point.clone(), eager_load)) {
+            Entry::Occupied(entry) => Ok(entry.get().clone()),
+            Entry::Vacant(entry) => {
+                let cell_status = provider.cell(out_point, eager_load);
+                match cell_status {
+                    CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
+                    CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
+                    CellStatus::Live(cell_meta) => {
+                        entry.insert(cell_meta.clone());
+                        Ok(cell_meta)
                     }
                 }
             }
-        };
+        }
+    };
+
+    let mut resolved_inputs_cache = HashMap::new();
 
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
@@ -722,13 +783,28 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
             if !current_inputs.insert(out_point.to_owned()) {
                 return Err(OutPointError::Dead(out_point));
             }
-            resolved_inputs.push(resolve_cell(&out_point, false)?);
+            resolved_inputs.push(resolve_cell(
+                &out_point,
+                false,
+                input_cell_provider,
+                &mut resolved_inputs_cache,
+            )?);
         }
     }
 
+    let mut resolved_deps_cache = HashMap::new();
+    let mut resolve_dep = |out_point: &OutPoint, eager_load: bool| {
+        resolve_cell(
+            out_point,
+            eager_load,
+            dep_cell_provider,
+            &mut resolved_deps_cache,
+        )
+    };
+
     resolve_transaction_deps_with_system_cell_cache(
         &transaction,
-        &mut resolve_cell,
+        &mut resolve_dep,
         &mut resolved_cell_deps,
         &mut resolved_dep_groups,
     )?;

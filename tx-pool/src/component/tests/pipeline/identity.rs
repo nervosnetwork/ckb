@@ -577,7 +577,8 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
     let mut pool = h.service.pool.tx_pool.write().await;
     pool.config.max_tx_pool_size = tx_size;
     pool.config.max_tx_pool_resident_size = resident_size - 1;
-    pool.add_pending(entry)
+    pool.pool_map
+        .add_entry(entry, crate::component::pool_map::Status::Pending)
         .expect("entry inserts before limits run");
     assert_eq!(pool.pool_map.stats.total_tx_size, tx_size);
     assert_eq!(pool.pool_map.stats.total_tx_resident_size, resident_size);

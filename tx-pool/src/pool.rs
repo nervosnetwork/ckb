@@ -1,6 +1,6 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
-use crate::component::pool_map::{PoolEntry, PoolMap, PoolMapAddOutcome, RemovedPoolEntry, Status};
+use crate::component::pool_map::{ConflictClosure, PoolEntry, PoolMap, Status};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
@@ -14,7 +14,10 @@ use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         Capacity, Cycle, TransactionView,
-        cell::{OverlayCellChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction},
+        cell::{
+            OverlayCellChecker, OverlayCellProvider, ResolvedTransaction,
+            resolve_transaction_with_cell_providers,
+        },
         tx_pool::{PoolTxDetailInfo, TxPoolEntryInfo, TxPoolIds},
     },
     packed::{Byte32, ProposalShortId},
@@ -121,22 +124,6 @@ impl TxPool {
             .collect::<Vec<_>>();
         conflicts.extend(descendants);
         self.calculate_min_replace_fee(&conflicts, tx.size as u64)
-    }
-
-    /// Add tx with pending status
-    /// If did have this value present, false is returned.
-    pub(crate) fn add_pending(&mut self, entry: TxEntry) -> Result<PoolMapAddOutcome, Reject> {
-        self.pool_map.add_entry(entry, Status::Pending)
-    }
-
-    /// Add tx which proposed but still uncommittable to gap
-    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<PoolMapAddOutcome, Reject> {
-        self.pool_map.add_entry(entry, Status::Gap)
-    }
-
-    /// Add tx with proposed status
-    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<PoolMapAddOutcome, Reject> {
-        self.pool_map.add_entry(entry, Status::Proposed)
     }
 
     /// Returns true if the tx-pool contains a tx with specified id.
@@ -359,27 +346,13 @@ impl TxPool {
         current_entry_id: Option<&ProposalShortId>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Option<Reject> {
-        self.limit_size_inner(current_entry_id, reject_events, None)
-    }
-
-    /// Transactional form of [`Self::limit_size`]. Every physical removal is
-    /// exported with its original status so a caller that rejects the current
-    /// insertion can restore the exact pre-commit pool before releasing the
-    /// write guard.
-    pub(crate) fn limit_size_with_journal(
-        &mut self,
-        current_entry_id: Option<&ProposalShortId>,
-        reject_events: &mut Vec<(TxEntry, Reject)>,
-        removal_journal: &mut Vec<RemovedPoolEntry>,
-    ) -> Option<Reject> {
-        self.limit_size_inner(current_entry_id, reject_events, Some(removal_journal))
+        self.limit_size_inner(current_entry_id, reject_events)
     }
 
     fn limit_size_inner(
         &mut self,
         current_entry_id: Option<&ProposalShortId>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-        mut removal_journal: Option<&mut Vec<RemovedPoolEntry>>,
     ) -> Option<Reject> {
         let mut ret = None;
         let resident_limit = self.config.tx_pool_resident_size_budget();
@@ -397,17 +370,7 @@ impl TxPool {
             if let Some(id) = next_evict_entry() {
                 let removed = self.pool_map.remove_entry_and_descendants_with_status(&id);
                 for removed in removed {
-                    // The ordinary path keeps the old move-only behavior.
-                    // Clone a `TxEntry` only when a transactional caller must
-                    // retain the exact undo record as well as its reject event.
-                    let entry = match removal_journal.as_deref_mut() {
-                        Some(journal) => {
-                            let entry = removed.entry.clone();
-                            journal.push(removed);
-                            entry
-                        }
-                        None => removed.entry,
-                    };
+                    let entry = removed.entry;
                     let tx_hash = entry.transaction().hash();
                     debug!(
                         "Removed by size limit {} timestamp({})",
@@ -439,66 +402,36 @@ impl TxPool {
         ret
     }
 
-    // remove transaction with detached proposal from gap and proposed
-    // try re-put to pending
+    // Demote a detached proposal and its causal descendants to Pending.
     pub(crate) fn remove_by_detached_proposal<'a>(
         &mut self,
         ids: impl Iterator<Item = &'a ProposalShortId>,
         notify_events: &mut Vec<(TxEntry, Status)>,
-        reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
-        // Remove the complete union before re-adding anything. Re-adding
-        // after each root lets overlapping detached roots process the same
-        // descendant repeatedly (a chain of N detached proposal IDs can
-        // otherwise generate O(N^2) pool mutations and notifications).
-        let mut entries = Vec::new();
+        let roots = ids
+            .filter(|id| {
+                self.pool_map
+                    .get_by_id(id)
+                    .is_some_and(|entry| entry.status != Status::Pending)
+            })
+            .cloned()
+            .collect::<HashSet<_>>();
+        let ids = match self.pool_map.conflict_closure(&roots, self.pool_map.len()) {
+            ConflictClosure::Complete { removal, .. } => removal,
+            ConflictClosure::Exceeded { .. } => {
+                unreachable!("accepted descendant union cannot exceed accepted membership")
+            }
+        };
         for id in ids {
-            if let Some(e) = self.pool_map.get_by_id(id) {
-                let status = e.status;
-                if status == Status::Pending {
-                    continue;
-                }
-                entries.extend(self.pool_map.remove_entry_and_descendants(id));
+            let Some(entry) = self.pool_map.get_by_id(&id) else {
+                continue;
+            };
+            if entry.status == Status::Pending {
+                continue;
             }
-        }
-
-        // The captured ancestor counts describe the pre-removal DAG. Parent-
-        // first replay reconstructs it while every entry is handled exactly
-        // once, independent of detached-ID iteration order.
-        entries.sort_unstable_by_key(|entry| entry.ancestors_count);
-        for mut entry in entries {
-            let tx_hash = entry.transaction().hash();
-            entry.reset_statistic_state();
-            match self.add_pending(entry.clone()) {
-                Ok(PoolMapAddOutcome {
-                    inserted: true,
-                    evicted,
-                }) => {
-                    // Re-pending notifications are collected and dispatched
-                    // by the caller outside the write lock (user callbacks
-                    // must not run in-lock).
-                    notify_events.push((entry.clone(), Status::Pending));
-                    for removed in evicted {
-                        let evict = removed.entry;
-                        let reject = reject_full_for_evicted(&evict);
-                        reject_events.push((evict, reject));
-                    }
-                }
-                Ok(PoolMapAddOutcome {
-                    inserted: false, ..
-                }) => {
-                    panic!(
-                        "detached-proposal replay found an impossible duplicate short-id owner for {tx_hash}"
-                    )
-                }
-                Err(reject) => {
-                    // PoolMap restores its exact local escape-hatch cohort
-                    // before returning this error, so this caller only owns
-                    // the replay entry's rejection.
-                    reject_events.push((entry.clone(), reject.clone()));
-                }
-            }
-            debug!("remove_by_detached_proposal {} replayed", tx_hash);
+            let entry = entry.inner.clone();
+            self.pool_map.set_entry(&id, Status::Pending);
+            notify_events.push((entry, Status::Pending));
         }
     }
 
@@ -506,12 +439,20 @@ impl TxPool {
         self.pool_map.remove_entry_and_descendants(id)
     }
 
-    pub(crate) fn check_rtx_from_pool(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
+    /// Final role-aware validation against the immutable virtual pool left by
+    /// a planned removal union.
+    pub(crate) fn check_rtx_from_pool_excluding(
+        &self,
+        rtx: &ResolvedTransaction,
+        excluded: &HashSet<ProposalShortId>,
+    ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
-        let pool_cell = PoolCell::new(&self.pool_map, false);
-        let checker = OverlayCellChecker::new(&pool_cell, snapshot);
+        let input_cell = PoolCell::excluding(&self.pool_map, true, excluded);
+        let dep_cell = PoolCell::excluding(&self.pool_map, false, excluded);
+        let input_checker = OverlayCellChecker::new(&input_cell, snapshot);
+        let dep_checker = OverlayCellChecker::new(&dep_cell, snapshot);
         let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &checker, snapshot)
+        rtx.check_with_cell_checkers(&mut seen_inputs, &input_checker, &dep_checker, snapshot)
             .map_err(Reject::Resolve)
     }
 
@@ -521,12 +462,24 @@ impl TxPool {
         rbf: bool,
     ) -> Result<Arc<ResolvedTransaction>, Reject> {
         let snapshot = self.snapshot();
-        let pool_cell = PoolCell::new(&self.pool_map, rbf);
-        let provider = OverlayCellProvider::new(&pool_cell, snapshot);
+        let input_cell = if rbf {
+            PoolCell::for_rbf_inputs(&self.pool_map)
+        } else {
+            PoolCell::for_inputs(&self.pool_map)
+        };
+        let dep_cell = PoolCell::for_dependencies(&self.pool_map);
+        let input_provider = OverlayCellProvider::new(&input_cell, snapshot);
+        let dep_provider = OverlayCellProvider::new(&dep_cell, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot)
-            .map(Arc::new)
-            .map_err(Reject::Resolve)
+        resolve_transaction_with_cell_providers(
+            tx,
+            &mut seen_inputs,
+            &input_provider,
+            &dep_provider,
+            snapshot,
+        )
+        .map(Arc::new)
+        .map_err(Reject::Resolve)
     }
 
     /// Run the only fallible reorg status hook before snapshot or membership

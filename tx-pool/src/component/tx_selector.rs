@@ -7,7 +7,7 @@ use crate::component::{
 use ckb_logger::debug;
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use multi_index_map::MultiIndexMap;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 // A template data struct used to store modified entries when package txs
 #[derive(MultiIndexMap, Clone)]
@@ -86,6 +86,92 @@ const MAX_CONSECUTIVE_FAILURES: usize = 4000;
 /// transient memory a crafted wide-deep graph can make a block-template
 /// selection hold while `tx_pool.read()` is held.
 const DESCENDANTS_CACHE_MEMBER_BUDGET: usize = 200_000;
+
+/// Maximum number of expanded cell-dependency occurrences inspected while
+/// imposing conditional reader-before-spender order on one template. The
+/// accepted pool already charges these occurrences as resident memory; this
+/// independent cap bounds block-template transient CPU and memory.
+const SELECTED_DEP_ORDERING_BUDGET: usize = 200_000;
+
+/// Maximum number of exact SCC-shedding passes. One weakest member is removed
+/// from every cyclic component per pass. A deliberately dense component can
+/// require many feedback vertices, so after this bound the selector keeps
+/// only the strongest representative of each remaining cyclic component.
+/// That preserves a deterministic valid template while bounding hostile
+/// conditional-cycle work.
+const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
+
+/// Compute exact strongly connected components without recursive stack use.
+/// The graph is already bounded by [`SELECTED_DEP_ORDERING_BUDGET`].
+fn strongly_connected_components(
+    nodes: &HashSet<ProposalShortId>,
+    children: &HashMap<ProposalShortId, HashSet<ProposalShortId>>,
+) -> Vec<Vec<ProposalShortId>> {
+    let mut visited = HashSet::with_capacity(nodes.len());
+    let mut finish = Vec::with_capacity(nodes.len());
+    for start in nodes {
+        if visited.contains(start) {
+            continue;
+        }
+        let mut stack = vec![(start.clone(), false)];
+        while let Some((id, expanded)) = stack.pop() {
+            if expanded {
+                finish.push(id);
+                continue;
+            }
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            stack.push((id.clone(), true));
+            if let Some(next) = children.get(&id) {
+                for child in next {
+                    if nodes.contains(child) && !visited.contains(child) {
+                        stack.push((child.clone(), false));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut parents = nodes
+        .iter()
+        .cloned()
+        .map(|id| (id, Vec::new()))
+        .collect::<HashMap<_, _>>();
+    for (parent, next) in children {
+        if !nodes.contains(parent) {
+            continue;
+        }
+        for child in next {
+            if nodes.contains(child) {
+                parents
+                    .get_mut(child)
+                    .expect("selected child has a reverse edge bucket")
+                    .push(parent.clone());
+            }
+        }
+    }
+
+    visited.clear();
+    let mut components = Vec::new();
+    for start in finish.into_iter().rev() {
+        if !visited.insert(start.clone()) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut stack = vec![start];
+        while let Some(id) = stack.pop() {
+            component.push(id.clone());
+            for parent in &parents[&id] {
+                if visited.insert(parent.clone()) {
+                    stack.push(parent.clone());
+                }
+            }
+        }
+        components.push(component);
+    }
+    components
+}
 
 pub struct TxSelector<'a> {
     pool_map: &'a PoolMap,
@@ -261,7 +347,258 @@ impl<'a> TxSelector<'a> {
 
             consecutive_failed = 0;
         }
-        (self.entries, size, cycles)
+        let entries = self.order_selected_entries();
+        size = entries
+            .iter()
+            .fold(0usize, |total, entry| total.saturating_add(entry.size));
+        cycles = entries
+            .iter()
+            .fold(0u64, |total, entry| total.saturating_add(entry.cycles));
+        (entries, size, cycles)
+    }
+
+    /// Add conditional `dep reader -> spender` edges only to the bounded set
+    /// already selected by the causal CPFP policy, then return one
+    /// deterministic topological order. Conditional cycles are not accepted
+    /// state corruption: drop the weakest cycle member and its selected
+    /// causal descendants, then retry.
+    fn order_selected_entries(&mut self) -> Vec<TxEntry> {
+        let selected = std::mem::take(&mut self.entries);
+        if selected.len() < 2 {
+            return selected;
+        }
+
+        let selected = self.retain_selected_with_dep_budget(selected, SELECTED_DEP_ORDERING_BUDGET);
+        if selected.len() < 2 {
+            return selected;
+        }
+        let mut selected = selected
+            .into_iter()
+            .enumerate()
+            .map(|(rank, entry)| (entry.proposal_short_id(), (rank, entry)))
+            .collect::<HashMap<_, _>>();
+
+        let mut cycle_round = 0usize;
+        loop {
+            let mut children = selected
+                .keys()
+                .cloned()
+                .map(|id| (id, HashSet::new()))
+                .collect::<HashMap<_, _>>();
+            let mut causal_children = selected
+                .keys()
+                .cloned()
+                .map(|id| (id, HashSet::new()))
+                .collect::<HashMap<_, _>>();
+            let mut indegree = selected
+                .keys()
+                .cloned()
+                .map(|id| (id, 0usize))
+                .collect::<HashMap<_, _>>();
+
+            let mut add_edge = |parent: &ProposalShortId, child: &ProposalShortId| {
+                if parent == child
+                    || !selected.contains_key(parent)
+                    || !selected.contains_key(child)
+                {
+                    return;
+                }
+                if children
+                    .get_mut(parent)
+                    .expect("selected parent has an edge bucket")
+                    .insert(child.clone())
+                {
+                    *indegree
+                        .get_mut(child)
+                        .expect("selected child has an indegree") += 1;
+                }
+            };
+
+            // Persistent links contain causal producer edges only.
+            for id in selected.keys() {
+                if let Some(parents) = self.pool_map.links.get_parents(id) {
+                    for parent in parents {
+                        if selected.contains_key(parent) {
+                            causal_children
+                                .get_mut(parent)
+                                .expect("selected causal parent has an edge bucket")
+                                .insert(id.clone());
+                        }
+                        add_edge(parent, id);
+                    }
+                }
+            }
+
+            // There is at most one accepted spender for an outpoint.
+            let spenders = selected
+                .iter()
+                .flat_map(|(id, (_, entry))| {
+                    entry
+                        .transaction()
+                        .input_pts_iter()
+                        .map(move |out_point| (crate::util::compact_packed(&out_point), id.clone()))
+                })
+                .collect::<HashMap<_, _>>();
+            for (reader, (_, entry)) in &selected {
+                let mut seen = HashSet::new();
+                for dep in entry.related_dep_out_points() {
+                    let dep = crate::util::compact_packed(dep);
+                    if seen.insert(dep.clone())
+                        && let Some(spender) = spenders.get(&dep)
+                    {
+                        add_edge(reader, spender);
+                    }
+                }
+            }
+
+            let mut ready = indegree
+                .iter()
+                .filter(|(_, degree)| **degree == 0)
+                .map(|(id, _)| {
+                    let rank = selected.get(id).expect("selected rank exists").0;
+                    (rank, id.clone())
+                })
+                .collect::<BTreeSet<_>>();
+            let mut order = Vec::with_capacity(selected.len());
+            while let Some((rank, id)) = ready.pop_first() {
+                order.push(id.clone());
+                for child in &children[&id] {
+                    let degree = indegree
+                        .get_mut(child)
+                        .expect("conditional child remains selected");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.insert((selected[child].0, child.clone()));
+                    }
+                }
+                debug_assert_eq!(selected[&id].0, rank);
+            }
+
+            if order.len() == selected.len() {
+                return order
+                    .into_iter()
+                    .map(|id| selected.remove(&id).expect("ordered entry exists").1)
+                    .collect();
+            }
+
+            // Kahn's residual also contains acyclic nodes downstream of a
+            // cycle. Selecting the weakest residual node lets an attacker
+            // discard unrelated low-fee transactions before touching the
+            // actual cycle. Exact SCCs isolate only cycle participants.
+            let nodes = selected.keys().cloned().collect::<HashSet<_>>();
+            let cyclic_components = strongly_connected_components(&nodes, &children)
+                .into_iter()
+                .filter(|component| component.len() > 1)
+                .collect::<Vec<_>>();
+            assert!(
+                !cyclic_components.is_empty(),
+                "incomplete topological order must contain a cyclic component"
+            );
+            cycle_round += 1;
+            let bounded_fallback = cycle_round > MAX_CONDITIONAL_CYCLE_ROUNDS;
+            let mut roots = HashSet::new();
+            for component in cyclic_components {
+                let by_strength = |left: &&ProposalShortId, right: &&ProposalShortId| {
+                    let left_entry = self
+                        .pool_map
+                        .get_by_id(left)
+                        .expect("selected entry remains accepted");
+                    let right_entry = self
+                        .pool_map
+                        .get_by_id(right)
+                        .expect("selected entry remains accepted");
+                    left_entry
+                        .evict_key
+                        .cmp(&right_entry.evict_key)
+                        .then_with(|| left.cmp(right))
+                };
+                if bounded_fallback {
+                    let strongest = component
+                        .iter()
+                        .max_by(by_strength)
+                        .expect("cyclic component is non-empty")
+                        .clone();
+                    roots.extend(component.into_iter().filter(|id| id != &strongest));
+                } else {
+                    roots.insert(
+                        component
+                            .iter()
+                            .min_by(by_strength)
+                            .expect("cyclic component is non-empty")
+                            .clone(),
+                    );
+                }
+            }
+
+            // A selected causal child cannot remain after its producer is
+            // shed. Traverse all roots together so work is O(selected graph),
+            // not one complete descendant walk per cyclic component.
+            let mut dropped = roots.clone();
+            let mut stack = roots.into_iter().collect::<Vec<_>>();
+            while let Some(id) = stack.pop() {
+                for child in &causal_children[&id] {
+                    if dropped.insert(child.clone()) {
+                        stack.push(child.clone());
+                    }
+                }
+            }
+            selected.retain(|id, _| !dropped.contains(id));
+            if selected.len() < 2 {
+                return selected.into_values().map(|(_, entry)| entry).collect();
+            }
+        }
+    }
+
+    /// Retain a causally closed selected subset while bounding the number of
+    /// expanded dependency occurrences inspected for conditional ordering.
+    ///
+    /// Truncating at the first over-budget entry lets a high-score transaction
+    /// with a huge dep group censor every independent transaction behind it.
+    /// Instead, shed that entry and propagate the causal omission as the
+    /// already parent-first selection order is visited. After the occurrence
+    /// budget is consumed, a constant-time empty-dep probe still admits
+    /// independent transactions that need no conditional edge work.
+    fn retain_selected_with_dep_budget(
+        &self,
+        selected: Vec<TxEntry>,
+        budget: usize,
+    ) -> Vec<TxEntry> {
+        let mut remaining = budget;
+        let mut dropped = HashSet::new();
+        let mut retained = Vec::with_capacity(selected.len());
+        for entry in selected {
+            let id = entry.proposal_short_id();
+            let causal_parent_dropped = self
+                .pool_map
+                .links
+                .get_parents(&id)
+                .is_some_and(|parents| parents.iter().any(|parent| dropped.contains(parent)));
+            if causal_parent_dropped {
+                dropped.insert(id);
+                continue;
+            }
+
+            if remaining == 0 {
+                if entry.related_dep_out_points().next().is_some() {
+                    dropped.insert(id);
+                } else {
+                    retained.push(entry);
+                }
+                continue;
+            }
+            let inspected = entry
+                .related_dep_out_points()
+                .take(remaining.saturating_add(1))
+                .count();
+            if inspected > remaining {
+                remaining = 0;
+                dropped.insert(id);
+            } else {
+                remaining -= inspected;
+                retained.push(entry);
+            }
+        }
+        retained
     }
 
     fn retrieve_entry(&self, short_id: &ProposalShortId) -> Option<&TxEntry> {

@@ -139,7 +139,7 @@ async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
     }));
     service.relay.callbacks = Arc::new(callbacks);
 
-    let tx = build_tx(vec![(&Byte32::new([99; 32]), 0)], 1);
+    let tx = TransactionBuilder::default().build();
     let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE);
     let id = entry.proposal_short_id();
     let effect_permit = service
@@ -216,8 +216,6 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
 
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
-        replaced: _,
-        rolled_back,
         reject_events,
         accept_event: _,
     } = {
@@ -237,8 +235,7 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     // The replacement is rejected *before* any removal: nothing was
     // evicted, nothing needs recovering, and the victim cluster never left
     // the pool.
-    assert!(matches!(result, Err(Reject::ExceededMaximumAncestorsCount)));
-    assert!(rolled_back.is_empty());
+    assert!(result.is_err(), "the invalid replacement must be rejected");
     assert!(reject_events.is_empty());
     let tx_pool = service.pool.tx_pool.read().await;
     let resident = |tx: &ckb_types::core::TransactionView| {
@@ -295,11 +292,10 @@ fn conflict_closure_aborts_at_candidate_limit() {
     }
 }
 
-/// Entries evicted by `add_entry`'s cell-ref escape hatch must be recovered
-/// when the commit that caused them later fails: a failed commit must not
-/// evict in-pool transactions it can no longer invalidate.
+/// A candidate selected for virtual self-eviction is rejected without
+/// touching unrelated cell-dep readers.
 #[tokio::test]
-async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
+async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
     use super::harness::{WorkerSet, harness};
 
     // Pool totals: 124 links * 100 + E * 100 = 12_500, so
@@ -312,13 +308,11 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
         .build()
         .service;
 
-    // Funding output X that N spends as an input while E cell-deps on it,
-    // which makes E a cell-ref parent of N.
+    // Funding output X that N spends as an input while E cell-deps on it.
     let x_hash = Byte32::new([9u8; 32]);
 
-    // A 124-link chain (the deepest the pool accepts). N's ancestry is the
-    // chain (124) plus E (1) = 125, count 126 > max_ancestors_count, so
-    // add_entry's escape hatch evicts E to fit (126 - 1 <= 125).
+    // A 124-link chain (the deepest the pool accepts). E is intentionally
+    // unrelated to that causal chain despite reading an input consumed by N.
     let chain_tip;
     let e = build_tx_with_dep(vec![(&Byte32::zero(), 2)], vec![(&x_hash, 0)], 1);
     {
@@ -343,8 +337,6 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
 
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
-        replaced: _,
-        rolled_back,
         reject_events,
         accept_event: _,
     } = {
@@ -361,15 +353,20 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
         )
     };
 
-    // The escape hatch evicted E to admit N, then N self-evicted under the
-    // pool limit: the commit failed, and E must come back.
+    // Plan sees N lose the capacity policy and rejects before Apply.
     assert!(
         result.is_err(),
         "the zero-fee entry must self-evict under the pool limit"
     );
     assert!(
-        rolled_back.iter().any(|(tx, _)| tx.hash() == e.hash()),
-        "the escape-hatch eviction of E must be recovered after the commit failure"
+        service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .pool_map
+            .contains_key(&e.proposal_short_id()),
+        "the reader never leaves the accepted pool"
     );
     assert!(
         !reject_events
@@ -379,14 +376,12 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
     );
 }
 
-/// A size-limit failure can evict unrelated low-fee entries before it reaches
-/// and rejects the just-inserted candidate. Every one of those removals is
-/// part of the failed commit transaction: restore it under the same write
-/// guard and preserve its exact proposal-window status.
+/// A size-limit plan that eventually selects the candidate leaves every prior
+/// member and proposal-window status unchanged.
 #[tokio::test]
-async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock() {
+async fn failed_size_plan_is_mutation_free_with_original_statuses() {
     use super::harness::{WorkerSet, harness};
-    use std::{collections::HashSet, sync::Arc};
+    use std::sync::Arc;
 
     let service = harness(2)
         .rbf(true)
@@ -423,7 +418,7 @@ async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock(
     // Once the victim is removed, the 300-byte replacement makes the pool
     // 400 bytes. Eviction removes the zero-fee unrelated entry first, then
     // the still-oversized replacement itself. The failed transaction must
-    // put both prior entries back before this guard can be released.
+    // reject before changing either prior entry.
     let replacement_entry = TxEntry::dummy_resolve(
         replacement,
         MOCK_CYCLES,
@@ -462,132 +457,7 @@ async fn failed_commit_restores_all_size_evictions_with_original_status_in_lock(
         outcome
     };
 
-    let restored: HashSet<_> = outcome
-        .rolled_back
-        .iter()
-        .map(|(tx, status)| (tx.proposal_short_id(), *status))
-        .collect();
-    assert_eq!(
-        restored,
-        HashSet::from([
-            (victim_id.clone(), Status::Proposed),
-            (unrelated_id.clone(), Status::Gap),
-        ])
-    );
-    assert!(
-        outcome.reject_events.iter().all(|(entry, _)| {
-            let id = entry.proposal_short_id();
-            id != victim_id && id != unrelated_id
-        }),
-        "restored entries must not emit terminal reject callbacks"
-    );
-    assert!(matches!(
-        outcome.reject_events.as_slice(),
-        [(entry, Reject::Full(_))] if entry.proposal_short_id() == replacement_id
-    ));
-}
-
-/// PoolMap's insertion transaction must also cover the case where
-/// `add_entry` itself fails *after* the escape eviction (here: the dep
-/// pre-validation rejects the entry because another in-pool tx consumes
-/// one of its deps). The local eviction cohort must be restored before the
-/// error crosses into the outer commit transaction.
-#[tokio::test]
-async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
-    use super::harness::{WorkerSet, harness};
-
-    let service = harness(2).workers(WorkerSet::None).build().service;
-
-    // Funding outputs: N spends X as an input (E cell-deps on it, making E
-    // a cell-ref parent of N) and deps on D', which C consumes as an input.
-    let x_hash = Byte32::new([9u8; 32]);
-    let d_hash = Byte32::new([7u8; 32]);
-
-    let c = build_tx(vec![(&d_hash, 0)], 1);
-    let e = build_tx_with_dep(vec![(&Byte32::zero(), 2)], vec![(&x_hash, 0)], 1);
-
-    let chain_tip;
-    {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        let (_, tip) =
-            add_pending_chain(&mut tx_pool.pool_map, 124, Capacity::shannons(1_000), 100);
-        chain_tip = tip;
-        for tx in [c.clone(), e.clone()] {
-            tx_pool
-                .pool_map
-                .add_entry(
-                    TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1_000), 100),
-                    Status::Pending,
-                )
-                .unwrap();
-        }
-    }
-
-    // N: input X, deps = [chain_tip, D']. Ancestry = chain(124) + E(1) =
-    // 125 (count 126 > 125), so the escape hatch evicts E first; the dep
-    // pre-validation then rejects N because C already consumes D'.
-    let n = build_tx_with_dep(vec![(&x_hash, 0)], vec![(&chain_tip, 0), (&d_hash, 0)], 1);
-    let n_id = n.proposal_short_id();
-    let n_entry = TxEntry::dummy_resolve(n.clone(), MOCK_CYCLES, Capacity::zero(), 100);
-
-    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
-        result,
-        replaced: _,
-        rolled_back,
-        reject_events: _,
-        accept_event: _,
-    } = {
-        let mut tx_pool = service.pool.tx_pool.write().await;
-        let snapshot = tx_pool.cloned_snapshot();
-        let pre_resolve_tip = snapshot.tip_hash();
-        service.try_submit_entry(
-            &mut tx_pool,
-            snapshot,
-            pre_resolve_tip,
-            n_entry,
-            Status::Pending,
-            n_id.clone(),
-        )
-    };
-
-    assert!(
-        matches!(result, Err(Reject::Resolve(_))),
-        "the dep pre-validation must reject after C consumed D'"
-    );
-    assert!(
-        rolled_back.is_empty(),
-        "PoolMap-owned insertion rollback must not be replayed by the outer commit transaction"
-    );
-
-    // The rejected entry must not leave ghost links behind: no links node
-    // for N, and no parent→child reference to N anywhere in the graph.
-    // (Ancestor links are committed only after every fallible validation.)
-    let tx_pool = service.pool.tx_pool.read().await;
-    assert!(
-        tx_pool.pool_map.contains_key(&e.proposal_short_id()),
-        "the failed insertion must restore E before returning"
-    );
-    assert_eq!(
-        tx_pool
-            .pool_map
-            .get_by_id(&e.proposal_short_id())
-            .map(|entry| entry.status),
-        Some(Status::Pending),
-        "the local rollback must preserve E's original status"
-    );
-    assert!(
-        !tx_pool.pool_map.links.contains_key(&n_id),
-        "rejected entry must not have a links node"
-    );
-    let chain_tip_id = ProposalShortId::from_tx_hash(&chain_tip);
-    assert!(
-        !tx_pool
-            .pool_map
-            .links
-            .get_children(&chain_tip_id)
-            .is_some_and(|children| children.contains(&n_id)),
-        "rejected entry must not be referenced as a child of its parents"
-    );
+    assert!(outcome.reject_events.is_empty());
 }
 
 /// A successful replacement must not re-enqueue the descendants it
@@ -599,16 +469,15 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
 /// eventually to a misleading `Resolve Unknown`.
 #[tokio::test]
 async fn successful_replacement_does_not_recover_removed_descendants() {
-    use super::harness::{WorkerSet, harness};
-
-    let service = harness(2)
-        .rbf(true)
-        .workers(WorkerSet::None)
-        .build()
-        .service;
+    let (service, _relay, _cancel, _store, out_points) = service_with_rbf(2);
 
     // Chain T1 -> T2 in the pool.
-    let t1 = build_tx(vec![(&Byte32::new([61u8; 32]), 0)], 1);
+    let funding = out_points[0].clone();
+    let t1 = TransactionBuilder::default()
+        .input(CellInput::new(funding.clone(), 0))
+        .output(CellOutput::new_builder().build())
+        .output_data(Bytes::new().pack())
+        .build();
     let t2 = build_tx(vec![(&t1.hash(), 0)], 1);
     let t1_hash = t1.hash();
     let t2_hash = t2.hash();
@@ -630,34 +499,35 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
 
     // R replaces T1 (same input, different outputs -> different hash,
     // much higher fee).
-    let replacement = build_tx(vec![(&Byte32::new([61u8; 32]), 0)], 2);
+    let replacement = TransactionBuilder::default()
+        .input(CellInput::new(funding, 0))
+        .output(CellOutput::new_builder().build())
+        .output(CellOutput::new_builder().build())
+        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().pack())
+        .build();
     let replacement_entry = TxEntry::dummy_resolve(
         replacement,
         MOCK_CYCLES,
         Capacity::shannons(1_000_000_000),
         MOCK_SIZE,
     );
-    let replacement_id = replacement_entry.proposal_short_id();
-
     let (outcome, assembler_statuses) = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
-        let mut coordinated = service.try_submit_entry_coordinated(
-            &mut tx_pool,
-            snapshot,
-            pre_resolve_tip,
-            replacement_entry.clone(),
-            Status::Pending,
-            replacement_id,
-        );
+        let (coordinated, _) = service.pipeline.kernel.mutate(|kernel| {
+            service.try_submit_entry_with_handoff(
+                &mut tx_pool,
+                snapshot,
+                pre_resolve_tip,
+                replacement_entry.clone(),
+                |tx_pool, plan| {
+                    service.settle_kernel_for_pool_plan(kernel, tx_pool, &replacement_entry, plan)
+                },
+            )
+        });
         let statuses = coordinated.block_assembler_statuses();
-        if coordinated.outcome.result.is_ok() {
-            // This pool-focused test has no live coordinator lease. Complete
-            // the same post-handoff history publication that the production
-            // commit driver performs before releasing the pool guard.
-            service.finalize_coordinated_submit(&mut tx_pool, &replacement_entry, &mut coordinated);
-        }
         (coordinated.outcome, statuses)
     };
     assert_eq!(
@@ -667,14 +537,11 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
     );
     let crate::process::submit::rbf_commit::SubmitEntryOutcome {
         result,
-        replaced: _,
-        rolled_back,
         reject_events: _events,
         accept_event: _,
     } = outcome;
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);
-    assert!(rolled_back.is_empty());
     // The whole removed cluster stays in the conflict cache as rejected
     // candidates (the audit/RPC view, see `RbfReplaceProposedSuccess`).
     let _tx_pool = service.pool.tx_pool.read().await;

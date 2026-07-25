@@ -93,10 +93,7 @@ async fn overlapping_detached_proposals_requeue_each_descendant_once() {
     // replay must still publish exactly one transition per entry.
     let detached = [ids[1].clone(), ids[0].clone()];
     let mut notify_events = Vec::new();
-    let mut reject_events = Vec::new();
-    tx_pool.remove_by_detached_proposal(detached.iter(), &mut notify_events, &mut reject_events);
-
-    assert!(reject_events.is_empty());
+    tx_pool.remove_by_detached_proposal(detached.iter(), &mut notify_events);
     let notified: HashSet<_> = notify_events
         .iter()
         .map(|(entry, status)| {

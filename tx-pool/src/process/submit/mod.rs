@@ -4,7 +4,7 @@
 //! `verify_and_submit_core` (script verification and the transition into the
 //! write-locked commit), `submit_entry` (the authoritative commit dispatch),
 //! `post_submit_side_effects`, and the `test_accept_tx` helpers. The
-//! write-lock commit transaction family (RBF prepare / try / commit) lives in
+//! write-lock Plan/handoff/Apply transaction family lives in
 //! [`rbf_commit`].
 
 pub(crate) mod rbf_commit;
@@ -19,7 +19,6 @@ use ckb_snapshot::Snapshot;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::{CacheEntry, Completed, TxVerificationCacheKey};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
@@ -56,7 +55,6 @@ impl TxPoolService {
         candidate: crate::resolved_tx::PoolCandidate,
         verified_cycles: ckb_types::core::Cycle,
     ) -> Result<SubmitEntryResult, Reject> {
-        let status = candidate.status;
         let epoch = candidate.epoch;
         let source = candidate.source;
         let original_peer = candidate.source.peer();
@@ -68,7 +66,6 @@ impl TxPoolService {
             candidate.tx_size,
             candidate.resident_size,
         );
-        let entry_id = entry.proposal_short_id();
         let tx_hash = entry.transaction().hash();
 
         if !self.is_pipeline_epoch_current(epoch) {
@@ -87,89 +84,44 @@ impl TxPoolService {
         // speculative RBF owner. All remote/proposal pipeline competition is
         // verified-only in the coordinator, while the authoritative complete
         // replacement closure is recalculated here under the pool write lock.
-        let (outcome, fatal_handoff_error) = {
+        let outcome = {
             let mut tx_pool = self.pool.tx_pool.write().await;
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
             }
-            let (mut coordinated, committed_ingress_peer, fatal_handoff_error) =
+            let (mut coordinated, committed_ingress_peer) =
                 self.pipeline.kernel.guard_authoritative_mutation(
                     "synchronous authoritative pool commit panicked",
                     || {
                         let snapshot = tx_pool.cloned_snapshot();
-                        let mut coordinated = self.try_submit_entry_coordinated(
-                            &mut tx_pool,
-                            snapshot,
-                            pre_resolve_tip,
-                            entry.clone(),
-                            status,
-                            entry_id.clone(),
-                        );
-
-                        // Local and reorg recovery are deliberately synchronous and do
-                        // not lease work from the coordinator. Once their authoritative
-                        // pool insertion succeeds, invalidate any older remote/proposal
-                        // owner while the pool write guard is still held. All combined
-                        // readers take TxPool -> coordinator in the same order, so they
-                        // cannot observe a handoff gap or dual membership.
-                        //
-                        // `post_submit_side_effects` is deliberately non-authoritative:
-                        // the complete PoolMap -> coordinator handoff must finish (or
-                        // the PoolMap mutation must roll back) before this guard leaves.
                         let mut committed_ingress_peer = original_peer;
-                        let mut fatal_handoff_error = None;
-                        if coordinated.outcome.result.is_ok() {
-                            let removed_parents =
-                                coordinated.unavailable_parent_hashes(tx_pool.snapshot());
-                            let finalized = catch_unwind(AssertUnwindSafe(|| {
-                                self.pipeline.kernel.mutate(|coordinator| {
-                                    coordinator.external_commit_with_unavailable_parents(
-                                        &tx_hash,
-                                        &removed_parents,
-                                    )
-                                })
-                            }));
-                            let finalize_error = match finalized {
-                                Ok(Ok(record)) => {
-                                    if let Some(record) = record {
-                                        committed_ingress_peer =
-                                            record.raw.ingress_peer().or(committed_ingress_peer);
-                                    }
-                                    None
-                                }
-                                Ok(Err(error)) => {
-                                    if !error.is_transaction_rejection() {
-                                        fatal_handoff_error = Some(error.clone());
-                                    }
-                                    Some(crate::component::pre_pool::pre_pool_reject(error))
-                                }
-                                Err(payload) => Some(Reject::Internal(format!(
-                                    "synchronous coordinator handoff panicked: {}",
-                                    crate::util::panic_payload_to_string(payload.as_ref())
-                                ))),
-                            };
-                            if let Some(reject) = finalize_error
-                                && let Err(rollback_error) = self.rollback_coordinated_submit(
-                                    &mut tx_pool,
-                                    &entry,
-                                    &mut coordinated,
-                                    reject,
-                                )
-                            {
-                                self.pipeline.kernel.fail_stop(
-                                    "synchronous coordinator handoff rollback failed",
-                                    &rollback_error,
-                                );
-                            }
-                        }
-                        if coordinated.outcome.result.is_ok() {
-                            self.finalize_coordinated_submit(
+                        let (coordinated, record) = self.pipeline.kernel.mutate(|kernel| {
+                            self.try_submit_entry_with_handoff(
                                 &mut tx_pool,
-                                &entry,
-                                &mut coordinated,
-                            );
+                                snapshot,
+                                pre_resolve_tip,
+                                entry.clone(),
+                                |tx_pool, plan| {
+                                    let unavailable = self.planned_unavailable_parent_hashes(
+                                        plan,
+                                        tx_pool.snapshot(),
+                                    );
+                                    let record = kernel.external_commit_with_unavailable_parents(
+                                        &tx_hash,
+                                        &unavailable,
+                                    )?;
+                                    self.settle_kernel_for_pool_plan(
+                                        kernel, tx_pool, &entry, plan,
+                                    )?;
+                                    Ok(record)
+                                },
+                            )
+                        });
+                        if let Some(Some(record)) = record {
+                            committed_ingress_peer =
+                                record.raw.ingress_peer().or(committed_ingress_peer);
                         }
-                        (coordinated, committed_ingress_peer, fatal_handoff_error)
+                        (coordinated, committed_ingress_peer)
                     },
                 );
             if matches!(
@@ -231,13 +183,8 @@ impl TxPoolService {
                     );
                 },
             );
-            (coordinated.outcome, fatal_handoff_error)
+            coordinated.outcome
         };
-        if let Some(error) = fatal_handoff_error {
-            self.pipeline
-                .kernel
-                .fail_stop("synchronous coordinator handoff invariant failed", &error);
-        }
         outcome.result?;
         Ok(SubmitEntryResult::Committed)
     }
@@ -347,7 +294,7 @@ impl TxPoolService {
         let declared_cycles = resolved.source.cycles();
         // Verification uses the snapshot captured at resolve time. If the chain
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
-        // prepare_rbf_replacement re-runs check_rtx + time_relative_verify against
+        // plan_pool_mutation re-runs check_rtx + time_relative_verify against
         // the current snapshot to catch any state-dependent invalidation.
         let tx_hash = resolved.tx.hash();
         let verify_cache_key = TxVerificationCacheKey::from_transaction(&resolved.tx);
@@ -473,88 +420,29 @@ impl TxPoolService {
                         verified.candidate.resident_size,
                     );
                     let entry_id = entry.proposal_short_id();
-                    let mut settlement = None;
                     let mut failed_terminal = None;
-                    let mut internal_failure = false;
-                    let mut coordinator_panicked = false;
-                    let mut fatal_handoff_error = None;
+                    let internal_failure = false;
                     let mut failed_banned_peer = None;
                     let snapshot = tx_pool.cloned_snapshot();
-                    let mut coordinated = self.try_submit_entry_coordinated(
-                        &mut tx_pool,
-                        snapshot,
-                        verified.candidate.pre_resolve_tip.clone(),
-                        entry.clone(),
-                        verified.candidate.status,
-                        entry_id.clone(),
-                    );
-
-                    if coordinated.outcome.result.is_ok() {
-                        let finalized = catch_unwind(AssertUnwindSafe(|| {
-                            let unavailable =
-                                coordinated.unavailable_parent_hashes(tx_pool.snapshot());
-                            self.pipeline.kernel.mutate(|coordinator| {
-                                coordinator.commit_any_handoff_with_unavailable_parents(
+                    let (coordinated, settlement) = self.pipeline.kernel.mutate(|kernel| {
+                        self.try_submit_entry_with_handoff(
+                            &mut tx_pool,
+                            snapshot,
+                            verified.candidate.pre_resolve_tip.clone(),
+                            entry.clone(),
+                            |tx_pool, plan| {
+                                let unavailable = self
+                                    .planned_unavailable_parent_hashes(plan, tx_pool.snapshot());
+                                let handoff = kernel.commit_any_handoff_with_unavailable_parents(
                                     &lease,
                                     &unavailable,
-                                )
-                            })
-                        }));
-                        match finalized {
-                            Ok(Ok(handoff)) => settlement = Some(handoff),
-                            Ok(Err(error)) => {
-                                internal_failure = true;
-                                if !error.is_transaction_rejection() {
-                                    fatal_handoff_error = Some(error.clone());
-                                }
-                                let reject = Reject::Internal(format!(
-                                    "coordinator commit finalization failed: {error:?}"
-                                ));
-                                if let Err(rollback_error) = self.rollback_coordinated_submit(
-                                    &mut tx_pool,
-                                    &entry,
-                                    &mut coordinated,
-                                    reject,
-                                ) {
-                                    self.pipeline.kernel.fail_stop(
-                                "pipeline pool rollback after coordinator finalization failed",
-                                &rollback_error,
-                            );
-                                }
-                            }
-                            Err(payload) => {
-                                internal_failure = true;
-                                coordinator_panicked = true;
-                                let reject = Reject::Internal(format!(
-                                    "coordinator commit finalization panicked: {}",
-                                    crate::util::panic_payload_to_string(payload.as_ref())
-                                ));
-                                if let Err(rollback_error) = self.rollback_coordinated_submit(
-                                    &mut tx_pool,
-                                    &entry,
-                                    &mut coordinated,
-                                    reject,
-                                ) {
-                                    self.pipeline.kernel.fail_stop(
-                                        "pipeline pool rollback after coordinator panic failed",
-                                        &rollback_error,
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    if coordinated.outcome.result.is_ok() {
-                        assert!(
-                            settlement.is_some(),
-                            "successful pool commit must own a coordinator settlement"
-                        );
-                        self.finalize_coordinated_submit(&mut tx_pool, &entry, &mut coordinated);
-                    }
-                    if coordinated.outcome.result.is_err()
-                        && settlement.is_none()
-                        && !coordinator_panicked
-                    {
+                                )?;
+                                self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan)?;
+                                Ok(handoff)
+                            },
+                        )
+                    });
+                    if coordinated.outcome.result.is_err() && settlement.is_none() {
                         let retain_conflict = matches!(
                             coordinated.outcome.result.as_ref(),
                             Err(Reject::RBFRejected(..)
@@ -660,8 +548,6 @@ impl TxPoolService {
                         failed_banned_peer,
                         verified,
                         entry_id,
-                        coordinator_panicked,
-                        fatal_handoff_error,
                         assembler_statuses,
                         extra_effects,
                         effect_permit,
@@ -676,8 +562,6 @@ impl TxPoolService {
                     failed_banned_peer,
                     verified,
                     entry_id,
-                    coordinator_panicked,
-                    fatal_handoff_error,
                     assembler_statuses,
                     extra_effects,
                     effect_permit,
@@ -701,39 +585,16 @@ impl TxPoolService {
                         failed_banned_peer,
                         verified,
                         entry_id,
-                        coordinator_panicked,
-                        fatal_handoff_error,
                     ))
                 }
             }
         };
-        let Some((
-            coordinated,
-            settlement,
-            failed_banned_peer,
-            verified,
-            entry_id,
-            coordinator_panicked,
-            fatal_handoff_error,
-        )) = transaction
+        let Some((coordinated, settlement, failed_banned_peer, verified, entry_id)) = transaction
         else {
             return false;
         };
 
         let dispatch_result = coordinated.outcome.result;
-        if coordinator_panicked {
-            // `PrePool::mutate` already latched Pipeline failure and
-            // cancelled this service generation. Its inner undo restored the
-            // coordinator and the PoolCommitJournal restored PoolMap, so do
-            // not re-enter the failed runtime and incorrectly escalate an
-            // exact rollback into Authoritative uncertainty.
-            return false;
-        }
-        if let Some(error) = fatal_handoff_error {
-            self.pipeline
-                .kernel
-                .fail_stop("pipeline coordinator handoff invariant failed", &error);
-        }
         if let Some(peer) = failed_banned_peer {
             self.remove_banned_peer_entries(peer).await;
         }

@@ -675,15 +675,12 @@ fn test_max_ancestors_with_dep() {
 }
 
 #[test]
-fn add_entry_eviction_updates_total_stats() {
-    // Regression test: when `add_entry` evicts a cell_ref_parent to fit the
-    // ancestor limit, the total size/cycles counters must account for the
-    // eviction *and* the new entry. A value computed before the eviction
-    // would clobber the decrement and over-count the pool forever.
+fn coexisting_dep_reader_and_spender_update_total_stats() {
+    // A cell-dep reader and spender coexist: conditional ordering is applied
+    // only if both are selected for one block template.
     let mut pool = PoolMap::new(1);
-    // tx_a cell-deps on (0x1, 0); tx_b consumes (0x1, 0) as an input, so tx_a
-    // is tx_b's cell_ref_parent and is evicted when the ancestor limit (1) is
-    // exceeded.
+    // tx_a cell-deps on (0x1, 0), while tx_b consumes (0x1, 0). This is a
+    // conditional template-order relation, not accepted-pool ancestry.
     let tx_a = build_tx_with_dep(
         vec![(&Byte32::zero(), 0)],
         vec![(&h256!("0x1").into(), 0)],
@@ -701,17 +698,11 @@ fn add_entry_eviction_updates_total_stats() {
     assert_eq!(pool.stats.total_tx_size, 200);
     assert_eq!(pool.stats.total_tx_cycles, 100);
 
-    let outcome = pool.add_entry(entry_b, Status::Proposed).unwrap();
-    assert!(outcome.inserted);
-    assert_eq!(
-        outcome.evicted.len(),
-        1,
-        "cell_ref_parent should be evicted"
-    );
-    assert_eq!(pool.entries.len(), 1);
-    // The counters must reflect only tx_b, not the pre-eviction sum.
-    assert_eq!(pool.stats.total_tx_size, 400);
-    assert_eq!(pool.stats.total_tx_cycles, 300);
+    let inserted = pool.add_entry(entry_b, Status::Proposed).unwrap();
+    assert!(inserted);
+    assert_eq!(pool.entries.len(), 2);
+    assert_eq!(pool.stats.total_tx_size, 600);
+    assert_eq!(pool.stats.total_tx_cycles, 400);
 }
 
 #[test]

@@ -409,15 +409,6 @@ impl TxEntry {
         self.apply_ancestor_delta(delta, false);
     }
 
-    /// Update descendant state for adding several entries at once.
-    ///
-    /// Equivalent to calling `add_descendant_weight` for each of them (see
-    /// [`WeightDelta::add_entry`]); used when linking an entry to children
-    /// that entered the pool before it.
-    pub(crate) fn add_descendants_weight(&mut self, delta: WeightDelta) {
-        self.apply_descendant_delta(delta, true);
-    }
-
     fn apply_ancestor_delta(&mut self, delta: WeightDelta, add: bool) {
         if add {
             self.ancestors_count = self
@@ -580,6 +571,7 @@ impl From<&TxEntry> for EvictKey {
             fee_rate: descendants_feerate.max(feerate),
             timestamp: entry.timestamp,
             descendants_count: entry.descendants_count,
+            id: entry.proposal_short_id(),
         }
     }
 }

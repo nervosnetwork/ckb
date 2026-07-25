@@ -69,10 +69,8 @@ fn full_hash_lookup_does_not_alias_a_proposal_short_id_collision() {
         ProposalShortId::from_tx_hash(&collision_hash),
         parent.proposal_short_id()
     );
-    assert!(pool.get_by_hash(&collision_hash).is_none());
     assert!(
-        pool.get_output_with_data(&OutPoint::new(collision_hash.clone(), 0))
-            .is_none(),
+        pool.get_by_hash(&collision_hash).is_none(),
         "a pool overlay must not resolve another full hash through the same short id"
     );
 

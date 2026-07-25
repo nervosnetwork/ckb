@@ -6,9 +6,10 @@ review is [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), staged gates are in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), and executable review
 evidence is generated in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
 
-Status: **P1 vertical cutover complete at C3**. The old
+Status: **P2 accepted-pool cutover complete at C4**. The old
 `PipelineCoordinator`, `PipelineRuntime` and `ConflictCache` have been deleted.
-P2-P4 migration debt is named explicitly below; it must be removed by the
+PoolCommitJournal, nested restoration and persistent cell-ref ancestry are now
+also deleted. P3-P4 migration debt is named explicitly below; it must be removed by the
 corresponding phase rather than copied into the new kernel.
 
 ## 1. Authority and ownership
@@ -164,12 +165,25 @@ source, fee rate without division, stable arrival/full-hash ties and version.
 conflict preference; an unverified high-fee transaction cannot displace or pin
 verified work.
 
-One async commit serial chooses the best current Ready ticket. Final RBF,
-ancestor, status, snapshot and accepted-pool capacity decisions are still
-recomputed under the existing `TxPool` write guard. The winner handoff and
-direct Ready losers settle in the kernel before the guard opens. There is no
-persistent committing state, so a second candidate simply observes the next
-Ready set.
+One async commit serial chooses the best current Ready ticket. Under the
+existing `TxPool` write guard, final RBF, role-aware liveness, status, causal
+ancestry and serialized/resident capacity decisions compile into one immutable
+`PoolMutationPlan`. A sparse overlay reproduces the exact Pending -> Gap ->
+Proposed eviction policy and re-ranks affected ancestors after each bounded
+closure without cloning PoolMap. The versioned kernel handoff completes while
+accepted membership is unchanged; PoolMap Apply then consists only of
+prevalidated moves and assertions. There is no ordinary rollback path or
+persistent committing state.
+
+Accepted identity is a unique full-hash index plus a collision-detecting
+proposal slot. The persistent graph contains only causal accepted producers of
+inputs and expanded deps. Cell-dep reader -> spender is conditional consensus
+ordering: it is added only to the already selected template set and
+topologically ordered with stable selection-rank ties. Exact SCCs prevent
+acyclic downstream entries from being misclassified as cycle members; every
+round sheds the weakest member of each cyclic SCC and its causal descendants,
+with a 64-round dense-SCC fallback. A dep-heavy entry that exhausts the
+ordering budget cannot censor an independent zero-dep suffix.
 
 ## 8. Cross-authority operations
 
@@ -188,6 +202,18 @@ Administrative removal computes the accepted descendant closure while holding
 `TxPool`, moves every pre-pool consumer of removed parents to exact
 `Wait(Missing)`, removes the accepted closure, then publishes released-input
 availability before the write guard opens.
+
+Ordinary acceptance follows one paired boundary:
+
+```text
+effect permit -> TxPool write -> Pool Plan -> PrePoolKernel handoff/settlement
+              -> total Pool Apply -> stable effect journal -> unlock
+```
+
+Every transaction-shaped, policy, conflict, liveness, arithmetic and capacity
+error occurs before either accepted membership or its effects change. Internal
+kernel defect containment and generation rebuilding remain P4 work; they are
+not reclassified as transaction rejects.
 
 ## 9. Effects, chain changes and templates
 
@@ -213,7 +239,7 @@ Block assembler priority is unchanged:
 Normal `get_block_template` mining, not a hand-authored proposal block, is the
 required regression for recovered dependent transactions.
 
-## 10. Failure domains at P1
+## 10. Failure domains at P2
 
 Typed transaction, backpressure and stale outcomes do not stop the service.
 Worker panics are contained by worker supervision, and conflict-history
@@ -221,9 +247,8 @@ saturation terminalizes only that history owner.
 
 Two declared migration debts remain:
 
-1. the accepted-pool journal/rollback path may still call required kernel
-   transitions after mutation; P2 replaces it with read-only
-   `PoolMutationPlan` plus total Apply;
+1. the dynamic effect reservation/outbox and stable publication failure latch
+   remain P3 debt;
 2. `PrePool::mutate_required`, poisoned-mutex recovery and the service-wide
    authoritative failure latch remain compatibility boundaries; P3/P4 replace
    them with the designed `DefectDomain` rebuild/generation swap.
@@ -240,7 +265,7 @@ are enumerated in `test-layout-manifest.json`; the independent kernel audit in
 `component/tests/pre_pool_seam.rs` recomputes every projection and resource
 counter without calling production transition repair code.
 
-The current P1 evidence includes:
+The current P2 evidence includes:
 
 - exact seven-state and typed-outcome reference-model tests;
 - full primary-to-projection rebuild after deterministic and randomized public
@@ -257,6 +282,13 @@ The current P1 evidence includes:
   public rejection, and retained conflict history never projects as RPC
   `Pending`;
 - real service/RPC/RBF/reorg/template/persistence regressions.
+- a 96-seed accepted-graph differential proving sparse Plan/total Apply matches
+  the stepwise CPFP/status reference and leaves every rejected state unchanged;
+- role-separated resolver/checker tests, both reader/spender arrival orders,
+  2,000-reader fanout, selected-set ordering, exact SCC/downstream isolation,
+  dense-cycle work fallback and dep-budget suffix liveness;
+- full-hash accepted lookup, proposal-slot collision and exact witness-cache
+  identity regressions.
 
 Run:
 
@@ -278,8 +310,8 @@ DAO and hardfork ingress outside `test/src/specs/tx_pool`.
 |---|---|---|
 | C1 | Complete (`02e648255`) | preserved correctness fixes and froze the audited redesign; no benchmark |
 | P0 / C2 | Complete (`8596c6c5d`) | architecture contract, independent reference model, 152-finding bridge and 149-spec impact universe |
-| P1 / C3 | Complete | concrete seven-state kernel cut over; old coordinator/runtime/conflict owner deleted; production Rust is 18,957 raw lines versus C2's 24,236 (−5,279, tests and benchmark excluded); test Rust is reported separately at 12,745 versus 21,650 and benchmark remains 1,422; 204/204 internal nextest, zero-warning all-target clippy and all document gates are green; all 18 targeted process integrations passed through `make integration`, including normal-mining reorg, RBF status/history, relay, orphan, collision and dependency-order boundaries |
-| P2 / C4 | Pending | immutable accepted `PoolMutationPlan`, causal graph and deletion of nested undo/journal rollback |
+| P1 / C3 | Complete (`1d9e0cf5b`) | concrete seven-state kernel cut over; old coordinator/runtime/conflict owner deleted; production Rust is 18,957 raw lines versus C2's 24,236 (−5,279, tests and benchmark excluded); test Rust is reported separately at 12,745 versus 21,650 and benchmark remains 1,422; 204/204 internal nextest, zero-warning all-target clippy and all document gates are green; all 18 targeted process integrations passed through `make integration`, including normal-mining reorg, RBF status/history, relay, orphan, collision and dependency-order boundaries |
+| P2 / C4 | Complete | immutable accepted `PoolMutationPlan`, full-hash primary index, causal-only graph, role-aware resolution and selected-set SCC ordering cut over; nested undo/journal rollback/cell-ref escape deleted; internal instrumentation also uses Plan/Apply while permissive child-first construction is test-only; tx-pool production Rust is 18,757 lines (−200 from C3), test Rust is separately 13,051 and benchmark remains 1,422; 209/209 internal-feature nextest, production/internal clippy, all document gates and 16 targeted process integrations pass |
 | P3 / C5 | Pending | stable bounded effect journal and deletion of dynamic effect-credit/fail-stop protocol |
 | P4 / C6 | Pending | `RecoveryRetained`, v2 persistence, `DefectDomain`, exact assembler generation and deletion of `recovery_lock` |
 | P5 / C7 | Pending | final correctness, static, source-size and review acceptance |

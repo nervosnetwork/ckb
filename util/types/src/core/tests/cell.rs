@@ -7,8 +7,8 @@ use crate::{
         BlockBuilder, BlockView, Capacity, DepType, EpochNumberWithFraction, TransactionBuilder,
         TransactionInfo, TransactionView, capacity_bytes,
         cell::{
-            BlockCellProvider, CellMeta, CellProvider, CellStatus, HeaderChecker,
-            resolve_transaction,
+            BlockCellProvider, CellChecker, CellMeta, CellProvider, CellStatus, HeaderChecker,
+            resolve_transaction, resolve_transaction_with_cell_providers,
         },
         error::OutPointError,
     },
@@ -51,6 +51,12 @@ impl CellProvider for CellMemoryDb {
             Some(&None) => CellStatus::Dead,
             None => CellStatus::Unknown,
         }
+    }
+}
+
+impl CellChecker for CellMemoryDb {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.cells.get(out_point).map(Option::is_some)
     }
 }
 
@@ -105,6 +111,48 @@ fn cell_provider_trait_works() {
     assert_eq!(CellStatus::Live(o), db.cell(&p1, false));
     assert_eq!(CellStatus::Dead, db.cell(&p2, false));
     assert_eq!(CellStatus::Unknown, db.cell(&p3, false));
+}
+
+#[test]
+fn role_specific_cell_views_keep_dep_resolution_order_independent() {
+    let input = OutPoint::new(Byte32::new([0x11; 32]), 0);
+    let dep = OutPoint::new(Byte32::new([0x12; 32]), 0);
+    let tx = TransactionBuilder::default()
+        .input(
+            CellInput::new_builder()
+                .previous_output(input.clone())
+                .build(),
+        )
+        .cell_dep(CellDep::new_builder().out_point(dep.clone()).build())
+        .build();
+    let mut input_view = CellMemoryDb::default();
+    input_view.cells.insert(
+        input.clone(),
+        Some(generate_dummy_cell_meta_with_out_point(input)),
+    );
+    // Simulate an accepted pool spender hiding this cell from new inputs.
+    input_view.cells.insert(dep.clone(), None);
+    let mut dep_view = CellMemoryDb::default();
+    dep_view.cells.insert(
+        dep.clone(),
+        Some(generate_dummy_cell_meta_with_out_point(dep.clone())),
+    );
+    let headers = BlockHeadersChecker::default();
+
+    let rtx = resolve_transaction_with_cell_providers(
+        tx.clone(),
+        &mut HashSet::new(),
+        &input_view,
+        &dep_view,
+        &headers,
+    )
+    .expect("a pool spender does not hide the pre-spend cell from a dep reader");
+    assert!(matches!(
+        resolve_transaction(tx, &mut HashSet::new(), &input_view, &headers),
+        Err(OutPointError::Dead(out_point)) if out_point == dep
+    ));
+    rtx.check_with_cell_checkers(&mut HashSet::new(), &input_view, &dep_view, &headers)
+        .expect("final revalidation uses the same role separation");
 }
 
 #[test]

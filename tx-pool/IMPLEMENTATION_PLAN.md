@@ -4,7 +4,7 @@ Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Status: plan frozen; P1/C3 is complete and P2/C4 is next. Correctness and static
+Status: plan frozen; P2/C4 is complete and P3/C5 is next. Correctness and static
 safety precede the final separately measured performance gate. Each phase is a
 recoverable commit and ends with a whole-architecture review, not only a review
 of edited files.
@@ -38,7 +38,7 @@ of edited files.
 | C0 | `35cabc9b7` | committed current coordinator baseline |
 | C1 | `02e648255`: preserved correctness/integration fixes + audited design/plan | pre-redesign A/B and rollback base |
 | C2 | `8596c6c5d`: P0 formal contract/model/evidence migration | documentation and oracle base |
-| C3 | P1 PrePoolKernel vertical cutover | old coordinator/runtime/conflict owner gone |
+| C3 | `1d9e0cf5b`: P1 PrePoolKernel vertical cutover | old coordinator/runtime/conflict owner gone |
 | C4 | P2 PoolMutationPlan/causal graph cutover | nested undo and post-removal decisions gone |
 | C5 | P3 stable effect shell cutover | dynamic reservation/fail-stop effect protocol gone |
 | C6 | P4 chain/wait/persistence/DefectDomain convergence | recovery lock and service fail-stop gone |
@@ -139,11 +139,13 @@ migration debt.
   aggregate totals rebuildable projections.
 - Implement the explicit displacement authority table and one immutable
   `PoolMutationPlan`: RBF union, role-aware final resolution, causal ancestor
-  limits, exact sparse virtual serialized/resident eviction, retained conflict
-  subset, effects and prepared projection delta.
-- Implement total Apply with checked arithmetic and pre-reserved container
-  capacity. Every non-Apply outcome leaves byte-for-byte equivalent primary and
-  recomputed views.
+  limits, exact sparse virtual serialized/resident eviction, classified
+  removals, candidate parents and exact post-Apply totals.
+- Implement total Apply with checked precomputed arithmetic and canonical
+  projection construction. Apply has no recoverable allocation or policy error
+  surface; process OOM is outside the legal-input state machine. Every
+  non-Apply outcome leaves byte-for-byte equivalent primary and recomputed
+  views.
 - Split resolver roles: inputs observe pool spends; cell deps/dep groups read
   pre-spend chain/accepted producer data and ignore pool consumers.
 - Restrict persistent links/weights/cascades to causal producers. Add bounded

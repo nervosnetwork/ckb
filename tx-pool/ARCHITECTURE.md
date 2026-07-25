@@ -557,21 +557,29 @@ Block selection remains consensus-safe without a persistent second graph:
    dep outpoints;
 3. add `reader -> spender` for each selected matching outpoint, ignoring a
    same-transaction input/dep self-edge;
-4. add the selected causal edges and perform one deterministic topological
-   sort before returning the template transactions.
+4. add the selected causal edges, use exact strongly connected components to
+   isolate genuine conditional cycles, and perform a deterministic
+   topological sort before returning the template transactions.
 
 There is at most one selected spender per outpoint and each conditional edge
-corresponds to one selected dep occurrence, so construction and sorting are
+corresponds to one selected dep occurrence. The normal acyclic path is
 `O(selected txs + selected causal edges + selected expanded dep occurrences)`,
 not `O(pool)` or `O(readers * spenders)`. Accepted-state charging already
 counts expanded dep occurrences; selector transient memory gets its own block
-work budget.
+work budget. An over-budget dep-heavy entry and its causal children are shed
+without truncating independent zero-dep entries behind it.
 
 Conditional edges can legitimately cycle—for example A reads x and spends y
 while B reads y and spends x. Each transaction alone is valid although no block
 can contain both. Such a cycle is not accepted-state corruption and never enters
-the causal graph. The selected-set sorter deterministically drops the weakest
-cycle member plus its selected causal descendants and re-sorts the bounded set.
+the causal graph. Kahn's residual also contains acyclic nodes downstream of a
+cycle, so it is not itself a cycle-membership oracle. The selected-set sorter
+computes exact SCCs, drops the weakest member of every cyclic SCC plus its
+selected causal descendants, and re-sorts the bounded set. It performs at most
+64 exact shedding rounds; an adversarial component that still cycles then
+keeps only its strongest representative. Thus downstream transactions are not
+mistaken for cycle members and dense conditional graphs have a fixed work
+ceiling.
 RBF's permissive input resolve is followed by the same final role-aware
 dependency check. Recovery/persistence replay is parent-first and revalidates
 each transaction.
@@ -583,7 +591,8 @@ the spender alone, after which normal chain reconciliation rejects the now-dead
 readers. Required regressions cover both admission orders, high-fee
 spender-first selection, popular dep fanout, reader expiry/removal,
 same-input-and-dep, RBF final liveness,
-selected-set cycle containment, proposal-window independence and normal mining.
+selected-set SCC containment, dep-budget suffix liveness, proposal-window
+independence and normal mining.
 
 ### 12.4 PoolMap construction consequence
 
@@ -591,10 +600,12 @@ selected-set cycle containment, proposal-window independence and normal mining.
 `add_entry` that discovers policy failures while deleting entries. Primary
 accepted entries are the recovery source; links, outpoint/status/sort indexes,
 aggregates, and totals are rebuildable projections. The planner checks all
-arithmetic, touched memberships, container reservations, and exact full-hash
-identity under the write guard. Once apply begins, no transaction-shaped
-error remains. Derived drift causes a rebuild and re-plan before mutation,
-never rollback or service fail-stop.
+arithmetic, touched memberships, bounded closure work, and exact full-hash
+identity under the write guard. Once apply begins, no recoverable allocation,
+policy, or transaction-shaped error remains; canonical projection insertion is
+total in the Rust process model (process OOM is not a legal-input outcome).
+Derived drift causes a rebuild and re-plan before mutation, never rollback or
+service fail-stop.
 
 ### 12.5 RBF atomicity without nested undo
 
@@ -1781,6 +1792,15 @@ nextest gates and targeted integration pass; global review finds exactly two
 retained owners.
 
 ### P2 — Accepted PoolMutationPlan cutover
+
+Implementation status: complete at C4. The production cutover uses a unique
+full-hash accepted index, one bounded sparse `PoolMutationPlan`, role-separated
+cell providers/checkers, causal-only persistent links and selected-set
+conditional ordering. PoolCommitJournal, nested/cohort undo, restore-before-
+recover and cell-ref escape displacement have no production callers. The
+test-only 96-seed differential compares Plan/Apply with a mutable stepwise
+reference; process regressions cover both reader/spender arrival orders and a
+2,000-reader fanout.
 
 - Split PoolMap into primary entries and rebuildable projections.
 - Implement read-only combined RBF/capacity planning with explicit

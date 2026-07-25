@@ -1,8 +1,9 @@
 use super::*;
 use crate::component::pool_map::Status;
 use crate::component::tests::util::{MOCK_CYCLES, build_tx};
-use ckb_types::core::{Capacity, TransactionView};
-use ckb_types::packed::Byte32;
+use ckb_types::core::{Capacity, TransactionBuilder, TransactionView};
+use ckb_types::packed::{Byte32, CellDep, CellInput, OutPoint};
+use ckb_types::prelude::*;
 
 const SIZE: usize = 100;
 
@@ -109,5 +110,157 @@ fn descendants_cache_members_stay_within_budget() {
         !selector
             .descendants_cache
             .contains_key(&b.proposal_short_id())
+    );
+}
+
+fn tx_with_input_and_dep(input: OutPoint, dep: OutPoint) -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(input).build())
+        .cell_dep(CellDep::new_builder().out_point(dep).build())
+        .build()
+}
+
+#[test]
+fn selected_reader_is_ordered_before_spender() {
+    let shared = OutPoint::new(Byte32::new([0x31; 32]), 0);
+    let reader = tx_with_input_and_dep(OutPoint::new(Byte32::new([0x41; 32]), 0), shared.clone());
+    let spender = TransactionBuilder::default()
+        .input(
+            CellInput::new_builder()
+                .previous_output(shared.clone())
+                .build(),
+        )
+        .build();
+    let mut pool = PoolMap::new(125);
+    add_proposed(&mut pool, &reader, 100);
+    add_proposed(&mut pool, &spender, 10_000);
+
+    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    let ids = selected
+        .iter()
+        .map(TxEntry::proposal_short_id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![reader.proposal_short_id(), spender.proposal_short_id()]
+    );
+}
+
+#[test]
+fn conditional_cycle_drops_weakest_member() {
+    let x = OutPoint::new(Byte32::new([0x51; 32]), 0);
+    let y = OutPoint::new(Byte32::new([0x52; 32]), 0);
+    // A reads x and spends y; B reads y and spends x.
+    let a = tx_with_input_and_dep(y.clone(), x.clone());
+    let b = tx_with_input_and_dep(x, OutPoint::new(Byte32::new([0x52; 32]), 0));
+    let mut pool = PoolMap::new(125);
+    add_proposed(&mut pool, &a, 100);
+    add_proposed(&mut pool, &b, 10_000);
+
+    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].proposal_short_id(), b.proposal_short_id());
+}
+
+#[test]
+fn conditional_cycle_does_not_drop_acyclic_downstream_entry() {
+    let x = OutPoint::new(Byte32::new([0x61; 32]), 0);
+    let y = OutPoint::new(Byte32::new([0x62; 32]), 0);
+    let z = OutPoint::new(Byte32::new([0x63; 32]), 0);
+    // A -> B and B -> A form the only cycle. B -> C is conditional but C is
+    // not a cycle member, even though it remains blocked in Kahn's residual.
+    let a = tx_with_input_and_dep(y.clone(), x.clone());
+    let b = TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(x).build())
+        .cell_dep(CellDep::new_builder().out_point(y).build())
+        .cell_dep(CellDep::new_builder().out_point(z.clone()).build())
+        .build();
+    let c = TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(z).build())
+        .build();
+    let mut pool = PoolMap::new(125);
+    add_proposed(&mut pool, &a, 100);
+    add_proposed(&mut pool, &b, 10_000);
+    add_proposed(&mut pool, &c, 1);
+
+    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    let ids = selected
+        .iter()
+        .map(TxEntry::proposal_short_id)
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec![b.proposal_short_id(), c.proposal_short_id()]);
+}
+
+#[test]
+fn dense_conditional_scc_uses_bounded_fallback_and_keeps_strongest() {
+    let points = (0u16..66)
+        .map(|seed| {
+            let mut hash = [0u8; 32];
+            hash[..2].copy_from_slice(&seed.to_le_bytes());
+            OutPoint::new(Byte32::new(hash), 0)
+        })
+        .collect::<Vec<_>>();
+    let mut pool = PoolMap::new(125);
+    let mut strongest = None;
+    for (index, input) in points.iter().enumerate() {
+        let mut builder = TransactionBuilder::default().input(
+            CellInput::new_builder()
+                .previous_output(input.clone())
+                .build(),
+        );
+        for (dep_index, dep) in points.iter().enumerate() {
+            if dep_index != index {
+                builder = builder.cell_dep(CellDep::new_builder().out_point(dep.clone()).build());
+            }
+        }
+        let tx = builder.build();
+        add_proposed(&mut pool, &tx, (index as u64 + 1) * 100);
+        strongest = Some(tx.proposal_short_id());
+    }
+
+    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    assert_eq!(selected.len(), 1);
+    assert_eq!(
+        selected[0].proposal_short_id(),
+        strongest.expect("dense SCC has a strongest entry")
+    );
+}
+
+#[test]
+fn over_budget_dep_entry_does_not_censor_independent_suffix() {
+    let dep_a = OutPoint::new(Byte32::new([0x71; 32]), 0);
+    let dep_b = OutPoint::new(Byte32::new([0x72; 32]), 0);
+    let expensive = TransactionBuilder::default()
+        .input(
+            CellInput::new_builder()
+                .previous_output(OutPoint::new(Byte32::new([0x73; 32]), 0))
+                .build(),
+        )
+        .cell_dep(CellDep::new_builder().out_point(dep_a).build())
+        .cell_dep(CellDep::new_builder().out_point(dep_b).build())
+        .build();
+    let independent = TransactionBuilder::default()
+        .input(
+            CellInput::new_builder()
+                .previous_output(OutPoint::new(Byte32::new([0x74; 32]), 0))
+                .build(),
+        )
+        .build();
+    let mut pool = PoolMap::new(125);
+    add_proposed(&mut pool, &expensive, 10_000);
+    add_proposed(&mut pool, &independent, 1);
+
+    let selector = TxSelector::new(&pool);
+    let retained = selector.retain_selected_with_dep_budget(
+        vec![
+            pool.get(&expensive.proposal_short_id()).unwrap().clone(),
+            pool.get(&independent.proposal_short_id()).unwrap().clone(),
+        ],
+        1,
+    );
+    assert_eq!(retained.len(), 1);
+    assert_eq!(
+        retained[0].proposal_short_id(),
+        independent.proposal_short_id()
     );
 }

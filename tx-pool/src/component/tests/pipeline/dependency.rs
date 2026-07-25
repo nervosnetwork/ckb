@@ -619,12 +619,10 @@ async fn pipeline_rejects_conflicting_double_spend() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn pipeline_preserves_cell_dep_before_in_flight_consumer() {
-    // tx_a spends an on-chain cell X. tx_b spends a different cell but uses X as
-    // a cell dep. Both can coexist when tx_b commits first: the pool records tx_b
-    // as tx_a's ancestor so block assembly uses X as a dep before consuming it.
-    // If tx_a commits first, tx_b is correctly rejected as Dead. The concurrent
-    // pipeline may reach either valid state, but never the invalid reverse order.
+async fn pipeline_accepts_dep_reader_after_in_flight_spender() {
+    // tx_a spends an on-chain cell X. tx_b spends a different cell but uses X
+    // as a cell dep. Their arrival order must not change accepted membership;
+    // reader-before-spender is imposed only on the selected template set.
     let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline_workers(2, 4);
     let input_a = &issue_out_points[0];
     let input_b = &issue_out_points[1];
@@ -699,14 +697,16 @@ async fn pipeline_preserves_cell_dep_before_in_flight_consumer() {
     let pool = service.pool.tx_pool.read().await;
     assert!(
         pool.get_tx_from_pool(&id_a).is_some(),
-        "tx_a should be accepted"
+        "spender is accepted"
     );
-    if pool.get_tx_from_pool(&id_b).is_some() {
-        assert!(
-            pool.pool_map.calc_ancestors(&id_a).contains(&id_b),
-            "when both transactions are accepted, the dep user must precede the consumer"
-        );
-    }
+    assert!(
+        pool.get_tx_from_pool(&id_b).is_some(),
+        "the earlier spender must not hide X from the later dep reader"
+    );
+    assert!(
+        !pool.pool_map.calc_ancestors(&id_a).contains(&id_b),
+        "conditional template order must not leak into causal ancestry"
+    );
 
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;

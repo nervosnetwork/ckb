@@ -168,17 +168,12 @@ pub(crate) fn update_tx_pool_for_reorg(
     tx_pool.preflight_reorg_status_transitions()?;
     tx_pool.snapshot = Arc::clone(&snapshot);
 
-    // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
-    // pending-pool if they can be found within txpool. As for a transaction
+    // Demote detached proposals and their causal descendants in place. For a transaction
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
     tx_pool.remove_committed_txs(attached.iter(), detached_headers, &mut reject_events);
-    tx_pool.remove_by_detached_proposal(
-        detached_proposal_id.iter(),
-        &mut notify_events,
-        &mut reject_events,
-    );
+    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter(), &mut notify_events);
 
     // Re-evaluate Gap/Pending against the new tip's proposal windows.
     //

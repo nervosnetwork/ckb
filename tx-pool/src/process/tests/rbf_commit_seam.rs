@@ -7,20 +7,21 @@ impl TxPoolService {
         snapshot: Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        status: Status,
-        entry_id: ProposalShortId,
+        _status: Status,
+        _entry_id: ProposalShortId,
     ) -> SubmitEntryOutcome {
-        let mut coordinated = self.try_submit_entry_inner(
-            tx_pool,
-            snapshot,
-            pre_resolve_tip,
-            entry.clone(),
-            status,
-            entry_id,
-        );
-        if coordinated.outcome.result.is_ok() {
-            self.finalize_coordinated_submit(tx_pool, &entry, &mut coordinated);
-        }
-        coordinated.outcome
+        self.pipeline
+            .kernel
+            .mutate(|kernel| {
+                self.try_submit_entry_with_handoff(
+                    tx_pool,
+                    snapshot,
+                    pre_resolve_tip,
+                    entry.clone(),
+                    |tx_pool, plan| self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan),
+                )
+            })
+            .0
+            .outcome
     }
 }

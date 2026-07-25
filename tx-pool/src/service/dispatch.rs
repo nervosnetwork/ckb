@@ -525,7 +525,7 @@ impl TxPoolService {
     pub(crate) async fn get_live_cell(&self, out_point: OutPoint, eager_load: bool) -> CellStatus {
         let tx_pool = self.pool.tx_pool.read().await;
         let snapshot = tx_pool.snapshot();
-        let pool_cell = PoolCell::new(&tx_pool.pool_map, false);
+        let pool_cell = PoolCell::for_inputs(&tx_pool.pool_map);
         let provider = OverlayCellProvider::new(&pool_cell, snapshot);
 
         match provider.cell(&out_point, false) {

@@ -265,13 +265,10 @@ fn test_remove_entry_and_descendants() {
     assert!(!descendants_set.contains(&tx3_id));
 }
 
-/// A cell-ref ordering parent may be evicted to satisfy the ancestor limit,
-/// but its descendant closure must never contain a parent whose output the
-/// incoming transaction actually consumes. The resolved payload would
-/// otherwise survive while the cell that justified it disappears from the
-/// accepted graph.
+/// Conditional reader-before-spender ordering is not ancestry. A genuine causal chain still enforces
+/// the ancestor limit without displacing any accepted entry.
 #[test]
-fn escape_hatch_never_evicts_a_required_parent() {
+fn causal_ancestor_limit_never_evicts_existing_entries() {
     let mut map = PoolMap::new(2);
 
     let base = |n: u8| {
@@ -319,9 +316,8 @@ fn escape_hatch_never_evicts_a_required_parent() {
     map.add_proposed(c1).unwrap();
     map.add_proposed(c2).unwrap();
 
-    // X spends cell O (so C1 is a cell-ref ordering parent through `deps[O]`)
-    // and C2's output (so C2 is a required parent). Evicting C1 would cascade
-    // through C2 and leave X with a dead input. Reject without mutation.
+    // X spends cell O and C2's output. Only C1 -> C2 -> X is causal; the
+    // reader-before-spender relation on O does not create another graph edge.
     let x = TxEntry::dummy_resolve(
         TransactionBuilder::default()
             .input(CellInput::new_builder().previous_output(cell_o).build())
@@ -341,7 +337,7 @@ fn escape_hatch_never_evicts_a_required_parent() {
             map.add_entry(x, crate::component::pool_map::Status::Proposed),
             Err(crate::error::Reject::ExceededMaximumAncestorsCount)
         ),
-        "an escape plan may not invalidate the incoming transaction"
+        "the causal chain exceeds the configured ancestor limit"
     );
     assert!(map.contains_key(&c1_id));
     assert!(map.contains_key(&c2_id));
@@ -349,7 +345,7 @@ fn escape_hatch_never_evicts_a_required_parent() {
 }
 
 #[test]
-fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
+fn dep_readers_do_not_count_as_spender_ancestors() {
     let mut map = PoolMap::new(4);
     let base = |n: u8| {
         OutPoint::new_builder()
@@ -390,7 +386,7 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
     let child =
         |parent: &ckb_types::core::TransactionView| make_tx(OutPoint::new(parent.hash(), 0), 1);
 
-    // P1 -> P2 -> C1 gives the low-fee cell-ref root C1 a deep ancestor
+    // P1 -> P2 -> C1 gives the low-fee dep reader C1 a deep ancestor
     // chain. C2 is its unrelated descendant, so evicting C1 has a two-entry
     // physical cascade but does not invalidate X.
     let p1 = make_tx(base(0x41), 1);
@@ -412,10 +408,8 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
     map.add_proposed(c2).unwrap();
     map.add_proposed(d1).unwrap();
 
-    // X has four ancestors: P1 -> P2 -> C1 plus independent D1. Both C1 and
-    // D1 are ordering-only cell-ref candidates. Removing low-fee C1 detaches
-    // its ancestor chain and cascades through C2, immediately making X fit;
-    // D1 must not be evicted based on a stale "minus one" count.
+    // C1 and D1 read cells consumed by X, but neither is a causal producer of
+    // X. Admission therefore retains every reader and its causal relatives.
     let x = TxEntry::dummy_resolve(
         TransactionBuilder::default()
             .input(CellInput::new_builder().previous_output(cell_o).build())
@@ -426,30 +420,24 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
         Capacity::shannons(2_000_000),
         100,
     );
-    let outcome = map
+    let inserted = map
         .add_entry(x, crate::component::pool_map::Status::Proposed)
         .unwrap();
-    assert!(outcome.inserted);
-    let evicted_ids: std::collections::HashSet<_> = outcome
-        .evicted
-        .iter()
-        .map(|removed| removed.entry.proposal_short_id())
-        .collect();
-    assert_eq!(evicted_ids, std::collections::HashSet::from([c1_id, c2_id]));
+    assert!(inserted);
     assert!(map.contains_key(&p1_id));
     assert!(map.contains_key(&p2_id));
+    assert!(map.contains_key(&c1_id));
+    assert!(map.contains_key(&c2_id));
     assert!(
         map.contains_key(&d1_id),
         "unrelated high-fee parent survives"
     );
 }
 
-/// One input can be referenced as a cell dep by an arbitrary fraction of the
-/// pool. Consuming that cell must not turn one admission into an unbounded
-/// write-lock mutation and callback journal. The indexed displacement bound
-/// used by RBF is also the safety boundary for this escape hatch.
+/// A popular cell dep must not turn one spender admission into work or
+/// displacement proportional to the number of readers.
 #[test]
-fn escape_hatch_rejects_mutation_larger_than_displacement_bound() {
+fn popular_dep_readers_coexist_with_spender() {
     use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 
     let mut map = PoolMap::new(2);
@@ -486,12 +474,11 @@ fn escape_hatch_rejects_mutation_larger_than_displacement_bound() {
         Capacity::shannons(1_000_000),
         100,
     );
-    let result = map.add_entry(consuming, crate::component::pool_map::Status::Pending);
-    assert!(
-        matches!(result, Err(crate::error::Reject::Full(_))),
-        "an over-bound mutation must be retryable backpressure, got {result:?}"
-    );
-    assert_eq!(map.entries.len(), before, "rejection must be mutation-free");
+    let inserted = map
+        .add_entry(consuming, crate::component::pool_map::Status::Pending)
+        .expect("spender admission is independent of reader fanout");
+    assert!(inserted);
+    assert_eq!(map.entries.len(), before + 1);
     map.audit().unwrap();
 }
 
