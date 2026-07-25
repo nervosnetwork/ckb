@@ -1,6 +1,22 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    pub(crate) fn parent_available(
+        &mut self,
+        parent: &Byte32,
+    ) -> Result<Vec<CoordinatorTicket>, CoordinatorError> {
+        let undo: Vec<_> = self
+            .by_parent
+            .get(parent)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.parent_available_apply(parent)
+        })
+    }
+
     /// Replace raw work with an unverified phase bundle. `charge_bytes` is
     /// the total payload residency of that entire bundle, including the raw
     /// transaction retained for dependency demotion and terminal handoff.

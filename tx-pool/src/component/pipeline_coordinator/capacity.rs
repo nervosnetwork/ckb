@@ -73,7 +73,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         hash: &Byte32,
         old: (Option<CapacityVictimKey>, Option<CandidateRank>),
     ) {
-        if self.entry_transaction_depth != 0 {
+        if self.entry_transaction_active {
             // The outer undo snapshot owns derived-index publication for the
             // complete nested mutation cohort.
             return;

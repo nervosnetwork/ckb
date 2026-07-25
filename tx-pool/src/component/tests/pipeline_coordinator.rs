@@ -543,6 +543,49 @@ fn trusted_raw_replacement_restarts_active_payload_and_invalidates_old_lease() {
 }
 
 #[test]
+fn trusted_raw_replacement_releases_the_old_conflict_and_peer_claims() {
+    let mut coordinator = roomy();
+    let peer: PeerIndex = 22.into();
+    let shared_input = inputs([94]);
+    let (remote, verify, candidate) = begin_candidate(
+        &mut coordinator,
+        93,
+        CoordinatorSource::Remote(peer),
+        shared_input.clone(),
+        100,
+    );
+    coordinator
+        .complete_verification_candidate(&verify, Verified("remote"), 30, candidate)
+        .unwrap();
+    let local = verify_candidate(&mut coordinator, 94, shared_input, 200);
+
+    let (_, terminal) = coordinator
+        .replace_raw_payload(
+            &remote,
+            Raw("proposal witness"),
+            10,
+            TrustedSource::Proposal,
+            RawStage::PreCheck,
+        )
+        .unwrap();
+
+    assert!(terminal.is_empty());
+    assert_eq!(
+        coordinator.peer_usage(peer),
+        CoordinatorResidency::default()
+    );
+    assert_eq!(coordinator.conflict_edge_count(), 1);
+    assert_eq!(
+        coordinator.view(&remote).unwrap().location,
+        CoordinatorLocation::RawQueued(RawStage::PreCheck)
+    );
+    let commit = coordinator.begin_next_commit().unwrap().unwrap();
+    assert_eq!(commit.hash, local);
+    coordinator.abort_commit(&commit).unwrap();
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn proposal_priority_lane_is_fifo_and_does_not_starve_earlier_proposals() {
     let mut coordinator = roomy();
     for seed in [95, 96, 97] {
@@ -5178,8 +5221,6 @@ fn undo_cohort_completeness_is_enforced_at_every_entry_write() {
         coordinator.mutate_outside_undo_cohort_for_test(&snapshotted, &escaped),
         Err(CoordinatorError::UndoCohortViolation {
             hash,
-            active_depth: 1,
-            snapshotted_depth: 0,
             ..
         }) if hash == escaped
     ));
@@ -5196,7 +5237,7 @@ fn undo_cohort_completeness_is_enforced_at_every_entry_write() {
 }
 
 #[test]
-fn nested_undo_scope_cannot_expand_the_outer_snapshot() {
+fn nested_undo_scope_is_forbidden() {
     let mut coordinator = roomy();
     let outer = hash(132);
     let escaped = hash(133);
@@ -5216,12 +5257,7 @@ fn nested_undo_scope_cannot_expand_the_outer_snapshot() {
 
     assert!(matches!(
         coordinator.expand_nested_undo_cohort_for_test(&outer, &escaped),
-        Err(CoordinatorError::UndoCohortViolation {
-            hash,
-            active_depth: 1,
-            snapshotted_depth: 0,
-            ..
-        }) if hash == escaped
+        Err(CoordinatorError::NestedUndoTransaction)
     ));
     coordinator.audit().unwrap();
 }

@@ -118,7 +118,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let next_arrival = self.next_arrival;
         let next_maintenance_sequence = self.next_maintenance_sequence;
         let next_queue_sequence = self.next_queue_sequence;
-        let outermost = self.entry_transaction_depth == 0;
         self.begin_entry_transaction(&cohort)?;
         let outcome = catch_unwind(AssertUnwindSafe(|| apply(self)));
         self.end_entry_transaction(&cohort);
@@ -135,9 +134,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         };
         match outcome {
             Ok(Ok(value)) => {
-                if outermost {
-                    self.sync_victim_indexes(&snapshot);
-                }
+                self.sync_victim_indexes(&snapshot);
                 Ok(value)
             }
             Ok(Err(error)) => {
@@ -155,66 +152,29 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         cohort: &HashSet<Byte32>,
     ) -> Result<(), CoordinatorError> {
-        let depth = self.entry_transaction_depth;
-        // A nested snapshot may narrow an outer cohort, but it cannot add an
-        // entry the outer transaction would be unable to restore.
-        if let Some(hash) = cohort.iter().find(|hash| {
-            self.entry_transaction_membership
-                .get(*hash)
-                .copied()
-                .unwrap_or(0)
-                != depth
-        }) {
-            return Err(CoordinatorError::UndoCohortViolation {
-                hash: hash.clone(),
-                active_depth: depth,
-                snapshotted_depth: self
-                    .entry_transaction_membership
-                    .get(hash)
-                    .copied()
-                    .unwrap_or(0),
-                mutation_file: "nested undo cohort",
-                mutation_line: 0,
-                active_members: self
-                    .entry_transaction_membership
-                    .iter()
-                    .filter(|(_, count)| **count == depth)
-                    .map(|(hash, _)| hash.clone())
-                    .collect(),
-            });
+        if self.entry_transaction_active {
+            return Err(CoordinatorError::NestedUndoTransaction);
         }
         self.entry_transaction_membership
             .try_reserve(cohort.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        let next_depth = depth
-            .checked_add(1)
-            .expect("coordinator undo nesting is statically bounded");
         for hash in cohort {
-            self.entry_transaction_membership
-                .insert(hash.clone(), next_depth);
+            self.entry_transaction_membership.insert(hash.clone());
         }
-        self.entry_transaction_depth = next_depth;
+        self.entry_transaction_active = true;
         Ok(())
     }
 
     pub(super) fn end_entry_transaction(&mut self, cohort: &HashSet<Byte32>) {
-        let depth = self.entry_transaction_depth;
-        debug_assert_ne!(depth, 0);
+        debug_assert!(self.entry_transaction_active);
         for hash in cohort {
-            let remove = {
-                let count = self
-                    .entry_transaction_membership
-                    .get_mut(hash)
-                    .expect("active undo cohort membership exists");
-                assert_eq!(*count, depth, "undo cohort nesting remains exact");
-                *count -= 1;
-                *count == 0
-            };
-            if remove {
-                self.entry_transaction_membership.remove(hash);
-            }
+            assert!(
+                self.entry_transaction_membership.remove(hash),
+                "active undo cohort membership exists"
+            );
         }
-        self.entry_transaction_depth = depth - 1;
+        assert!(self.entry_transaction_membership.is_empty());
+        self.entry_transaction_active = false;
     }
 
     #[track_caller]
@@ -222,28 +182,30 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &self,
         hash: &Byte32,
     ) -> Result<(), CoordinatorError> {
-        if self.entry_transaction_depth != 0
-            && self.entry_transaction_membership.get(hash).copied()
-                != Some(self.entry_transaction_depth)
-        {
+        if self.entry_transaction_active && !self.entry_transaction_membership.contains(hash) {
             let caller = std::panic::Location::caller();
             return Err(CoordinatorError::UndoCohortViolation {
                 hash: hash.clone(),
-                active_depth: self.entry_transaction_depth,
-                snapshotted_depth: self
-                    .entry_transaction_membership
-                    .get(hash)
-                    .copied()
-                    .unwrap_or(0),
                 mutation_file: caller.file(),
                 mutation_line: caller.line(),
-                active_members: self
-                    .entry_transaction_membership
-                    .iter()
-                    .filter(|(_, count)| **count == self.entry_transaction_depth)
-                    .map(|(hash, _)| hash.clone())
-                    .collect(),
+                active_members: self.entry_transaction_membership.iter().cloned().collect(),
             });
+        }
+        Ok(())
+    }
+
+    /// Require a caller-owned undo boundary that already covers the complete
+    /// apply cohort. Composite transitions use this instead of opening a
+    /// nested snapshot.
+    pub(super) fn require_entry_transaction(
+        &self,
+        hashes: &[Byte32],
+    ) -> Result<(), CoordinatorError> {
+        if !self.entry_transaction_active {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+        for hash in hashes {
+            self.ensure_entry_mutation_is_snapshotted(hash)?;
         }
         Ok(())
     }
@@ -366,7 +328,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         parent: &Byte32,
         cause: &Byte32,
     ) -> Result<Vec<Byte32>, CoordinatorError> {
-        if self.entry_transaction_depth == 0 {
+        if !self.entry_transaction_active {
             return Err(CoordinatorError::ConflictInvariant);
         }
         let mut children: Vec<_> = self

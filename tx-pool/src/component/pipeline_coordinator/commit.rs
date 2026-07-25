@@ -117,10 +117,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.terminalize_present_causally(&lease.hash, disposition)
     }
 
-    pub(crate) fn commit_candidate_handoff(
+    fn commit_candidate_handoff_apply(
         &mut self,
         lease: &CommitLease<V>,
     ) -> Result<ConflictCommitHandoff<R>, CoordinatorError> {
+        let undo = self.commit_handoff_undo_hashes(lease)?;
+        self.require_entry_transaction(&undo)?;
         self.validate_version_location(
             &lease.hash,
             lease.version,
@@ -166,11 +168,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         terminal
             .try_reserve(rejected.len())
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        let mut undo = rejected.clone();
-        undo.push(lease.hash.clone());
-        let causal_undo = self.causal_undo_hashes(&undo);
-        undo.extend(causal_undo);
-        self.with_entry_undo(&undo, |coordinator| {
+        (|coordinator: &mut Self| {
             for hash in &rejected {
                 coordinator.mark_children_invalid(hash, hash)?;
                 coordinator.apply_fault_checkpoint();
@@ -216,7 +214,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ));
                 coordinator.apply_fault_checkpoint();
             }
-            let ready_children = coordinator.parent_available(&lease.hash)?;
+            let ready_children = coordinator.parent_available_apply(&lease.hash)?;
             let active_source = coordinator
                 .entries
                 .get(&lease.hash)
@@ -247,7 +245,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 },
                 rejected: terminal,
             })
-        })
+        })(self)
     }
 
     fn commit_handoff_undo_hashes(
@@ -281,13 +279,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         lease: &CommitLease<V>,
         unavailable_parents: &HashSet<Byte32>,
     ) -> Result<ConflictCommitHandoff<R>, CoordinatorError> {
+        let unavailable = self.plan_parents_unavailable(unavailable_parents)?;
         let mut undo = self.commit_handoff_undo_hashes(lease)?;
-        undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
+        undo.extend(unavailable.undo.iter().cloned());
         undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         undo.dedup();
         self.with_entry_undo(&undo, |coordinator| {
-            coordinator.parents_unavailable(unavailable_parents)?;
-            let handoff = coordinator.commit_candidate_handoff(lease)?;
+            coordinator.apply_parents_unavailable(unavailable)?;
+            let handoff = coordinator.commit_candidate_handoff_apply(lease)?;
             #[cfg(test)]
             coordinator.handoff_error_checkpoint()?;
             Ok(handoff)
@@ -304,13 +303,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         hash: &Byte32,
         unavailable_parents: &HashSet<Byte32>,
     ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
+        let unavailable = self.plan_parents_unavailable(unavailable_parents)?;
         let mut undo = self.causal_undo_hashes(std::slice::from_ref(hash));
-        undo.extend(self.parents_unavailable_undo_hashes(unavailable_parents));
+        undo.extend(unavailable.undo.iter().cloned());
         undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         undo.dedup();
         if self.entries.contains_key(hash) {
             self.with_entry_undo(&undo, |coordinator| {
-                coordinator.parents_unavailable(unavailable_parents)?;
+                coordinator.apply_parents_unavailable(unavailable)?;
                 let record = coordinator.external_commit_apply(hash)?;
                 #[cfg(test)]
                 coordinator.handoff_error_checkpoint()?;
@@ -319,7 +319,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         } else {
             undo.retain(|affected| affected != hash);
             self.with_absent_entry_undo(hash, &undo, |coordinator| {
-                coordinator.parents_unavailable(unavailable_parents)?;
+                coordinator.apply_parents_unavailable(unavailable)?;
                 let record = coordinator.external_commit_apply(hash)?;
                 #[cfg(test)]
                 coordinator.handoff_error_checkpoint()?;
@@ -339,7 +339,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         committed: &HashSet<Byte32>,
         unavailable_parents: &HashSet<Byte32>,
     ) -> Result<Vec<ExternalCommitRecord<R>>, CoordinatorError> {
-        let mut undo = self.parents_unavailable_undo_hashes(unavailable_parents);
+        let unavailable = self.plan_parents_unavailable(unavailable_parents)?;
+        let mut undo = unavailable.undo.clone();
         for hash in committed {
             undo.extend(self.causal_undo_hashes(std::slice::from_ref(hash)));
         }
@@ -349,7 +350,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut ordered_committed: Vec<_> = committed.iter().cloned().collect();
         ordered_committed.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         self.with_mixed_entry_undo(&undo, |coordinator| {
-            coordinator.parents_unavailable(unavailable_parents)?;
+            coordinator.apply_parents_unavailable(unavailable)?;
             let mut records = Vec::new();
             records
                 .try_reserve(ordered_committed.len())
@@ -368,7 +369,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         hash: &Byte32,
     ) -> Result<Option<ExternalCommitRecord<R>>, CoordinatorError> {
-        let ready_children = self.parent_available(hash)?;
+        let ready_children = self.parent_available_apply(hash)?;
         if !self.entries.contains_key(hash) {
             // The parent may have entered through the synchronous local path
             // or an attached block without ever being coordinator resident.

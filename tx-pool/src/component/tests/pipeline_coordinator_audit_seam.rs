@@ -2,7 +2,7 @@ use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(crate) fn audit(&self) -> Result<(), CoordinatorAuditError> {
-        if self.entry_transaction_depth != 0 || !self.entry_transaction_membership.is_empty() {
+        if self.entry_transaction_active || !self.entry_transaction_membership.is_empty() {
             return Err(CoordinatorAuditError::EntryTransactionDepth);
         }
         let mut global_usage = CoordinatorResidency::default();

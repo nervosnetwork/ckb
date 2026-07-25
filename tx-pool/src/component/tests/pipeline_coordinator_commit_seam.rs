@@ -1,6 +1,16 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    pub(crate) fn commit_candidate_handoff(
+        &mut self,
+        lease: &CommitLease<V>,
+    ) -> Result<ConflictCommitHandoff<R>, CoordinatorError> {
+        let undo = self.commit_handoff_undo_hashes(lease)?;
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.commit_candidate_handoff_apply(lease)
+        })
+    }
+
     pub(crate) fn abort_commit(
         &mut self,
         lease: &CommitLease<V>,

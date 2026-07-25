@@ -46,15 +46,10 @@ pub(crate) struct PipelineCoordinator<R, U, V> {
     live_deadlines: HashMap<Byte32, DeadlineTicket>,
     capacity_victim_index: BTreeSet<CapacityVictimKey>,
     candidate_victim_index: BTreeSet<CandidateRank>,
-    /// Nested undo scopes mutate one authoritative entry cohort. Derived
-    /// victim indexes are published only by the outermost successful scope,
-    /// preventing intermediate keys from becoming a second state history.
-    entry_transaction_depth: usize,
-    /// Number of active undo scopes that snapshot each hash. A write is legal
-    /// only when the count equals `entry_transaction_depth`, so nested scopes
-    /// can mutate only hashes snapshotted by themselves and every outer scope.
-    /// This turns cohort completeness into an O(1) checked invariant.
-    entry_transaction_membership: HashMap<Byte32, usize>,
+    /// A fallible multi-entry command owns exactly one undo boundary. Every
+    /// entry write while it is active must belong to this snapshotted cohort.
+    entry_transaction_active: bool,
+    entry_transaction_membership: HashSet<Byte32>,
     #[cfg(test)]
     capacity_victim_probes: Cell<usize>,
     #[cfg(test)]
@@ -113,8 +108,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             live_deadlines: HashMap::new(),
             capacity_victim_index: BTreeSet::new(),
             candidate_victim_index: BTreeSet::new(),
-            entry_transaction_depth: 0,
-            entry_transaction_membership: HashMap::new(),
+            entry_transaction_active: false,
+            entry_transaction_membership: HashSet::new(),
             #[cfg(test)]
             capacity_victim_probes: Cell::new(0),
             #[cfg(test)]

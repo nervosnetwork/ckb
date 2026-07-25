@@ -503,12 +503,13 @@ pub(crate) enum CoordinatorError {
     /// completeness a coordinator invariant instead of a caller convention.
     UndoCohortViolation {
         hash: Byte32,
-        active_depth: usize,
-        snapshotted_depth: usize,
         mutation_file: &'static str,
         mutation_line: u32,
         active_members: Vec<Byte32>,
     },
+    /// Command composition attempted to establish a second rollback owner.
+    /// Composite operations must use transaction-only apply primitives.
+    NestedUndoTransaction,
     ConflictInvariant,
     SourceDowngrade,
     /// The coordinator's current source owner no longer agrees with the

@@ -4,6 +4,14 @@ use super::*;
 #[path = "../tests/pipeline_coordinator_lifecycle_seam.rs"]
 mod test_seam;
 
+pub(super) struct ParentsUnavailablePlan {
+    pub(super) undo: Vec<Byte32>,
+    affected: Vec<Byte32>,
+    missing_by_child: HashMap<Byte32, HashSet<Byte32>>,
+    trusted_sequences: HashMap<Byte32, u64>,
+    next_maintenance_sequence: u64,
+}
+
 impl<R, U, V> PipelineCoordinator<R, U, V> {
     /// Extend the canonical dependency graph with parents discovered only
     /// after dep-group expansion, and preflight the exact raw-phase charge.
@@ -246,6 +254,54 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
+    fn release_peer_attribution(
+        &mut self,
+        hash: &Byte32,
+        peer: PeerIndex,
+        charge: CoordinatorResidency,
+        active: bool,
+    ) -> Result<(), CoordinatorError> {
+        let remove_usage = {
+            let usage = self
+                .peer_usage
+                .get_mut(&peer)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            *usage = usage
+                .checked_sub(charge)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            *usage == CoordinatorResidency::default()
+        };
+        if remove_usage {
+            self.peer_usage.remove(&peer);
+        }
+        let hashes = self
+            .by_peer
+            .get_mut(&peer)
+            .ok_or(CoordinatorError::ConflictInvariant)?;
+        if !hashes.remove(hash) {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+        if hashes.is_empty() {
+            self.by_peer.remove(&peer);
+        }
+        if active {
+            let remove_active = {
+                let active = self
+                    .active_work_by_peer
+                    .get_mut(&peer)
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
+                *active = active
+                    .checked_sub(1)
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
+                *active == 0
+            };
+            if remove_active {
+                self.active_work_by_peer.remove(&peer);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn promote_source(
         &mut self,
         hash: &Byte32,
@@ -388,45 +444,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 coordinator.remove_conflict_tickets(plan)?;
             }
             if let Some(peer) = current.peer() {
-                let remove_usage = {
-                    let usage = coordinator
-                        .peer_usage
-                        .get_mut(&peer)
-                        .ok_or(CoordinatorError::ConflictInvariant)?;
-                    *usage = usage
-                        .checked_sub(old_charge)
-                        .ok_or(CoordinatorError::ConflictInvariant)?;
-                    *usage == CoordinatorResidency::default()
-                };
-                if remove_usage {
-                    coordinator.peer_usage.remove(&peer);
-                }
-                let hashes = coordinator
-                    .by_peer
-                    .get_mut(&peer)
-                    .ok_or(CoordinatorError::ConflictInvariant)?;
-                if !hashes.remove(hash) {
-                    return Err(CoordinatorError::ConflictInvariant);
-                }
-                let remove_bucket = hashes.is_empty();
-                if remove_bucket {
-                    coordinator.by_peer.remove(&peer);
-                }
-                if active {
-                    let remove_active = {
-                        let active = coordinator
-                            .active_work_by_peer
-                            .get_mut(&peer)
-                            .ok_or(CoordinatorError::ConflictInvariant)?;
-                        *active = active
-                            .checked_sub(1)
-                            .ok_or(CoordinatorError::ConflictInvariant)?;
-                        *active == 0
-                    };
-                    if remove_active {
-                        coordinator.active_work_by_peer.remove(&peer);
-                    }
-                }
+                coordinator.release_peer_attribution(hash, peer, old_charge, active)?;
                 coordinator.apply_fault_checkpoint();
             }
 
@@ -565,7 +583,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             TrustedSource::Proposal => CoordinatorSource::Proposal,
         };
         let undo = self.causal_undo_hashes(std::slice::from_ref(hash));
-        self.with_entry_undo(&undo, move |coordinator| {
+        self.require_entry_transaction(&undo)?;
+        (move |coordinator: &mut Self| {
             let current = coordinator
                 .entries
                 .get(hash)
@@ -581,10 +600,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             {
                 return Err(CoordinatorError::CommitInProgress(hash.clone()));
             }
-            if current != target {
-                coordinator.promote_source(hash, promotion)?;
-            }
-
             coordinator.ensure_revision_capacity(hash)?;
             let (dependencies, active) = coordinator
                 .entries
@@ -595,7 +610,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let total_charge_bytes = raw_payload_bytes
                 .checked_add(base_metadata_bytes)
                 .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-            coordinator.check_recharge(hash, total_charge_bytes)?;
             coordinator.preflight_remove_conflict_indexes(hash)?;
 
             let queue_kind = match stage {
@@ -609,13 +623,21 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
 
             coordinator.remove_current_scheduling(hash)?;
             if active {
-                coordinator.deactivate_source(target)?;
+                coordinator.deactivate_source(current)?;
             }
             coordinator.live_deadlines.remove(hash);
             coordinator.dependency_failure_set.remove(hash);
             coordinator.compact_deadlines();
             coordinator.compact_dependency_failures();
             coordinator.apply_recharge(hash, total_charge_bytes)?;
+            if let Some(peer) = current.peer() {
+                coordinator.release_peer_attribution(
+                    hash,
+                    peer,
+                    CoordinatorResidency::new(1, total_charge_bytes),
+                    false,
+                )?;
+            }
 
             let was_waiting = coordinator.entries.get(hash).is_some_and(|entry| {
                 matches!(
@@ -654,7 +676,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             coordinator.next_queue_sequence = next_queue_sequence;
             coordinator.apply_fault_checkpoint();
             Ok(version)
-        })
+        })(self)
     }
 
     pub(crate) fn checkout_raw(
@@ -1027,7 +1049,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(version)
     }
 
-    pub(crate) fn parent_available(
+    pub(super) fn parent_available_apply(
         &mut self,
         parent: &Byte32,
     ) -> Result<Vec<CoordinatorTicket>, CoordinatorError> {
@@ -1070,81 +1092,52 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .try_reserve(ready_count)
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         let (first_queue_sequence, next_queue_sequence) = self.queue_sequence_range(ready_count)?;
-
-        let undo = affected.clone();
+        self.require_entry_transaction(&affected)?;
+        self.queue_mut(QueueKind::Resolve)
+            .reserve_many(ready_owners, false)?;
+        self.next_queue_sequence = next_queue_sequence;
         let mut queue_sequence = first_queue_sequence;
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator
-                .queue_mut(QueueKind::Resolve)
-                .reserve_many(ready_owners, false)?;
-            coordinator.next_queue_sequence = next_queue_sequence;
-            for child in affected {
-                let entry = coordinator.entry_mut(&child)?;
-                let missing = match &mut entry.state {
-                    EntryState::Raw {
-                        location: RawLocation::WaitingParents { missing },
-                        ..
-                    } => missing,
-                    state => {
-                        return Err(CoordinatorError::LocationMismatch {
-                            expected: CoordinatorLocation::WaitingParents {
-                                missing: HashSet::from([parent.clone()]),
-                            },
-                            actual: state.location(),
-                        });
-                    }
-                };
-                missing.remove(parent);
-                let ready_now = missing.is_empty();
-                entry.revision += 1;
-                if ready_now {
-                    let EntryState::Raw { location, .. } = &mut entry.state else {
-                        return Err(CoordinatorError::ConflictInvariant);
-                    };
-                    *location = RawLocation::Queued(RawStage::Resolve);
-                    entry.queue_sequence = queue_sequence;
-                    queue_sequence = queue_sequence
-                        .checked_add(1)
-                        .ok_or(CoordinatorError::QueueSequenceExhausted)?;
-                    let ticket = entry.ticket(&child);
-                    let front = entry.source.is_proposal();
-                    coordinator.leave_waiting_parent()?;
-                    coordinator.queue_mut(QueueKind::Resolve).push_reserved(
-                        QueueKind::Resolve,
-                        ticket.clone(),
-                        front,
-                    )?;
-                    ready.push(ticket);
+        for child in affected {
+            let entry = self.entry_mut(&child)?;
+            let missing = match &mut entry.state {
+                EntryState::Raw {
+                    location: RawLocation::WaitingParents { missing },
+                    ..
+                } => missing,
+                state => {
+                    return Err(CoordinatorError::LocationMismatch {
+                        expected: CoordinatorLocation::WaitingParents {
+                            missing: HashSet::from([parent.clone()]),
+                        },
+                        actual: state.location(),
+                    });
                 }
-                coordinator.apply_fault_checkpoint();
-            }
-            Ok(ready)
-        })
-    }
-
-    pub(super) fn parents_unavailable_undo_hashes(&self, parents: &HashSet<Byte32>) -> Vec<Byte32> {
-        let mut affected = HashSet::new();
-        for parent in parents {
-            for child in self.by_parent.get(parent).into_iter().flatten() {
-                let Some(entry) = self.entries.get(child) else {
-                    continue;
+            };
+            missing.remove(parent);
+            let ready_now = missing.is_empty();
+            entry.revision += 1;
+            if ready_now {
+                let EntryState::Raw { location, .. } = &mut entry.state else {
+                    return Err(CoordinatorError::ConflictInvariant);
                 };
-                if entry.invalidated_cause().is_some()
-                    || matches!(
-                        &entry.state,
-                        EntryState::Raw {
-                            location: RawLocation::WaitingParents { missing },
-                            ..
-                        } if missing.contains(parent)
-                    )
-                {
-                    continue;
-                }
-                affected.insert(child.clone());
+                *location = RawLocation::Queued(RawStage::Resolve);
+                entry.queue_sequence = queue_sequence;
+                queue_sequence = queue_sequence
+                    .checked_add(1)
+                    .ok_or(CoordinatorError::QueueSequenceExhausted)?;
+                let ticket = entry.ticket(&child);
+                let front = entry.source.is_proposal();
+                self.leave_waiting_parent()?;
+                self.queue_mut(QueueKind::Resolve).push_reserved(
+                    QueueKind::Resolve,
+                    ticket.clone(),
+                    front,
+                )?;
+                ready.push(ticket);
             }
+            self.apply_fault_checkpoint();
         }
-        let roots: Vec<_> = affected.into_iter().collect();
-        self.conflict_undo_hashes(&roots)
+        Ok(ready)
     }
 
     /// Atomically reclassify every coordinator transaction whose dependency is
@@ -1158,6 +1151,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         parents: &HashSet<Byte32>,
     ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let plan = self.plan_parents_unavailable(parents)?;
+        let undo = plan.undo.clone();
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.apply_parents_unavailable(plan)
+        })
+    }
+
+    pub(super) fn plan_parents_unavailable(
+        &mut self,
+        parents: &HashSet<Byte32>,
+    ) -> Result<ParentsUnavailablePlan, CoordinatorError> {
         let mut ordered_parents: Vec<_> = parents.iter().cloned().collect();
         ordered_parents.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         let mut missing_by_child: HashMap<Byte32, HashSet<Byte32>> = HashMap::new();
@@ -1238,78 +1242,96 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut undo = self.conflict_undo_hashes(&affected);
         undo.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
         undo.dedup();
-        let result = affected.clone();
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.next_maintenance_sequence = next_maintenance_sequence;
-            for child in &affected {
-                if let Some(sequence) = trusted_sequences.get(child) {
-                    let cause = missing_by_child
-                        .get(child)
-                        .and_then(|missing| {
-                            missing
-                                .iter()
-                                .min_by(|left, right| left.as_slice().cmp(right.as_slice()))
-                        })
-                        .cloned()
-                        .ok_or(CoordinatorError::ConflictInvariant)?;
-                    coordinator.invalidate_present_apply(child, &cause, *sequence)?;
-                    continue;
-                }
-
-                let active_source = coordinator
-                    .entries
-                    .get(child)
-                    .and_then(|entry| entry.uses_active_slot().then_some(entry.source));
-                if let Some(source) = active_source {
-                    coordinator.deactivate_source(source)?;
-                }
-                coordinator.remove_current_scheduling(child)?;
-                coordinator.apply_fault_checkpoint();
-                let was_waiting = coordinator.entries.get(child).is_some_and(|entry| {
-                    matches!(
-                        &entry.state,
-                        EntryState::Raw {
-                            location: RawLocation::WaitingParents { .. },
-                            ..
-                        }
-                    )
-                });
-                let raw_charge = coordinator
-                    .entries
-                    .get(child)
-                    .ok_or_else(|| CoordinatorError::Missing(child.clone()))?
-                    .raw_charge_bytes;
-                coordinator.apply_recharge(child, raw_charge)?;
-                let entry = coordinator.entry_mut(child)?;
-                let mut missing = match &entry.state {
-                    EntryState::Raw {
-                        location: RawLocation::WaitingParents { missing },
-                        ..
-                    } => missing.clone(),
-                    _ => HashSet::new(),
-                };
-                missing.extend(
-                    missing_by_child
-                        .get(child)
-                        .ok_or(CoordinatorError::ConflictInvariant)?
-                        .iter()
-                        .cloned(),
-                );
-                entry.resident_payload_bytes = entry.raw_resident_payload_bytes;
-                entry.metadata_bytes = entry.base_metadata_bytes;
-                let raw = Arc::clone(entry.state.raw());
-                entry.state = EntryState::Raw {
-                    raw,
-                    location: RawLocation::WaitingParents { missing },
-                };
-                entry.revision += 1;
-                if !was_waiting {
-                    coordinator.enter_waiting_parent()?;
-                }
-                coordinator.apply_fault_checkpoint();
-            }
-            Ok(result)
+        Ok(ParentsUnavailablePlan {
+            undo,
+            affected,
+            missing_by_child,
+            trusted_sequences,
+            next_maintenance_sequence,
         })
+    }
+
+    pub(super) fn apply_parents_unavailable(
+        &mut self,
+        plan: ParentsUnavailablePlan,
+    ) -> Result<Vec<Byte32>, CoordinatorError> {
+        let ParentsUnavailablePlan {
+            undo,
+            affected,
+            missing_by_child,
+            trusted_sequences,
+            next_maintenance_sequence,
+        } = plan;
+        self.require_entry_transaction(&undo)?;
+        self.next_maintenance_sequence = next_maintenance_sequence;
+        for child in &affected {
+            if let Some(sequence) = trusted_sequences.get(child) {
+                let cause = missing_by_child
+                    .get(child)
+                    .and_then(|missing| {
+                        missing
+                            .iter()
+                            .min_by(|left, right| left.as_slice().cmp(right.as_slice()))
+                    })
+                    .cloned()
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
+                self.invalidate_present_apply(child, &cause, *sequence)?;
+                continue;
+            }
+
+            let active_source = self
+                .entries
+                .get(child)
+                .and_then(|entry| entry.uses_active_slot().then_some(entry.source));
+            if let Some(source) = active_source {
+                self.deactivate_source(source)?;
+            }
+            self.remove_current_scheduling(child)?;
+            self.apply_fault_checkpoint();
+            let was_waiting = self.entries.get(child).is_some_and(|entry| {
+                matches!(
+                    &entry.state,
+                    EntryState::Raw {
+                        location: RawLocation::WaitingParents { .. },
+                        ..
+                    }
+                )
+            });
+            let raw_charge = self
+                .entries
+                .get(child)
+                .ok_or_else(|| CoordinatorError::Missing(child.clone()))?
+                .raw_charge_bytes;
+            self.apply_recharge(child, raw_charge)?;
+            let entry = self.entry_mut(child)?;
+            let mut missing = match &entry.state {
+                EntryState::Raw {
+                    location: RawLocation::WaitingParents { missing },
+                    ..
+                } => missing.clone(),
+                _ => HashSet::new(),
+            };
+            missing.extend(
+                missing_by_child
+                    .get(child)
+                    .ok_or(CoordinatorError::ConflictInvariant)?
+                    .iter()
+                    .cloned(),
+            );
+            entry.resident_payload_bytes = entry.raw_resident_payload_bytes;
+            entry.metadata_bytes = entry.base_metadata_bytes;
+            let raw = Arc::clone(entry.state.raw());
+            entry.state = EntryState::Raw {
+                raw,
+                location: RawLocation::WaitingParents { missing },
+            };
+            entry.revision += 1;
+            if !was_waiting {
+                self.enter_waiting_parent()?;
+            }
+            self.apply_fault_checkpoint();
+        }
+        Ok(affected)
     }
 
     pub(crate) fn drain_dependency_failures(
@@ -1518,7 +1540,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         };
         let delta = self.preview_conflict_insert(&lease.hash, source, &meta)?;
         let undo = delta.affected().to_vec();
-        self.with_entry_undo(&undo, |coordinator| {
+        self.require_entry_transaction(&undo)?;
+        (|coordinator: &mut Self| {
             let ticket_plan = coordinator.prepare_conflict_ticket_plan(
                 &delta,
                 &HashSet::new(),
@@ -1555,6 +1578,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .get(&lease.hash)
                 .map(CoordinatorEntry::version)
                 .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))
-        })
+        })(self)
     }
 }
