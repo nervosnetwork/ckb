@@ -1,6 +1,29 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    /// Whether one worker capability can make an immediate checkout from the
+    /// authoritative scheduling state.
+    ///
+    /// Runtime notifications are derived from this predicate rather than
+    /// queue non-emptiness. A queue can be non-empty but temporarily
+    /// ineligible because its owners exhausted the global/per-peer active
+    /// budget, and the verify queue additionally has capability-specific
+    /// small-cycle eligibility.
+    pub(crate) fn work_is_ready(
+        &mut self,
+        kind: QueueKind,
+        capability: WorkerCapability,
+    ) -> Result<bool, CoordinatorError> {
+        if kind != QueueKind::Verify && capability != WorkerCapability::Any {
+            return Err(CoordinatorError::QueueInvariant(kind));
+        }
+        if kind == QueueKind::Commit && self.conflicts.committing.is_some() {
+            return Ok(false);
+        }
+        self.peek_live_ticket(kind, capability)
+            .map(|ticket| ticket.is_some())
+    }
+
     pub(super) fn queue_mut(
         &mut self,
         kind: QueueKind,

@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "../tests/pipeline_coordinator_lifecycle_seam.rs"]
+mod test_seam;
+
 impl<R, U, V> PipelineCoordinator<R, U, V> {
     /// Extend the canonical dependency graph with parents discovered only
     /// after dep-group expansion, and preflight the exact raw-phase charge.
@@ -852,26 +856,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
-    /// Replace raw work with an unverified phase bundle. `charge_bytes` is
-    /// the total payload residency of that entire bundle, including the raw
-    /// transaction retained for dependency demotion and terminal handoff.
-    #[cfg(test)]
-    pub(crate) fn complete_raw(
-        &mut self,
-        lease: &RawWorkLease<R>,
-        unverified: U,
-        charge_bytes: usize,
-        verify_schedule: VerifySchedule,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
-        self.complete_raw_with_dependencies(
-            lease,
-            unverified,
-            charge_bytes,
-            verify_schedule,
-            HashSet::new(),
-        )
-    }
-
     /// Replace raw work with an unverified phase bundle and atomically extend
     /// its causal graph with dependencies learned from successful dep-group
     /// expansion. Live expanded members matter just as much as missing ones:
@@ -1202,14 +1186,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_undo_hashes(&roots)
     }
 
-    #[cfg(test)]
-    pub(crate) fn parent_unavailable(
-        &mut self,
-        parent: &Byte32,
-    ) -> Result<Vec<Byte32>, CoordinatorError> {
-        self.parents_unavailable(&HashSet::from([parent.clone()]))
-    }
-
     /// Atomically reclassify every coordinator transaction whose dependency is
     /// in `parents`. Expiring Remote owners may wait for retransmission;
     /// non-expiring Local/Proposal owners become causal terminal work instead
@@ -1375,16 +1351,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
-    /// Make every direct dependent fail-closed immediately, then defer the
-    /// transitive terminal cascade to bounded maintenance slices.
-    #[cfg(test)]
-    pub(crate) fn schedule_parent_failure(
-        &mut self,
-        parent: &Byte32,
-    ) -> Result<Vec<Byte32>, CoordinatorError> {
-        self.mark_children_invalid(parent, parent)
-    }
-
     pub(crate) fn drain_dependency_failures(
         &mut self,
         max: usize,
@@ -1465,24 +1431,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             version: entry.version(),
             payload,
         }))
-    }
-
-    /// Test convenience wrapper around the only production verified state.
-    /// A unique synthetic input keeps generic state-machine tests on the same
-    /// candidate/index path as real transactions without creating conflicts.
-    #[cfg(test)]
-    pub(crate) fn complete_verification(
-        &mut self,
-        lease: &VerifyWorkLease<U>,
-        verified: V,
-        charge_bytes: usize,
-    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
-        let candidate = VerifiedCandidate {
-            inputs: HashSet::from([OutPoint::new(lease.hash.clone(), 0)]),
-            fee: 0,
-            tx_size: 1,
-        };
-        self.complete_verification_candidate(lease, verified, charge_bytes, candidate)
     }
 
     /// Install a verified conflict candidate. `charge_bytes` covers the

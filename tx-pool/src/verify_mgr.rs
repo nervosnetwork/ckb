@@ -410,7 +410,15 @@ impl JobHandler for VerifyHandler {
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.service.pipeline.runtime.subscribe(QueueKind::Verify)
+        let capability = if self.role == WorkerRole::OnlySmallCycleTx {
+            WorkerCapability::SmallCycleOnly
+        } else {
+            WorkerCapability::Any
+        };
+        self.service
+            .pipeline
+            .runtime
+            .subscribe(QueueKind::Verify, capability)
     }
 
     async fn pop_one(&mut self) -> Option<VerifyWorkLease<crate::resolved_tx::ResolvedTx>> {
@@ -422,7 +430,7 @@ impl JobHandler for VerifyHandler {
         self.service
             .pipeline
             .runtime
-            .mutate_required("verify checkout failed", |coordinator| {
+            .checkout_required("verify checkout failed", |coordinator| {
                 coordinator.checkout_verify(capability)
             })
     }

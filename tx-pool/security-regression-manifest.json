@@ -5,7 +5,7 @@
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
     "checkpoint": "172b9c93579fa78de52d71f9e4ca77acbe7cbc5b",
-    "test_count": 328
+    "test_count": 333
   },
   "baseline": {
     "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
@@ -35,6 +35,7 @@
       "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale",
       "queue_sequence_exhaustion_cannot_strand_transition_reservations",
       "cancelled_runtime_does_not_checkout_queued_raw_work",
+      "worker_resubscribe_rearms_authoritative_ready_work",
       "clear_during_reorg_recovery_owns_the_final_empty_state",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
       "coordinator_handoff_panic_preserves_pool_recovery_point",
@@ -47,6 +48,9 @@
     "I5": [
       "metadata_residency_is_charged_continuously_across_every_payload_phase",
       "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
+      "ineligible_checkout_does_not_self_notify_until_active_owner_settles",
+      "large_verify_work_wakes_only_a_capable_worker_without_losing_readiness",
+      "close_wakes_every_blocked_capacity_waiter",
       "count_and_byte_limits_cover_reserved_queued_and_active_batches",
       "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection",
       "accepted_entry_metadata_extends_duplicate_wake_edges",
@@ -80,6 +84,8 @@
       "local_commit_waits_for_effect_credit_before_mutating_pool",
       "fifo_sequence_follows_authoritative_commit_not_reservation_order",
       "full_relayer_retains_fifo_head_and_outbox_charge",
+      "close_wakes_every_blocked_capacity_waiter",
+      "idle_publisher_observes_close_without_a_later_ready_event",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
       "stable_effect_journal_failure_preserves_pool_persistence",
       "clear_during_reorg_recovery_owns_the_final_empty_state",
@@ -112,6 +118,11 @@
       "conflict_edge_victim_selection_stops_before_stronger_pool_suffix",
       "global_capacity_victim_selection_stops_before_stronger_pool_suffix",
       "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
+      "ineligible_checkout_does_not_self_notify_until_active_owner_settles",
+      "large_verify_work_wakes_only_a_capable_worker_without_losing_readiness",
+      "worker_resubscribe_rearms_authoritative_ready_work",
+      "close_wakes_every_blocked_capacity_waiter",
+      "idle_publisher_observes_close_without_a_later_ready_event",
       "model_conflict_probe_cost_ignores_independent_population",
       "escape_hatch_rejects_mutation_larger_than_displacement_bound"
     ]

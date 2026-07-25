@@ -226,18 +226,6 @@ impl RecentReject {
         self.total_keys_num.load(Ordering::SeqCst)
     }
 
-    #[cfg(test)]
-    pub(crate) fn drop_hash_shard_for_test(&self, hash: &Byte32) {
-        let shard = self.get_shard(hash.as_slice()).to_string();
-        block_offload(|| {
-            self.db
-                .write()
-                .expect("recent-reject test lock")
-                .drop_cf(&shard)
-                .expect("drop recent-reject test shard");
-        });
-    }
-
     fn checked_estimate_sum(estimate_keys_num: &[Option<u64>]) -> Result<u64, OtherError> {
         estimate_keys_num.iter().try_fold(0u64, |total, num| {
             let keys_num = num.unwrap_or(0);
@@ -308,3 +296,7 @@ fn is_cf_missing(err: &AnyError, cf: &str) -> bool {
     let msg = err.to_string();
     msg.contains(&format!("column {cf} not found"))
 }
+
+#[cfg(test)]
+#[path = "tests/recent_reject_seam.rs"]
+mod test_seam;

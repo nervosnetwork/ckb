@@ -229,6 +229,21 @@ and compacted to bounded ratios. Multi-entry transitions reserve owner-local
 heap credit up front and discard unused credit before releasing the runtime
 mutex.
 
+Async readiness is a derived scheduling projection, never another lifecycle
+owner. After every coordinator transition, while the same mutex still exposes
+one state version, the runtime evaluates the exact checkout predicate for five
+worker classes: PreCheck, Resolve, VerifyAny, VerifySmall and Commit. It
+publishes notifications only after unlock and only for classes with immediately
+executable work. Queue non-emptiness alone is not readiness: active-work caps,
+an in-flight commit, or a large-cycle item seen by a small-only verifier can
+make a live queue ineligible. Consequently a failed checkout cannot wake itself,
+but releasing an active slot re-evaluates and re-arms every newly executable
+class. Verify capabilities have independent permits, and a replacement worker
+re-derives readiness when it subscribes, so neither an incapable worker nor a
+panicked generation can consume the sole wake needed by a capable successor.
+The predicate probes only generation-tagged owner heads; capped owners are
+bounded by the active-worker limit rather than queue population.
+
 Global residency and verified-conflict reconciliation use weakest-first
 `BTreeSet` indexes derived from the authoritative entries. The outermost undo
 transaction publishes every affected key only after success; failure rebuilds
@@ -262,6 +277,14 @@ sequence, and enqueueing are one outbox operation, with no externally
 representable bound-but-not-queued state. A single publisher preserves FIFO
 batch order, retries a full relayer without dropping the active head, and runs
 endpoint code outside state locks.
+
+Outbox capacity waiting follows a checked condition-variable protocol:
+producers register their `Notify` waiter before checking the mutex-protected
+budget, because `notify_waiters` does not retain a permit for a future waiter.
+Capacity release and close may therefore wake all registered producers without
+a check-to-sleep lost-wakeup window. The sole publisher uses a stored
+single-consumer permit for ready/close and rechecks closed-plus-empty before
+exiting.
 
 There is one physical outbox but two producer contracts. A mutation-coupled
 producer must reserve before the authoritative PoolMap/Coordinator transition
@@ -769,7 +792,7 @@ and architecture gates.
 |---|---|---|
 | S0 | Complete (checkpoint is the commit containing this row) | Safety checkpoint `172b9c935`; exact 328-test inventory, evidence terminology, source/seam counts and semantic-compaction gates were frozen before any physical move. The manifest validator rejects missing, renamed, duplicate and unrecorded tests; release validation passes with 79 invariant references, 59 unique Rust tests and 10 process-level anchors. No production behavior changed. |
 | S1 | Complete (checkpoint is the commit containing this row) | Historical evidence was compared with the current coordinator/pool/outbox architecture. Ten stale legacy test labels now point to current tests or explicitly state that the vulnerable mechanism was deleted. Four properties that remain source-enforced but lacked an exact current counterexample—active peer revocation, expiry cascade, save/reorg serialization and zero-worker clamping—are marked `Guarded by current boundary` and are mandatory S3 regressions rather than falsely reported as Covered. Whole-architecture review found no ownership, lock, accounting, effect, reorg/template or attack-surface change because this phase changed evidence only. |
-| S2 | Pending | — |
+| S2 | Complete (checkpoint is the commit containing this row) | Physically moved every inline test body and white-box helper into declared test roots while preserving all 328 frozen baseline names. CI now rejects inline tests, unreviewed module wiring, visibility drift and undeclared seams; the release implementation retains only 31 module wires, 79 `cfg(test)` sites and 32 named, behavior-tagged seams, with no production visibility widening. Whole-architecture liveness review of every production `Notify`, waiter and checkout found that queue-nonempty readiness could self-wake an active-cap-blocked peer, a shared verify permit could be consumed by `SmallCycleOnly` while only large work existed, a respawn could inherit a consumed permit, and outbox `notify_waiters` had a check-to-sleep registration window. Readiness is now derived from the authoritative capability-aware checkout predicate and re-armed on subscription; outbox waiters register before checking. Five explicit regressions increased the intentional inventory to 333. Fresh gates: 333/333 internal nextest in 24.514s, zero-warning all-target clippy, format/diff/layout checks, and 90 invariant references covering 64 unique Rust tests plus 10 integration anchors. No lifecycle state, executable owner, work queue, lock, compensation path or population-sized hot scan was added; benchmark execution remains deferred. |
 | S3 | Pending | — |
 | S4 | Pending | — |
 | S5 | Pending | — |

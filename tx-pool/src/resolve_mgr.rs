@@ -1,7 +1,7 @@
 //! Ordered resolution worker backed exclusively by the pipeline coordinator.
 
 use crate::component::pipeline_coordinator::{
-    QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule,
+    QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule, WorkerCapability,
 };
 use crate::component::pipeline_runtime::{PipelineRawTx, resolved_charge_bytes};
 use crate::error::Reject;
@@ -280,7 +280,10 @@ impl JobHandler for ResolveHandler {
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.service.pipeline.runtime.subscribe(QueueKind::Resolve)
+        self.service
+            .pipeline
+            .runtime
+            .subscribe(QueueKind::Resolve, WorkerCapability::Any)
     }
 
     async fn pop_one(&mut self) -> Option<RawWorkLease<PipelineRawTx>> {

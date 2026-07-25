@@ -1,5 +1,8 @@
 use super::{PoolEntry, PoolMap, Status};
+use crate::component::entry::TxEntry;
+use crate::error::Reject;
 use ckb_types::core::Cycle;
+use ckb_types::core::TransactionView;
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use std::collections::{HashMap, HashSet};
 
@@ -274,4 +277,51 @@ fn entries_for<'a>(
     entries
         .get_by_id(id)
         .ok_or_else(|| format!("relationship references absent entry {id}"))
+}
+
+impl PoolMap {
+    pub(crate) fn header_deps_len(&self) -> usize {
+        self.out_point_index.header_deps_len()
+    }
+
+    pub(crate) fn deps_len(&self) -> usize {
+        self.out_point_index.deps_len()
+    }
+
+    pub(crate) fn inputs_len(&self) -> usize {
+        self.out_point_index.inputs_len()
+    }
+
+    pub(crate) fn size(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.entries.get_by_id(id).is_some()
+    }
+
+    pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
+        self.entries
+            .get_by_id(id)
+            .map(|entry| entry.inner.transaction())
+    }
+
+    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+        self.add_entry(entry, Status::Proposed)
+            .map(|outcome| outcome.inserted)
+    }
+
+    pub(crate) fn get_proposals(
+        &self,
+        limit: usize,
+        exclusion: &HashSet<ProposalShortId>,
+    ) -> HashSet<ProposalShortId> {
+        self.score_sorted_iter_by_status(Status::Pending)
+            .filter_map(|entry| {
+                let id = entry.proposal_short_id();
+                (!exclusion.contains(&id)).then_some(id)
+            })
+            .take(limit)
+            .collect()
+    }
 }

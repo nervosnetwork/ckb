@@ -8,8 +8,12 @@
 use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorLimits, CoordinatorMetadataCost, CoordinatorReconciliationLimits,
     CoordinatorResidency, CoordinatorSource, CoordinatorVerifyOrdering, PipelineCoordinator,
-    QueueKind, RawStage, RawWorkLease, TerminalRecord, TrustedSource,
+    QueueKind, RawStage, RawWorkLease, TerminalRecord, TrustedSource, WorkerCapability,
 };
+
+#[cfg(test)]
+#[path = "tests/pipeline_runtime_seam.rs"]
+mod test_seam;
 use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 use crate::error::Reject;
 use crate::resolved_tx::{PoolCandidate, ResolvedTx};
@@ -149,7 +153,10 @@ pub(crate) struct PipelineRuntime {
     /// Such a state must never be recovered from `Mutex` poisoning and put
     /// back into service.
     failure_domain: AtomicU8,
-    ready: HashMap<QueueKind, Arc<Notify>>,
+    /// Readiness is keyed by both queue and worker capability. In particular,
+    /// a small-cycle verifier must never consume the only wake intended for a
+    /// verifier capable of processing a large-cycle transaction.
+    ready: HashMap<(QueueKind, WorkerCapability), Arc<Notify>>,
     maintenance_ready: Arc<Notify>,
     shutdown: CancellationToken,
     commit_serial: tokio::sync::Mutex<()>,
@@ -218,10 +225,26 @@ impl PipelineRuntime {
             state: Mutex::new(PipelineCoordinator::new(limits)),
             failure_domain: AtomicU8::new(FailureDomain::Healthy as u8),
             ready: HashMap::from([
-                (QueueKind::PreCheck, Arc::new(Notify::new())),
-                (QueueKind::Resolve, Arc::new(Notify::new())),
-                (QueueKind::Verify, Arc::new(Notify::new())),
-                (QueueKind::Commit, Arc::new(Notify::new())),
+                (
+                    (QueueKind::PreCheck, WorkerCapability::Any),
+                    Arc::new(Notify::new()),
+                ),
+                (
+                    (QueueKind::Resolve, WorkerCapability::Any),
+                    Arc::new(Notify::new()),
+                ),
+                (
+                    (QueueKind::Verify, WorkerCapability::Any),
+                    Arc::new(Notify::new()),
+                ),
+                (
+                    (QueueKind::Verify, WorkerCapability::SmallCycleOnly),
+                    Arc::new(Notify::new()),
+                ),
+                (
+                    (QueueKind::Commit, WorkerCapability::Any),
+                    Arc::new(Notify::new()),
+                ),
             ]),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
@@ -360,24 +383,35 @@ impl PipelineRuntime {
         }
     }
 
-    /// Apply one complete coordinator transition. Queue notifications are
-    /// level-triggered after unlock, so no worker waits while eligible work is
-    /// resident and no `.await` occurs inside the state boundary.
+    /// Apply one complete coordinator transition and derive executable
+    /// readiness from the resulting authoritative state.
+    ///
+    /// Queue non-emptiness is insufficient: work can be blocked by active
+    /// limits, and a small-cycle verifier cannot run a large-cycle item. By
+    /// notifying only capabilities that can make an immediate checkout, a
+    /// failed checkout is naturally silent in its own readiness domain while
+    /// another capable worker still receives its independent wake.
     pub(crate) fn mutate<T>(&self, apply: impl FnOnce(&mut ProductionCoordinator) -> T) -> T {
         let transition = catch_unwind(AssertUnwindSafe(|| {
             let mut state = self.lock();
             let result = apply(&mut state);
-            let non_empty = [
-                QueueKind::PreCheck,
-                QueueKind::Resolve,
-                QueueKind::Verify,
-                QueueKind::Commit,
+            let ready = [
+                (QueueKind::PreCheck, WorkerCapability::Any),
+                (QueueKind::Resolve, WorkerCapability::Any),
+                (QueueKind::Verify, WorkerCapability::Any),
+                (QueueKind::Verify, WorkerCapability::SmallCycleOnly),
+                (QueueKind::Commit, WorkerCapability::Any),
             ]
-            .map(|kind| (kind, state.queue_len(kind) != 0));
+            .map(|class| {
+                let executable = state
+                    .work_is_ready(class.0, class.1)
+                    .unwrap_or_else(|error| panic!("invalid pipeline readiness state: {error:?}"));
+                (class, executable)
+            });
             let maintenance_pending = state.dependency_failure_len() != 0;
-            (result, non_empty, maintenance_pending)
+            (result, ready, maintenance_pending)
         }));
-        let (result, non_empty, maintenance_pending) = match transition {
+        let (result, ready, maintenance_pending) = match transition {
             Ok(result) => result,
             Err(payload) => {
                 self.fail_closed(
@@ -387,8 +421,8 @@ impl PipelineRuntime {
                 resume_unwind(payload)
             }
         };
-        for (kind, ready) in non_empty {
-            if ready && let Some(notify) = self.ready.get(&kind) {
+        for (class, executable) in ready {
+            if executable && let Some(notify) = self.ready.get(&class) {
                 notify.notify_one();
             }
         }
@@ -408,6 +442,20 @@ impl PipelineRuntime {
         context: &'static str,
         apply: impl FnOnce(&mut ProductionCoordinator) -> Result<T, CoordinatorError>,
     ) -> T {
+        match self.mutate(apply) {
+            Ok(value) => value,
+            Err(error) => self.fail_stop(context, &error),
+        }
+    }
+
+    /// Checkout readiness is derived after the attempted transition. A
+    /// `None` result therefore cannot wake the same incapable/blocked worker,
+    /// while any independently capable class remains notified.
+    pub(crate) fn checkout_required<T>(
+        &self,
+        context: &'static str,
+        apply: impl FnOnce(&mut ProductionCoordinator) -> Result<Option<T>, CoordinatorError>,
+    ) -> Option<T> {
         match self.mutate(apply) {
             Ok(value) => value,
             Err(error) => self.fail_stop(context, &error),
@@ -441,16 +489,23 @@ impl PipelineRuntime {
         }
     }
 
-    pub(crate) fn subscribe(&self, kind: QueueKind) -> Arc<Notify> {
-        Arc::clone(
+    pub(crate) fn subscribe(&self, kind: QueueKind, capability: WorkerCapability) -> Arc<Notify> {
+        let ready = Arc::clone(
             self.ready
-                .get(&kind)
-                .expect("every production coordinator queue has a notifier"),
-        )
+                .get(&(kind, capability))
+                .expect("every production worker class has a notifier"),
+        );
+        // A previous worker can consume a notification and panic before
+        // checkout. Re-derive readiness when its replacement subscribes so a
+        // live queue never depends on the lost generation's wake permit.
+        self.mutate(|_| ());
+        ready
     }
 
     pub(crate) fn subscribe_maintenance(&self) -> Arc<Notify> {
-        Arc::clone(&self.maintenance_ready)
+        let ready = Arc::clone(&self.maintenance_ready);
+        self.mutate(|_| ());
+        ready
     }
 
     /// Wake the shared bounded maintenance worker for work whose authority
@@ -476,17 +531,6 @@ impl PipelineRuntime {
     /// Admit one production transaction into the sole pre-pool owner. Normal
     /// entry and recovery share this operation so duplicate promotion,
     /// attribution and residency accounting cannot diverge.
-    #[cfg(test)]
-    pub(crate) fn admit_transaction(
-        &self,
-        tx: TransactionView,
-        source: TxSource,
-        epoch: u64,
-        stage: RawStage,
-    ) -> Result<(bool, Vec<TerminalRecord<PipelineRawTx>>), CoordinatorError> {
-        self.admit_transaction_journaled(tx, source, epoch, stage, |_| {})
-    }
-
     pub(crate) fn admit_transaction_journaled(
         &self,
         tx: TransactionView,
@@ -594,7 +638,7 @@ impl PipelineRuntime {
     }
 
     pub(crate) fn checkout_raw(&self, stage: RawStage) -> Option<RawWorkLease<PipelineRawTx>> {
-        self.mutate_required("raw checkout failed", |state| state.checkout_raw(stage))
+        self.checkout_required("raw checkout failed", |state| state.checkout_raw(stage))
     }
 
     pub(crate) async fn wait_raw(&self, stage: RawStage) -> Option<RawWorkLease<PipelineRawTx>> {
@@ -602,7 +646,7 @@ impl PipelineRuntime {
             RawStage::PreCheck => QueueKind::PreCheck,
             RawStage::Resolve => QueueKind::Resolve,
         };
-        let ready = self.subscribe(kind);
+        let ready = self.subscribe(kind, WorkerCapability::Any);
         while !self.shutdown.is_cancelled() {
             // Cancellation is the dispatch barrier. In particular, do not
             // keep checking out a non-empty queue after shutdown: checkout

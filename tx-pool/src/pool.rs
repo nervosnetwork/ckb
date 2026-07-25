@@ -52,6 +52,10 @@ fn reject_full_for_evicted(entry: &TxEntry) -> Reject {
 /// only future wake edge. Use the same overlay liveness semantics as normal
 /// resolution, without materializing another `ResolvedTransaction` under the
 /// pool write lock.
+#[cfg(test)]
+#[path = "tests/pool_seam.rs"]
+mod test_seam;
+
 fn conflict_recovery_ready(
     pool_map: &PoolMap,
     snapshot: &Snapshot,
@@ -263,17 +267,6 @@ impl TxPool {
         );
     }
 
-    #[cfg(test)]
-    pub(crate) fn remove_conflict(&mut self, hash: &Byte32) -> bool {
-        let removed = self.conflict_cache.remove(hash).is_some();
-        debug!(
-            "remove_conflict {:?} now room size: {}",
-            hash,
-            self.conflict_cache.len()
-        );
-        removed
-    }
-
     pub(crate) fn remove_conflict_hash(&mut self, hash: &Byte32) -> bool {
         let removed = self.conflict_cache.remove_hash(hash);
         debug!(
@@ -282,24 +275,6 @@ impl TxPool {
             self.conflict_cache.len()
         );
         removed
-    }
-
-    /// Recover conflict-cached transactions whose inputs are all currently
-    /// available. A candidate that still conflicts with the in-pool state
-    /// must not come back: it would be rejected again and, with both
-    /// conflicting txs cached, can trigger an infinite recover/reject loop
-    /// (RBF cycling).
-    #[cfg(test)]
-    pub(crate) fn get_conflicted_txs_from_inputs(
-        &self,
-        inputs: impl Iterator<Item = OutPoint>,
-    ) -> Vec<(TransactionView, TxSource)> {
-        let pool_map = &self.pool_map;
-        let snapshot = self.snapshot();
-        self.conflict_cache
-            .recoverable_by_inputs(inputs, |tx, recovery_outpoints| {
-                conflict_recovery_ready(pool_map, snapshot, tx, recovery_outpoints)
-            })
     }
 
     /// Register freed inputs for bounded discovery. The pool mutation never
@@ -351,19 +326,6 @@ impl TxPool {
         let snapshot = &self.snapshot;
         self.conflict_cache
             .discover_recoverable(limit, |tx, recovery_outpoints| {
-                conflict_recovery_ready(pool_map, snapshot, tx, recovery_outpoints)
-            })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn schedule_conflict_candidates(
-        &mut self,
-        hashes: impl Iterator<Item = Byte32>,
-    ) -> usize {
-        let pool_map = &self.pool_map;
-        let snapshot = &self.snapshot;
-        self.conflict_cache
-            .schedule_hashes(hashes, |tx, recovery_outpoints| {
                 conflict_recovery_ready(pool_map, snapshot, tx, recovery_outpoints)
             })
     }
@@ -803,15 +765,6 @@ impl TxPool {
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.
-    #[cfg(test)]
-    pub(crate) fn get_proposals(
-        &self,
-        limit: usize,
-        exclusion: &HashSet<ProposalShortId>,
-    ) -> HashSet<ProposalShortId> {
-        self.pool_map.get_proposals(limit, exclusion)
-    }
-
     pub(crate) fn get_ids(&self) -> TxPoolIds {
         let pending = self
             .pool_map

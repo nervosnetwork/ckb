@@ -91,16 +91,6 @@ impl TxLinksMap {
         self.inner.get(short_id).map(|link| &link.parents)
     }
 
-    #[cfg(test)]
-    pub fn contains_key(&self, short_id: &ProposalShortId) -> bool {
-        self.inner.contains_key(short_id)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&ProposalShortId, &TxLinks)> {
-        self.inner.iter()
-    }
-
     pub fn get_mut(&mut self, short_id: &ProposalShortId) -> Option<&mut TxLinks> {
         self.inner.get_mut(short_id)
     }
@@ -153,3 +143,7 @@ impl TxLinksMap {
         self.inner.clear();
     }
 }
+
+#[cfg(test)]
+#[path = "tests/links_seam.rs"]
+mod test_seam;

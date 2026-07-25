@@ -127,12 +127,15 @@ component::tests::pipeline::replacement::pipeline_rbf_rejected_replacement_recov
 component::tests::pipeline::replacement::reorg_retain_duplicate_does_not_cascade_dependents
 component::tests::pipeline::replacement::successful_rbf_recovery_cascades_from_accepted_parent_outputs
 component::tests::pipeline::runtime::cancelled_runtime_does_not_checkout_queued_raw_work
+component::tests::pipeline::runtime::ineligible_checkout_does_not_self_notify_until_active_owner_settles
+component::tests::pipeline::runtime::large_verify_work_wakes_only_a_capable_worker_without_losing_readiness
 component::tests::pipeline::runtime::pipeline_chunk_command_pause_resume
 component::tests::pipeline::runtime::pipeline_dedup_double_submission
 component::tests::pipeline::runtime::pipeline_high_pre_check_worker_cap
 component::tests::pipeline::runtime::pipeline_rbf_displaces_lower_fee_tx
 component::tests::pipeline::runtime::pipeline_rbf_rejected_replacement_recovers_original_tx
 component::tests::pipeline::runtime::pipeline_semaphore_backpressure
+component::tests::pipeline::runtime::worker_resubscribe_rearms_authoritative_ready_work
 component::tests::pipeline::template::clear_pool_resets_template_and_notifies_miner_immediately
 component::tests::pipeline::template::commit_and_removal_journal_block_assembler_delta
 component::tests::pipeline::template::failed_block_assembler_update_retains_dirty_generation_for_retry
@@ -298,7 +301,9 @@ service::builder::shutdown_tests::panicked_state_worker_makes_shutdown_ineligibl
 service::effects::tests::binding_conservative_reservation_wakes_byte_capacity_waiter
 service::effects::tests::callback_effect_drops_resolved_payload_at_journal_boundary
 service::effects::tests::close_drains_every_queued_batch_in_order
+service::effects::tests::close_wakes_every_blocked_capacity_waiter
 service::effects::tests::full_relayer_retains_fifo_head_and_outbox_charge
+service::effects::tests::idle_publisher_observes_close_without_a_later_ready_event
 service::effects::tests::ordinary_backpressure_cannot_consume_critical_reorg_headroom
 service::effects::tests::oversized_recent_reject_diagnostic_is_bounded_without_changing_original
 service::effects::tests::panicking_endpoint_is_quarantined_once_without_blocking_fifo

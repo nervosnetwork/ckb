@@ -7,6 +7,12 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 
+#[cfg(test)]
+#[path = "../tests/pipeline_coordinator_types_seam.rs"]
+mod test_seam;
+#[cfg(test)]
+pub(crate) use test_seam::CoordinatorAuditError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum RawStage {
     PreCheck,
@@ -27,7 +33,7 @@ pub(crate) enum CoordinatorVerifyOrdering {
     FeeRate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum WorkerCapability {
     Any,
     SmallCycleOnly,
@@ -228,17 +234,6 @@ impl CoordinatorLimits {
             },
             verify_ordering: CoordinatorVerifyOrdering::ArrivalTime,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_capacity_reconciliation_limits(
-        mut self,
-        max_dependency_ancestors: usize,
-        max_capacity_evictions_per_transition: usize,
-    ) -> Self {
-        self.max_dependency_ancestors = max_dependency_ancestors;
-        self.max_capacity_evictions_per_transition = max_capacity_evictions_per_transition;
-        self
     }
 
     pub(crate) const fn with_conflict_limits(
@@ -609,31 +604,6 @@ impl CoordinatorError {
                 | Self::DependencyInvalidated { .. }
         )
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg(test)]
-pub(crate) enum CoordinatorAuditError {
-    GlobalUsage,
-    PeerUsage,
-    ShortIdIndex,
-    PeerIndex,
-    ParentIndex,
-    WaitingParentCount,
-    QueueLogicalIndex,
-    QueuePhysicalIndex,
-    ConflictEdgeCount,
-    ConflictCandidateIndex,
-    ConflictCohortIndex,
-    ConflictRelationIndex,
-    DeadlineIndex,
-    StateInvariant(Byte32),
-    MetadataCharge,
-    ActiveWork,
-    DependencyMaintenanceIndex,
-    VictimPriorityIndex,
-    EntryTransactionDepth,
-    BudgetExceeded,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1720,92 +1690,6 @@ impl TicketQueue {
                 .filter_map(|owner| owner.published_small.clone())
                 .collect();
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn physical_len(&self) -> usize {
-        self.physical_len
-    }
-
-    #[cfg(test)]
-    pub(super) fn take_selection_probes(&mut self) -> usize {
-        std::mem::take(&mut self.selection_probes)
-    }
-
-    #[cfg(test)]
-    pub(super) fn tickets(&self) -> impl Iterator<Item = &CoordinatorTicket> {
-        self.owners.values().flat_map(|owner| {
-            owner
-                .small
-                .iter()
-                .chain(owner.large.iter())
-                .map(|ranked| &ranked.ticket)
-        })
-    }
-
-    #[cfg(test)]
-    pub(super) fn structure_valid(&self) -> bool {
-        let physical_len = self
-            .owners
-            .values()
-            .map(|owner| owner.small.len().saturating_add(owner.large.len()))
-            .sum::<usize>();
-        let head_limit = self.owners.len().saturating_mul(2).saturating_add(64);
-        physical_len == self.physical_len
-            && self.heads_any.len() <= head_limit
-            && self.heads_small.len() <= head_limit
-            && self.live.iter().all(|ticket| {
-                self.tickets()
-                    .filter(|physical| *physical == ticket)
-                    .count()
-                    == 1
-            })
-            && self.owners.iter().all(|(owner_key, owner)| {
-                let small_live = self
-                    .live
-                    .iter()
-                    .filter(|ticket| {
-                        ticket.owner == *owner_key && !ticket.verify_schedule.is_large_cycle
-                    })
-                    .count();
-                let large_live = self
-                    .live
-                    .iter()
-                    .filter(|ticket| {
-                        ticket.owner == *owner_key && ticket.verify_schedule.is_large_cycle
-                    })
-                    .count();
-                owner.reserved_len() == 0
-                    && owner.small_live == small_live
-                    && owner.large_live == large_live
-                    && owner.published_small.as_ref().map(|head| &head.ranked)
-                        == owner
-                            .small
-                            .iter()
-                            .filter(|ranked| self.live.contains(&ranked.ticket))
-                            .max()
-                    && owner.published_any.as_ref().map(|head| &head.ranked)
-                        == owner
-                            .small
-                            .iter()
-                            .chain(owner.large.iter())
-                            .filter(|ranked| self.live.contains(&ranked.ticket))
-                            .max()
-                    && owner.published_any.as_ref().is_none_or(|head| {
-                        self.heads_any
-                            .iter()
-                            .filter(|physical| *physical == head)
-                            .count()
-                            == 1
-                    })
-                    && owner.published_small.as_ref().is_none_or(|head| {
-                        self.heads_small
-                            .iter()
-                            .filter(|physical| *physical == head)
-                            .count()
-                            == 1
-                    })
-            })
     }
 
     pub(super) fn rebuild_live(

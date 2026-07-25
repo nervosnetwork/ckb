@@ -1,7 +1,22 @@
 use super::*;
 use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
+use ckb_stop_handler::new_tokio_exit_rx;
 use std::future::Future;
+use std::time::Duration;
+
+impl PipelineEpoch {
+    pub(crate) fn set_for_test(&self, value: u64) {
+        self.value.store(value, Ordering::Release);
+        self.exhausted.store(false, Ordering::Release);
+    }
+}
+
+impl BannedPeerSet {
+    pub(crate) fn len(&self) -> usize {
+        self.entries.lock().unwrap().len()
+    }
+}
 
 #[test]
 fn banned_peer_fence_is_bounded_and_expires_entries() {

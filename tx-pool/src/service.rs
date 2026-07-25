@@ -39,8 +39,6 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
-#[cfg(test)]
-use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_types::{
     core::{BlockView, Capacity, Cycle, TransactionView, UncleBlockView, tx_pool::TxStatus},
     packed::{Byte32, ProposalShortId},
@@ -52,8 +50,6 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-#[cfg(test)]
-use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
 
 /// Default bounded channel capacity for internal tx-pool message queues.
@@ -228,12 +224,6 @@ impl PipelineEpoch {
                 None
             }
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_for_test(&self, value: u64) {
-        self.value.store(value, Ordering::Release);
-        self.exhausted.store(false, Ordering::Release);
     }
 }
 
@@ -474,11 +464,6 @@ impl BannedPeerSet {
             }
             None => false,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
     }
 }
 

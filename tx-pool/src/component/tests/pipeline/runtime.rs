@@ -28,6 +28,160 @@ async fn cancelled_runtime_does_not_checkout_queued_raw_work() {
     assert!(lease.is_none(), "shutdown must prevent a fresh checkout");
 }
 
+#[tokio::test]
+async fn ineligible_checkout_does_not_self_notify_until_active_owner_settles() {
+    use crate::component::pipeline_coordinator::{
+        QueueKind, RawStage, TerminalDisposition, WorkerCapability,
+    };
+    use crate::component::tests::harness::{WorkerSet, harness};
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let runtime = &h.service.pipeline.runtime;
+    let ready = runtime.subscribe(QueueKind::PreCheck, WorkerCapability::Any);
+    let epoch = h.service.pipeline.epoch.current().unwrap();
+    let peer = 1.into();
+
+    for out_point in &h.out_points {
+        runtime
+            .admit_transaction(
+                build_tx(out_point, 4_000),
+                TxSource::Remote { cycles: 0, peer },
+                epoch,
+                RawStage::PreCheck,
+            )
+            .unwrap();
+    }
+    // Admission is level-triggered, so two inserts coalesce into one permit.
+    ready.notified().await;
+
+    let active = runtime
+        .checkout_raw(RawStage::PreCheck)
+        .expect("the peer's first transaction is eligible");
+    assert!(
+        runtime.checkout_raw(RawStage::PreCheck).is_none(),
+        "the peer active-work cap must block its second transaction"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), ready.notified())
+            .await
+            .is_err(),
+        "an unchanged ineligible queue must not wake the same worker again"
+    );
+
+    runtime.mutate_required("test active raw settlement", |coordinator| {
+        coordinator.terminalize_raw(&active, TerminalDisposition::Removed)
+    });
+    tokio::time::timeout(Duration::from_secs(1), ready.notified())
+        .await
+        .expect("settling the active peer owner must re-arm queued work");
+
+    let next = runtime
+        .checkout_raw(RawStage::PreCheck)
+        .expect("the queued transaction becomes eligible after settlement");
+    runtime.mutate_required("test second raw settlement", |coordinator| {
+        coordinator.terminalize_raw(&next, TerminalDisposition::Removed)
+    });
+    h.cancel.cancel();
+}
+
+#[tokio::test]
+async fn large_verify_work_wakes_only_a_capable_worker_without_losing_readiness() {
+    use crate::component::entry::resolved_transaction_charge_bytes;
+    use crate::component::pipeline_coordinator::{
+        QueueKind, RawStage, TerminalDisposition, VerifySchedule, WorkerCapability,
+    };
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::resolved_tx::ResolvedTx;
+    use ckb_types::core::cell::ResolvedTransaction;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let runtime = &h.service.pipeline.runtime;
+    let verify_any = runtime.subscribe(QueueKind::Verify, WorkerCapability::Any);
+    let verify_small = runtime.subscribe(QueueKind::Verify, WorkerCapability::SmallCycleOnly);
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let epoch = h.service.pipeline.epoch.current().unwrap();
+    runtime
+        .admit_transaction(tx.clone(), TxSource::Local, epoch, RawStage::PreCheck)
+        .unwrap();
+    let raw = runtime.checkout_raw(RawStage::PreCheck).unwrap();
+    let rtx = Arc::new(ResolvedTransaction::dummy_resolve(tx.clone()));
+    let tx_size = tx.data().serialized_size_in_block();
+    let resident_size = resolved_transaction_charge_bytes(tx_size, &rtx);
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let resolved = ResolvedTx {
+        tx,
+        rtx,
+        status: Status::Pending,
+        fee: Capacity::zero(),
+        tx_size,
+        resident_size,
+        pre_resolve_tip: snapshot.tip_hash(),
+        source: TxSource::Local,
+        epoch,
+    };
+    runtime
+        .mutate(|coordinator| {
+            coordinator.complete_raw(&raw, resolved, resident_size, VerifySchedule::new(0, true))
+        })
+        .unwrap();
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), verify_small.notified())
+            .await
+            .is_err(),
+        "large-cycle work must not wake the small-only verifier"
+    );
+    let small = runtime.checkout_required("test small verify checkout", |coordinator| {
+        coordinator.checkout_verify(WorkerCapability::SmallCycleOnly)
+    });
+    assert!(small.is_none());
+    tokio::time::timeout(Duration::from_secs(1), verify_any.notified())
+        .await
+        .expect("large-cycle work must retain readiness for an Any verifier");
+
+    let verify = runtime
+        .checkout_required("test Any verify checkout", |coordinator| {
+            coordinator.checkout_verify(WorkerCapability::Any)
+        })
+        .unwrap();
+    runtime.mutate_required("test verify settlement", |coordinator| {
+        coordinator.terminalize_verification(&verify, TerminalDisposition::Removed)
+    });
+    h.cancel.cancel();
+}
+
+#[tokio::test]
+async fn worker_resubscribe_rearms_authoritative_ready_work() {
+    use crate::component::pipeline_coordinator::{
+        QueueKind, RawStage, TerminalDisposition, WorkerCapability,
+    };
+    use crate::component::tests::harness::{WorkerSet, harness};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let runtime = &h.service.pipeline.runtime;
+    let first_generation = runtime.subscribe(QueueKind::PreCheck, WorkerCapability::Any);
+    runtime
+        .admit_transaction(
+            build_tx(&h.out_points[0], 4_000),
+            TxSource::Local,
+            h.service.pipeline.epoch.current().unwrap(),
+            RawStage::PreCheck,
+        )
+        .unwrap();
+    first_generation.notified().await;
+    drop(first_generation);
+
+    let replacement = runtime.subscribe(QueueKind::PreCheck, WorkerCapability::Any);
+    tokio::time::timeout(Duration::from_secs(1), replacement.notified())
+        .await
+        .expect("a replacement worker must not inherit a consumed wake permit");
+    let lease = runtime.checkout_raw(RawStage::PreCheck).unwrap();
+    runtime.mutate_required("test replacement worker settlement", |coordinator| {
+        coordinator.terminalize_raw(&lease, TerminalDisposition::Removed)
+    });
+    h.cancel.cancel();
+}
+
 /// Submitting the same transaction twice must not duplicate it in the pool.
 /// The second submission should be silently deduplicated — the pool must
 /// contain exactly one copy.

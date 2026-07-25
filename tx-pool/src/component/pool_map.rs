@@ -2,6 +2,7 @@
 extern crate rustc_hash;
 extern crate slab;
 #[cfg(test)]
+#[path = "tests/pool_map_audit.rs"]
 mod audit;
 use super::links::TxLinks;
 use crate::TxEntry;
@@ -236,44 +237,6 @@ impl PoolMap {
             max_ancestors_count,
             stats: PoolStats::default(),
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn header_deps_len(&self) -> usize {
-        self.out_point_index.header_deps_len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn deps_len(&self) -> usize {
-        self.out_point_index.deps_len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn inputs_len(&self) -> usize {
-        self.out_point_index.inputs_len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn size(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.entries.get_by_id(id).is_some()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.entries
-            .get_by_id(id)
-            .map(|entry| entry.inner.transaction())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        self.add_entry(entry, Status::Proposed)
-            .map(|outcome| outcome.inserted)
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
@@ -793,22 +756,6 @@ impl PoolMap {
         }
 
         min_fee_rate
-    }
-
-    // find the pending txs sorted by score, and return their proposal short ids
-    #[cfg(test)]
-    pub(crate) fn get_proposals(
-        &self,
-        limit: usize,
-        exclusion: &HashSet<ProposalShortId>,
-    ) -> HashSet<ProposalShortId> {
-        self.score_sorted_iter_by_status(Status::Pending)
-            .filter_map(|entry| {
-                let id = entry.proposal_short_id();
-                (!exclusion.contains(&id)).then_some(id)
-            })
-            .take(limit)
-            .collect()
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &PoolEntry> {
