@@ -33,7 +33,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         parent: &Byte32,
     ) -> Result<Vec<Byte32>, CoordinatorError> {
-        self.mark_children_invalid(parent, parent)
+        let children: Vec<_> = self
+            .by_parent
+            .get(parent)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        let undo = self.conflict_undo_hashes(&children);
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.mark_children_invalid(parent, parent)
+        })
     }
 
     /// Test convenience wrapper around the only production verified state.

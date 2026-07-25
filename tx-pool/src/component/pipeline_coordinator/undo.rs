@@ -366,6 +366,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         parent: &Byte32,
         cause: &Byte32,
     ) -> Result<Vec<Byte32>, CoordinatorError> {
+        if self.entry_transaction_depth == 0 {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
         let mut children: Vec<_> = self
             .by_parent
             .get(parent)
@@ -396,21 +399,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         let (first_sequence, next_maintenance_sequence) =
             self.maintenance_sequence_range(children.len())?;
-        let undo_hashes = self.conflict_undo_hashes(&children);
-        let result = children.clone();
-        self.with_entry_undo(&undo_hashes, |coordinator| {
-            coordinator.next_maintenance_sequence = next_maintenance_sequence;
-            for (offset, child) in children.iter().enumerate() {
-                let sequence = first_sequence
-                    .checked_add(
-                        u64::try_from(offset)
-                            .map_err(|_| CoordinatorError::MaintenanceSequenceExhausted)?,
-                    )
-                    .ok_or(CoordinatorError::MaintenanceSequenceExhausted)?;
-                coordinator.invalidate_present_apply(child, cause, sequence)?;
-            }
-            Ok(result)
-        })
+        self.next_maintenance_sequence = next_maintenance_sequence;
+        for (offset, child) in children.iter().enumerate() {
+            let sequence = first_sequence
+                .checked_add(
+                    u64::try_from(offset)
+                        .map_err(|_| CoordinatorError::MaintenanceSequenceExhausted)?,
+                )
+                .ok_or(CoordinatorError::MaintenanceSequenceExhausted)?;
+            self.invalidate_present_apply(child, cause, sequence)?;
+        }
+        Ok(children)
     }
 
     pub(super) fn causal_undo_hashes(&self, roots: &[Byte32]) -> Vec<Byte32> {
