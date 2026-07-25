@@ -20,7 +20,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             lease.version,
             &CoordinatorLocation::Committing,
         )?;
-        let old_victim_keys = self.current_victim_keys(&lease.hash);
         self.ensure_revision_capacity(&lease.hash)?;
         let (source, candidate) = self
             .entries
@@ -52,7 +51,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         }
         let undo = delta.affected().to_vec();
-        let version = self.with_entry_undo(&undo, |coordinator| {
+        self.with_entry_undo(&undo, |coordinator| {
             let ticket_plan = coordinator.prepare_conflict_ticket_plan(
                 &delta,
                 &HashSet::new(),
@@ -84,9 +83,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .get(&lease.hash)
                 .map(CoordinatorEntry::version)
                 .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))
-        })?;
-        self.refresh_victim_indexes(&lease.hash, old_victim_keys);
-        Ok(version)
+        })
     }
 
     /// Consume a transaction that became committed through an attached block

@@ -5237,6 +5237,57 @@ fn undo_cohort_completeness_is_enforced_at_every_entry_write() {
 }
 
 #[test]
+fn terminalization_cannot_silently_heal_missing_owner_index_membership() {
+    let mut coordinator = roomy();
+    let peer: PeerIndex = 130.into();
+    let tx_hash = hash(130);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(130),
+            Raw("raw"),
+            RawStage::PreCheck,
+            Some(peer),
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator.remove_peer_membership_for_test(peer, &tx_hash);
+
+    assert!(matches!(
+        coordinator.force_terminalize(&tx_hash, TerminalDisposition::Removed),
+        Err(CoordinatorError::ConflictInvariant)
+    ));
+    assert!(coordinator.view(&tx_hash).is_some());
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn transaction_exit_cannot_silently_heal_missing_victim_index_membership() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(131);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(131),
+            Raw("raw"),
+            RawStage::PreCheck,
+            None,
+            10,
+            HashSet::new(),
+        )
+        .unwrap();
+    coordinator.remove_capacity_victim_for_test(&tx_hash);
+
+    assert!(matches!(
+        coordinator.force_terminalize(&tx_hash, TerminalDisposition::Removed),
+        Err(CoordinatorError::ConflictInvariant)
+    ));
+    assert!(coordinator.view(&tx_hash).is_some());
+    coordinator.audit().unwrap();
+}
+
+#[test]
 fn nested_undo_scope_is_forbidden() {
     let mut coordinator = roomy();
     let outer = hash(132);

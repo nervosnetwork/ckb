@@ -22,19 +22,24 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         (!entry.is_committing()).then(|| CandidateRank::verified(hash, entry.source, candidate))
     }
 
-    pub(super) fn sync_victim_indexes(&mut self, snapshot: &[EntrySnapshot<R, U, V>]) {
+    pub(super) fn sync_victim_indexes(
+        &mut self,
+        snapshot: &[EntrySnapshot<R, U, V>],
+    ) -> Result<(), CoordinatorError> {
         for (hash, old_entry) in snapshot {
             if let Some(key) = old_entry
                 .as_ref()
                 .and_then(|entry| Self::capacity_victim_key(hash, entry))
+                && !self.capacity_victim_index.remove(&key)
             {
-                self.capacity_victim_index.remove(&key);
+                return Err(CoordinatorError::ConflictInvariant);
             }
             if let Some(key) = old_entry
                 .as_ref()
                 .and_then(|entry| Self::candidate_victim_key(hash, entry))
+                && !self.candidate_victim_index.remove(&key)
             {
-                self.candidate_victim_index.remove(&key);
+                return Err(CoordinatorError::ConflictInvariant);
             }
         }
         for (hash, _) in snapshot {
@@ -42,62 +47,20 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .entries
                 .get(hash)
                 .and_then(|entry| Self::capacity_victim_key(hash, entry))
+                && !self.capacity_victim_index.insert(key)
             {
-                // Replace keeps publication idempotent when a snapshot lists
-                // the same hash through more than one causal relation.
-                self.capacity_victim_index.replace(key);
+                return Err(CoordinatorError::ConflictInvariant);
             }
             if let Some(key) = self
                 .entries
                 .get(hash)
                 .and_then(|entry| Self::candidate_victim_key(hash, entry))
+                && !self.candidate_victim_index.insert(key)
             {
-                self.candidate_victim_index.replace(key);
+                return Err(CoordinatorError::ConflictInvariant);
             }
         }
-    }
-
-    pub(super) fn current_victim_keys(
-        &self,
-        hash: &Byte32,
-    ) -> (Option<CapacityVictimKey>, Option<CandidateRank>) {
-        let entry = self.entries.get(hash);
-        (
-            entry.and_then(|entry| Self::capacity_victim_key(hash, entry)),
-            entry.and_then(|entry| Self::candidate_victim_key(hash, entry)),
-        )
-    }
-
-    pub(super) fn refresh_victim_indexes(
-        &mut self,
-        hash: &Byte32,
-        old: (Option<CapacityVictimKey>, Option<CandidateRank>),
-    ) {
-        if self.entry_transaction_active {
-            // The outer undo snapshot owns derived-index publication for the
-            // complete nested mutation cohort.
-            return;
-        }
-        if let Some(key) = old.0 {
-            self.capacity_victim_index.remove(&key);
-        }
-        if let Some(key) = old.1 {
-            self.candidate_victim_index.remove(&key);
-        }
-        if let Some(key) = self
-            .entries
-            .get(hash)
-            .and_then(|entry| Self::capacity_victim_key(hash, entry))
-        {
-            self.capacity_victim_index.replace(key);
-        }
-        if let Some(key) = self
-            .entries
-            .get(hash)
-            .and_then(|entry| Self::candidate_victim_key(hash, entry))
-        {
-            self.candidate_victim_index.replace(key);
-        }
+        Ok(())
     }
 
     pub(super) fn dependency_capacity_victims(

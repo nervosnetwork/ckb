@@ -134,8 +134,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         };
         match outcome {
             Ok(Ok(value)) => {
-                self.sync_victim_indexes(&snapshot);
-                Ok(value)
+                if let Err(error) = self.sync_victim_indexes(&snapshot) {
+                    restore_or_panic(self, snapshot);
+                    Err(error)
+                } else {
+                    Ok(value)
+                }
             }
             Ok(Err(error)) => {
                 restore_or_panic(self, snapshot);
@@ -477,39 +481,33 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .global_usage
             .checked_sub(charge)
             .ok_or(CoordinatorError::ConflictInvariant)?;
-        self.by_short_id.remove(&entry.short_id);
+        if self.by_short_id.remove(&entry.short_id).as_ref() != Some(hash) {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
         if let Some(peer) = entry.source.peer() {
-            let remove_usage = {
-                let usage = self
-                    .peer_usage
-                    .get_mut(&peer)
-                    .ok_or(CoordinatorError::ConflictInvariant)?;
-                *usage = usage
-                    .checked_sub(charge)
-                    .ok_or(CoordinatorError::ConflictInvariant)?;
-                *usage == CoordinatorResidency::default()
-            };
-            if remove_usage {
-                self.peer_usage.remove(&peer);
-            }
-            if let Some(hashes) = self.by_peer.get_mut(&peer) {
-                hashes.remove(hash);
-                if hashes.is_empty() {
-                    self.by_peer.remove(&peer);
-                }
-            }
+            self.release_peer_attribution(hash, peer, charge, false)?;
         }
         for parent in &entry.dependencies {
-            if let Some(children) = self.by_parent.get_mut(parent) {
-                children.remove(hash);
-                if children.is_empty() {
-                    self.by_parent.remove(parent);
-                }
+            let children = self
+                .by_parent
+                .get_mut(parent)
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            if !children.remove(hash) {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            if children.is_empty() {
+                self.by_parent.remove(parent);
             }
         }
-        self.live_deadlines.remove(hash);
+        if self.live_deadlines.remove(hash).is_some()
+            != (entry.expires_at.is_some() && !entry.is_committing())
+        {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
         self.compact_deadlines();
-        self.dependency_failure_set.remove(hash);
+        if self.dependency_failure_set.remove(hash) != entry.invalidated_cause().is_some() {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
         self.compact_dependency_failures();
         self.apply_fault_checkpoint();
         Ok(entry)

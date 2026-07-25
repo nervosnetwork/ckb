@@ -1,6 +1,10 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    pub(crate) fn remove_peer_membership_for_test(&mut self, peer: PeerIndex, hash: &Byte32) {
+        self.by_peer.get_mut(&peer).unwrap().remove(hash);
+    }
+
     pub(crate) fn parent_available(
         &mut self,
         parent: &Byte32,

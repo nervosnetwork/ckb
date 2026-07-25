@@ -1,6 +1,15 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    pub(crate) fn remove_capacity_victim_for_test(&mut self, hash: &Byte32) {
+        let key = self
+            .entries
+            .get(hash)
+            .and_then(|entry| Self::capacity_victim_key(hash, entry))
+            .unwrap();
+        assert!(self.capacity_victim_index.remove(&key));
+    }
+
     pub(crate) fn audit(&self) -> Result<(), CoordinatorAuditError> {
         if self.entry_transaction_active || !self.entry_transaction_membership.is_empty() {
             return Err(CoordinatorAuditError::EntryTransactionDepth);

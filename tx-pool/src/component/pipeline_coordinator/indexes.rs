@@ -713,7 +713,14 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
         for (hash, relation) in &delta.relations_after {
-            self.conflicts.relations.insert(hash.clone(), *relation);
+            let inserted = self.conflicts.relations.insert(hash.clone(), *relation);
+            let is_new = delta
+                .insert
+                .as_ref()
+                .is_some_and(|(inserted_hash, _)| inserted_hash == hash);
+            if inserted.is_none() != is_new {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
         }
         self.conflicts.input_memberships = delta.next_input_memberships;
         self.conflicts.committing = delta.next_committing.clone();

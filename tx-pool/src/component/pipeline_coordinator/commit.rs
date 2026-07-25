@@ -20,7 +20,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         if !self.candidate_is_eligible(&ticket.hash) {
             return Err(CoordinatorError::ConflictInvariant);
         }
-        let old_victim_keys = self.current_victim_keys(&ticket.hash);
         self.ensure_revision_capacity(&ticket.hash)?;
         if self.entries.get(&ticket.hash).is_some_and(|entry| {
             entry.expires_at.is_some() && entry.deadline_generation == u64::MAX
@@ -29,10 +28,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 ticket.hash.clone(),
             ));
         }
-        let source = self
+        let (source, had_live_deadline) = self
             .entries
             .get(&ticket.hash)
-            .map(|entry| entry.source)
+            .map(|entry| (entry.source, entry.expires_at.is_some()))
             .ok_or_else(|| CoordinatorError::Missing(ticket.hash.clone()))?;
         self.check_activate_source(source)?;
         let (candidate, location) = self
@@ -67,7 +66,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             coordinator.remove_conflict_tickets(&ticket_plan)?;
             coordinator.activate_source(source)?;
             // A committing entry is temporarily outside expiry scheduling.
-            coordinator.live_deadlines.remove(&hash);
+            if coordinator.live_deadlines.remove(&hash).is_some() != had_live_deadline {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
             let entry = coordinator.entry_mut(&hash)?;
             if entry.expires_at.is_some() {
                 entry.deadline_generation += 1;
@@ -94,7 +95,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 payload,
             })
         })?;
-        self.refresh_victim_indexes(&lease.hash, old_victim_keys);
         Ok(Some(lease))
     }
 

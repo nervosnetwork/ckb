@@ -226,15 +226,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             *usage = usage
                 .checked_add(charge)
                 .ok_or(CoordinatorError::ConflictInvariant)?;
-            self.by_peer.entry(peer).or_default().insert(hash.clone());
+            if !self.by_peer.entry(peer).or_default().insert(hash.clone()) {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
         }
-        for parent in dependencies {
-            self.by_parent
-                .entry(parent)
-                .or_default()
-                .insert(hash.clone());
+        for parent in &dependencies {
+            self.insert_parent_membership(parent, &hash)?;
         }
-        self.by_short_id.insert(short_id, hash.clone());
+        if self.by_short_id.insert(short_id, hash.clone()).is_some() {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
         if let Some(expires_at) = expires_at {
             let deadline = DeadlineTicket {
                 expires_at,
@@ -243,7 +244,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 generation: 0,
             };
             self.deadlines.push(Reverse(deadline.clone()));
-            self.live_deadlines.insert(hash.clone(), deadline);
+            if self.live_deadlines.insert(hash.clone(), deadline).is_some() {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
         }
         self.insert_absent_entry(hash, entry)?;
         self.queue_mut(queue_kind)
@@ -254,7 +257,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
-    fn release_peer_attribution(
+    pub(super) fn release_peer_attribution(
         &mut self,
         hash: &Byte32,
         peer: PeerIndex,
@@ -302,6 +305,22 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         Ok(())
     }
 
+    fn insert_parent_membership(
+        &mut self,
+        parent: &Byte32,
+        child: &Byte32,
+    ) -> Result<(), CoordinatorError> {
+        if !self
+            .by_parent
+            .entry(parent.clone())
+            .or_default()
+            .insert(child.clone())
+        {
+            return Err(CoordinatorError::ConflictInvariant);
+        }
+        Ok(())
+    }
+
     pub(crate) fn promote_source(
         &mut self,
         hash: &Byte32,
@@ -318,7 +337,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             queue_kind,
             version,
             active,
-            had_expiry,
+            had_live_deadline,
             waiting_parent,
             candidate_state,
         ) = {
@@ -360,7 +379,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 entry.queue_kind(),
                 entry.version(),
                 entry.uses_active_slot(),
-                entry.expires_at.is_some(),
+                entry.expires_at.is_some() && !entry.is_committing(),
                 matches!(entry.location(), CoordinatorLocation::WaitingParents { .. }),
                 match &entry.state {
                     EntryState::CandidateVerified {
@@ -456,8 +475,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .ok_or(CoordinatorError::ConflictInvariant)?;
                 coordinator.apply_fault_checkpoint();
             }
-            if had_expiry {
-                coordinator.live_deadlines.remove(hash);
+            if coordinator.live_deadlines.remove(hash).is_some() != had_live_deadline {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
+            if had_live_deadline {
                 coordinator.apply_fault_checkpoint();
             }
 
@@ -601,10 +622,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 return Err(CoordinatorError::CommitInProgress(hash.clone()));
             }
             coordinator.ensure_revision_capacity(hash)?;
-            let (dependencies, active) = coordinator
+            let (dependencies, active, had_live_deadline, invalidated) = coordinator
                 .entries
                 .get(hash)
-                .map(|entry| (entry.dependencies.len(), entry.uses_active_slot()))
+                .map(|entry| {
+                    (
+                        entry.dependencies.len(),
+                        entry.uses_active_slot(),
+                        entry.expires_at.is_some(),
+                        entry.invalidated_cause().is_some(),
+                    )
+                })
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             let base_metadata_bytes = coordinator.metadata_charge_bytes(dependencies, false, 0)?;
             let total_charge_bytes = raw_payload_bytes
@@ -625,8 +653,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             if active {
                 coordinator.deactivate_source(current)?;
             }
-            coordinator.live_deadlines.remove(hash);
-            coordinator.dependency_failure_set.remove(hash);
+            if coordinator.live_deadlines.remove(hash).is_some() != had_live_deadline
+                || coordinator.dependency_failure_set.remove(hash) != invalidated
+            {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
             coordinator.compact_deadlines();
             coordinator.compact_dependency_failures();
             coordinator.apply_recharge(hash, total_charge_bytes)?;
@@ -794,11 +825,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 coordinator.enter_waiting_parent()?;
             }
             for parent in &added {
-                coordinator
-                    .by_parent
-                    .entry(parent.clone())
-                    .or_default()
-                    .insert(lease.hash.clone());
+                coordinator.insert_parent_membership(parent, &lease.hash)?;
             }
             let version = {
                 let entry = coordinator.entry_mut(&lease.hash)?;
@@ -922,11 +949,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
         self.deactivate_source(source)?;
         self.apply_recharge(&lease.hash, total_charge_bytes)?;
-        for parent in added {
-            self.by_parent
-                .entry(parent)
-                .or_default()
-                .insert(lease.hash.clone());
+        for parent in &added {
+            self.insert_parent_membership(parent, &lease.hash)?;
         }
         let entry = self.entry_mut(&lease.hash)?;
         let raw = Arc::clone(entry.state.raw());
@@ -983,11 +1007,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             coordinator.deactivate_source(source)?;
             coordinator.apply_recharge(&lease.hash, raw_charge_bytes)?;
             for parent in &added {
-                coordinator
-                    .by_parent
-                    .entry(parent.clone())
-                    .or_default()
-                    .insert(lease.hash.clone());
+                coordinator.insert_parent_membership(parent, &lease.hash)?;
             }
             let entry = coordinator.entry_mut(&lease.hash)?;
             let EntryState::Raw { location, .. } = &mut entry.state else {
@@ -1012,7 +1032,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     ) -> Result<CoordinatorVersion, CoordinatorError> {
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location(&lease.hash, lease.version, &expected)?;
-        let old_victim_keys = self.current_victim_keys(&lease.hash);
         self.ensure_revision_capacity(&lease.hash)?;
         let kind = match lease.stage {
             RawStage::PreCheck => QueueKind::PreCheck,
@@ -1024,7 +1043,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map(|entry| entry.source)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
         let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
-        let version = self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
+        self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
             coordinator
                 .queue_mut(kind)
                 .reserve_live(source.queue_owner(), false)?;
@@ -1044,9 +1063,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .push_reserved(kind, ticket, front)?;
             coordinator.next_queue_sequence = next_queue_sequence;
             Ok(version)
-        })?;
-        self.refresh_victim_indexes(&lease.hash, old_victim_keys);
-        Ok(version)
+        })
     }
 
     pub(super) fn parent_available_apply(
@@ -1113,7 +1130,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     });
                 }
             };
-            missing.remove(parent);
+            if !missing.remove(parent) {
+                return Err(CoordinatorError::ConflictInvariant);
+            }
             let ready_now = missing.is_empty();
             entry.revision += 1;
             if ready_now {
