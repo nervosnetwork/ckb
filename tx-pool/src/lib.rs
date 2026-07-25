@@ -12,8 +12,13 @@
 //!
 //! `recovery_lock` is taken before `tx_pool` and never the other way
 //! around: reorg recovery and persistence use it to exclude an incomplete
-//! retained-transaction snapshot. Effect/outbox capacity is reserved before
-//! either async state lock. Callbacks, relay I/O, and cache-update I/O run only
+//! retained-transaction snapshot. Normal pool mutations reserve effect/outbox
+//! capacity before `tx_pool`; recovery-serialized reorg/clear operations use
+//! the stricter order `recovery_lock -> effect credit -> tx_pool` because a
+//! retained transaction may need effect credit while recovery remains locked.
+//! No caller may hold effect credit while waiting for `recovery_lock`.
+//! Callback-originated mutations fail fast, so the effect publisher cannot
+//! create a reverse edge. Callbacks, relay I/O, and cache-update I/O run only
 //! after state mutation has been journaled and no state lock is held.
 //!
 //! `block_assembler.template_lock` guards the current block template.

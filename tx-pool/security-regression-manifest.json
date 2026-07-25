@@ -10,11 +10,13 @@
     "I1": [
       "one_entry_and_revision_own_every_payload_phase_until_candidate_handoff",
       "pool_removal_invalidation_and_winner_handoff_are_one_transaction",
+      "cross_authority_query_is_serialized_with_clear_and_reorg",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic"
     ],
     "I2": [
       "pipeline_commit_worker_waits_for_the_pool_sequencer",
-      "pipeline_concurrent_rbf_prefers_highest_fee"
+      "pipeline_concurrent_rbf_prefers_highest_fee",
+      "cross_authority_query_is_serialized_with_clear_and_reorg"
     ],
     "I3": [
       "failed_commit_restores_all_size_evictions_with_original_status_in_lock",
@@ -28,6 +30,7 @@
       "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale",
       "queue_sequence_exhaustion_cannot_strand_transition_reservations",
       "cancelled_runtime_does_not_checkout_queued_raw_work",
+      "clear_during_reorg_recovery_owns_the_final_empty_state",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
       "coordinator_handoff_panic_preserves_pool_recovery_point",
       "production_handoff_invariant_settles_then_fails_closed"
@@ -51,14 +54,17 @@
       "retained_receiver_preserves_fifo_across_panics",
       "coordinator_handoff_panic_preserves_pool_recovery_point",
       "stable_effect_journal_failure_preserves_pool_persistence",
-      "production_handoff_invariant_settles_then_fails_closed"
+      "production_handoff_invariant_settles_then_fails_closed",
+      "cross_authority_query_is_serialized_with_clear_and_reorg",
+      "clear_during_reorg_recovery_owns_the_final_empty_state"
     ],
     "I8": [
       "local_commit_waits_for_effect_credit_before_mutating_pool",
       "fifo_sequence_follows_authoritative_commit_not_reservation_order",
       "full_relayer_retains_fifo_head_and_outbox_charge",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
-      "stable_effect_journal_failure_preserves_pool_persistence"
+      "stable_effect_journal_failure_preserves_pool_persistence",
+      "clear_during_reorg_recovery_owns_the_final_empty_state"
     ],
     "I9": [
       "under_fee_candidate_cannot_become_verified_conflict_state",
@@ -100,12 +106,22 @@
       "id": "dependent-reorg-transactions",
       "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
       "anchor": "ReorgRecoversDependentTxs"
+    },
+    {
+      "id": "rbf-proposed-template-refresh",
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfRejectReplaceProposed"
+    },
+    {
+      "id": "rbf-conflict-recovery",
+      "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs",
+      "anchor": "RbfOrphanRecovery"
     }
   ],
   "release_blockers": [
     {
       "id": "final-security-closure",
-      "reason": "Finish phases 3-7 and close or explicitly accept every current security-ledger item."
+      "reason": "Complete Phase 7's final architecture and attack-surface closure."
     }
   ]
 }

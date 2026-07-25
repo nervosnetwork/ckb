@@ -11,9 +11,8 @@ use ckb_types::{
 };
 
 /// Case: when an RBF replacement is itself replaced, the originally-displaced
-/// transactions should be recovered back to the pool via the
-/// `DeferredTask::RecoverTxs` → `ordered_resolve_queue` → `OrderedResolver`
-/// pipeline path.
+/// transactions should be recovered back to the pool via bounded
+/// ConflictCache discovery and the single-owner PipelineCoordinator.
 ///
 /// This exercises the "orphan tx recovery" scenario: a tx that was evicted
 /// from the pool by RBF gets a second chance when the tx that took its place
@@ -171,15 +170,15 @@ impl Spec for RbfOrphanRecovery {
 
         // ── Assertions ────────────────────────────────────────────────
         //
-        // Wait for the async recovery pipeline:
-        //   submit_entry → process_rbf → DeferredTask::RecoverTxs
-        //   → ordered_resolve_queue → OrderedResolver → verify → pending
+        // Wait for the async recovery path:
+        //   submit_entry → process_rbf → bounded ConflictCache discovery
+        //   → coordinator resolve/verify/commit → pending
         assert!(
             wait_until(30, || {
                 let b2 = node.rpc_client().get_transaction(tx_b2.hash());
                 b2.tx_status.status == Status::Pending
             }),
-            "B2 should be recovered back to pending via ordered_resolve_queue"
+            "B2 should be recovered back to pending via coordinator-owned recovery"
         );
 
         // Let the async pipeline settle before asserting D1/C1/A2.  The

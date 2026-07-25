@@ -56,8 +56,12 @@ neither owner or in both owners during a handoff.
 
 `recovery_lock` is outside `TxPool` and is used only to exclude persistence or
 another chain-wide recovery from an incomplete retained-transaction replay.
-Normal remote commits do not take it. Effect capacity is reserved before
-`recovery_lock` or `TxPool` is acquired.
+Normal remote commits do not take it and reserve effect capacity before
+`TxPool`. Reorg, clear and persistence instead share one chain-wide order:
+`recovery_lock -> effect credit (when required) -> TxPool`. No caller may hold
+effect credit while waiting for `recovery_lock`, because detached replay can
+reserve ordinary submit/reject effects while retaining that lock. Mutating
+callback re-entry fails fast, so the publisher cannot add the reverse edge.
 
 ## 3. Submission paths
 
@@ -295,12 +299,14 @@ The capacity-one reorg handler retains the FIFO head delta across panic/retry;
 later deltas cannot overtake it. Its two phases retry independently: once the
 pool/coordinator transition succeeds, failure of the derived block-assembler
 refresh cannot replay that authoritative transition or resurrect an older
-snapshot after a concurrent clear. Before mutation it reserves critical
-outbox headroom that ordinary traffic cannot consume. Under `recovery_lock`,
-the pool and coordinator apply attached commits, detached/unavailable parents,
-status changes, conflict recovery scheduling, ingress-peer terminal results,
-and effects in their defined lock order. Detached replay is topological and
-compares attached identity by raw transaction hash.
+snapshot after a concurrent clear. After acquiring `recovery_lock` it reserves
+critical outbox headroom that ordinary traffic cannot consume, then the pool
+and coordinator apply attached commits, detached/unavailable parents, status
+changes, conflict recovery scheduling, ingress-peer terminal results, and
+effects in their defined order. Detached replay is topological and compares
+attached identity by raw transaction hash. Clear uses the same resource order;
+it cannot reserve ordinary credit while waiting for a reorg whose retained
+submissions need that credit.
 
 Overlapping detached proposal roots are removed as one union and replayed
 parent-first exactly once per entry. This avoids repeated descendant mutation
@@ -610,5 +616,6 @@ the architectural state without reconstructing chat history.
 | 3 | Complete (checkpoint is the commit containing this row) | Invalidated entries are now raw-only: typed payload ownership, typed lookup and conflict scheduling disappear in the same undo transaction, residency is recharged to the canonical raw equation, and stale worker completion is rejected by the existing lease revision. Deleted the redundant `PayloadPhase`/`PhaseMismatch` projection and changed typed lookups to borrowed views. Global review deliberately retained the three payload generics as compile-time phase isolation and retained `incarnation` plus `revision` as distinct admission/lease identities; adding aliases, a detached-worker ledger, or a compensating state would weaken reviewability. Production source is net smaller, no persistent state or hot-path scan was added, 311/311 nextest is green, and the clippy finding set remains the same 23-item baseline. |
 | 4 | Complete (checkpoint is the commit containing this row) | Queue sequence allocation now precedes reservation and every fallible reservation is protected by existing entry undo; deleted the runtime's owner-map-wide post-transition cleanup, so reservation leaks are no longer hidden and the common mutation path loses an attacker-sized scan. The production fault matrix crosses reserved effects, tentative PoolMap insertion, a fully applied then undone coordinator handoff, exact pool rollback, required lease settlement and FIFO effect publication. Coordinator panic now stops the driver without re-entering failed state or falsely disabling an exactly restored pool recovery point; returned invariant errors settle and then fail-stop outside the pool guard. Stable-effect journaling remains under the pool lock for ordering but outside the Authoritative panic domain. Ledger #91/#104 are Covered, the dedicated release blocker is removed, 316/316 nextest is green, and the clippy set remains the same 23-item baseline. No lifecycle state, recovery queue or second authority was added. |
 | 5 | Complete (checkpoint is the commit containing this row) | Split the coordinator by lifecycle, commit, maintenance, scheduling, capacity, undo, conflict-index, audit and type/queue semantics without changing its mutex or data layout; the physical entry file fell from 4,034 to 266 lines. Split the 4,876-line end-to-end test file into failure, identity, lifecycle, dependency, runtime, template and replacement suites with stable unique test anchors. Coordinator rejection policy now has one fail-safe classification table instead of three overlapping variant lists, and peer revocation checks committing state without materializing an owned diagnostic view. Whole-architecture teardown review found that a cancelled pre-check worker could checkout from a still-nonempty queue and keep the runtime alive; cancellation is now the pre-check dispatch barrier and has a direct regression. The historical 23-item clippy set is zero, nonblank/noncomment production Rust is net smaller than the Phase-4 checkpoint, 317/317 nextest is green, and no lifecycle state, allocation, task, lock, dynamic dispatch or hot-path scan was added. |
-| 6-7 | Pending | Execute in fixed order above. |
+| 6 | Complete (checkpoint is the commit containing this row) | Closed the executable evidence against the production cutover: 319/319 isolated tx-pool nextest cases, 19/19 contextual-verifier cases, zero-warning all-target clippy, manifest validation, freshly rebuilt normal-mining reorg 3/3 and RBF success/failure/concurrency/recovery/attack 6/6. Ledger review removed stale prototype-era `Partial`/`Model-covered` labels and routes measurement-only work exclusively to O5. The RBF Proposed integration spec was corrected to require the level-triggered assembler to stop mining a rejected victim and normally propose/commit its replacement. Deterministic cross-authority query races prove clear/reorg cannot expose an ownership gap. The phase review also reproduced a clear-vs-reorg effect-credit deadlock: clear held ordinary credit while waiting for `recovery_lock`, whose owner needed ordinary credit for detached replay. Reorg/clear now share `recovery_lock -> effect credit -> TxPool`; no state, queue, task, scan or hot-path lock was added. |
+| 7 | Pending | Final architecture/attack review and production-ready pre-benchmark checkpoint. |
 | 8 | Deferred | Run only after explicit benchmark instruction. |

@@ -372,10 +372,23 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) -> Result<(), Reject> {
-        // Reserve before taking `recovery_lock`: publication backpressure
-        // must never form recovery_lock -> effect queue -> callback ->
-        // save_pool -> recovery_lock. The conservative whole-pool credit is
-        // shrunk to the actual batch while the pool mutation is still locked.
+        // Hold the recovery lock for the *whole* reorg — the write-lock
+        // section and the retained-transaction recovery —
+        // so `save_pool` can never persist a half-updated pool: a snapshot
+        // taken between the write-lock section and the recovery would
+        // silently lose the detached transactions that have not been
+        // re-added yet. Lock order: recovery_lock before tx_pool, and
+        // nothing holding tx_pool ever acquires recovery_lock.
+        let _recovery_guard = self.recovery_lock.lock().await;
+
+        // Every operation that needs recovery serialization acquires it before
+        // reserving effect credit. A retained transaction may itself reserve
+        // submit/reject effects while this guard is held; allowing a concurrent
+        // clear to hold effect credit while waiting for the guard creates the
+        // opposite edge and deadlocks. Callback-originated mutations fail fast,
+        // so the publisher cannot re-enter recovery serialization while this
+        // reservation waits. The conservative credit is shrunk to the actual
+        // batch while the pool mutation is still locked.
         let reorg_permit = match self
             .reserve_critical_effects(self.max_reorg_effect_bytes())
             .await
@@ -386,14 +399,6 @@ impl TxPoolService {
                 .runtime
                 .fail_stop("reorg effect reservation failed", &error),
         };
-        // Hold the recovery lock for the *whole* reorg — the write-lock
-        // section and the retained-transaction recovery —
-        // so `save_pool` can never persist a half-updated pool: a snapshot
-        // taken between the write-lock section and the recovery would
-        // silently lose the detached transactions that have not been
-        // re-added yet. Lock order: recovery_lock before tx_pool, and
-        // nothing holding tx_pool ever acquires recovery_lock.
-        let _recovery_guard = self.recovery_lock.lock().await;
 
         let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
@@ -546,6 +551,20 @@ impl TxPoolService {
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
+        // Invalidate popped/active work before waiting for recovery or the
+        // pool write lock. Every later pipeline boundary and the final commit
+        // reject the old generation, while a submit that already linearized
+        // under the pool lock is removed by the clear below.
+        self.advance_pipeline_epoch();
+        // Same lock as the reorg recovery: an in-flight reorg must finish
+        // re-adding its detached transactions before the pool is cleared,
+        // otherwise the freshly cleared pool would be repopulated by the
+        // recovery and `clear_pool` would return with a non-empty pool.
+        let _recovery_guard = self.recovery_lock.lock().await;
+        // Do not hold effect credit while waiting for `recovery_lock`: an
+        // in-flight reorg owns that lock and its retained-transaction submits
+        // need the same ordinary credit. Recovery-serialized operations use
+        // the single order recovery_lock -> effect credit -> TxPool.
         let terminal_permit = match self
             .reserve_effects(Self::pipeline_terminal_effect_bytes(
                 self.pipeline.runtime.max_entries(),
@@ -558,16 +577,6 @@ impl TxPoolService {
                 .runtime
                 .fail_stop("clear pool effect reservation failed", &error),
         };
-        // Invalidate popped/active work before waiting for recovery or the
-        // pool write lock. Every later pipeline boundary and the final commit
-        // reject the old generation, while a submit that already linearized
-        // under the pool lock is removed by the clear below.
-        self.advance_pipeline_epoch();
-        // Same lock as the reorg recovery: an in-flight reorg must finish
-        // re-adding its detached transactions before the pool is cleared,
-        // otherwise the freshly cleared pool would be repopulated by the
-        // recovery and `clear_pool` would return with a non-empty pool.
-        let _recovery_guard = self.recovery_lock.lock().await;
         {
             let mut tx_pool = self.pool.tx_pool.write().await;
             self.pipeline.runtime.guard_authoritative_mutation(

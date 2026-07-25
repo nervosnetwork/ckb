@@ -106,7 +106,7 @@ async fn pipeline_dedup_double_submission() {
 
 /// Creating a service with `max_tx_verify_workers` far exceeding the machine's
 /// available parallelism should not panic or cause resource issues. The
-/// PreCheckQueue worker cap (`min(max_workers, available_parallelism)`) should
+/// coordinator pre-check worker cap (`min(max_workers, available_parallelism)`) should
 /// keep the actual worker count reasonable.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_high_pre_check_worker_cap() {
@@ -255,13 +255,13 @@ async fn pipeline_chunk_command_pause_resume() {
     // Brief yield to let the first tx start verifying.
     tokio::time::sleep(Duration::from_millis(5)).await;
 
-    // Suspend — VerifyMgr stops picking up new VerifyQueue items.
+    // Suspend — VerifyMgr stops checking out new coordinator verify tickets.
     chunk_tx
         .send(ChunkCommand::Suspend)
         .expect("send suspend signal");
 
     // Wait briefly while suspended. In-flight verification continues, but
-    // no new items are dequeued from VerifyQueue.
+    // no new verify tickets are checked out from the coordinator.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let pending_while_suspended = service.pool.tx_pool.read().await.pool_map.pending_size();

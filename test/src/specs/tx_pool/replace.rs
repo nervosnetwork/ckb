@@ -642,7 +642,12 @@ impl Spec for RbfContainInvalidCells {
 pub struct RbfRejectReplaceProposed;
 
 // RBF Rule #6
-// We removed rule #6, even tx in `Gap` and `Proposed` status can be replaced.
+// We removed rule #6, so even a tx in `Gap` or `Proposed` can be replaced.
+// The historical spec name is retained for compatibility with focused test
+// invocations. The current assembler contract refreshes both the removed
+// Proposed set and the replacement's Pending proposal set at the pool commit
+// linearization point; it must not deliberately mine the rejected victim from
+// a stale local template.
 impl Spec for RbfRejectReplaceProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -716,33 +721,31 @@ impl Spec for RbfRejectReplaceProposed {
 
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
-        // since old tx is already in BlockAssembler,
-        // tx1 will be committed, even it is not in tx_pool and with `Rejected` status now
+
+        // The replacement gets a fresh proposal while the removed Proposed
+        // victim stays rejected. This distinguishes the current level-triggered
+        // assembler reconciliation from develop's best-effort partial update,
+        // which could leave the victim in the local cached template.
         let ret = wait_until(20, || {
-            let res = rpc_client0.get_transaction(txs[2].hash());
+            let res = rpc_client0.get_transaction(tx2.hash());
+            res.tx_status.status == Status::Proposed
+        });
+        assert!(ret, "replacement should be proposed");
+        let tx1_status = node0.rpc_client().get_transaction(txs[2].hash()).tx_status;
+        assert_eq!(tx1_status.status, Status::Rejected);
+
+        node0.mine(window_count);
+        let ret = wait_until(20, || {
+            let res = rpc_client0.get_transaction(tx2.hash());
             res.tx_status.status == Status::Committed
         });
-        assert!(ret, "tx1 should be committed");
-        let tx1_status = node0.rpc_client().get_transaction(txs[2].hash()).tx_status;
-        assert_eq!(tx1_status.status, Status::Committed);
+        assert!(ret, "replacement should be committed");
 
-        // tx2 will be marked as `Rejected` because callback of `remove_committed_txs` from tx1
-        let tx2_status = node0.rpc_client().get_transaction(tx2.hash()).tx_status;
-        assert_eq!(tx2_status.status, Status::Rejected);
-
-        // the same tx2 can not be sent again
+        // A committed replacement cannot be submitted again.
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-
-        // resolve tx2 failed with `unknown` when resolve inputs used by tx1
-        assert!(
-            res.err()
-                .unwrap()
-                .to_string()
-                .contains("TransactionFailedToResolve: Resolve failed Unknown")
-        );
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

@@ -701,3 +701,171 @@ async fn local_commit_waits_for_effect_credit_before_mutating_pool() {
 
     h.cancel.cancel();
 }
+
+fn hold_coordinator_read(
+    runtime: Arc<crate::component::pipeline_runtime::PipelineRuntime>,
+) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        runtime.read(|_| {
+            locked_tx.send(()).unwrap();
+            release_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("test releases the coordinator read guard");
+        });
+    });
+    locked_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("coordinator read guard is held");
+    (release_tx, thread)
+}
+
+async fn wait_for_cross_authority_query_pool_guard(service: &TxPoolService) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match service.pool.tx_pool.try_write() {
+                Ok(guard) => drop(guard),
+                Err(_) => break,
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("query acquires the pool read guard before inspecting coordinator state");
+}
+
+/// Cross-authority queries hold the TxPool read guard while inspecting the
+/// coordinator. Clear and reorg both need the corresponding write guard for
+/// their ownership handoff, so a query must observe either the complete old
+/// state or the complete new state and never a transient `NotFound` gap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
+    use crate::component::pipeline_coordinator::RawStage;
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use std::collections::{HashSet, VecDeque};
+
+    // Query started before clear: force it to pause after taking the pool read
+    // guard, then prove clear cannot remove the coordinator owner underneath
+    // it.
+    {
+        let h = harness(1).workers(WorkerSet::None).build();
+        let tx = build_tx(&h.out_points[0], 4_000);
+        let hash = tx.hash();
+        let id = tx.proposal_short_id();
+        h.service
+            .pipeline
+            .runtime
+            .admit_transaction(
+                tx,
+                TxSource::Local,
+                h.service.current_pipeline_epoch().unwrap(),
+                RawStage::PreCheck,
+            )
+            .unwrap();
+
+        let (release, coordinator_thread) =
+            hold_coordinator_read(Arc::clone(&h.service.pipeline.runtime));
+        let query_service = h.service.clone();
+        let query_id = id.clone();
+        let query = tokio::spawn(async move {
+            query_service
+                .exclude_existing_proposal(vec![query_id])
+                .await
+        });
+        wait_for_cross_authority_query_pool_guard(&h.service).await;
+
+        let old_epoch = h.service.current_pipeline_epoch().unwrap();
+        let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+        let mut clear_service = h.service.clone();
+        let clear = tokio::spawn(async move { clear_service.clear_pool(snapshot).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while h.service.current_pipeline_epoch().unwrap() == old_epoch {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("clear reaches its epoch barrier while waiting for the query");
+
+        release.send(()).unwrap();
+        assert!(query.await.unwrap().is_empty(), "query sees the old owner");
+        clear.await.unwrap();
+        coordinator_thread.join().unwrap();
+        assert_eq!(
+            h.service.exclude_existing_proposal(vec![id.clone()]).await,
+            vec![id]
+        );
+        assert!(!h.service.pipeline.runtime.read(|c| c.contains_hash(&hash)));
+        h.cancel.cancel();
+    }
+
+    // Query started before an attached-block handoff: the reorg owns the
+    // recovery lock but cannot acquire TxPool write access until the query has
+    // completed its coordinator snapshot.
+    {
+        let h = harness(1).workers(WorkerSet::None).build();
+        let tx = build_tx(&h.out_points[0], 4_000);
+        let hash = tx.hash();
+        let id = tx.proposal_short_id();
+        h.service
+            .pipeline
+            .runtime
+            .admit_transaction(
+                tx.clone(),
+                TxSource::Local,
+                h.service.current_pipeline_epoch().unwrap(),
+                RawStage::PreCheck,
+            )
+            .unwrap();
+
+        let (release, coordinator_thread) =
+            hold_coordinator_read(Arc::clone(&h.service.pipeline.runtime));
+        let query_service = h.service.clone();
+        let query_id = id.clone();
+        let query = tokio::spawn(async move {
+            query_service
+                .exclude_existing_proposal(vec![query_id])
+                .await
+        });
+        wait_for_cross_authority_query_pool_guard(&h.service).await;
+
+        let attached = BlockBuilder::default()
+            .transaction(TransactionBuilder::default().build())
+            .transaction(tx)
+            .build();
+        let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+        let reorg_service = h.service.clone();
+        let reorg = tokio::spawn(async move {
+            reorg_service
+                .update_tx_pool_for_reorg(
+                    VecDeque::new(),
+                    VecDeque::from([attached]),
+                    HashSet::new(),
+                    snapshot,
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match h.service.recovery_lock.try_lock() {
+                    Ok(guard) => drop(guard),
+                    Err(_) => break,
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("reorg owns recovery serialization while waiting for the query");
+
+        release.send(()).unwrap();
+        assert!(query.await.unwrap().is_empty(), "query sees the old owner");
+        reorg.await.unwrap().unwrap();
+        coordinator_thread.join().unwrap();
+        assert_eq!(
+            h.service.exclude_existing_proposal(vec![id.clone()]).await,
+            vec![id]
+        );
+        assert!(!h.service.pipeline.runtime.read(|c| c.contains_hash(&hash)));
+        h.cancel.cancel();
+    }
+}

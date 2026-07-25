@@ -291,8 +291,9 @@ impl TxPoolController {
         send_message!(self, ClearPool, new_snapshot)
     }
 
-    /// Clears the pipeline queues (ordered resolve, verify, orphan and
-    /// pre-check) without touching the already-accepted pool.
+    /// Clears every coordinator-owned pre-pool lifecycle entry without
+    /// touching the already-accepted pool. The method name is retained for
+    /// controller API compatibility.
     pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
         reject_callback_mutation!("clear_verify_queue");
         send_message!(self, ClearPipeline, ())

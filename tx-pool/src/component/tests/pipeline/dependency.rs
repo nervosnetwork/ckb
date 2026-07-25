@@ -384,6 +384,111 @@ async fn clear_pipeline_cancels_conflict_recovery_schedule_without_deleting_hist
     h.cancel.cancel();
 }
 
+/// `clear_pool` advances the pipeline epoch immediately, then waits behind an
+/// in-flight reorg's whole recovery slice. Even if that reorg subsequently
+/// re-adds a detached transaction, clear must run last and return with neither
+/// accepted nor coordinator ownership left behind.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
+    use crate::callback::Callbacks;
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use std::collections::{HashSet, VecDeque};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let id = tx.proposal_short_id();
+    let detached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(tx)
+        .build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+
+    let pending_calls = Arc::new(AtomicUsize::new(0));
+    let pending_calls_cb = Arc::clone(&pending_calls);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_pending(Box::new(move |_| {
+        pending_calls_cb.fetch_add(1, Ordering::SeqCst);
+    }));
+    h.service.relay.callbacks = Arc::new(callbacks);
+
+    // Hold TxPool so the reorg deterministically acquires recovery_lock and
+    // pauses before its first authoritative slice.
+    let pool_guard = h.service.pool.tx_pool.write().await;
+    let reorg_service = h.service.clone();
+    let reorg_snapshot = Arc::clone(&snapshot);
+    let reorg = tokio::spawn(async move {
+        reorg_service
+            .update_tx_pool_for_reorg(
+                VecDeque::from([detached]),
+                VecDeque::new(),
+                HashSet::new(),
+                reorg_snapshot,
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match h.service.recovery_lock.try_lock() {
+                Ok(guard) => drop(guard),
+                Err(_) => break,
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reorg acquires recovery serialization before clear starts");
+
+    let old_epoch = h.service.current_pipeline_epoch().unwrap();
+    let mut clear_service = h.service.clone();
+    let clear = tokio::spawn(async move { clear_service.clear_pool(snapshot).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while h.service.current_pipeline_epoch().unwrap() == old_epoch {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("clear establishes its epoch barrier while reorg is in flight");
+
+    drop(pool_guard);
+    tokio::time::timeout(Duration::from_secs(10), reorg)
+        .await
+        .expect("reorg recovery completes")
+        .expect("reorg task joins")
+        .expect("detached transaction is recoverable");
+    tokio::time::timeout(Duration::from_secs(10), clear)
+        .await
+        .expect("clear runs after recovery")
+        .expect("clear task joins");
+    h.service.relay.effects.wait_idle().await;
+
+    assert_eq!(
+        pending_calls.load(Ordering::SeqCst),
+        1,
+        "the in-flight reorg really re-added its detached transaction before clear"
+    );
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_pool_entry(&id)
+            .is_none(),
+        "clear is the final accepted-pool state"
+    );
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash)),
+        "clear is also the final pre-pool state"
+    );
+
+    h.cancel.cancel();
+}
+
 /// ConflictCache owns complete transaction identities, while PoolMap and the
 /// proposal protocol can host only one transaction per short ID. A colliding
 /// accepted entry must therefore park—not delete—the historical candidate;

@@ -1105,9 +1105,10 @@ fn register_cold_bench(
 ) {
     let (mut txs, mut cycles) = data.target(size);
     // Benchmark both dependency paths explicitly. Parent-first traffic uses
-    // FlightTracker + OrderedResolveQueue; child-first traffic uses orphan
-    // parking and cascade recovery. Historically only the latter was measured,
-    // which could hide a regression in the normal dependent fast path.
+    // the coordinator's ready dependency handoff; child-first traffic uses
+    // bounded parent waiting and cascade recovery. Historically only the
+    // latter was measured, which could hide a regression in the normal
+    // dependent fast path.
     if data.tx_type.is_dependent() && reverse_dependent {
         let txs_mut = Arc::make_mut(&mut txs);
         txs_mut.reverse();
