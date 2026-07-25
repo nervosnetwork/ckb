@@ -341,14 +341,7 @@ async fn pool_commit_panic_fails_closed_instead_of_stranding_committing() {
         .await
         .fail_next_pool_commit_panic = true;
 
-    service
-        .submit_remote_tx(
-            tx,
-            TxSource::Remote {
-                cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx, cycles, 1.into())
         .await
         .expect("fault-injected transaction should reach the asynchronous pipeline");
 

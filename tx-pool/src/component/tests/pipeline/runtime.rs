@@ -194,43 +194,20 @@ async fn pipeline_dedup_double_submission() {
     let cycles = measured_cycles(&service, tx.clone()).await;
 
     // First submission.
-    service
-        .submit_remote_tx(
-            tx.clone(),
-            TxSource::Remote {
-                cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx.clone(), cycles, 1.into())
         .await
         .expect("first submission should succeed");
 
     // Wait for the tx to reach the pending pool.
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("tx should reach pending");
+    wait_for_pending(&service, 1, Duration::from_secs(10))
+        .await
+        .expect("tx should reach pending");
 
     // Second submission of the same tx.
     // The coordinator and accepted pool jointly deduplicate the submission;
     // pool_map.add_entry also returns `inserted == false` for an existing short ID.
     // Either way, the pool must still have exactly 1 tx.
-    let second_result = service
-        .submit_remote_tx(
-            tx.clone(),
-            TxSource::Remote {
-                cycles,
-                peer: 1.into(),
-            },
-        )
-        .await;
+    let second_result = submit_remote(&service, tx.clone(), cycles, 1.into()).await;
     // The result may be Ok (silent dedup in pool_map) or Err(Duplicated).
     // Both are correct behavior — what matters is the pool state.
     assert!(matches!(
@@ -274,29 +251,14 @@ async fn pipeline_high_pre_check_worker_cap() {
 
     for tx in &txs {
         let cycles = measured_cycles(&service, tx.clone()).await;
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), cycles, 1.into())
             .await
             .expect("enqueue remote tx should succeed");
     }
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == txs.len() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process all txs even with high worker cap");
+    wait_for_pending(&service, txs.len(), Duration::from_secs(10))
+        .await
+        .expect("pipeline should process all txs even with high worker cap");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
@@ -333,32 +295,18 @@ async fn pipeline_semaphore_backpressure() {
         let tx = tx.clone();
         let cycles = *cycles;
         handles.push(tokio::spawn(async move {
-            svc.submit_remote_tx(
-                tx,
-                TxSource::Remote {
-                    cycles,
-                    peer: 1.into(),
-                },
-            )
-            .await
-            .expect("submit under backpressure should succeed");
+            submit_remote(&svc, tx, cycles, 1.into())
+                .await
+                .expect("submit under backpressure should succeed");
         }));
     }
     for h in handles {
         h.await.expect("submit task should not panic");
     }
 
-    tokio::time::timeout(Duration::from_secs(30), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == tx_count {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("all txs should reach pending despite semaphore backpressure");
+    wait_for_pending(&service, tx_count, Duration::from_secs(30))
+        .await
+        .expect("all txs should reach pending despite semaphore backpressure");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(
@@ -394,14 +342,7 @@ async fn pipeline_chunk_command_pause_resume() {
     }
 
     for (tx, cycles) in txs.iter().zip(&cycles_vec) {
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles: *cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), *cycles, 1.into())
             .await
             .expect("enqueue secp tx should succeed");
     }
@@ -425,17 +366,9 @@ async fn pipeline_chunk_command_pause_resume() {
         .send(ChunkCommand::Resume)
         .expect("send resume signal");
 
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == txs.len() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("all txs should reach pending after resume");
+    wait_for_pending(&service, txs.len(), Duration::from_secs(60))
+        .await
+        .expect("all txs should reach pending after resume");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
@@ -481,28 +414,13 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
     let cycles_b = measured_cycles(&service, tx_b.clone()).await;
 
     // Submit tx_a and wait for it to reach pending.
-    service
-        .submit_remote_tx(
-            tx_a.clone(),
-            TxSource::Remote {
-                cycles: cycles_a,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_a.clone(), cycles_a, 1.into())
         .await
         .expect("tx_a should be accepted");
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("tx_a should reach pending");
+    wait_for_pending(&service, 1, Duration::from_secs(10))
+        .await
+        .expect("tx_a should reach pending");
 
     {
         let pool = service.pool.tx_pool.read().await;
@@ -513,14 +431,7 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
     }
 
     // Submit tx_b — triggers RBF, displacing tx_a.
-    service
-        .submit_remote_tx(
-            tx_b.clone(),
-            TxSource::Remote {
-                cycles: cycles_b,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_b.clone(), cycles_b, 1.into())
         .await
         .expect("tx_b (RBF replacement) should be accepted");
 
@@ -600,39 +511,17 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
     let cycles_b = measured_cycles(&service, tx_b.clone()).await;
 
     // Submit tx_a and wait for it to reach pending.
-    service
-        .submit_remote_tx(
-            tx_a.clone(),
-            TxSource::Remote {
-                cycles: cycles_a,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_a.clone(), cycles_a, 1.into())
         .await
         .expect("tx_a should be accepted");
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("tx_a should reach pending");
+    wait_for_pending(&service, 1, Duration::from_secs(10))
+        .await
+        .expect("tx_a should reach pending");
 
     // Submit tx_b. This merely enqueues the tx and returns Ok; actual
     // success/failure is determined by inspecting the final pool state.
-    let _ = service
-        .submit_remote_tx(
-            tx_b.clone(),
-            TxSource::Remote {
-                cycles: cycles_b,
-                peer: 1.into(),
-            },
-        )
+    let _ = submit_remote(&service, tx_b.clone(), cycles_b, 1.into())
         .await
         .unwrap();
 

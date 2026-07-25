@@ -13,30 +13,15 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
     let original = build_tx(shared_input, 4_000);
     let original_id = original.proposal_short_id();
     let original_cycles = measured_cycles(&service, original.clone()).await;
-    service
-        .submit_remote_tx(
-            original,
-            TxSource::Remote {
-                cycles: original_cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, original, original_cycles, 1.into())
         .await
         .unwrap();
 
     // Wait until the original tx is actually in the pool before racing
     // replacements against it.
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("original tx should be accepted");
+    wait_for_pending(&service, 1, Duration::from_secs(60))
+        .await
+        .expect("original tx should be accepted");
 
     // Replacement candidates with strictly increasing fees.
     let replacements = vec![
@@ -65,14 +50,7 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
         let cycles = measured_cycles(&service, tx.clone()).await;
         let svc = service.clone();
         handles.push(tokio::spawn(async move {
-            svc.submit_remote_tx(
-                tx,
-                TxSource::Remote {
-                    cycles,
-                    peer: peer.into(),
-                },
-            )
-            .await
+            submit_remote(&svc, tx, cycles, peer.into()).await
         }));
     }
 
@@ -190,89 +168,36 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     // Submit tx_a and wait for it to reach pending so that tx_b can be
     // resolved against the pool.
-    service
-        .submit_remote_tx(
-            tx_a.clone(),
-            TxSource::Remote {
-                cycles: cycles_a,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_a.clone(), cycles_a, 1.into())
         .await
         .expect("tx_a should be accepted");
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("tx_a should reach pending");
+    wait_for_pending(&service, 1, Duration::from_secs(10))
+        .await
+        .expect("tx_a should reach pending");
 
     let cycles_b = measured_cycles(&service, tx_b.clone()).await;
-    service
-        .submit_remote_tx(
-            tx_b.clone(),
-            TxSource::Remote {
-                cycles: cycles_b,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_b.clone(), cycles_b, 1.into())
         .await
         .expect("tx_b should be accepted");
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 2 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("tx_b should reach pending");
+    wait_for_pending(&service, 2, Duration::from_secs(10))
+        .await
+        .expect("tx_b should reach pending");
 
     let cycles_c = measured_cycles(&service, tx_c.clone()).await;
-    service
-        .submit_remote_tx(
-            tx_c.clone(),
-            TxSource::Remote {
-                cycles: cycles_c,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_c.clone(), cycles_c, 1.into())
         .await
         .expect("tx_c should be accepted");
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 3 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("tx_c should reach pending");
+    wait_for_pending(&service, 3, Duration::from_secs(10))
+        .await
+        .expect("tx_c should reach pending");
 
     let cycles_r = measured_cycles(&service, tx_r.clone()).await;
 
     // Submit the oversized replacement.
-    let _ = service
-        .submit_remote_tx(
-            tx_r.clone(),
-            TxSource::Remote {
-                cycles: cycles_r,
-                peer: 1.into(),
-            },
-        )
-        .await;
+    let _ = submit_remote(&service, tx_r.clone(), cycles_r, 1.into()).await;
 
     // Wait for the pipeline to drain and the original chain to be recovered.
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -339,14 +264,7 @@ async fn successful_rbf_recovery_cascades_from_accepted_parent_outputs() {
 
     for (index, tx) in original.iter().enumerate() {
         let cycles = measured_cycles(&service, tx.clone()).await;
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), cycles, 1.into())
             .await
             .expect("original dependency entry should enqueue");
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -371,14 +289,7 @@ async fn successful_rbf_recovery_cascades_from_accepted_parent_outputs() {
     let replacement = build_tx(shared_input, 4_900);
     let replacement_id = replacement.proposal_short_id();
     let replacement_cycles = measured_cycles(&service, replacement.clone()).await;
-    service
-        .submit_remote_tx(
-            replacement.clone(),
-            TxSource::Remote {
-                cycles: replacement_cycles,
-                peer: 2.into(),
-            },
-        )
+    submit_remote(&service, replacement.clone(), replacement_cycles, 2.into())
         .await
         .expect("higher-fee replacement should enqueue");
 
@@ -476,28 +387,13 @@ async fn reorg_retain_duplicate_does_not_cascade_dependents() {
     // reuse the parent's (identical always-success script).
     let cycles = measured_cycles(&service, parent.clone()).await;
     for tx in [&child, &parent] {
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), cycles, 1.into())
             .await
             .expect("enqueue remote tx should succeed");
     }
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 2 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("parent and child should be pending before reorg");
+    wait_for_pending(&service, 2, Duration::from_secs(10))
+        .await
+        .expect("parent and child should be pending before reorg");
 
     // A detached block containing the parent: the retain loop re-adds it and
     // hits `Duplicated` (it never left the pool). Pre-fix this cascaded and

@@ -216,6 +216,38 @@ fn build_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
         .build()
 }
 
+/// Keep the network ingress parameters visible at each test call site without
+/// repeating the `TxSource::Remote` construction in every scenario.
+async fn submit_remote(
+    service: &TxPoolService,
+    tx: TransactionView,
+    cycles: u64,
+    peer: ckb_network::PeerIndex,
+) -> Result<bool, crate::error::Reject> {
+    service
+        .submit_remote_tx(tx, TxSource::Remote { cycles, peer })
+        .await
+}
+
+/// Wait for the accepted-pool count while preserving a test-specific failure
+/// message at the call site. Polling stays test-only and uses a fixed short
+/// interval; production liveness remains event-driven.
+async fn wait_for_pending(
+    service: &TxPoolService,
+    expected: usize,
+    timeout: Duration,
+) -> Result<(), tokio::time::error::Elapsed> {
+    tokio::time::timeout(timeout, async {
+        loop {
+            if service.pool.tx_pool.read().await.pool_map.pending_size() == expected {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+}
+
 /// Drive one remote transaction to the coordinator's verified boundary
 /// without spawning workers. Tests can then exercise the production commit
 /// sequencer deterministically.
@@ -230,8 +262,7 @@ async fn stage_verified_remote_candidate(
 
     let tx_hash = tx.hash();
     let cycles = measured_cycles(service, tx.clone()).await;
-    service
-        .submit_remote_tx(tx.clone(), TxSource::Remote { cycles, peer })
+    submit_remote(service, tx.clone(), cycles, peer)
         .await
         .unwrap();
     let raw = service

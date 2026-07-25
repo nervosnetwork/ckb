@@ -1030,39 +1030,17 @@ async fn pipeline_preserves_order_for_dependent_txs() {
     // tx_b spends tx_a's output, so it cannot be measured until tx_a is in the
     // pool.  For the always-success script the verification cost is identical
     // for both transactions, so we reuse tx_a's cycle count for tx_b.
-    service
-        .submit_remote_tx(
-            tx_b.clone(),
-            TxSource::Remote {
-                cycles: tx_a_cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_b.clone(), tx_a_cycles, 1.into())
         .await
         .unwrap();
 
-    service
-        .submit_remote_tx(
-            tx_a.clone(),
-            TxSource::Remote {
-                cycles: tx_a_cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_a.clone(), tx_a_cycles, 1.into())
         .await
         .unwrap();
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 2 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process dependent txs in time");
+    wait_for_pending(&service, 2, Duration::from_secs(10))
+        .await
+        .expect("pipeline should process dependent txs in time");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, 2);
@@ -1103,28 +1081,10 @@ async fn pipeline_rejects_conflicting_double_spend() {
 
     let service_a = service.clone();
     let service_b = service.clone();
-    let handle_a = tokio::spawn(async move {
-        service_a
-            .submit_remote_tx(
-                tx_a,
-                TxSource::Remote {
-                    cycles: cycles_a,
-                    peer: 1.into(),
-                },
-            )
-            .await
-    });
-    let handle_b = tokio::spawn(async move {
-        service_b
-            .submit_remote_tx(
-                tx_b,
-                TxSource::Remote {
-                    cycles: cycles_b,
-                    peer: 1.into(),
-                },
-            )
-            .await
-    });
+    let handle_a =
+        tokio::spawn(async move { submit_remote(&service_a, tx_a, cycles_a, 1.into()).await });
+    let handle_b =
+        tokio::spawn(async move { submit_remote(&service_b, tx_b, cycles_b, 1.into()).await });
 
     let (res_a, res_b) = tokio::join!(handle_a, handle_b);
     let _ = res_a.expect("task a should not panic");
@@ -1196,14 +1156,7 @@ async fn pipeline_preserves_cell_dep_before_in_flight_consumer() {
     // Submit tx_a first and wait until it is actually in flight (either in the
     // verify queue or already accepted).  Only then submit tx_b so that the
     // cell-dep-on-in-flight-input path is exercised deterministically.
-    service
-        .submit_remote_tx(
-            tx_a.clone(),
-            TxSource::Remote {
-                cycles: cycles_a,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, tx_a.clone(), cycles_a, 1.into())
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -1225,14 +1178,7 @@ async fn pipeline_preserves_cell_dep_before_in_flight_consumer() {
     .await
     .expect("tx_a should enter the pipeline");
 
-    service
-        .submit_remote_tx(
-            tx_b.clone(),
-            TxSource::Remote {
-                cycles: cycles_b,
-                peer: 2.into(),
-            },
-        )
+    submit_remote(&service, tx_b.clone(), cycles_b, 2.into())
         .await
         .unwrap();
 
@@ -1303,20 +1249,9 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
         .process_tx(tx_a.clone(), TxSource::Local)
         .await
         .expect("tx_a should be accepted");
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = {
-                let pool = service.pool.tx_pool.read().await;
-                pool.pool_map.pending_size()
-            };
-            if pending == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("tx_a should settle");
+    wait_for_pending(&service, 1, Duration::from_secs(10))
+        .await
+        .expect("tx_a should settle");
 
     // Now tx_b's input and cell dep point to the same in-pool out-point.
     service
@@ -1324,20 +1259,9 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
         .await
         .expect("tx_b should be accepted even though its cell dep is also its input");
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = {
-                let pool = service.pool.tx_pool.read().await;
-                pool.pool_map.pending_size()
-            };
-            if pending == 2 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("tx_b should settle");
+    wait_for_pending(&service, 2, Duration::from_secs(10))
+        .await
+        .expect("tx_b should settle");
 
     let pool = service.pool.tx_pool.read().await;
     assert!(
@@ -1372,29 +1296,14 @@ async fn pipeline_processes_independent_secp_remote_txs() {
     }
 
     for (tx, cycles) in txs.iter().zip(&cycles) {
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles: *cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), *cycles, 1.into())
             .await
             .expect("enqueue secp remote tx should succeed");
     }
 
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == txs.len() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process all independent secp txs in time");
+    wait_for_pending(&service, txs.len(), Duration::from_secs(60))
+        .await
+        .expect("pipeline should process all independent secp txs in time");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
@@ -1429,39 +1338,17 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
 
     // Submit child first; it cannot resolve yet because the parent output is not
     // in the chain nor in any queue.
-    service
-        .submit_remote_tx(
-            child.clone(),
-            TxSource::Remote {
-                cycles: child_cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, child.clone(), child_cycles, 1.into())
         .await
         .expect("enqueue child secp tx should succeed");
 
-    service
-        .submit_remote_tx(
-            parent.clone(),
-            TxSource::Remote {
-                cycles: parent_cycles,
-                peer: 1.into(),
-            },
-        )
+    submit_remote(&service, parent.clone(), parent_cycles, 1.into())
         .await
         .expect("enqueue parent secp tx should succeed");
 
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == 2 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process dependent secp txs in order");
+    wait_for_pending(&service, 2, Duration::from_secs(20))
+        .await
+        .expect("pipeline should process dependent secp txs in order");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, 2);
@@ -1484,8 +1371,7 @@ async fn attached_commit_settles_pre_pool_remote_ingress() {
     let hash = tx.hash();
     let peer = ckb_network::PeerIndex::from(77);
     assert!(
-        h.service
-            .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer },)
+        submit_remote(&h.service, tx.clone(), 0, peer)
             .await
             .unwrap()
     );
@@ -1554,29 +1440,14 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
 
     for tx in &txs {
         let cycles = measured_cycles(&service, tx.clone()).await;
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), cycles, 1.into())
             .await
             .expect("enqueue remote tx should succeed");
     }
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == txs.len() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("all txs should be pending before reorg");
+    wait_for_pending(&service, txs.len(), Duration::from_secs(10))
+        .await
+        .expect("all txs should be pending before reorg");
 
     // Build a "detached" block that contains the first 2 txs.
     // This simulates a block being orphaned during a reorg.

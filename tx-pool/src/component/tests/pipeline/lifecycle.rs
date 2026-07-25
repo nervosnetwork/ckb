@@ -11,29 +11,14 @@ async fn pipeline_processes_independent_remote_txs() {
 
     for tx in &txs {
         let cycles = measured_cycles(&service, tx.clone()).await;
-        service
-            .submit_remote_tx(
-                tx.clone(),
-                TxSource::Remote {
-                    cycles,
-                    peer: 1.into(),
-                },
-            )
+        submit_remote(&service, tx.clone(), cycles, 1.into())
             .await
             .expect("enqueue remote tx should succeed");
     }
 
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending == txs.len() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process all independent txs in time");
+    wait_for_pending(&service, txs.len(), Duration::from_secs(10))
+        .await
+        .expect("pipeline should process all independent txs in time");
 
     let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, txs.len());
@@ -306,26 +291,11 @@ async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
     assert_eq!(first.hash(), second.hash());
     assert_ne!(first.witness_hash(), second.witness_hash());
 
-    h.service
-        .submit_remote_tx(
-            first,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 19.into(),
-            },
-        )
+    submit_remote(&h.service, first, 0, 19.into())
         .await
         .unwrap();
     assert!(matches!(
-        h.service
-            .submit_remote_tx(
-                second,
-                TxSource::Remote {
-                    cycles: 0,
-                    peer: 20.into(),
-                },
-            )
-            .await,
+        submit_remote(&h.service, second, 0, 20.into()).await,
         Err(crate::error::Reject::Duplicated(_))
     ));
     tokio::task::yield_now().await;

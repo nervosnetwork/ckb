@@ -63,6 +63,19 @@ fn roomy() -> PipelineCoordinator<Raw, Unverified, Verified> {
     ))
 }
 
+/// Exercise one production undo checkpoint and always clear the injection
+/// before asserting, so a failed expectation cannot contaminate later cases.
+fn assert_apply_fault_reached<T>(
+    coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
+    fault_step: usize,
+    operation: impl FnOnce(&mut PipelineCoordinator<Raw, Unverified, Verified>) -> T,
+) {
+    coordinator.set_apply_fault_for_test(Some(fault_step));
+    let result = catch_unwind(AssertUnwindSafe(|| operation(coordinator)));
+    coordinator.set_apply_fault_for_test(None);
+    assert!(result.is_err(), "fault step {fault_step} was not reached");
+}
+
 impl PipelineCoordinator<Raw, Unverified, Verified> {
     #[allow(clippy::too_many_arguments)]
     fn admit_raw(
@@ -427,12 +440,9 @@ fn trusted_source_promotion_rolls_back_peer_expiry_charge_and_queue_together() {
     let queue_len = coordinator.queue_len(QueueKind::PreCheck);
 
     for fault_step in 1..=4 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.promote_source(&tx_hash, TrustedSource::Proposal);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
         assert_eq!(coordinator.usage(), usage);
         assert_eq!(coordinator.peer_usage(peer), peer_usage);
@@ -1380,12 +1390,9 @@ fn expiry_batch_never_loses_an_earlier_terminal_on_unwind() {
     let usage = coordinator.usage();
 
     for fault_step in 1..=6 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.expire_due(10, 2);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = hashes
             .clone()
             .map(|tx_hash| coordinator.view(&tx_hash).unwrap());
@@ -1427,12 +1434,9 @@ fn administrative_terminal_cohort_rolls_back_as_one_ownership_transaction() {
     let queue_len = coordinator.queue_len(QueueKind::Resolve);
 
     for fault_step in 1..=6 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.force_terminalize_many(&hashes, TerminalDisposition::Removed);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = hashes
             .clone()
             .map(|tx_hash| coordinator.view(&tx_hash).unwrap());
@@ -1955,12 +1959,9 @@ fn verify_unknown_parent_demotion_extends_dependency_and_rolls_back_fault() {
     let before = coordinator.view(&tx_hash).unwrap();
     let usage = coordinator.usage();
 
-    coordinator.set_apply_fault_for_test(Some(1));
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 1, |coordinator| {
         let _ = coordinator.verification_retry_resolution(&verify, set([hash(33)]));
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
     assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
     assert_eq!(coordinator.usage(), usage);
 
@@ -2041,8 +2042,7 @@ fn successful_resolution_tracks_live_dep_group_members_before_verify() {
 
     let before = coordinator.view(&tx_hash).unwrap();
     let usage = coordinator.usage();
-    coordinator.set_apply_fault_for_test(Some(1));
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 1, |coordinator| {
         let _ = coordinator.complete_raw_with_dependencies(
             &lease,
             Unverified("faulted"),
@@ -2050,9 +2050,7 @@ fn successful_resolution_tracks_live_dep_group_members_before_verify() {
             VerifySchedule::default(),
             set([member.clone()]),
         );
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
     assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
     assert_eq!(coordinator.usage(), usage);
     coordinator.audit().unwrap();
@@ -2115,12 +2113,9 @@ fn verify_parent_handoff_requeues_resolution_without_lost_wakeup() {
     let before = coordinator.view(&tx_hash).unwrap();
     let usage = coordinator.usage();
 
-    coordinator.set_apply_fault_for_test(Some(1));
-    let fault = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 1, |coordinator| {
         let _ = coordinator.verification_retry_resolution(&verify, HashSet::new());
-    }));
-    assert!(fault.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
     assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
     assert_eq!(coordinator.usage(), usage);
     assert_eq!(coordinator.queue_len(QueueKind::Resolve), 0);
@@ -2172,12 +2167,9 @@ fn accepted_parent_closure_unavailability_is_one_atomic_batch() {
     let parents = set([parent_a.clone(), parent_b.clone()]);
 
     for fault_step in 1..=2 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let fault = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.parents_unavailable(&parents);
-        }));
-        assert!(fault.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         assert_eq!(coordinator.view(&child).unwrap(), before);
         assert_eq!(coordinator.usage(), usage);
         assert_eq!(coordinator.queue_len(QueueKind::Verify), 1);
@@ -2397,12 +2389,9 @@ fn injected_multi_entry_unwind_restores_entries_and_rebuilds_indexes() {
     let usage = coordinator.usage();
     let physical = coordinator.physical_queue_slots_for_test(QueueKind::Resolve);
     for fault_step in 1..=4 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.schedule_parent_failure(&parent);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after: Vec<_> = children
             .iter()
             .map(|child| coordinator.view(child).unwrap())
@@ -2451,12 +2440,9 @@ fn dependency_failure_batch_never_loses_an_earlier_terminal_on_unwind() {
     let usage = coordinator.usage();
 
     for fault_step in 1..=6 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.drain_dependency_failures(2);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = children
             .clone()
             .map(|child| coordinator.view(&child).unwrap());
@@ -2502,12 +2488,9 @@ fn dependency_maintenance_rebuild_preserves_authoritative_enqueue_order() {
     coordinator
         .schedule_parent_failure(&earlier_parent)
         .unwrap();
-    coordinator.set_apply_fault_for_test(Some(1));
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 1, |coordinator| {
         let _ = coordinator.drain_dependency_failures(2);
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
     coordinator.audit().unwrap();
 
     let first = coordinator.drain_dependency_failures(1).unwrap();
@@ -2562,12 +2545,9 @@ fn maintenance_sequence_allocator_rolls_back_with_failed_transition() {
         )
         .unwrap();
     coordinator.set_next_maintenance_sequence_for_test(u64::MAX - 1);
-    coordinator.set_apply_fault_for_test(Some(1));
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 1, |coordinator| {
         let _ = coordinator.schedule_parent_failure(&parent);
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
 
     assert_eq!(coordinator.dependency_failure_len(), 0);
     assert_eq!(
@@ -2645,12 +2625,9 @@ fn every_dependency_batch_apply_boundary_is_all_old_or_all_new() {
         .clone()
         .map(|child| unavailable.view(&child).unwrap());
     for fault_step in 1..=4 {
-        unavailable.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = unavailable.parent_unavailable(&parent);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        unavailable.set_apply_fault_for_test(None);
+        assert_apply_fault_reached(&mut unavailable, fault_step, |coordinator| {
+            let _ = coordinator.parent_unavailable(&parent);
+        });
         let after = children
             .clone()
             .map(|child| unavailable.view(&child).unwrap());
@@ -2683,12 +2660,9 @@ fn every_dependency_batch_apply_boundary_is_all_old_or_all_new() {
         .clone()
         .map(|child| available.view(&child).unwrap());
     for fault_step in 1..=2 {
-        available.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = available.parent_available(&parent);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        available.set_apply_fault_for_test(None);
+        assert_apply_fault_reached(&mut available, fault_step, |coordinator| {
+            let _ = coordinator.parent_available(&parent);
+        });
         let after = children
             .clone()
             .map(|child| available.view(&child).unwrap());
@@ -2810,12 +2784,9 @@ fn raw_worker_terminalization_is_lease_scoped_across_readmission() {
     let usage = coordinator.usage();
 
     for fault_step in 1..=3 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.terminalize_raw(&old_lease, TerminalDisposition::Rejected);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
@@ -3049,8 +3020,7 @@ fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
         let before = coordinator.view(&remote).unwrap();
         let usage = coordinator.usage();
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.admit_raw_sourced(
                 hash(123),
                 short(123),
@@ -3061,9 +3031,7 @@ fn parent_capacity_reconciliation_is_all_old_or_all_new_on_unwind() {
                 10,
                 set([parent.clone()]),
             );
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
 
         assert_eq!(coordinator.view(&remote).unwrap(), before);
         assert!(coordinator.view(&hash(123)).is_none());
@@ -3281,17 +3249,14 @@ fn global_recharge_reconciliation_rolls_back_after_every_apply_boundary() {
         let before = [local.clone(), remote.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.complete_raw(
                 &lease,
                 Unverified("resolved"),
                 20,
                 VerifySchedule::default(),
             );
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
 
         let after = [local, remote].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
@@ -3646,12 +3611,9 @@ fn failed_commit_is_lease_scoped_and_causally_terminal() {
     let usage = coordinator.usage();
 
     for fault_step in 1..=3 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.fail_commit(&commit, TerminalDisposition::Rejected);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
@@ -3875,17 +3837,14 @@ fn verified_conflict_preemption_rolls_back_at_every_apply_boundary() {
         let candidate = CoordinatorFeeGate::new(0, 0)
             .validate(high.clone(), HashSet::from([contested.clone()]), 200, 100)
             .unwrap();
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.complete_verification_candidate(
                 &verify,
                 Verified("high"),
                 30,
                 candidate,
             );
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [low.clone(), high.clone()].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
@@ -4091,12 +4050,9 @@ fn derived_conflict_removal_unwind_restores_relation_and_ticket() {
         );
         let before = [low.clone(), high.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.force_terminalize(&high, TerminalDisposition::Rejected);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [low, high.clone()].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
@@ -4365,17 +4321,14 @@ fn conflict_capacity_reconciliation_rolls_back_every_apply_boundary() {
         let before = [owner.clone(), strong.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.complete_verification_candidate(
                 &verify,
                 Verified("strong"),
                 30,
                 candidate,
             );
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
 
         let after = [owner.clone(), strong].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
@@ -4444,12 +4397,9 @@ fn every_conflict_owner_removal_apply_boundary_rolls_back_atomically() {
         let usage = coordinator.usage();
         let commit_len = coordinator.queue_len(QueueKind::Commit);
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.force_terminalize(&owner, TerminalDisposition::Rejected);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
 
         let after = [owner.clone(), newly_eligible].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
@@ -4505,12 +4455,9 @@ fn successful_candidate_handoff_rejects_current_direct_cohort_only() {
     let usage = coordinator.usage();
     let conflict_edges = coordinator.conflict_edge_count();
     for fault_step in 1..=9 {
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.commit_candidate_handoff(&committing);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [
             winner.clone(),
             loser.clone(),
@@ -4578,13 +4525,10 @@ fn pool_removal_invalidation_and_winner_handoff_are_one_transaction() {
 
     // Two parent-demotion checkpoints run before the candidate handoff's
     // removal checkpoint. A failure at the latter must restore both halves.
-    coordinator.set_apply_fault_for_test(Some(3));
-    let fault = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 3, |coordinator| {
         let _ = coordinator
             .commit_any_handoff_with_unavailable_parents(&lease, &set([removed_parent.clone()]));
-    }));
-    assert!(fault.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
     assert_eq!(coordinator.view(&winner).unwrap(), winner_before);
     assert_eq!(coordinator.view(&consumer).unwrap(), consumer_before);
     assert_eq!(coordinator.usage(), usage);
@@ -4627,12 +4571,9 @@ fn clear_is_one_batch_and_ignores_candidate_revision_exhaustion() {
         .unwrap();
 
     let before = [owner.clone(), weaker.clone()].map(|hash| coordinator.view(&hash).unwrap());
-    coordinator.set_apply_fault_for_test(Some(1));
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    assert_apply_fault_reached(&mut coordinator, 1, |coordinator| {
         let _ = coordinator.clear();
-    }));
-    assert!(result.is_err());
-    coordinator.set_apply_fault_for_test(None);
+    });
     let after = [owner, weaker.clone()].map(|hash| coordinator.view(&hash).unwrap());
     assert_eq!(after, before);
     coordinator.audit().unwrap();
@@ -4806,12 +4747,9 @@ fn accepted_parent_handoff_rolls_back_child_wake_at_every_apply_boundary() {
         let usage = coordinator.usage();
         let resolve_len = coordinator.queue_len(QueueKind::Resolve);
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.commit_candidate_handoff(&commit);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
 
         let after = [parent, child].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
@@ -5049,12 +4987,9 @@ fn active_verification_terminalization_rolls_back_every_apply_boundary() {
         let before = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.terminalize_verification(&lease, TerminalDisposition::Rejected);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [parent, child].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);
@@ -5187,12 +5122,9 @@ fn external_commit_rolls_back_child_wake_at_every_apply_boundary() {
         let before = [parent.clone(), child.clone()].map(|hash| coordinator.view(&hash).unwrap());
         let usage = coordinator.usage();
 
-        coordinator.set_apply_fault_for_test(Some(fault_step));
-        let result = catch_unwind(AssertUnwindSafe(|| {
+        assert_apply_fault_reached(&mut coordinator, fault_step, |coordinator| {
             let _ = coordinator.external_commit(&parent);
-        }));
-        assert!(result.is_err(), "fault step {fault_step} was not reached");
-        coordinator.set_apply_fault_for_test(None);
+        });
         let after = [parent, child].map(|hash| coordinator.view(&hash).unwrap());
         assert_eq!(after, before);
         assert_eq!(coordinator.usage(), usage);

@@ -11,7 +11,10 @@
 //! entries before anything is removed.
 
 use crate::{
-    component::{entry::TxEntry, pool_map::Status},
+    component::{
+        entry::TxEntry,
+        pool_map::{PoolMap, Status},
+    },
     error::Reject,
 };
 use ckb_types::{
@@ -30,6 +33,25 @@ use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_
 /// `max_ancestors_count` transactions long.
 const CHAIN_LEN: u32 = 125;
 
+/// Build the exact Pending ancestor shape used by the RBF capacity tests.
+/// Fee and size remain explicit at every call site because they are part of
+/// the attack construction, rather than incidental fixture defaults.
+fn add_pending_chain(pool: &mut PoolMap, len: u32, fee: Capacity, size: usize) -> (Byte32, Byte32) {
+    let mut tip = Byte32::zero();
+    let mut root = None;
+    for _ in 0..len {
+        let link = build_tx(vec![(&tip, 0)], 1);
+        tip = link.hash();
+        root.get_or_insert_with(|| tip.clone());
+        pool.add_entry(
+            TxEntry::dummy_resolve(link, MOCK_CYCLES, fee, size),
+            Status::Pending,
+        )
+        .unwrap();
+    }
+    (root.expect("test chain must be non-empty"), tip)
+}
+
 #[tokio::test]
 async fn rbf_rejects_dep_group_member_from_replacement_victim() {
     use super::harness::{WorkerSet, harness};
@@ -47,7 +69,6 @@ async fn rbf_rejects_dep_group_member_from_replacement_victim() {
         Capacity::shannons(1),
         MOCK_SIZE,
     );
-
     // The raw dep points only at an unrelated dep-group cell. Its verified
     // expansion, however, consumes the victim's output. Checking raw deps
     // alone would remove the victim and admit a transaction whose resolved
@@ -159,20 +180,16 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     // The attack entry's in-pool ancestry: the deepest chain the pool
     // accepts. A cell dep on the chain tip then pushes the attack entry
     // over the ancestor limit even after the victim cluster is removed.
-    let mut chain_tip = Byte32::zero();
+    let chain_tip;
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
-        for _ in 0..CHAIN_LEN {
-            let link = build_tx(vec![(&chain_tip, 0)], 1);
-            chain_tip = link.hash();
-            tx_pool
-                .pool_map
-                .add_entry(
-                    TxEntry::dummy_resolve(link, MOCK_CYCLES, Capacity::zero(), MOCK_SIZE),
-                    Status::Pending,
-                )
-                .unwrap();
-        }
+        let (_, tip) = add_pending_chain(
+            &mut tx_pool.pool_map,
+            CHAIN_LEN,
+            Capacity::zero(),
+            MOCK_SIZE,
+        );
+        chain_tip = tip;
         for tx in [&victim, &victim_child] {
             tx_pool
                 .pool_map
@@ -242,26 +259,17 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
 /// regardless of pool population.
 #[test]
 fn conflict_closure_aborts_at_candidate_limit() {
-    use crate::component::pool_map::{ConflictClosure, PoolMap};
+    use crate::component::pool_map::ConflictClosure;
     use std::collections::HashSet;
 
     let mut pool = PoolMap::new(super::util::DEFAULT_MAX_ANCESTORS_COUNT);
     // A chain one link longer than the candidate limit (depth stays within
     // the pool's ancestor limit).
     let chain_len = 101u32;
-    let mut tip = Byte32::zero();
-    let mut chain = Vec::new();
-    for _ in 0..chain_len {
-        let link = build_tx(vec![(&tip, 0)], 1);
-        tip = link.hash();
-        chain.push(link.clone());
-        pool.add_entry(
-            TxEntry::dummy_resolve(link, MOCK_CYCLES, Capacity::zero(), MOCK_SIZE),
-            Status::Pending,
-        )
-        .unwrap();
-    }
-    let root = chain[0].proposal_short_id();
+    let (root_hash, tip_hash) =
+        add_pending_chain(&mut pool, chain_len, Capacity::zero(), MOCK_SIZE);
+    let root = ProposalShortId::from_tx_hash(&root_hash);
+    let tip = ProposalShortId::from_tx_hash(&tip_hash);
     let roots = HashSet::from([root.clone()]);
 
     match pool.conflict_closure(&roots, 100) {
@@ -280,10 +288,7 @@ fn conflict_closure_aborts_at_candidate_limit() {
         } => {
             assert_eq!(removal.len(), chain_len as usize);
             assert_eq!(removal_set.len(), chain_len as usize);
-            assert_eq!(
-                removal.first(),
-                Some(&chain[chain.len() - 1].proposal_short_id())
-            );
+            assert_eq!(removal.first(), Some(&tip));
             assert_eq!(removal.last(), Some(&root));
         }
         ConflictClosure::Exceeded { .. } => panic!("closure must complete within the limit"),
@@ -314,21 +319,13 @@ async fn escape_hatch_evictions_are_recovered_on_commit_failure() {
     // A 124-link chain (the deepest the pool accepts). N's ancestry is the
     // chain (124) plus E (1) = 125, count 126 > max_ancestors_count, so
     // add_entry's escape hatch evicts E to fit (126 - 1 <= 125).
-    let mut chain_tip = Byte32::zero();
+    let chain_tip;
     let e = build_tx_with_dep(vec![(&Byte32::zero(), 2)], vec![(&x_hash, 0)], 1);
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
-        for _ in 0..124u32 {
-            let link = build_tx(vec![(&chain_tip, 0)], 1);
-            chain_tip = link.hash();
-            tx_pool
-                .pool_map
-                .add_entry(
-                    TxEntry::dummy_resolve(link, MOCK_CYCLES, Capacity::shannons(1_000), 100),
-                    Status::Pending,
-                )
-                .unwrap();
-        }
+        let (_, tip) =
+            add_pending_chain(&mut tx_pool.pool_map, 124, Capacity::shannons(1_000), 100);
+        chain_tip = tip;
         tx_pool
             .pool_map
             .add_entry(
@@ -509,20 +506,12 @@ async fn escape_hatch_evictions_are_recovered_when_dep_check_fails() {
     let c = build_tx(vec![(&d_hash, 0)], 1);
     let e = build_tx_with_dep(vec![(&Byte32::zero(), 2)], vec![(&x_hash, 0)], 1);
 
-    let mut chain_tip = Byte32::zero();
+    let chain_tip;
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
-        for _ in 0..124u32 {
-            let link = build_tx(vec![(&chain_tip, 0)], 1);
-            chain_tip = link.hash();
-            tx_pool
-                .pool_map
-                .add_entry(
-                    TxEntry::dummy_resolve(link, MOCK_CYCLES, Capacity::shannons(1_000), 100),
-                    Status::Pending,
-                )
-                .unwrap();
-        }
+        let (_, tip) =
+            add_pending_chain(&mut tx_pool.pool_map, 124, Capacity::shannons(1_000), 100);
+        chain_tip = tip;
         for tx in [c.clone(), e.clone()] {
             tx_pool
                 .pool_map
@@ -789,7 +778,6 @@ async fn coordinator_handoff_failure_does_not_publish_tentative_conflict_history
 #[tokio::test]
 async fn conflict_recovery_index_stays_consistent() {
     use super::harness::{WorkerSet, harness};
-    use crate::component::entry::TxEntry;
     use crate::component::pool_map::Status;
     use crate::tx_source::TxSource;
     use ckb_types::packed::OutPoint;

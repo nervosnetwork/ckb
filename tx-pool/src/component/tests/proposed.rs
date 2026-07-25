@@ -49,6 +49,27 @@ fn dummy_resolve<F: Fn(&OutPoint) -> Option<Bytes>>(
     })
 }
 
+fn add_resolved_proposed(pool: &mut PoolMap, tx: TransactionView) {
+    pool.add_proposed(TxEntry::new(
+        dummy_resolve(tx, |_| None),
+        MOCK_CYCLES,
+        MOCK_FEE,
+        MOCK_SIZE,
+    ))
+    .unwrap();
+}
+
+fn add_dummy_proposed(
+    pool: &mut PoolMap,
+    tx: TransactionView,
+    cycles: u64,
+    fee: Capacity,
+    size: usize,
+) {
+    pool.add_proposed(TxEntry::dummy_resolve(tx, cycles, fee, size))
+        .unwrap();
+}
+
 #[test]
 fn test_add_entry() {
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 1);
@@ -57,20 +78,8 @@ fn test_add_entry() {
 
     let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx1.clone(), |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx2, |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
+    add_resolved_proposed(&mut pool, tx1.clone());
+    add_resolved_proposed(&mut pool, tx2);
 
     assert_eq!(pool.size(), 2);
     assert_eq!(pool.out_point_index.inputs_len(), 3);
@@ -204,20 +213,8 @@ fn test_add_roots() {
 
     let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx1.clone(), |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx2, |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
+    add_resolved_proposed(&mut pool, tx1.clone());
+    add_resolved_proposed(&mut pool, tx2);
 
     assert_eq!(pool.out_point_index.inputs_len(), 4);
 
@@ -242,41 +239,11 @@ fn test_add_no_roots() {
 
     let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx1.clone(), |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx2, |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx3, |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx4, |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::new(
-        dummy_resolve(tx5, |_| None),
-        MOCK_CYCLES,
-        MOCK_FEE,
-        MOCK_SIZE,
-    ))
-    .unwrap();
+    add_resolved_proposed(&mut pool, tx1.clone());
+    add_resolved_proposed(&mut pool, tx2);
+    add_resolved_proposed(&mut pool, tx3);
+    add_resolved_proposed(&mut pool, tx4);
+    add_resolved_proposed(&mut pool, tx5);
 
     assert_eq!(pool.out_point_index.inputs_len(), 7);
 
@@ -296,27 +263,27 @@ fn test_sorted_by_tx_fee_rate() {
     let cycles = 5_000_000;
     let size = 200;
 
-    pool.add_proposed(TxEntry::dummy_resolve(
+    add_dummy_proposed(
+        &mut pool,
         tx1.clone(),
         cycles,
         Capacity::shannons(100),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx2.clone(),
         cycles,
         Capacity::shannons(300),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx3.clone(),
         cycles,
         Capacity::shannons(200),
         size,
-    ))
-    .unwrap();
+    );
 
     let txs_sorted_by_fee_rate = pool
         .sorted_proposed_iter()
@@ -340,34 +307,34 @@ fn test_sorted_by_ancestors_score() {
     let cycles = 5_000_000;
     let size = 200;
 
-    pool.add_proposed(TxEntry::dummy_resolve(
+    add_dummy_proposed(
+        &mut pool,
         tx1.clone(),
         cycles,
         Capacity::shannons(100),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx2.clone(),
         cycles,
         Capacity::shannons(300),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx3.clone(),
         cycles,
         Capacity::shannons(200),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx4.clone(),
         cycles,
         Capacity::shannons(400),
         size,
-    ))
-    .unwrap();
+    );
 
     let txs_sorted_by_fee_rate = pool
         .sorted_proposed_iter()
@@ -401,13 +368,7 @@ fn test_sorted_by_ancestors_score_competitive() {
     let size = 200;
 
     for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
-        pool.add_proposed(TxEntry::dummy_resolve(
-            tx.clone(),
-            cycles,
-            Capacity::shannons(200),
-            size,
-        ))
-        .unwrap();
+        add_dummy_proposed(&mut pool, tx.clone(), cycles, Capacity::shannons(200), size);
     }
 
     let txs_sorted_by_fee_rate = pool
@@ -433,34 +394,34 @@ fn test_get_ancestors() {
     let cycles = 5_000_000;
     let size = 200;
 
-    pool.add_proposed(TxEntry::dummy_resolve(
+    add_dummy_proposed(
+        &mut pool,
         tx1.clone(),
         cycles,
         Capacity::shannons(100),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx2.clone(),
         cycles,
         Capacity::shannons(300),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx3.clone(),
         cycles,
         Capacity::shannons(200),
         size,
-    ))
-    .unwrap();
-    pool.add_proposed(TxEntry::dummy_resolve(
+    );
+    add_dummy_proposed(
+        &mut pool,
         tx4.clone(),
         cycles,
         Capacity::shannons(400),
         size,
-    ))
-    .unwrap();
+    );
 
     let ancestors = pool.calc_ancestors(&tx4.proposal_short_id());
     let expect_result = vec![tx1.proposal_short_id(), tx2.proposal_short_id()]
