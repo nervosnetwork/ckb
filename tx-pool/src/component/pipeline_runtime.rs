@@ -10,7 +10,7 @@ use crate::component::pipeline_coordinator::{
     CoordinatorResidency, CoordinatorSource, CoordinatorVerifyOrdering, PipelineCoordinator,
     QueueKind, RawStage, RawWorkLease, TerminalRecord, TrustedSource,
 };
-use crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES;
+use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 use crate::error::Reject;
 use crate::resolved_tx::{PoolCandidate, ResolvedTx};
 use crate::tx_source::TxSource;
@@ -200,10 +200,10 @@ impl PipelineRuntime {
             max_dependents,
             CoordinatorReconciliationLimits::new(
                 config.max_ancestors_count,
-                MAX_RBF_REPLACEMENT_CANDIDATES,
+                MAX_POOL_MUTATION_CANDIDATES,
             ),
         )
-        .with_conflict_limits(max_dependencies, MAX_RBF_REPLACEMENT_CANDIDATES, edge_limit)
+        .with_conflict_limits(max_dependencies, MAX_POOL_MUTATION_CANDIDATES, edge_limit)
         .with_metadata_cost(CoordinatorMetadataCost {
             entry_bytes: COORDINATOR_ENTRY_INDEX_BYTES,
             dependency_edge_bytes: COORDINATOR_DEPENDENCY_EDGE_BYTES,

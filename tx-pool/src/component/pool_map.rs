@@ -8,6 +8,7 @@ use crate::TxEntry;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::out_point_index::OutPointIndex;
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
+use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 use crate::error::Reject;
 use ckb_logger::{debug, error, trace};
 use ckb_types::core::error::OutPointError;
@@ -96,6 +97,19 @@ pub(crate) struct RemovedPoolEntry {
 pub(crate) struct PoolMapAddOutcome {
     pub(crate) inserted: bool,
     pub(crate) evicted: Vec<RemovedPoolEntry>,
+}
+
+/// Parent roles for one verified incoming entry.
+///
+/// `required` producers provide an input or an expanded cell dependency and
+/// therefore cannot be removed while admitting the entry. `cell_ref` parents
+/// only need to precede the entry because they read a cell it consumes; those
+/// are the sole roots the ancestor-limit escape hatch may displace. `all` is
+/// the union committed to the accepted dependency graph.
+struct TxParents {
+    all: HashSet<ProposalShortId>,
+    required: HashSet<ProposalShortId>,
+    cell_ref: HashSet<ProposalShortId>,
 }
 
 /// Aggregated statistics tracked by [`PoolMap`].
@@ -399,12 +413,12 @@ impl PoolMap {
         // their weight into the entry's own descendant statistics — before
         // `insert_entry` freezes the derived keys, so the evict key already
         // reflects the children.
-        self.link_and_fold_children(&mut entry);
+        let linked_descendants = self.link_and_fold_children(&mut entry);
         self.insert_entry(&entry, status);
         // Update the derived keys on both sides: the children's ancestor
         // side and the ancestors' descendant side. The entry's own
         // ancestor/descendant weights are already folded into `entry`.
-        self.update_descendants_index_key(&entry, EntryOp::Add);
+        self.update_descendants_index_key_for(&entry, EntryOp::Add, &linked_descendants);
         self.update_ancestors_index_key(&entry, EntryOp::Add);
         self.track_entry_statistics(None, Some(status));
         // Apply the stat deltas *after* eviction: applying values computed
@@ -633,7 +647,7 @@ impl PoolMap {
     ///
     /// The traversal aborts as soon as the union exceeds `limit` unique
     /// entries, so the caller's cap (RBF rule #5's
-    /// `MAX_RBF_REPLACEMENT_CANDIDATES`) is the hard bound on cost regardless
+    /// `MAX_POOL_MUTATION_CANDIDATES`) is the hard bound on cost regardless
     /// of pool population. Earlier versions first computed every root's
     /// descendants separately (shared subtrees walked once per root) and
     /// then re-walked the union for ordering.
@@ -879,7 +893,16 @@ impl PoolMap {
     fn update_descendants_index_key(&mut self, parent: &TxEntry, op: EntryOp) {
         let descendants: HashSet<ProposalShortId> =
             self.links.calc_descendants(&parent.proposal_short_id());
-        for desc_id in &descendants {
+        self.update_descendants_index_key_for(parent, op, &descendants);
+    }
+
+    fn update_descendants_index_key_for(
+        &mut self,
+        parent: &TxEntry,
+        op: EntryOp,
+        descendants: &HashSet<ProposalShortId>,
+    ) {
+        for desc_id in descendants {
             // update child score
             self.entries
                 .modify_by_id(desc_id, |e| {
@@ -933,8 +956,9 @@ impl PoolMap {
     }
 
     /// Link an entry to children that entered the pool *before* it (they
-    /// spend or cell-dep on its outputs) and fold their weight into the
-    /// entry's own descendant statistics.
+    /// spend or cell-dep on its outputs), fold the complete descendant
+    /// closure into the entry's own statistics, and return that same closure
+    /// for the caller's ancestor-key update.
     ///
     /// Must run after `commit_ancestor_links` (the entry's links node must
     /// exist) and before `insert_entry` (the derived keys are frozen at
@@ -945,7 +969,7 @@ impl PoolMap {
     /// `sub_descendant_weight` saturates them down to zero — permanently
     /// corrupting the entry's evict key (CPFP protection and eviction
     /// order).
-    fn link_and_fold_children(&mut self, entry: &mut TxEntry) {
+    fn link_and_fold_children(&mut self, entry: &mut TxEntry) -> HashSet<ProposalShortId> {
         let tx_short_id = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
         let mut children = HashSet::with_capacity(outputs.len());
@@ -960,15 +984,10 @@ impl PoolMap {
             }
         }
         if children.is_empty() {
-            return;
+            return HashSet::new();
         }
 
-        let mut delta = crate::component::entry::WeightDelta::default();
         for child in &children {
-            let child_entry = self
-                .get_by_id(child)
-                .expect("out-point index child must resolve to an accepted entry");
-            delta.add_entry(&child_entry.inner);
             let inserted = self
                 .links
                 .add_parent(child, tx_short_id.clone())
@@ -980,50 +999,80 @@ impl PoolMap {
             .expect("new entry links node was committed before child folding")
             .children
             .extend(children);
+
+        // Direct children can already have descendants of their own. Using
+        // only the direct set undercharges a grandparent added after a whole
+        // child chain and makes later subtraction corrupt its eviction key.
+        // The caller already has to visit this closure to add the new parent
+        // to every descendant's ancestor aggregate, so return and reuse it
+        // rather than maintaining two independently derived sets.
+        let descendants = self.links.calc_descendants(&tx_short_id);
+        let mut delta = crate::component::entry::WeightDelta::default();
+        for descendant in &descendants {
+            let descendant_entry = self
+                .get_by_id(descendant)
+                .expect("descendant link must resolve to an accepted entry");
+            delta.add_entry(&descendant_entry.inner);
+        }
         entry.add_descendants_weight(delta);
+        descendants
     }
 
-    // return (ancestors, parents, cell_ref_parents)
-    // `cell_ref_parents` may be invalidate when the tx consuming the cell is submitted
-    fn get_tx_ancestors(
-        &self,
-        entry: &TransactionView,
-    ) -> (
-        HashSet<ProposalShortId>,
-        HashSet<ProposalShortId>,
-        HashSet<ProposalShortId>,
-    ) {
-        let mut parents: HashSet<ProposalShortId> =
-            HashSet::with_capacity(entry.inputs().len() + entry.cell_deps().len());
-        let mut cell_ref_parents: HashSet<ProposalShortId> = Default::default();
+    // Derive every accepted parent from the verified entry. In particular,
+    // expanded dep-group members must use the same causal graph as the
+    // reverse outpoint index; deriving this from raw `TransactionView`
+    // cell-deps alone strands consumers when an expanded member disappears.
+    fn get_tx_parents(&self, entry: &TxEntry, parent_limit: usize) -> Option<TxParents> {
+        let tx = entry.transaction();
+        let mut all = HashSet::with_capacity(tx.inputs().len() + tx.cell_deps().len());
+        let mut required = HashSet::new();
+        let mut cell_ref = HashSet::new();
 
-        for input in entry.inputs() {
+        for input in tx.inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.out_point_index.deps.get(&input_pt) {
-                cell_ref_parents.extend(deps.iter().cloned());
-                parents.extend(deps.iter().cloned());
+                for dep in deps {
+                    cell_ref.insert(dep.clone());
+                    all.insert(dep.clone());
+                    if all.len() > parent_limit {
+                        return None;
+                    }
+                }
             }
 
             let parent_hash = input_pt.tx_hash();
             let id = ProposalShortId::from_tx_hash(&parent_hash);
             if self.get_by_hash(&parent_hash).is_some() {
-                parents.insert(id);
+                required.insert(id.clone());
+                all.insert(id);
+                if all.len() > parent_limit {
+                    return None;
+                }
             }
         }
-        for cell_dep in entry.cell_deps() {
-            let dep_pt = cell_dep.out_point();
+        for dep_pt in entry.related_dep_out_points() {
             let parent_hash = dep_pt.tx_hash();
             let id = ProposalShortId::from_tx_hash(&parent_hash);
             if self.get_by_hash(&parent_hash).is_some() {
-                parents.insert(id);
+                required.insert(id.clone());
+                all.insert(id);
+                if all.len() > parent_limit {
+                    return None;
+                }
             }
         }
 
-        let ancestors = self
-            .links
-            .calc_relation_ids(parents.clone(), Relation::Parents);
+        Some(TxParents {
+            all,
+            required,
+            cell_ref,
+        })
+    }
 
-        (ancestors, parents, cell_ref_parents)
+    fn cell_ref_eviction_limit_reject() -> Reject {
+        Reject::Full(format!(
+            "cell-ref eviction exceeds the per-transition limit of {MAX_POOL_MUTATION_CANDIDATES}"
+        ))
     }
 
     /// Fold every ancestor's weight into `entry`. Read-only with respect to
@@ -1093,32 +1142,83 @@ impl PoolMap {
     /// on every attempt with replacements that never had a chance to
     /// commit, at no cost (a failed replacement pays no fee).
     ///
-    /// The check mirrors `check_and_record_ancestors` exactly, including
-    /// the cell-ref eviction escape hatch: failure is only certain when
-    /// evicting every surviving `cell_ref_parent` still cannot bring the
-    /// count under the limit. Borderline cases the approximate eviction
-    /// loop might handle differently fall through to the caller's normal
-    /// remove-and-recover path, so this pre-validation is conservative and
-    /// can never reject a committable entry.
+    /// This is an optimistic lower-bound proof, not a duplicate of the exact
+    /// escape-hatch planner. Failure is returned only when removing every
+    /// individually bounded cell-ref closure that preserves required output
+    /// producers still cannot bring the ancestor count under the limit.
+    /// Combined-cost and ordering-sensitive cases fall through to the exact
+    /// planner, so pre-validation cannot reject a committable entry.
     pub(crate) fn validate_ancestor_capacity(
         &self,
-        tx: &TransactionView,
+        entry: &TxEntry,
         excluded: &HashSet<ProposalShortId>,
     ) -> Result<(), Reject> {
-        let (ancestors, _parents, cell_ref_parents) = self.get_tx_ancestors(tx);
-        let effective: HashSet<&ProposalShortId> = ancestors.difference(excluded).collect();
-        let evictable = cell_ref_parents
-            .iter()
-            .filter(|id| effective.contains(id))
+        let parent_limit = self
+            .max_ancestors_count
+            .saturating_sub(1)
+            .saturating_add(MAX_POOL_MUTATION_CANDIDATES)
+            .saturating_add(excluded.len());
+        let Some(TxParents {
+            all: parents,
+            required,
+            cell_ref: cell_ref_parents,
+        }) = self.get_tx_parents(entry, parent_limit)
+        else {
+            return Err(Self::cell_ref_eviction_limit_reject());
+        };
+        let ancestors = self
+            .links
+            .calc_relation_ids(parents.clone(), Relation::Parents);
+        let effective_parent_count = parents.difference(excluded).count();
+        if effective_parent_count.saturating_sub(self.max_ancestors_count.saturating_sub(1))
+            > MAX_POOL_MUTATION_CANDIDATES
+        {
+            return Err(Self::cell_ref_eviction_limit_reject());
+        }
+        let effective_ancestors = ancestors
+            .difference(excluded)
+            .cloned()
+            .collect::<HashSet<_>>();
+        if effective_ancestors.len() < self.max_ancestors_count {
+            return Ok(());
+        }
+
+        // Prove impossibility without mutating. Assume every individually
+        // bounded cell-ref closure that preserves all required producers can
+        // be removed, even if their combined physical cost would later exceed
+        // the escape-hatch cap. If the entry still cannot fit under that
+        // optimistic lower bound, the authoritative attempt is certain to
+        // fail and removing/restoring the RBF cohort would be pure churn.
+        // Borderline/cap-sensitive cases fall through to the exact bounded
+        // planner after the RBF cohort has been removed.
+        let effective_required = required
+            .difference(excluded)
+            .cloned()
+            .collect::<HashSet<_>>();
+        let mut potentially_removed = HashSet::new();
+        for root in cell_ref_parents.difference(excluded) {
+            let roots = HashSet::from([root.clone()]);
+            let ConflictClosure::Complete { removal_set, .. } =
+                self.conflict_closure(&roots, MAX_POOL_MUTATION_CANDIDATES)
+            else {
+                continue;
+            };
+            if removal_set.is_disjoint(&effective_required) {
+                potentially_removed.extend(removal_set);
+            }
+        }
+        let remaining_parents = parents
+            .difference(excluded)
+            .filter(|id| !potentially_removed.contains(*id))
+            .cloned()
+            .collect::<HashSet<_>>();
+        let remaining_ancestors = self
+            .links
+            .calc_relation_ids(remaining_parents, Relation::Parents)
+            .difference(excluded)
+            .filter(|id| !potentially_removed.contains(*id))
             .count();
-        // Mirrors `check_and_prepare_ancestors` without overflow-prone `+ 1`
-        // arithmetic: after every eligible cell-ref ancestor is removed, the
-        // remaining ancestors plus the entry itself must fit the limit.
-        let non_evictable = effective
-            .len()
-            .checked_sub(evictable)
-            .expect("evictable ancestors are a subset of effective ancestors");
-        if non_evictable >= self.max_ancestors_count {
+        if remaining_ancestors >= self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
         Ok(())
@@ -1146,10 +1246,31 @@ impl PoolMap {
         entry: &mut TxEntry,
         evicted: &mut Vec<RemovedPoolEntry>,
     ) -> Result<HashSet<ProposalShortId>, Reject> {
-        let tx = entry.transaction();
-        let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancestors(tx);
+        let surviving_parent_limit = self.max_ancestors_count.saturating_sub(1);
+        let parent_limit = surviving_parent_limit.saturating_add(MAX_POOL_MUTATION_CANDIDATES);
+        let Some(TxParents {
+            all: parents,
+            required,
+            cell_ref: cell_ref_parents,
+        }) = self.get_tx_parents(entry, parent_limit)
+        else {
+            return Err(Self::cell_ref_eviction_limit_reject());
+        };
 
-        let mut ancestors_count = ancestors
+        // Reject an obviously over-bound fan-out before traversing the
+        // complete ancestor graph. At most `max_ancestors_count - 1` direct
+        // parents can survive beside the new entry, and every additional
+        // direct parent is itself one physical removal even when one selected
+        // root cascades through several of them.
+        if parents.len().saturating_sub(surviving_parent_limit) > MAX_POOL_MUTATION_CANDIDATES {
+            return Err(Self::cell_ref_eviction_limit_reject());
+        }
+
+        let ancestors = self
+            .links
+            .calc_relation_ids(parents.clone(), Relation::Parents);
+
+        let ancestors_count = ancestors
             .len()
             .checked_add(1)
             .expect("accepted ancestor count cannot overflow");
@@ -1158,74 +1279,74 @@ impl PoolMap {
             return Ok(parents);
         }
 
-        let non_cell_ref_ancestors = ancestors_count
-            .checked_sub(cell_ref_parents.len())
-            .expect("cell-ref parents are a subset of the ancestor closure");
-        if non_cell_ref_ancestors <= self.max_ancestors_count {
-            // if ancestors count exceed limitation,
-            // try to evict some conflicted transactions due to ref cells
+        // Plan against immutable indexes first. The old loop removed entries
+        // while still discovering how large the cascade was, allowing one
+        // shared dep cell to turn a remote admission into a pool-wide
+        // write-lock mutation. Sorting only the actual cell-ref parents also
+        // avoids scanning the complete eviction index.
+        let mut candidates = cell_ref_parents
+            .iter()
+            .filter_map(|id| {
+                self.get_by_id(id)
+                    .map(|pool_entry| (pool_entry.evict_key.clone(), id.clone()))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_unstable_by(|left, right| {
+            left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1))
+        });
 
-            // sort them to find out the transactions with lowest fees
-            let evict_candidates: Vec<ProposalShortId> = self
-                .entries
-                .iter_by_evict_key()
-                .filter(move |entry| cell_ref_parents.contains(&entry.id))
-                .map(|x| x.id.clone())
-                .collect();
-
-            let mut iter = evict_candidates.iter();
-            while ancestors_count > self.max_ancestors_count {
-                if let Some(next_id) = iter.next() {
-                    let removed = self.remove_entry_and_descendants_with_status(next_id);
-                    // The cascade removes `next_id` *and its descendants*,
-                    // and any of them may be a direct parent of the new
-                    // entry. Every removed id must leave the parent set: a
-                    // leftover id is a ghost that `calc_relation_ids`
-                    // recounts unconditionally (it never checks that the id
-                    // is still linked), and the weight fold below would
-                    // then fail with a spurious "missing entry" Malformed.
-                    for removed_entry in &removed {
-                        parents.remove(&removed_entry.entry.proposal_short_id());
+        let mut roots = HashSet::new();
+        let mut plan = None;
+        for (_, candidate) in candidates {
+            let mut proposed_roots = roots.clone();
+            proposed_roots.insert(candidate);
+            let (removal, removal_set) =
+                match self.conflict_closure(&proposed_roots, MAX_POOL_MUTATION_CANDIDATES) {
+                    ConflictClosure::Complete {
+                        removal,
+                        removal_set,
+                    } => (removal, removal_set),
+                    ConflictClosure::Exceeded { .. } => {
+                        return Err(Self::cell_ref_eviction_limit_reject());
                     }
-                    // One eviction candidate may remove an entire descendant
-                    // cascade. Decrementing by one overestimates the live
-                    // ancestry and can evict unrelated, high-fee cell-ref
-                    // parents after the entry already fits. Recompute from
-                    // the authoritative link graph after each cold-path
-                    // cascade instead.
-                    ancestors_count = self
-                        .links
-                        .calc_relation_ids(parents.clone(), Relation::Parents)
-                        .len()
-                        .checked_add(1)
-                        .expect("pool entry count is bounded below usize::MAX");
-                    evicted.extend(removed);
-                } else {
-                    break;
-                }
+                };
+            // The resolved entry is valid only while every producer of an
+            // input or expanded dep remains accepted. An ordering-only
+            // cell-ref root whose cascade reaches such a producer is not an
+            // eviction candidate at all.
+            if !removal_set.is_disjoint(&required) {
+                continue;
             }
-        } else {
-            return Err(Reject::ExceededMaximumAncestorsCount);
+            roots = proposed_roots;
+            let remaining_parents = parents
+                .difference(&removal_set)
+                .cloned()
+                .collect::<HashSet<_>>();
+            let remaining_ancestors = self
+                .links
+                .calc_relation_ids(remaining_parents.clone(), Relation::Parents);
+            if remaining_ancestors.len() < self.max_ancestors_count {
+                plan = Some((removal, removal_set, remaining_parents, remaining_ancestors));
+                break;
+            }
         }
 
-        // some txs in `parents` are removed, now `ancestors` need to re-caculate,
-        let ancestors = self
-            .links
-            .calc_relation_ids(parents.clone(), Relation::Parents);
-
-        // The recount should be under the limit now. This is a defensive
-        // error, not an `assert!`: the caller must first restore its local
-        // eviction cohort before the error crosses the write-lock boundary.
-        if ancestors.len() >= self.max_ancestors_count {
-            error!(
-                "tx-pool escape-hatch eviction left {} ancestors (max {}), rejecting defensively",
-                ancestors.len(),
-                self.max_ancestors_count
-            );
+        let Some((removal, removal_set, parents, ancestors)) = plan else {
             return Err(Reject::ExceededMaximumAncestorsCount);
-        }
-
+        };
         self.apply_ancestor_weights(entry, &ancestors)?;
+
+        // `conflict_closure` is post-ordered, so every child is removed while
+        // its ancestor links still exist. No fallible work remains after this
+        // point; the caller receives the exact status-bearing undo cohort.
+        for id in removal {
+            if removal_set.contains(&id) {
+                evicted.push(
+                    self.remove_entry_with_status(&id)
+                        .expect("planned cell-ref eviction entry remains present"),
+                );
+            }
+        }
         Ok(parents)
     }
 

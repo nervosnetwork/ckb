@@ -42,6 +42,43 @@ async fn pipeline_processes_independent_remote_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
+/// A non-contextual remote rejection happens before coordinator admission,
+/// but it still crosses the same terminal boundary as a later verifier
+/// rejection. Malformed transactions are deliberately not announced as
+/// retryable relayer rejections; banning the peer and recording the public
+/// rejection are the stable consequences.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_remote_preflight_is_banned_recorded_and_not_relayed() {
+    use crate::component::recent_reject::RecentReject;
+    use crate::component::tests::harness::{WorkerSet, harness};
+
+    let temp = tempfile::Builder::new().tempdir().unwrap();
+    let recent_reject = Arc::new(RecentReject::build(temp.path(), 1, 100, -1).unwrap());
+    let mut h = harness(0).workers(WorkerSet::None).build();
+    h.service.aux.recent_reject = Some(Arc::clone(&recent_reject));
+
+    let tx = TransactionBuilder::default().build();
+    let tx_hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(91);
+    let source = TxSource::Remote { cycles: 0, peer };
+    let reject = h
+        .service
+        .submit_remote_tx(tx, source)
+        .await
+        .expect_err("an empty loose transaction must fail non-contextual verification");
+    assert!(reject.is_malformed_tx());
+
+    h.service.relay.effects.wait_idle().await;
+    assert!(h.service.is_recently_banned(source));
+    assert!(recent_reject.get(&tx_hash).unwrap().is_some());
+    assert!(
+        h.relay_rx.try_recv().is_err(),
+        "malformed transactions are not eligible for relayer retry"
+    );
+
+    h.cancel.cancel();
+}
+
 /// Local RPC submission is intentionally synchronous. An older asynchronous
 /// remote owner for the same hash must neither turn the local call into a
 /// duplicate error nor survive after the local transaction enters TxPool.

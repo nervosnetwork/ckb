@@ -7,7 +7,7 @@
 use super::TxPool;
 use crate::component::TxEntry;
 use crate::component::pool_map::{ConflictClosure, PoolEntry};
-use crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES;
+use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 use crate::error::Reject;
 use ckb_logger::error;
 use ckb_snapshot::Snapshot;
@@ -106,16 +106,16 @@ impl TxPool {
         // Compute the conflict closure after rule #2 has passed, so a
         // rule #2 rejection does not pay for it. The candidate cap (rule
         // #5) is enforced inside the traversal itself, so an oversized
-        // union costs at most `MAX_RBF_REPLACEMENT_CANDIDATES` visited entries
+        // union costs at most `MAX_POOL_MUTATION_CANDIDATES` visited entries
         // regardless of pool population.
         let (removal, removal_set) = match self
             .pool_map
-            .conflict_closure(&conflict_ids, MAX_RBF_REPLACEMENT_CANDIDATES)
+            .conflict_closure(&conflict_ids, MAX_POOL_MUTATION_CANDIDATES)
         {
             ConflictClosure::Exceeded { count_lower_bound } => {
                 return Err(Reject::RBFRejected(format!(
                     "Tx conflict with too many txs, conflict txs count: >= {}, expect <= {}",
-                    count_lower_bound, MAX_RBF_REPLACEMENT_CANDIDATES,
+                    count_lower_bound, MAX_POOL_MUTATION_CANDIDATES,
                 )));
             }
             ConflictClosure::Complete {
@@ -170,7 +170,7 @@ impl TxPool {
     }
 
     /// RBF Rule #5: check that the number of replaced txs (conflicts + descendants)
-    /// does not exceed MAX_RBF_REPLACEMENT_CANDIDATES, that the new tx does not
+    /// does not exceed MAX_POOL_MUTATION_CANDIDATES, that the new tx does not
     /// reference outputs of descendant txs as inputs, and that the new tx's
     /// ancestors do not overlap with the conflicted txs' descendants.
     ///
@@ -244,24 +244,24 @@ impl TxPool {
         Ok(all_conflicted)
     }
 
-    /// Check that the new tx does not reference any conflicted tx as a cell dep.
+    /// Check that the new tx does not reference any conflicted tx as a direct
+    /// or dep-group-expanded cell dependency.
     pub(crate) fn check_rbf_no_conflict_cell_deps(
         &self,
         all_conflicted: &[&PoolEntry],
         entry: &TxEntry,
     ) -> Result<(), Reject> {
-        let tx_cells_deps: Vec<OutPoint> = entry
-            .transaction()
-            .cell_deps_iter()
-            .map(|c| c.out_point())
-            .collect();
-        for conflicted in all_conflicted.iter() {
-            let hash = conflicted.inner.transaction().hash();
-            if tx_cells_deps.iter().any(|pt| pt.tx_hash() == hash) {
-                return Err(Reject::RBFRejected(
-                    "new Tx contains cell deps from conflicts".to_string(),
-                ));
-            }
+        let conflicted_hashes = all_conflicted
+            .iter()
+            .map(|conflicted| conflicted.inner.transaction().hash())
+            .collect::<HashSet<_>>();
+        if entry
+            .related_dep_out_points()
+            .any(|dep| conflicted_hashes.contains(&dep.tx_hash()))
+        {
+            return Err(Reject::RBFRejected(
+                "new Tx contains cell deps from conflicts".to_string(),
+            ));
         }
         Ok(())
     }

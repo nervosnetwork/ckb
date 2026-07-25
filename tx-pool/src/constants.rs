@@ -29,9 +29,10 @@ pub(crate) const VERIFY_CACHE_CHANNEL_SIZE: usize = 1024;
 pub(crate) const EFFECT_OUTBOX_MAX_BATCHES: usize = 4096;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
 
-/// Maximum number of coordinator conflict/capacity victims or authoritative
-/// pool replacement candidates one transition may displace.
-pub(crate) const MAX_RBF_REPLACEMENT_CANDIDATES: usize = 100;
+/// Maximum number of entries one indexed conflict, capacity, or ancestor
+/// displacement sub-transition may visit or remove. Reorg reconciliation and
+/// configured pool-size trimming have separate, formula-bounded cohorts.
+pub(crate) const MAX_POOL_MUTATION_CANDIDATES: usize = 100;
 
 /// Maximum time the shutdown path waits for each pipeline-worker group
 /// (cache worker, maintenance, pre-check, verify, and resolver workers)

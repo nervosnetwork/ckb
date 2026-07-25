@@ -66,8 +66,10 @@ async fn parent_commit_before_wait_registration_requeues_child() {
 
 /// A remote transaction becomes externally observable as `UnknownParents`
 /// only through the same coordinator transition that installs its durable
-/// parent wait. This guards against cancellation leaving either a silent
-/// waiter or a parent request with no owned transaction behind it.
+/// parent wait. The missing hash intentionally differs from the raw direct
+/// parent: dep-group expansion can discover it only during resolution, and
+/// that ordinary input must extend the charged canonical graph rather than
+/// reaching fail-stop.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
     use crate::component::pipeline_coordinator::{CoordinatorLocation, RawStage};
@@ -78,8 +80,9 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
     use std::collections::HashSet;
 
     let h = harness(0).workers(WorkerSet::None).build();
-    let parent = Byte32::new([42; 32]);
-    let child = build_tx(&OutPoint::new(parent.clone(), 0), 3_000);
+    let direct_parent = Byte32::new([42; 32]);
+    let discovered_parent = Byte32::new([43; 32]);
+    let child = build_tx(&OutPoint::new(direct_parent.clone(), 0), 3_000);
     let child_hash = child.hash();
     let peer = 7.into();
     let epoch = h.service.current_pipeline_epoch().unwrap();
@@ -93,6 +96,13 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
             RawStage::Resolve,
         )
         .unwrap();
+    let mut expected_dependencies = h
+        .service
+        .pipeline
+        .runtime
+        .read(|coordinator| coordinator.view(&child_hash).unwrap().dependencies);
+    assert!(expected_dependencies.contains(&direct_parent));
+    expected_dependencies.insert(discovered_parent.clone());
     let lease = h
         .service
         .pipeline
@@ -104,7 +114,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .service
         .settle_raw_parent_wait(
             &lease,
-            HashSet::from([parent.clone()]),
+            HashSet::from([discovered_parent.clone()]),
             h.service
                 .reserve_effects(TxPoolService::unknown_parents_effect_bytes(1))
                 .await
@@ -114,13 +124,14 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .unwrap();
     assert!(matches!(outcome, ParentWaitOutcome::Parked));
     assert_eq!(
-        h.service
-            .pipeline
-            .runtime
-            .read(|coordinator| coordinator.view(&child_hash).unwrap().location),
+        h.service.pipeline.runtime.read(|coordinator| {
+            let view = coordinator.view(&child_hash).unwrap();
+            assert_eq!(view.dependencies, expected_dependencies);
+            view.location
+        }),
         CoordinatorLocation::WaitingParents {
-            missing: HashSet::from([parent.clone()])
-        }
+            missing: HashSet::from([discovered_parent.clone()])
+        },
     );
 
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
@@ -139,7 +150,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
             parents,
         } => {
             assert_eq!(relayed_peer, peer);
-            assert_eq!(parents, HashSet::from([parent]));
+            assert_eq!(parents, HashSet::from([discovered_parent]));
         }
         other => panic!("unexpected relay result: {other:?}"),
     }
@@ -609,6 +620,215 @@ async fn conflict_recovery_retries_pool_short_id_collision_without_losing_histor
     h.cancel.cancel();
 }
 
+/// A conflict-cache candidate is not executable merely because its inputs are
+/// unconsumed. Every referenced parent must be live as well. In particular,
+/// transferring a trusted historical child before its cell-dep parent exists
+/// makes the resolver reject it terminally, while indexing only inputs means
+/// the later parent output can never wake it again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conflict_recovery_waits_for_cell_dep_parent_output() {
+    use crate::component::entry::TxEntry;
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use ckb_types::core::{DepType, cell::CellMeta, cell::ResolvedTransaction};
+    use ckb_types::packed::OutPointVec;
+
+    let h = harness(3).workers(WorkerSet::None).build();
+    let parent = build_tx(&h.out_points[2], 4_000);
+    let parent_output = OutPoint::new(parent.hash(), 0);
+    let group_data = Into::<OutPointVec>::into(vec![parent_output.clone()]).as_bytes();
+    let group = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(h.out_points[0].clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(4_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(group_data.pack())
+        .build();
+    let group_output = OutPoint::new(group.hash(), 0);
+    let child = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(group_output.clone())
+                .dep_type(DepType::DepGroup)
+                .build(),
+        )
+        .input(CellInput::new(h.out_points[1].clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(3_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
+    let child_hash = child.hash();
+    let cell_meta = |out_point: OutPoint| CellMeta {
+        cell_output: CellOutput::new_builder().build(),
+        out_point,
+        transaction_info: None,
+        data_bytes: 0,
+        mem_cell_data: None,
+        mem_cell_data_hash: None,
+    };
+    let child_entry = TxEntry::new(
+        Arc::new(ResolvedTransaction {
+            transaction: child,
+            resolved_cell_deps: vec![
+                cell_meta(always_success_dep().out_point()),
+                cell_meta(parent_output.clone()),
+            ],
+            resolved_inputs: Vec::new(),
+            resolved_dep_groups: vec![cell_meta(group_output)],
+        }),
+        0,
+        Capacity::zero(),
+        100,
+    );
+
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(group, 0, Capacity::zero(), 100),
+                Status::Pending,
+            )
+            .unwrap();
+        pool.record_conflict_entry(&child_entry, TxSource::Local);
+        assert_eq!(
+            pool.schedule_conflicted_txs_from_inputs(std::iter::once(h.out_points[1].clone())),
+            1,
+            "the input release creates discovery work"
+        );
+    }
+
+    let blocked = h.service.recover_conflict_cache_slice(1).await;
+    assert!(!blocked.capacity_blocked);
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .conflict_cache
+            .contains_hash(&child_hash),
+        "the cache must retain ownership until every parent is live"
+    );
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&child_hash))
+    );
+
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(parent, 0, Capacity::zero(), 100),
+                Status::Pending,
+            )
+            .unwrap();
+        assert_eq!(
+            pool.schedule_conflicted_txs_from_inputs(std::iter::once(parent_output)),
+            1,
+            "the parent output must be a cache wake edge"
+        );
+    }
+
+    let recovered = h.service.recover_conflict_cache_slice(1).await;
+    assert!(!recovered.capacity_blocked);
+    assert!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&child_hash))
+    );
+    assert!(
+        !h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .conflict_cache
+            .contains_hash(&child_hash)
+    );
+
+    h.cancel.cancel();
+}
+
+/// If a conflicting input is released before another required parent exists,
+/// the first bounded discovery pass correctly keeps cache ownership but
+/// consumes that release edge. Mining the missing parent later must enqueue a
+/// new edge from the attached transaction's outputs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn attached_parent_output_rearms_conflict_cache_after_earlier_release() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use std::collections::{HashSet, VecDeque};
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let parent = build_tx(&h.out_points[1], 4_000);
+    let parent_output = OutPoint::new(parent.hash(), 0);
+    let candidate = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(parent_output.clone())
+                .build(),
+        )
+        .input(CellInput::new(h.out_points[0].clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(3_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
+    let candidate_hash = candidate.hash();
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.onchain_reconcile_done = true;
+        pool.record_conflict(candidate, TxSource::Local);
+        assert_eq!(
+            pool.schedule_conflicted_txs_from_inputs(std::iter::once(h.out_points[0].clone())),
+            1
+        );
+    }
+    h.service.recover_conflict_cache_slice(2).await;
+    {
+        let pool = h.service.pool.tx_pool.read().await;
+        assert_eq!(pool.conflict_discovery_len(), 0);
+        assert_eq!(pool.conflict_recovery_len(), 0);
+        assert!(pool.conflict_cache.contains_hash(&candidate_hash));
+    }
+
+    let attached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(parent)
+        .build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    h.service
+        .update_tx_pool_for_reorg(
+            VecDeque::new(),
+            VecDeque::from([attached]),
+            HashSet::new(),
+            snapshot,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        h.service.pool.tx_pool.read().await.conflict_discovery_len(),
+        1,
+        "the attached output must restore the consumed wake edge"
+    );
+
+    h.cancel.cancel();
+}
+
 /// Failed detached recovery removes accepted descendants. Their independent
 /// inputs are release events too: without scheduling ConflictCache discovery,
 /// a valid historical competitor remains cache-owned forever even though its
@@ -681,26 +901,59 @@ async fn failed_reorg_recovery_cascade_wakes_conflict_history() {
     h.cancel.cancel();
 }
 
-/// A successful replacement removes an accepted parent without changing the
-/// chain tip. Its already-resolved coordinator consumers must be demoted in
-/// the same pool/coordinator commit transaction or they could commit using a
-/// stale `ResolvedTransaction`.
+/// Successful dep-group expansion must add every live member to the canonical
+/// coordinator graph, not only members that happened to be missing. A later
+/// RBF removal of such a member must demote the already-resolved consumer in
+/// the same pool/coordinator transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn local_rbf_commit_demotes_in_flight_consumers_of_removed_parent() {
-    use crate::component::pipeline_coordinator::{CoordinatorLocation, RawStage, VerifySchedule};
-    use crate::component::pipeline_runtime::resolved_charge_bytes;
+async fn local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member() {
+    use crate::component::pipeline_coordinator::{CoordinatorLocation, RawStage};
     use crate::component::tests::harness::{WorkerSet, harness};
-    use crate::resolved_tx::ResolveJob;
+    use ckb_types::core::DepType;
+    use ckb_types::packed::OutPointVec;
     use std::collections::HashSet;
 
-    let h = harness(1).rbf(true).workers(WorkerSet::None).build();
+    let h = harness(3).rbf(true).workers(WorkerSet::None).build();
     let original = build_tx(&h.out_points[0], 4_000);
     h.service
         .process_tx(original.clone(), TxSource::Local)
         .await
         .expect("original enters the accepted pool");
 
-    let consumer = build_tx(&OutPoint::new(original.hash(), 0), 3_000);
+    let group_data = Into::<OutPointVec>::into(vec![OutPoint::new(original.hash(), 0)]).as_bytes();
+    let group = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(h.out_points[1].clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(4_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(group_data.pack())
+        .build();
+    h.service
+        .process_tx(group.clone(), TxSource::Local)
+        .await
+        .expect("dep-group cell enters the accepted pool");
+
+    let consumer = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(OutPoint::new(group.hash(), 0))
+                .dep_type(DepType::DepGroup)
+                .build(),
+        )
+        .input(CellInput::new(h.out_points[2].clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(3_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
     let consumer_hash = consumer.hash();
     let epoch = h.service.current_pipeline_epoch().unwrap();
     h.service
@@ -722,30 +975,14 @@ async fn local_rbf_commit_demotes_in_flight_consumers_of_removed_parent() {
         .runtime
         .checkout_raw(RawStage::Resolve)
         .unwrap();
-    let resolved = match crate::resolve_mgr::resolve_job(
-        &h.service,
-        ResolveJob::new_at(
-            consumer,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
-            epoch,
-        ),
-    )
-    .await
-    {
-        crate::resolve_mgr::ResolveStageResult::Ready(resolved) => resolved,
-        other => panic!("consumer should resolve against original: {other:?}"),
-    };
-    let charge = resolved_charge_bytes(&resolved).unwrap();
-    h.service
+    h.service.process_pipeline_raw_lease(lease).await;
+    let resolved_view = h
+        .service
         .pipeline
         .runtime
-        .mutate(|coordinator| {
-            coordinator.complete_raw(&lease, resolved, charge, VerifySchedule::default())
-        })
-        .unwrap();
+        .read(|coordinator| coordinator.view(&consumer_hash).unwrap());
+    assert!(resolved_view.dependencies.contains(&original.hash()));
+    assert!(resolved_view.dependencies.contains(&group.hash()));
 
     let replacement = build_tx(&h.out_points[0], 3_000);
     h.service

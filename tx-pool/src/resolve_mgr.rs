@@ -133,6 +133,17 @@ impl TxPoolService {
         let outcome = crate::worker::catch_job_panic(async {
             match resolve_job(self, job).await {
                 ResolveStageResult::Ready(resolved) => {
+                    // Raw admission can name a dep-group cell but only a
+                    // successful resolver can name every expanded member.
+                    // Publish those producer hashes in the same coordinator
+                    // transition as the resolved payload so later pool
+                    // removal invalidates it causally instead of waiting for
+                    // a stale final-commit failure.
+                    let resolved_dependencies = resolved
+                        .rtx
+                        .related_dep_out_points()
+                        .map(|out_point| crate::util::compact_packed(&out_point.tx_hash()))
+                        .collect::<HashSet<_>>();
                     let charge_bytes = match resolved_charge_bytes(&resolved) {
                         Ok(charge) => charge,
                         Err(error) => {
@@ -159,14 +170,19 @@ impl TxPoolService {
                     let permit = self
                         .reserve_required_effects(
                             Self::pipeline_terminal_effect_bytes(
-                                crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                                crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
                             ),
                             "raw completion effect reservation failed",
                         )
                         .await;
                     match self.pipeline.runtime.mutate(|coordinator| {
-                        let result =
-                            coordinator.complete_raw(&lease, resolved, charge_bytes, schedule);
+                        let result = coordinator.complete_raw_with_dependencies(
+                            &lease,
+                            resolved,
+                            charge_bytes,
+                            schedule,
+                            resolved_dependencies,
+                        );
                         if let Ok((_version, terminal)) = &result {
                             self.journal_pipeline_terminal_records(permit, terminal);
                         }
@@ -202,6 +218,14 @@ impl TxPoolService {
                         Some(ParentWaitOutcome::Requeued) => {}
                         Some(ParentWaitOutcome::Unavailable) => {
                             let reject = first_unknown_input_reject(&tx);
+                            self.settle_pipeline_raw_lease(
+                                &lease,
+                                TerminalDisposition::Rejected,
+                                Some(reject),
+                            )
+                            .await;
+                        }
+                        Some(ParentWaitOutcome::Rejected(reject)) => {
                             self.settle_pipeline_raw_lease(
                                 &lease,
                                 TerminalDisposition::Rejected,

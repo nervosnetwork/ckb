@@ -101,7 +101,7 @@ impl crate::service::TxPoolService {
         for _ in 0..initial {
             let permit = match self
                 .reserve_effects(Self::pipeline_terminal_effect_bytes(
-                    crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                    crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
                 ))
                 .await
             {
@@ -145,13 +145,14 @@ impl crate::service::TxPoolService {
                             drop(permit);
                             return RecoveryStep::CapacityBlocked;
                         }
-                        if tx_pool
-                            .pool_map
-                            .find_conflict_outpoint(&candidate.tx)
-                            .is_some()
-                        {
-                            // A new accepted blocker arrived after scheduling.
-                            // Its later removal marks this candidate again.
+                        if !tx_pool.conflict_recovery_ready(
+                            &candidate.tx,
+                            &candidate.recovery_outpoints,
+                        ) {
+                            // A blocker or missing dependency appeared after
+                            // scheduling. Its later release/parent acceptance
+                            // marks this candidate again through the same
+                            // outpoint wake index.
                             drop(permit);
                             return RecoveryStep::Continue;
                         }

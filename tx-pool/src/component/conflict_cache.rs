@@ -20,16 +20,17 @@ use std::sync::Arc;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_RESIDENT_SIZE: usize = 50_000_000;
 const ENTRY_RESIDENT_OVERHEAD: usize = 512;
-const INPUT_INDEX_RESIDENT_OVERHEAD: usize = 256;
+const OUTPOINT_INDEX_RESIDENT_OVERHEAD: usize = 256;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConflictEntry {
     pub(crate) tx: TransactionView,
     pub(crate) source: TxSource,
-    // Inputs are already serialized in the bounded transaction payload and a
-    // verified transaction cannot contain duplicates. A compact Vec avoids a
-    // second per-entry hash table while `by_outpoint` remains the lookup index.
-    inputs: Vec<OutPoint>,
+    // Every input and cell dependency whose availability can make this
+    // historical transaction executable again. Accepted RBF victims provide
+    // expanded dep-group members as well. A compact Vec avoids a second
+    // per-entry hash table while `by_outpoint` remains the reverse wake index.
+    recovery_outpoints: Vec<OutPoint>,
     generation: u64,
     resident_charge: usize,
     /// Identity of the pool mutation that most recently recorded this entry.
@@ -54,6 +55,7 @@ impl ConflictReleaseEvent {
 pub(crate) struct ConflictRecoveryCandidate {
     pub(crate) tx: TransactionView,
     pub(crate) source: TxSource,
+    pub(crate) recovery_outpoints: Vec<OutPoint>,
 }
 
 #[derive(Debug)]
@@ -154,7 +156,8 @@ impl ConflictCache {
         tx: TransactionView,
         source: TxSource,
     ) -> (bool, Vec<ConflictEntry>) {
-        self.insert_for_release(tx, source, None)
+        let recovery_outpoints = raw_recovery_outpoints(&tx);
+        self.insert_with_outpoints_for_release(tx, source, recovery_outpoints, None)
     }
 
     pub(crate) fn insert_for_release(
@@ -163,7 +166,19 @@ impl ConflictCache {
         source: TxSource,
         release_event: Option<Arc<ConflictReleaseEvent>>,
     ) -> (bool, Vec<ConflictEntry>) {
+        let recovery_outpoints = raw_recovery_outpoints(&tx);
+        self.insert_with_outpoints_for_release(tx, source, recovery_outpoints, release_event)
+    }
+
+    pub(crate) fn insert_with_outpoints_for_release(
+        &mut self,
+        tx: TransactionView,
+        source: TxSource,
+        recovery_outpoints: impl IntoIterator<Item = OutPoint>,
+        release_event: Option<Arc<ConflictReleaseEvent>>,
+    ) -> (bool, Vec<ConflictEntry>) {
         let hash = tx.hash();
+        let recovery_outpoints = compact_unique_outpoints(recovery_outpoints);
         if let Some(existing) = self.by_hash.get(&hash) {
             // Source strength is monotonic across every lifecycle owner. A
             // Local/Proposal resubmission of a historical remote candidate
@@ -174,9 +189,22 @@ impl ConflictCache {
             let trusted_witness_refresh = source.trust() == existing.source.trust()
                 && !matches!(source, TxSource::Remote { .. })
                 && existing.tx.witness_hash() != tx.witness_hash();
-            if stronger_source || trusted_witness_refresh {
+            let existing_outpoints: HashSet<_> =
+                existing.recovery_outpoints.iter().cloned().collect();
+            let added_outpoints = recovery_outpoints
+                .into_iter()
+                .filter(|out_point| !existing_outpoints.contains(out_point))
+                .collect::<Vec<_>>();
+            let metadata_extended = !added_outpoints.is_empty();
+            if stronger_source || trusted_witness_refresh || metadata_extended {
+                let replace_payload = stronger_source || trusted_witness_refresh;
                 let old_charge = existing.resident_charge;
-                let new_charge = conflict_entry_resident_charge(&tx, existing.inputs.len());
+                let mut merged_outpoints = existing.recovery_outpoints.clone();
+                merged_outpoints.extend(added_outpoints.iter().cloned());
+                let new_charge = conflict_entry_resident_charge(
+                    if replace_payload { &tx } else { &existing.tx },
+                    merged_outpoints.len(),
+                );
                 if new_charge > self.max_resident_size() {
                     return (
                         false,
@@ -196,11 +224,20 @@ impl ConflictCache {
                     .by_hash
                     .get_mut(&hash)
                     .expect("the duplicate entry remains present");
-                existing.tx = tx;
-                existing.source = source;
+                if replace_payload {
+                    existing.tx = tx;
+                    existing.source = source;
+                }
                 existing.generation = generation;
                 existing.resident_charge = new_charge;
                 existing.release_event = release_event;
+                existing.recovery_outpoints = merged_outpoints;
+                for out_point in added_outpoints {
+                    self.by_outpoint
+                        .entry(out_point)
+                        .or_default()
+                        .insert(hash.clone());
+                }
                 self.total_resident_size = self
                     .total_resident_size
                     .checked_sub(old_charge)
@@ -223,20 +260,16 @@ impl ConflictCache {
         }
         let inserted_hash = hash.clone();
         let generation = self.allocate_generation();
-        // Both the entry-local inputs and the reverse-index keys can outlive
+        // Both the entry-local wake points and the reverse-index keys can outlive
         // the transaction view that first introduced a shared outpoint.
         // Store compact molecule entities rather than slices into that tx.
-        let inputs: Vec<_> = tx
-            .input_pts_iter()
-            .map(|input| compact_packed(&input))
-            .collect();
-        let resident_charge = conflict_entry_resident_charge(&tx, inputs.len());
+        let resident_charge = conflict_entry_resident_charge(&tx, recovery_outpoints.len());
         if resident_charge > self.max_resident_size() {
             return (false, Vec::new());
         }
-        for input in &inputs {
+        for out_point in &recovery_outpoints {
             self.by_outpoint
-                .entry(input.clone())
+                .entry(out_point.clone())
                 .or_default()
                 .insert(hash.clone());
         }
@@ -250,7 +283,7 @@ impl ConflictCache {
             ConflictEntry {
                 tx,
                 source,
-                inputs,
+                recovery_outpoints,
                 generation,
                 resident_charge,
                 release_event,
@@ -293,12 +326,12 @@ impl ConflictCache {
             .total_resident_size
             .checked_sub(entry.resident_charge)
             .expect("conflict cache byte accounting is exact");
-        for input in &entry.inputs {
-            if let Some(ids) = self.by_outpoint.get_mut(input) {
+        for out_point in &entry.recovery_outpoints {
+            if let Some(ids) = self.by_outpoint.get_mut(out_point) {
                 ids.remove(hash);
                 if ids.is_empty() {
-                    self.by_outpoint.remove(input);
-                    self.discovery_pending.remove(input);
+                    self.by_outpoint.remove(out_point);
+                    self.discovery_pending.remove(out_point);
                 }
             }
         }
@@ -315,7 +348,7 @@ impl ConflictCache {
     pub(crate) fn recoverable_by_inputs(
         &self,
         inputs: impl Iterator<Item = OutPoint>,
-        mut all_inputs_free: impl FnMut(&TransactionView) -> bool,
+        mut ready: impl FnMut(&TransactionView, &[OutPoint]) -> bool,
     ) -> Vec<(TransactionView, TxSource)> {
         let mut result = Vec::new();
         let mut seen = HashSet::new();
@@ -324,7 +357,7 @@ impl ConflictCache {
                 for id in ids {
                     if seen.insert(id.clone())
                         && let Some(entry) = self.by_hash.get(id)
-                        && all_inputs_free(&entry.tx)
+                        && ready(&entry.tx, &entry.recovery_outpoints)
                     {
                         result.push((entry.tx.clone(), entry.source));
                     }
@@ -388,7 +421,7 @@ impl ConflictCache {
     pub(crate) fn discover_recoverable(
         &mut self,
         limit: usize,
-        mut all_inputs_free: impl FnMut(&TransactionView) -> bool,
+        mut ready: impl FnMut(&TransactionView, &[OutPoint]) -> bool,
     ) -> ConflictDiscoveryProgress {
         let mut examined = 0;
         let mut scheduled = 0;
@@ -448,7 +481,7 @@ impl ConflictCache {
                 .as_ref()
                 .zip(entry.release_event.as_ref())
                 .is_some_and(|(release, recorded)| Arc::ptr_eq(release, recorded));
-            if excluded_by_same_release || !all_inputs_free(&entry.tx) {
+            if excluded_by_same_release || !ready(&entry.tx, &entry.recovery_outpoints) {
                 continue;
             }
             let entry_generation = entry.generation;
@@ -471,14 +504,12 @@ impl ConflictCache {
     pub(crate) fn schedule_recoverable_by_inputs(
         &mut self,
         inputs: impl Iterator<Item = OutPoint>,
-        mut all_inputs_free: impl FnMut(&TransactionView) -> bool,
+        mut ready: impl FnMut(&TransactionView, &[OutPoint]) -> bool,
     ) -> usize {
         self.schedule_discovery_by_inputs(inputs, None);
         let mut scheduled = 0;
         while !self.discovery_pending.is_empty() {
-            scheduled += self
-                .discover_recoverable(usize::MAX, &mut all_inputs_free)
-                .scheduled;
+            scheduled += self.discover_recoverable(usize::MAX, &mut ready).scheduled;
         }
         scheduled
     }
@@ -487,11 +518,15 @@ impl ConflictCache {
     pub(crate) fn schedule_hashes(
         &mut self,
         hashes: impl Iterator<Item = Byte32>,
-        mut eligible: impl FnMut(&TransactionView) -> bool,
+        mut ready: impl FnMut(&TransactionView, &[OutPoint]) -> bool,
     ) -> usize {
         let mut added = 0;
         for hash in hashes {
-            let Some(entry) = self.by_hash.get(&hash).filter(|entry| eligible(&entry.tx)) else {
+            let Some(entry) = self
+                .by_hash
+                .get(&hash)
+                .filter(|entry| ready(&entry.tx, &entry.recovery_outpoints))
+            else {
                 continue;
             };
             let generation = entry.generation;
@@ -521,6 +556,7 @@ impl ConflictCache {
             return Some(ConflictRecoveryCandidate {
                 tx: entry.tx.clone(),
                 source: entry.source,
+                recovery_outpoints: entry.recovery_outpoints.clone(),
             });
         }
         None
@@ -710,24 +746,24 @@ impl ConflictCache {
             .try_fold(0usize, |total, entry| {
                 total.checked_add(conflict_entry_resident_charge(
                     &entry.tx,
-                    entry.inputs.len(),
+                    entry.recovery_outpoints.len(),
                 ))
             })
             .ok_or("conflict cache byte accounting overflow")?;
         if actual_size != self.total_resident_size
             || self.by_hash.values().any(|entry| {
                 entry.resident_charge
-                    != conflict_entry_resident_charge(&entry.tx, entry.inputs.len())
+                    != conflict_entry_resident_charge(&entry.tx, entry.recovery_outpoints.len())
             })
         {
             return Err("conflict cache byte accounting mismatch");
         }
         for (hash, entry) in &self.by_hash {
             if entry.tx.hash() != *hash
-                || entry.inputs.iter().any(|input| {
+                || entry.recovery_outpoints.iter().any(|out_point| {
                     !self
                         .by_outpoint
-                        .get(input)
+                        .get(out_point)
                         .is_some_and(|hashes| hashes.contains(hash))
                 })
             {
@@ -748,9 +784,9 @@ impl ConflictCache {
                 if !self
                     .by_hash
                     .get(hash)
-                    .is_some_and(|entry| entry.inputs.contains(input))
+                    .is_some_and(|entry| entry.recovery_outpoints.contains(input))
                 {
-                    return Err("conflict cache reverse input index mismatch");
+                    return Err("conflict cache reverse outpoint index mismatch");
                 }
             }
         }
@@ -788,22 +824,40 @@ impl ConflictCache {
     }
 }
 
-fn conflict_entry_resident_charge(tx: &TransactionView, input_count: usize) -> usize {
+fn conflict_entry_resident_charge(tx: &TransactionView, outpoint_count: usize) -> usize {
     tx.data()
         .serialized_size_in_block()
         .checked_add(ENTRY_RESIDENT_OVERHEAD)
         .and_then(|bytes| {
-            input_count
-                .checked_mul(INPUT_INDEX_RESIDENT_OVERHEAD)
-                .and_then(|input_bytes| bytes.checked_add(input_bytes))
+            outpoint_count
+                .checked_mul(OUTPOINT_INDEX_RESIDENT_OVERHEAD)
+                .and_then(|index_bytes| bytes.checked_add(index_bytes))
         })
         .unwrap_or(usize::MAX)
+}
+
+fn raw_recovery_outpoints(tx: &TransactionView) -> Vec<OutPoint> {
+    compact_unique_outpoints(
+        tx.input_pts_iter()
+            .chain(tx.cell_deps().into_iter().map(|dep| dep.out_point())),
+    )
+}
+
+fn compact_unique_outpoints(outpoints: impl IntoIterator<Item = OutPoint>) -> Vec<OutPoint> {
+    let mut seen = HashSet::new();
+    outpoints
+        .into_iter()
+        .filter_map(|out_point| {
+            let out_point = compact_packed(&out_point);
+            seen.insert(out_point.clone()).then_some(out_point)
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ConflictCache, ConflictReleaseEvent, INPUT_INDEX_RESIDENT_OVERHEAD, MAX_ENTRIES,
+        ConflictCache, ConflictReleaseEvent, MAX_ENTRIES, OUTPOINT_INDEX_RESIDENT_OVERHEAD,
         SHRINK_THRESHOLD, conflict_entry_resident_charge,
     };
     use crate::tx_source::TxSource;
@@ -870,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn resident_charge_accounts_for_each_materialized_input_index() {
+    fn resident_charge_accounts_for_each_materialized_outpoint_index() {
         let one = tx(1);
         let shared = one.input_pts_iter().next().unwrap();
         let two = shared_input_tx(&shared, 2);
@@ -881,8 +935,45 @@ mod tests {
             .unwrap();
         assert_eq!(
             conflict_entry_resident_charge(&two, 2) - conflict_entry_resident_charge(&one, 1),
-            payload_delta + INPUT_INDEX_RESIDENT_OVERHEAD
+            payload_delta + OUTPOINT_INDEX_RESIDENT_OVERHEAD
         );
+    }
+
+    #[test]
+    fn accepted_entry_metadata_extends_duplicate_wake_edges() {
+        let mut cache = ConflictCache::new();
+        let candidate = tx(3);
+        let input = candidate.input_pts_iter().next().unwrap();
+        let expanded_dep = OutPoint::new(Byte32::new([0x44; 32]), 7);
+        assert!(cache.insert(candidate.clone(), TxSource::Local).0);
+
+        // The raw transaction does not carry expanded dep-group members.
+        // Re-recording the same hash as an accepted RBF victim must extend,
+        // never replace or ignore, its existing wake metadata.
+        assert!(
+            !cache
+                .insert_with_outpoints_for_release(
+                    candidate.clone(),
+                    TxSource::Remote {
+                        cycles: 0,
+                        peer: 7.into(),
+                    },
+                    [input, expanded_dep.clone()],
+                    None,
+                )
+                .0
+        );
+        assert_eq!(
+            cache.schedule_discovery_by_inputs(std::iter::once(expanded_dep.clone()), None),
+            1
+        );
+        let progress =
+            cache.discover_recoverable(1, |_, outpoints| outpoints.contains(&expanded_dep));
+        assert_eq!(progress.scheduled, 1);
+        let recovered = cache.pop_recovery_candidate().unwrap();
+        assert_eq!(recovered.tx.hash(), candidate.hash());
+        assert_eq!(recovered.source, TxSource::Local);
+        cache.audit().unwrap();
     }
 
     #[test]
@@ -973,7 +1064,7 @@ mod tests {
                 .0
         );
         assert_eq!(
-            cache.schedule_recoverable_by_inputs(std::iter::once(input), |_| true),
+            cache.schedule_recoverable_by_inputs(std::iter::once(input), |_, _| true),
             1
         );
         for seed in 1..MAX_ENTRIES as u32 {
@@ -1043,17 +1134,17 @@ mod tests {
         assert!(cache.insert(candidate.clone(), TxSource::Local).0);
         assert!(
             cache
-                .recoverable_by_inputs(std::iter::once(input.clone()), |_| false)
+                .recoverable_by_inputs(std::iter::once(input.clone()), |_, _| false)
                 .is_empty()
         );
         assert_eq!(
             cache
-                .recoverable_by_inputs(std::iter::once(input.clone()), |_| true)
+                .recoverable_by_inputs(std::iter::once(input.clone()), |_, _| true)
                 .len(),
             1
         );
         assert_eq!(
-            cache.schedule_recoverable_by_inputs(std::iter::once(input.clone()), |_| true),
+            cache.schedule_recoverable_by_inputs(std::iter::once(input.clone()), |_, _| true),
             1
         );
         assert_eq!(cache.recovery_len(), 1);
@@ -1062,7 +1153,7 @@ mod tests {
         assert!(cache.pop_recovery_candidate().is_none());
         assert!(
             cache
-                .recoverable_by_inputs(std::iter::once(input), |_| true)
+                .recoverable_by_inputs(std::iter::once(input), |_, _| true)
                 .is_empty()
         );
         cache.audit().unwrap();
@@ -1076,7 +1167,8 @@ mod tests {
         let first_input = first.input_pts_iter().next().unwrap();
         assert!(cache.insert(first.clone(), TxSource::Local).0);
         assert_eq!(
-            cache.schedule_recoverable_by_inputs(std::iter::once(first_input.clone()), |_| true),
+            cache
+                .schedule_recoverable_by_inputs(std::iter::once(first_input.clone()), |_, _| true,),
             1
         );
         assert!(cache.remove(&first_hash).is_some());
@@ -1085,12 +1177,12 @@ mod tests {
         let second_input = second.input_pts_iter().next().unwrap();
         assert!(cache.insert(second.clone(), TxSource::Local).0);
         assert_eq!(
-            cache.schedule_recoverable_by_inputs(std::iter::once(second_input), |_| true),
+            cache.schedule_recoverable_by_inputs(std::iter::once(second_input), |_, _| true),
             1
         );
         assert!(cache.insert(first.clone(), TxSource::Local).0);
         assert_eq!(
-            cache.schedule_recoverable_by_inputs(std::iter::once(first_input), |_| true),
+            cache.schedule_recoverable_by_inputs(std::iter::once(first_input), |_, _| true),
             1
         );
 
@@ -1119,10 +1211,10 @@ mod tests {
         for _ in 0..SHRINK_THRESHOLD.saturating_mul(4) {
             assert!(cache.insert(churned.clone(), TxSource::Local).0);
             assert_eq!(
-                cache
-                    .schedule_recoverable_by_inputs(std::iter::once(churned_input.clone()), |_| {
-                        true
-                    }),
+                cache.schedule_recoverable_by_inputs(
+                    std::iter::once(churned_input.clone()),
+                    |_, _| { true },
+                ),
                 1
             );
             assert!(cache.remove(&churned_hash).is_some());
@@ -1149,7 +1241,10 @@ mod tests {
         assert!(cache.insert(first.clone(), TxSource::Local).0);
         assert!(cache.insert(second.clone(), TxSource::Local).0);
         assert_eq!(
-            cache.schedule_recoverable_by_inputs([first_input, second_input].into_iter(), |_| true),
+            cache
+                .schedule_recoverable_by_inputs([first_input, second_input].into_iter(), |_, _| {
+                    true
+                },),
             2
         );
 
@@ -1182,19 +1277,19 @@ mod tests {
             cache.schedule_discovery_by_inputs(std::iter::once(shared), None),
             1
         );
-        let first = cache.discover_recoverable(3, |_| true);
+        let first = cache.discover_recoverable(3, |_, _| true);
         assert_eq!(first.examined, 3);
         assert_eq!(first.scheduled, 3);
         assert!(first.pending);
         assert_eq!(cache.recovery_len(), 3);
 
-        let second = cache.discover_recoverable(2, |_| true);
+        let second = cache.discover_recoverable(2, |_, _| true);
         assert_eq!(second.examined, 2);
         assert_eq!(second.scheduled, 2);
         assert!(second.pending);
         assert_eq!(cache.recovery_len(), 5);
 
-        let final_slice = cache.discover_recoverable(100, |_| true);
+        let final_slice = cache.discover_recoverable(100, |_, _| true);
         assert_eq!(final_slice.examined, 5);
         assert_eq!(final_slice.scheduled, 5);
         assert!(!final_slice.pending);
@@ -1229,7 +1324,7 @@ mod tests {
             cache.schedule_discovery_by_inputs(std::iter::once(shared.clone()), Some(release),),
             1
         );
-        let progress = cache.discover_recoverable(usize::MAX, |_| true);
+        let progress = cache.discover_recoverable(usize::MAX, |_, _| true);
         assert_eq!(progress.scheduled, 1);
         assert_eq!(
             cache.pop_recovery_candidate().unwrap().tx.hash(),
@@ -1242,7 +1337,7 @@ mod tests {
             cache.schedule_discovery_by_inputs(std::iter::once(shared), None),
             1
         );
-        cache.discover_recoverable(usize::MAX, |_| true);
+        cache.discover_recoverable(usize::MAX, |_, _| true);
         assert_eq!(
             cache.pop_recovery_candidate().unwrap().tx.hash(),
             same_release.hash()
@@ -1266,7 +1361,7 @@ mod tests {
             1
         );
         for _ in 0..32 {
-            let progress = cache.discover_recoverable(1, |_| true);
+            let progress = cache.discover_recoverable(1, |_, _| true);
             assert_eq!(progress.examined, 1);
             // Simulate an accepted blocker repeatedly occupying and freeing
             // the same hot input before the current pass has completed.

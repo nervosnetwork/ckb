@@ -233,15 +233,13 @@ fn test_remove_entry_and_descendants() {
     assert!(!descendants_set.contains(&tx3_id));
 }
 
-/// Regression for the cell-ref escape hatch in `check_and_prepare_ancestors`:
-/// evicting a candidate also removes its descendants, and any of them may be
-/// a *direct parent* of the new entry. A cascade-removed parent lingering in
-/// the parent set used to be recounted as an ancestor (links' relation walk
-/// never checks that the id is still linked) and failed the weight fold with
-/// a spurious `Malformed` — or tripped the old `assert!` inside the write
-/// lock, before the insertion can restore its local eviction cohort.
+/// A cell-ref ordering parent may be evicted to satisfy the ancestor limit,
+/// but its descendant closure must never contain a parent whose output the
+/// incoming transaction actually consumes. The resolved payload would
+/// otherwise survive while the cell that justified it disappears from the
+/// accepted graph.
 #[test]
-fn escape_hatch_eviction_drops_cascaded_parents_from_parent_set() {
+fn escape_hatch_never_evicts_a_required_parent() {
     let mut map = PoolMap::new(2);
 
     let base = |n: u8| {
@@ -289,10 +287,9 @@ fn escape_hatch_eviction_drops_cascaded_parents_from_parent_set() {
     map.add_proposed(c1).unwrap();
     map.add_proposed(c2).unwrap();
 
-    // X spends cell O (so C1 is a cell-ref parent through `deps[O]`) and C2's
-    // output (so C2 is a direct parent). ancestors = {C1, C2}, count 3 > 2,
-    // and 3 - 1 cell-ref parent == 2, so the escape hatch evicts C1 — which
-    // cascades to C2. Both must leave the parent set.
+    // X spends cell O (so C1 is a cell-ref ordering parent through `deps[O]`)
+    // and C2's output (so C2 is a required parent). Evicting C1 would cascade
+    // through C2 and leave X with a dead input. Reject without mutation.
     let x = TxEntry::dummy_resolve(
         TransactionBuilder::default()
             .input(CellInput::new_builder().previous_output(cell_o).build())
@@ -307,24 +304,21 @@ fn escape_hatch_eviction_drops_cascaded_parents_from_parent_set() {
         Capacity::shannons(1000),
         100,
     );
-    let outcome = map
-        .add_entry(x, crate::component::pool_map::Status::Proposed)
-        .expect("escape-hatch submit must not fail with a ghost-parent Malformed");
-    assert!(outcome.inserted);
-    let evicted_ids: std::collections::HashSet<_> = outcome
-        .evicted
-        .iter()
-        .map(|removed| removed.entry.proposal_short_id())
-        .collect();
-    assert!(evicted_ids.contains(&c1_id));
-    assert!(evicted_ids.contains(&c2_id));
-    assert!(!map.contains_key(&c1_id));
-    assert!(!map.contains_key(&c2_id));
+    assert!(
+        matches!(
+            map.add_entry(x, crate::component::pool_map::Status::Proposed),
+            Err(crate::error::Reject::ExceededMaximumAncestorsCount)
+        ),
+        "an escape plan may not invalidate the incoming transaction"
+    );
+    assert!(map.contains_key(&c1_id));
+    assert!(map.contains_key(&c2_id));
+    map.audit().unwrap();
 }
 
 #[test]
 fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
-    let mut map = PoolMap::new(3);
+    let mut map = PoolMap::new(4);
     let base = |n: u8| {
         OutPoint::new_builder()
             .tx_hash(ckb_types::packed::Byte32::new([n; 32]))
@@ -350,50 +344,50 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
         )
     };
 
-    let c1 = with_dep(base(0x41), cell_o.clone(), 1);
-    let c1_tx = c1.transaction().clone();
-    let child = |parent: &ckb_types::core::TransactionView| {
+    let make_tx = |input: OutPoint, fee: u64| {
         TxEntry::dummy_resolve(
             TransactionBuilder::default()
-                .input(
-                    CellInput::new_builder()
-                        .previous_output(OutPoint::new(parent.hash(), 0))
-                        .build(),
-                )
+                .input(CellInput::new_builder().previous_output(input).build())
                 .witness(Bytes::new())
                 .build(),
             100,
-            Capacity::shannons(1),
+            Capacity::shannons(fee),
             100,
         )
     };
+    let child =
+        |parent: &ckb_types::core::TransactionView| make_tx(OutPoint::new(parent.hash(), 0), 1);
+
+    // P1 -> P2 -> C1 gives the low-fee cell-ref root C1 a deep ancestor
+    // chain. C2 is its unrelated descendant, so evicting C1 has a two-entry
+    // physical cascade but does not invalidate X.
+    let p1 = make_tx(base(0x41), 1);
+    let p1_tx = p1.transaction().clone();
+    let p2 = child(&p1_tx);
+    let p2_tx = p2.transaction().clone();
+    let c1 = with_dep(OutPoint::new(p2_tx.hash(), 0), cell_o.clone(), 1);
+    let c1_tx = c1.transaction().clone();
     let c2 = child(&c1_tx);
-    let c2_tx = c2.transaction().clone();
-    let c3 = child(&c2_tx);
-    let c3_tx = c3.transaction().clone();
     let d1 = with_dep(base(0x42), cell_p.clone(), 1_000_000);
+    let p1_id = p1.proposal_short_id();
+    let p2_id = p2.proposal_short_id();
     let c1_id = c1.proposal_short_id();
     let c2_id = c2.proposal_short_id();
-    let c3_id = c3.proposal_short_id();
     let d1_id = d1.proposal_short_id();
+    map.add_proposed(p1).unwrap();
+    map.add_proposed(p2).unwrap();
     map.add_proposed(c1).unwrap();
     map.add_proposed(c2).unwrap();
-    map.add_proposed(c3).unwrap();
     map.add_proposed(d1).unwrap();
 
-    // X has four ancestors: C1 -> C2 -> C3 plus independent D1. Both C1
-    // and D1 are cell-ref eviction candidates. Removing low-fee C1 cascades
-    // through C2/C3, immediately reducing the actual ancestry below max;
+    // X has four ancestors: P1 -> P2 -> C1 plus independent D1. Both C1 and
+    // D1 are ordering-only cell-ref candidates. Removing low-fee C1 detaches
+    // its ancestor chain and cascades through C2, immediately making X fit;
     // D1 must not be evicted based on a stale "minus one" count.
     let x = TxEntry::dummy_resolve(
         TransactionBuilder::default()
             .input(CellInput::new_builder().previous_output(cell_o).build())
             .input(CellInput::new_builder().previous_output(cell_p).build())
-            .input(
-                CellInput::new_builder()
-                    .previous_output(OutPoint::new(c3_tx.hash(), 0))
-                    .build(),
-            )
             .witness(Bytes::new())
             .build(),
         100,
@@ -409,14 +403,64 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
         .iter()
         .map(|removed| removed.entry.proposal_short_id())
         .collect();
-    assert_eq!(
-        evicted_ids,
-        std::collections::HashSet::from([c1_id, c2_id, c3_id])
-    );
+    assert_eq!(evicted_ids, std::collections::HashSet::from([c1_id, c2_id]));
+    assert!(map.contains_key(&p1_id));
+    assert!(map.contains_key(&p2_id));
     assert!(
         map.contains_key(&d1_id),
         "unrelated high-fee parent survives"
     );
+}
+
+/// One input can be referenced as a cell dep by an arbitrary fraction of the
+/// pool. Consuming that cell must not turn one admission into an unbounded
+/// write-lock mutation and callback journal. The indexed displacement bound
+/// used by RBF is also the safety boundary for this escape hatch.
+#[test]
+fn escape_hatch_rejects_mutation_larger_than_displacement_bound() {
+    use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
+
+    let mut map = PoolMap::new(2);
+    let shared_dep = OutPoint::new(ckb_types::packed::Byte32::new([0x91; 32]), 0);
+    for seed in 0..=MAX_POOL_MUTATION_CANDIDATES.saturating_add(1) {
+        let mut hash = [0u8; 32];
+        hash[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+        let entry = TxEntry::dummy_resolve(
+            TransactionBuilder::default()
+                .input(
+                    CellInput::new_builder()
+                        .previous_output(OutPoint::new(ckb_types::packed::Byte32::new(hash), 0))
+                        .build(),
+                )
+                .cell_dep(
+                    ckb_types::packed::CellDep::new_builder()
+                        .out_point(shared_dep.clone())
+                        .build(),
+                )
+                .build(),
+            100,
+            Capacity::shannons(100),
+            100,
+        );
+        map.add_proposed(entry).unwrap();
+    }
+    let before = map.entries.len();
+
+    let consuming = TxEntry::dummy_resolve(
+        TransactionBuilder::default()
+            .input(CellInput::new_builder().previous_output(shared_dep).build())
+            .build(),
+        100,
+        Capacity::shannons(1_000_000),
+        100,
+    );
+    let result = map.add_entry(consuming, crate::component::pool_map::Status::Pending);
+    assert!(
+        matches!(result, Err(crate::error::Reject::Full(_))),
+        "an over-bound mutation must be retryable backpressure, got {result:?}"
+    );
+    assert_eq!(map.entries.len(), before, "rejection must be mutation-free");
+    map.audit().unwrap();
 }
 
 /// Child-before-parent: linking the parent must fold the child's weight
@@ -427,9 +471,23 @@ fn escape_hatch_stops_after_one_cascade_makes_ancestry_fit() {
 #[test]
 fn parent_added_after_child_gets_descendant_weight() {
     let mut map = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
-    // The parent produces the output the child spends. Build the parent
-    // first for its hash, but add the *child* first (child-before-parent).
+    // Build a three-entry chain, then add it in exact reverse order. Folding
+    // only direct children would leave the late grandparent at count 2 even
+    // though its authoritative descendant closure contains all three entries.
+    let grandparent_tx = TransactionBuilder::default()
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(100).unwrap())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
     let parent_tx = TransactionBuilder::default()
+        .input(
+            CellInput::new_builder()
+                .previous_output(OutPoint::new(grandparent_tx.hash(), 0))
+                .build(),
+        )
         .output(
             CellOutput::new_builder()
                 .capacity(Capacity::bytes(100).unwrap())
@@ -451,15 +509,18 @@ fn parent_added_after_child_gets_descendant_weight() {
         200,
     );
     let parent = TxEntry::dummy_resolve(parent_tx, 100, Capacity::shannons(100), 100);
+    let grandparent = TxEntry::dummy_resolve(grandparent_tx, 50, Capacity::shannons(50), 50);
+    let grandparent_id = grandparent.proposal_short_id();
     let parent_id = parent.proposal_short_id();
     let child_id = child.proposal_short_id();
 
     map.add_proposed(child).unwrap();
     map.add_proposed(parent).unwrap();
+    map.add_proposed(grandparent).unwrap();
     map.audit().unwrap();
 
     let parent_entry = map.get(&parent_id).unwrap();
-    assert_eq!(parent_entry.ancestors_count, 1);
+    assert_eq!(parent_entry.ancestors_count, 2);
     assert_eq!(
         parent_entry.descendants_count, 2,
         "parent's own descendant stats must include the pre-existing child"
@@ -473,9 +534,12 @@ fn parent_added_after_child_gets_descendant_weight() {
             .descendants_count,
         2
     );
+    let grandparent_entry = map.get(&grandparent_id).unwrap();
+    assert_eq!(grandparent_entry.ancestors_count, 1);
+    assert_eq!(grandparent_entry.descendants_count, 3);
+    assert_eq!(grandparent_entry.descendants_size, 350);
 
-    // When the child leaves, the parent must drop back to self-only — not
-    // saturate down to zero.
+    // When the child leaves, both ancestors must subtract it exactly.
     map.remove_entry(&child_id);
     map.audit().unwrap();
     let parent_entry = map.get(&parent_id).unwrap();
@@ -489,6 +553,9 @@ fn parent_added_after_child_gets_descendant_weight() {
             .descendants_count,
         1
     );
+    let grandparent_entry = map.get(&grandparent_id).unwrap();
+    assert_eq!(grandparent_entry.descendants_count, 2);
+    assert_eq!(grandparent_entry.descendants_size, 150);
 }
 
 /// A links node with no matching entry is a ghost: it must never count

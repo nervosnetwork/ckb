@@ -58,6 +58,7 @@ impl TxPoolService {
     ) -> Result<SubmitEntryResult, Reject> {
         let status = candidate.status;
         let epoch = candidate.epoch;
+        let source = candidate.source;
         let original_peer = candidate.source.peer();
         let pre_resolve_tip = candidate.pre_resolve_tip.clone();
         let entry = TxEntry::new_with_resident_size(
@@ -173,6 +174,21 @@ impl TxPoolService {
                         (coordinated, committed_ingress_peer, fatal_handoff_error)
                     },
                 );
+            if matches!(
+                coordinated.outcome.result.as_ref(),
+                Err(Reject::RBFRejected(..)
+                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_)))
+            ) && tx_pool
+                .pool_map
+                .find_conflict_outpoint(entry.transaction())
+                .is_some()
+            {
+                // This direct path still owns the verified entry. Preserve
+                // expanded dep-group wake metadata before `after_process`
+                // sees only the raw transaction and records the public
+                // terminal outcome.
+                tx_pool.record_conflict_entry(&entry, source);
+            }
             let extra_effects = coordinated
                 .outcome
                 .result
@@ -594,7 +610,10 @@ impl TxPoolService {
                                 .find_conflict_outpoint(&record.raw.tx)
                                 .is_some()
                             {
-                                tx_pool.record_conflict(record.raw.tx.clone(), source);
+                                // The failed winner still has its verified
+                                // PoolCandidate in this commit transaction;
+                                // preserve expanded dep-group wake edges.
+                                tx_pool.record_conflict_entry(&entry, source);
                             }
                             if let Some(effect) =
                                 self.recent_reject_effect(record.hash.clone(), reject)

@@ -207,8 +207,8 @@ impl TxPoolService {
     /// tx is malformed, relay the rejection if allowed, and record it in the
     /// recent-reject database if applicable.
     ///
-    /// This is the single source of truth for the "remote error triple" used
-    /// by both [`Self::after_process`] and [`Self::process_orphan_tx`].
+    /// This is the single source of truth for remote terminal policy used by
+    /// both [`Self::after_process`] and [`Self::process_orphan_tx`].
     pub(crate) async fn handle_remote_reject(
         &self,
         tx_hash: &Byte32,

@@ -15,9 +15,12 @@ use crate::{
     error::Reject,
 };
 use ckb_types::{
-    core::Capacity,
-    packed::{Byte32, ProposalShortId},
+    bytes::Bytes,
+    core::{Capacity, DepType, TransactionBuilder, cell::CellMeta},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId},
+    prelude::{Builder, Entity, Pack},
 };
+use std::sync::Arc;
 
 use super::pipeline::service_with_rbf;
 use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_with_since};
@@ -26,6 +29,72 @@ use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_
 /// `i + 1 <= max_ancestors_count`, so the deepest addable chain is exactly
 /// `max_ancestors_count` transactions long.
 const CHAIN_LEN: u32 = 125;
+
+#[tokio::test]
+async fn rbf_rejects_dep_group_member_from_replacement_victim() {
+    use super::harness::{WorkerSet, harness};
+    use ckb_types::core::cell::ResolvedTransaction;
+
+    let service = harness(1)
+        .rbf(true)
+        .workers(WorkerSet::None)
+        .build()
+        .service;
+    let victim = build_tx(vec![(&Byte32::new([0x61; 32]), 0)], 1);
+    let victim_entry = TxEntry::dummy_resolve(
+        victim.clone(),
+        MOCK_CYCLES,
+        Capacity::shannons(1),
+        MOCK_SIZE,
+    );
+
+    // The raw dep points only at an unrelated dep-group cell. Its verified
+    // expansion, however, consumes the victim's output. Checking raw deps
+    // alone would remove the victim and admit a transaction whose resolved
+    // dependency no longer exists in the accepted graph.
+    let dep_group = OutPoint::new(Byte32::new([0x62; 32]), 0);
+    let replacement = TransactionBuilder::default()
+        .input(CellInput::new(victim.input_pts_iter().next().unwrap(), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(dep_group.clone())
+                .dep_type(DepType::DepGroup)
+                .build(),
+        )
+        .output(CellOutput::new_builder().build())
+        .output_data(Bytes::new().pack())
+        .build();
+    let cell_meta = |out_point: OutPoint| CellMeta {
+        cell_output: CellOutput::new_builder().build(),
+        out_point,
+        transaction_info: None,
+        data_bytes: 0,
+        mem_cell_data: None,
+        mem_cell_data_hash: None,
+    };
+    let replacement_entry = TxEntry::new(
+        Arc::new(ResolvedTransaction {
+            transaction: replacement,
+            resolved_cell_deps: vec![cell_meta(OutPoint::new(victim.hash(), 0))],
+            resolved_inputs: Vec::new(),
+            resolved_dep_groups: vec![cell_meta(dep_group)],
+        }),
+        MOCK_CYCLES,
+        Capacity::shannons(1_000_000),
+        MOCK_SIZE,
+    );
+
+    let mut tx_pool = service.pool.tx_pool.write().await;
+    tx_pool
+        .pool_map
+        .add_entry(victim_entry, Status::Pending)
+        .unwrap();
+    let conflicted = tx_pool.get_pool_entry(&victim.proposal_short_id()).unwrap();
+    assert!(matches!(
+        tx_pool.check_rbf_no_conflict_cell_deps(&[conflicted], &replacement_entry),
+        Err(Reject::RBFRejected(_))
+    ));
+}
 
 #[tokio::test]
 async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
@@ -725,21 +794,21 @@ async fn conflict_recovery_index_stays_consistent() {
     use crate::tx_source::TxSource;
     use ckb_types::packed::OutPoint;
 
-    let service = harness(1).workers(WorkerSet::None).build().service;
-    let x_hash = Byte32::new([13u8; 32]);
-    let y_hash = Byte32::new([14u8; 32]);
+    let h = harness(3).workers(WorkerSet::None).build();
+    let live_hash = h.out_points[0].tx_hash();
+    let service = h.service;
     let mut tx_pool = service.pool.tx_pool.write().await;
 
     // A candidate with two blocked inputs, and a single-input candidate.
-    let candidate = build_tx(vec![(&x_hash, 0), (&y_hash, 0)], 1);
+    let candidate = build_tx(vec![(&live_hash, 0), (&live_hash, 2)], 1);
     tx_pool.record_conflict(candidate.clone(), TxSource::Local);
-    let other = build_tx(vec![(&x_hash, 1)], 1);
+    let other = build_tx(vec![(&live_hash, 1)], 1);
     tx_pool.record_conflict(other.clone(), TxSource::Local);
 
     // While Y is consumed by an in-pool tx, the two-input candidate must
     // NOT be recoverable (recovering it would just reject it again, and
     // could cycle two conflicting txs through the cache forever).
-    let blocker = build_tx(vec![(&y_hash, 0)], 1);
+    let blocker = build_tx(vec![(&live_hash, 2)], 1);
     let blocker_id = blocker.proposal_short_id();
     tx_pool
         .pool_map
@@ -751,9 +820,9 @@ async fn conflict_recovery_index_stays_consistent() {
 
     let recovered = tx_pool.get_conflicted_txs_from_inputs(
         vec![
-            OutPoint::new(x_hash.clone(), 0),
-            OutPoint::new(x_hash.clone(), 1),
-            OutPoint::new(y_hash.clone(), 0),
+            OutPoint::new(live_hash.clone(), 0),
+            OutPoint::new(live_hash.clone(), 1),
+            OutPoint::new(live_hash.clone(), 2),
         ]
         .into_iter(),
     );
@@ -762,8 +831,8 @@ async fn conflict_recovery_index_stays_consistent() {
 
     // Once the blocker leaves the pool, the two-input candidate recovers.
     tx_pool.pool_map.remove_entry(&blocker_id);
-    let recovered =
-        tx_pool.get_conflicted_txs_from_inputs(vec![OutPoint::new(y_hash.clone(), 0)].into_iter());
+    let recovered = tx_pool
+        .get_conflicted_txs_from_inputs(vec![OutPoint::new(live_hash.clone(), 2)].into_iter());
     assert_eq!(recovered.len(), 1);
     assert_eq!(recovered[0].0.hash(), candidate.hash());
 
@@ -771,7 +840,11 @@ async fn conflict_recovery_index_stays_consistent() {
     tx_pool.remove_conflict(&candidate.hash());
     tx_pool.remove_conflict(&other.hash());
     let recovered = tx_pool.get_conflicted_txs_from_inputs(
-        vec![OutPoint::new(x_hash, 0), OutPoint::new(y_hash, 0)].into_iter(),
+        vec![
+            OutPoint::new(live_hash.clone(), 0),
+            OutPoint::new(live_hash, 2),
+        ]
+        .into_iter(),
     );
     assert!(recovered.is_empty());
 }
@@ -785,18 +858,14 @@ async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once
     use super::harness::{WorkerSet, harness};
     use crate::tx_source::TxSource;
 
-    let service = harness(2)
-        .rbf(true)
-        .workers(WorkerSet::None)
-        .build()
-        .service;
+    let h = harness(2).rbf(true).workers(WorkerSet::None).build();
+    let funding_hash = h.out_points[0].tx_hash();
+    let service = h.service;
 
     // The victim spends A and B; the conflict-cached C spends B (blocked by
     // the victim while it is in the pool).
-    let a_hash = Byte32::new([41u8; 32]);
-    let b_hash = Byte32::new([42u8; 32]);
-    let victim = build_tx(vec![(&a_hash, 0), (&b_hash, 0)], 1);
-    let recovered_tx = build_tx(vec![(&b_hash, 0)], 1);
+    let victim = build_tx(vec![(&funding_hash, 0), (&funding_hash, 1)], 1);
+    let recovered_tx = build_tx(vec![(&funding_hash, 1)], 1);
     let recovered_hash = recovered_tx.hash();
     {
         let mut tx_pool = service.pool.tx_pool.write().await;
@@ -817,7 +886,7 @@ async fn successful_commit_transfers_recovered_tx_from_cache_to_coordinator_once
 
     // The replacement spends only A: it replaces the victim, freeing B,
     // which makes the conflict-cached C recoverable.
-    let replacement = build_tx(vec![(&a_hash, 0)], 1);
+    let replacement = build_tx(vec![(&funding_hash, 0)], 1);
     let replacement_entry = TxEntry::dummy_resolve(
         replacement,
         MOCK_CYCLES,

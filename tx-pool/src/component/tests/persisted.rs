@@ -1,18 +1,21 @@
 //! Regression test: the persisted pool file must be topologically ordered.
 //!
-//! `get_all_txs` iterates the slab-backed entry map in slot order (vacant
-//! slots are reused), which is not the insertion order. The reload path
-//! replays the file serially without retry, so a child stored before its
-//! parent would be dropped as stale (and recorded in recent_reject).
-//! `TxPool::save_into_file` therefore sorts parents before children before
-//! writing.
+//! The reload path replays the file serially without retry, so a child stored
+//! before its parent would be dropped as stale. Persistence therefore uses
+//! the accepted PoolMap graph as its only ordering authority; a second raw-tx
+//! sort would be incomplete because it cannot see expanded dep-group members.
 
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
-use ckb_types::core::{Capacity, TransactionBuilder, TransactionView};
-use ckb_types::packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint};
+use ckb_types::bytes::Bytes;
+use ckb_types::core::{
+    Capacity, DepType, TransactionBuilder, TransactionView,
+    cell::{CellMeta, ResolvedTransaction, get_related_dep_out_points},
+};
+use ckb_types::packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec};
 use ckb_types::prelude::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::harness::{WorkerSet, harness};
 use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx};
@@ -81,6 +84,108 @@ async fn persisted_file_is_topologically_ordered() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn persisted_file_orders_expanded_dep_group_parents() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let service = harness(1).workers(WorkerSet::None).build().service;
+    let upstream = build_tx(vec![(&Byte32::new([0x71; 32]), 0)], 1);
+    let member = build_tx(vec![(&upstream.hash(), 0)], 1);
+    let member_out = OutPoint::new(member.hash(), 0);
+    let group_data = Into::<OutPointVec>::into(vec![member_out.clone()]).as_bytes();
+    // Make the raw dep-group producer sort before `upstream`. Starting from
+    // the authoritative order [group, upstream, member, child], the old raw
+    // Kahn pass would release `child` after group and place it before member,
+    // whose own raw parent has not been visited yet.
+    let group = (0..=u8::MAX)
+        .map(|seed| {
+            TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::new(Byte32::new([seed; 32]), 0), 0))
+                .output(CellOutput::new_builder().build())
+                .output_data(group_data.clone().pack())
+                .build()
+        })
+        .find(|group| group.hash() < upstream.hash())
+        .expect("a deterministic hash-order counterexample exists");
+    let group_out = OutPoint::new(group.hash(), 0);
+    let child = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(Byte32::new([0x73; 32]), 0), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(group_out.clone())
+                .dep_type(DepType::DepGroup)
+                .build(),
+        )
+        .output(CellOutput::new_builder().build())
+        .output_data(Bytes::new().pack())
+        .build();
+    let resolved_cell_deps = get_related_dep_out_points(&child, |out_point| {
+        (out_point == &group_out).then(|| group_data.clone())
+    })
+    .unwrap()
+    .into_iter()
+    .map(|out_point| CellMeta {
+        cell_output: CellOutput::new_builder().build(),
+        out_point,
+        transaction_info: None,
+        data_bytes: 0,
+        mem_cell_data: None,
+        mem_cell_data_hash: None,
+    })
+    .collect();
+    let child_entry = TxEntry::new(
+        Arc::new(ResolvedTransaction {
+            transaction: child.clone(),
+            resolved_cell_deps,
+            resolved_inputs: Vec::new(),
+            resolved_dep_groups: Vec::new(),
+        }),
+        MOCK_CYCLES,
+        Capacity::shannons(1_000),
+        MOCK_SIZE,
+    );
+
+    let mut tx_pool = service.pool.tx_pool.write().await;
+    tx_pool.config.persisted_data = tmp.path().join("tx_pool_dep_group");
+    // Admit in the resolver's reachable parent-first order. Hash ordering
+    // still makes the complete graph order [group, upstream, member, child],
+    // which is the counterexample where a second raw-only sort moves child
+    // ahead of member.
+    for entry in [
+        TxEntry::dummy_resolve(
+            upstream.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(1_000),
+            MOCK_SIZE,
+        ),
+        TxEntry::dummy_resolve(
+            member.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(1_000),
+            MOCK_SIZE,
+        ),
+        TxEntry::dummy_resolve(
+            group.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(1_000),
+            MOCK_SIZE,
+        ),
+        child_entry,
+    ] {
+        tx_pool.pool_map.add_entry(entry, Status::Pending).unwrap();
+    }
+    tx_pool.pool_map.audit().unwrap();
+    tx_pool.save_into_file().unwrap();
+    let loaded = tx_pool.load_from_file().unwrap();
+    let positions = loaded
+        .iter()
+        .enumerate()
+        .map(|(index, tx)| (tx.hash(), index))
+        .collect::<HashMap<_, _>>();
+    assert!(positions[&upstream.hash()] < positions[&member.hash()]);
+    assert!(positions[&member.hash()] < positions[&child.hash()]);
+    assert!(positions[&group.hash()] < positions[&child.hash()]);
 }
 
 /// Build a transaction that passes full contextual verification on the

@@ -283,7 +283,7 @@ impl TxPoolService {
         if !conflicts.is_empty() {
             tx_pool
                 .pool_map
-                .validate_ancestor_capacity(entry.transaction(), &removal_set)?;
+                .validate_ancestor_capacity(entry, &removal_set)?;
         }
 
         // Remove conflicting transactions *before* re-checking the resolved
@@ -434,16 +434,16 @@ impl TxPoolService {
         );
 
         tx_pool.remove_conflict_hash(&entry.transaction().hash());
-        let replacement_victims = coordinated
+        let has_replacement_victims = coordinated
             .pool_journal
             .by_cause(RemovalCause::Replacement)
-            .map(|old| old.entry.transaction().clone())
-            .collect::<Vec<_>>();
-        let conflict_release_event = (!replacement_victims.is_empty()).then(|| {
+            .next()
+            .is_some();
+        let conflict_release_event = has_replacement_victims.then(|| {
             let release_event = crate::component::conflict_cache::ConflictReleaseEvent::new();
-            for victim in replacement_victims {
-                tx_pool.record_conflict_for_release(
-                    victim,
+            for victim in coordinated.pool_journal.by_cause(RemovalCause::Replacement) {
+                tx_pool.record_conflict_entry_for_release(
+                    &victim.entry,
                     crate::tx_source::TxSource::Local,
                     Arc::clone(&release_event),
                 );

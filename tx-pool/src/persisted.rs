@@ -71,14 +71,11 @@ impl TxPool {
 
         // Step 1: Collect transactions WITHOUT draining the pool.
         // If anything fails below, the in-memory pool remains intact.
-        let mut all_txs = self.get_all_txs();
-        // `get_all_txs` iterates the slab-backed entry map (slot order, with
-        // vacant slots reused), which is *not* topological. The reload path
-        // submits serially without retry, so a child stored before its
-        // parent would be dropped as stale (and recorded in recent_reject).
-        // Sort parents before children so the file can always be replayed
-        // in order.
-        crate::service::TxPoolService::sort_txs_by_dependencies(&mut all_txs);
+        // `get_all_txs` uses the accepted PoolMap graph, including verified
+        // dep-group expansion. Do not pass this through the raw-transaction
+        // sorter: because that sorter cannot see expanded members, it can
+        // legally move a child ahead of one of its authoritative parents.
+        let all_txs = self.get_all_txs();
         let txs = TransactionVec::new_builder()
             .extend(all_txs.iter().map(|tx| tx.data()))
             .build();

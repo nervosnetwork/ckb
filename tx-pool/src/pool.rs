@@ -16,7 +16,10 @@ use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         Capacity, Cycle, TransactionView,
-        cell::{OverlayCellChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction},
+        cell::{
+            CellChecker, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction,
+            resolve_transaction,
+        },
         tx_pool::{PoolTxDetailInfo, TxPoolEntryInfo, TxPoolIds},
     },
     packed::{Byte32, ProposalShortId},
@@ -39,6 +42,30 @@ fn reject_full_for_evicted(entry: &TxEntry) -> Reject {
         "the fee_rate for this transaction is: {}",
         entry.fee_rate()
     ))
+}
+
+/// Read-only executable precondition for a historical cache handoff.
+///
+/// The conflict cache is an owner, not a speculative resolver queue. Moving a
+/// trusted entry out of it while any referenced cell is still unavailable
+/// would make the coordinator reject the transaction terminally and erase the
+/// only future wake edge. Use the same overlay liveness semantics as normal
+/// resolution, without materializing another `ResolvedTransaction` under the
+/// pool write lock.
+fn conflict_recovery_ready(
+    pool_map: &PoolMap,
+    snapshot: &Snapshot,
+    tx: &TransactionView,
+    recovery_outpoints: &[OutPoint],
+) -> bool {
+    if pool_map.find_conflict_outpoint(tx).is_some() {
+        return false;
+    }
+    let pool_cell = PoolCell::new(pool_map, false);
+    let checker = OverlayCellChecker::new(&pool_cell, snapshot);
+    recovery_outpoints
+        .iter()
+        .all(|out_point| checker.is_live(out_point) == Some(true))
 }
 
 /// Tx-pool implementation
@@ -155,13 +182,36 @@ impl TxPool {
         self.record_conflict_with_release(tx, source, None);
     }
 
-    pub(crate) fn record_conflict_for_release(
+    pub(crate) fn record_conflict_entry(&mut self, entry: &TxEntry, source: TxSource) {
+        self.record_conflict_entry_with_release(entry, source, None);
+    }
+
+    pub(crate) fn record_conflict_entry_for_release(
         &mut self,
-        tx: TransactionView,
+        entry: &TxEntry,
         source: TxSource,
         release_event: Arc<crate::component::conflict_cache::ConflictReleaseEvent>,
     ) {
-        self.record_conflict_with_release(tx, source, Some(release_event));
+        self.record_conflict_entry_with_release(entry, source, Some(release_event));
+    }
+
+    fn record_conflict_entry_with_release(
+        &mut self,
+        entry: &TxEntry,
+        source: TxSource,
+        release_event: Option<Arc<crate::component::conflict_cache::ConflictReleaseEvent>>,
+    ) {
+        let tx = entry.transaction().clone();
+        let recovery_outpoints = tx
+            .input_pts_iter()
+            .chain(entry.related_dep_out_points().cloned())
+            .collect::<Vec<_>>();
+        self.record_conflict_with_release_and_outpoints(
+            tx,
+            source,
+            release_event,
+            Some(recovery_outpoints),
+        );
     }
 
     fn record_conflict_with_release(
@@ -170,13 +220,31 @@ impl TxPool {
         source: TxSource,
         release_event: Option<Arc<crate::component::conflict_cache::ConflictReleaseEvent>>,
     ) {
+        self.record_conflict_with_release_and_outpoints(tx, source, release_event, None);
+    }
+
+    fn record_conflict_with_release_and_outpoints(
+        &mut self,
+        tx: TransactionView,
+        source: TxSource,
+        release_event: Option<Arc<crate::component::conflict_cache::ConflictReleaseEvent>>,
+        recovery_outpoints: Option<Vec<OutPoint>>,
+    ) {
         let short_id = tx.proposal_short_id();
-        let (_added, evicted) = match release_event {
-            Some(release_event) => {
-                self.conflict_cache
-                    .insert_for_release(tx, source, Some(release_event))
-            }
-            None => self.conflict_cache.insert(tx, source),
+        let (_added, evicted) = match recovery_outpoints {
+            Some(recovery_outpoints) => self.conflict_cache.insert_with_outpoints_for_release(
+                tx,
+                source,
+                recovery_outpoints,
+                release_event,
+            ),
+            None => match release_event {
+                Some(release_event) => {
+                    self.conflict_cache
+                        .insert_for_release(tx, source, Some(release_event))
+                }
+                None => self.conflict_cache.insert(tx, source),
+            },
         };
         if !evicted.is_empty() {
             // Budget-pressure evictions are otherwise silent: a recoverable
@@ -226,9 +294,12 @@ impl TxPool {
         &self,
         inputs: impl Iterator<Item = OutPoint>,
     ) -> Vec<(TransactionView, TxSource)> {
-        self.conflict_cache.recoverable_by_inputs(inputs, |tx| {
-            self.pool_map.find_conflict_outpoint(tx).is_none()
-        })
+        let pool_map = &self.pool_map;
+        let snapshot = self.snapshot();
+        self.conflict_cache
+            .recoverable_by_inputs(inputs, |tx, recovery_outpoints| {
+                conflict_recovery_ready(pool_map, snapshot, tx, recovery_outpoints)
+            })
     }
 
     /// Register freed inputs for bounded discovery. The pool mutation never
@@ -277,8 +348,11 @@ impl TxPool {
         limit: usize,
     ) -> crate::component::conflict_cache::ConflictDiscoveryProgress {
         let pool_map = &self.pool_map;
+        let snapshot = &self.snapshot;
         self.conflict_cache
-            .discover_recoverable(limit, |tx| pool_map.find_conflict_outpoint(tx).is_none())
+            .discover_recoverable(limit, |tx, recovery_outpoints| {
+                conflict_recovery_ready(pool_map, snapshot, tx, recovery_outpoints)
+            })
     }
 
     #[cfg(test)]
@@ -287,14 +361,25 @@ impl TxPool {
         hashes: impl Iterator<Item = Byte32>,
     ) -> usize {
         let pool_map = &self.pool_map;
+        let snapshot = &self.snapshot;
         self.conflict_cache
-            .schedule_hashes(hashes, |tx| pool_map.find_conflict_outpoint(tx).is_none())
+            .schedule_hashes(hashes, |tx, recovery_outpoints| {
+                conflict_recovery_ready(pool_map, snapshot, tx, recovery_outpoints)
+            })
     }
 
     pub(crate) fn pop_conflict_recovery(
         &mut self,
     ) -> Option<crate::component::conflict_cache::ConflictRecoveryCandidate> {
         self.conflict_cache.pop_recovery_candidate()
+    }
+
+    pub(crate) fn conflict_recovery_ready(
+        &self,
+        tx: &TransactionView,
+        recovery_outpoints: &[OutPoint],
+    ) -> bool {
+        conflict_recovery_ready(&self.pool_map, self.snapshot(), tx, recovery_outpoints)
     }
 
     pub(crate) fn reschedule_conflict_recovery(&mut self, hash: &Byte32) -> bool {
@@ -768,10 +853,28 @@ impl TxPool {
         }
     }
 
-    /// Collect all transactions in the pool without removing them.
+    /// Collect all accepted transactions in authoritative dependency order.
+    ///
+    /// `PoolMap`'s graph includes verified dep-group expansion while a raw
+    /// transaction-only sort cannot. Parent entries always have a strictly
+    /// smaller `ancestors_count` than their children, so this cold-path order
+    /// is sufficient for serial persistence replay and independent chains use
+    /// full hash as a deterministic tie-breaker.
     pub(crate) fn get_all_txs(&self) -> Vec<TransactionView> {
-        self.pool_map
-            .iter()
+        let mut entries = self.pool_map.iter().collect::<Vec<_>>();
+        entries.sort_unstable_by(|left, right| {
+            left.inner
+                .ancestors_count
+                .cmp(&right.inner.ancestors_count)
+                .then_with(|| {
+                    left.inner
+                        .transaction()
+                        .hash()
+                        .cmp(&right.inner.transaction().hash())
+                })
+        });
+        entries
+            .into_iter()
             .map(|entry| entry.inner.transaction().clone())
             .collect()
     }

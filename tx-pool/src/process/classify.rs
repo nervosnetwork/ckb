@@ -215,7 +215,7 @@ impl super::TxPoolService {
         let permit = self
             .reserve_required_effects(
                 Self::pipeline_terminal_effect_bytes(
-                    crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                    crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
                 ),
                 "pipeline admission effect reservation failed",
             )

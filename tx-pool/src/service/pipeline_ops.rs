@@ -30,6 +30,10 @@ pub(crate) enum ParentWaitOutcome {
     /// accepted nor currently coordinator-owned. It must fail terminally;
     /// unlike a remote owner it has no parent-request/expiry protocol.
     Unavailable,
+    /// The newly discovered dependency set violates a transaction policy or
+    /// bounded coordinator capacity rule. The current lease remains owned and
+    /// must be terminalized normally.
+    Rejected(crate::error::Reject),
 }
 
 fn retain_unavailable_parents(pool: &crate::pool::TxPool, parents: &mut HashSet<Byte32>) {
@@ -94,9 +98,8 @@ impl TxPoolService {
         retain_unavailable_parents(&pool, &mut parents);
         let parents = detach_parent_hashes(parents);
         let mut permit = Some(permit);
-        let outcome = self.pipeline.runtime.mutate_lease(
-            "current raw lease could not install parent-wait ownership",
-            |coordinator| {
+        let outcome: Result<ParentWaitOutcome, CoordinatorError> =
+            self.pipeline.runtime.mutate(|coordinator| {
                 let source = coordinator
                     .view(&lease.hash)
                     .map(|view| view.source)
@@ -129,10 +132,18 @@ impl TxPoolService {
                     );
                 }
                 Ok(ParentWaitOutcome::Parked)
-            },
-        );
+            });
         drop(permit);
-        outcome
+        match outcome {
+            Ok(outcome) => Some(outcome),
+            Err(error) if error.is_stale_lease() => None,
+            Err(error) => Some(ParentWaitOutcome::Rejected(
+                self.pipeline.runtime.reject_or_fail(
+                    "current raw lease could not extend parent-wait dependencies",
+                    error,
+                ),
+            )),
+        }
     }
 
     /// Verification can discover that its resolution snapshot went stale.
@@ -148,9 +159,8 @@ impl TxPoolService {
         retain_unavailable_parents(&pool, &mut parents);
         let parents = detach_parent_hashes(parents);
         let mut permit = Some(permit);
-        let outcome = self.pipeline.runtime.mutate_lease(
-            "current verify lease could not install parent-wait ownership",
-            |coordinator| {
+        let outcome: Result<ParentWaitOutcome, CoordinatorError> =
+            self.pipeline.runtime.mutate(|coordinator| {
                 let source = coordinator
                     .view(&lease.hash)
                     .map(|view| view.source)
@@ -184,10 +194,18 @@ impl TxPoolService {
                     }
                     Ok(ParentWaitOutcome::Parked)
                 }
-            },
-        );
+            });
         drop(permit);
-        outcome
+        match outcome {
+            Ok(outcome) => Some(outcome),
+            Err(error) if error.is_stale_lease() => None,
+            Err(error) => Some(ParentWaitOutcome::Rejected(
+                self.pipeline.runtime.reject_or_fail(
+                    "current verify lease could not extend parent-wait dependencies",
+                    error,
+                ),
+            )),
+        }
     }
 
     /// Remove a transaction by hash from every pipeline structure it may

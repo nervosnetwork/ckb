@@ -33,20 +33,31 @@
       "clear_during_reorg_recovery_owns_the_final_empty_state",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
       "coordinator_handoff_panic_preserves_pool_recovery_point",
-      "production_handoff_invariant_settles_then_fails_closed"
+      "production_handoff_invariant_settles_then_fails_closed",
+      "raw_parent_wait_extends_a_dep_group_discovered_dependency",
+      "remote_parent_wait_and_unknown_parents_effect_are_one_transition",
+      "conflict_recovery_waits_for_cell_dep_parent_output",
+      "malformed_remote_preflight_is_banned_recorded_and_not_relayed"
     ],
     "I5": [
       "metadata_residency_is_charged_continuously_across_every_payload_phase",
       "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
       "count_and_byte_limits_cover_reserved_queued_and_active_batches",
-      "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection"
+      "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection",
+      "accepted_entry_metadata_extends_duplicate_wake_edges",
+      "escape_hatch_rejects_mutation_larger_than_displacement_bound"
     ],
     "I6": [
       "accepted_parent_handoff_wakes_waiting_children_atomically",
       "every_definitive_parent_exit_invalidates_dependents_in_the_same_transition",
       "transitive_dependency_cycle_is_rejected_before_admission",
       "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale",
-      "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection"
+      "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection",
+      "raw_parent_wait_extends_a_dep_group_discovered_dependency",
+      "successful_resolution_tracks_live_dep_group_members_before_verify",
+      "local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member",
+      "conflict_recovery_waits_for_cell_dep_parent_output",
+      "attached_parent_output_rearms_conflict_cache_after_earlier_release"
     ],
     "I7": [
       "reorg_status_transition_failure_has_no_false_reject_and_replay_converges",
@@ -56,7 +67,9 @@
       "stable_effect_journal_failure_preserves_pool_persistence",
       "production_handoff_invariant_settles_then_fails_closed",
       "cross_authority_query_is_serialized_with_clear_and_reorg",
-      "clear_during_reorg_recovery_owns_the_final_empty_state"
+      "clear_during_reorg_recovery_owns_the_final_empty_state",
+      "attached_parent_output_rearms_conflict_cache_after_earlier_release",
+      "persisted_file_orders_expanded_dep_group_parents"
     ],
     "I8": [
       "local_commit_waits_for_effect_credit_before_mutating_pool",
@@ -64,7 +77,8 @@
       "full_relayer_retains_fifo_head_and_outbox_charge",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
       "stable_effect_journal_failure_preserves_pool_persistence",
-      "clear_during_reorg_recovery_owns_the_final_empty_state"
+      "clear_during_reorg_recovery_owns_the_final_empty_state",
+      "malformed_remote_preflight_is_banned_recorded_and_not_relayed"
     ],
     "I9": [
       "under_fee_candidate_cannot_become_verified_conflict_state",
@@ -72,12 +86,17 @@
       "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen",
       "derived_conflict_relation_has_no_maintenance_gap",
       "second_independent_commit_checkout_waits_for_first_terminal_transition",
-      "model_random_transitions_always_match_full_rebuild"
+      "model_random_transitions_always_match_full_rebuild",
+      "rbf_rejects_dep_group_member_from_replacement_victim"
     ],
     "I10": [
       "conflict_closure_ignores_ghost_link_nodes",
       "status_counter_underflow_recomputes_from_authoritative_entries",
-      "failed_commit_restores_all_size_evictions_with_original_status_in_lock"
+      "failed_commit_restores_all_size_evictions_with_original_status_in_lock",
+      "escape_hatch_never_evicts_a_required_parent",
+      "test_dep_group",
+      "parent_added_after_child_gets_descendant_weight",
+      "persisted_file_orders_expanded_dep_group_parents"
     ],
     "I11": [
       "reorg_demotes_stale_gap_to_pending",
@@ -88,7 +107,8 @@
       "conflict_edge_victim_selection_stops_before_stronger_pool_suffix",
       "global_capacity_victim_selection_stops_before_stronger_pool_suffix",
       "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions",
-      "model_conflict_probe_cost_ignores_independent_population"
+      "model_conflict_probe_cost_ignores_independent_population",
+      "escape_hatch_rejects_mutation_larger_than_displacement_bound"
     ]
   },
   "source_anchors": [
@@ -116,12 +136,32 @@
       "id": "rbf-conflict-recovery",
       "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs",
       "anchor": "RbfOrphanRecovery"
+    },
+    {
+      "id": "rbf-basic",
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfBasic"
+    },
+    {
+      "id": "rbf-proposed-success",
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfReplaceProposedSuccess"
+    },
+    {
+      "id": "rbf-concurrency",
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfConcurrency"
+    },
+    {
+      "id": "rbf-cycling-attack",
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfCyclingAttack"
+    },
+    {
+      "id": "rbf-cell-deps",
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfCellDepsCheck"
     }
   ],
-  "release_blockers": [
-    {
-      "id": "final-security-closure",
-      "reason": "Complete Phase 7's final architecture and attack-surface closure."
-    }
-  ]
+  "release_blockers": []
 }

@@ -76,7 +76,7 @@ RawQueued(PreCheck) -> RawActive(PreCheck)
   -> RawQueued(Resolve) -> RawActive(Resolve)
   -> WaitingParents | VerifyQueued
   -> VerifyActive
-  -> ReadyToCommit | WaitingConflict | ConflictRecheck
+  -> Verified
   -> Committing
   -> TxPool or terminal record
 ```
@@ -86,8 +86,8 @@ finish cannot modify a newer owner. Checkout and completion preflight sequence
 capacity before consuming the only live ticket. Source promotion is a typed
 transition, not a second entry: it atomically releases remote peer residency,
 cancels the remote expiry and its charge, retickets queued work, and schedules
-an immediate conflict recheck when the promoted candidate was waiting behind a
-weaker owner.
+the derived conflict-rank/ticket delta immediately when a verified candidate's
+priority changes.
 
 `RawStage`, payload phase, conflict metadata, location, and invalidation are
 closed `EntryState` variants. Invalid combinations such as “verified payload
@@ -109,8 +109,14 @@ linearizable cancellation boundary.
 
 ### Missing parents
 
-The coordinator indexes child IDs by full parent hash. A missing-parent
-transition and its remote `UnknownParents` effect are committed together.
+The coordinator indexes child IDs by full parent hash. Raw admission records
+the dependencies visible in the transaction, then successful resolution and
+missing-parent/verify-demotion transitions atomically extend that same graph
+with dep-group members discovered by the resolver. The extension, reverse
+index, metadata charge, payload demotion or verify enqueue, and remote
+`UnknownParents` effect are one undo-protected transition. Policy, fanout, and
+capacity failures are typed transaction outcomes; ordinary remote dep-group
+input cannot reach fail-stop.
 Trusted Local/Proposal input with a parent that is neither accepted nor
 coordinator-owned fails terminally; remote input waits with an expiry and
 parent-request protocol.
@@ -149,15 +155,19 @@ template components.
 ## 5. Historical conflict recovery
 
 `ConflictCache` is a bounded, non-executable store inside `TxPool`, keyed by
-the complete raw transaction hash and indexed by compact input outpoints.
-Proposal short IDs are never identity. Count and resident-byte caps cover the
-payload and reverse-index metadata. Generation-tagged FIFO tickets and
-bounded-ratio compaction prevent remove/reinsert churn from growing stale
-metadata or letting an old ticket act on a new incarnation.
+the complete raw transaction hash and indexed by compact recovery outpoints:
+inputs, direct cell deps, and every dep-group member known from an accepted
+victim. Proposal short IDs are never identity. Duplicate history monotonically
+unions wake metadata without weakening the source or witness. Count and
+resident-byte caps cover the payload and every reverse-index key.
+Generation-tagged FIFO tickets and bounded-ratio compaction prevent
+remove/reinsert churn from growing stale metadata or letting an old ticket act
+on a new incarnation.
 
-Every pool mutation that may free inputs—RBF, administrative removal, and
-reorg reconciliation—registers only the released outpoints while holding the
-`TxPool` write guard. Physical removal is first projected through the active
+Every pool mutation that changes outpoint availability registers the delta
+while holding the `TxPool` write guard: removals publish truly released inputs,
+accepted transactions publish their outputs, and attached-chain transactions
+publish their outputs. Physical removal is first projected through the active
 snapshot: removing an overlay whose transaction is already committed does not
 advertise its chain-consumed inputs as free. A later maintenance slice probes
 at most 32 cache candidates through a stable per-outpoint cursor; no removal
@@ -167,7 +177,7 @@ guard. Eligible candidates then follow the ownership handoff:
 1. reserve terminal-effect capacity;
 2. acquire `TxPool`;
 3. pop one generation-valid cache candidate;
-4. recheck accepted-input conflicts;
+4. recheck accepted-input conflicts and liveness of every recovery outpoint;
 5. admit it to the coordinator while the pool guard remains held;
 6. remove the cache copy only after coordinator admission succeeds.
 
@@ -201,6 +211,15 @@ Capacity reconciliation never evicts `Committing` work or an incoming
 transaction's dependency ancestors. Peer-local impossibility fails before
 unrelated global eviction. Every victim produces a terminal record and the
 whole transition is undo-protected.
+
+Accepted-pool ancestry uses the verified resolved dependency graph, including
+expanded dep-group members. The cell-ref ancestor escape hatch distinguishes
+required output producers from ordering-only cell references, plans an
+immutable descendant closure, and mutates only after the exact plan fits the
+shared 100-entry displacement bound. It never scans the complete eviction
+index and never evicts a required producer. Late-parent linking uses one
+complete descendant closure for both aggregate weights and reverse ancestor
+updates, so CPFP/eviction keys cannot diverge on out-of-order replay.
 
 Each stage queue is a two-level priority index: per-owner small/large heaps
 publish one generation-tagged head into global any/small heaps. A peer at its
@@ -326,6 +345,12 @@ semantic reconciliation against its fresh snapshot: already-committed
 overlays, dead inputs/cell deps, and header deps no longer on the active main
 chain are removed with their descendant closure.
 
+Attached transaction outputs are also conflict-history wake edges. This
+matters when an earlier input release was already consumed while another
+required parent was absent: mining or attaching that parent must re-arm the
+cache candidate rather than leave it externally invisible and permanently
+owned by history.
+
 Template updates preserve the original priority model. `reset_template` and
 `update_full` serialize through `template_lock`, and a full rebuild performs
 the unconditional highest-priority swap. Proposal and transaction updates are
@@ -365,6 +390,11 @@ Graceful shutdown proceeds in causal order:
 
 This prevents a half-recovered or effect-incomplete pool from being saved as a
 clean shutdown image.
+
+Persistence writes accepted entries in the authoritative `PoolMap` dependency
+order, including expanded dep-group members. It deliberately does not run a
+second raw-transaction-only topological sort, because that incomplete graph
+can move a child ahead of an expanded parent whose own raw parent is not ready.
 
 ## 10. Invariant and regression gates
 
@@ -617,5 +647,5 @@ the architectural state without reconstructing chat history.
 | 4 | Complete (checkpoint is the commit containing this row) | Queue sequence allocation now precedes reservation and every fallible reservation is protected by existing entry undo; deleted the runtime's owner-map-wide post-transition cleanup, so reservation leaks are no longer hidden and the common mutation path loses an attacker-sized scan. The production fault matrix crosses reserved effects, tentative PoolMap insertion, a fully applied then undone coordinator handoff, exact pool rollback, required lease settlement and FIFO effect publication. Coordinator panic now stops the driver without re-entering failed state or falsely disabling an exactly restored pool recovery point; returned invariant errors settle and then fail-stop outside the pool guard. Stable-effect journaling remains under the pool lock for ordering but outside the Authoritative panic domain. Ledger #91/#104 are Covered, the dedicated release blocker is removed, 316/316 nextest is green, and the clippy set remains the same 23-item baseline. No lifecycle state, recovery queue or second authority was added. |
 | 5 | Complete (checkpoint is the commit containing this row) | Split the coordinator by lifecycle, commit, maintenance, scheduling, capacity, undo, conflict-index, audit and type/queue semantics without changing its mutex or data layout; the physical entry file fell from 4,034 to 266 lines. Split the 4,876-line end-to-end test file into failure, identity, lifecycle, dependency, runtime, template and replacement suites with stable unique test anchors. Coordinator rejection policy now has one fail-safe classification table instead of three overlapping variant lists, and peer revocation checks committing state without materializing an owned diagnostic view. Whole-architecture teardown review found that a cancelled pre-check worker could checkout from a still-nonempty queue and keep the runtime alive; cancellation is now the pre-check dispatch barrier and has a direct regression. The historical 23-item clippy set is zero, nonblank/noncomment production Rust is net smaller than the Phase-4 checkpoint, 317/317 nextest is green, and no lifecycle state, allocation, task, lock, dynamic dispatch or hot-path scan was added. |
 | 6 | Complete (checkpoint is the commit containing this row) | Closed the executable evidence against the production cutover: 319/319 isolated tx-pool nextest cases, 19/19 contextual-verifier cases, zero-warning all-target clippy, manifest validation, freshly rebuilt normal-mining reorg 3/3 and RBF success/failure/concurrency/recovery/attack 6/6. Ledger review removed stale prototype-era `Partial`/`Model-covered` labels and routes measurement-only work exclusively to O5. The RBF Proposed integration spec was corrected to require the level-triggered assembler to stop mining a rejected victim and normally propose/commit its replacement. Deterministic cross-authority query races prove clear/reorg cannot expose an ownership gap. The phase review also reproduced a clear-vs-reorg effect-credit deadlock: clear held ordinary credit while waiting for `recovery_lock`, whose owner needed ordinary credit for detached replay. Reorg/clear now share `recovery_lock -> effect credit -> TxPool`; no state, queue, task, scan or hot-path lock was added. |
-| 7 | Pending | Final architecture/attack review and production-ready pre-benchmark checkpoint. |
+| 7 | Complete (checkpoint is the commit containing this row) | Final attack review unified dependency semantics across resolver success/failure, coordinator invalidation, accepted PoolMap links/audit, RBF victim checks, historical recovery, chain/pool availability events and persistence. It closed bounded counterexamples for dep-group cache stranding, attached-parent lost wakeups, hostile-input fail-stop, stale resolved children, required-parent eviction, unbounded cell-ref mutation, dep-group RBF bypass, incomplete persistence ordering and nested late-parent weight drift. Conflict recovery now retains ownership until all indexed outpoints are live; PoolMap plans at most 100 physical displacements before mutation. The review corrected malformed remote policy to ban+record without an ineligible relay reject. No lifecycle state, executable queue, worker, lock, global hot-path scan or second ordering authority was added. Fresh acceptance: 328/328 internal nextest, 19/19 contextual verifier, zero-warning all-target clippy, manifest validation, normal-mining reorg 3/3 and RBF 7/7. Benchmarking remains Phase 8 only. |
 | 8 | Deferred | Run only after explicit benchmark instruction. |

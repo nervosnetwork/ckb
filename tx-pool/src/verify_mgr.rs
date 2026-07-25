@@ -42,7 +42,7 @@ impl TxPoolService {
         &self,
         lease: &VerifyWorkLease<crate::resolved_tx::ResolvedTx>,
         disposition: TerminalDisposition,
-        reject: crate::error::Reject,
+        mut reject: crate::error::Reject,
         internal: bool,
     ) {
         if !internal
@@ -61,6 +61,7 @@ impl TxPoolService {
                 Some(ParentWaitOutcome::Parked) => return,
                 Some(ParentWaitOutcome::Requeued) => return,
                 Some(ParentWaitOutcome::Unavailable) => {}
+                Some(ParentWaitOutcome::Rejected(wait_reject)) => reject = wait_reject,
                 None => return,
             }
         }
@@ -326,7 +327,7 @@ impl TxPoolService {
             let permit = self
                 .reserve_required_effects(
                     Self::pipeline_terminal_effect_bytes(
-                        crate::constants::MAX_RBF_REPLACEMENT_CANDIDATES.saturating_add(1),
+                        crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
                     ),
                     "verify completion effect reservation failed",
                 )

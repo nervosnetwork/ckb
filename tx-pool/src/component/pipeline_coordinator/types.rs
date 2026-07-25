@@ -475,10 +475,6 @@ pub(crate) enum CoordinatorError {
     ArrivalSequenceExhausted,
     QueueSequenceExhausted,
     MaintenanceSequenceExhausted,
-    MissingParentNotDependency {
-        child: Byte32,
-        parent: Byte32,
-    },
     GlobalBudgetExceeded,
     PeerBudgetExceeded(PeerIndex),
     IncarnationExhausted,

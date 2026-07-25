@@ -1926,7 +1926,7 @@ fn verify_unknown_parent_demotes_atomically_and_preserves_causal_source() {
 }
 
 #[test]
-fn verify_unknown_parent_demotion_rejects_non_dependency_and_rolls_back_fault() {
+fn verify_unknown_parent_demotion_extends_dependency_and_rolls_back_fault() {
     let mut coordinator = roomy();
     let tx_hash = hash(5);
     let parent = hash(32);
@@ -1955,20 +1955,133 @@ fn verify_unknown_parent_demotion_rejects_non_dependency_and_rolls_back_fault() 
     let before = coordinator.view(&tx_hash).unwrap();
     let usage = coordinator.usage();
 
-    assert!(matches!(
-        coordinator.verification_retry_resolution(&verify, set([hash(33)])),
-        Err(CoordinatorError::MissingParentNotDependency { .. })
-    ));
-    assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
-
     coordinator.set_apply_fault_for_test(Some(1));
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = coordinator.verification_retry_resolution(&verify, set([parent]));
+        let _ = coordinator.verification_retry_resolution(&verify, set([hash(33)]));
     }));
     assert!(result.is_err());
     coordinator.set_apply_fault_for_test(None);
     assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
     assert_eq!(coordinator.usage(), usage);
+
+    let discovered = hash(33);
+    coordinator
+        .verification_retry_resolution(&verify, set([discovered.clone()]))
+        .unwrap();
+    let view = coordinator.view(&tx_hash).unwrap();
+    assert_eq!(view.dependencies, set([parent, discovered.clone()]));
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::WaitingParents {
+            missing: set([discovered])
+        }
+    );
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn raw_parent_wait_extends_a_dep_group_discovered_dependency() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(35);
+    let group = hash(36);
+    let member = hash(37);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(35),
+            Raw("dep-group child"),
+            RawStage::Resolve,
+            Some(PeerIndex::from(9)),
+            10,
+            set([group.clone()]),
+        )
+        .unwrap();
+    let lease = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+
+    coordinator
+        .wait_for_parents(&lease, set([member.clone()]))
+        .unwrap();
+    let view = coordinator.view(&tx_hash).unwrap();
+    assert_eq!(view.dependencies, set([group, member.clone()]));
+    assert_eq!(
+        view.location,
+        CoordinatorLocation::WaitingParents {
+            missing: set([member.clone()])
+        }
+    );
+    assert_eq!(coordinator.parent_available(&member).unwrap().len(), 1);
+    assert_eq!(coordinator.queue_len(QueueKind::Resolve), 1);
+    coordinator.audit().unwrap();
+}
+
+#[test]
+fn successful_resolution_tracks_live_dep_group_members_before_verify() {
+    let mut coordinator = roomy();
+    let tx_hash = hash(38);
+    let group = hash(39);
+    let member = hash(40);
+    coordinator
+        .admit_raw(
+            tx_hash.clone(),
+            short(38),
+            Raw("resolved dep-group child"),
+            RawStage::Resolve,
+            Some(PeerIndex::from(10)),
+            10,
+            set([group.clone()]),
+        )
+        .unwrap();
+    let lease = coordinator
+        .checkout_raw(RawStage::Resolve)
+        .unwrap()
+        .unwrap();
+
+    let before = coordinator.view(&tx_hash).unwrap();
+    let usage = coordinator.usage();
+    coordinator.set_apply_fault_for_test(Some(1));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = coordinator.complete_raw_with_dependencies(
+            &lease,
+            Unverified("faulted"),
+            20,
+            VerifySchedule::default(),
+            set([member.clone()]),
+        );
+    }));
+    assert!(result.is_err());
+    coordinator.set_apply_fault_for_test(None);
+    assert_eq!(coordinator.view(&tx_hash).unwrap(), before);
+    assert_eq!(coordinator.usage(), usage);
+    coordinator.audit().unwrap();
+
+    coordinator
+        .complete_raw_with_dependencies(
+            &lease,
+            Unverified("resolved"),
+            20,
+            VerifySchedule::default(),
+            set([member.clone()]),
+        )
+        .unwrap();
+    assert_eq!(
+        coordinator.view(&tx_hash).unwrap().dependencies,
+        set([group, member.clone()])
+    );
+
+    assert_eq!(
+        coordinator.parent_unavailable(&member).unwrap(),
+        vec![tx_hash.clone()]
+    );
+    assert_eq!(
+        coordinator.view(&tx_hash).unwrap().location,
+        CoordinatorLocation::WaitingParents {
+            missing: set([member])
+        }
+    );
+    assert_eq!(coordinator.queue_len(QueueKind::Verify), 0);
     coordinator.audit().unwrap();
 }
 

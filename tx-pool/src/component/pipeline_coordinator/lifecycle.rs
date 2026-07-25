@@ -1,6 +1,55 @@
 use super::*;
 
 impl<R, U, V> PipelineCoordinator<R, U, V> {
+    /// Extend the canonical dependency graph with parents discovered only
+    /// after dep-group expansion, and preflight the exact raw-phase charge.
+    ///
+    /// Raw transactions can name the dep-group cell at admission but cannot
+    /// name its members until resolution reads the group data. Treating such
+    /// a resolver miss as an invariant violation lets an ordinary remote
+    /// transaction reach fail-stop. The dependency set is already the sole
+    /// graph authority, so extend it transactionally instead of introducing a
+    /// second orphan graph or weakening the waiting-state invariant.
+    fn plan_discovered_dependencies(
+        &self,
+        hash: &Byte32,
+        discovered: &HashSet<Byte32>,
+    ) -> Result<(HashSet<Byte32>, Vec<Byte32>, usize, usize), CoordinatorError> {
+        let entry = self
+            .entries
+            .get(hash)
+            .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+        let mut dependencies = entry.dependencies.clone();
+        let mut added = Vec::new();
+        for parent in discovered {
+            let parent = crate::util::compact_packed(parent);
+            if parent == *hash {
+                return Err(CoordinatorError::SelfDependency(hash.clone()));
+            }
+            if dependencies.insert(parent.clone()) {
+                added.push(parent);
+            }
+        }
+        if dependencies.len() > self.limits.max_dependencies_per_entry {
+            return Err(CoordinatorError::DependencyLimitExceeded);
+        }
+        self.dependency_ancestor_closure(hash, &dependencies)?;
+        for parent in &added {
+            if self.by_parent.get(parent).map_or(0, HashSet::len)
+                >= self.limits.max_dependents_per_parent
+            {
+                return Err(CoordinatorError::ParentFanoutLimitExceeded(parent.clone()));
+            }
+        }
+        let base_metadata_bytes =
+            self.metadata_charge_bytes(dependencies.len(), entry.expires_at.is_some(), 0)?;
+        let raw_charge_bytes = entry
+            .raw_resident_payload_bytes
+            .checked_add(base_metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        Ok((dependencies, added, base_metadata_bytes, raw_charge_bytes))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn admit_raw_sourced(
         &mut self,
@@ -721,24 +770,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         lease: &VerifyWorkLease<U>,
         missing: HashSet<Byte32>,
     ) -> Result<(CoordinatorVersion, CoordinatorSource), CoordinatorError> {
+        let missing = missing
+            .into_iter()
+            .map(|parent| crate::util::compact_packed(&parent))
+            .collect::<HashSet<_>>();
         self.validate_version_location(
             &lease.hash,
             lease.version,
             &CoordinatorLocation::VerifyActive,
         )?;
-        let entry = self
-            .entries
-            .get(&lease.hash)
-            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        if let Some(parent) = missing
-            .iter()
-            .find(|parent| !entry.dependencies.contains(*parent))
-        {
-            return Err(CoordinatorError::MissingParentNotDependency {
-                child: lease.hash.clone(),
-                parent: parent.clone(),
-            });
-        }
+        let (dependencies, added, base_metadata_bytes, raw_charge_bytes) =
+            self.plan_discovered_dependencies(&lease.hash, &missing)?;
+        self.check_recharge(&lease.hash, raw_charge_bytes)?;
         self.ensure_revision_capacity(&lease.hash)?;
         let requeue = missing.is_empty();
         let (queue_sequence, next_queue_sequence) = if requeue {
@@ -748,10 +791,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             (None, None)
         };
         self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
-            let (source, raw_charge) = coordinator
+            let source = coordinator
                 .entries
                 .get(&lease.hash)
-                .map(|entry| (entry.source, entry.raw_charge_bytes))
+                .map(|entry| entry.source)
                 .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
             if requeue {
                 coordinator
@@ -759,9 +802,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .reserve_live(source.queue_owner(), false)?;
             }
             coordinator.deactivate_source(source)?;
-            coordinator.apply_recharge(&lease.hash, raw_charge)?;
+            coordinator.apply_recharge(&lease.hash, raw_charge_bytes)?;
             if !requeue {
                 coordinator.enter_waiting_parent()?;
+            }
+            for parent in &added {
+                coordinator
+                    .by_parent
+                    .entry(parent.clone())
+                    .or_default()
+                    .insert(lease.hash.clone());
             }
             let version = {
                 let entry = coordinator.entry_mut(&lease.hash)?;
@@ -772,8 +822,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     RawLocation::WaitingParents { missing }
                 };
                 entry.state = EntryState::Raw { raw, location };
+                entry.dependencies = dependencies;
+                entry.base_metadata_bytes = base_metadata_bytes;
+                entry.raw_charge_bytes = raw_charge_bytes;
                 entry.resident_payload_bytes = entry.raw_resident_payload_bytes;
-                entry.metadata_bytes = entry.base_metadata_bytes;
+                entry.metadata_bytes = base_metadata_bytes;
                 if let Some(queue_sequence) = queue_sequence {
                     entry.queue_sequence = queue_sequence;
                 }
@@ -802,6 +855,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     /// Replace raw work with an unverified phase bundle. `charge_bytes` is
     /// the total payload residency of that entire bundle, including the raw
     /// transaction retained for dependency demotion and terminal handoff.
+    #[cfg(test)]
     pub(crate) fn complete_raw(
         &mut self,
         lease: &RawWorkLease<R>,
@@ -809,52 +863,86 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         charge_bytes: usize,
         verify_schedule: VerifySchedule,
     ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
+        self.complete_raw_with_dependencies(
+            lease,
+            unverified,
+            charge_bytes,
+            verify_schedule,
+            HashSet::new(),
+        )
+    }
+
+    /// Replace raw work with an unverified phase bundle and atomically extend
+    /// its causal graph with dependencies learned from successful dep-group
+    /// expansion. Live expanded members matter just as much as missing ones:
+    /// a later parent removal must invalidate this resolved payload before it
+    /// reaches commit.
+    pub(crate) fn complete_raw_with_dependencies(
+        &mut self,
+        lease: &RawWorkLease<R>,
+        unverified: U,
+        charge_bytes: usize,
+        verify_schedule: VerifySchedule,
+        discovered_dependencies: HashSet<Byte32>,
+    ) -> Result<(CoordinatorVersion, Vec<TerminalRecord<R>>), CoordinatorError> {
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location(&lease.hash, lease.version, &expected)?;
-        let entry = self
+        let (dependencies, added, base_metadata_bytes, raw_charge_bytes) =
+            self.plan_discovered_dependencies(&lease.hash, &discovered_dependencies)?;
+        let total_charge_bytes = charge_bytes
+            .checked_add(base_metadata_bytes)
+            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+        let source = self
             .entries
             .get(&lease.hash)
+            .map(|entry| entry.source)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        let total_charge_bytes = charge_bytes
-            .checked_add(entry.base_metadata_bytes)
-            .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
-        let protected = self.dependency_ancestor_closure(&lease.hash, &entry.dependencies)?;
+        let protected = self.dependency_ancestor_closure(&lease.hash, &dependencies)?;
         self.check_peer_budget_after_victims(
             Some(&lease.hash),
-            entry.source,
+            source,
             total_charge_bytes,
             &HashSet::new(),
         )?;
         let victims = self.global_capacity_victims(
             Some(&lease.hash),
-            entry.source,
+            source,
             total_charge_bytes,
             &HashSet::new(),
             &protected,
         )?;
         let subject = CapacitySubject::Present(lease.hash.clone());
         self.with_capacity_victims(subject, victims, Vec::new(), move |coordinator| {
-            coordinator.complete_raw_inner(lease, unverified, charge_bytes, verify_schedule)
+            coordinator.complete_raw_inner(
+                lease,
+                unverified,
+                charge_bytes,
+                verify_schedule,
+                dependencies,
+                added,
+                base_metadata_bytes,
+                raw_charge_bytes,
+            )
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn complete_raw_inner(
         &mut self,
         lease: &RawWorkLease<R>,
         unverified: U,
         charge_bytes: usize,
         verify_schedule: VerifySchedule,
+        dependencies: HashSet<Byte32>,
+        added: Vec<Byte32>,
+        base_metadata_bytes: usize,
+        raw_charge_bytes: usize,
     ) -> Result<CoordinatorVersion, CoordinatorError> {
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location(&lease.hash, lease.version, &expected)?;
         self.ensure_revision_capacity(&lease.hash)?;
-        let metadata_bytes = self
-            .entries
-            .get(&lease.hash)
-            .map(|entry| entry.base_metadata_bytes)
-            .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
         let total_charge_bytes = charge_bytes
-            .checked_add(metadata_bytes)
+            .checked_add(base_metadata_bytes)
             .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
         self.check_recharge(&lease.hash, total_charge_bytes)?;
         let source = self
@@ -867,6 +955,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
         self.deactivate_source(source)?;
         self.apply_recharge(&lease.hash, total_charge_bytes)?;
+        for parent in added {
+            self.by_parent
+                .entry(parent)
+                .or_default()
+                .insert(lease.hash.clone());
+        }
         let entry = self.entry_mut(&lease.hash)?;
         let raw = Arc::clone(entry.state.raw());
         entry.state = EntryState::Unverified {
@@ -875,8 +969,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             location: UnverifiedLocation::Queued,
             verify_schedule,
         };
+        entry.dependencies = dependencies;
+        entry.base_metadata_bytes = base_metadata_bytes;
+        entry.raw_charge_bytes = raw_charge_bytes;
         entry.resident_payload_bytes = charge_bytes;
-        entry.metadata_bytes = metadata_bytes;
+        entry.metadata_bytes = base_metadata_bytes;
         entry.queue_sequence = queue_sequence;
         entry.revision += 1;
         let version = entry.version();
@@ -893,22 +990,18 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         lease: &RawWorkLease<R>,
         missing: HashSet<Byte32>,
     ) -> Result<CoordinatorVersion, CoordinatorError> {
+        let missing = missing
+            .into_iter()
+            .map(|parent| crate::util::compact_packed(&parent))
+            .collect::<HashSet<_>>();
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location(&lease.hash, lease.version, &expected)?;
-        if let Some(parent) = missing.iter().find(|parent| {
-            !self
-                .entries
-                .get(&lease.hash)
-                .is_some_and(|entry| entry.dependencies.contains(*parent))
-        }) {
-            return Err(CoordinatorError::MissingParentNotDependency {
-                child: lease.hash.clone(),
-                parent: parent.clone(),
-            });
-        }
         if missing.is_empty() {
             return self.requeue_raw(lease);
         }
+        let (dependencies, added, base_metadata_bytes, raw_charge_bytes) =
+            self.plan_discovered_dependencies(&lease.hash, &missing)?;
+        self.check_recharge(&lease.hash, raw_charge_bytes)?;
         self.ensure_revision_capacity(&lease.hash)?;
         let next_waiting_parent_count = self
             .waiting_parent_count
@@ -919,16 +1012,31 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .get(&lease.hash)
             .map(|entry| entry.source)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        self.deactivate_source(source)?;
-        let entry = self.entry_mut(&lease.hash)?;
-        let EntryState::Raw { location, .. } = &mut entry.state else {
-            return Err(CoordinatorError::ConflictInvariant);
-        };
-        *location = RawLocation::WaitingParents { missing };
-        entry.revision += 1;
-        let version = entry.version();
-        self.waiting_parent_count = next_waiting_parent_count;
-        Ok(version)
+        self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
+            coordinator.deactivate_source(source)?;
+            coordinator.apply_recharge(&lease.hash, raw_charge_bytes)?;
+            for parent in &added {
+                coordinator
+                    .by_parent
+                    .entry(parent.clone())
+                    .or_default()
+                    .insert(lease.hash.clone());
+            }
+            let entry = coordinator.entry_mut(&lease.hash)?;
+            let EntryState::Raw { location, .. } = &mut entry.state else {
+                return Err(CoordinatorError::ConflictInvariant);
+            };
+            *location = RawLocation::WaitingParents { missing };
+            entry.dependencies = dependencies;
+            entry.base_metadata_bytes = base_metadata_bytes;
+            entry.metadata_bytes = base_metadata_bytes;
+            entry.raw_charge_bytes = raw_charge_bytes;
+            entry.revision += 1;
+            let version = entry.version();
+            coordinator.waiting_parent_count = next_waiting_parent_count;
+            coordinator.apply_fault_checkpoint();
+            Ok(version)
+        })
     }
 
     pub(crate) fn requeue_raw(

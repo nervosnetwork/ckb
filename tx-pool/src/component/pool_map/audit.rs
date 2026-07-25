@@ -182,8 +182,8 @@ impl PoolMap {
                     parents.extend(dep_users.iter().cloned());
                 }
             }
-            for cell_dep in entry.inner.transaction().cell_deps() {
-                if let Some(parent) = hash_to_id.get(&cell_dep.out_point().tx_hash()) {
+            for dep in entry.inner.related_dep_out_points() {
+                if let Some(parent) = hash_to_id.get(&dep.tx_hash()) {
                     parents.insert(parent.clone());
                 }
             }

@@ -581,7 +581,25 @@ fn test_dep_group() {
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 1);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
 
-    pool.remove_entry(&tx3.proposal_short_id());
+    assert_eq!(
+        pool.calc_ancestors(&tx3.proposal_short_id()),
+        HashSet::from([tx1.proposal_short_id(), tx2.proposal_short_id()]),
+        "expanded dep-group members and the group cell are both causal parents"
+    );
+    pool.audit().unwrap();
+
+    let removed = pool.remove_entry_and_descendants(&tx1.proposal_short_id());
+    assert_eq!(
+        removed
+            .iter()
+            .map(TxEntry::proposal_short_id)
+            .collect::<HashSet<_>>(),
+        HashSet::from([tx1.proposal_short_id(), tx3.proposal_short_id()]),
+        "removing an expanded dep-group member must remove its consumer"
+    );
+    assert!(pool.contains_key(&tx2.proposal_short_id()));
+    pool.audit().unwrap();
+
     assert_eq!(get_deps_len(&pool, &tx1_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);

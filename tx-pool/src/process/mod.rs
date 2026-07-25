@@ -214,10 +214,11 @@ impl TxPoolService {
         tx: TransactionView,
         source: TxSource,
     ) -> Result<bool, Reject> {
-        // Preflight failures go through after_process too: the remote error
-        // triple (ban / relay / recent_reject) must apply here exactly like
-        // it does to failures deeper in the pipeline, otherwise a peer can
-        // resubmit the same malformed tx forever with no consequence.
+        // Preflight failures go through after_process too: the remote terminal
+        // policy (malformed-peer ban, eligible relayer cleanup, and
+        // recent-reject history) must apply here exactly like it does to
+        // failures deeper in the pipeline. Malformed rejects are intentionally
+        // not retryable relayer events, but they still ban and record.
         if let Err(reject) = self.check_tx_basic_validity(&tx).await {
             // `Duplicated` covers both an already-accepted pool entry and an
             // unverified coordinator owner. Only the former is a definitive
@@ -461,14 +462,21 @@ impl TxPoolService {
                                 .external_commits_with_unavailable_parents(&committed, &unavailable)
                         },
                     );
-                    let released_inputs = tx_pool.released_inputs_from_removed_entries(
+                    let mut available_outpoints = tx_pool.released_inputs_from_removed_entries(
                         outcome
                             .reject_events
                             .iter()
                             .map(|(entry, _)| entry)
                             .chain(outcome.silently_removed.iter()),
                     );
-                    tx_pool.schedule_conflicted_txs_from_inputs(released_inputs.into_iter());
+                    // A historical candidate may have observed its conflicting
+                    // input release before another required parent was mined.
+                    // Attached outputs are availability edges too; without
+                    // them that cache owner has no later event that can make
+                    // it executable.
+                    available_outpoints
+                        .extend(attached.iter().flat_map(TransactionView::output_pts));
+                    tx_pool.schedule_conflicted_txs_from_inputs(available_outpoints.into_iter());
                     if tx_pool.conflict_maintenance_pending() {
                         self.pipeline.runtime.request_maintenance();
                     }
