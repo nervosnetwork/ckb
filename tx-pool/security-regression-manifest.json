@@ -5,8 +5,8 @@
   "behavior_registry": "tx-pool/review-behaviors.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "ae0a2b39001760a8011dae7e78880d82bf666f5e",
-    "test_count": 338
+    "checkpoint": "17945823b5640637cbe7f24e1ab1ff2b8dd4411b",
+    "test_count": 340
   },
   "baseline": {
     "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",

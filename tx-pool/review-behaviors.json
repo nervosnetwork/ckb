@@ -281,6 +281,7 @@
     {"test": "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
     {"test": "queue_sequence_exhaustion_cannot_strand_transition_reservations", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
     {"test": "nested_undo_scope_is_forbidden", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
+    {"test": "terminalization_cannot_silently_heal_missing_owner_index_membership", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5"]},
 
     {"test": "pool_removal_invalidation_and_winner_handoff_are_one_transaction", "behavior_id": "TP-COMMIT-001", "invariants": ["I1"]},
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2"]},
@@ -317,6 +318,7 @@
     {"test": "metadata_residency_is_charged_continuously_across_every_payload_phase", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
     {"test": "count_and_byte_limits_cover_reserved_queued_and_active_batches", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
     {"test": "escape_hatch_rejects_mutation_larger_than_displacement_bound", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
+    {"test": "transaction_exit_cannot_silently_heal_missing_victim_index_membership", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
 
     {"test": "cancelled_runtime_does_not_checkout_queued_raw_work", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
     {"test": "ineligible_checkout_does_not_self_notify_until_active_owner_settles", "behavior_id": "TP-WORKER-001", "invariants": ["I5", "I12"]},
