@@ -1,11 +1,12 @@
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, TransactionBuilder},
-    packed::{CellInput, CellOutput, OutPoint},
+    packed::{CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
 
 use crate::component::{entry::TxEntry, pool_map::PoolMap, sort_key::AncestorsScoreSortKey};
+use std::collections::HashSet;
 
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 
@@ -167,6 +168,37 @@ fn test_remove_entry() {
         map.calc_ancestors(&tx3_id),
         vec![tx2_id].into_iter().collect()
     );
+}
+
+/// Reverse-index membership is set-valued even when resolution yields the
+/// same dep out-point more than once. Removal must consume the canonical
+/// membership once instead of replaying duplicate source occurrences.
+#[test]
+fn duplicate_deps_publish_and_remove_one_index_membership() {
+    let mut map = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let out_point = OutPoint::new(ckb_types::packed::Byte32::new([0x42; 32]), 0);
+    let dep = CellDep::new_builder().out_point(out_point.clone()).build();
+    let entry = TxEntry::dummy_resolve(
+        TransactionBuilder::default()
+            .cell_dep(dep.clone())
+            .cell_dep(dep)
+            .build(),
+        100,
+        Capacity::shannons(100),
+        100,
+    );
+    let id = entry.proposal_short_id();
+
+    map.add_proposed(entry).unwrap();
+    map.audit().unwrap();
+    assert_eq!(
+        map.out_point_index.get_deps_ref(&out_point),
+        Some(&HashSet::from([id.clone()]))
+    );
+
+    map.remove_entry(&id).expect("accepted entry is removable");
+    map.audit().unwrap();
+    assert!(map.out_point_index.get_deps_ref(&out_point).is_none());
 }
 
 #[test]

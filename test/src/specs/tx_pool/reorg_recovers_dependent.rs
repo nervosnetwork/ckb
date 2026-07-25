@@ -15,9 +15,9 @@ use ckb_types::prelude::*;
 /// parent and its child must be recovered into the tx-pool and be commitable
 /// again.
 ///
-/// This exercises the V2 pipeline reorg path where detached transactions are
-/// recovered in dependency order through the synchronous `_process_tx` entry
-/// point, releasing the tx-pool write lock between transactions.
+/// This exercises detached replay through the synchronous direct submission
+/// entry point, topologically ordered and releasing the tx-pool write lock
+/// between transactions.
 pub struct ReorgRecoversDependentTxs;
 
 impl Spec for ReorgRecoversDependentTxs {
@@ -81,7 +81,7 @@ impl Spec for ReorgRecoversDependentTxs {
 /// chain, all txs (grandparent, parent, child) must be recovered in dependency
 /// order and be commitable again.
 ///
-/// This exercises the topological sort in the V2 pipeline reorg path.
+/// This exercises the topological sort used by synchronous detached replay.
 pub struct ReorgRecoversDependentChain;
 
 impl Spec for ReorgRecoversDependentChain {

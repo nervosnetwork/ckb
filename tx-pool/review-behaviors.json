@@ -1,6 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "guide": "tx-pool/REVIEW_GUIDE.md",
+  "integration_runner": {
+    "make_target": "integration",
+    "arguments_variable": "CKB_TEST_ARGS",
+    "common_arguments": ["-c", "1"]
+  },
   "behaviors": [
     {
       "id": "TP-OWN-001",
@@ -291,6 +296,9 @@
     {"test": "second_independent_commit_checkout_waits_for_first_terminal_transition", "behavior_id": "TP-COMMIT-001", "invariants": ["I9"]},
 
     {"test": "pipeline_concurrent_rbf_prefers_highest_fee", "behavior_id": "TP-RBF-001", "invariants": ["I2"]},
+    {"test": "pipeline_rbf_displaces_lower_fee_tx", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
+    {"test": "pipeline_rbf_rejected_replacement_recovers_original_tx", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I9"]},
+    {"test": "pipeline_rbf_rejected_replacement_recovers_descendants_in_order", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I10"]},
     {"test": "failed_commit_restores_all_size_evictions_with_original_status_in_lock", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
     {"test": "failed_tip_revalidation_recovers_whole_removed_cascade", "behavior_id": "TP-RBF-001", "invariants": ["I3"]},
     {"test": "under_fee_candidate_cannot_become_verified_conflict_state", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
@@ -299,7 +307,7 @@
     {"test": "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
     {"test": "derived_conflict_relation_has_no_maintenance_gap", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
     {"test": "model_random_transitions_always_match_full_rebuild", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
-    {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9", "I10"]},
 
     {"test": "accepted_parent_handoff_wakes_waiting_children_atomically", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
     {"test": "every_definitive_parent_exit_invalidates_dependents_in_the_same_transition", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
@@ -310,10 +318,12 @@
     {"test": "transitive_dependency_cycle_is_rejected_before_admission", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
     {"test": "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection", "behavior_id": "TP-DEP-001", "invariants": ["I5", "I6"]},
+    {"test": "sort_txs_by_dependencies_orders_parents_before_children", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
 
     {"test": "accepted_entry_metadata_extends_duplicate_wake_edges", "behavior_id": "TP-CACHE-001", "invariants": ["I5"]},
     {"test": "conflict_recovery_waits_for_cell_dep_parent_output", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6"]},
     {"test": "attached_parent_output_rearms_conflict_cache_after_earlier_release", "behavior_id": "TP-CACHE-001", "invariants": ["I6", "I7"]},
+    {"test": "successful_rbf_recovery_cascades_from_accepted_parent_outputs", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6"]},
 
     {"test": "metadata_residency_is_charged_continuously_across_every_payload_phase", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
     {"test": "count_and_byte_limits_cover_reserved_queued_and_active_batches", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
@@ -340,6 +350,7 @@
     {"test": "retained_receiver_preserves_fifo_across_panics", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
     {"test": "clear_during_reorg_recovery_owns_the_final_empty_state", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7", "I8"]},
     {"test": "cross_authority_query_is_serialized_with_clear_and_reorg", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I2", "I7"]},
+    {"test": "reorg_direct_replay_treats_pool_duplicates_as_idempotent", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7"]},
 
     {"test": "save_pool_waits_for_complete_reorg_recovery_point", "behavior_id": "TP-PERSIST-001", "invariants": ["I7"]},
     {"test": "stable_effect_journal_failure_preserves_pool_persistence", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I8"]},
@@ -355,6 +366,7 @@
     {"test": "reorg_demotes_stale_gap_to_pending", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
     {"test": "pending_proposals_filter_conflicting_uncle_subtree", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
     {"test": "full_and_uncle_updates_share_template_serialization_lock", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
+    {"test": "commit_and_removal_journal_block_assembler_delta", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
 
     {"test": "complete_hash_identity_retains_short_id_collisions", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I5"]},
     {"test": "full_hash_lookup_does_not_alias_a_proposal_short_id_collision", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I10"]},
@@ -370,15 +382,95 @@
     {"test": "model_conflict_probe_cost_ignores_independent_population", "behavior_id": "TP-PERF-001", "invariants": ["I12"]}
   ],
   "integration_evidence": [
-    {"id": "normal-mining-reorg-tree", "behavior_id": "TP-TEMPLATE-001", "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs", "anchor": "ReorgRecoversDependentPendingTree", "invariants": ["I7", "I11"]},
-    {"id": "dependent-reorg-chain", "behavior_id": "TP-REORG-001", "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs", "anchor": "ReorgRecoversDependentChain", "invariants": ["I7"]},
-    {"id": "dependent-reorg-transactions", "behavior_id": "TP-REORG-001", "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs", "anchor": "ReorgRecoversDependentTxs", "invariants": ["I7"]},
-    {"id": "rbf-proposed-template-refresh", "behavior_id": "TP-TEMPLATE-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfRejectReplaceProposed", "invariants": ["I9", "I11"]},
-    {"id": "rbf-conflict-recovery", "behavior_id": "TP-CACHE-001", "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs", "anchor": "RbfOrphanRecovery", "invariants": ["I7", "I9"]},
-    {"id": "rbf-basic", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfBasic", "invariants": ["I2", "I9"]},
-    {"id": "rbf-proposed-success", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfReplaceProposedSuccess", "invariants": ["I2", "I9"]},
-    {"id": "rbf-concurrency", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfConcurrency", "invariants": ["I2", "I9"]},
-    {"id": "rbf-cycling-attack", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfCyclingAttack", "invariants": ["I5", "I9", "I12"]},
-    {"id": "rbf-cell-deps", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfCellDepsCheck", "invariants": ["I2", "I9", "I10"]}
+    {
+      "id": "normal-mining-reorg-tree",
+      "behavior_ids": ["TP-REORG-001", "TP-TEMPLATE-001"],
+      "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
+      "anchor": "ReorgRecoversDependentPendingTree",
+      "invariants": ["I7", "I11"],
+      "unit_anchors": ["reorg_status_transition_failure_has_no_false_reject_and_replay_converges", "reorg_demotes_stale_gap_to_pending", "pending_proposals_filter_conflicting_uncle_subtree"],
+      "boundary": "A detached dependent tree is recovered as real Pending and is re-proposed and committed by normal get_block_template mining without relying on optional uncles or a hand-authored proposal block."
+    },
+    {
+      "id": "dependent-reorg-chain",
+      "behavior_ids": ["TP-DEP-001", "TP-REORG-001"],
+      "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
+      "anchor": "ReorgRecoversDependentChain",
+      "invariants": ["I6", "I7"],
+      "unit_anchors": ["sort_txs_by_dependencies_orders_parents_before_children", "reorg_direct_replay_treats_pool_duplicates_as_idempotent"],
+      "boundary": "A three-level detached dependency chain is replayed parent-first and every member returns to a committable pool state after the node adopts the competing fork."
+    },
+    {
+      "id": "dependent-reorg-transactions",
+      "behavior_ids": ["TP-DEP-001", "TP-REORG-001"],
+      "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
+      "anchor": "ReorgRecoversDependentTxs",
+      "invariants": ["I6", "I7"],
+      "unit_anchors": ["sort_txs_by_dependencies_orders_parents_before_children", "reorg_direct_replay_treats_pool_duplicates_as_idempotent"],
+      "boundary": "A detached parent and its dependent child are both recovered through the node reorg callback and remain committable as one dependency-ordered pool graph."
+    },
+    {
+      "id": "rbf-proposed-template-refresh",
+      "behavior_ids": ["TP-RBF-001", "TP-TEMPLATE-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfRejectReplaceProposed",
+      "invariants": ["I2", "I9", "I11"],
+      "unit_anchors": ["pipeline_rbf_displaces_lower_fee_tx", "commit_and_removal_journal_block_assembler_delta"],
+      "boundary": "Replacing a Proposed transaction rejects the victim, refreshes the real node template, and normally proposes and commits only the replacement."
+    },
+    {
+      "id": "rbf-conflict-recovery",
+      "behavior_ids": ["TP-CACHE-001", "TP-RBF-001"],
+      "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs",
+      "anchor": "RbfOrphanRecovery",
+      "invariants": ["I4", "I9"],
+      "unit_anchors": ["successful_rbf_recovery_cascades_from_accepted_parent_outputs", "model_random_transitions_always_match_full_rebuild"],
+      "boundary": "When a replacement frees only one of two historical inputs, the node recovers exactly the newly eligible victim and retains the still-conflicting victim as rejected."
+    },
+    {
+      "id": "rbf-basic",
+      "behavior_ids": ["TP-RBF-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfBasic",
+      "invariants": ["I2", "I9"],
+      "unit_anchors": ["pipeline_rbf_displaces_lower_fee_tx"],
+      "boundary": "The node enforces the replacement fee rule, exposes the victim as RBFRejected, and commits the accepted higher-fee replacement."
+    },
+    {
+      "id": "rbf-proposed-success",
+      "behavior_ids": ["TP-RBF-001", "TP-TEMPLATE-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfReplaceProposedSuccess",
+      "invariants": ["I2", "I9", "I11"],
+      "unit_anchors": ["pipeline_rbf_displaces_lower_fee_tx", "commit_and_removal_journal_block_assembler_delta"],
+      "boundary": "A higher-fee replacement of a Proposed chain member survives a subsequent blank block, is freshly proposed, and is committed while the displaced closure remains rejected."
+    },
+    {
+      "id": "rbf-concurrency",
+      "behavior_ids": ["TP-RBF-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfConcurrency",
+      "invariants": ["I2", "I9"],
+      "unit_anchors": ["pipeline_concurrent_rbf_prefers_highest_fee", "model_random_transitions_always_match_full_rebuild"],
+      "boundary": "Concurrent RPC submissions for one input converge to the unique highest-fee transaction and record every losing candidate as rejected without a recovery livelock."
+    },
+    {
+      "id": "rbf-cycling-attack",
+      "behavior_ids": ["TP-CACHE-001", "TP-RBF-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfCyclingAttack",
+      "invariants": ["I4", "I9"],
+      "unit_anchors": ["successful_rbf_recovery_cascades_from_accepted_parent_outputs", "model_random_transitions_always_match_full_rebuild"],
+      "boundary": "A cyclic sequence of overlapping replacements recovers the transaction whose input becomes free and does not resurrect transactions whose inputs remain consumed."
+    },
+    {
+      "id": "rbf-cell-deps",
+      "behavior_ids": ["TP-RBF-001", "TP-POOL-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfCellDepsCheck",
+      "invariants": ["I2", "I9", "I10"],
+      "unit_anchors": ["rbf_rejects_dep_group_member_from_replacement_victim"],
+      "boundary": "Final node admission rejects a replacement that depends on a cell from its victim closure and records the failed candidate without corrupting the accepted pool graph."
+    }
   ]
 }

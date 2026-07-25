@@ -113,6 +113,35 @@ struct TxParents {
     cell_ref: HashSet<ProposalShortId>,
 }
 
+/// The canonical out-point memberships published for one accepted entry.
+///
+/// Transaction and dep-group resolution may expose the same out-point more
+/// than once. The reverse indexes are sets, so validation, publication and
+/// removal must all operate on this same normalized keyset. Replaying the raw
+/// iterator during removal would otherwise try to delete one logical
+/// membership twice and turn a valid transaction into an authoritative
+/// invariant failure.
+struct EntryOutPointEdges {
+    inputs: HashSet<OutPoint>,
+    deps: HashSet<OutPoint>,
+}
+
+impl EntryOutPointEdges {
+    fn from_entry(entry: &TxEntry) -> Self {
+        let inputs = entry
+            .transaction()
+            .input_pts_iter()
+            .map(|out_point| crate::util::compact_packed(&out_point))
+            .collect::<HashSet<_>>();
+        let deps = entry
+            .related_dep_out_points()
+            .filter(|out_point| !inputs.contains(*out_point))
+            .map(crate::util::compact_packed)
+            .collect::<HashSet<_>>();
+        Self { inputs, deps }
+    }
+}
+
 /// Aggregated statistics tracked by [`PoolMap`].
 #[derive(Default)]
 pub struct PoolStats {
@@ -354,7 +383,8 @@ impl PoolMap {
         // only written at step 5 and a rejected entry leaves no ghost nodes.
         // Escape-hatch removals are held in this call's local undo cohort and
         // restored before an error crosses the PoolMap authority boundary.
-        self.pre_validate_entry_inputs(&entry)?;
+        let out_point_edges = EntryOutPointEdges::from_entry(&entry);
+        self.pre_validate_entry_inputs(&out_point_edges)?;
         self.update_stat_for_add_tx(entry.size, entry.resident_size(), entry.cycles)?;
 
         let mut evicted = Vec::new();
@@ -365,13 +395,13 @@ impl PoolMap {
                 return Err(reject);
             }
         };
-        if let Err(reject) = self.pre_validate_entry_deps(&entry) {
+        if let Err(reject) = self.pre_validate_entry_deps(&out_point_edges) {
             self.restore_failed_add_evictions(evicted);
             return Err(reject);
         }
         self.commit_ancestor_links(tx_short_id, parents);
 
-        self.record_entry_edges(&entry);
+        self.record_entry_edges(&entry, &out_point_edges);
         // Link children that entered the pool *before* this entry and fold
         // their weight into the entry's own descendant statistics — before
         // `insert_entry` freezes the derived keys, so the evict key already
@@ -471,16 +501,14 @@ impl PoolMap {
     /// `check_rtx` or removed by `process_rbf`), so this should never fail;
     /// between this check and `record_entry_edges` the only mutation is
     /// ancestor eviction, which frees inputs but never occupies new ones.
-    fn pre_validate_entry_inputs(&self, entry: &TxEntry) -> Result<(), Reject> {
-        for i in entry.transaction().input_pts_iter() {
-            if let Some(conflict) = self.out_point_index.get_input_ref(&i) {
+    fn pre_validate_entry_inputs(&self, edges: &EntryOutPointEdges) -> Result<(), Reject> {
+        for input in &edges.inputs {
+            if let Some(conflict) = self.out_point_index.get_input_ref(input) {
                 debug!(
                     "pre_validate_entry_inputs: input {:?} already consumed by {}",
-                    i, conflict
+                    input, conflict
                 );
-                return Err(Reject::Resolve(OutPointError::Dead(
-                    crate::util::compact_packed(&i),
-                )));
+                return Err(Reject::Resolve(OutPointError::Dead(input.clone())));
             }
         }
         Ok(())
@@ -493,16 +521,10 @@ impl PoolMap {
     /// Must run *after* `check_and_record_ancestors`: evicting a
     /// cell_ref_parent can free a dep conflict, and rejecting before eviction
     /// would turn a previously acceptable transaction away.
-    fn pre_validate_entry_deps(&self, entry: &TxEntry) -> Result<(), Reject> {
-        let inputs: HashSet<OutPoint> = entry.transaction().input_pts_iter().collect();
-        for d in entry.related_dep_out_points() {
-            if inputs.contains(d) {
-                continue;
-            }
-            if self.out_point_index.get_input_ref(d).is_some() {
-                return Err(Reject::Resolve(OutPointError::Dead(
-                    crate::util::compact_packed(d),
-                )));
+    fn pre_validate_entry_deps(&self, edges: &EntryOutPointEdges) -> Result<(), Reject> {
+        for dep in &edges.deps {
+            if self.out_point_index.get_input_ref(dep).is_some() {
+                return Err(Reject::Resolve(OutPointError::Dead(dep.clone())));
             }
         }
         Ok(())
@@ -863,11 +885,9 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_edges(&mut self, entry: &TxEntry) {
+    fn record_entry_edges(&mut self, entry: &TxEntry, edges: &EntryOutPointEdges) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
-        let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
-        let inputs: HashSet<OutPoint> = entry.transaction().input_pts_iter().collect();
 
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
@@ -876,23 +896,17 @@ impl PoolMap {
         // `pre_validate_entry_deps` before this point, and the only mutation
         // in between (ancestor eviction) frees inputs rather than occupying
         // them.
-        for i in &inputs {
+        for input in &edges.inputs {
             self.out_point_index
-                .insert_input(i.to_owned(), tx_short_id.clone())
+                .insert_input(input.clone(), tx_short_id.clone())
                 .expect("entry inputs pre-validated as unoccupied");
         }
 
         // record dep-txid
-        for d in related_dep_out_points {
-            // CKB allows a transaction to reference the same out-point both as
-            // an input and as a cell dep. Such a dep does not represent a
-            // dependency on another tx; it is consumed by this tx itself, so
-            // skip recording it and skip the in-pool input conflict check.
-            if inputs.contains(&d) {
-                continue;
-            }
-            debug_assert!(self.out_point_index.get_input_ref(&d).is_none());
-            self.out_point_index.insert_deps(d, tx_short_id.clone());
+        for dep in &edges.deps {
+            debug_assert!(self.out_point_index.get_input_ref(dep).is_none());
+            self.out_point_index
+                .insert_deps(dep.clone(), tx_short_id.clone());
         }
         // record header_deps
         if !header_deps.is_empty() {
@@ -1299,8 +1313,8 @@ impl PoolMap {
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
         let id = entry.proposal_short_id();
-        let inputs: HashSet<_> = entry.transaction().input_pts_iter().collect();
-        for input in &inputs {
+        let edges = EntryOutPointEdges::from_entry(entry);
+        for input in &edges.inputs {
             // release input record
             let indexed = self
                 .out_point_index
@@ -1308,13 +1322,11 @@ impl PoolMap {
                 .expect("every accepted input has one index owner");
             assert_eq!(indexed, id, "accepted input index owner must match entry");
         }
-        for d in entry.related_dep_out_points().cloned() {
-            if !inputs.contains(&d) {
-                assert!(
-                    self.out_point_index.delete_txid_by_dep(d, &id),
-                    "every accepted dep has a reverse index owner"
-                );
-            }
+        for dep in edges.deps {
+            assert!(
+                self.out_point_index.delete_txid_by_dep(dep, &id),
+                "every accepted dep has a reverse index owner"
+            );
         }
 
         let expected_headers = entry

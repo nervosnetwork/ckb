@@ -22,6 +22,7 @@ DEFAULT_REGISTRY = REPO_ROOT / "tx-pool" / "review-behaviors.json"
 START_MARKER = "<!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->"
 END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
+INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 REQUIRED_INVARIANTS = {f"I{number}" for number in range(1, 13)}
 
 
@@ -63,8 +64,39 @@ def _nonempty_strings(value: object) -> bool:
 
 def validate_registry(registry: dict) -> list[str]:
     errors: list[str] = []
-    if registry.get("schema_version") != 1:
-        errors.append("behavior registry schema_version must be 1")
+    if registry.get("schema_version") != 2:
+        errors.append("behavior registry schema_version must be 2")
+
+    runner = registry.get("integration_runner")
+    if not isinstance(runner, dict):
+        errors.append("behavior registry must declare integration_runner")
+    else:
+        make_target = runner.get("make_target")
+        arguments_variable = runner.get("arguments_variable")
+        common_arguments = runner.get("common_arguments")
+        if not isinstance(make_target, str) or not make_target.strip():
+            errors.append("integration_runner has no make_target")
+        if not isinstance(arguments_variable, str) or not arguments_variable.strip():
+            errors.append("integration_runner has no arguments_variable")
+        if not _nonempty_strings(common_arguments):
+            errors.append("integration_runner has no common_arguments")
+        try:
+            makefile = (REPO_ROOT / "Makefile").read_text()
+        except OSError as error:
+            errors.append(f"cannot read Makefile for integration runner: {error}")
+        else:
+            if isinstance(make_target, str) and re.search(
+                rf"(?m)^{re.escape(make_target)}\s*:", makefile
+            ) is None:
+                errors.append(f"integration make target is absent: {make_target}")
+            if (
+                isinstance(arguments_variable, str)
+                and arguments_variable not in makefile
+            ):
+                errors.append(
+                    f"integration argument variable is absent from Makefile: "
+                    f"{arguments_variable}"
+                )
 
     guide = registry.get("guide")
     if not isinstance(guide, str):
@@ -151,6 +183,12 @@ def validate_registry(registry: dict) -> list[str]:
                 errors.append(f"unit evidence {test!r} has unknown invariants {sorted(unknown)}")
             covered_invariants.update(invariants)
 
+    unit_evidence_by_test = {
+        entry["test"]: entry
+        for entry in unit_evidence
+        if isinstance(entry, dict) and isinstance(entry.get("test"), str)
+    }
+
     integration_evidence = registry.get("integration_evidence")
     if not isinstance(integration_evidence, list):
         errors.append("behavior registry integration_evidence must be a list")
@@ -160,20 +198,38 @@ def validate_registry(registry: dict) -> list[str]:
             errors.append(f"invalid integration evidence entry: {entry!r}")
             continue
         spec_id = entry.get("id")
-        behavior_id = entry.get("behavior_id")
+        integration_behavior_ids = entry.get("behavior_ids")
         path_value = entry.get("path")
         anchor = entry.get("anchor")
         invariants = entry.get("invariants")
+        unit_anchors = entry.get("unit_anchors")
+        boundary = entry.get("boundary")
         if not isinstance(spec_id, str) or not spec_id.strip():
             errors.append(f"integration evidence has no ID: {entry!r}")
         elif spec_id in seen_specs:
             errors.append(f"duplicate integration evidence ID: {spec_id}")
         else:
             seen_specs.add(spec_id)
-        if behavior_id not in behavior_ids:
-            errors.append(f"integration evidence {spec_id!r} uses unknown behavior {behavior_id!r}")
-        else:
-            referenced_behaviors.add(behavior_id)
+        if not _nonempty_strings(integration_behavior_ids):
+            errors.append(f"integration evidence {spec_id!r} has no behavior_ids")
+            integration_behavior_ids = []
+        elif len(integration_behavior_ids) != len(set(integration_behavior_ids)):
+            errors.append(f"integration evidence {spec_id!r} repeats behavior IDs")
+        for behavior_id in integration_behavior_ids:
+            if behavior_id not in behavior_ids:
+                errors.append(
+                    f"integration evidence {spec_id!r} uses unknown behavior "
+                    f"{behavior_id!r}"
+                )
+            else:
+                referenced_behaviors.add(behavior_id)
+        if not isinstance(boundary, str) or not boundary.strip():
+            errors.append(f"integration evidence {spec_id!r} has no boundary assertion")
+        if not _nonempty_strings(unit_anchors):
+            errors.append(f"integration evidence {spec_id!r} has no paired unit anchors")
+            unit_anchors = []
+        elif len(unit_anchors) != len(set(unit_anchors)):
+            errors.append(f"integration evidence {spec_id!r} repeats unit anchors")
         if not _nonempty_strings(invariants):
             errors.append(f"integration evidence {spec_id!r} has no invariants")
         else:
@@ -186,6 +242,10 @@ def validate_registry(registry: dict) -> list[str]:
         if not isinstance(path_value, str) or not isinstance(anchor, str):
             errors.append(f"integration evidence {spec_id!r} has no path/anchor")
             continue
+        if INTEGRATION_SPEC.fullmatch(anchor) is None:
+            errors.append(
+                f"integration evidence {spec_id!r} has invalid runner name {anchor!r}"
+            )
         source_key = (path_value, anchor)
         if source_key in seen_source_anchors:
             errors.append(f"duplicate integration source anchor: {source_key}")
@@ -200,6 +260,28 @@ def validate_registry(registry: dict) -> list[str]:
             errors.append(
                 f"integration evidence {spec_id!r} anchor {anchor!r} is absent from {path_value}"
             )
+        paired_invariants: set[str] = set()
+        for unit_anchor in unit_anchors:
+            unit_entry = unit_evidence_by_test.get(unit_anchor)
+            if unit_entry is None:
+                errors.append(
+                    f"integration evidence {spec_id!r} pairs unknown unit anchor "
+                    f"{unit_anchor!r}"
+                )
+                continue
+            if unit_entry["behavior_id"] not in integration_behavior_ids:
+                errors.append(
+                    f"integration evidence {spec_id!r} pairs unit anchor {unit_anchor!r} "
+                    f"from unrelated behavior {unit_entry['behavior_id']!r}"
+                )
+            paired_invariants.update(unit_entry["invariants"])
+        if isinstance(invariants, list):
+            uncovered = sorted(set(invariants).difference(paired_invariants))
+            if uncovered:
+                errors.append(
+                    f"integration evidence {spec_id!r} has invariants without exact "
+                    f"paired unit coverage: {uncovered}"
+                )
 
     unreferenced = behavior_ids.difference(referenced_behaviors)
     if unreferenced:
@@ -230,15 +312,33 @@ def _markdown(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", "<br>")
 
 
+def integration_command(registry: dict, specs: list[str]) -> str:
+    runner = registry["integration_runner"]
+    arguments = [*runner["common_arguments"], *specs]
+    return (
+        f"make {runner['make_target']} {runner['arguments_variable']}="
+        f"'{ ' '.join(arguments) }'"
+    )
+
+
 def render_generated(registry: dict) -> str:
     units: dict[str, list[dict]] = defaultdict(list)
     specs: dict[str, list[dict]] = defaultdict(list)
     for entry in registry["unit_evidence"]:
         units[entry["behavior_id"]].append(entry)
     for entry in registry["integration_evidence"]:
-        specs[entry["behavior_id"]].append(entry)
+        for behavior_id in entry["behavior_ids"]:
+            specs[behavior_id].append(entry)
 
     lines = [
+        "### Managed process suite",
+        "",
+        "The process-level inventory is executed only through the repository Make target:",
+        "",
+        f"`{integration_command(registry, [entry['anchor'] for entry in registry['integration_evidence']])}`",
+        "",
+        "The security validator checks the same `[integration]` inventory against the executable `ckb-test --list-specs` output in integration CI.",
+        "",
         "### Behavior index",
         "",
         "| ID | Change surfaces | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |",
@@ -292,7 +392,10 @@ def render_generated(registry: dict) -> str:
                     sorted(evidence["invariants"], key=_invariant_key)
                 )
                 lines.append(
-                    f"- `{evidence['id']}`: `{evidence['path']}::{evidence['anchor']}` ({invariants})"
+                    f"- `{evidence['id']}`: `{evidence['path']}::{evidence['anchor']}` "
+                    f"({invariants}) — {_markdown(evidence['boundary'])} "
+                    f"Paired units: {', '.join(f'`{anchor}`' for anchor in evidence['unit_anchors'])}. "
+                    f"Command: `{integration_command(registry, [evidence['anchor']])}`"
                 )
         lines.append("")
     return "\n".join(lines).rstrip()

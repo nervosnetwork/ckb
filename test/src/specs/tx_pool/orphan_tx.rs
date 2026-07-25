@@ -324,15 +324,17 @@ impl Spec for TxPoolOrphanUnordered {
             "tx12 is in orphan pool"
         );
 
-        // set tx12_clone with rpc
+        // Local RPC is synchronous by design even when the same transaction
+        // has a remote orphan owner. It runs against the current snapshot and
+        // reports the still-missing parent; it must not create a second owner
+        // or disturb the remote wait registered above.
         let ret = node0
             .rpc_client()
             .send_transaction_result(tx12_clone.data().into());
+        let error = ret.expect_err("the local retry still has an unresolved parent");
         assert!(
-            ret.err()
-                .unwrap()
-                .to_string()
-                .contains("already exists in transaction_pool")
+            error.to_string().contains("TransactionFailedToResolve"),
+            "unexpected local retry result: {error}"
         );
 
         assert!(

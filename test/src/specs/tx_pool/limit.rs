@@ -100,7 +100,7 @@ impl Spec for TxPoolLimitAncestorCount {
             cell_ref_txs.push(cur.clone());
         }
 
-        // Create a new transaction consume the cell dep, it will be succeed in submit
+        // Create a new transaction that consumes the shared cell dep.
         let input = CellMetaBuilder::from_cell_output(tx_a.output(0).unwrap(), Default::default())
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
@@ -108,21 +108,32 @@ impl Spec for TxPoolLimitAncestorCount {
 
         // now there are 2002 ancestors for the last tx in the pool:
         // 2002 = 2000 ref cell + 1 parent + 1 for self
-        // to make sure this consuming cell dep transaction submitted,
-        // we need to evict 1002 = 2002 - 1000 cell ref transactions
+        // Making it fit would evict 1002 entries in one write-lock transition.
+        // That remote-input-controlled work is deliberately bounded, so an
+        // over-bound request is retryable backpressure and must not partially
+        // mutate the existing pool.
+        let before = node0.get_tip_tx_pool_info();
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
-        assert!(res.is_ok());
-
-        // assert the first 127 in 250 transactions are evicated.
-        for (i, tx) in cell_ref_txs.iter().enumerate() {
-            let res = node0
+        let error = res.expect_err("an over-bound eviction cohort must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("cell-ref eviction exceeds the per-transition limit"),
+            "unexpected rejection: {error}"
+        );
+        let after = node0.get_tip_tx_pool_info();
+        assert_eq!(before.pending, after.pending);
+        assert_eq!(before.proposed, after.proposed);
+        assert_eq!(before.orphan, after.orphan);
+        assert_eq!(before.total_tx_size, after.total_tx_size);
+        assert_eq!(before.total_tx_cycles, after.total_tx_cycles);
+        for tx in &cell_ref_txs {
+            let result = node0
                 .rpc_client()
                 .get_transaction_with_verbosity(tx.hash(), 2);
-            if i < 1002 {
-                assert!(matches!(res.tx_status.status, Status::Rejected));
-            }
+            assert!(matches!(result.tx_status.status, Status::Pending));
         }
 
         // create a transaction chain

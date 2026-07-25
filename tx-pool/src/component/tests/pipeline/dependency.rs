@@ -1,5 +1,52 @@
 use super::*;
 
+/// One `Unknown` out-point is only the resolver's failure witness. The orphan
+/// wait must retain every declared parent, otherwise relay requests one parent
+/// and discards the others as unsolicited when they arrive.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn resolve_job_registers_all_declared_parents_after_one_unknown_witness() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::resolve_mgr::ResolveStageResult;
+    use crate::resolved_tx::ResolveJob;
+    use ckb_types::packed::Byte32;
+    use std::collections::HashSet;
+
+    let h = harness(0).workers(WorkerSet::None).build();
+    let first_parent = Byte32::new([0x41; 32]);
+    let second_parent = Byte32::new([0x42; 32]);
+    let tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(first_parent.clone(), 0), 0))
+        .input(CellInput::new(OutPoint::new(second_parent.clone(), 0), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(1_000).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
+
+    let result = crate::resolve_mgr::resolve_job(
+        &h.service,
+        ResolveJob::new_at(
+            tx,
+            TxSource::Remote {
+                cycles: 0,
+                peer: 1.into(),
+            },
+            0,
+        ),
+    )
+    .await;
+    assert!(matches!(
+        result,
+        ResolveStageResult::Orphan(parents)
+            if parents == HashSet::from([first_parent, second_parent])
+    ));
+
+    h.cancel.cancel();
+}
+
 /// A parent can commit after a child resolver observed `Unknown` but before
 /// it registers the wait. The atomic TxPool -> coordinator settlement must
 /// requeue the child instead of installing a waiter after the only wake edge.
@@ -1423,11 +1470,12 @@ async fn attached_commit_settles_pre_pool_remote_ingress() {
     h.cancel.cancel();
 }
 
-/// Test that `update_tx_pool_for_reorg` correctly routes retained (detached)
-/// transactions through the pipeline entry point rather than blocking the
-/// write lock with inline verification.
+/// Detached replay uses the synchronous direct entry point after releasing
+/// the pool write lock. A transaction already present in the accepted pool is
+/// an idempotent duplicate, not a failed parent whose dependents may be
+/// cascade-removed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn pipeline_reorg_routes_retained_txs_through_classify() {
+async fn reorg_direct_replay_treats_pool_duplicates_as_idempotent() {
     use std::collections::{HashSet, VecDeque};
 
     let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(3);
@@ -1476,12 +1524,11 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
     let detached_proposal_id: HashSet<ProposalShortId> = HashSet::new();
     let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
 
-    // Trigger the reorg. This should call classify_and_enqueue_tx for each
-    // retained tx after releasing the write lock. The calls will fail with
-    // "already in pool" errors (expected), but the critical thing is:
+    // Trigger the reorg. Direct replay observes both retained transactions as
+    // already accepted. The critical contract is:
     // - No panic
     // - Pool remains consistent
-    // - classify_and_enqueue_tx is exercised
+    // - No dependent is removed as a consequence of the duplicate result
     service
         .update_tx_pool_for_reorg(
             detached_blocks,
@@ -1492,7 +1539,7 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
         .await
         .unwrap();
 
-    // Give the pipeline a moment to process any classify_and_enqueue_tx calls.
+    // Allow any effects bound by the reorg transaction to settle.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Pool should still contain all 3 txs (reorg didn't remove anything

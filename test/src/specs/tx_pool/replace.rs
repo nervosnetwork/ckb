@@ -860,8 +860,8 @@ impl Spec for RbfReplaceProposedSuccess {
 
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
-        // since old tx is already in BlockAssembler,
-        // tx1 will be committed, even it is not in tx_pool and with `Rejected` status now
+        // The level-triggered assembler must discard the displaced victim,
+        // freshly propose the replacement, and commit that replacement.
         let ret = wait_until(20, || {
             let res = rpc_client0.get_transaction(tx2.hash());
             res.tx_status.status == Status::Committed

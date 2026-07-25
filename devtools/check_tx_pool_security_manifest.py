@@ -35,6 +35,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="also fail while the manifest contains an explicit release blocker",
     )
+    parser.add_argument(
+        "--integration-spec-list",
+        type=Path,
+        help="ckb-test --list-specs output used to verify managed integration names",
+    )
+    parser.add_argument(
+        "--integration-only",
+        action="store_true",
+        help="validate only the managed integration inventory against --integration-spec-list",
+    )
     return parser.parse_args()
 
 
@@ -125,54 +135,178 @@ def inventory_path(manifest: dict) -> Path:
     return path
 
 
-def write_test_inventory(path: Path, tests: set[str]) -> None:
-    path.write_text("".join(f"{test}\n" for test in sorted(tests)))
+def integration_specs(registry: dict) -> set[str]:
+    return {entry["anchor"] for entry in registry["integration_evidence"]}
 
 
-def validate_test_inventory(manifest: dict, tests: set[str]) -> list[str]:
-    path = inventory_path(manifest)
+def write_test_inventory(
+    path: Path, unit_tests: set[str], managed_integration_specs: set[str]
+) -> None:
+    sections = (
+        ("unit", sorted(unit_tests)),
+        ("integration", sorted(managed_integration_specs)),
+    )
+    rendered: list[str] = []
+    for index, (section, names) in enumerate(sections):
+        if index:
+            rendered.append("")
+        rendered.append(f"[{section}]")
+        rendered.extend(names)
+    path.write_text("\n".join(rendered) + "\n")
+
+
+def read_test_inventory(path: Path) -> tuple[dict[str, list[str]], list[str]]:
     try:
-        lines = [line for line in path.read_text().splitlines() if line]
+        lines = path.read_text().splitlines()
     except OSError as error:
-        return [f"cannot read test inventory {path}: {error}"]
+        return {}, [f"cannot read test inventory {path}: {error}"]
 
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
     errors: list[str] = []
-    if lines != sorted(lines):
-        errors.append("test inventory is not sorted")
-    if len(lines) != len(set(lines)):
-        errors.append("test inventory contains duplicate names")
-    expected_count = manifest["test_inventory"].get("test_count")
-    if expected_count != len(lines):
+    for line_number, raw_line in enumerate(lines, 1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+            if section not in ("unit", "integration"):
+                errors.append(f"unknown test inventory section {line!r}")
+                current = None
+            elif section in sections:
+                errors.append(f"duplicate test inventory section [{section}]")
+                current = section
+            else:
+                sections[section] = []
+                current = section
+            continue
+        if current is None:
+            errors.append(
+                f"test inventory name outside a section at line {line_number}: {line}"
+            )
+            continue
+        sections[current].append(line)
+
+    if list(sections) != ["unit", "integration"]:
+        errors.append("test inventory sections must be ordered [unit], [integration]")
+    for section in ("unit", "integration"):
+        names = sections.get(section, [])
+        if names != sorted(names):
+            errors.append(f"[{section}] test inventory is not sorted")
+        if len(names) != len(set(names)):
+            errors.append(f"[{section}] test inventory contains duplicate names")
+    return sections, errors
+
+
+def load_integration_spec_list(path: Path) -> tuple[set[str], list[str]]:
+    try:
+        names = [line.strip() for line in path.read_text().splitlines() if line.strip()]
+    except OSError as error:
+        return set(), [f"cannot read integration spec list {path}: {error}"]
+    errors: list[str] = []
+    if names != sorted(names):
+        errors.append("ckb-test integration spec list is not sorted")
+    if len(names) != len(set(names)):
+        errors.append("ckb-test integration spec list contains duplicate names")
+    return set(names), errors
+
+
+def validate_test_inventory(
+    manifest: dict,
+    registry: dict,
+    unit_tests: set[str] | None,
+    discovered_integration_specs: set[str] | None,
+) -> list[str]:
+    path = inventory_path(manifest)
+    sections, errors = read_test_inventory(path)
+    unit_names = sections.get("unit", [])
+    integration_names = sections.get("integration", [])
+
+    expected_unit_count = manifest["test_inventory"].get("unit_test_count")
+    if expected_unit_count != len(unit_names):
         errors.append(
-            f"test inventory declares {expected_count} tests but contains {len(lines)} names"
+            f"test inventory declares {expected_unit_count} unit tests but contains "
+            f"{len(unit_names)} names"
+        )
+    expected_integration_count = manifest["test_inventory"].get(
+        "integration_spec_count"
+    )
+    if expected_integration_count != len(integration_names):
+        errors.append(
+            f"test inventory declares {expected_integration_count} integration specs but "
+            f"contains {len(integration_names)} names"
         )
 
-    expected = set(lines)
-    missing = sorted(expected.difference(tests))
-    unexpected = sorted(tests.difference(expected))
-    if missing:
-        errors.append(f"test inventory names no longer discovered: {missing}")
-    if unexpected:
-        errors.append(f"new tests absent from test inventory: {unexpected}")
+    expected_units = set(unit_names)
+    if unit_tests is not None:
+        missing = sorted(expected_units.difference(unit_tests))
+        unexpected = sorted(unit_tests.difference(expected_units))
+        if missing:
+            errors.append(f"unit inventory names no longer discovered: {missing}")
+        if unexpected:
+            errors.append(f"new unit tests absent from inventory: {unexpected}")
+
+    registered_integration = integration_specs(registry)
+    inventoried_integration = set(integration_names)
+    missing_from_inventory = sorted(
+        registered_integration.difference(inventoried_integration)
+    )
+    stale_inventory = sorted(inventoried_integration.difference(registered_integration))
+    if missing_from_inventory:
+        errors.append(
+            f"managed integration specs absent from inventory: {missing_from_inventory}"
+        )
+    if stale_inventory:
+        errors.append(
+            f"integration inventory names absent from behavior registry: {stale_inventory}"
+        )
+    if discovered_integration_specs is not None:
+        absent_from_runner = sorted(
+            inventoried_integration.difference(discovered_integration_specs)
+        )
+        if absent_from_runner:
+            errors.append(
+                f"managed integration specs absent from ckb-test --list-specs: "
+                f"{absent_from_runner}"
+            )
     return errors
 
 
 def main() -> int:
     args = parse_args()
+    if args.integration_only and args.integration_spec_list is None:
+        raise SystemExit("--integration-only requires --integration-spec-list")
+    if args.integration_only and args.update_inventory:
+        raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 3:
-        raise SystemExit("security manifest schema_version must be 3")
+    if manifest.get("schema_version") != 4:
+        raise SystemExit("security manifest schema_version must be 4")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"
         )
     registry = load_registry(registry_path(manifest))
-    tests, test_count = discover_tests(manifest)
-    if args.update_inventory:
-        write_test_inventory(inventory_path(manifest), tests)
     errors = validate_registry(registry)
-    errors.extend(validate_test_anchors(registry, tests))
-    errors.extend(validate_test_inventory(manifest, tests))
+    discovered_integration_specs: set[str] | None = None
+    if args.integration_spec_list is not None:
+        discovered_integration_specs, integration_errors = load_integration_spec_list(
+            args.integration_spec_list
+        )
+        errors.extend(integration_errors)
+
+    test_count: int | None = None
+    if args.integration_only:
+        tests = None
+    else:
+        tests, test_count = discover_tests(manifest)
+        if args.update_inventory:
+            write_test_inventory(inventory_path(manifest), tests, integration_specs(registry))
+        errors.extend(validate_test_anchors(registry, tests))
+    errors.extend(
+        validate_test_inventory(
+            manifest, registry, tests, discovered_integration_specs
+        )
+    )
     blockers = manifest.get("release_blockers", [])
     if args.release and blockers:
         errors.extend(
@@ -182,15 +316,27 @@ def main() -> int:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
+    if args.integration_only:
+        print(
+            f"validated {len(integration_specs(registry))} managed integration specs "
+            "against ckb-test --list-specs"
+        )
+        return 0
+
     baseline = manifest.get("baseline", {}).get("nextest_count")
-    delta = "" if baseline is None else f" (baseline {baseline}, delta {test_count - baseline:+d})"
+    assert test_count is not None
+    delta = (
+        ""
+        if baseline is None
+        else f" (baseline {baseline}, delta {test_count - baseline:+d})"
+    )
     evidence = invariant_unit_evidence(registry)
     references = sum(map(len, evidence.values()))
     unique_tests = len(registry["unit_evidence"])
     source_anchors = len(registry["integration_evidence"])
     print(
         f"validated {references} invariant references covering {unique_tests} unique Rust "
-        f"tests and {source_anchors} integration source anchors against "
+        f"tests and {source_anchors} managed integration specs against "
         f"{test_count} nextest tests{delta}; "
         f"{len(blockers)} explicit release blockers remain"
     )

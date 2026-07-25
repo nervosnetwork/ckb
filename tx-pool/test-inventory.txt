@@ -1,3 +1,4 @@
+[unit]
 benchmark::debug_tests::controller_dependent_secp_chain_reverse
 block_assembler::candidate_uncles::tests::accepted_uncle_detaches_from_enclosing_block_backing
 block_assembler::candidate_uncles::tests::full_container_accepts_uncle_at_lowest_existing_height
@@ -90,10 +91,11 @@ component::tests::pipeline::dependency::pipeline_preserves_order_for_dependent_s
 component::tests::pipeline::dependency::pipeline_preserves_order_for_dependent_txs
 component::tests::pipeline::dependency::pipeline_processes_independent_secp_remote_txs
 component::tests::pipeline::dependency::pipeline_rejects_conflicting_double_spend
-component::tests::pipeline::dependency::pipeline_reorg_routes_retained_txs_through_classify
 component::tests::pipeline::dependency::remote_parent_wait_and_unknown_parents_effect_are_one_transition
 component::tests::pipeline::dependency::remove_pool_closure_demotes_consumers_of_removed_descendants
 component::tests::pipeline::dependency::remove_pool_entry_transfers_unblocked_conflict_cache_candidate_once
+component::tests::pipeline::dependency::reorg_direct_replay_treats_pool_duplicates_as_idempotent
+component::tests::pipeline::dependency::resolve_job_registers_all_declared_parents_after_one_unknown_witness
 component::tests::pipeline::failure::authoritative_boundary_failure_disables_pool_persistence
 component::tests::pipeline::failure::coordinator_handoff_panic_preserves_pool_recovery_point
 component::tests::pipeline::failure::coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject
@@ -291,6 +293,7 @@ component::tests::recent_reject::test_basic
 component::tests::reconcile::onchain_reconcile_runs_once_and_sweeps_zombies
 component::tests::reconcile::removing_onchain_overlay_does_not_release_chain_consumed_inputs
 component::tests::score_key::conflict_closure_ignores_ghost_link_nodes
+component::tests::score_key::duplicate_deps_publish_and_remove_one_index_membership
 component::tests::score_key::escape_hatch_never_evicts_a_required_parent
 component::tests::score_key::escape_hatch_rejects_mutation_larger_than_displacement_bound
 component::tests::score_key::escape_hatch_stops_after_one_cascade_makes_ancestry_fit
@@ -338,3 +341,15 @@ util::block_offload_tests::compact_transaction_view_detaches_from_block_backing_
 util::block_offload_tests::current_thread_runtime_executes_inline_without_panicking
 worker::tests::catch_job_panic_captures_panic_and_lets_work_continue
 worker::tests::worker_exits_when_command_channel_dropped
+
+[integration]
+RbfBasic
+RbfCellDepsCheck
+RbfConcurrency
+RbfCyclingAttack
+RbfOrphanRecovery
+RbfRejectReplaceProposed
+RbfReplaceProposedSuccess
+ReorgRecoversDependentChain
+ReorgRecoversDependentPendingTree
+ReorgRecoversDependentTxs

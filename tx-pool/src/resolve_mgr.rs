@@ -53,13 +53,14 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
             })
         }
         Err(reject) if crate::util::is_missing_input(&reject) => {
-            let parents = match &reject {
-                Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(outpoint)) => {
-                    HashSet::from([outpoint.tx_hash()])
-                }
-                _ => job.tx.unique_parents(),
-            };
-            ResolveStageResult::Orphan(parents)
+            // The resolver reports one witness for failure, not the complete
+            // unknown-parent set. Register every declared parent and let the
+            // TxPool -> coordinator settlement filter parents that are
+            // already available. Otherwise a multi-parent orphan requests
+            // only the first missing transaction and valid responses for the
+            // other parents are discarded by relay as unsolicited, leaving
+            // the orphan permanently unable to become ready.
+            ResolveStageResult::Orphan(job.tx.unique_parents())
         }
         Err(reject) => ResolveStageResult::Reject(reject),
     }
