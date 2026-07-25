@@ -257,7 +257,6 @@ async fn stage_verified_remote_candidate(
     peer: ckb_network::PeerIndex,
 ) {
     use crate::component::pipeline_coordinator::{CoordinatorFeeGate, RawStage, WorkerCapability};
-    use crate::component::pipeline_runtime::candidate_charge_bytes;
     use std::collections::HashSet;
 
     let tx_hash = tx.hash();
@@ -290,8 +289,9 @@ async fn stage_verified_remote_candidate(
             verified.candidate.tx_size,
         )
         .unwrap();
-    let charge = candidate_charge_bytes(&verified.candidate)
-        .unwrap()
+    let charge = verified
+        .candidate
+        .resident_size
         .checked_add(std::mem::size_of::<
             crate::component::pipeline_runtime::PipelineVerifiedTx,
         >())

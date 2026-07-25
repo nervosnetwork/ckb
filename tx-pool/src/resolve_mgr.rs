@@ -3,7 +3,7 @@
 use crate::component::pipeline_coordinator::{
     QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule, WorkerCapability,
 };
-use crate::component::pipeline_runtime::{PipelineRawTx, resolved_charge_bytes};
+use crate::component::pipeline_runtime::PipelineRawTx;
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
@@ -144,22 +144,7 @@ impl TxPoolService {
                         .related_dep_out_points()
                         .map(|out_point| crate::util::compact_packed(&out_point.tx_hash()))
                         .collect::<HashSet<_>>();
-                    let charge_bytes = match resolved_charge_bytes(&resolved) {
-                        Ok(charge) => charge,
-                        Err(error) => {
-                            let reject = self.pipeline.runtime.reject_or_fail(
-                                "resolved payload charge violated coordinator invariants",
-                                error,
-                            );
-                            self.settle_pipeline_raw_lease(
-                                &lease,
-                                TerminalDisposition::Rejected,
-                                Some(reject),
-                            )
-                            .await;
-                            return;
-                        }
-                    };
+                    let charge_bytes = resolved.resident_size;
                     let fee_rate = FeeRate::calculate(resolved.fee, resolved.tx_size as u64);
                     let schedule = VerifySchedule::new(
                         fee_rate.as_u64(),

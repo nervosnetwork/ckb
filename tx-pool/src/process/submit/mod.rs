@@ -446,7 +446,7 @@ impl TxPoolService {
                     let Some(lease) = self
                         .pipeline
                         .runtime
-                        .checkout_required("pipeline commit checkout failed", |coordinator| {
+                        .mutate_required("pipeline commit checkout failed", |coordinator| {
                             coordinator.begin_next_commit()
                         })
                     else {

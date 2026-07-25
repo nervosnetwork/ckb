@@ -131,7 +131,7 @@ async fn large_verify_work_wakes_only_a_capable_worker_without_losing_readiness(
             .is_err(),
         "large-cycle work must not wake the small-only verifier"
     );
-    let small = runtime.checkout_required("test small verify checkout", |coordinator| {
+    let small = runtime.mutate_required("test small verify checkout", |coordinator| {
         coordinator.checkout_verify(WorkerCapability::SmallCycleOnly)
     });
     assert!(small.is_none());
@@ -140,7 +140,7 @@ async fn large_verify_work_wakes_only_a_capable_worker_without_losing_readiness(
         .expect("large-cycle work must retain readiness for an Any verifier");
 
     let verify = runtime
-        .checkout_required("test Any verify checkout", |coordinator| {
+        .mutate_required("test Any verify checkout", |coordinator| {
             coordinator.checkout_verify(WorkerCapability::Any)
         })
         .unwrap();

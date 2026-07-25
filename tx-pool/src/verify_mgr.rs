@@ -3,7 +3,7 @@ use crate::component::pipeline_coordinator::{
     CoordinatorError, CoordinatorFeeGate, CoordinatorSource, QueueKind, TerminalDisposition,
     VerifyWorkLease, WorkerCapability,
 };
-use crate::component::pipeline_runtime::{PipelineVerifiedTx, candidate_charge_bytes};
+use crate::component::pipeline_runtime::PipelineVerifiedTx;
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
@@ -302,11 +302,12 @@ impl TxPoolService {
                     return;
                 }
             };
-            let charge_bytes = match candidate_charge_bytes(&verified.candidate).and_then(|bytes| {
-                bytes
-                    .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
-                    .ok_or(CoordinatorError::ResidencyChargeOverflow)
-            }) {
+            let charge_bytes = match verified
+                .candidate
+                .resident_size
+                .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
+                .ok_or(CoordinatorError::ResidencyChargeOverflow)
+            {
                 Ok(charge) => charge,
                 Err(error) => {
                     let reject = self.pipeline.runtime.reject_or_fail(
@@ -430,7 +431,7 @@ impl JobHandler for VerifyHandler {
         self.service
             .pipeline
             .runtime
-            .checkout_required("verify checkout failed", |coordinator| {
+            .mutate_required("verify checkout failed", |coordinator| {
                 coordinator.checkout_verify(capability)
             })
     }

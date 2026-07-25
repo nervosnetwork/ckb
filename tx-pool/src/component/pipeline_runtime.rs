@@ -448,20 +448,6 @@ impl PipelineRuntime {
         }
     }
 
-    /// Checkout readiness is derived after the attempted transition. A
-    /// `None` result therefore cannot wake the same incapable/blocked worker,
-    /// while any independently capable class remains notified.
-    pub(crate) fn checkout_required<T>(
-        &self,
-        context: &'static str,
-        apply: impl FnOnce(&mut ProductionCoordinator) -> Result<Option<T>, CoordinatorError>,
-    ) -> Option<T> {
-        match self.mutate(apply) {
-            Ok(value) => value,
-            Err(error) => self.fail_stop(context, &error),
-        }
-    }
-
     /// Settle work held by a versioned worker lease. A stale lease has already
     /// lost ownership and returns `None`; an error for the still-current owner
     /// is a fail-stop condition rather than a log-and-leak condition.
@@ -638,7 +624,7 @@ impl PipelineRuntime {
     }
 
     pub(crate) fn checkout_raw(&self, stage: RawStage) -> Option<RawWorkLease<PipelineRawTx>> {
-        self.checkout_required("raw checkout failed", |state| state.checkout_raw(stage))
+        self.mutate_required("raw checkout failed", |state| state.checkout_raw(stage))
     }
 
     pub(crate) async fn wait_raw(&self, stage: RawStage) -> Option<RawWorkLease<PipelineRawTx>> {
@@ -682,14 +668,6 @@ pub(crate) fn coordinator_source(source: TxSource) -> CoordinatorSource {
 /// Conservative residency charge for the complete raw + resolved bundle.
 /// `CellMeta::mem_cell_data` is counted because dep-group/code cells can be
 /// much larger than the transaction that references them.
-pub(crate) fn resolved_charge_bytes(resolved: &ResolvedTx) -> Result<usize, CoordinatorError> {
-    Ok(resolved.resident_size)
-}
-
-pub(crate) fn candidate_charge_bytes(candidate: &PoolCandidate) -> Result<usize, CoordinatorError> {
-    Ok(candidate.resident_size)
-}
-
 pub(crate) fn coordinator_reject(error: CoordinatorError) -> Reject {
     use CoordinatorError::*;
     if error.is_capacity_rejection() {
