@@ -1,6 +1,7 @@
 {
   "schema_version": 2,
   "guide": "tx-pool/REVIEW_GUIDE.md",
+  "integration_impact": "tx-pool/integration-impact.json",
   "integration_runner": {
     "make_target": "integration",
     "arguments_variable": "CKB_TEST_ARGS",
@@ -280,6 +281,11 @@
     }
   ],
   "unit_evidence": [
+    {"test": "target_model_declares_exactly_the_frozen_seven_states", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
+    {"test": "target_model_stale_lease_cannot_mutate_a_replaced_witness_owner", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
+    {"test": "target_model_generated_commands_preserve_partition_lease_budget_and_indexes", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5", "I6", "I9"]},
+    {"test": "target_model_exercises_every_plan_outcome_without_partial_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I4"]},
+    {"test": "target_model_wait_wake_and_ready_conflict_use_recomputed_views", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I9"]},
     {"test": "one_entry_and_revision_own_every_payload_phase_until_candidate_handoff", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
     {"test": "active_verification_terminalization_is_causal_and_aba_safe", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
     {"test": "removed_and_readmitted_hash_rejects_the_old_worker_incarnation", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},

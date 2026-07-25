@@ -7,11 +7,12 @@ The behavior/evidence mapping is generated from
 [`review-behaviors.json`](review-behaviors.json); do not edit the generated
 region by hand.
 
-> Architecture status: this guide and [`pipeline.md`](pipeline.md) describe the
-> current HEAD implementation. The frozen replacement candidate is
-> [`REDESIGN.md`](REDESIGN.md) and is intentionally not treated as implemented
-> behavior. Its independent scheme audit must pass before P0 promotes it to
-> `ARCHITECTURE.md` and changes this guide/registry in one reviewed checkpoint.
+> Architecture status: the target model is normative in
+> [`ARCHITECTURE.md`](ARCHITECTURE.md), its
+> independent design audit is recorded in
+> [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), and the staged migration is
+> controlled by [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). Rows in this
+> guide describe implemented behavior unless explicitly labelled as a target.
 
 ## Review workflow
 
@@ -27,11 +28,14 @@ region by hand.
    focused hostile/failure regression in the same PR. Run all CI gates before
    merge.
 
-The key proof obligation is: every transaction occupies exactly one owning
-location at any instant, and resident untrusted state is continuously charged.
-TxPool is the accepted-state authority; PipelineCoordinator is the pre-pool
-authority; ConflictCache owns only bounded non-executable history; EffectOutbox
-owns only bounded stable effects. Derived indexes must never become owners.
+The stable proof obligation is: every transaction occupies exactly one owning
+location at any instant, and every resident or borrowed resource is
+continuously charged. At C1, `PipelineCoordinator`, `ConflictCache` and
+`EffectOutbox` are still the implemented encoding and their regressions remain
+mandatory. The target collapses them into the seven-state `PrePoolKernel` and
+its bounded effect journal while retaining `TxPool` as the sole accepted-state
+authority. Each phase must update a behavior row and its evidence before it
+deletes the old encoding; derived indexes never become owners in either model.
 
 ## Cross-authority gate
 
@@ -40,12 +44,15 @@ ConflictCache, EffectOutbox, reorg recovery, persistence or block assembler:
 
 - Identify the linearization point and prove there is no visible ownership gap
   or overlap.
-- Write the lock/resource order explicitly. The recovery order is
-  `recovery_lock -> effect credit -> TxPool`; publication occurs outside these
-  guards.
-- Prove every failure is either a typed per-transaction outcome with exact undo,
-  a stale no-op, or an invariant/authoritative fail-stop. Hostile input may not
-  reach fail-stop.
+- Write the lock/resource order explicitly. The target universal order is
+  `optional permit -> TxPool -> PrePoolKernel`; no authority guard spans
+  work/I/O/await. The C1 recovery order `recovery_lock -> effect credit ->
+  TxPool` remains a compatibility constraint only until P4 deletes that
+  protocol; no new path may depend on it.
+- Prove every target failure is `Apply`, typed `Reject`, `Backpressure`, `Stale`
+  or one bounded `Repair`. During migration, an old exact-undo/fail-stop path
+  may only be deleted, never copied into the target. Hostile input may not
+  reach service-wide fail-stop.
 - Recompute resource equations for payload, metadata, graph edges, active work,
   mutation plans and retained effects before mutation.
 - Trace every parent, conflict, chain and administrative exit to its dependent
@@ -81,20 +88,77 @@ evidence.
 
 ### Managed process suite
 
-The process-level inventory is executed only through the repository Make target:
+The ten focused security anchors are the minimum process gate for the mapped behavior rows:
 
 `make integration CKB_TEST_ARGS='-c 1 ReorgRecoversDependentPendingTree ReorgRecoversDependentChain ReorgRecoversDependentTxs RbfRejectReplaceProposed RbfOrphanRecovery RbfBasic RbfReplaceProposedSuccess RbfConcurrency RbfCyclingAttack RbfCellDepsCheck'`
 
-The security validator checks the same `[integration]` inventory against the executable `ckb-test --list-specs` output in integration CI.
+The complete tx-pool impact universe contains 149 specs. P6 and release CI run the exact inventory through:
+
+`make integration CKB_TEST_ARGS='-c 1 AvoidDuplicatedProposalsWithUncles BlockSyncDuplicatedAndReconnect BlockSyncForks BlockSyncFromOne BlockSyncNonAncestorBestBlocks BlockSyncOrphanBlocks BlockSyncRelayerCollaboration BlockSyncWithUncle BlockTemplates BlockTransactionsRelayParentOfOrphanBlock CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple CellBeingCellDepThenSpentInSameBlockTestSubmitBlock CellBeingSpentThenCellDepInSameBlockTestSubmitBlock ChainFork1 ChainFork2 ChainFork3 ChainFork4 ChainFork5 ChainFork6 ChainFork7 CheckAbsoluteEpochSince CheckCellDeps CheckRelativeEpochSince CheckTypical2In2OutTx CheckVmBExtension CheckVmVersion1 CheckVmVersion2 CompactBlockEmpty CompactBlockEmptyParentUnknown CompactBlockLoseGetBlockTransactions CompactBlockMissingFreshTxs CompactBlockMissingNotFreshTxs CompactBlockMissingWithDropTx CompactBlockPrefilled CompactBlockRelayLessThenSharedBestKnown CompactBlockRelayParentOfOrphanBlock ConflictInGap ConflictInPending ConflictInProposed DAOWithSatoshiCellOccupied DeclaredWrongCycles DeclaredWrongCyclesAndRelayAgain DeclaredWrongCyclesChunk DepentTxInSameBlock DifferentTxsWithSameInputWithOutRBF DuplicatedTransaction FeeOfMaxBlockProposalsLimit FeeOfMultipleMaxBlockProposalsLimit FeeOfTransaction ForkedTransaction ForksContainSameTransactions ForksContainSameUncle GetRawTxPool HandlingDescendantsOfCommitted HandlingDescendantsOfProposed HeaderSyncCycle InboundMinedDuringSync InboundSync InvalidHeaderDep LoadProgramFailedTx LongForks MalformedTx MiningBasic NotifyLargeCyclesTx OrphanTxAccepted OrphanTxRejected OutboundMinedDuringSync OutboundSync PackUnclesIntoEpochStarting PoolPersisted PoolReconcile PoolResolveConflictAfterReorg PoolResurrect ProposalExpireRuleForCommittingAndExpiredAtOneTime ProposalRespondSizelimit ProposeButNotCommit ProposeDuplicated ProposeOutOfOrder ProposeTransactionButParentNot RbfBasic RbfCellDepsCheck RbfChildPayForParent RbfConcurrency RbfContainInvalidCells RbfContainInvalidInput RbfContainNewTx RbfCyclingAttack RbfEnable RbfOnlyForResolveDead RbfOrphanRecovery RbfRejectReplaceProposed RbfReplaceProposedSuccess RbfSameInput RbfSameInputwithLessFee RbfTooManyDescendants RelayInvalidTransaction RelayInvalidTransactionResumable RelayWithWrongTx RemoveConflictFromPending RemoveTx ReorgHandleProposals ReorgRecoversDependentChain ReorgRecoversDependentPendingTree ReorgRecoversDependentTxs RequestUnverifiedBlocks RpcGetBlockTemplate RpcSubmitBlock RpcTruncate SameCellAsInputAndCellDep SendConflictTxToRelay SendConflictTxToRelayRBF SendLargeCyclesTxInBlock SendLargeCyclesTxToRelay SendLowFeeRateTx SendTxChain SendTxChainRevOrder SizeLimit SpendSatoshiCell SubmitConflict SubmitTransactionWhenItsParentInGap SubmitTransactionWhenItsParentInProposed SyncTooNewBlock TooManyUnknownTransactions TransactionHashCollisionDifferentWitnessHashes TransactionRelayBasic TransactionRelayConflict TransactionRelayEmptyPeers TransactionRelayLowFeeRate TransactionRelayTimeout TxPoolEntryStatus TxPoolLimitAncestorCount TxPoolOrphanDoubleSpend TxPoolOrphanNormal TxPoolOrphanPartialInputUnknown TxPoolOrphanReverse TxPoolOrphanUnordered TxsRelayOrder UncleInheritFromForkBlock UncleInheritFromForkUncle ValidSince WithdrawDAO WithdrawDAOWithOverflowCapacity send_defected_binary_do_not_reject_known_bugs send_defected_binary_reject_known_bugs send_multisig_secp_tx_use_dep_group_data_hash send_multisig_secp_tx_use_dep_group_type_hash send_secp_tx_use_dep_group_data_hash send_secp_tx_use_dep_group_type_hash'`
+
+The security validator checks the same `[integration]` inventory against the executable `ckb-test --list-specs` output in integration CI. The universe deliberately includes mining, RPC, relay, fork/reorg, DAO and hardfork transaction-ingress boundaries instead of treating `test/src/specs/tx_pool` as complete.
+
+| Integration source | Managed specs |
+|---|---|
+| `test/src/specs/tx_pool/collision.rs` | `ConflictInGap`, `ConflictInPending`, `ConflictInProposed`, `DuplicatedTransaction`, `RemoveConflictFromPending`, `SubmitConflict`, `TransactionHashCollisionDifferentWitnessHashes` |
+| `test/src/specs/tx_pool/dead_cell_deps.rs` | `CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate`, `CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple`, `CellBeingCellDepThenSpentInSameBlockTestSubmitBlock`, `CellBeingSpentThenCellDepInSameBlockTestSubmitBlock` |
+| `test/src/specs/tx_pool/declared_wrong_cycles.rs` | `DeclaredWrongCycles`, `DeclaredWrongCyclesAndRelayAgain`, `DeclaredWrongCyclesChunk` |
+| `test/src/specs/tx_pool/depend_tx_in_same_block.rs` | `DepentTxInSameBlock` |
+| `test/src/specs/tx_pool/descendant.rs` | `HandlingDescendantsOfCommitted`, `HandlingDescendantsOfProposed`, `ProposeOutOfOrder`, `ProposeTransactionButParentNot`, `SubmitTransactionWhenItsParentInGap`, `SubmitTransactionWhenItsParentInProposed` |
+| `test/src/specs/tx_pool/different_txs_with_same_input.rs` | `DifferentTxsWithSameInputWithOutRBF` |
+| `test/src/specs/tx_pool/get_raw_tx_pool.rs` | `GetRawTxPool` |
+| `test/src/specs/tx_pool/limit.rs` | `SizeLimit`, `TxPoolLimitAncestorCount` |
+| `test/src/specs/tx_pool/orphan_tx.rs` | `OrphanTxAccepted`, `OrphanTxRejected`, `TxPoolOrphanDoubleSpend`, `TxPoolOrphanNormal`, `TxPoolOrphanPartialInputUnknown`, `TxPoolOrphanReverse`, `TxPoolOrphanUnordered` |
+| `test/src/specs/tx_pool/orphan_tx_recovery.rs` | `RbfOrphanRecovery` |
+| `test/src/specs/tx_pool/pool_persisted.rs` | `PoolPersisted` |
+| `test/src/specs/tx_pool/pool_reconcile.rs` | `PoolReconcile`, `PoolResolveConflictAfterReorg` |
+| `test/src/specs/tx_pool/pool_resurrect.rs` | `InvalidHeaderDep`, `PoolResurrect` |
+| `test/src/specs/tx_pool/proposal_expire_rule.rs` | `ProposalExpireRuleForCommittingAndExpiredAtOneTime` |
+| `test/src/specs/tx_pool/remove_tx.rs` | `RemoveTx` |
+| `test/src/specs/tx_pool/reorg_proposals.rs` | `ReorgHandleProposals` |
+| `test/src/specs/tx_pool/reorg_recovers_dependent.rs` | `ReorgRecoversDependentChain`, `ReorgRecoversDependentPendingTree`, `ReorgRecoversDependentTxs` |
+| `test/src/specs/tx_pool/replace.rs` | `RbfBasic`, `RbfCellDepsCheck`, `RbfChildPayForParent`, `RbfConcurrency`, `RbfContainInvalidCells`, `RbfContainInvalidInput`, `RbfContainNewTx`, `RbfCyclingAttack`, `RbfEnable`, `RbfOnlyForResolveDead`, `RbfRejectReplaceProposed`, `RbfReplaceProposedSuccess`, `RbfSameInput`, `RbfSameInputwithLessFee`, `RbfTooManyDescendants`, `SendConflictTxToRelay`, `SendConflictTxToRelayRBF` |
+| `test/src/specs/tx_pool/same_cell_as_input_and_cell_dep.rs` | `SameCellAsInputAndCellDep` |
+| `test/src/specs/tx_pool/send_defected_binary.rs` | `send_defected_binary_do_not_reject_known_bugs`, `send_defected_binary_reject_known_bugs` |
+| `test/src/specs/tx_pool/send_large_cycles_tx.rs` | `LoadProgramFailedTx`, `NotifyLargeCyclesTx`, `RelayWithWrongTx`, `SendLargeCyclesTxInBlock`, `SendLargeCyclesTxToRelay` |
+| `test/src/specs/tx_pool/send_low_fee_rate_tx.rs` | `SendLowFeeRateTx` |
+| `test/src/specs/tx_pool/send_multisig_secp_tx.rs` | `send_multisig_secp_tx_use_dep_group_data_hash`, `send_multisig_secp_tx_use_dep_group_type_hash` |
+| `test/src/specs/tx_pool/send_secp_tx.rs` | `CheckTypical2In2OutTx`, `send_secp_tx_use_dep_group_data_hash`, `send_secp_tx_use_dep_group_type_hash` |
+| `test/src/specs/tx_pool/send_tx_chain.rs` | `SendTxChain`, `SendTxChainRevOrder` |
+| `test/src/specs/tx_pool/txs_relay_order.rs` | `TxsRelayOrder` |
+| `test/src/specs/tx_pool/valid_since.rs` | `ValidSince` |
+| `test/src/specs/mining/basic.rs` | `BlockTemplates`, `MiningBasic` |
+| `test/src/specs/mining/fee.rs` | `FeeOfMaxBlockProposalsLimit`, `FeeOfMultipleMaxBlockProposalsLimit`, `FeeOfTransaction`, `MalformedTx`, `ProposeButNotCommit`, `ProposeDuplicated` |
+| `test/src/specs/mining/proposal.rs` | `AvoidDuplicatedProposalsWithUncles` |
+| `test/src/specs/mining/uncle.rs` | `PackUnclesIntoEpochStarting`, `UncleInheritFromForkBlock`, `UncleInheritFromForkUncle` |
+| `test/src/specs/rpc/get_block_template.rs` | `RpcGetBlockTemplate` |
+| `test/src/specs/rpc/get_pool.rs` | `TxPoolEntryStatus` |
+| `test/src/specs/rpc/submit_block.rs` | `RpcSubmitBlock` |
+| `test/src/specs/rpc/truncate.rs` | `RpcTruncate` |
+| `test/src/specs/relay/compact_block.rs` | `BlockTransactionsRelayParentOfOrphanBlock`, `CompactBlockEmpty`, `CompactBlockEmptyParentUnknown`, `CompactBlockLoseGetBlockTransactions`, `CompactBlockMissingFreshTxs`, `CompactBlockMissingNotFreshTxs`, `CompactBlockMissingWithDropTx`, `CompactBlockPrefilled`, `CompactBlockRelayLessThenSharedBestKnown`, `CompactBlockRelayParentOfOrphanBlock` |
+| `test/src/specs/relay/get_block_proposal_process.rs` | `ProposalRespondSizelimit` |
+| `test/src/specs/relay/too_many_unknown_transactions.rs` | `TooManyUnknownTransactions` |
+| `test/src/specs/relay/transaction_relay.rs` | `RelayInvalidTransaction`, `RelayInvalidTransactionResumable`, `TransactionRelayBasic`, `TransactionRelayConflict`, `TransactionRelayEmptyPeers`, `TransactionRelayTimeout` |
+| `test/src/specs/relay/transaction_relay_low_fee_rate.rs` | `TransactionRelayLowFeeRate` |
+| `test/src/specs/sync/block_sync.rs` | `BlockSyncDuplicatedAndReconnect`, `BlockSyncForks`, `BlockSyncFromOne`, `BlockSyncNonAncestorBestBlocks`, `BlockSyncOrphanBlocks`, `BlockSyncRelayerCollaboration`, `BlockSyncWithUncle`, `HeaderSyncCycle`, `RequestUnverifiedBlocks`, `SyncTooNewBlock` |
+| `test/src/specs/sync/chain_forks.rs` | `ChainFork1`, `ChainFork2`, `ChainFork3`, `ChainFork4`, `ChainFork5`, `ChainFork6`, `ChainFork7`, `ForkedTransaction`, `ForksContainSameTransactions`, `ForksContainSameUncle`, `LongForks` |
+| `test/src/specs/sync/sync_and_mine.rs` | `InboundMinedDuringSync`, `InboundSync`, `OutboundMinedDuringSync`, `OutboundSync` |
+| `test/src/specs/dao/dao_tx.rs` | `WithdrawDAO`, `WithdrawDAOWithOverflowCapacity` |
+| `test/src/specs/dao/satoshi_dao_occupied.rs` | `DAOWithSatoshiCellOccupied`, `SpendSatoshiCell` |
+| `test/src/specs/hardfork/v2021/cell_deps.rs` | `CheckCellDeps` |
+| `test/src/specs/hardfork/v2021/since.rs` | `CheckAbsoluteEpochSince`, `CheckRelativeEpochSince` |
+| `test/src/specs/hardfork/v2021/vm_b_extension.rs` | `CheckVmBExtension` |
+| `test/src/specs/hardfork/v2021/vm_version1.rs` | `CheckVmVersion1` |
+| `test/src/specs/hardfork/v2023/vm_version2.rs` | `CheckVmVersion2` |
 
 ### Behavior index
 
 | ID | Change surfaces | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |
 |---|---|---|---|---|---|---|
-| `TP-OWN-001` Single pre-pool ownership | `tx-pool/src/component/pipeline_coordinator.rs`<br>`tx-pool/src/component/pipeline_coordinator`<br>`tx-pool/src/component/pipeline_runtime.rs` | An admitted transaction has one coordinator entry, one typed location, one admission incarnation and one current lease revision until an atomic handoff transfers sole authority to TxPool. | A stale worker, duplicate admission, failed transition or ABA remove/readmit race must not create two owners, resurrect an old payload or silently erase the current owner. | I1, I4, I5 | - Does every transition consume exactly the state and lease it proves current?<br>- Are every queue, deadline, dependency and conflict structure derived indexes rather than payload owners?<br>- Does failure restore the old owner or publish one explicit terminal outcome? | No second owner map, compensating queue, global post-transition scan or extra hot-path lock. |
+| `TP-OWN-001` Single pre-pool ownership | `tx-pool/src/component/pipeline_coordinator.rs`<br>`tx-pool/src/component/pipeline_coordinator`<br>`tx-pool/src/component/pipeline_runtime.rs` | An admitted transaction has one coordinator entry, one typed location, one admission incarnation and one current lease revision until an atomic handoff transfers sole authority to TxPool. | A stale worker, duplicate admission, failed transition or ABA remove/readmit race must not create two owners, resurrect an old payload or silently erase the current owner. | I1, I4, I5, I6, I9 | - Does every transition consume exactly the state and lease it proves current?<br>- Are every queue, deadline, dependency and conflict structure derived indexes rather than payload owners?<br>- Does failure restore the old owner or publish one explicit terminal outcome? | No second owner map, compensating queue, global post-transition scan or extra hot-path lock. |
 | `TP-COMMIT-001` Authoritative commit and handoff | `tx-pool/src/process/submit`<br>`tx-pool/src/component/pipeline_coordinator/commit.rs`<br>`tx-pool/src/pool.rs` | The existing TxPool write guard is the only final membership/RBF sequencer; tentative pool mutation, coordinator handoff, exact rollback and stable effects form one causally ordered boundary. | Concurrent commits, injected handoff failure or panic must not expose a pool/coordinator ownership gap, strand Committing or report success for a rolled-back mutation. | I1, I2, I3, I4, I7, I8, I9 | - Is every final fee/conflict decision recomputed under the pool write guard?<br>- Can any error release the guard before coordinator settlement and pool rollback are exact?<br>- Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject? | Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation. |
 | `TP-RBF-001` Deterministic RBF preference and rollback | `tx-pool/src/process/submit/rbf_commit.rs`<br>`tx-pool/src/component/pipeline_coordinator/indexes.rs`<br>`tx-pool/src/component/conflict_cache.rs` | Only verified candidates participate in deterministic conflict ordering, while TxPool recomputes the complete replacement closure and both fee gates before atomic victim displacement. | An under-fee, multi-input, dep-group or concurrent candidate must not preempt through speculative state; failed replacement must restore the complete original closure before competitors advance. | I2, I3, I4, I5, I9, I10, I11 | - Is coordinator ordering still provisional rather than an admission verdict?<br>- Are all input and expanded dependency conflicts included in final closure and rollback?<br>- Does every failed path preserve original statuses, accounting and descendant order? | Conflict work stays within indexed bounded cohorts and immutable mutation plans; no full-pool scan under the write guard. |
-| `TP-DEP-001` Causal dependency graph | `tx-pool/src/component/pipeline_coordinator/lifecycle.rs`<br>`tx-pool/src/resolved_tx.rs`<br>`tx-pool/src/component/links.rs` | Raw, resolved and accepted dependency edges—including expanded dep-group members—share complete causal semantics: availability wakes children and definitive loss invalidates them atomically. | Late-discovered parents, transitive cycles, stale resolved children or parent replacement must not strand a child, lose its wake edge or let it commit against unavailable inputs. | I4, I5, I6, I7 | - Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?<br>- Does parent success/failure update reverse edges, accounting and child location in one transition?<br>- Are cascade size and maintenance work explicitly bounded? | Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents. |
+| `TP-DEP-001` Causal dependency graph | `tx-pool/src/component/pipeline_coordinator/lifecycle.rs`<br>`tx-pool/src/resolved_tx.rs`<br>`tx-pool/src/component/links.rs` | Raw, resolved and accepted dependency edges—including expanded dep-group members—share complete causal semantics: availability wakes children and definitive loss invalidates them atomically. | Late-discovered parents, transitive cycles, stale resolved children or parent replacement must not strand a child, lose its wake edge or let it commit against unavailable inputs. | I4, I5, I6, I7, I9 | - Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?<br>- Does parent success/failure update reverse edges, accounting and child location in one transition?<br>- Are cascade size and maintenance work explicitly bounded? | Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents. |
 | `TP-CACHE-001` Conflict-history ownership and wakeup | `tx-pool/src/component/conflict_cache.rs`<br>`tx-pool/src/service/pipeline_ops.rs`<br>`tx-pool/src/process/reorg.rs` | ConflictCache is one bounded non-executable owner until every indexed input and expanded dependency is available; cache-to-coordinator transfer is atomic and generation-safe. | A release observed before another parent becomes live, duplicate metadata enrichment or high-fanout input must not lose the only future wake, duplicate ownership or cause unbounded pool-lock work. | I4, I5, I6, I7, I9 | - Does the cache retain ownership until all recovery outpoints are live?<br>- Can every chain/pool availability edge re-arm a previously examined entry?<br>- Are discovery, generations and fanout work bounded and fair? | Bound history count/bytes and process indexed recovery in fixed fair slices outside population-sized scans. |
 | `TP-BUDGET-001` Continuous hostile-state accounting | `tx-pool/src/component/pipeline_coordinator/capacity.rs`<br>`tx-pool/src/component/effect_outbox.rs`<br>`tx-pool/src/component/conflict_cache.rs` | Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects. | Parking, invalidation, reservation, peer churn or an oversized displacement plan must not refund resident state, evict unrelated stronger work or mutate before proving the bound. | I4, I5, I12 | - Is every owner charged if and only if it is resident?<br>- Are count, bytes, graph edges, victims and active work all bounded before mutation?<br>- Does an impossible peer admission fail before global eviction planning? | Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path. |
 | `TP-WORKER-001` Level-triggered executable readiness | `tx-pool/src/component/pipeline_runtime.rs`<br>`tx-pool/src/service/workers.rs`<br>`tx-pool/src/service/builder.rs` | Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent and subscription/respawn re-arms executable work. | A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers or respawn must not strand executable work. | I4, I5, I12 | - Does notification mean at least one worker of this capability can execute now?<br>- Can a consumed permit be reconstructed from authoritative state after subscribe or respawn?<br>- Does cancellation stop checkout before another self-sustaining wake loop begins? | Readiness checks inspect bounded owner heads/caps only; no polling loop, per-item task or queue-wide scan. |
@@ -121,6 +185,9 @@ Rust evidence:
 - `one_entry_and_revision_own_every_payload_phase_until_candidate_handoff` (I1)
 - `queue_sequence_exhaustion_cannot_strand_transition_reservations` (I4)
 - `removed_and_readmitted_hash_rejects_the_old_worker_incarnation` (I4)
+- `target_model_declares_exactly_the_frozen_seven_states` (I1)
+- `target_model_generated_commands_preserve_partition_lease_budget_and_indexes` (I1, I4, I5, I6, I9)
+- `target_model_stale_lease_cannot_mutate_a_replaced_witness_owner` (I1, I4)
 - `terminalization_cannot_silently_heal_missing_owner_index_membership` (I1, I4, I5)
 
 #### `TP-COMMIT-001` — Authoritative commit and handoff
@@ -135,6 +202,7 @@ Rust evidence:
 - `production_handoff_invariant_settles_then_fails_closed` (I4, I7)
 - `production_pool_coordinator_outbox_fault_matrix_is_atomic` (I1, I3, I4, I8)
 - `second_independent_commit_checkout_waits_for_first_terminal_transition` (I9)
+- `target_model_exercises_every_plan_outcome_without_partial_mutation` (I2, I4)
 
 #### `TP-RBF-001` — Deterministic RBF preference and rollback
 
@@ -179,6 +247,7 @@ Rust evidence:
 - `remote_parent_wait_and_unknown_parents_effect_are_one_transition` (I4)
 - `sort_txs_by_dependencies_orders_parents_before_children` (I6)
 - `successful_resolution_tracks_live_dep_group_members_before_verify` (I6)
+- `target_model_wait_wake_and_ready_conflict_use_recomputed_views` (I6, I9)
 - `transitive_dependency_cycle_is_rejected_before_admission` (I6)
 - `trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale` (I4, I6)
 - `verified_parent_invalidation_is_raw_only_and_releases_conflict_projection` (I5, I6)

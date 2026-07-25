@@ -1,12 +1,12 @@
 # Tx-Pool Root-Cause Redesign — Independent Architecture Audit
 
-Audit subject: [`REDESIGN.md`](REDESIGN.md)  
+Audit subject: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Code checkpoint: `35cabc9b7` plus the preserved pre-redesign correctness/test
 working tree  
 Audit result: **GO with explicitly recorded non-blocking residual risks**  
 Benchmark result: **not run; final performance gate remains open**
 
-This is the read-only scheme audit required by `REDESIGN.md` section 23. It is
+This is the read-only scheme audit required by `ARCHITECTURE.md` section 23. It is
 not evidence that the target has already been implemented. A design finding was
 allowed to change the frozen document only once as part of the concentrated
 revision below; the full gate was then restarted against that revision.
@@ -17,7 +17,7 @@ revision below; the full gate was then restarted against that revision.
 |---|---:|---|
 | current production Rust under `tx-pool/src`, excluding tests and benchmark | 24,236 lines | current checkpoint is not the minimal proof surface |
 | `develop` production Rust under the same definition | 7,297 lines | target must delete materially, not wrap HEAD |
-| current direct production `TxPool.read/write().await` acquisitions | 36 in 11 files | a single global actor/snapshot is not justified; the regex definition is recorded instead of repeating 17/40/52 estimates |
+| current direct production `TxPool.read/write().await` acquisitions | 34 in 11 files | a single global actor/snapshot is not justified; the regex definition is recorded instead of repeating 17/40/52 estimates |
 | historical ledger findings | 152 | these are evidence cases, not 152 independent mechanisms |
 | ledger disposition | 112 Covered; 21 Superseded; 16 Covered/O5 deferred; 3 Accepted | no Open/Partial historical row is hidden by the redesign |
 | review behavior registry | 15 behaviors, 86 unique unit anchors, 10 integration anchors | P0 must remap them to the target model before deleting old encodings |
@@ -25,7 +25,7 @@ revision below; the full gate was then restarted against that revision.
 | transaction ingress / block byte limit | 512,000 / 597,000 bytes | raw wire size is not a sufficient resident/scratch charge |
 | default network peers | 125 | useful attack calibration, but not a tx-pool Sybil guarantee |
 
-The 36-site guard count uses direct `.tx_pool.read().await` and
+The 34-site guard count uses direct `tx_pool.read().await` and
 `.tx_pool.write().await`-shaped production accesses. Wrapper-level logical
 operations can produce a different number. It is topology evidence, not a
 latency measurement.
@@ -260,3 +260,24 @@ local compensating mechanism—if any phase needs:
 
 Every implementation phase ends with the same global audit, not only tests for
 the files changed in that phase.
+
+## 12. P0 whole-architecture review
+
+P0 changed no production Rust behavior. Its purpose was to make the design and
+evidence independently falsifiable before the old encoding is deleted.
+
+| Review surface | P0 result | Correction / evidence |
+|---|---|---|
+| authority and location | PASS | `architecture-contract.json` admits exactly `TxPool` and `PrePoolKernel`, exactly seven pre-pool states and an explicit forbidden-state set |
+| transition and failure semantics | PASS after model correction | the independent model exercises all five Plan outcomes; capacity rejection no longer consumes a version, and an over-budget worker completion terminalizes with typed Backpressure instead of leaving a leased owner |
+| ABA and identity | PASS | stale completion after different-witness replacement is a no-op; full hash, `wtx_hash`, short-ID role and one non-reused `u128` version are machine-readable |
+| derived views and progress | PASS at oracle level | the model independently rebuilds resolve/verify queues, Wait/reverse-dependency views, Ready/global-input order and exact charge after every one of 8,000 generated commands |
+| historical attack coverage | PASS | CI parses ordered ledger IDs 1-152 and composes every I1-I12 row through a non-empty F1-F8, T1-T13 and TP behavior bridge |
+| integration impact completeness | PASS | 149 managed specs replace the earlier 10-anchor subset; validator proves every registered `specs/tx_pool` type, every runtime-named spec and every registered source containing a direct tx-pool boundary is included and present in `ckb-test --list-specs` |
+| resource/performance topology | unchanged | production remains 60 files / 24,236 physical lines; test and benchmark source are reported separately; current direct guard calibration is corrected to 34 sites in 11 files; no benchmark ran |
+| lock/effect/reorg/template/persistence | unchanged and still open for implementation | the contract freezes the target order and effect/authority regions; C1 regressions remain mandatory until their P1-P4 target replacements exist |
+| extensibility/reviewability | PASS | architecture, audit, implementation plan, guide, ledger, manifest, inventory and integration universe are linked; generated evidence rejects drift rather than duplicating handwritten lists |
+
+No section-11 stop condition fired. P1 is authorized only as a vertical
+replacement: it may not wrap the coordinator, retain ConflictCache ownership,
+or introduce an adapter state between the old and target models.

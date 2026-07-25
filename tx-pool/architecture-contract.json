@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "authority_document": "tx-pool/ARCHITECTURE.md",
+  "audit_document": "tx-pool/ARCHITECTURE_AUDIT.md",
+  "review_guide": "tx-pool/REVIEW_GUIDE.md",
+  "historical_ledger": "tx-pool/security-regression-ledger.md",
+  "authorities": ["TxPool", "PrePoolKernel"],
+  "identity": {
+    "ownership_key": "full_tx_hash",
+    "verification_cache_key": "wtx_hash",
+    "proposal_short_id_role": "collision_aware_index_only",
+    "entry_version": "process_global_non_reused_u128"
+  },
+  "prepool_states": [
+    "RecoveryRetained",
+    "ResolveQueued",
+    "ResolveLeased",
+    "Wait",
+    "VerifyQueued",
+    "VerifyLeased",
+    "Ready"
+  ],
+  "forbidden_persistent_states": [
+    "Committing",
+    "Invalidated",
+    "RaceLost",
+    "ConflictOwned",
+    "Undoing"
+  ],
+  "commands": [
+    "admit",
+    "promote",
+    "resolve_checkout",
+    "resolve_complete",
+    "wait_wake_slice",
+    "verify_checkout",
+    "verify_complete",
+    "remove",
+    "expire",
+    "peer_remove",
+    "commit_settle",
+    "chain_reconcile",
+    "generation_change"
+  ],
+  "plan_outcomes": ["Apply", "Reject", "Backpressure", "Stale", "Repair"],
+  "ready_key": [
+    "source_class_Remote_lt_Proposal",
+    "fee_rate_u128_cross_product",
+    "absolute_fee",
+    "earlier_arrival",
+    "smaller_full_hash",
+    "entry_version"
+  ],
+  "lock_order": [
+    "optional_serial_or_work_or_plan_permit",
+    "TxPool_read_or_write",
+    "PrePoolKernel"
+  ],
+  "root_families": {
+    "F1": "ownership_and_ABA",
+    "F2": "accepted_pool_atomicity",
+    "F3": "stable_effects",
+    "F4": "bounded_resources_and_CPU",
+    "F5": "dependency_liveness",
+    "F6": "conflict_recovery",
+    "F7": "chain_admin_and_template_ordering",
+    "F8": "identity_and_accepted_graph"
+  },
+  "target_invariants": {
+    "T1": "Partition",
+    "T2": "Lease",
+    "T3": "Budget",
+    "T4": "WaitExactness",
+    "T5": "ReadyExactness",
+    "T6": "AtomicAcceptance",
+    "T7": "StableEffects",
+    "T8": "BoundedHostility",
+    "T9": "ChainSerialization",
+    "T10": "CriticalSchedulability",
+    "T11": "LevelTriggeredProgress",
+    "T12": "AcceptedStatusExactness",
+    "T13": "TemplateAuthority"
+  },
+  "historical_invariant_bridge": {
+    "I1": {"root_families": ["F1", "F8"], "target_invariants": ["T1", "T2", "T3"], "behavior_ids": ["TP-OWN-001", "TP-IDENTITY-001"]},
+    "I2": {"root_families": ["F2"], "target_invariants": ["T6"], "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001", "TP-POOL-001"]},
+    "I3": {"root_families": ["F2"], "target_invariants": ["T6"], "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001", "TP-POOL-001"]},
+    "I4": {"root_families": ["F1", "F3", "F5", "F6"], "target_invariants": ["T1", "T2", "T4", "T7", "T11"], "behavior_ids": ["TP-OWN-001", "TP-DEP-001", "TP-CACHE-001", "TP-WORKER-001", "TP-ADMIN-001", "TP-EFFECT-001"]},
+    "I5": {"root_families": ["F4"], "target_invariants": ["T3", "T8"], "behavior_ids": ["TP-BUDGET-001", "TP-PERF-001"]},
+    "I6": {"root_families": ["F5"], "target_invariants": ["T4", "T11"], "behavior_ids": ["TP-DEP-001", "TP-CACHE-001"]},
+    "I7": {"root_families": ["F7"], "target_invariants": ["T9", "T10", "T12", "T13"], "behavior_ids": ["TP-REORG-001", "TP-PERSIST-001", "TP-TEMPLATE-001"]},
+    "I8": {"root_families": ["F3"], "target_invariants": ["T7", "T10"], "behavior_ids": ["TP-EFFECT-001", "TP-ADMIN-001", "TP-REORG-001"]},
+    "I9": {"root_families": ["F2", "F6", "F8"], "target_invariants": ["T5", "T6"], "behavior_ids": ["TP-RBF-001", "TP-CACHE-001", "TP-IDENTITY-001"]},
+    "I10": {"root_families": ["F2", "F8"], "target_invariants": ["T6"], "behavior_ids": ["TP-POOL-001", "TP-RBF-001", "TP-IDENTITY-001"]},
+    "I11": {"root_families": ["F7", "F8"], "target_invariants": ["T12", "T13"], "behavior_ids": ["TP-TEMPLATE-001"]},
+    "I12": {"root_families": ["F4", "F7"], "target_invariants": ["T3", "T8", "T10", "T11", "T13"], "behavior_ids": ["TP-PERF-001", "TP-BUDGET-001", "TP-TEMPLATE-001"]}
+  },
+  "effect_regions": [
+    "remote_ordinary_ceiling",
+    "trusted_ordinary_headroom",
+    "replaceable_latest_authority"
+  ],
+  "resource_classes": [
+    "accepted_authority_and_projections",
+    "prepool_entries_and_indexes",
+    "remote",
+    "trusted_and_recovery",
+    "worker_borrowers",
+    "plan_admin_template_effect_borrowers",
+    "disposal_and_emergency_spare"
+  ],
+  "residual_risks": ["R1", "R2", "R3", "R4", "R5", "R6", "R7"],
+  "p0_source_baseline": {
+    "checkpoint": "02e648255",
+    "production_rust_files": 60,
+    "production_rust_lines": 24236,
+    "test_rust_files": 56,
+    "test_rust_lines": 21650,
+    "benchmark_rust_files": 1,
+    "benchmark_rust_lines": 1422,
+    "direct_tx_pool_guard_sites": 34,
+    "direct_tx_pool_guard_files": 11,
+    "line_definition": "physical Rust lines; production excludes every tests directory, tests.rs and benchmark.rs",
+    "guard_definition": "production matches tx_pool.(read|write)().await including nested field access"
+  }
+}

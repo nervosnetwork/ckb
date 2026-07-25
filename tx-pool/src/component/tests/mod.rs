@@ -9,6 +9,7 @@ mod persisted;
 mod pipeline;
 mod pipeline_conflict_model;
 mod pipeline_coordinator;
+mod pre_pool_reference_model;
 mod proposed;
 mod rbf_prevalidation;
 mod recent_reject;

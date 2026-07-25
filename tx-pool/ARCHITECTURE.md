@@ -1,16 +1,16 @@
-# Tx-Pool Root-Cause Redesign
+# Tx-Pool Architecture
 
 Status: independently audited **GO with recorded non-blocking risks**;
 implementation is authorized. Measured performance acceptance remains open.
 
-This document is the recoverable design record for the second architecture
-review. It is deliberately separate from `pipeline.md` while alternatives are
-still being falsified. The accepted result will replace the superseded parts of
-`pipeline.md`; this file is not intended to become a second permanent guide.
-The independent audit starts from
-[`REVIEW_GUIDE.md`](REVIEW_GUIDE.md), whose current behavior rows describe
-HEAD until P0 promotes this frozen candidate to `ARCHITECTURE.md` and updates
-those rows atomically.
+This is the permanent normative architecture contract promoted at P0 after the
+independent audit in [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md). It
+explains why the target is necessary and superior to `develop`, defines the
+finite proof surface, and records rejected alternatives and residual risks.
+[`REVIEW_GUIDE.md`](REVIEW_GUIDE.md) is the behavior-driven review entry point;
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) controls the migration;
+[`pipeline.md`](pipeline.md) remains the historical migration log. If those
+documents disagree about target semantics, this file is authoritative.
 
 ## 1. Decision rule
 
@@ -1024,7 +1024,7 @@ the recommendation to freeze most of the current coordinator is rejected.
 | Exact effects are part of the plan | Correct; v1.2 removes the remaining dynamic-credit premise | Build the immutable typed batch before mutation and check a preallocated ordinary/chain-critical journal region in the final paired Plan; do not carry a permit or reservation across lock acquisition |
 | Readiness is a level-derived predicate | Correct | Exact runnable owner heads are state; notifications remain hints |
 | One global State/actor makes accepted membership a phase | Logically possible but not shown performance-feasible | Reject as default: accepted-pool concurrency is an independently justified authority boundary |
-| All 17 read sites already grab a snapshot and go | False | The audit's explicit regex finds 36 direct production `TxPool` read/write acquisitions in 11 files; `cloned_snapshot()` clones the chain `Snapshot`, not a coherent immutable `PoolMap` |
+| All 17 read sites already grab a snapshot and go | False | The audit's explicit regex finds 34 direct production `TxPool` read/write acquisitions in 11 files; `cloned_snapshot()` clones the chain `Snapshot`, not a coherent immutable `PoolMap` |
 | Publish `Arc<StateSnapshot>` after every Apply with zero-lock reads | Missing the essential data-structure proof | Current PoolMap is mutable hash/B-tree/graph state. Full cloning is `O(pool)` per mutation; structural sharing requires new persistent indexes and allocation/RSS analysis, contradicting “zero new layers” |
 | Pure workers need only immutable payload/lease | Incomplete | Resolution needs accepted-pool cells and chain snapshot. Supplying a global immutable pool snapshot has the cost above; reading current TxPool preserves parallel reads and needs final lease/CAS validation |
 | One actor removes `recovery_lock` | False in v1.0; v1.2 supplies the missing construction | Adopt charged/persistable `RecoveryRetained` ownership in the pre-pool kernel. It removes the cross-await lock without making accepted membership part of a global actor |
@@ -1068,7 +1068,7 @@ architectural improvements:
 
 These are absorbed into sections 8, 15, 18 and 21. The report still does not
 repair its global topology proof: current `cloned_snapshot()` is the chain
-snapshot, not an immutable PoolMap; the calibrated audit finds 36 direct
+snapshot, not an immutable PoolMap; the calibrated audit finds 34 direct
 production guard acquisitions before wrapper-level counting; an
 `Arc<StateSnapshot>` per Apply is `O(pool)` unless a
 new persistent graph/index system is introduced. It also still keeps dual
@@ -1575,7 +1575,7 @@ scheduler protocols merely to make an unmeasured nominal count equal to
 `develop`.
 
 For topology calibration, a reproducible source search on the frozen checkpoint
-finds exactly 36 direct production `TxPool.read/write().await` acquisitions in
+finds exactly 34 direct production `TxPool.read/write().await` acquisitions in
 11 files under the explicit regex used by the audit. Wrapper consumers and
 logical operations can yield a different count, so the design does not repeat
 the external reports' unqualified 17/40/52 figures. The count supports the

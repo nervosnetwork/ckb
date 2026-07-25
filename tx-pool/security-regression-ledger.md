@@ -2,9 +2,12 @@
 
 This ledger is the security gate for the production tx-pool pipeline. It is
 derived from the unchanged historical review notes, validated reports, and
-reorg/template regression. The coordinator cutover is complete; entries below
-are interpreted against the current architecture, not deleted queue/WaitingRoom
-implementations.
+reorg/template regression. The first coordinator cutover is complete, but its
+encoding is being replaced by the audited target in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Entries below remain mandatory behavior
+evidence during the deletion-first migration; their machine-readable I1-I12 to
+F1-F8/T1-T13 bridge is
+[`architecture-contract.json`](architecture-contract.json).
 
 Status meanings:
 
@@ -70,6 +73,7 @@ inventory.
 | Local submission semantics | synchronous direct resolve→verify→submit and definitive RPC result | Accepted by design |
 | Source promotion | remote deadline/charge cancellation, immutable ingress-peer relay settlement, active-lease continuity and derived conflict-rerank regressions | Covered |
 | Verification-cache identity | repository-wide typed `TxVerificationCacheKey` derived only from `TransactionView::witness_hash`; same-raw/different-witness isolation regression | Covered |
+| Target seven-state oracle | five `target_model_*` regressions independently recompute queues, wait/dependency/Ready indexes and charge after generated commands; stale leases and every typed PlanOutcome are explicit | Covered at design/model level; production differential begins P1 |
 
 ## Final-audit risks
 

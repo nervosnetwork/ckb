@@ -45,6 +45,29 @@ def load_registry(path: Path = DEFAULT_REGISTRY) -> dict:
         raise SystemExit(f"cannot load tx-pool behavior registry {path}: {error}") from error
 
 
+def load_integration_impact(registry: dict) -> dict:
+    value = registry.get("integration_impact")
+    if not isinstance(value, str):
+        raise SystemExit("behavior registry must declare integration_impact")
+    try:
+        return json.loads(repo_path(value).read_text())
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot load integration impact {value}: {error}") from error
+
+
+def impact_specs(impact: dict) -> set[str]:
+    groups = impact.get("groups", {})
+    if not isinstance(groups, dict):
+        return set()
+    return {
+        name
+        for names in groups.values()
+        if isinstance(names, list)
+        for name in names
+        if isinstance(name, str)
+    }
+
+
 def repo_path(value: str) -> Path:
     path = (REPO_ROOT / value).resolve()
     try:
@@ -62,10 +85,50 @@ def _nonempty_strings(value: object) -> bool:
     )
 
 
-def validate_registry(registry: dict) -> list[str]:
+def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     errors: list[str] = []
     if registry.get("schema_version") != 2:
         errors.append("behavior registry schema_version must be 2")
+
+    if impact is None:
+        try:
+            impact = load_integration_impact(registry)
+        except SystemExit as error:
+            errors.append(str(error))
+            impact = {}
+    if impact.get("schema_version") != 1:
+        errors.append("integration impact schema_version must be 1")
+    groups = impact.get("groups")
+    if not isinstance(groups, dict) or not groups:
+        errors.append("integration impact groups must be a non-empty object")
+        groups = {}
+    seen_impact: set[str] = set()
+    for path_value, names in groups.items():
+        if not isinstance(path_value, str):
+            errors.append(f"integration impact path is invalid: {path_value!r}")
+            continue
+        try:
+            path = repo_path(path_value)
+        except ValueError as error:
+            errors.append(str(error))
+            continue
+        if not path.is_file():
+            errors.append(f"integration impact source does not exist: {path_value}")
+        if not _nonempty_strings(names):
+            errors.append(f"integration impact group {path_value} has no specs")
+            continue
+        if names != sorted(names):
+            errors.append(f"integration impact group {path_value} is not sorted")
+        for name in names:
+            if not INTEGRATION_SPEC.fullmatch(name):
+                errors.append(f"invalid integration impact spec: {name!r}")
+            if name in seen_impact:
+                errors.append(f"duplicate integration impact spec: {name}")
+            seen_impact.add(name)
+    if len(seen_impact) != 149:
+        errors.append(
+            f"integration impact must contain frozen P0 count 149, found {len(seen_impact)}"
+        )
 
     runner = registry.get("integration_runner")
     if not isinstance(runner, dict):
@@ -283,6 +346,14 @@ def validate_registry(registry: dict) -> list[str]:
                     f"paired unit coverage: {uncovered}"
                 )
 
+    evidence_anchors = {anchor for _, anchor in seen_source_anchors}
+    missing_impact = evidence_anchors.difference(seen_impact)
+    if missing_impact:
+        errors.append(
+            f"security integration evidence absent from impact universe: "
+            f"{sorted(missing_impact)}"
+        )
+
     unreferenced = behavior_ids.difference(referenced_behaviors)
     if unreferenced:
         errors.append(f"behaviors without executable evidence: {sorted(unreferenced)}")
@@ -321,7 +392,7 @@ def integration_command(registry: dict, specs: list[str]) -> str:
     )
 
 
-def render_generated(registry: dict) -> str:
+def render_generated(registry: dict, impact: dict) -> str:
     units: dict[str, list[dict]] = defaultdict(list)
     specs: dict[str, list[dict]] = defaultdict(list)
     for entry in registry["unit_evidence"]:
@@ -330,20 +401,34 @@ def render_generated(registry: dict) -> str:
         for behavior_id in entry["behavior_ids"]:
             specs[behavior_id].append(entry)
 
+    all_impact_specs = sorted(impact_specs(impact))
     lines = [
         "### Managed process suite",
         "",
-        "The process-level inventory is executed only through the repository Make target:",
+        "The ten focused security anchors are the minimum process gate for the mapped behavior rows:",
         "",
         f"`{integration_command(registry, [entry['anchor'] for entry in registry['integration_evidence']])}`",
         "",
-        "The security validator checks the same `[integration]` inventory against the executable `ckb-test --list-specs` output in integration CI.",
+        f"The complete tx-pool impact universe contains {len(all_impact_specs)} specs. P6 and release CI run the exact inventory through:",
+        "",
+        f"`{integration_command(registry, all_impact_specs)}`",
+        "",
+        "The security validator checks the same `[integration]` inventory against the executable `ckb-test --list-specs` output in integration CI. The universe deliberately includes mining, RPC, relay, fork/reorg, DAO and hardfork transaction-ingress boundaries instead of treating `test/src/specs/tx_pool` as complete.",
+        "",
+        "| Integration source | Managed specs |",
+        "|---|---|",
+    ]
+    for path_value, names in impact["groups"].items():
+        lines.append(
+            f"| `{path_value}` | " + ", ".join(f"`{name}`" for name in names) + " |"
+        )
+    lines.extend([
         "",
         "### Behavior index",
         "",
         "| ID | Change surfaces | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |",
         "|---|---|---|---|---|---|---|",
-    ]
+    ])
     for behavior in registry["behaviors"]:
         behavior_id = behavior["id"]
         invariants = sorted(
@@ -414,7 +499,8 @@ def generated_region(guide: str) -> tuple[int, int, str] | None:
 def main() -> int:
     args = parse_args()
     registry = load_registry(args.registry)
-    errors = validate_registry(registry)
+    impact = load_integration_impact(registry)
+    errors = validate_registry(registry, impact)
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -431,7 +517,7 @@ def main() -> int:
         print("error: review guide must contain exactly one ordered generated region", file=sys.stderr)
         return 1
     start, end, actual = region
-    expected = render_generated(registry)
+    expected = render_generated(registry, impact)
     if args.write:
         rewritten = guide[:start] + "\n\n" + expected + "\n\n" + guide[end:]
         guide_path.write_text(rewritten)
@@ -447,7 +533,8 @@ def main() -> int:
     print(
         f"validated {len(registry['behaviors'])} tx-pool behaviors, "
         f"{len(registry['unit_evidence'])} unique Rust tests / {references} invariant "
-        f"references, and {len(registry['integration_evidence'])} integration specs"
+        f"references, {len(registry['integration_evidence'])} security integration anchors, "
+        f"and {len(impact_specs(impact))} managed integration specs"
     )
     return 0
 

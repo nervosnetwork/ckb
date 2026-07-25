@@ -1,6 +1,6 @@
 # Tx-Pool Root-Cause Redesign — Execution Plan
 
-Design authority: [`REDESIGN.md`](REDESIGN.md)  
+Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 

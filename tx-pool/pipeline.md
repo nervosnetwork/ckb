@@ -7,7 +7,8 @@ regression anchors are tracked in
 [`security-regression-ledger.md`](security-regression-ledger.md).
 
 The smaller root-cause replacement is frozen for independent audit in
-[`REDESIGN.md`](REDESIGN.md). Until that audit passes and P0 updates the code
+[`ARCHITECTURE.md`](ARCHITECTURE.md). The audit passed at C1; until each later
+phase updates the code
 and review contracts, this document remains the authority for current HEAD;
 the candidate must not be used to excuse a current implementation regression.
 
@@ -805,3 +806,30 @@ and architecture gates.
 | S5 | Complete (code checkpoint `35cabc9b7`) | Replaced composable nested snapshots with one external-command/one-undo boundary and apply-only internal composition; a second boundary is forbidden and every entry write remains cohort-checked. Exact owner/index exits now reject and roll back drift instead of silently healing it, while the sole transaction exit publishes capacity/conflict victim indexes once; duplicate post-transaction BTree refreshes are deleted. The three snapshot membership contracts share one preallocated collector, fixed worker readiness uses one five-slot array instead of a hot-path `HashMap`, effect publication reuses its existing space notification instead of carrying a production-only test `Notify`, block-assembler wake failure and Pipeline failure guards each have one protocol, and all ordinary stable-effect reservations use the existing required API; the raw reservation seam moved into the test tree. Whole-architecture review retained distinct payload generics, incarnation/revision, audit rebuild, EffectOutbox, ConflictCache, recovery serialization and the `update_full`/reset/optimistic-delta priority contract; further generic monitor/transition abstractions were rejected because their lock/failure semantics differ. From S4 checkpoint `f88ceb54a`, production paths are `+863/-1164`, net −301 lines with all test files excluded; tests are reported separately and provide three new hostile regressions. No lifecycle state, owner, queue, lock, task, scan or dynamic dispatch was added. Fresh gates: 340/340 internal nextest in 27.542s, zero-warning all-target clippy, format/diff checks; benchmark timing remains S7 only. |
 | S6 | Pending | — |
 | S7 | Deferred | Run only after explicit benchmark instruction. |
+
+## 14. Root-cause redesign execution record
+
+Sections 1-13 are the preserved history of the first pipeline cutover and its
+semantic-compaction attempt. They remain useful counterexample evidence, but
+they are not the target architecture. The sole target authority is
+[`ARCHITECTURE.md`](ARCHITECTURE.md); its independent audit is
+[`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), the staged gate is
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), and reviewer-facing
+behavior/test evidence is generated in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
+
+The redesign is deletion-first. A phase that needs another owner, persistent
+state, candidate order, ABA token, rollback layer, reverse lock edge,
+population hot-path scan, uncharged borrower or input-triggerable service
+fail-stop reopens the architecture audit instead of patching forward.
+
+| Checkpoint/phase | State | Global evidence and correction |
+|---|---|---|
+| C1 | Complete (`02e648255`) | Preserved the PoolMap duplicate-edge, orphan-parent, recovered Gap/uncle-template and exact-witness-cache fixes; froze and independently audited the target. 342/342 nextest and the seven focused process regressions passed before checkpoint. No benchmark was run. |
+| P0 / C2 | Complete (checkpoint is the commit containing this row) | Promoted one permanent architecture authority; added the machine-checked two-authority/seven-state/PlanOutcome/lock/identity/root-family contract; proved a total bridge for all 152 historical findings; added a five-test independent recomputing target model; replaced the incomplete ten-spec inventory with 149 managed integration specs across tx_pool, mining, RPC, relay, compact blocks, sync/fork/reorg, DAO and hardfork ingress. Production behavior and production source are unchanged; benchmark remains P7 only. |
+| P1 / C3 | Pending | Replace coordinator/runtime/conflict ownership with the concrete seven-state PrePoolKernel in one vertical cutover and delete the displaced encoding. |
+| P2 / C4 | Pending | Immutable PoolMutationPlan, role-aware graph/selector and deletion of PoolCommitJournal/nested undo. |
+| P3 / C5 | Pending | Stable bounded effect journal and endpoint isolation; delete dynamic effect-credit/fail-stop protocol. |
+| P4 / C6 | Pending | RecoveryRetained, v2 persistence, DefectDomain and exact assembler generation; delete recovery_lock ownership. |
+| P5 / C7 | Pending | Final test/evidence/source-size correctness acceptance. |
+| P6 / C8 | Pending | Run and classify the complete 149-spec process universe through `make integration`. |
+| P7 / C9 | Deferred | Controlled checkpoint/develop A/B benchmark and production performance acceptance. |

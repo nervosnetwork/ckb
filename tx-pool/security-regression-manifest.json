@@ -1,13 +1,15 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
+  "architecture_contract": "tx-pool/architecture-contract.json",
+  "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "35cabc9b73d7d06c7343e72a9464632ecfb88295",
-    "unit_test_count": 342,
-    "integration_spec_count": 10
+    "checkpoint": "02e648255",
+    "unit_test_count": 347,
+    "integration_spec_count": 149
   },
   "baseline": {
     "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
