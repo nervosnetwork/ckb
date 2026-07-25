@@ -14,7 +14,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let front = entry.source.is_proposal();
             let owner = entry.source.queue_owner();
             let is_large_cycle = new_ticket.verify_schedule.is_large_cycle;
-            let queue = self.queue_mut(kind)?;
+            let queue = self.queue_mut(kind);
             queue.remove_live(kind, &old_ticket)?;
             queue.reserve_live(owner, is_large_cycle)?;
             queue.push_reserved(kind, new_ticket, front)?;
@@ -52,13 +52,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     }
 
     pub(crate) fn physical_queue_slots_for_test(&self, kind: QueueKind) -> usize {
-        self.queues.get(&kind).map_or(0, TicketQueue::physical_len)
+        self.queues[kind.index()].physical_len()
     }
 
     pub(crate) fn take_queue_selection_probes_for_test(&mut self, kind: QueueKind) -> usize {
-        self.queues
-            .get_mut(&kind)
-            .map_or(0, TicketQueue::take_selection_probes)
+        self.queues[kind.index()].take_selection_probes()
     }
 
     pub(crate) fn take_capacity_victim_probes_for_test(&self) -> usize {

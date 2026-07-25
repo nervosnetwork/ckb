@@ -253,12 +253,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             }
         }
 
-        for kind in [
-            QueueKind::PreCheck,
-            QueueKind::Resolve,
-            QueueKind::Verify,
-            QueueKind::Commit,
-        ] {
+        for kind in QueueKind::ALL {
             let tickets = expected_queues.remove(&kind).unwrap_or_default();
             let expected_ordering = match kind {
                 QueueKind::Verify => match self.limits.verify_ordering {
@@ -268,7 +263,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 QueueKind::Commit => QueueOrdering::Candidate,
                 QueueKind::PreCheck | QueueKind::Resolve => QueueOrdering::Fifo,
             };
-            let queue = self.queue_mut(kind)?;
+            let queue = self.queue_mut(kind);
             if queue.ordering() != expected_ordering {
                 return Err(CoordinatorError::QueueInvariant(kind));
             }

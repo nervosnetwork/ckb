@@ -106,7 +106,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.live_deadlines.clear();
         self.capacity_victim_index.clear();
         self.candidate_victim_index.clear();
-        for queue in self.queues.values_mut() {
+        for queue in &mut self.queues {
             queue.clear();
         }
         self.global_usage = CoordinatorResidency::default();

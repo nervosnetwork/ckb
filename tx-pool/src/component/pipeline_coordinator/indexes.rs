@@ -565,10 +565,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         force_reticket: &HashSet<Byte32>,
         source_overrides: &HashMap<Byte32, CoordinatorSource>,
     ) -> Result<ConflictTicketPlan, CoordinatorError> {
-        let queue = self
-            .queues
-            .get(&QueueKind::Commit)
-            .ok_or(CoordinatorError::QueueInvariant(QueueKind::Commit))?;
+        let queue = &self.queues[QueueKind::Commit.index()];
         let mut remove = Vec::new();
         let mut add_hashes = Vec::new();
         let mut revise = HashSet::new();
@@ -632,7 +629,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         // Reservation is the final fallible preparation step. Callers create
         // the plan inside an undo transaction, so any later failure rebuilds
         // the queue and cannot strand reservation-only metadata.
-        self.queue_mut(QueueKind::Commit)?
+        self.queue_mut(QueueKind::Commit)
             .reserve_many(owners, false)?;
         let mut revise: Vec<_> = revise.into_iter().collect();
         revise.sort_by(|left, right| left.as_slice().cmp(right.as_slice()));
@@ -649,7 +646,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         plan: &ConflictTicketPlan,
     ) -> Result<(), CoordinatorError> {
         for ticket in &plan.remove {
-            self.queue_mut(QueueKind::Commit)?
+            self.queue_mut(QueueKind::Commit)
                 .remove_live(QueueKind::Commit, ticket)?;
         }
         Ok(())
@@ -744,11 +741,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             tickets.push((entry.ticket(&hash), entry.source.is_proposal()));
         }
         for (ticket, priority) in tickets {
-            self.queue_mut(QueueKind::Commit)?.push_reserved(
-                QueueKind::Commit,
-                ticket,
-                priority,
-            )?;
+            self.queue_mut(QueueKind::Commit)
+                .push_reserved(QueueKind::Commit, ticket, priority)?;
         }
         self.next_queue_sequence = plan.next_queue_sequence;
         Ok(())

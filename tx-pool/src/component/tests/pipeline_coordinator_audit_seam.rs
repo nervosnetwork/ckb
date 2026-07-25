@@ -349,17 +349,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         {
             return Err(CoordinatorAuditError::DeadlineIndex);
         }
-        for kind in [
-            QueueKind::PreCheck,
-            QueueKind::Resolve,
-            QueueKind::Verify,
-            QueueKind::Commit,
-        ] {
+        for kind in QueueKind::ALL {
             let empty = HashSet::new();
             let expected = expected_live.get(&kind).unwrap_or(&empty);
-            let Some(queue) = self.queues.get(&kind) else {
-                return Err(CoordinatorAuditError::QueueLogicalIndex);
-            };
+            let queue = &self.queues[kind.index()];
             let expected_ordering = match kind {
                 QueueKind::Verify => match self.limits.verify_ordering {
                     CoordinatorVerifyOrdering::ArrivalTime => QueueOrdering::Fifo,

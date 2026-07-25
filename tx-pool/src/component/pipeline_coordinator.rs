@@ -41,7 +41,7 @@ pub(crate) struct PipelineCoordinator<R, U, V> {
     dependency_failures: VecDeque<Byte32>,
     dependency_failure_set: HashSet<Byte32>,
     conflicts: StagedConflictIndex,
-    queues: HashMap<QueueKind, TicketQueue>,
+    queues: [TicketQueue; QueueKind::ALL.len()],
     deadlines: BinaryHeap<Reverse<DeadlineTicket>>,
     live_deadlines: HashMap<Byte32, DeadlineTicket>,
     capacity_victim_index: BTreeSet<CapacityVictimKey>,
@@ -102,15 +102,13 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             dependency_failures: VecDeque::new(),
             dependency_failure_set: HashSet::new(),
             conflicts: StagedConflictIndex::default(),
-            queues: HashMap::from([
-                (QueueKind::PreCheck, TicketQueue::new(QueueOrdering::Fifo)),
-                (QueueKind::Resolve, TicketQueue::new(QueueOrdering::Fifo)),
-                (QueueKind::Verify, TicketQueue::new(verify_ordering)),
-                (
-                    QueueKind::Commit,
-                    TicketQueue::new(QueueOrdering::Candidate),
-                ),
-            ]),
+            queues: QueueKind::ALL.map(|kind| {
+                TicketQueue::new(match kind {
+                    QueueKind::PreCheck | QueueKind::Resolve => QueueOrdering::Fifo,
+                    QueueKind::Verify => verify_ordering,
+                    QueueKind::Commit => QueueOrdering::Candidate,
+                })
+            }),
             deadlines: BinaryHeap::new(),
             live_deadlines: HashMap::new(),
             capacity_victim_index: BTreeSet::new(),
@@ -200,7 +198,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     }
 
     pub(crate) fn queue_len(&self, kind: QueueKind) -> usize {
-        self.queues.get(&kind).map_or(0, |queue| queue.live.len())
+        self.queues[kind.index()].live.len()
     }
 
     pub(crate) fn waiting_parent_len(&self) -> usize {

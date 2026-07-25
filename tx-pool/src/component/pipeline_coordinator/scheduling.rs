@@ -24,13 +24,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map(|ticket| ticket.is_some())
     }
 
-    pub(super) fn queue_mut(
-        &mut self,
-        kind: QueueKind,
-    ) -> Result<&mut TicketQueue, CoordinatorError> {
-        self.queues
-            .get_mut(&kind)
-            .ok_or(CoordinatorError::QueueInvariant(kind))
+    pub(super) fn queue_mut(&mut self, kind: QueueKind) -> &mut TicketQueue {
+        &mut self.queues[kind.index()]
     }
 
     pub(super) fn peek_live_ticket(
@@ -43,10 +38,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
         let per_peer_limit = self.limits.max_active_work_per_peer;
         let active_by_peer = &self.active_work_by_peer;
-        let queue = self
-            .queues
-            .get_mut(&kind)
-            .ok_or(CoordinatorError::QueueInvariant(kind))?;
+        let queue = &mut self.queues[kind.index()];
         Ok(queue.peek_eligible(capability, |owner| match owner {
             QueueOwner::Trusted => true,
             QueueOwner::Remote(peer) => {
@@ -60,7 +52,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         kind: QueueKind,
         ticket: &CoordinatorTicket,
     ) -> Result<(), CoordinatorError> {
-        let queue = self.queue_mut(kind)?;
+        let queue = self.queue_mut(kind);
         queue.consume(kind, ticket)
     }
 
@@ -75,7 +67,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             return Ok(());
         };
         let ticket = entry.ticket(hash);
-        let queue = self.queue_mut(kind)?;
+        let queue = self.queue_mut(kind);
         queue.remove_live(kind, &ticket)?;
         queue.compact();
         Ok(())

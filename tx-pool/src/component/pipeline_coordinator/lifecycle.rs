@@ -175,7 +175,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             RawStage::PreCheck => QueueKind::PreCheck,
             RawStage::Resolve => QueueKind::Resolve,
         };
-        self.queue_mut(queue_kind)?
+        self.queue_mut(queue_kind)
             .reserve_live(source.queue_owner(), false)?;
         if expires_at.is_some() {
             self.deadlines
@@ -238,7 +238,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             self.live_deadlines.insert(hash.clone(), deadline);
         }
         self.insert_absent_entry(hash, entry)?;
-        self.queue_mut(queue_kind)?
+        self.queue_mut(queue_kind)
             .push_reserved(queue_kind, ticket, source.is_proposal())?;
         Ok(CoordinatorVersion {
             incarnation,
@@ -391,7 +391,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.with_entry_undo(&undo, |coordinator| {
             if reticket {
                 coordinator
-                    .queue_mut(target_queue_kind.ok_or(CoordinatorError::SourceDowngrade)?)?
+                    .queue_mut(target_queue_kind.ok_or(CoordinatorError::SourceDowngrade)?)
                     .reserve_live(
                         target.queue_owner(),
                         old_ticket.verify_schedule.is_large_cycle,
@@ -493,11 +493,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 coordinator.next_queue_sequence = next_sequence;
                 if let Some(old_kind) = queue_kind {
                     coordinator
-                        .queue_mut(old_kind)?
+                        .queue_mut(old_kind)
                         .remove_live(old_kind, &old_ticket)?;
                 }
                 let kind = target_queue_kind.ok_or(CoordinatorError::SourceDowngrade)?;
-                coordinator.queue_mut(kind)?.push_reserved(
+                coordinator.queue_mut(kind).push_reserved(
                     kind,
                     new_ticket,
                     target.is_proposal(),
@@ -622,7 +622,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 RawStage::Resolve => QueueKind::Resolve,
             };
             coordinator
-                .queue_mut(queue_kind)?
+                .queue_mut(queue_kind)
                 .reserve_live(target.queue_owner(), false)?;
             let (queue_sequence, next_queue_sequence) = coordinator.queue_sequence_range(1)?;
 
@@ -665,7 +665,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             entry.revision += 1;
             let version = entry.version();
             let ticket = entry.ticket(hash);
-            coordinator.queue_mut(queue_kind)?.push_reserved(
+            coordinator.queue_mut(queue_kind).push_reserved(
                 queue_kind,
                 ticket,
                 target.is_proposal(),
@@ -802,7 +802,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
             if requeue {
                 coordinator
-                    .queue_mut(QueueKind::Resolve)?
+                    .queue_mut(QueueKind::Resolve)
                     .reserve_live(source.queue_owner(), false)?;
             }
             coordinator.deactivate_source(source)?;
@@ -844,7 +844,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
                 let ticket = entry.ticket(&lease.hash);
                 let priority = entry.source.is_proposal();
-                coordinator.queue_mut(QueueKind::Resolve)?.push_reserved(
+                coordinator.queue_mut(QueueKind::Resolve).push_reserved(
                     QueueKind::Resolve,
                     ticket,
                     priority,
@@ -934,7 +934,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .get(&lease.hash)
             .map(|entry| entry.source)
             .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-        self.queue_mut(QueueKind::Verify)?
+        self.queue_mut(QueueKind::Verify)
             .reserve_live(source.queue_owner(), verify_schedule.is_large_cycle)?;
         let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
         self.deactivate_source(source)?;
@@ -963,7 +963,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let version = entry.version();
         let ticket = entry.ticket(&lease.hash);
         let front = entry.source.is_proposal();
-        self.queue_mut(QueueKind::Verify)?
+        self.queue_mut(QueueKind::Verify)
             .push_reserved(QueueKind::Verify, ticket, front)?;
         self.next_queue_sequence = next_queue_sequence;
         Ok(version)
@@ -1043,7 +1043,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let (queue_sequence, next_queue_sequence) = self.queue_sequence_range(1)?;
         let version = self.with_entry_undo(std::slice::from_ref(&lease.hash), |coordinator| {
             coordinator
-                .queue_mut(kind)?
+                .queue_mut(kind)
                 .reserve_live(source.queue_owner(), false)?;
             coordinator.deactivate_source(source)?;
             let entry = coordinator.entry_mut(&lease.hash)?;
@@ -1057,7 +1057,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let ticket = entry.ticket(&lease.hash);
             let front = entry.source.is_proposal();
             coordinator
-                .queue_mut(kind)?
+                .queue_mut(kind)
                 .push_reserved(kind, ticket, front)?;
             coordinator.next_queue_sequence = next_queue_sequence;
             Ok(version)
@@ -1114,7 +1114,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         let mut queue_sequence = first_queue_sequence;
         self.with_entry_undo(&undo, |coordinator| {
             coordinator
-                .queue_mut(QueueKind::Resolve)?
+                .queue_mut(QueueKind::Resolve)
                 .reserve_many(ready_owners, false)?;
             coordinator.next_queue_sequence = next_queue_sequence;
             for child in affected {
@@ -1148,7 +1148,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     let ticket = entry.ticket(&child);
                     let front = entry.source.is_proposal();
                     coordinator.leave_waiting_parent()?;
-                    coordinator.queue_mut(QueueKind::Resolve)?.push_reserved(
+                    coordinator.queue_mut(QueueKind::Resolve).push_reserved(
                         QueueKind::Resolve,
                         ticket.clone(),
                         front,

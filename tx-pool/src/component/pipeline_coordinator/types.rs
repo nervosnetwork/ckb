@@ -27,6 +27,14 @@ pub(crate) enum QueueKind {
     Commit,
 }
 
+impl QueueKind {
+    pub(super) const ALL: [Self; 4] = [Self::PreCheck, Self::Resolve, Self::Verify, Self::Commit];
+
+    pub(super) const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CoordinatorVerifyOrdering {
     ArrivalTime,
