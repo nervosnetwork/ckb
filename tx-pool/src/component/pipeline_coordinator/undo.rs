@@ -122,6 +122,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.begin_entry_transaction(&cohort)?;
         let outcome = catch_unwind(AssertUnwindSafe(|| apply(self)));
         self.end_entry_transaction(&cohort);
+        let restore_or_panic = |coordinator: &mut Self, snapshot| {
+            if let Err(error) = coordinator.restore_entry_snapshot(
+                snapshot,
+                next_incarnation,
+                next_arrival,
+                next_maintenance_sequence,
+                next_queue_sequence,
+            ) {
+                std::panic::panic_any(error);
+            }
+        };
         match outcome {
             Ok(Ok(value)) => {
                 if outermost {
@@ -130,25 +141,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 Ok(value)
             }
             Ok(Err(error)) => {
-                self.restore_entry_snapshot(
-                    snapshot,
-                    next_incarnation,
-                    next_arrival,
-                    next_maintenance_sequence,
-                    next_queue_sequence,
-                )?;
+                restore_or_panic(self, snapshot);
                 Err(error)
             }
             Err(payload) => {
-                if let Err(error) = self.restore_entry_snapshot(
-                    snapshot,
-                    next_incarnation,
-                    next_arrival,
-                    next_maintenance_sequence,
-                    next_queue_sequence,
-                ) {
-                    std::panic::panic_any(error);
-                }
+                restore_or_panic(self, snapshot);
                 resume_unwind(payload)
             }
         }

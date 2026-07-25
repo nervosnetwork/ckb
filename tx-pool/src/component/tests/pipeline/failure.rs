@@ -131,7 +131,18 @@ fn inconsistent_ingress_source_attribution_is_fail_closed() {
 
 #[test]
 fn coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject() {
-    use crate::component::pipeline_coordinator::{CoordinatorError, QueueKind};
+    use crate::component::pipeline_coordinator::{
+        CoordinatorError, CoordinatorLocation, QueueKind, RawStage,
+    };
+
+    assert!(
+        !CoordinatorError::LocationMismatch {
+            expected: CoordinatorLocation::VerifyActive,
+            actual: CoordinatorLocation::RawActive(RawStage::Resolve),
+        }
+        .is_stale_lease(),
+        "a matching-version location mismatch is an internal protocol failure"
+    );
 
     let (consensus, _) = test_consensus(1);
     let shutdown = CancellationToken::new();

@@ -5163,6 +5163,14 @@ fn undo_cohort_completeness_is_enforced_at_every_entry_write() {
     ));
     assert_eq!(coordinator.view(&escaped).unwrap(), before);
     coordinator.audit().unwrap();
+
+    let rollback_failed = catch_unwind(AssertUnwindSafe(|| {
+        coordinator.make_undo_rebuild_fail_for_test(&snapshotted);
+    }));
+    assert!(
+        rollback_failed.is_err(),
+        "a failed rollback rebuild must not return a downgradeable capacity error"
+    );
 }
 
 #[test]

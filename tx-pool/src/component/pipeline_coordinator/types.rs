@@ -596,8 +596,8 @@ impl CoordinatorError {
 
     /// A worker lease may legitimately lose ownership to clear, dependency
     /// invalidation or another administrative transition while the worker is
-    /// outside the coordinator lock. These errors prove that the caller no
-    /// longer owns the lifecycle transition and may therefore stop quietly.
+    /// outside the coordinator lock. Identity/version errors prove that the
+    /// caller no longer owns the lifecycle transition and may stop quietly.
     ///
     /// Every other error from a lease-terminal or required maintenance path
     /// is an internal progress failure: treating it as best-effort can strand
@@ -608,7 +608,6 @@ impl CoordinatorError {
             Self::Missing(_)
                 | Self::IncarnationMismatch { .. }
                 | Self::RevisionMismatch { .. }
-                | Self::LocationMismatch { .. }
                 | Self::DependencyInvalidated { .. }
         )
     }

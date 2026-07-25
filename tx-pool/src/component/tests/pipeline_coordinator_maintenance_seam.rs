@@ -43,6 +43,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         })
     }
 
+    pub(crate) fn make_undo_rebuild_fail_for_test(&mut self, hash: &Byte32) {
+        let _ = self.with_entry_undo(std::slice::from_ref(hash), |coordinator| {
+            // Limits are immutable in production and intentionally outside an
+            // entry snapshot. Shrinking one here makes rollback reconstruction
+            // fail after restoring the authoritative entry.
+            coordinator.limits.global = CoordinatorResidency::default();
+            Err::<(), _>(CoordinatorError::QueueReservationFailed)
+        });
+    }
+
     pub(crate) fn set_next_maintenance_sequence_for_test(&mut self, sequence: u64) {
         self.next_maintenance_sequence = sequence;
     }
