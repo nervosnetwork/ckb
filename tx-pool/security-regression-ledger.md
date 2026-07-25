@@ -9,6 +9,11 @@ implementations.
 Status meanings:
 
 - **Covered**: a focused automated regression exists.
+- **Guarded by current boundary**: the vulnerable legacy mechanism is gone and
+  the current source boundary plus broader invariant tests enforce the
+  property, but the exact hostile/failure example does not yet have a focused
+  current-architecture regression. These rows are explicit S3 obligations and
+  cannot remain in this state at final acceptance.
 - **Covered; O5 deferred**: correctness and bounded-complexity evidence is
   complete; only measured performance calibration remains in the explicitly
   deferred benchmark gate.
@@ -41,8 +46,11 @@ Status meanings:
 
 This table is authoritative for the present code. The larger historical table
 below retains finding IDs and the evidence available when each item was first
-recorded; names belonging to deleted legacy tests are historical labels, not a
-claim that those functions still compile.
+recorded. Backticked test names in a **Covered** row below name current tests;
+deleted test names are written as historical prose rather than looking like
+executable anchors. Backticked production symbols and process-level spec names
+are source evidence only; `security-regression-manifest.json` remains the sole
+machine-readable executable-evidence authority.
 
 | Boundary | Current evidence | State |
 |---|---|---|
@@ -84,41 +92,41 @@ claim that those functions still compile.
 
 | # | Status | Regression anchor / required follow-up | Target invariant |
 |---:|---|---|---|
-| 1 | Covered | `escape_hatch_eviction_drops_cascaded_parents_from_parent_set` | I3, I10 |
+| 1 | Covered | `escape_hatch_never_evicts_a_required_parent` preserves the required-parent closure and rejects the formerly unsafe cascade without mutation. | I3, I10 |
 | 2 | Covered | `reorg_retain_duplicate_does_not_cascade_dependents` | I4, I7 |
 | 3 | Covered | `worker_exits_when_command_channel_dropped` | I4 |
 | 4 | Superseded | Double parking is unrepresentable: the coordinator entry is the sole pre-pool owner and `WaitingRoom` no longer exists. | I1, I9 |
 | 5 | Superseded | Speculative hold/restore was deleted. Final pool commit recomputes the real conflict closure; no replacement means no victim terminalization. | I2, I9 |
-| 6 | Covered | `find_winner_returns_strongest_with_fee_rate` | I9 |
+| 6 | Superseded | The historical `RbfCandidates::find_winner` side registry was deleted. `higher_verified_candidate_wins_and_removal_activates_loser_synchronously`, `verify_fee_ordering_is_descending_with_proposal_priority_above_fee`, and `pipeline_concurrent_rbf_prefers_highest_fee` cover the coordinator rank and final pool-authority replacement boundaries. | I9 |
 | 7 | Superseded | Payload queue `Full` is deleted. Coordinator admission owns the payload atomically or returns a typed pre-admission rejection; effect capacity is reserved before ordinary mutation. Retryable-capacity classification and the production fault matrix cover resubmission without silent loss. | I4 |
-| 8 | Covered | `remote_duplicate_is_not_relayed_as_reject` | I4, I8 |
+| 8 | Covered | `stale_precheck_cannot_readmit_an_already_accepted_transaction` proves an accepted duplicate settles as `Ok`, while `duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted` proves a merely pre-pool duplicate emits neither a false success nor a relayed rejection. | I4, I8 |
 | 9 | Covered | `malformed_remote_preflight_is_banned_recorded_and_not_relayed` proves the exact policy: malformed remote input bans and enters recent-reject history, but `Reject::is_allowed_relay` intentionally excludes it from relayer retry output. | I4, I8 |
 | 10 | Covered | Final conflict closure and both fee gates are recomputed under the TxPool write guard; coordinator conflict registration is one typed transition. Concurrent, multi-input, under-fee and production RBF integration regressions cover the boundary. | I2, I9 |
 | 11 | Covered | RBF integration family plus recent-reject predicate tests. | I4, I9 |
-| 12 | Covered | `pre_check_worker_notifies_relayer_when_ordered_resolve_queue_is_full` | I4 |
+| 12 | Superseded | The historical downstream ordered-resolve `Full` handoff was deleted. `remote_parent_wait_and_unknown_parents_effect_are_one_transition`, retryable-capacity classification, and the production coordinator/outbox fault matrix cover atomic ownership plus terminal publication without an intermediate payload queue. | I4 |
 | 13 | Superseded | Deferred retry ownership was deleted. Conflict recovery remains cache-owned on `Full`; other coordinator admission failures consume the historical candidate explicitly. | I4 |
 | 14 | Covered | Trusted local missing-parent input fails terminally in the coordinator/direct path; remote waiting has bounded expiry. | I4, I6 |
 | 15 | Superseded | Internal payload queues and their downstream `Full` handoff are deleted. A continuously charged coordinator entry changes an ID-only ticket in one undo-protected transition; queue-sequence exhaustion, parent wake and the production fault matrix prove all-old/all-new ownership. | I4, I6 |
 | 16 | Covered | Ordinary worker-job panics are contained/retried, callback panics are quarantined, and authoritative commit/invariant panics fail-stop with the correct persistence domain. The old promise to continue through an arbitrary panic and emit a terminal relay is intentionally replaced by O7's explicit fail-stop contract. | I1, I4 |
-| 17 | Covered | `remove_tx_reports_in_progress_for_worker_active_job` | I1 |
-| 18 | Covered | `banned_peer_job_is_dropped_by_pre_check_worker` | I4, I5 |
+| 17 | Superseded | A worker-active payload is no longer outside administrative ownership. Removal atomically terminalizes the coordinator entry and makes its versioned lease stale; only the non-cancellable write-locked commit boundary reports `InProgress`, covered by `expiry_and_administrative_remove_cannot_steal_a_committing_lease`. | I1 |
+| 18 | Guarded by current boundary | `remove_banned_peer_entries` selects a bounded peer-owned cohort, atomically terminalizes queued/active entries, and makes checked-out leases stale; `proposal_promotes_active_remote_owner_and_detaches_peer_ban` proves a promoted trusted owner is no longer revoked with the old peer. Add the focused active-remote revocation regression in S3. | I4, I5 |
 | 19 | Superseded | There are no two executable parking rooms; removal addresses accepted pool, coordinator, and non-executable conflict history by full hash. | I1 |
 | 20 | Covered | Successful and failed replacement cascade tests. | I2, I3 |
 | 21 | Covered | `failed_reorg_recovery_cascade_wakes_conflict_history` removes the accepted descendant closure, schedules the released inputs, transfers the eligible historical candidate once, and leaves the cache/index consistent. | I1, I7 |
 | 22 | Superseded | Attached commit consumes coordinator ownership through the typed external-commit handoff; no speculative held-candidate owner remains. | I7, I9 |
 | 23 | Covered | Attached raw-hash identity suppresses detached replay and external commit removes matching coordinator ownership without a false Dead rejection. | I4, I7 |
-| 24 | Covered | `clear_resets_expiry_watermark` | I1 |
-| 25 | Covered | `wake_by_winner_keeps_other_reasons_and_stats_intact` | I1 |
+| 24 | Superseded | The WaitingRoom expiry watermark was deleted. Coordinator clear removes entries, live deadlines and tickets in one undo-protected batch; `clear_is_one_batch_and_ignores_candidate_revision_exhaustion` plus deadline remove/readmit churn cover the replacement boundary. | I1 |
+| 25 | Superseded | `RaceLost` and `wake_by_winner` were deleted. Direct conflict cohorts now change location and accounting in one coordinator transaction; successful handoff and abort/rollback regressions prove unrelated conflict/dependency domains remain intact. | I1 |
 | 26 | Accepted | Conflict audit entries intentionally persist; count/byte budgets are mandatory and target separates audit from executable state. | I1, I5 |
 | 27 | Covered | `parent_added_after_child_gets_descendant_weight` | I10 |
 | 28 | Covered | `conflict_closure_ignores_ghost_link_nodes` | I10 |
-| 29 | Covered | `remove_expired_cascades_to_descendants` | I10 |
+| 29 | Guarded by current boundary | `TxPool::remove_expired` calls the audited `PoolMap::remove_entry_and_descendants` for every expired root, and graph-removal/startup-zombie tests cover the cascade primitive. Add a focused fresh-child/expired-parent reorg regression in S3 so the call-site behavior cannot silently regress. | I10 |
 | 30 | Covered | On-chain reconcile includes cell deps. | I10 |
-| 31 | Covered | `counter_drift_is_recovered_by_recompute` and saturating-counter tests. | I5, I10 |
+| 31 | Covered | `status_counter_underflow_recomputes_from_authoritative_entries` and `limit_size_repairs_high_counter_drift_before_returning` cover status and total-accounting cold repair from authoritative entries. | I5, I10 |
 | 32 | Covered | `failed_commit_restores_all_size_evictions_with_original_status_in_lock` asserts the one terminal `Full` event for the rejected candidate and no terminal event for entries restored from the eviction journal. | I4, I5 |
 | 33 | Covered | `WaitingParents` remains continuously coordinator-resident and charged, so it is visible as in flight. | I6 |
-| 34 | Covered | `dropped_verify_mgr_cancels_its_worker_generation` | I1, I4 |
-| 35 | Covered | `save_pool_waits_for_recovery_lock` | I7 |
+| 34 | Superseded | The detached `VerifyMgr` generation owner was deleted. Supervised retained workers use cancellation barriers and coordinator incarnation/revision leases; `removed_and_readmitted_hash_rejects_the_old_worker_incarnation`, active-verification ABA tests, retained-receiver panic tests, and shutdown persistence tests cover the replacement boundary. | I1, I4 |
+| 35 | Guarded by current boundary | `TxPoolService::save_pool` acquires `recovery_lock` before reading `TxPool`; `clear_during_reorg_recovery_owns_the_final_empty_state` proves the shared recovery serialization and lock order, while persistence tests cover quiesced writes. Restore a focused save-vs-reorg-lock regression in S3. | I7 |
 | 36 | Covered | `clear_during_reorg_recovery_owns_the_final_empty_state` deterministically pauses reorg after it owns recovery serialization, starts clear, proves the detached transaction is re-added, and proves clear is the final accepted/pre-pool state. | I7 |
 | 37 | Covered | `full_and_uncle_updates_share_template_serialization_lock` | I11 |
 | 38 | Covered | All pending/proposed/reject callbacks share the same guarded effect publisher. Reorg regressions prove publication occurs after the authoritative slice with exact final-state coalescing; controller re-entry proves reads succeed and mutations fail fast without consuming dispatcher capacity. | I8 |
@@ -126,11 +134,11 @@ claim that those functions still compile.
 | 40 | Covered | `cancel_during_backoff_exits_immediately` | I4 |
 | 41 | Superseded | Executable recovery no longer uses a channel. Cache ownership survives cancellation until atomic coordinator admission; shutdown no longer has a channel-drain loss window. | I4 |
 | 42 | Superseded | Exact rollback and recovery scheduling both occur under the pool lock. The remaining async channel is best-effort verification cache only and cannot delay ownership settlement. | I4, I5, I8, I12 |
-| 43 | Covered | `zero_max_workers_is_clamped_to_one` | I4 |
+| 43 | Guarded by current boundary | Both production worker construction and message concurrency clamp `max_tx_verify_workers` with `.max(1)`, and high-cap/backpressure runtime tests cover the surrounding worker path. Add a focused zero-worker configuration regression in S3. | I4 |
 | 44 | Covered | `dispatcher_channel_close_quiesces_workers_and_persists_pool` proves sender-drop shutdown cancels and joins workers, drains handlers, and persists accepted state before the dispatcher handle completes. | I4, I7 |
 | 45 | Covered | `clear_pool_resets_template_and_notifies_miner_immediately` exercises clear → reliable Reset delivery → blank template → immediate miner notification. | I8, I11 |
 | 46 | Covered; O5 deferred | Compact-block lookup uses the functional O(1) index and collision-safe identity tests cover correctness. Scaling measurement remains in O5. | I12 |
-| 47 | Covered | `budget_eviction_is_oldest_first` | I5 |
+| 47 | Superseded | The WaitingRoom FIFO budget was deleted. Continuously charged coordinator entries now use bounded per-peer/global reconciliation with deterministic strength/sequence ordering; peer-prefix and global-victim bound regressions cover the replacement policy. | I5 |
 | 48 | Covered; O5 deferred | Bounded batched recovery, probe bounds, level-triggering and end-to-end orphan recovery are covered. Query-count/latency measurement remains in O5. | I6, I12 |
 | 49 | Covered | `uncle_size_matches_basic_block_size_basis` | I11 |
 | 50 | Covered | `uncle_update_keeps_ordered_fitting_prefix_with_checked_accounting` covers exact fit, partial fit, no-fit and inconsistent-ledger rejection. | I11 |

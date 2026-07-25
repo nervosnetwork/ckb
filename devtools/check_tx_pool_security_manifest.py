@@ -19,6 +19,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument(
+        "--update-inventory",
+        action="store_true",
+        help="rewrite the manifest-declared nextest inventory before validating it",
+    )
+    parser.add_argument(
         "--release",
         action="store_true",
         help="also fail while the manifest contains an explicit release blocker",
@@ -91,6 +96,50 @@ def validate_test_anchors(manifest: dict, tests: set[str]) -> list[str]:
     return errors
 
 
+def inventory_path(manifest: dict) -> Path:
+    inventory = manifest.get("test_inventory")
+    if not isinstance(inventory, dict) or not isinstance(inventory.get("path"), str):
+        raise SystemExit("manifest test_inventory.path must be a repository-relative path")
+    path = (REPO_ROOT / inventory["path"]).resolve()
+    try:
+        path.relative_to(REPO_ROOT)
+    except ValueError as error:
+        raise SystemExit(f"test inventory escapes repository root: {path}") from error
+    return path
+
+
+def write_test_inventory(path: Path, tests: set[str]) -> None:
+    path.write_text("".join(f"{test}\n" for test in sorted(tests)))
+
+
+def validate_test_inventory(manifest: dict, tests: set[str]) -> list[str]:
+    path = inventory_path(manifest)
+    try:
+        lines = [line for line in path.read_text().splitlines() if line]
+    except OSError as error:
+        return [f"cannot read test inventory {path}: {error}"]
+
+    errors: list[str] = []
+    if lines != sorted(lines):
+        errors.append("test inventory is not sorted")
+    if len(lines) != len(set(lines)):
+        errors.append("test inventory contains duplicate names")
+    expected_count = manifest["test_inventory"].get("test_count")
+    if expected_count != len(lines):
+        errors.append(
+            f"test inventory declares {expected_count} tests but contains {len(lines)} names"
+        )
+
+    expected = set(lines)
+    missing = sorted(expected.difference(tests))
+    unexpected = sorted(tests.difference(expected))
+    if missing:
+        errors.append(f"test inventory names no longer discovered: {missing}")
+    if unexpected:
+        errors.append(f"new tests absent from test inventory: {unexpected}")
+    return errors
+
+
 def validate_source_anchors(manifest: dict) -> list[str]:
     errors: list[str] = []
     for entry in manifest.get("source_anchors", []):
@@ -111,7 +160,10 @@ def main() -> int:
     args = parse_args()
     manifest = load_manifest(args.manifest)
     tests, test_count = discover_tests(manifest)
+    if args.update_inventory:
+        write_test_inventory(inventory_path(manifest), tests)
     errors = validate_test_anchors(manifest, tests)
+    errors.extend(validate_test_inventory(manifest, tests))
     errors.extend(validate_source_anchors(manifest))
     blockers = manifest.get("release_blockers", [])
     if args.release and blockers:
@@ -124,9 +176,15 @@ def main() -> int:
         return 1
     baseline = manifest.get("baseline", {}).get("nextest_count")
     delta = "" if baseline is None else f" (baseline {baseline}, delta {test_count - baseline:+d})"
+    references = sum(map(len, manifest["evidence"].values()))
+    unique_tests = len(
+        {anchor for anchors in manifest["evidence"].values() for anchor in anchors}
+    )
+    source_anchors = len(manifest.get("source_anchors", []))
     print(
-        f"validated {sum(map(len, manifest['evidence'].values()))} invariant anchors "
-        f"against {test_count} nextest tests{delta}; "
+        f"validated {references} invariant references covering {unique_tests} unique Rust "
+        f"tests and {source_anchors} integration source anchors against "
+        f"{test_count} nextest tests{delta}; "
         f"{len(blockers)} explicit release blockers remain"
     )
     return 0

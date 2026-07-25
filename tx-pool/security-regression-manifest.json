@@ -1,7 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "package": "ckb-tx-pool",
   "features": ["internal"],
+  "test_inventory": {
+    "path": "tx-pool/test-inventory.txt",
+    "checkpoint": "172b9c93579fa78de52d71f9e4ca77acbe7cbc5b",
+    "test_count": 328
+  },
   "baseline": {
     "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
     "nextest_count": 303

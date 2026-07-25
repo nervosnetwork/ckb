@@ -649,3 +649,129 @@ the architectural state without reconstructing chat history.
 | 6 | Complete (checkpoint is the commit containing this row) | Closed the executable evidence against the production cutover: 319/319 isolated tx-pool nextest cases, 19/19 contextual-verifier cases, zero-warning all-target clippy, manifest validation, freshly rebuilt normal-mining reorg 3/3 and RBF success/failure/concurrency/recovery/attack 6/6. Ledger review removed stale prototype-era `Partial`/`Model-covered` labels and routes measurement-only work exclusively to O5. The RBF Proposed integration spec was corrected to require the level-triggered assembler to stop mining a rejected victim and normally propose/commit its replacement. Deterministic cross-authority query races prove clear/reorg cannot expose an ownership gap. The phase review also reproduced a clear-vs-reorg effect-credit deadlock: clear held ordinary credit while waiting for `recovery_lock`, whose owner needed ordinary credit for detached replay. Reorg/clear now share `recovery_lock -> effect credit -> TxPool`; no state, queue, task, scan or hot-path lock was added. |
 | 7 | Complete (checkpoint is the commit containing this row) | Final attack review unified dependency semantics across resolver success/failure, coordinator invalidation, accepted PoolMap links/audit, RBF victim checks, historical recovery, chain/pool availability events and persistence. It closed bounded counterexamples for dep-group cache stranding, attached-parent lost wakeups, hostile-input fail-stop, stale resolved children, required-parent eviction, unbounded cell-ref mutation, dep-group RBF bypass, incomplete persistence ordering and nested late-parent weight drift. Conflict recovery now retains ownership until all indexed outpoints are live; PoolMap plans at most 100 physical displacements before mutation. The review corrected malformed remote policy to ban+record without an ineligible relay reject. No lifecycle state, executable queue, worker, lock, global hot-path scan or second ordering authority was added. Fresh acceptance: 328/328 internal nextest, 19/19 contextual verifier, zero-warning all-target clippy, manifest validation, normal-mining reorg 3/3 and RBF 7/7. Benchmarking remains Phase 8 only. |
 | 8 | Deferred | Run only after explicit benchmark instruction. |
+
+## 13. Semantic compaction and test-driven review program
+
+The correctness cutover above is the safety checkpoint, not a claim that its
+encoding is minimal. At checkpoint `172b9c935`, `tx-pool/src` contains 46,338
+Rust source lines: 17,079 in separate test files, 1,689 more in eleven inline
+test modules, 1,456 in the benchmark harness, and approximately 26,000 in the
+release implementation after removing those inline test bodies. The pipeline
+owns necessary complexity, but repeated transition/undo/effect scaffolding and
+test setup still impose avoidable review cost.
+
+This program compacts that encoding without reopening the lifecycle design.
+The following mechanisms are frozen and cannot be removed merely to meet a
+line target: the accepted `PoolMap` authority, the pre-pool coordinator,
+non-executable bounded `ConflictCache`, reserve-before-mutation
+`EffectOutbox`, distinct admission-incarnation and lease-revision tokens,
+complete expanded dependency graph, per-peer/global resource budgets,
+`recovery_lock`, and the block-assembler priority contract.
+
+### 13.1 Baseline and evidence vocabulary
+
+The frozen migration baseline is:
+
+- 328 discovered `ckb-tx-pool --features internal` tests;
+- 79 invariant-to-test references covering 59 unique Rust tests;
+- 10 process-level source anchors;
+- eleven inline `mod tests { ... }` bodies (about 1,689 lines);
+- 34 production files containing at least one `cfg(test)` site;
+- 17 named `*_for_test` functions.
+
+Only explicit machine-readable manifest entries are executable anchors.
+Backticked names in the historical ledger are provenance, never anchors
+discovered by prose regex or identifier-length heuristics. A generated test
+inventory protects the physical-move and compaction phases from accidental
+test deletion or rename. The validator reports reference count, unique unit
+evidence, integration evidence, and total discovered tests separately.
+
+### 13.2 Test isolation and white-box policy
+
+Test bodies live in domain test files (`component/tests`, `service/tests`,
+`process/tests`, `block_assembler/tests`, and root-module test files). A
+production source may contain only one-line test-module wiring and an audited
+minimal seam. Physically moved tests remain logical child modules so Rust
+privacy is preserved; production visibility must never be widened only for a
+test. Prefer public-contract assertions. When an internal invariant genuinely
+requires white-box observation, use one `cfg(test)` probe/snapshot surface for
+the owning type rather than scattered field accessors.
+
+Every retained test-only field, accessor, fault seam, and inspection probe is
+listed by stable file, symbol, kind, and behavior ID. Line numbers are not
+stable identities. CI rejects inline test bodies, test functions outside the
+allowed test tree, and new or changed seams absent from that whitelist. Fault
+injection remains test-only and cannot add a production state or dynamic hook.
+
+### 13.3 Test-driven PR review guide
+
+`REVIEW_GUIDE.md` is the human entry point for future tx-pool changes. Its
+behavior table assigns stable `TP-*` IDs and records the change surface,
+required behavior, hostile/failure counterexample, I1-I12 invariants, reviewer
+questions, minimum unit/model command, integration specs, and performance
+bound. A normalized manifest registry owns the test/spec mapping, and the
+guide's evidence appendix is generated from it; two handwritten evidence
+lists are forbidden.
+
+A reviewer starts with the changed path/API, follows the mapped behavior rows,
+runs their minimum tests, and then applies the cross-authority gate when a
+change touches ownership, lock order, accounting, reorg, effects, persistence,
+template liveness, or an attacker-controlled bound. A behavior change must
+update the guide, registry and focused negative regression in the same PR.
+
+Benchmark credibility is part of the guide even while timing is deferred.
+`TP-PERF-*` covers the Rust workload harness and the deterministic runner in
+`devtools/tx_pool_bench.py`, including isolated Cargo targets, harness
+fingerprinting, paired-worktree comparison, repetition requirements and noisy
+spread rejection. These are functional harness tests, not performance runs.
+
+### 13.4 Compaction rules
+
+Physical test movement is behavior-neutral and must preserve the exact test
+inventory. Test-code compaction may share fixtures, case runners and model
+operations, but stable named regressions, failure locality and every current
+security anchor remain. A large opaque mega-test is not a valid reduction.
+
+Production compaction is accepted only in independently reviewable
+net-deletion slices. A new abstraction must delete at least two parallel
+encodings and cannot add a lifecycle state, owner, queue, worker, lock,
+mutable projection, global hot-path scan, dynamic dispatch boundary, or
+compensation protocol. Splitting a large file is organization, not semantic
+compression. The independent test audit must not reuse the production rebuild
+algorithm, because common-mode reconstruction would weaken its evidence.
+Likewise, heterogeneous `try_reserve` sites may be grouped only when their
+container, failure timing and charge equation are identical.
+
+### 13.5 Fixed phases and exit gates
+
+| Phase | Deliverable | Mandatory exit gate |
+|---|---|---|
+| S0 | Freeze plan, exact test inventory, evidence terminology and current size/seam baselines | No production behavior change; manifest/list/checker agree |
+| S1 | Normalize historical ledger evidence | Every historical row is live, `guarded_by`, historical, accepted or superseded; prose is not executable evidence |
+| S2 | Physically isolate test bodies and helpers | Exact test names/count preserved; no inline tests; no visibility widening; seam whitelist complete |
+| S3 | Publish Review Guide and normalized behavior registry | Every current evidence/spec maps to a `TP-*` row; generated appendix and CI drift checks pass |
+| S4 | Compact test encoding | Stable anchors and failure locality preserved; total test source is materially smaller |
+| S5 | Compact production encoding | Each slice is net-negative production code and passes the whole-architecture gate |
+| S6 | Full correctness/security acceptance | nextest/contextual/integration/clippy/format/manifest gates green; residuals documented |
+| S7 | Controlled checkpoint A/B | Deferred until explicit benchmark instruction |
+
+After every phase, review the complete ownership graph, causal exits, lock/wait
+graph, resource equations, attacker-controlled work, effect order, RPC,
+reorg/template/persistence behavior, evidence mapping and source delta. If any
+gate fails, revert to that phase's checkpoint. Do not patch forward on top of
+a failed design. Correctness or safety defects discovered by the review may be
+fixed only within an existing authority and must not bypass the net-complexity
+and architecture gates.
+
+### 13.6 Compaction execution record
+
+| Phase | State | Evidence and correction |
+|---|---|---|
+| S0 | Complete (checkpoint is the commit containing this row) | Safety checkpoint `172b9c935`; exact 328-test inventory, evidence terminology, source/seam counts and semantic-compaction gates were frozen before any physical move. The manifest validator rejects missing, renamed, duplicate and unrecorded tests; release validation passes with 79 invariant references, 59 unique Rust tests and 10 process-level anchors. No production behavior changed. |
+| S1 | Complete (checkpoint is the commit containing this row) | Historical evidence was compared with the current coordinator/pool/outbox architecture. Ten stale legacy test labels now point to current tests or explicitly state that the vulnerable mechanism was deleted. Four properties that remain source-enforced but lacked an exact current counterexample—active peer revocation, expiry cascade, save/reorg serialization and zero-worker clamping—are marked `Guarded by current boundary` and are mandatory S3 regressions rather than falsely reported as Covered. Whole-architecture review found no ownership, lock, accounting, effect, reorg/template or attack-surface change because this phase changed evidence only. |
+| S2 | Pending | — |
+| S3 | Pending | — |
+| S4 | Pending | — |
+| S5 | Pending | — |
+| S6 | Pending | — |
+| S7 | Deferred | Run only after explicit benchmark instruction. |
