@@ -4995,6 +4995,28 @@ fn active_verification_terminalization_rolls_back_every_apply_boundary() {
         assert_eq!(coordinator.usage(), usage);
         coordinator.audit().unwrap();
     }
+
+    let mut coordinator = roomy();
+    enqueue_verify(
+        &mut coordinator,
+        121,
+        CoordinatorSource::Local,
+        VerifySchedule::default(),
+    );
+    let lease = coordinator
+        .checkout_verify(WorkerCapability::Any)
+        .unwrap()
+        .unwrap();
+    coordinator.clear_active_work_for_test();
+    let error = coordinator
+        .terminalize_verification(&lease, TerminalDisposition::Rejected)
+        .unwrap_err();
+    assert_eq!(error, CoordinatorError::ConflictInvariant);
+    assert!(
+        !error.is_transaction_rejection(),
+        "existing counter corruption must not be downgraded to capacity pressure"
+    );
+    coordinator.audit().unwrap();
 }
 
 #[test]

@@ -379,26 +379,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .is_some_and(|entry| entry.invalidated_cause().is_none())
         });
         for child in &children {
-            let (uses_active_slot, source, raw_charge) = {
-                let entry = self
-                    .entries
-                    .get(child)
-                    .ok_or_else(|| CoordinatorError::Missing(child.clone()))?;
-                (
-                    entry.uses_active_slot(),
-                    entry.source,
-                    entry.raw_charge_bytes,
-                )
-            };
+            let raw_charge = self
+                .entries
+                .get(child)
+                .map(|entry| entry.raw_charge_bytes)
+                .ok_or_else(|| CoordinatorError::Missing(child.clone()))?;
             self.ensure_revision_capacity(child)?;
-            if uses_active_slot
-                && (self.active_work == 0
-                    || source
-                        .peer()
-                        .is_some_and(|peer| self.peer_active_work(peer) == 0))
-            {
-                return Err(CoordinatorError::ActiveWorkLimitExceeded);
-            }
             self.preflight_remove_conflict_indexes(child)?;
             self.check_recharge(child, raw_charge)?;
         }
@@ -494,14 +480,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .entries
             .get(hash)
             .and_then(|entry| entry.uses_active_slot().then_some(entry.source));
-        if let Some(source) = active_source {
-            let peer_slot_missing = source
-                .peer()
-                .is_some_and(|peer| self.peer_active_work(peer) == 0);
-            if self.active_work == 0 || peer_slot_missing {
-                return Err(CoordinatorError::ActiveWorkLimitExceeded);
-            }
-        }
         self.preflight_remove_conflict_indexes(hash)?;
         self.remove_current_scheduling(hash)?;
         self.apply_fault_checkpoint();
@@ -537,17 +515,17 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.global_usage = self
             .global_usage
             .checked_sub(charge)
-            .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+            .ok_or(CoordinatorError::ConflictInvariant)?;
         self.by_short_id.remove(&entry.short_id);
         if let Some(peer) = entry.source.peer() {
             let remove_usage = {
                 let usage = self
                     .peer_usage
                     .get_mut(&peer)
-                    .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
                 *usage = usage
                     .checked_sub(charge)
-                    .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
                 *usage == CoordinatorResidency::default()
             };
             if remove_usage {

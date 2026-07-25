@@ -193,7 +193,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             projected = projected
                 .checked_sub(old)
-                .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         for hash in victims {
             let Some(entry) = self.entries.get(hash) else {
@@ -202,7 +202,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             if entry.source.peer() == Some(peer) {
                 projected = projected
                     .checked_sub(CoordinatorResidency::new(1, entry.charge_bytes))
-                    .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
             }
         }
         projected = projected
@@ -234,7 +234,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             projected = projected
                 .checked_sub(old)
-                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         for hash in preselected {
             let charge = self
@@ -244,7 +244,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             projected = projected
                 .checked_sub(charge)
-                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         projected = projected
             .checked_add(CoordinatorResidency::new(1, incoming_charge_bytes))
@@ -283,7 +283,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             selected.insert(key.hash.clone());
             projected = projected
                 .checked_sub(CoordinatorResidency::new(1, charge_bytes))
-                .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
             victims.push(key.hash.clone());
         }
         if !projected.fits(self.limits.global) {
@@ -377,7 +377,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                 .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
             projected_edges = projected_edges
                 .checked_sub(edges)
-                .ok_or(CoordinatorError::ConflictEdgeLimitExceeded)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         projected_edges = projected_edges
             .checked_add(incoming.inputs.len())
@@ -412,7 +412,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             victims.push(key.hash.clone());
             projected_edges = projected_edges
                 .checked_sub(edges)
-                .ok_or(CoordinatorError::ConflictEdgeLimitExceeded)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         if projected_edges > self.limits.max_conflict_edges {
             return Err(CoordinatorError::ConflictEdgeLimitExceeded);
@@ -440,16 +440,15 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         &mut self,
         source: CoordinatorSource,
     ) -> Result<(), CoordinatorError> {
-        self.check_activate_source(source)?;
         self.active_work = self
             .active_work
             .checked_add(1)
-            .ok_or(CoordinatorError::ActiveWorkLimitExceeded)?;
+            .ok_or(CoordinatorError::ConflictInvariant)?;
         if let Some(peer) = source.peer() {
             let active = self.active_work_by_peer.entry(peer).or_default();
             *active = active
                 .checked_add(1)
-                .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         Ok(())
     }
@@ -461,16 +460,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.active_work = self
             .active_work
             .checked_sub(1)
-            .ok_or(CoordinatorError::ActiveWorkLimitExceeded)?;
+            .ok_or(CoordinatorError::ConflictInvariant)?;
         if let Some(peer) = source.peer() {
             let remove = {
                 let active = self
                     .active_work_by_peer
                     .get_mut(&peer)
-                    .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
                 *active = active
                     .checked_sub(1)
-                    .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
                 *active == 0
             };
             if remove {
@@ -578,19 +577,23 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
         let old = CoordinatorResidency::new(1, entry.charge_bytes);
         let new = CoordinatorResidency::new(1, new_bytes);
-        let next_global = self
+        let remaining_global = self
             .global_usage
             .checked_sub(old)
-            .and_then(|usage| usage.checked_add(new))
+            .ok_or(CoordinatorError::ConflictInvariant)?;
+        let next_global = remaining_global
+            .checked_add(new)
             .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
         if !next_global.fits(self.limits.global) {
             return Err(CoordinatorError::GlobalBudgetExceeded);
         }
         if let (Some(peer), Some(limit)) = (entry.source.peer(), self.limits.per_peer) {
-            let next_peer = self
+            let remaining_peer = self
                 .peer_usage(peer)
                 .checked_sub(old)
-                .and_then(|usage| usage.checked_add(new))
+                .ok_or(CoordinatorError::ConflictInvariant)?;
+            let next_peer = remaining_peer
+                .checked_add(new)
                 .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
             if !next_peer.fits(limit) {
                 return Err(CoordinatorError::PeerBudgetExceeded(peer));
@@ -615,16 +618,16 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .global_usage
             .checked_sub(old)
             .and_then(|usage| usage.checked_add(new))
-            .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+            .ok_or(CoordinatorError::ConflictInvariant)?;
         if let Some(peer) = peer {
             let usage = self
                 .peer_usage
                 .get_mut(&peer)
-                .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
             *usage = usage
                 .checked_sub(old)
                 .and_then(|usage| usage.checked_add(new))
-                .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
         }
         self.entry_mut(hash)?.charge_bytes = new_bytes;
         Ok(())

@@ -212,12 +212,12 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.global_usage = self
             .global_usage
             .checked_add(charge)
-            .ok_or(CoordinatorError::GlobalBudgetExceeded)?;
+            .ok_or(CoordinatorError::ConflictInvariant)?;
         if let Some(peer) = peer {
             let usage = self.peer_usage.entry(peer).or_default();
             *usage = usage
                 .checked_add(charge)
-                .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
             self.by_peer.entry(peer).or_default().insert(hash.clone());
         }
         for parent in dependencies {
@@ -288,11 +288,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             let new_charge_bytes = entry
                 .resident_payload_bytes
                 .checked_add(new_metadata_bytes)
-                .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
             let new_raw_charge_bytes = entry
                 .raw_resident_payload_bytes
                 .checked_add(new_base_metadata_bytes)
-                .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+                .ok_or(CoordinatorError::ConflictInvariant)?;
             (
                 entry.source,
                 old_charge,
@@ -361,27 +361,6 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             (None, HashSet::new())
         };
         let source_overrides = HashMap::from([(hash.clone(), target)]);
-        if let Some(peer) = current.peer() {
-            let usage = self
-                .peer_usage
-                .get(&peer)
-                .copied()
-                .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
-            usage
-                .checked_sub(old_charge)
-                .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
-            if !self
-                .by_peer
-                .get(&peer)
-                .is_some_and(|hashes| hashes.contains(hash))
-            {
-                return Err(CoordinatorError::PeerBudgetExceeded(peer));
-            }
-            if active && self.peer_active_work(peer) == 0 {
-                return Err(CoordinatorError::PeerActiveWorkLimitExceeded(peer));
-            }
-        }
-
         let mut undo = vec![hash.clone()];
         if let Some(delta) = &conflict_delta {
             undo.extend(delta.affected().iter().cloned());
@@ -413,21 +392,23 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     let usage = coordinator
                         .peer_usage
                         .get_mut(&peer)
-                        .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                        .ok_or(CoordinatorError::ConflictInvariant)?;
                     *usage = usage
                         .checked_sub(old_charge)
-                        .ok_or(CoordinatorError::PeerBudgetExceeded(peer))?;
+                        .ok_or(CoordinatorError::ConflictInvariant)?;
                     *usage == CoordinatorResidency::default()
                 };
                 if remove_usage {
                     coordinator.peer_usage.remove(&peer);
                 }
-                let remove_bucket = if let Some(hashes) = coordinator.by_peer.get_mut(&peer) {
-                    hashes.remove(hash);
-                    hashes.is_empty()
-                } else {
-                    false
-                };
+                let hashes = coordinator
+                    .by_peer
+                    .get_mut(&peer)
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
+                if !hashes.remove(hash) {
+                    return Err(CoordinatorError::ConflictInvariant);
+                }
+                let remove_bucket = hashes.is_empty();
                 if remove_bucket {
                     coordinator.by_peer.remove(&peer);
                 }
@@ -436,10 +417,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                         let active = coordinator
                             .active_work_by_peer
                             .get_mut(&peer)
-                            .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                            .ok_or(CoordinatorError::ConflictInvariant)?;
                         *active = active
                             .checked_sub(1)
-                            .ok_or(CoordinatorError::PeerActiveWorkLimitExceeded(peer))?;
+                            .ok_or(CoordinatorError::ConflictInvariant)?;
                         *active == 0
                     };
                     if remove_active {
@@ -454,7 +435,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .global_usage
                     .checked_sub(old_charge)
                     .and_then(|usage| usage.checked_add(new_charge))
-                    .ok_or(CoordinatorError::ResidencyChargeOverflow)?;
+                    .ok_or(CoordinatorError::ConflictInvariant)?;
                 coordinator.apply_fault_checkpoint();
             }
             if had_expiry {

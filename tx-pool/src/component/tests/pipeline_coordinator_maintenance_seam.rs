@@ -53,6 +53,10 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         });
     }
 
+    pub(crate) fn clear_active_work_for_test(&mut self) {
+        self.active_work = 0;
+    }
+
     pub(crate) fn set_next_maintenance_sequence_for_test(&mut self, sequence: u64) {
         self.next_maintenance_sequence = sequence;
     }
