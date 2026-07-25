@@ -683,7 +683,7 @@ impl TxPoolService {
         max_submit_effect_bytes(
             self.pool.tx_pool_config.max_tx_pool_size,
             self.pool.consensus.max_block_bytes() as usize,
-            self.pipeline.runtime.max_entries(),
+            self.pipeline.kernel.max_entries(),
         )
     }
 
@@ -706,7 +706,7 @@ impl TxPoolService {
     ) -> EffectPermit {
         match self.relay.effects.reserve(bytes).await {
             Ok(permit) => permit,
-            Err(error) => self.pipeline.runtime.fail_stop(context, &error),
+            Err(error) => self.pipeline.kernel.fail_stop(context, &error),
         }
     }
 
@@ -736,7 +736,7 @@ impl TxPoolService {
         context: &'static str,
     ) {
         if let Err(error) = self.publish_reserved_effects(permit, effects) {
-            self.pipeline.runtime.fail_stop(context, &error);
+            self.pipeline.kernel.fail_stop(context, &error);
         }
     }
 
@@ -752,7 +752,7 @@ impl TxPoolService {
             .await;
         if let Err(error) = permit.commit(batch) {
             self.pipeline
-                .runtime
+                .kernel
                 .fail_stop("reserved standalone tx-pool effect journal failed", &error);
         }
     }

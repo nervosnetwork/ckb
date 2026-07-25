@@ -85,7 +85,7 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
     assert!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&hash)),
         "the no-worker harness must leave the remote copy coordinator-owned"
     );
@@ -109,7 +109,7 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
     assert!(
         !h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&hash)),
         "successful local insertion must invalidate the older async owner"
     );
@@ -136,12 +136,12 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
 
 /// Candidate checkout is part of the authoritative TxPool write transaction.
 /// If it happened before waiting for that guard, a synchronous Local/clear/
-/// reorg handoff could consume the coordinator owner while the old driver was
-/// already carrying a `Committing` lease. Its later failure settlement would
-/// then confuse a legitimate stale lease with coordinator corruption.
+/// reorg handoff could consume the Ready owner while the old driver was
+/// already carrying a commit ticket. Its later failure settlement would then
+/// confuse a legitimate stale ticket with kernel corruption.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
-    use crate::component::pipeline_coordinator::CoordinatorLocation;
+    use crate::component::pre_pool::PrePoolLocation;
     use crate::component::tests::harness::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
@@ -151,9 +151,9 @@ async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.view(&hash).unwrap().location),
-        CoordinatorLocation::Verified
+        PrePoolLocation::Ready
     );
 
     let pool_guard = h.service.pool.tx_pool.write().await;
@@ -167,10 +167,10 @@ async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.view(&hash).unwrap().location),
-        CoordinatorLocation::Verified,
-        "waiting for TxPool must not publish a cancellable Committing lease"
+        PrePoolLocation::Ready,
+        "waiting for TxPool must not consume the Ready owner"
     );
     assert!(!driver.is_finished());
 
@@ -201,7 +201,7 @@ async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
             .get_tx_from_pool_by_hash(&hash)
             .is_some()
     );
-    assert!(!h.service.pipeline.runtime.is_failed());
+    assert!(!h.service.pipeline.kernel.is_failed());
     h.cancel.cancel();
     tokio::time::timeout(Duration::from_secs(1), driver)
         .await
@@ -249,7 +249,7 @@ async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
     assert!(
         !h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&hash)),
         "TxPool and coordinator must never both own the same hash"
     );
@@ -312,9 +312,7 @@ async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
 /// a lease checked out before promotion must settle under the new source.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
-    use crate::component::pipeline_coordinator::{
-        CoordinatorLocation, CoordinatorSource, RawStage,
-    };
+    use crate::component::pre_pool::{PrePoolLocation, PrePoolSource, ResolveLane};
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
 
@@ -329,15 +327,15 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.deadline_len()),
         1
     );
     let lease = h
         .service
         .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
         .unwrap();
 
     assert!(
@@ -349,14 +347,14 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.view(&hash).unwrap().source),
-        CoordinatorSource::Proposal
+        PrePoolSource::Proposal
     );
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.deadline_len()),
         0,
         "trusted promotion must cancel the obsolete remote expiry"
@@ -368,18 +366,17 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
     let view = h
         .service
         .pipeline
-        .runtime
+        .kernel
         .read(|coordinator| coordinator.view(&hash).unwrap());
-    assert_eq!(view.source, CoordinatorSource::Proposal);
-    assert_eq!(view.location, CoordinatorLocation::VerifyQueued);
+    assert_eq!(view.source, PrePoolSource::Proposal);
+    assert_eq!(view.location, PrePoolLocation::VerifyQueued);
 
     let verify = h
         .service
         .pipeline
-        .runtime
+        .kernel
         .mutate(|coordinator| {
-            coordinator
-                .checkout_verify(crate::component::pipeline_coordinator::WorkerCapability::Any)
+            coordinator.checkout_verify(crate::component::pre_pool::WorkCapability::Any)
         })
         .unwrap()
         .unwrap();
@@ -417,7 +414,7 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
 /// resident until the expensive worker eventually returns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
-    use crate::component::pipeline_coordinator::RawStage;
+    use crate::component::pre_pool::ResolveLane;
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
 
@@ -432,13 +429,13 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
     let lease = h
         .service
         .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
         .unwrap();
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.peer_active_work(peer)),
         1
     );
@@ -450,13 +447,13 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
     assert!(
         !h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&hash))
     );
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.peer_active_work(peer)),
         0,
         "revocation must refund the peer's active-work slot immediately"
@@ -468,7 +465,7 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
     assert!(
         !h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&hash))
     );
     assert!(matches!(
@@ -483,7 +480,7 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
 /// resolution returns to the ordered resolver before script execution.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
-    use crate::component::pipeline_coordinator::{CoordinatorLocation, RawStage, WorkerCapability};
+    use crate::component::pre_pool::{PrePoolLocation, ResolveLane, WorkCapability};
     use crate::component::tests::harness::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
@@ -497,16 +494,16 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
     let raw = h
         .service
         .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
         .unwrap();
     h.service.process_pipeline_raw_lease(raw).await;
     let verify = h
         .service
         .pipeline
-        .runtime
+        .kernel
         .mutate_required("test verify checkout", |coordinator| {
-            coordinator.checkout_verify(WorkerCapability::Any)
+            coordinator.checkout_verify(WorkCapability::Any)
         })
         .unwrap();
 
@@ -539,10 +536,41 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
     assert_eq!(
         h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.view(&hash).unwrap().location),
-        CoordinatorLocation::RawQueued(RawStage::Resolve)
+        PrePoolLocation::ResolveQueued
     );
+    h.cancel.cancel();
+}
+
+/// Availability is a post-mutation level, not a physical "block contained
+/// this output" event. In particular, an output created and consumed within
+/// one attached branch is absent from the resulting snapshot and must not
+/// wake a conflict-history owner into a second, misleading rejection.
+#[tokio::test]
+async fn dependency_availability_uses_the_authoritative_overlay_level() {
+    use crate::component::pre_pool::DependencyKey;
+    use crate::component::tests::harness::{WorkerSet, harness};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let live = h.out_points[0].clone();
+    let absent_after_delta = OutPoint::new(ckb_types::packed::Byte32::new([91; 32]), 0);
+    let pool = h.service.pool.tx_pool.read().await;
+    let available = crate::service::pipeline_ops::available_cell_dependencies(
+        &pool,
+        [live.clone(), absent_after_delta.clone()],
+    );
+
+    assert!(available.contains(&DependencyKey::Cell(live)));
+    assert!(!available.contains(&DependencyKey::Cell(absent_after_delta)));
+    assert!(crate::service::pipeline_ops::dependency_is_available(
+        &pool,
+        &DependencyKey::Header(pool.snapshot().tip_hash()),
+    ));
+    assert!(!crate::service::pipeline_ops::dependency_is_available(
+        &pool,
+        &DependencyKey::Header(ckb_types::packed::Byte32::new([92; 32])),
+    ));
     h.cancel.cancel();
 }
 
@@ -553,9 +581,7 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
 /// remote lease.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff() {
-    use crate::component::pipeline_coordinator::{
-        CoordinatorLocation, CoordinatorSource, RawStage,
-    };
+    use crate::component::pre_pool::{PrePoolLocation, PrePoolSource, ResolveLane};
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
 
@@ -566,7 +592,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         .build();
     let proposal = remote
         .as_advanced_builder()
-        .set_witnesses(vec![Bytes::from_static(b"proposal").pack()])
+        .set_witnesses(vec![Bytes::from(vec![0x50; 4_096]).pack()])
         .build();
     assert_eq!(remote.hash(), proposal.hash());
     assert_ne!(remote.witness_hash(), proposal.witness_hash());
@@ -581,9 +607,14 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
     let old_lease = h
         .service
         .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
         .unwrap();
+    let old_usage = h
+        .service
+        .pipeline
+        .kernel
+        .read(|coordinator| coordinator.total_usage());
     assert!(!h.service.notify_tx(proposal.clone()).await.unwrap());
 
     assert!(
@@ -597,7 +628,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         "proposal notification must not synchronously execute script verification"
     );
     let (view, payload_witness, ingress_peer, blame_peer) =
-        h.service.pipeline.runtime.read(|coordinator| {
+        h.service.pipeline.kernel.read(|coordinator| {
             let raw = coordinator.raw_by_hash(&hash).unwrap();
             (
                 coordinator.view(&hash).unwrap(),
@@ -606,10 +637,15 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
                 raw.blame_peer(),
             )
         });
-    assert_eq!(view.source, CoordinatorSource::Proposal);
-    assert_eq!(
-        view.location,
-        CoordinatorLocation::RawQueued(RawStage::PreCheck)
+    assert_eq!(view.source, PrePoolSource::Proposal);
+    assert_eq!(view.location, PrePoolLocation::ResolveQueued);
+    assert!(
+        h.service
+            .pipeline
+            .kernel
+            .read(|coordinator| coordinator.total_usage().bytes)
+            > old_usage.bytes,
+        "the replacement witness, not the displaced witness, owns the payload charge"
     );
     assert_eq!(payload_witness, proposal.witness_hash());
     assert_eq!(ingress_peer, Some(peer));
@@ -620,16 +656,16 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
     assert!(matches!(
         h.service
             .pipeline
-            .runtime
-            .mutate(|coordinator| coordinator.requeue_raw(&old_lease)),
-        Err(crate::component::pipeline_coordinator::CoordinatorError::RevisionMismatch { .. })
+            .kernel
+            .mutate(|coordinator| coordinator.requeue_resolve(&old_lease)),
+        Err(crate::component::pre_pool::PrePoolError::Stale { .. })
     ));
 
     let replacement = h
         .service
         .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
         .unwrap();
     assert_eq!(
         replacement.payload.tx.witness_hash(),
@@ -639,10 +675,9 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
     let verify = h
         .service
         .pipeline
-        .runtime
+        .kernel
         .mutate(|coordinator| {
-            coordinator
-                .checkout_verify(crate::component::pipeline_coordinator::WorkerCapability::Any)
+            coordinator.checkout_verify(crate::component::pre_pool::WorkCapability::Any)
         })
         .unwrap()
         .unwrap();
@@ -664,7 +699,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
     assert!(
         !h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&hash))
     );
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
@@ -777,7 +812,7 @@ async fn local_commit_waits_for_effect_credit_before_mutating_pool() {
 }
 
 fn hold_coordinator_read(
-    runtime: Arc<crate::component::pipeline_runtime::PipelineRuntime>,
+    runtime: Arc<crate::component::pre_pool::PrePool>,
 ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
     let (locked_tx, locked_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -815,7 +850,7 @@ async fn wait_for_cross_authority_query_pool_guard(service: &TxPoolService) {
 /// state or the complete new state and never a transient `NotFound` gap.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
-    use crate::component::pipeline_coordinator::RawStage;
+    use crate::component::pre_pool::ResolveLane;
     use crate::component::tests::harness::{WorkerSet, harness};
     use std::collections::{HashSet, VecDeque};
 
@@ -829,17 +864,17 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
         let id = tx.proposal_short_id();
         h.service
             .pipeline
-            .runtime
+            .kernel
             .admit_transaction(
                 tx,
-                TxSource::Local,
+                TxSource::Proposal,
                 h.service.current_pipeline_epoch().unwrap(),
-                RawStage::PreCheck,
+                ResolveLane::Ingress,
             )
             .unwrap();
 
         let (release, coordinator_thread) =
-            hold_coordinator_read(Arc::clone(&h.service.pipeline.runtime));
+            hold_coordinator_read(Arc::clone(&h.service.pipeline.kernel));
         let query_service = h.service.clone();
         let query_id = id.clone();
         let query = tokio::spawn(async move {
@@ -869,7 +904,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
             h.service.exclude_existing_proposal(vec![id.clone()]).await,
             vec![id]
         );
-        assert!(!h.service.pipeline.runtime.read(|c| c.contains_hash(&hash)));
+        assert!(!h.service.pipeline.kernel.read(|c| c.contains_hash(&hash)));
         h.cancel.cancel();
     }
 
@@ -883,17 +918,17 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
         let id = tx.proposal_short_id();
         h.service
             .pipeline
-            .runtime
+            .kernel
             .admit_transaction(
                 tx.clone(),
-                TxSource::Local,
+                TxSource::Proposal,
                 h.service.current_pipeline_epoch().unwrap(),
-                RawStage::PreCheck,
+                ResolveLane::Ingress,
             )
             .unwrap();
 
         let (release, coordinator_thread) =
-            hold_coordinator_read(Arc::clone(&h.service.pipeline.runtime));
+            hold_coordinator_read(Arc::clone(&h.service.pipeline.kernel));
         let query_service = h.service.clone();
         let query_id = id.clone();
         let query = tokio::spawn(async move {
@@ -939,7 +974,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
             h.service.exclude_existing_proposal(vec![id.clone()]).await,
             vec![id]
         );
-        assert!(!h.service.pipeline.runtime.read(|c| c.contains_hash(&hash)));
+        assert!(!h.service.pipeline.kernel.read(|c| c.contains_hash(&hash)));
         h.cancel.cancel();
     }
 }

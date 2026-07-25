@@ -1,9 +1,9 @@
-//! Ordered resolution worker backed exclusively by the pipeline coordinator.
+//! Ordered resolution worker backed exclusively by the pre-pool kernel.
 
-use crate::component::pipeline_coordinator::{
-    QueueKind, RawStage, RawWorkLease, TerminalDisposition, VerifySchedule, WorkerCapability,
+use crate::component::pre_pool::{
+    DependencyKey, ResolveLane, ResolveLease, TerminalDisposition, VerifySchedule, WorkCapability,
+    WorkLane,
 };
-use crate::component::pipeline_runtime::PipelineRawTx;
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
@@ -14,8 +14,7 @@ use ckb_logger::{debug, error};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::core::FeeRate;
-use ckb_types::packed::Byte32;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -23,7 +22,7 @@ use tokio::task::JoinHandle;
 #[derive(Debug)]
 pub(crate) enum ResolveStageResult {
     Ready(ResolvedTx),
-    Orphan(HashSet<Byte32>),
+    Orphan(BTreeSet<DependencyKey>),
     Reject(Reject),
 }
 
@@ -52,15 +51,10 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
                 epoch: job.epoch,
             })
         }
-        Err(reject) if crate::util::is_missing_input(&reject) => {
-            // The resolver reports one witness for failure, not the complete
-            // unknown-parent set. Register every declared parent and let the
-            // TxPool -> coordinator settlement filter parents that are
-            // already available. Otherwise a multi-parent orphan requests
-            // only the first missing transaction and valid responses for the
-            // other parents are discarded by relay as unsolicited, leaving
-            // the orphan permanently unable to become ready.
-            ResolveStageResult::Orphan(job.tx.unique_parents())
+        Err(Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(out_point))) => {
+            ResolveStageResult::Orphan(BTreeSet::from([DependencyKey::Cell(
+                crate::util::compact_packed(&out_point),
+            )]))
         }
         Err(reject) => ResolveStageResult::Reject(reject),
     }
@@ -69,32 +63,43 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
 impl TxPoolService {
     async fn settle_pipeline_raw_lease(
         &self,
-        lease: &RawWorkLease<PipelineRawTx>,
+        lease: &ResolveLease,
         disposition: TerminalDisposition,
         reject: Option<Reject>,
     ) {
         self.settle_pipeline_terminal(
+            &lease.hash,
             reject,
             "raw terminal effect reservation failed",
             "current raw lease could not terminalize",
-            |coordinator| coordinator.terminalize_raw(lease, disposition),
+            |coordinator, retain_conflict| {
+                if retain_conflict {
+                    coordinator.park_conflict_or_terminalize(
+                        &lease.hash,
+                        lease.version,
+                        crate::component::pre_pool::PrePoolLocation::ResolveLeased,
+                    )
+                } else {
+                    coordinator.terminalize_resolve(lease, disposition)
+                }
+            },
         )
         .await;
     }
 
-    pub(crate) async fn process_pipeline_raw_lease(&self, lease: RawWorkLease<PipelineRawTx>) {
+    pub(crate) async fn process_pipeline_raw_lease(&self, lease: ResolveLease) {
         let tx = lease.payload.tx.clone();
         let epoch = lease.payload.admitted_epoch;
         let Some(current_source) = self
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.source_by_hash(&lease.hash))
         else {
             return;
         };
         let source = self
             .pipeline
-            .runtime
+            .kernel
             .require_authoritative_source(&lease.payload, current_source);
 
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
@@ -116,8 +121,12 @@ impl TxPoolService {
                     let resolved_dependencies = resolved
                         .rtx
                         .related_dep_out_points()
-                        .map(|out_point| crate::util::compact_packed(&out_point.tx_hash()))
-                        .collect::<HashSet<_>>();
+                        .map(|out_point| {
+                            crate::component::pre_pool::DependencyKey::Cell(
+                                crate::util::compact_packed(out_point),
+                            )
+                        })
+                        .collect::<std::collections::BTreeSet<_>>();
                     let charge_bytes = resolved.resident_size;
                     let fee_rate = FeeRate::calculate(resolved.fee, resolved.tx_size as u64);
                     let schedule = VerifySchedule::new(
@@ -134,23 +143,21 @@ impl TxPoolService {
                             "raw completion effect reservation failed",
                         )
                         .await;
-                    match self.pipeline.runtime.mutate(|coordinator| {
-                        let result = coordinator.complete_raw_with_dependencies(
+                    match self.pipeline.kernel.mutate(|coordinator| {
+                        let result = coordinator.complete_resolve(
                             &lease,
                             resolved,
                             charge_bytes,
                             schedule,
                             resolved_dependencies,
                         );
-                        if let Ok((_version, terminal)) = &result {
-                            self.journal_pipeline_terminal_records(permit, terminal);
-                        }
+                        drop(permit);
                         result
                     }) {
-                        Ok((_version, _terminal)) => {}
+                        Ok(_version) => {}
                         Err(error) if error.is_stale_lease() => {}
                         Err(error) => {
-                            let reject = self.pipeline.runtime.reject_or_fail(
+                            let reject = self.pipeline.kernel.reject_or_fail(
                                 "raw completion violated coordinator invariants",
                                 error,
                             );
@@ -209,7 +216,7 @@ impl TxPoolService {
 
         if let Err(message) = outcome {
             error!("tx-pool raw worker panicked on {}: {}", lease.hash, message);
-            if self.pipeline.runtime.is_failed() {
+            if self.pipeline.kernel.is_failed() {
                 return;
             }
             self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
@@ -224,7 +231,7 @@ struct ResolveHandler {
 }
 
 impl JobHandler for ResolveHandler {
-    type Job = RawWorkLease<PipelineRawTx>;
+    type Job = ResolveLease;
     type Exit = ResolveExit;
 
     fn worker_name(&self) -> &'static str {
@@ -234,29 +241,29 @@ impl JobHandler for ResolveHandler {
     async fn is_queue_empty(&self) -> bool {
         self.service
             .pipeline
-            .runtime
-            .queue_is_empty(QueueKind::Resolve)
+            .kernel
+            .queue_is_empty(WorkLane::Resolve)
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
         self.service
             .pipeline
-            .runtime
-            .subscribe(QueueKind::Resolve, WorkerCapability::Any)
+            .kernel
+            .subscribe(WorkLane::Resolve, WorkCapability::Any)
     }
 
-    async fn pop_one(&mut self) -> Option<RawWorkLease<PipelineRawTx>> {
+    async fn pop_one(&mut self) -> Option<ResolveLease> {
         self.service
             .pipeline
-            .runtime
-            .checkout_raw(RawStage::Resolve)
+            .kernel
+            .checkout_resolve(ResolveLane::Ordered)
     }
 
     async fn next_deadline(&self) -> Option<tokio::time::Instant> {
         None
     }
 
-    async fn process_one(&mut self, work: RawWorkLease<PipelineRawTx>) {
+    async fn process_one(&mut self, work: ResolveLease) {
         self.service.process_pipeline_raw_lease(work).await;
     }
 

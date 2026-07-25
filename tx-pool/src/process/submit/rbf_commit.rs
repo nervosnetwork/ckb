@@ -106,21 +106,21 @@ pub(crate) struct SubmitEntryOutcome {
 }
 
 /// Submit result that retains the exact pool mutation journal until the
-/// coordinator has finalized the matching commit lease. The journal is
+/// pre-pool kernel has finalized the matching Ready ticket. The journal is
 /// private to this module so callers cannot publish or partially replay it.
 pub(crate) struct CoordinatedSubmitOutcome {
     pub(crate) outcome: SubmitEntryOutcome,
     pool_journal: PoolCommitJournal,
-    /// Historical-cache publication is deliberately later than the tentative
-    /// pool insertion. It becomes true only after the matching coordinator
+    /// Historical Wait publication is deliberately later than the tentative
+    /// pool insertion. It becomes true only after the matching pre-pool
     /// handoff has succeeded under the same TxPool write guard.
-    conflict_cache_finalized: bool,
+    history_finalized: bool,
 }
 
 impl CoordinatedSubmitOutcome {
     /// Accepted transaction hashes physically removed by this successful
     /// commit whose outputs are also absent from the active snapshot. This is
-    /// the exact dependency-unavailability set handed to the coordinator
+    /// the exact dependency-unavailability set handed to the pre-pool kernel
     /// before the pool write guard is released.
     pub(crate) fn unavailable_parent_hashes(&self, snapshot: &Snapshot) -> HashSet<Byte32> {
         if self.outcome.result.is_err() {
@@ -133,7 +133,7 @@ impl CoordinatedSubmitOutcome {
             // A startup-reload window can temporarily retain an entry whose
             // raw transaction is already committed. Removing that overlay
             // owner does not make its outputs unavailable on the active
-            // snapshot and must not demote coordinator consumers.
+            // snapshot and must not demote pre-pool consumers.
             .filter(|hash| !snapshot.transaction_exists(hash))
             .collect()
     }
@@ -187,7 +187,7 @@ pub(crate) struct SubmitSideEffects {
 impl SubmitSideEffects {
     /// Merge every recovery source and suppress spurious events after a
     /// failed submit. Must be called with the pool write guard held, before
-    /// any tentative removal is published to the conflict cache.
+    /// any tentative removal is published as historical conflict Wait.
     fn rollback_on_failure(
         &mut self,
         tx_pool: &mut TxPool,
@@ -207,7 +207,6 @@ impl SubmitSideEffects {
             .pool_map
             .restore_removed_entries_exact(rollback_entries)?;
         for (tx, status) in restored {
-            tx_pool.remove_conflict_hash(&tx.hash());
             self.rolled_back.push((tx, status));
         }
 
@@ -397,7 +396,7 @@ impl TxPoolService {
         if result.is_err()
             && let Err(rollback_error) = fx.rollback_on_failure(tx_pool, &entry_id)
         {
-            self.pipeline.runtime.fail_stop(
+            self.pipeline.kernel.fail_stop(
                 "tx-pool exact rollback failed after rejected submit",
                 &(result, rollback_error),
             );
@@ -412,7 +411,7 @@ impl TxPoolService {
                 accept_event: fx.accept_event,
             },
             pool_journal: fx.pool_journal,
-            conflict_cache_finalized: false,
+            history_finalized: false,
         }
     }
 
@@ -433,37 +432,15 @@ impl TxPoolService {
             "only a successful pool/coordinator handoff can publish conflict history"
         );
         assert!(
-            !coordinated.conflict_cache_finalized,
+            !coordinated.history_finalized,
             "conflict history is finalized exactly once per submit"
         );
-
-        tx_pool.remove_conflict_hash(&entry.transaction().hash());
-        let has_replacement_victims = coordinated
-            .pool_journal
-            .by_cause(RemovalCause::Replacement)
-            .next()
-            .is_some();
-        let conflict_release_event = has_replacement_victims.then(|| {
-            let release_event = crate::component::conflict_cache::ConflictReleaseEvent::new();
-            for victim in coordinated.pool_journal.by_cause(RemovalCause::Replacement) {
-                tx_pool.record_conflict_entry_for_release(
-                    &victim.entry,
-                    crate::tx_source::TxSource::Local,
-                    Arc::clone(&release_event),
-                );
-            }
-            release_event
-        });
 
         // Register every outpoint that became usable as a dependency: inputs
         // released by RBF/ancestor/size removals, plus outputs created by the
         // newly accepted entry. The latter cascades historical parent -> child
         // recovery without scanning under the pool lock.
         //
-        // Replacement victims share one exclusion identity so descendants do
-        // not re-enter merely because their removed parent is temporarily
-        // unknown. A later accepted-parent event has a different identity and
-        // makes them eligible normally.
         let mut available_outpoints = tx_pool.released_inputs_from_removed_entries(
             coordinated
                 .pool_journal
@@ -472,17 +449,46 @@ impl TxPoolService {
                 .map(|item| &item.removed.entry),
         );
         available_outpoints.extend(entry.transaction().output_pts());
-        match conflict_release_event {
-            Some(release_event) => tx_pool.schedule_conflicted_txs_from_inputs_for_release(
-                available_outpoints.into_iter(),
-                release_event,
-            ),
-            None => tx_pool.schedule_conflicted_txs_from_inputs(available_outpoints.into_iter()),
-        };
-        if tx_pool.conflict_maintenance_pending() {
-            self.pipeline.runtime.request_maintenance();
-        }
-        coordinated.conflict_cache_finalized = true;
+        let available_dependencies =
+            crate::service::pipeline_ops::available_cell_dependencies(tx_pool, available_outpoints);
+        let epoch = self.pipeline.epoch.current().unwrap_or(0);
+        self.pipeline.kernel.mutate_required(
+            "pool commit conflict-history settlement failed",
+            |kernel| {
+                kernel.remove_conflict_hash(&entry.transaction().hash());
+                // Advance availability first. Newly retained victims observe
+                // this exact epoch and cannot immediately wake on their own
+                // removal; a later level change starts the next pass.
+                kernel.note_available(available_dependencies)?;
+                for victim in coordinated.pool_journal.by_cause(RemovalCause::Replacement) {
+                    let tx = victim.entry.transaction().clone();
+                    let keys = crate::component::pre_pool::conflict_dependency_keys(
+                        &tx,
+                        victim.entry.related_dep_out_points().cloned(),
+                    );
+                    let raw = crate::component::pre_pool::PipelineRawTx::new(
+                        tx,
+                        crate::tx_source::TxSource::Local,
+                        epoch,
+                    );
+                    let owner = crate::component::pre_pool::historical_source(
+                        crate::tx_source::TxSource::Local,
+                    );
+                    if let Err(error) = kernel.retain_conflict(
+                        raw,
+                        owner,
+                        keys,
+                        crate::component::pre_pool::historical_deadline(owner),
+                    ) {
+                        ckb_logger::warn!(
+                            "dropping bounded RBF history after pre-pool backpressure: {error:?}"
+                        );
+                    }
+                }
+                Ok(())
+            },
+        );
+        coordinated.history_finalized = true;
     }
 
     pub(crate) fn try_submit_entry_coordinated(
@@ -511,7 +517,7 @@ impl TxPoolService {
         if coordinated.outcome.result.is_err() {
             return Ok(());
         }
-        if coordinated.conflict_cache_finalized {
+        if coordinated.history_finalized {
             return Err(Reject::Malformed(
                 "pool".to_string(),
                 "coordinator rollback attempted after conflict history finalization".to_string(),

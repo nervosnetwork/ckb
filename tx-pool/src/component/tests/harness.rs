@@ -58,7 +58,6 @@ pub(crate) struct Harness {
     pub(crate) out_points: Vec<OutPoint>,
     #[allow(dead_code)]
     pub(crate) cell_deps: Option<Vec<CellDep>>,
-    pub(crate) chunk_tx: Option<watch::Sender<ChunkCommand>>,
 }
 
 pub(crate) struct HarnessBuilder {
@@ -68,7 +67,6 @@ pub(crate) struct HarnessBuilder {
     max_tx_pool_size: Option<usize>,
     max_workers: Option<usize>,
     workers: WorkerSet,
-    with_chunk_sender: bool,
     snapshot: Option<(MockStore, Arc<Snapshot>)>,
 }
 
@@ -82,7 +80,6 @@ pub(crate) fn harness(issue_outputs: usize) -> HarnessBuilder {
         max_tx_pool_size: None,
         max_workers: None,
         workers: WorkerSet::All,
-        with_chunk_sender: false,
         snapshot: None,
     }
 }
@@ -113,13 +110,6 @@ impl HarnessBuilder {
 
     pub(crate) fn workers(mut self, set: WorkerSet) -> Self {
         self.workers = set;
-        self
-    }
-
-    /// Return the `watch::Sender<ChunkCommand>` so the test can send
-    /// Suspend/Resume signals to the verify manager.
-    pub(crate) fn with_chunk_sender(mut self, enabled: bool) -> Self {
-        self.with_chunk_sender = enabled;
         self
     }
 
@@ -165,7 +155,7 @@ impl HarnessBuilder {
         // whose sender may be handed to the test.
         let (service_chunk_tx, service_chunk_rx) = watch::channel(ChunkCommand::Resume);
         let (chunk_tx, verify_chunk_rx) = watch::channel(ChunkCommand::Resume);
-        let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+        let kernel = Arc::new(crate::component::pre_pool::PrePool::new(
             &config,
             &consensus,
             signal.clone(),
@@ -179,7 +169,7 @@ impl HarnessBuilder {
         let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
             config.max_tx_pool_size,
             consensus.max_block_bytes() as usize,
-            runtime.max_entries(),
+            kernel.max_entries(),
         );
         let ordinary_effect_bytes = 512_000_000usize.max(submit_effect_bytes);
         let effects = Arc::new(
@@ -199,7 +189,7 @@ impl HarnessBuilder {
                 tx_pool_config: Arc::new(config),
             },
             pipeline: crate::service::PipelineState {
-                runtime,
+                kernel,
                 epoch: Arc::new(crate::service::PipelineEpoch::default()),
                 chunk_rx: service_chunk_rx,
                 verify_cache_sender,
@@ -329,7 +319,6 @@ impl HarnessBuilder {
             store,
             out_points,
             cell_deps,
-            chunk_tx: self.with_chunk_sender.then_some(chunk_tx),
         }
     }
 }

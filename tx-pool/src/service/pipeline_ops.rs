@@ -6,17 +6,17 @@
 //! pool guard is released. Lookup, removal, parent waiting, and clearing live
 //! here so call sites cannot invent a partial structure list or lock order.
 
-use crate::component::pipeline_coordinator::{
-    CoordinatorError, CoordinatorSource, RawWorkLease, TerminalRecord, VerifyWorkLease,
+use crate::component::pre_pool::PrePoolKernel;
+use crate::component::pre_pool::{
+    DependencyKey, PrePoolError, PrePoolSource, ResolveLease, TerminalRecord, VerifyLease,
 };
-use crate::component::pipeline_runtime::{PipelineRawTx, ProductionCoordinator};
 use crate::error::Reject;
 use crate::service::{PipelineTxLocation, RemoveTxOutcome, TxPoolService};
 use ckb_store::ChainStore;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::{Byte32, ProposalShortId};
-use ckb_types::prelude::Entity;
-use std::collections::HashSet;
+use ckb_types::prelude::Unpack;
+use std::collections::{BTreeSet, HashSet};
 
 /// Result of registering a resolver/verification miss under the one
 /// TxPool -> coordinator ownership boundary.
@@ -37,35 +37,50 @@ pub(crate) enum ParentWaitOutcome {
     Rejected(crate::error::Reject),
 }
 
-fn retain_unavailable_parents(pool: &crate::pool::TxPool, parents: &mut HashSet<Byte32>) {
-    let snapshot = pool.cloned_snapshot();
-    parents.retain(|parent| {
-        if snapshot.transaction_exists(parent) {
-            return false;
+pub(crate) fn dependency_is_available(pool: &crate::pool::TxPool, key: &DependencyKey) -> bool {
+    match key {
+        DependencyKey::Cell(out_point) => {
+            let parent = out_point.tx_hash();
+            pool.get_tx_from_pool_by_hash(&parent).is_some_and(|tx| {
+                let index: u32 = out_point.index().unpack();
+                (index as usize) < tx.outputs().len()
+            }) || pool.snapshot().get_cell(out_point).is_some()
         }
-        pool.get_tx_from_pool_by_hash(parent).is_none()
-    });
+        DependencyKey::Header(hash) => pool.snapshot().is_main_chain(hash),
+    }
 }
 
-/// Rebuild a filtered parent set with independently owned 32-byte values.
-///
-/// `OutPoint::tx_hash()` may return a packed slice backed by the complete raw
-/// transaction. Carrying those slices into the coordinator's missing set and
-/// especially into the effect outbox can retain a maximum-sized transaction
-/// while accounting for only one hash. Repacking also drops the potentially
-/// large capacity left by `HashSet::retain` after most parents became
-/// available.
-fn detach_parent_hashes(parents: HashSet<Byte32>) -> HashSet<Byte32> {
-    parents
-        .into_iter()
-        .map(|parent| {
-            Byte32::from_slice(parent.as_slice())
-                .expect("an existing packed Byte32 always has exactly 32 bytes")
-        })
+/// Convert an outpoint delta into exact dependency levels that are available
+/// in the post-mutation pool/snapshot overlay. Physical removal/attachment is
+/// not itself availability: an input consumed by the newly committed branch
+/// is still dead and must not spuriously wake historical conflict owners.
+pub(crate) fn available_cell_dependencies(
+    pool: &crate::pool::TxPool,
+    outpoints: impl IntoIterator<Item = ckb_types::packed::OutPoint>,
+) -> BTreeSet<DependencyKey> {
+    crate::component::pre_pool::available_cell_keys(outpoints)
+        .filter(|key| dependency_is_available(pool, key))
         .collect()
 }
 
+fn retain_unavailable_dependencies(
+    pool: &crate::pool::TxPool,
+    dependencies: &mut BTreeSet<DependencyKey>,
+) {
+    dependencies.retain(|key| !dependency_is_available(pool, key));
+}
+
 impl TxPoolService {
+    /// Snapshot accepted entries and conflict-history owners under the global
+    /// TxPool -> pre-pool read order. RPC and fee estimation therefore see
+    /// the same conflict projection without giving `TxPool` a second cache.
+    pub(crate) async fn all_entry_info(&self) -> ckb_types::core::tx_pool::TxPoolEntryInfo {
+        let tx_pool = self.pool.tx_pool.read().await;
+        let mut info = tx_pool.get_all_entry_info();
+        info.conflicted = self.pipeline.kernel.read(PrePoolKernel::conflict_hashes);
+        info
+    }
+
     pub(crate) fn current_pipeline_epoch(&self) -> Result<u64, crate::error::Reject> {
         self.pipeline.epoch.current().ok_or_else(|| {
             crate::error::Reject::Internal("tx-pool pipeline epoch exhausted".to_string())
@@ -88,37 +103,37 @@ impl TxPoolService {
     async fn settle_parent_wait(
         &self,
         hash: &Byte32,
-        mut parents: HashSet<Byte32>,
+        mut dependencies: BTreeSet<DependencyKey>,
         permit: crate::service::effects::EffectPermit,
-        transition: impl FnOnce(
-            &mut ProductionCoordinator,
-            HashSet<Byte32>,
-        ) -> Result<(), CoordinatorError>,
+        transition: impl FnOnce(&mut PrePoolKernel, BTreeSet<DependencyKey>) -> Result<(), PrePoolError>,
         journal_context: &'static str,
         error_context: &'static str,
     ) -> Option<ParentWaitOutcome> {
         let pool = self.pool.tx_pool.read().await;
-        retain_unavailable_parents(&pool, &mut parents);
-        let parents = detach_parent_hashes(parents);
+        retain_unavailable_dependencies(&pool, &mut dependencies);
+        let parents = dependencies
+            .iter()
+            .map(DependencyKey::parent_hash)
+            .collect::<HashSet<_>>();
         let mut permit = Some(permit);
-        let outcome: Result<ParentWaitOutcome, CoordinatorError> =
-            self.pipeline.runtime.mutate(|coordinator| {
+        let outcome: Result<ParentWaitOutcome, PrePoolError> =
+            self.pipeline.kernel.mutate(|coordinator| {
                 let source = coordinator
                     .source_by_hash(hash)
-                    .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+                    .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
                 if !parents.is_empty()
-                    && !matches!(source, CoordinatorSource::Remote(_))
+                    && !matches!(source, PrePoolSource::Remote(_))
                     && parents
                         .iter()
                         .any(|parent| !coordinator.contains_hash(parent))
                 {
                     return Ok(ParentWaitOutcome::Unavailable);
                 }
-                transition(coordinator, parents.clone())?;
-                if parents.is_empty() {
+                transition(coordinator, dependencies.clone())?;
+                if dependencies.is_empty() {
                     return Ok(ParentWaitOutcome::Requeued);
                 }
-                if let CoordinatorSource::Remote(peer) = source {
+                if let PrePoolSource::Remote(peer) = source {
                     let effect = crate::service::effects::TxPoolEffect::Relay(
                         crate::service::TxVerificationResult::UnknownParents {
                             peer,
@@ -140,7 +155,7 @@ impl TxPoolService {
             Ok(outcome) => Some(outcome),
             Err(error) if error.is_stale_lease() => None,
             Err(error) => Some(ParentWaitOutcome::Rejected(
-                self.pipeline.runtime.reject_or_fail(error_context, error),
+                self.pipeline.kernel.reject_or_fail(error_context, error),
             )),
         }
     }
@@ -152,12 +167,11 @@ impl TxPoolService {
     /// raw and verify workers cannot diverge in terminal ownership handling.
     pub(crate) async fn settle_pipeline_terminal(
         &self,
+        subject: &Byte32,
         reject: Option<Reject>,
         reservation_context: &'static str,
         mutation_context: &'static str,
-        terminalize: impl FnOnce(
-            &mut ProductionCoordinator,
-        ) -> Result<TerminalRecord<PipelineRawTx>, CoordinatorError>
+        terminalize: impl FnOnce(&mut PrePoolKernel, bool) -> Result<TerminalRecord, PrePoolError>
         + Send,
     ) {
         let permit = self
@@ -166,24 +180,35 @@ impl TxPoolService {
                 reservation_context,
             )
             .await;
-        let mut tx_pool = if reject.is_some() {
+        let tx_pool = if reject.is_some() {
             Some(self.pool.tx_pool.write().await)
         } else {
             None
         };
         let mut banned_peer = None;
+        let retain_conflict = reject.as_ref().is_some_and(|reject| {
+            matches!(
+                reject,
+                Reject::RBFRejected(..)
+                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_))
+            ) && tx_pool.as_ref().is_some_and(|pool| {
+                // The raw payload remains kernel-owned until the transition
+                // below, so this check and the transition share the universal
+                // TxPool -> kernel order.
+                self.pipeline.kernel.read(|kernel| {
+                    kernel
+                        .raw_by_hash(subject)
+                        .is_some_and(|raw| pool.pool_map.find_conflict_outpoint(&raw.tx).is_some())
+                })
+            })
+        });
         let terminal = self
             .pipeline
-            .runtime
+            .kernel
             .mutate_lease(mutation_context, |coordinator| {
-                let result = terminalize(coordinator);
+                let result = terminalize(coordinator, retain_conflict);
                 if let Ok(record) = &result {
-                    banned_peer = self.journal_pipeline_outcome(
-                        permit,
-                        record,
-                        reject.as_ref(),
-                        tx_pool.as_deref_mut(),
-                    );
+                    banned_peer = self.journal_pipeline_outcome(permit, record, reject.as_ref());
                 }
                 result
             });
@@ -201,19 +226,19 @@ impl TxPoolService {
     /// registering `WaitingParents`.
     pub(crate) async fn settle_raw_parent_wait(
         &self,
-        lease: &RawWorkLease<PipelineRawTx>,
-        parents: HashSet<Byte32>,
+        lease: &ResolveLease,
+        dependencies: BTreeSet<DependencyKey>,
         permit: crate::service::effects::EffectPermit,
     ) -> Option<ParentWaitOutcome> {
         self.settle_parent_wait(
             &lease.hash,
-            parents,
+            dependencies,
             permit,
-            |coordinator, parents| {
-                if parents.is_empty() {
-                    coordinator.requeue_raw(lease).map(|_| ())
+            |coordinator, dependencies| {
+                if dependencies.is_empty() {
+                    coordinator.requeue_resolve(lease).map(|_| ())
                 } else {
-                    coordinator.wait_for_parents(lease, parents).map(|_| ())
+                    coordinator.wait_resolve(lease, dependencies).map(|_| ())
                 }
             },
             "reserved raw parent-wait journal failed",
@@ -227,17 +252,17 @@ impl TxPoolService {
     /// raw resolver, rather than creating a second orphan owner.
     pub(crate) async fn settle_verify_parent_wait(
         &self,
-        lease: &VerifyWorkLease<crate::resolved_tx::ResolvedTx>,
-        parents: HashSet<Byte32>,
+        lease: &VerifyLease,
+        dependencies: BTreeSet<DependencyKey>,
         permit: crate::service::effects::EffectPermit,
     ) -> Option<ParentWaitOutcome> {
         self.settle_parent_wait(
             &lease.hash,
-            parents,
+            dependencies,
             permit,
-            |coordinator, parents| {
+            |coordinator, dependencies| {
                 coordinator
-                    .verification_retry_resolution(lease, parents)
+                    .verification_retry_resolution(lease, dependencies)
                     .map(|_| ())
             },
             "reserved verify parent-wait journal failed",
@@ -259,7 +284,7 @@ impl TxPoolService {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.runtime.guard_authoritative_mutation(
+            self.pipeline.kernel.guard_authoritative_mutation(
                 "administrative removal mutation panicked",
                 || {
                     let pool_target = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
@@ -289,45 +314,42 @@ impl TxPoolService {
                             })
                             .collect();
 
-                        // Pre-pool consumers are demoted in one undo-protected
-                        // coordinator transition while the pool membership write lock
-                        // prevents a handoff. Only then is the infallible physical
-                        // pool closure removed.
-                        self.pipeline.runtime.mutate_required(
+                        // Pre-pool consumers are demoted in one kernel transition
+                        // while the pool membership write lock prevents a handoff.
+                        // Only then is the physical pool closure removed.
+                        self.pipeline.kernel.mutate_required(
                             "administrative removal could not demote coordinator consumers",
                             |coordinator| coordinator.parents_unavailable(&removal_hashes),
                         );
                         let removed = tx_pool.remove_tx(&id);
                         let released_inputs =
                             tx_pool.released_inputs_from_removed_entries(&removed);
-                        tx_pool.schedule_conflicted_txs_from_inputs(released_inputs.into_iter());
-                        if tx_pool.conflict_maintenance_pending() {
-                            self.pipeline.runtime.request_maintenance();
-                        }
+                        let available_dependencies =
+                            available_cell_dependencies(&tx_pool, released_inputs);
+                        self.pipeline.kernel.mutate_required(
+                            "administrative removal availability update failed",
+                            |kernel| kernel.note_available(available_dependencies),
+                        );
                         for status in removal_statuses {
                             self.journal_block_assembler_update(status);
                         }
                         (None, removed)
                     } else {
-                        let record = match self.pipeline.runtime.mutate(|coordinator| {
+                        let record = match self.pipeline.kernel.mutate(|coordinator| {
                             coordinator.force_terminalize(
-                        &tx_hash,
-                        crate::component::pipeline_coordinator::TerminalDisposition::Removed,
-                    )
+                                &tx_hash,
+                                crate::component::pre_pool::TerminalDisposition::Removed,
+                            )
                         }) {
                             Ok(record) => record,
-                            Err(CoordinatorError::CommitInProgress(_)) => {
-                                drop(terminal_permit);
-                                return None;
-                            }
-                            Err(error) => self.pipeline.runtime.fail_stop(
+                            Err(error) => self.pipeline.kernel.fail_stop(
                                 "administrative pipeline owner could not terminalize",
                                 &error,
                             ),
                         };
                         (record, Vec::new())
                     };
-                    let conflict_removed = tx_pool.remove_conflict_hash(&tx_hash);
+                    let conflict_removed = false;
                     if let Some(record) = &record {
                         self.journal_pipeline_terminal_records(
                             terminal_permit,
@@ -356,7 +378,7 @@ impl TxPoolService {
     pub(crate) async fn clear_pipeline(&self) {
         let terminal_permit = self
             .reserve_required_effects(
-                Self::pipeline_terminal_effect_bytes(self.pipeline.runtime.max_entries()),
+                Self::pipeline_terminal_effect_bytes(self.pipeline.kernel.max_entries()),
                 "clear pipeline effect reservation failed",
             )
             .await;
@@ -366,12 +388,11 @@ impl TxPoolService {
         // same lock makes that ordering explicit before this method returns;
         // later submitters observe the stale generation and cannot commit.
         {
-            let mut tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.runtime.guard_authoritative_mutation(
+            let _tx_pool = self.pool.tx_pool.write().await;
+            self.pipeline.kernel.guard_authoritative_mutation(
                 "clear-pipeline authoritative mutation panicked",
                 || {
-                    tx_pool.clear_conflict_recovery_schedule();
-                    self.pipeline.runtime.mutate_required(
+                    self.pipeline.kernel.mutate_required(
                         "clear pipeline could not clear coordinator",
                         |coordinator| {
                             let result = coordinator.clear();
@@ -394,29 +415,23 @@ impl TxPoolService {
 
     fn find_tx_in_coordinator_by(
         &self,
-        select: impl FnOnce(
-            &crate::component::pipeline_runtime::ProductionCoordinator,
-        ) -> Option<Byte32>,
+        select: impl FnOnce(&crate::component::pre_pool::PrePoolKernel) -> Option<Byte32>,
     ) -> Option<PipelineTxLocation> {
-        self.pipeline.runtime.read(|coordinator| {
+        self.pipeline.kernel.read(|coordinator| {
             let hash = select(coordinator)?;
             let view = coordinator.view(&hash)?;
             let raw = coordinator.raw_by_hash(&hash)?;
             let unverified = coordinator.unverified_by_hash(&hash);
             let verified = coordinator.verified_by_hash(&hash);
-            use crate::component::pipeline_coordinator::CoordinatorLocation;
+            use crate::component::pre_pool::PrePoolLocation;
             Some(match view.location {
-                CoordinatorLocation::RawQueued(
-                    crate::component::pipeline_coordinator::RawStage::PreCheck,
-                )
-                | CoordinatorLocation::RawActive(
-                    crate::component::pipeline_coordinator::RawStage::PreCheck,
-                ) => PipelineTxLocation::PreChecking { tx: raw.tx.clone() },
-                CoordinatorLocation::WaitingParents { .. } => PipelineTxLocation::Orphan {
-                    tx: raw.tx.clone(),
-                    cycle: raw.declared_cycles.unwrap_or(0),
-                },
-                CoordinatorLocation::VerifyQueued | CoordinatorLocation::VerifyActive => {
+                PrePoolLocation::Wait(crate::component::pre_pool::WaitReason::Missing) => {
+                    PipelineTxLocation::Orphan {
+                        tx: raw.tx.clone(),
+                        cycle: raw.declared_cycles.unwrap_or(0),
+                    }
+                }
+                PrePoolLocation::VerifyQueued | PrePoolLocation::VerifyLeased => {
                     if let Some(resolved) = unverified {
                         PipelineTxLocation::Verifying {
                             tx: raw.tx.clone(),
@@ -427,7 +442,7 @@ impl TxPoolService {
                         PipelineTxLocation::Ordered { tx: raw.tx.clone() }
                     }
                 }
-                CoordinatorLocation::Verified | CoordinatorLocation::Committing => {
+                PrePoolLocation::Ready => {
                     if let Some(verified) = verified {
                         PipelineTxLocation::Verifying {
                             tx: raw.tx.clone(),
@@ -438,10 +453,13 @@ impl TxPoolService {
                         PipelineTxLocation::Ordered { tx: raw.tx.clone() }
                     }
                 }
-                CoordinatorLocation::RawQueued(_)
-                | CoordinatorLocation::RawActive(_)
-                | CoordinatorLocation::Invalidated { .. } => {
+                PrePoolLocation::RecoveryRetained
+                | PrePoolLocation::ResolveQueued
+                | PrePoolLocation::ResolveLeased => {
                     PipelineTxLocation::Ordered { tx: raw.tx.clone() }
+                }
+                PrePoolLocation::Wait(crate::component::pre_pool::WaitReason::Conflict) => {
+                    PipelineTxLocation::ConflictHistory
                 }
             })
         })
@@ -465,7 +483,7 @@ impl TxPoolService {
             // performs the coordinator handoff, so a proposal cannot be
             // invisible between the two authorities.
             let tx_pool = self.pool.tx_pool.read().await;
-            self.pipeline.runtime.read(|coordinator| {
+            self.pipeline.kernel.read(|coordinator| {
                 proposals.retain(|id| {
                     coordinator.hash_by_short_id(id).is_none() && !tx_pool.contains_proposal_id(id)
                 });
@@ -501,7 +519,7 @@ impl TxPoolService {
             // Take the coordinator mutex once for the complete bounded compact
             // block request. Taking it once per short id lets a large valid
             // block amplify lock traffic and delays every pipeline worker.
-            self.pipeline.runtime.read(|coordinator| {
+            self.pipeline.kernel.read(|coordinator| {
                 txs.extend(short_ids.iter().filter_map(|short_id| {
                     coordinator
                         .raw_by_short_id(short_id)
@@ -543,7 +561,3 @@ impl TxPoolService {
         txs
     }
 }
-
-#[cfg(test)]
-#[path = "tests/pipeline_ops.rs"]
-mod tests;

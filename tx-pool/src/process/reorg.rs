@@ -31,7 +31,7 @@ pub(crate) fn detached_not_attached(
 }
 
 /// Collected results of [`update_tx_pool_for_reorg`]. The service binds their
-/// coordinator membership delta and effect journal before releasing the pool
+/// pre-pool membership delta and effect journal before releasing the pool
 /// write lock; external callbacks run later through the effect publisher.
 pub(crate) struct ReorgOutcome {
     /// Reject events for removed entries.
@@ -48,7 +48,7 @@ impl crate::service::TxPoolService {
     /// A detached transaction that cannot be recovered makes every accepted
     /// input/cell-dep consumer of its outputs permanently unresolvable. Remove
     /// the complete descendant closure while holding the universal TxPool ->
-    /// coordinator boundary, then bind callbacks and ConflictCache discovery
+    /// pre-pool boundary, then bind callbacks and Wait availability changes
     /// before the pool mutation becomes visible.
     pub(crate) async fn cascade_failed_reorg_recovery(&self, tx: &TransactionView) {
         let permit = self
@@ -58,7 +58,7 @@ impl crate::service::TxPoolService {
             )
             .await;
         let mut tx_pool = self.pool.tx_pool.write().await;
-        self.pipeline.runtime.guard_authoritative_mutation(
+        self.pipeline.kernel.guard_authoritative_mutation(
             "reorg recovery cascade mutation panicked",
             || {
                 let mut roots: HashMap<ProposalShortId, ckb_types::packed::OutPoint> =
@@ -97,7 +97,7 @@ impl crate::service::TxPoolService {
                     })
                     .filter(|hash| !tx_pool.snapshot().transaction_exists(hash))
                     .collect();
-                self.pipeline.runtime.mutate_required(
+                self.pipeline.kernel.mutate_required(
                     "reorg failed-recovery dependency transaction failed",
                     |coordinator| coordinator.parents_unavailable(&removal_hashes),
                 );
@@ -106,11 +106,11 @@ impl crate::service::TxPoolService {
                 ordered_roots
                     .sort_by(|(left, _), (right, _)| left.as_slice().cmp(right.as_slice()));
                 let mut effects = Vec::new();
+                let mut available_outpoints = Vec::new();
                 for (child_id, out_point) in ordered_roots {
                     let removed = tx_pool.pool_map.remove_entry_and_descendants(&child_id);
-                    let released_inputs =
-                        tx_pool.released_inputs_from_removed_entries(&removed);
-                    tx_pool.schedule_conflicted_txs_from_inputs(released_inputs.into_iter());
+                    available_outpoints
+                        .extend(tx_pool.released_inputs_from_removed_entries(&removed));
                     for entry in removed {
                         debug!(
                             "cascade-remove pool tx {}: its reference {:?} died with the failed re-add",
@@ -125,9 +125,17 @@ impl crate::service::TxPoolService {
                         ));
                     }
                 }
-                if tx_pool.conflict_maintenance_pending() {
-                    self.pipeline.runtime.request_maintenance();
-                }
+                self.pipeline.kernel.mutate_required(
+                    "reorg cascade availability update failed",
+                    |kernel| {
+                        kernel.note_available(
+                            crate::service::pipeline_ops::available_cell_dependencies(
+                                &tx_pool,
+                                available_outpoints,
+                            ),
+                        )
+                    },
+                );
                 self.publish_required_reserved_effects(
                     permit,
                     effects,

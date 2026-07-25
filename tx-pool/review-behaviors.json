@@ -12,18 +12,18 @@
       "id": "TP-OWN-001",
       "title": "Single pre-pool ownership",
       "change_surfaces": [
-        "tx-pool/src/component/pipeline_coordinator.rs",
-        "tx-pool/src/component/pipeline_coordinator",
-        "tx-pool/src/component/pipeline_runtime.rs"
+        "tx-pool/src/component/pre_pool",
+        "tx-pool/src/service/pipeline_ops.rs",
+        "tx-pool/src/service/workers.rs"
       ],
-      "required_behavior": "An admitted transaction has one coordinator entry, one typed location, one admission incarnation and one current lease revision until an atomic handoff transfers sole authority to TxPool.",
+      "required_behavior": "An admitted transaction has one full-hash PrePoolKernel entry, one of the frozen seven locations and one globally non-reused version until an atomic handoff transfers sole authority to TxPool.",
       "hostile_case": "A stale worker, duplicate admission, failed transition or ABA remove/readmit race must not create two owners, resurrect an old payload or silently erase the current owner.",
       "reviewer_questions": [
         "Does every transition consume exactly the state and lease it proves current?",
         "Are every queue, deadline, dependency and conflict structure derived indexes rather than payload owners?",
         "Does failure restore the old owner or publish one explicit terminal outcome?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(one_entry_and_revision|active_verification_terminalization|removed_and_readmitted_hash|queue_sequence_exhaustion|coordinator_invariant_error)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(concrete_kernel_transitions|stale_lease_cannot_mutate|randomized_public_transitions|target_model_generated_commands)/)'",
       "performance_bound": "No second owner map, compensating queue, global post-transition scan or extra hot-path lock."
     },
     {
@@ -31,17 +31,17 @@
       "title": "Authoritative commit and handoff",
       "change_surfaces": [
         "tx-pool/src/process/submit",
-        "tx-pool/src/component/pipeline_coordinator/commit.rs",
+        "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/pool.rs"
       ],
-      "required_behavior": "The existing TxPool write guard is the only final membership/RBF sequencer; tentative pool mutation, coordinator handoff, exact rollback and stable effects form one causally ordered boundary.",
-      "hostile_case": "Concurrent commits, injected handoff failure or panic must not expose a pool/coordinator ownership gap, strand Committing or report success for a rolled-back mutation.",
+      "required_behavior": "The existing TxPool write guard is the only final membership/RBF sequencer; the current pool journal, kernel handoff, exact rollback and stable effects form one causally ordered boundary until P2 replaces them with total Plan/Apply.",
+      "hostile_case": "Concurrent commits, handoff failure or panic must not expose a pool/kernel ownership gap, strand Ready work or report success for a rolled-back mutation.",
       "reviewer_questions": [
         "Is every final fee/conflict decision recomputed under the pool write guard?",
         "Can any error release the guard before coordinator settlement and pool rollback are exact?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(pool_removal_invalidation|pipeline_commit_worker|production_pool_coordinator|coordinator_handoff_panic|production_handoff_invariant|second_independent_commit)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(pipeline_commit_worker|local_commit_waits|target_model_exercises_every_plan_outcome|failed_commit_restores)/)'",
       "performance_bound": "Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation."
     },
     {
@@ -49,8 +49,8 @@
       "title": "Deterministic RBF preference and rollback",
       "change_surfaces": [
         "tx-pool/src/process/submit/rbf_commit.rs",
-        "tx-pool/src/component/pipeline_coordinator/indexes.rs",
-        "tx-pool/src/component/conflict_cache.rs"
+        "tx-pool/src/component/pre_pool/commit.rs",
+        "tx-pool/src/component/pre_pool/wait.rs"
       ],
       "required_behavior": "Only verified candidates participate in deterministic conflict ordering, while TxPool recomputes the complete replacement closure and both fee gates before atomic victim displacement.",
       "hostile_case": "An under-fee, multi-input, dep-group or concurrent candidate must not preempt through speculative state; failed replacement must restore the complete original closure before competitors advance.",
@@ -59,79 +59,83 @@
         "Are all input and expanded dependency conflicts included in final closure and rollback?",
         "Does every failed path preserve original statuses, accounting and descendant order?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(rbf|replacement|under_fee_candidate|unverified_high_fee|multi_input_verified|derived_conflict|model_random_transitions|failed_tip_revalidation)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(rbf|replacement|pipeline_rejects_conflicting_double_spend|full_conflict_history)/)'",
       "performance_bound": "Conflict work stays within indexed bounded cohorts and immutable mutation plans; no full-pool scan under the write guard."
     },
     {
       "id": "TP-DEP-001",
       "title": "Causal dependency graph",
       "change_surfaces": [
-        "tx-pool/src/component/pipeline_coordinator/lifecycle.rs",
+        "tx-pool/src/component/pre_pool/wait.rs",
+        "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/resolved_tx.rs",
         "tx-pool/src/component/links.rs"
       ],
-      "required_behavior": "Raw, resolved and accepted dependency edges—including expanded dep-group members—share complete causal semantics: availability wakes children and definitive loss invalidates them atomically.",
+      "required_behavior": "Raw, resolved and accepted exact dependency keys—including headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection.",
       "hostile_case": "Late-discovered parents, transitive cycles, stale resolved children or parent replacement must not strand a child, lose its wake edge or let it commit against unavailable inputs.",
       "reviewer_questions": [
         "Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?",
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(parent_handoff|parent_exit|parent_wait|dependency_cycle|dependency|dep_group|trusted_parent|verified_parent|successful_resolution)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|dependency_epochs|dependency|dep_group|unknown_outpoint)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
       "id": "TP-CACHE-001",
-      "title": "Conflict-history ownership and wakeup",
+      "title": "Conflict-history Wait ownership and wakeup",
       "change_surfaces": [
-        "tx-pool/src/component/conflict_cache.rs",
+        "tx-pool/src/component/pre_pool/wait.rs",
+        "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/process/reorg.rs"
       ],
-      "required_behavior": "ConflictCache is one bounded non-executable owner until every indexed input and expanded dependency is available; cache-to-coordinator transfer is atomic and generation-safe.",
-      "hostile_case": "A release observed before another parent becomes live, duplicate metadata enrichment or high-fanout input must not lose the only future wake, duplicate ownership or cause unbounded pool-lock work.",
+      "required_behavior": "Historical conflicts are ordinary bounded PrePoolKernel Wait entries until an exact dependency becomes available in the post-mutation TxPool/Snapshot overlay; waking changes the same primary owner atomically and is version-safe, while RPC projects retained conflict history through recent-reject rather than as live Pending work.",
+      "hostile_case": "A release observed before another parent becomes live, an output created and consumed in one attached branch, duplicate metadata enrichment, remote conflict pinning or high-fanout input must not lose the only future wake, create a false wake, overwrite the root rejection, masquerade as Pending, retain epoch history without a waiter, duplicate ownership or cause unbounded pool-lock work.",
       "reviewer_questions": [
-        "Does the cache retain ownership until all recovery outpoints are live?",
-        "Can every chain/pool availability edge re-arm a previously examined entry?",
+        "Does Wait retain ownership until an exact dependency epoch changes?",
+        "Does every chain/pool availability edge re-arm a previously examined entry only when the resulting authoritative overlay makes that exact dependency available?",
         "Are discovery, generations and fanout work bounded and fair?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(conflict_recovery|accepted_entry_metadata|attached_parent_output)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(full_conflict_history|repeated_dependency_epochs|availability_without_a_wait|dependency_availability_uses_the_authoritative_overlay|remote_conflict_history|remote_peer_order|pipeline_rejects_conflicting_double_spend)/)'",
       "performance_bound": "Bound history count/bytes and process indexed recovery in fixed fair slices outside population-sized scans."
     },
     {
       "id": "TP-BUDGET-001",
       "title": "Continuous hostile-state accounting",
       "change_surfaces": [
-        "tx-pool/src/component/pipeline_coordinator/capacity.rs",
+        "tx-pool/src/component/pre_pool/mod.rs",
+        "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/component/effect_outbox.rs",
-        "tx-pool/src/component/conflict_cache.rs"
+        "tx-pool/src/service/effects.rs"
       ],
       "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects.",
-      "hostile_case": "Parking, invalidation, reservation, peer churn or an oversized displacement plan must not refund resident state, evict unrelated stronger work or mutate before proving the bound.",
+      "hostile_case": "Parking, invalidation, reservation, peer churn or an oversized displacement plan must not refund resident state, including the remote/per-peer charge of conflict history, evict unrelated stronger work or mutate before proving the bound.",
       "reviewer_questions": [
         "Is every owner charged if and only if it is resident?",
         "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
         "Does an impossible peer admission fail before global eviction planning?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(metadata_residency|count_and_byte_limits|escape_hatch_rejects)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|count_and_byte_limits|escape_hatch_rejects)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
       "id": "TP-WORKER-001",
       "title": "Level-triggered executable readiness",
       "change_surfaces": [
-        "tx-pool/src/component/pipeline_runtime.rs",
+        "tx-pool/src/component/pre_pool/queue.rs",
+        "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/workers.rs",
         "tx-pool/src/service/builder.rs"
       ],
       "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent and subscription/respawn re-arms executable work.",
-      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers or respawn must not strand executable work.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify before panic or respawn must not strand executable work.",
       "reviewer_questions": [
         "Does notification mean at least one worker of this capability can execute now?",
         "Can a consumed permit be reconstructed from authoritative state after subscribe or respawn?",
         "Does cancellation stop checkout before another self-sustaining wake loop begins?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(ineligible_checkout|large_verify_work|worker_resubscribe|cancelled_runtime|zero_verify_worker)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|ready_expiry_filter|worker_|zero_verify_worker)/)'",
       "performance_bound": "Readiness checks inspect bounded owner heads/caps only; no polling loop, per-item task or queue-wide scan."
     },
     {
@@ -247,7 +251,7 @@
       "title": "Full transaction and witness identity",
       "change_surfaces": [
         "tx-pool/src/process/submit/mod.rs",
-        "tx-pool/src/component/conflict_cache.rs",
+        "tx-pool/src/component/pre_pool/mod.rs",
         "tx-pool/src/component/pool_map.rs"
       ],
       "required_behavior": "Ownership and duplicate boundaries use full raw hashes, proposal short IDs remain non-authoritative indexes, and verification-cache proofs are keyed only by the exact witness hash through TxVerificationCacheKey.",
@@ -257,15 +261,15 @@
         "Can any cache call construct a key from raw hash or arbitrary bytes?",
         "Does reorg recovery query the exact transaction witness variant?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(short_id_collision|complete_hash_identity|verification_cache_isolated|reorg_recovery_reads_cache)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(short_id_collision|full_hash_lookup|proposal_witness_variant|trusted_conflict_resubmission|verification_cache_isolated|reorg_recovery_reads_cache)/)'",
       "performance_bound": "Use compact full hashes/typed cache keys without retaining packed backing; collision handling remains indexed and bounded."
     },
     {
       "id": "TP-PERF-001",
       "title": "Bounded attacker-controlled work",
       "change_surfaces": [
-        "tx-pool/src/component/pipeline_coordinator/capacity.rs",
-        "tx-pool/src/component/pipeline_coordinator/scheduling.rs",
+        "tx-pool/src/component/pre_pool/queue.rs",
+        "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/benchmark.rs",
         "devtools/tx_pool_bench.py"
       ],
@@ -276,7 +280,7 @@
         "Did the change add allocation, lock, task, scan or mutable projection to a hot path?",
         "When benchmarking is authorized, are worktree, binary, config, repetitions and spread comparable?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(capped_peer_prefix|victim_selection_stops|model_conflict_probe_cost)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|ready_expiry_filter|randomized_public_transitions)/)'",
       "performance_bound": "Deterministic operation-count regressions are always required; timing A/B is the separately authorized final gate, never inferred from unit duration."
     }
   ],
@@ -284,62 +288,45 @@
     {"test": "target_model_declares_exactly_the_frozen_seven_states", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
     {"test": "target_model_stale_lease_cannot_mutate_a_replaced_witness_owner", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
     {"test": "target_model_generated_commands_preserve_partition_lease_budget_and_indexes", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5", "I6", "I9"]},
+    {"test": "concrete_kernel_transitions_preserve_recomputed_projections", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5", "I6", "I9"]},
+    {"test": "stale_lease_cannot_mutate_a_removed_and_readmitted_hash", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
+    {"test": "randomized_public_transitions_always_match_full_rebuild", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5", "I6", "I9", "I12"]},
+
     {"test": "target_model_exercises_every_plan_outcome_without_partial_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I4"]},
-    {"test": "target_model_wait_wake_and_ready_conflict_use_recomputed_views", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I9"]},
-    {"test": "one_entry_and_revision_own_every_payload_phase_until_candidate_handoff", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
-    {"test": "active_verification_terminalization_is_causal_and_aba_safe", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
-    {"test": "removed_and_readmitted_hash_rejects_the_old_worker_incarnation", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
-    {"test": "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
-    {"test": "queue_sequence_exhaustion_cannot_strand_transition_reservations", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
-    {"test": "nested_undo_scope_is_forbidden", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
-    {"test": "terminalization_cannot_silently_heal_missing_owner_index_membership", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5"]},
+    {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I9"]},
 
-    {"test": "pool_removal_invalidation_and_winner_handoff_are_one_transaction", "behavior_id": "TP-COMMIT-001", "invariants": ["I1"]},
-    {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2"]},
-    {"test": "production_pool_coordinator_outbox_fault_matrix_is_atomic", "behavior_id": "TP-COMMIT-001", "invariants": ["I1", "I3", "I4", "I8"]},
-    {"test": "coordinator_handoff_panic_preserves_pool_recovery_point", "behavior_id": "TP-COMMIT-001", "invariants": ["I4", "I7"]},
-    {"test": "production_handoff_invariant_settles_then_fails_closed", "behavior_id": "TP-COMMIT-001", "invariants": ["I4", "I7"]},
-    {"test": "second_independent_commit_checkout_waits_for_first_terminal_transition", "behavior_id": "TP-COMMIT-001", "invariants": ["I9"]},
-
-    {"test": "pipeline_concurrent_rbf_prefers_highest_fee", "behavior_id": "TP-RBF-001", "invariants": ["I2"]},
-    {"test": "pipeline_rbf_displaces_lower_fee_tx", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
-    {"test": "pipeline_rbf_rejected_replacement_recovers_original_tx", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I9"]},
-    {"test": "pipeline_rbf_rejected_replacement_recovers_descendants_in_order", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I10"]},
+    {"test": "successful_replacement_does_not_recover_removed_descendants", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
     {"test": "failed_commit_restores_all_size_evictions_with_original_status_in_lock", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
-    {"test": "failed_tip_revalidation_recovers_whole_removed_cascade", "behavior_id": "TP-RBF-001", "invariants": ["I3"]},
-    {"test": "under_fee_candidate_cannot_become_verified_conflict_state", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
-    {"test": "trusted_raw_replacement_releases_the_old_conflict_and_peer_claims", "behavior_id": "TP-RBF-001", "invariants": ["I5", "I9"]},
-    {"test": "unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
-    {"test": "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
-    {"test": "derived_conflict_relation_has_no_maintenance_gap", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
-    {"test": "model_random_transitions_always_match_full_rebuild", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "escape_hatch_evictions_are_recovered_on_commit_failure", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I4", "I10"]},
+    {"test": "rbf_replacement_certain_to_fail_commit_cannot_churn_pool", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I4", "I9", "I12"]},
+    {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9", "I10"]},
 
-    {"test": "accepted_parent_handoff_wakes_waiting_children_atomically", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
-    {"test": "every_definitive_parent_exit_invalidates_dependents_in_the_same_transition", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "target_model_wait_wake_and_ready_conflict_use_recomputed_views", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I9"]},
+    {"test": "parent_loss_invalidates_an_active_lease_into_exact_wait", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "repeated_dependency_epochs_are_level_triggered_and_bounded", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6", "I12"]},
+    {"test": "parent_commit_before_wait_registration_requeues_child", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "resolve_job_registers_the_exact_unknown_outpoint", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
-    {"test": "raw_parent_wait_extends_a_dep_group_discovered_dependency", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "successive_expanded_parent_losses_keep_exact_causal_keys_in_wait", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "behavior_id": "TP-DEP-001", "invariants": ["I4"]},
-    {"test": "successful_resolution_tracks_live_dep_group_members_before_verify", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
-    {"test": "transitive_dependency_cycle_is_rejected_before_admission", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
-    {"test": "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
-    {"test": "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection", "behavior_id": "TP-DEP-001", "invariants": ["I5", "I6"]},
     {"test": "sort_txs_by_dependencies_orders_parents_before_children", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
 
-    {"test": "accepted_entry_metadata_extends_duplicate_wake_edges", "behavior_id": "TP-CACHE-001", "invariants": ["I5"]},
-    {"test": "conflict_recovery_waits_for_cell_dep_parent_output", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6"]},
-    {"test": "attached_parent_output_rearms_conflict_cache_after_earlier_release", "behavior_id": "TP-CACHE-001", "invariants": ["I6", "I7"]},
-    {"test": "successful_rbf_recovery_cascades_from_accepted_parent_outputs", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6"]},
+    {"test": "full_conflict_history_terminalizes_rejected_owner_without_panicking", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I5", "I9"]},
+    {"test": "remote_peer_order_cannot_hijack_an_existing_conflict_owner", "behavior_id": "TP-CACHE-001", "invariants": ["I1", "I9"]},
+    {"test": "availability_without_a_wait_owner_retains_no_epoch_history", "behavior_id": "TP-CACHE-001", "invariants": ["I5", "I12"]},
+    {"test": "dependency_availability_uses_the_authoritative_overlay_level", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6", "I9"]},
+    {"test": "remote_conflict_history_keeps_its_bounded_residency_deadline", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I5"]},
 
-    {"test": "metadata_residency_is_charged_continuously_across_every_payload_phase", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
+    {"test": "admission_budget_failure_leaves_primary_and_views_unchanged", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
+    {"test": "parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
+    {"test": "remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5", "I12"]},
     {"test": "count_and_byte_limits_cover_reserved_queued_and_active_batches", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
     {"test": "escape_hatch_rejects_mutation_larger_than_displacement_bound", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
-    {"test": "transaction_exit_cannot_silently_heal_missing_victim_index_membership", "behavior_id": "TP-BUDGET-001", "invariants": ["I4", "I5"]},
+    {"test": "verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
 
-    {"test": "cancelled_runtime_does_not_checkout_queued_raw_work", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
-    {"test": "ineligible_checkout_does_not_self_notify_until_active_owner_settles", "behavior_id": "TP-WORKER-001", "invariants": ["I5", "I12"]},
-    {"test": "large_verify_work_wakes_only_a_capable_worker_without_losing_readiness", "behavior_id": "TP-WORKER-001", "invariants": ["I5", "I12"]},
-    {"test": "worker_resubscribe_rearms_authoritative_ready_work", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "ready_expiry_filter_does_not_starve_later_non_ready_deadlines", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "cancel_during_backoff_exits_immediately", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
 
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
@@ -352,14 +339,13 @@
     {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
 
     {"test": "reorg_status_transition_failure_has_no_false_reject_and_replay_converges", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
-    {"test": "reorg_retain_duplicate_does_not_cascade_dependents", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
     {"test": "retained_receiver_preserves_fifo_across_panics", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
     {"test": "clear_during_reorg_recovery_owns_the_final_empty_state", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7", "I8"]},
     {"test": "cross_authority_query_is_serialized_with_clear_and_reorg", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I2", "I7"]},
     {"test": "reorg_direct_replay_treats_pool_duplicates_as_idempotent", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7"]},
 
     {"test": "save_pool_waits_for_complete_reorg_recovery_point", "behavior_id": "TP-PERSIST-001", "invariants": ["I7"]},
-    {"test": "stable_effect_journal_failure_preserves_pool_persistence", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I8"]},
+    {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I8"]},
     {"test": "persisted_file_orders_expanded_dep_group_parents", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I10"]},
 
     {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
@@ -374,18 +360,18 @@
     {"test": "full_and_uncle_updates_share_template_serialization_lock", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
     {"test": "commit_and_removal_journal_block_assembler_delta", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
 
-    {"test": "complete_hash_identity_retains_short_id_collisions", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I5"]},
+    {"test": "short_id_collision_is_backpressure_not_aliasing", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I5"]},
     {"test": "full_hash_lookup_does_not_alias_a_proposal_short_id_collision", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I10"]},
-    {"test": "conflict_recovery_retries_pool_short_id_collision_without_losing_history", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I4", "I9"]},
     {"test": "pool_short_id_collision_is_not_a_successful_duplicate", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I2", "I10"]},
     {"test": "synchronous_precheck_does_not_alias_short_id_collision_as_duplicate", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I4"]},
     {"test": "verification_cache_isolated_by_witness_hash_not_raw_hash", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I9"]},
     {"test": "reorg_recovery_reads_cache_by_exact_witness_hash", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I7", "I9"]},
+    {"test": "proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I4", "I5"]},
+    {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I9"]},
 
-    {"test": "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
-    {"test": "conflict_edge_victim_selection_stops_before_stronger_pool_suffix", "behavior_id": "TP-PERF-001", "invariants": ["I12"]},
-    {"test": "global_capacity_victim_selection_stops_before_stronger_pool_suffix", "behavior_id": "TP-PERF-001", "invariants": ["I12"]},
-    {"test": "model_conflict_probe_cost_ignores_independent_population", "behavior_id": "TP-PERF-001", "invariants": ["I12"]}
+    {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
+    {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
+    {"test": "descendants_cache_members_stay_within_budget", "behavior_id": "TP-PERF-001", "invariants": ["I12"]}
   ],
   "integration_evidence": [
     {
@@ -421,7 +407,7 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfRejectReplaceProposed",
       "invariants": ["I2", "I9", "I11"],
-      "unit_anchors": ["pipeline_rbf_displaces_lower_fee_tx", "commit_and_removal_journal_block_assembler_delta"],
+      "unit_anchors": ["successful_replacement_does_not_recover_removed_descendants", "commit_and_removal_journal_block_assembler_delta"],
       "boundary": "Replacing a Proposed transaction rejects the victim, refreshes the real node template, and normally proposes and commits only the replacement."
     },
     {
@@ -430,17 +416,17 @@
       "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs",
       "anchor": "RbfOrphanRecovery",
       "invariants": ["I4", "I9"],
-      "unit_anchors": ["successful_rbf_recovery_cascades_from_accepted_parent_outputs", "model_random_transitions_always_match_full_rebuild"],
+      "unit_anchors": ["full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants"],
       "boundary": "When a replacement frees only one of two historical inputs, the node recovers exactly the newly eligible victim and retains the still-conflicting victim as rejected."
     },
     {
       "id": "rbf-basic",
-      "behavior_ids": ["TP-RBF-001"],
+      "behavior_ids": ["TP-CACHE-001", "TP-RBF-001"],
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfBasic",
-      "invariants": ["I2", "I9"],
-      "unit_anchors": ["pipeline_rbf_displaces_lower_fee_tx"],
-      "boundary": "The node enforces the replacement fee rule, exposes the victim as RBFRejected, and commits the accepted higher-fee replacement."
+      "invariants": ["I2", "I4", "I9"],
+      "unit_anchors": ["successful_replacement_does_not_recover_removed_descendants", "dependency_availability_uses_the_authoritative_overlay_level"],
+      "boundary": "The node enforces the replacement fee rule, exposes the victim as RBFRejected, commits the accepted higher-fee replacement, and does not reinterpret an output created and consumed in that attached branch as an availability edge that overwrites the root rejection."
     },
     {
       "id": "rbf-proposed-success",
@@ -448,7 +434,7 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfReplaceProposedSuccess",
       "invariants": ["I2", "I9", "I11"],
-      "unit_anchors": ["pipeline_rbf_displaces_lower_fee_tx", "commit_and_removal_journal_block_assembler_delta"],
+      "unit_anchors": ["successful_replacement_does_not_recover_removed_descendants", "commit_and_removal_journal_block_assembler_delta"],
       "boundary": "A higher-fee replacement of a Proposed chain member survives a subsequent blank block, is freshly proposed, and is committed while the displaced closure remains rejected."
     },
     {
@@ -457,7 +443,7 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfConcurrency",
       "invariants": ["I2", "I9"],
-      "unit_anchors": ["pipeline_concurrent_rbf_prefers_highest_fee", "model_random_transitions_always_match_full_rebuild"],
+      "unit_anchors": ["pipeline_rejects_conflicting_double_spend", "successful_replacement_does_not_recover_removed_descendants"],
       "boundary": "Concurrent RPC submissions for one input converge to the unique highest-fee transaction and record every losing candidate as rejected without a recovery livelock."
     },
     {
@@ -466,7 +452,7 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfCyclingAttack",
       "invariants": ["I4", "I9"],
-      "unit_anchors": ["successful_rbf_recovery_cascades_from_accepted_parent_outputs", "model_random_transitions_always_match_full_rebuild"],
+      "unit_anchors": ["full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants"],
       "boundary": "A cyclic sequence of overlapping replacements recovers the transaction whose input becomes free and does not resurrect transactions whose inputs remain consumed."
     },
     {

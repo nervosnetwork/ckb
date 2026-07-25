@@ -8,7 +8,6 @@ use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_crypto::secp::Privkey;
-use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::attach_block_cell;
@@ -31,24 +30,18 @@ use ckb_verification::{
     TxVerifyEnv,
     cache::{Completed, TxVerificationCacheKey},
 };
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::watch;
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ISSUE_OUTPUT_CAPACITY: u64 = 5_000;
 
 mod dependency;
-mod failure;
 mod identity;
 mod lifecycle;
-mod replacement;
-mod runtime;
 mod template;
 
 pub(crate) use dependency::service_with_rbf;
-use dependency::{secp_service_with_pipeline_workers_and_chunk, service_with_rbf_and_max_size};
 pub(crate) use identity::secp_test_consensus;
 use identity::{
     SECP_FEE, SECP_ISSUE_CAPACITY, build_secp_tx, measured_cycles,
@@ -256,7 +249,7 @@ async fn stage_verified_remote_candidate(
     tx: TransactionView,
     peer: ckb_network::PeerIndex,
 ) {
-    use crate::component::pipeline_coordinator::{CoordinatorFeeGate, RawStage, WorkerCapability};
+    use crate::component::pre_pool::{FeeGate, ResolveLane, WorkCapability};
     use std::collections::HashSet;
 
     let tx_hash = tx.hash();
@@ -266,14 +259,14 @@ async fn stage_verified_remote_candidate(
         .unwrap();
     let raw = service
         .pipeline
-        .runtime
-        .checkout_raw(RawStage::PreCheck)
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
         .unwrap();
     service.process_pipeline_raw_lease(raw).await;
     let verify = service
         .pipeline
-        .runtime
-        .mutate(|coordinator| coordinator.checkout_verify(WorkerCapability::Any))
+        .kernel
+        .mutate(|coordinator| coordinator.checkout_verify(WorkCapability::Any))
         .unwrap()
         .unwrap();
     let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
@@ -281,7 +274,7 @@ async fn stage_verified_remote_candidate(
         .verify_pipeline_resolved((*verify.payload).clone(), snapshot, None)
         .await
         .unwrap();
-    let candidate = CoordinatorFeeGate::new(0, 0)
+    let candidate = FeeGate::new(0, 0)
         .validate(
             tx_hash,
             tx.input_pts_iter().collect::<HashSet<_>>(),
@@ -293,15 +286,13 @@ async fn stage_verified_remote_candidate(
         .candidate
         .resident_size
         .checked_add(std::mem::size_of::<
-            crate::component::pipeline_runtime::PipelineVerifiedTx,
+            crate::component::pre_pool::PipelineVerifiedTx,
         >())
         .unwrap();
     service
         .pipeline
-        .runtime
-        .mutate(|coordinator| {
-            coordinator.complete_verification_candidate(&verify, verified, charge, candidate)
-        })
+        .kernel
+        .mutate(|coordinator| coordinator.complete_verify(&verify, verified, charge, candidate))
         .unwrap();
 }
 

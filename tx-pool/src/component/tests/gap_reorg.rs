@@ -284,7 +284,7 @@ async fn reorg_demotes_stale_gap_to_pending() {
         "demotion must emit a Pending notify so callers/assembler can react"
     );
     // Critically: get_proposals must see it again.
-    let proposals = tx_pool.get_proposals(10, &HashSet::new());
+    let proposals = tx_pool.package_proposals(10);
     assert!(
         proposals.contains(&id),
         "demoted Pending must be selectable by get_proposals"
@@ -327,7 +327,7 @@ async fn reorg_keeps_gap_when_still_in_gap_window() {
         "no Pending notify for a still-valid Gap"
     );
     // Gap must remain invisible to get_proposals.
-    let proposals = tx_pool.get_proposals(10, &HashSet::new());
+    let proposals = tx_pool.package_proposals(10);
     assert!(
         !proposals.contains(&id),
         "Gap must not be re-proposed while still in the gap window"
@@ -471,7 +471,7 @@ async fn reorg_leaves_true_pending_proposable() {
     run_mine_mode_reorg(&mut tx_pool, snapshot);
 
     assert_eq!(entry_status(&tx_pool, &id), Status::Pending);
-    let proposals = tx_pool.get_proposals(10, &HashSet::new());
+    let proposals = tx_pool.package_proposals(10);
     assert!(proposals.contains(&id));
 }
 

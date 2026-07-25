@@ -6,7 +6,7 @@
 //! The service builder (`service::builder`) keeps only assembly, startup
 //! and shutdown orchestration; worker lifecycle lives in this module.
 
-use crate::component::pipeline_coordinator::QueueKind;
+use crate::component::pre_pool::WorkLane;
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
 use crate::verify_mgr::VerifyMgr;
 use ckb_async_runtime::Handle;
@@ -124,8 +124,8 @@ where
 pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
     while let Some(lease) = service
         .pipeline
-        .runtime
-        .wait_raw(crate::component::pipeline_coordinator::RawStage::PreCheck)
+        .kernel
+        .wait_resolve(crate::component::pre_pool::ResolveLane::Ingress)
         .await
     {
         service.process_pipeline_raw_lease(lease).await;
@@ -185,30 +185,45 @@ pub(crate) fn spawn_pre_check_workers(
 /// dependency failure, administrative removal, or a failed commit; tying the
 /// consumer to verify completion would therefore lose wake paths.
 pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: CancellationToken) {
-    let ready = service.pipeline.runtime.subscribe(
-        QueueKind::Commit,
-        crate::component::pipeline_coordinator::WorkerCapability::Any,
+    let ready = service.pipeline.kernel.subscribe(
+        WorkLane::Commit,
+        crate::component::pre_pool::WorkCapability::Any,
     );
+    let mut backoff = RespawnBackoff::new();
     loop {
-        tokio::select! {
-            _ = ready.notified() => {}
-            _ = cancel.cancelled() => break,
+        // Notify is only a hint. In particular, a driver panic consumes the
+        // current permit while deliberately retaining the Ready owner. Read
+        // the authoritative level before sleeping so that retained work is
+        // retried after backoff without requiring an unrelated mutation.
+        if service.pipeline.kernel.queue_is_empty(WorkLane::Commit) {
+            tokio::select! {
+                _ = ready.notified() => {}
+                _ = cancel.cancelled() => break,
+            }
         }
         if cancel.is_cancelled() {
             break;
         }
+        let started = std::time::Instant::now();
         let outcome = AssertUnwindSafe(service.drive_pipeline_commits())
             .catch_unwind()
             .await;
         if let Err(payload) = outcome {
-            if service.pipeline.runtime.is_failed() {
+            if service.pipeline.kernel.is_failed() {
                 break;
             }
             let message = crate::util::panic_payload_to_string(payload.as_ref());
-            service
-                .pipeline
-                .runtime
-                .fail_stop("tx-pool commit driver panicked", &message);
+            let delay = backoff.delay_for(started.elapsed());
+            error!(
+                "tx-pool commit driver panicked; retaining Ready owner and retrying in {:?}: {}",
+                delay, message
+            );
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = cancel.cancelled() => break,
+            }
+        } else {
+            backoff = RespawnBackoff::new();
         }
     }
     info!("TxPool pipeline commit worker exited");
@@ -237,7 +252,7 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
     const EXPIRY_TICK: Duration = Duration::from_secs(1);
 
     handle.spawn(async move {
-        let ready = service.pipeline.runtime.subscribe_maintenance();
+        let ready = service.pipeline.kernel.subscribe_maintenance();
         let mut expiry = tokio::time::interval(EXPIRY_TICK);
         expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -255,42 +270,30 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                         "tx-pool expiry effect reservation failed",
                     )
                     .await;
-                let expired = service.pipeline.runtime.mutate_required(
+                // Ready has no transient commit state. Serializing expiry
+                // with the commit driver is therefore the proof that a
+                // read-only commit ticket remains owned until its paired
+                // pool/kernel settlement finishes.
+                let commit_guard = service.pipeline.kernel.try_lock_commit_driver();
+                let expired = service.pipeline.kernel.mutate_required(
                     "tx-pool pipeline expiry failed",
                     |coordinator| {
-                        let result = coordinator.expire_due(now, SLICE);
+                        let result = coordinator.expire_due(now, SLICE, commit_guard.is_some());
                         if let Ok(records) = &result {
                             service.journal_pipeline_terminal_records(expiry_permit, records);
                         }
                         result
                     },
                 );
-                let dependency_permit = service
-                    .reserve_required_effects(
-                        TxPoolService::pipeline_terminal_effect_bytes(SLICE),
-                        "tx-pool dependency effect reservation failed",
-                    )
-                    .await;
-                let failed = service.pipeline.runtime.mutate_required(
-                    "tx-pool dependency maintenance failed",
-                    |coordinator| {
-                        let result = coordinator.drain_dependency_failures(SLICE);
-                        if let Ok(records) = &result {
-                            service.journal_pipeline_terminal_records(dependency_permit, records);
-                        }
-                        result
-                    },
-                );
-                let conflict_recovery = service.recover_conflict_cache_slice(SLICE).await;
-                let saturated =
-                    expired.len() == SLICE || failed.len() == SLICE || conflict_recovery.saturated;
-                if conflict_recovery.capacity_blocked {
-                    // Avoid a hot loop against a globally full coordinator or
-                    // outbox. The one-second maintenance tick retries the
-                    // level-triggered cache queue.
-                    break;
-                }
-                if !saturated && !service.pipeline.runtime.maintenance_pending() {
+                drop(commit_guard);
+                let woke = service
+                    .pipeline
+                    .kernel
+                    .mutate_required("tx-pool wait maintenance failed", |kernel| {
+                        kernel.drain_wait_wakes(SLICE)
+                    });
+                let saturated = expired.len() == SLICE || woke == SLICE;
+                if !saturated && !service.pipeline.kernel.maintenance_pending() {
                     break;
                 }
                 tokio::task::yield_now().await;

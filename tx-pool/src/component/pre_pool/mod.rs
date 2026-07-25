@@ -1,0 +1,981 @@
+//! The sole owner of every transaction that has not entered [`crate::pool::TxPool`].
+//!
+//! The primary map owns payloads. Scheduling, waiting, conflict and deadline
+//! structures contain identities only and are updated in the same short mutex
+//! section. Workers borrow immutable `Arc`s with one process-global version;
+//! queues and notifications never own transaction data.
+
+mod commit;
+mod lifecycle;
+mod queue;
+mod runtime;
+mod wait;
+
+#[cfg(test)]
+#[path = "../tests/pre_pool_seam.rs"]
+mod test_seam;
+
+#[cfg(test)]
+pub(crate) use runtime::pre_pool_source;
+pub(crate) use runtime::{
+    PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline, historical_source,
+    pre_pool_reject,
+};
+
+use self::queue::{FairQueue, WorkKey, WorkOwner};
+use crate::resolved_tx::ResolvedTx;
+use ckb_network::PeerIndex;
+use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
+use ckb_types::prelude::Entity;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
+
+pub(crate) type EntryVersion = u128;
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum PrePoolSource {
+    Remote(PeerIndex),
+    Proposal,
+}
+
+impl PrePoolSource {
+    fn peer(self) -> Option<PeerIndex> {
+        match self {
+            Self::Remote(peer) => Some(peer),
+            Self::Proposal => None,
+        }
+    }
+
+    fn priority(self) -> u8 {
+        match self {
+            Self::Remote(_) => 0,
+            Self::Proposal => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub(crate) enum ResolveLane {
+    Ingress,
+    Ordered,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub(crate) enum WorkLane {
+    Ingress,
+    Resolve,
+    Verify,
+    Commit,
+}
+
+impl WorkLane {
+    const ALL: [Self; 4] = [Self::Ingress, Self::Resolve, Self::Verify, Self::Commit];
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub(crate) enum WorkCapability {
+    Any,
+    SmallCycleOnly,
+}
+
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
+pub(crate) struct VerifySchedule {
+    pub(crate) fee_rate_per_kb: u64,
+    pub(crate) is_large_cycle: bool,
+}
+
+impl VerifySchedule {
+    pub(crate) const fn new(fee_rate_per_kb: u64, is_large_cycle: bool) -> Self {
+        Self {
+            fee_rate_per_kb,
+            is_large_cycle,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum DependencyKey {
+    Cell(OutPoint),
+    Header(Byte32),
+}
+
+impl DependencyKey {
+    pub(crate) fn parent_hash(&self) -> Byte32 {
+        match self {
+            Self::Cell(out_point) => out_point.tx_hash(),
+            Self::Header(hash) => hash.clone(),
+        }
+    }
+
+    fn into_compact(self) -> Self {
+        match self {
+            Self::Cell(out_point) => Self::Cell(crate::util::compact_packed(&out_point)),
+            Self::Header(hash) => Self::Header(crate::util::compact_packed(&hash)),
+        }
+    }
+}
+
+pub(crate) fn conflict_dependency_keys(
+    tx: &ckb_types::core::TransactionView,
+    expanded: impl IntoIterator<Item = OutPoint>,
+) -> BTreeSet<DependencyKey> {
+    tx.input_pts_iter()
+        .chain(tx.cell_deps().into_iter().map(|dep| dep.out_point()))
+        .chain(expanded)
+        .map(|out_point| DependencyKey::Cell(crate::util::compact_packed(&out_point)))
+        .chain(
+            tx.header_deps()
+                .into_iter()
+                .map(|hash| DependencyKey::Header(crate::util::compact_packed(&hash))),
+        )
+        .collect()
+}
+
+pub(crate) fn available_cell_keys(
+    outpoints: impl IntoIterator<Item = OutPoint>,
+) -> impl Iterator<Item = DependencyKey> {
+    outpoints
+        .into_iter()
+        .map(|out_point| DependencyKey::Cell(crate::util::compact_packed(&out_point)))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WaitReason {
+    Missing,
+    Conflict,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolLocation {
+    RecoveryRetained,
+    ResolveQueued,
+    ResolveLeased,
+    Wait(WaitReason),
+    VerifyQueued,
+    VerifyLeased,
+    Ready,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Residency {
+    pub(crate) entries: usize,
+    pub(crate) bytes: usize,
+}
+
+impl Residency {
+    pub(crate) const fn new(entries: usize, bytes: usize) -> Self {
+        Self { entries, bytes }
+    }
+
+    fn checked_add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            entries: self.entries.checked_add(other.entries)?,
+            bytes: self.bytes.checked_add(other.bytes)?,
+        })
+    }
+
+    fn checked_sub(self, other: Self) -> Option<Self> {
+        Some(Self {
+            entries: self.entries.checked_sub(other.entries)?,
+            bytes: self.bytes.checked_sub(other.bytes)?,
+        })
+    }
+
+    fn fits(self, limit: Self) -> bool {
+        self.entries <= limit.entries && self.bytes <= limit.bytes
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PrePoolLimits {
+    pub(crate) total: Residency,
+    pub(crate) remote: Residency,
+    pub(crate) per_peer: Residency,
+    pub(crate) conflict_history: Residency,
+    pub(crate) max_dependencies_per_entry: usize,
+    pub(crate) max_dependents_per_parent: usize,
+    pub(crate) max_inputs_per_ready: usize,
+    pub(crate) max_candidates_per_input: usize,
+    pub(crate) max_active_work: usize,
+    pub(crate) max_active_work_per_peer: usize,
+    pub(crate) entry_overhead: usize,
+    pub(crate) dependency_overhead: usize,
+    pub(crate) verify_fee_rate_ordering: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolError {
+    DuplicateHash(Byte32),
+    ShortIdCollision {
+        short_id: ProposalShortId,
+        existing_hash: Byte32,
+    },
+    LocalMustRunDirect,
+    SelfDependency(Byte32),
+    DependencyLimitExceeded,
+    ParentFanoutLimitExceeded(Byte32),
+    ConflictInputLimitExceeded,
+    ConflictCandidateLimitExceeded(OutPoint),
+    ZeroTransactionSize(Byte32),
+    UnderReplacementFee {
+        hash: Byte32,
+        required: u64,
+        actual: u64,
+    },
+    UnderFeeRate {
+        hash: Byte32,
+        required_per_kb: u64,
+    },
+    FeeRateOverflow,
+    ResidencyChargeOverflow,
+    TotalBudgetExceeded,
+    RemoteBudgetExceeded,
+    PeerBudgetExceeded(PeerIndex),
+    ConflictHistoryBudgetExceeded,
+    ActiveWorkLimitExceeded,
+    PeerActiveWorkLimitExceeded(PeerIndex),
+    VersionExhausted,
+    Missing(Byte32),
+    Stale {
+        hash: Byte32,
+        expected: EntryVersion,
+        actual: EntryVersion,
+    },
+    LocationMismatch {
+        hash: Byte32,
+        expected: PrePoolLocation,
+        actual: PrePoolLocation,
+    },
+    Repair(&'static str),
+}
+
+impl PrePoolError {
+    pub(crate) fn is_transaction_rejection(&self) -> bool {
+        matches!(
+            self,
+            Self::SelfDependency(_)
+                | Self::DependencyLimitExceeded
+                | Self::ParentFanoutLimitExceeded(_)
+                | Self::ConflictInputLimitExceeded
+                | Self::ConflictCandidateLimitExceeded(_)
+                | Self::ZeroTransactionSize(_)
+                | Self::UnderReplacementFee { .. }
+                | Self::UnderFeeRate { .. }
+                | Self::FeeRateOverflow
+                | Self::ResidencyChargeOverflow
+                | Self::ShortIdCollision { .. }
+                | Self::TotalBudgetExceeded
+                | Self::RemoteBudgetExceeded
+                | Self::PeerBudgetExceeded(_)
+                | Self::ConflictHistoryBudgetExceeded
+                | Self::ActiveWorkLimitExceeded
+                | Self::PeerActiveWorkLimitExceeded(_)
+        )
+    }
+
+    pub(crate) fn is_capacity_rejection(&self) -> bool {
+        matches!(
+            self,
+            Self::DependencyLimitExceeded
+                | Self::ParentFanoutLimitExceeded(_)
+                | Self::ConflictInputLimitExceeded
+                | Self::ConflictCandidateLimitExceeded(_)
+                | Self::ShortIdCollision { .. }
+                | Self::TotalBudgetExceeded
+                | Self::RemoteBudgetExceeded
+                | Self::PeerBudgetExceeded(_)
+                | Self::ConflictHistoryBudgetExceeded
+                | Self::ActiveWorkLimitExceeded
+                | Self::PeerActiveWorkLimitExceeded(_)
+        )
+    }
+
+    pub(crate) fn is_retryable_capacity_rejection(&self) -> bool {
+        matches!(
+            self,
+            Self::ShortIdCollision { .. }
+                | Self::TotalBudgetExceeded
+                | Self::RemoteBudgetExceeded
+                | Self::PeerBudgetExceeded(_)
+                | Self::ConflictHistoryBudgetExceeded
+                | Self::ActiveWorkLimitExceeded
+                | Self::PeerActiveWorkLimitExceeded(_)
+        )
+    }
+
+    pub(crate) fn is_stale_lease(&self) -> bool {
+        matches!(
+            self,
+            Self::Missing(_) | Self::Stale { .. } | Self::LocationMismatch { .. }
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct VerifiedCandidate {
+    inputs: BTreeSet<OutPoint>,
+    fee: u64,
+    tx_size: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FeeGate {
+    required_replacement_fee: u64,
+    min_fee_rate_per_kb: u64,
+}
+
+impl FeeGate {
+    pub(crate) const fn new(required_replacement_fee: u64, min_fee_rate_per_kb: u64) -> Self {
+        Self {
+            required_replacement_fee,
+            min_fee_rate_per_kb,
+        }
+    }
+
+    pub(crate) fn validate(
+        self,
+        hash: Byte32,
+        inputs: HashSet<OutPoint>,
+        fee: u64,
+        tx_size: usize,
+    ) -> Result<VerifiedCandidate, PrePoolError> {
+        if inputs.is_empty() || tx_size == 0 {
+            return Err(PrePoolError::ZeroTransactionSize(hash));
+        }
+        if fee < self.required_replacement_fee {
+            return Err(PrePoolError::UnderReplacementFee {
+                hash,
+                required: self.required_replacement_fee,
+                actual: fee,
+            });
+        }
+        let actual = u128::from(fee) * 1_000;
+        let required = u128::from(self.min_fee_rate_per_kb)
+            .checked_mul(u128::try_from(tx_size).map_err(|_| PrePoolError::FeeRateOverflow)?)
+            .ok_or(PrePoolError::FeeRateOverflow)?;
+        if actual < required {
+            return Err(PrePoolError::UnderFeeRate {
+                hash,
+                required_per_kb: self.min_fee_rate_per_kb,
+            });
+        }
+        Ok(VerifiedCandidate {
+            inputs: inputs
+                .into_iter()
+                .map(|input| crate::util::compact_packed(&input))
+                .collect(),
+            fee,
+            tx_size,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolveLease {
+    pub(crate) hash: Byte32,
+    pub(crate) lane: ResolveLane,
+    pub(crate) version: EntryVersion,
+    pub(crate) payload: Arc<PipelineRawTx>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct VerifyLease {
+    pub(crate) hash: Byte32,
+    pub(crate) version: EntryVersion,
+    pub(crate) payload: Arc<ResolvedTx>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CommitTicket {
+    pub(crate) hash: Byte32,
+    pub(crate) version: EntryVersion,
+    pub(crate) rank: ReadyKey,
+    pub(crate) payload: Arc<PipelineVerifiedTx>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalDisposition {
+    Rejected,
+    Removed,
+    Cleared,
+    Expired,
+    Internal,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TerminalRecord {
+    pub(crate) hash: Byte32,
+    pub(crate) raw: Arc<PipelineRawTx>,
+    pub(crate) source: PrePoolSource,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CommitHandoff {
+    pub(crate) raw: Arc<PipelineRawTx>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExternalCommitRecord {
+    pub(crate) raw: Arc<PipelineRawTx>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CommitSettlement {
+    pub(crate) winner: CommitHandoff,
+    /// Conflict owners moved to Wait. These records describe the public
+    /// superseded outcome; they do not transfer payload ownership.
+    pub(crate) retained_conflicts: Vec<TerminalRecord>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PrePoolView {
+    pub(crate) location: PrePoolLocation,
+    #[cfg(test)]
+    pub(crate) source: PrePoolSource,
+    #[cfg(test)]
+    pub(crate) dependencies: BTreeSet<Byte32>,
+    #[cfg(test)]
+    pub(crate) version: EntryVersion,
+}
+
+#[derive(Clone, Debug, Eq)]
+pub(crate) struct ReadyKey {
+    source_class: u8,
+    fee: u64,
+    tx_size: usize,
+    arrival: u128,
+    hash: Byte32,
+    version: EntryVersion,
+}
+
+impl PartialEq for ReadyKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.source_class == other.source_class
+            && self.fee == other.fee
+            && self.tx_size == other.tx_size
+            && self.arrival == other.arrival
+            && self.hash == other.hash
+            && self.version == other.version
+    }
+}
+
+impl Ord for ReadyKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let left_rate = u128::from(self.fee) * other.tx_size as u128;
+        let right_rate = u128::from(other.fee) * self.tx_size as u128;
+        self.source_class
+            .cmp(&other.source_class)
+            .then_with(|| left_rate.cmp(&right_rate))
+            .then_with(|| self.fee.cmp(&other.fee))
+            .then_with(|| other.arrival.cmp(&self.arrival))
+            .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
+            .then_with(|| self.version.cmp(&other.version))
+            .then_with(|| self.tx_size.cmp(&other.tx_size))
+    }
+}
+
+impl PartialOrd for ReadyKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct WaitState {
+    reason: WaitReason,
+    observed: BTreeMap<DependencyKey, u128>,
+}
+
+#[derive(Clone, Debug)]
+enum EntryState {
+    // P4 connects detached-chain recovery to this retained boundary. Keeping
+    // the state in the frozen kernel vocabulary now prevents the recovery
+    // cutover from inventing an eighth transient location later.
+    #[allow(dead_code)]
+    RecoveryRetained {
+        ordinal: u32,
+    },
+    ResolveQueued {
+        lane: ResolveLane,
+    },
+    ResolveLeased,
+    Wait(WaitState),
+    VerifyQueued {
+        payload: Arc<ResolvedTx>,
+        schedule: VerifySchedule,
+    },
+    VerifyLeased {
+        payload: Arc<ResolvedTx>,
+    },
+    Ready {
+        payload: Arc<PipelineVerifiedTx>,
+        inputs: BTreeSet<OutPoint>,
+        rank: ReadyKey,
+    },
+}
+
+impl EntryState {
+    fn location(&self) -> PrePoolLocation {
+        match self {
+            Self::RecoveryRetained { .. } => PrePoolLocation::RecoveryRetained,
+            Self::ResolveQueued { .. } => PrePoolLocation::ResolveQueued,
+            Self::ResolveLeased => PrePoolLocation::ResolveLeased,
+            Self::Wait(wait) => PrePoolLocation::Wait(wait.reason),
+            Self::VerifyQueued { .. } => PrePoolLocation::VerifyQueued,
+            Self::VerifyLeased { .. } => PrePoolLocation::VerifyLeased,
+            Self::Ready { .. } => PrePoolLocation::Ready,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Entry {
+    short_id: ProposalShortId,
+    raw: Arc<PipelineRawTx>,
+    source: PrePoolSource,
+    state: EntryState,
+    version: EntryVersion,
+    arrival: u128,
+    expires_at: Option<u64>,
+    payload_charge_bytes: usize,
+    charge_bytes: usize,
+    dependencies: BTreeSet<DependencyKey>,
+}
+
+impl Entry {
+    fn work_key(&self, hash: &Byte32, verify_fee_rate_ordering: bool) -> Option<WorkKey> {
+        let schedule = match &self.state {
+            EntryState::VerifyQueued { schedule, .. } => *schedule,
+            EntryState::ResolveQueued { .. } => VerifySchedule::default(),
+            _ => return None,
+        };
+        Some(WorkKey {
+            hash: hash.clone(),
+            version: self.version,
+            source: self.source,
+            arrival: self.arrival,
+            schedule,
+            fee_ordered: matches!(&self.state, EntryState::VerifyQueued { .. })
+                && verify_fee_rate_ordering,
+        })
+    }
+
+    fn view(&self) -> PrePoolView {
+        PrePoolView {
+            location: self.state.location(),
+            #[cfg(test)]
+            source: self.source,
+            #[cfg(test)]
+            dependencies: self
+                .dependencies
+                .iter()
+                .map(DependencyKey::parent_hash)
+                .collect(),
+            #[cfg(test)]
+            version: self.version,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct WaitEdge {
+    hash: Byte32,
+    version: EntryVersion,
+}
+
+#[derive(Clone, Debug)]
+struct DirtyDependency {
+    target_epoch: u128,
+    cursor: Option<WaitEdge>,
+    pending_epoch: Option<u128>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct DeadlineKey {
+    expires_at: u64,
+    hash: Byte32,
+    version: EntryVersion,
+}
+
+/// Concrete primary owner and exact derived projections. No method awaits or
+/// acquires `TxPool`; callers establish the universal `TxPool -> kernel`
+/// order around cross-authority commands.
+#[derive(Debug)]
+pub(crate) struct PrePoolKernel {
+    entries: HashMap<Byte32, Entry>,
+    by_short_id: HashMap<ProposalShortId, Byte32>,
+    by_peer: HashMap<PeerIndex, BTreeSet<Byte32>>,
+    by_parent: HashMap<Byte32, BTreeSet<Byte32>>,
+    waiters: HashMap<DependencyKey, BTreeSet<WaitEdge>>,
+    availability_epoch: HashMap<DependencyKey, u128>,
+    dirty: BTreeMap<DependencyKey, DirtyDependency>,
+    dirty_order: VecDeque<DependencyKey>,
+    queues: [FairQueue; 4],
+    ready: BTreeSet<ReadyKey>,
+    ready_by_input: HashMap<OutPoint, BTreeSet<ReadyKey>>,
+    deadlines: BTreeSet<DeadlineKey>,
+    total_usage: Residency,
+    remote_usage: Residency,
+    conflict_usage: Residency,
+    peer_usage: HashMap<PeerIndex, Residency>,
+    active_work: usize,
+    active_by_owner: HashMap<WorkOwner, usize>,
+    limits: PrePoolLimits,
+    next_version: EntryVersion,
+    next_arrival: u128,
+}
+
+impl PrePoolKernel {
+    pub(crate) fn new(limits: PrePoolLimits) -> Self {
+        Self {
+            entries: HashMap::new(),
+            by_short_id: HashMap::new(),
+            by_peer: HashMap::new(),
+            by_parent: HashMap::new(),
+            waiters: HashMap::new(),
+            availability_epoch: HashMap::new(),
+            dirty: BTreeMap::new(),
+            dirty_order: VecDeque::new(),
+            queues: WorkLane::ALL.map(FairQueue::new),
+            ready: BTreeSet::new(),
+            ready_by_input: HashMap::new(),
+            deadlines: BTreeSet::new(),
+            total_usage: Residency::default(),
+            remote_usage: Residency::default(),
+            conflict_usage: Residency::default(),
+            peer_usage: HashMap::new(),
+            active_work: 0,
+            active_by_owner: HashMap::new(),
+            limits,
+            next_version: 1,
+            next_arrival: 0,
+        }
+    }
+
+    fn allocate_version(&mut self) -> Result<EntryVersion, PrePoolError> {
+        let version = self.next_version;
+        self.next_version = self
+            .next_version
+            .checked_add(1)
+            .ok_or(PrePoolError::VersionExhausted)?;
+        Ok(version)
+    }
+
+    fn allocate_arrival(&mut self) -> Result<u128, PrePoolError> {
+        let arrival = self.next_arrival;
+        self.next_arrival = self
+            .next_arrival
+            .checked_add(1)
+            .ok_or(PrePoolError::VersionExhausted)?;
+        Ok(arrival)
+    }
+
+    fn lane_for_resolve(lane: ResolveLane) -> WorkLane {
+        match lane {
+            ResolveLane::Ingress => WorkLane::Ingress,
+            ResolveLane::Ordered => WorkLane::Resolve,
+        }
+    }
+
+    fn index_memberships(entry: &Entry) -> Result<usize, PrePoolError> {
+        // Count a conservative bucket/member pair for every hash projection.
+        // State-local ordered-set keys are counted separately. This is a
+        // closed function of the primary entry, so moving between states
+        // cannot silently add uncharged derived storage.
+        let mut memberships = 2usize; // full-hash owner -> short-ID projection
+        if entry.source.peer().is_some() {
+            memberships = memberships
+                .checked_add(2)
+                .ok_or(PrePoolError::ResidencyChargeOverflow)?;
+        }
+        let parent_count = entry
+            .dependencies
+            .iter()
+            .map(DependencyKey::parent_hash)
+            .collect::<BTreeSet<_>>()
+            .len();
+        memberships = memberships
+            .checked_add(entry.dependencies.len())
+            .and_then(|value| value.checked_add(parent_count.checked_mul(2)?))
+            .and_then(|value| value.checked_add(usize::from(entry.expires_at.is_some())))
+            .ok_or(PrePoolError::ResidencyChargeOverflow)?;
+        let current_state_memberships = match &entry.state {
+            EntryState::RecoveryRetained { .. }
+            | EntryState::ResolveLeased
+            | EntryState::VerifyLeased { .. } => 0,
+            // Work key, owner bucket and runnable head in the worst case.
+            EntryState::ResolveQueued { .. } | EntryState::VerifyQueued { .. } => 3,
+            // Exact waiter edge, dependency bucket, availability epoch and
+            // dirty cursor/order reservation. The latter two are transient
+            // but may appear without another entry transition.
+            EntryState::Wait(wait) => wait
+                .observed
+                .len()
+                .checked_mul(4)
+                .map(|memberships| memberships.max(3))
+                .ok_or(PrePoolError::ResidencyChargeOverflow)?,
+            // One global Ready rank plus a bucket/rank pair per input.
+            EntryState::Ready { inputs, .. } => inputs
+                .len()
+                .checked_mul(2)
+                .and_then(|value| value.checked_add(1))
+                .ok_or(PrePoolError::ResidencyChargeOverflow)?,
+        };
+        // Every live owner reserves the exact dependency-wait projection it
+        // can reach from its currently retained payload. Parent invalidation
+        // is therefore a non-growing transition even when every other byte of
+        // the partition is occupied; it cannot turn a legal chain/pool event
+        // into a capacity-triggered structural failure.
+        let wait_reservation = Self::causal_keys(entry)
+            .len()
+            .checked_mul(4)
+            .map(|memberships| memberships.max(3))
+            .ok_or(PrePoolError::ResidencyChargeOverflow)?;
+        let state_memberships = current_state_memberships.max(wait_reservation);
+        memberships
+            .checked_add(state_memberships)
+            .ok_or(PrePoolError::ResidencyChargeOverflow)
+    }
+
+    fn entry_charge(&self, entry: &Entry) -> Result<usize, PrePoolError> {
+        Self::index_memberships(entry)?
+            .checked_mul(self.limits.dependency_overhead)
+            .and_then(|metadata| metadata.checked_add(self.limits.entry_overhead))
+            .and_then(|metadata| metadata.checked_add(entry.payload_charge_bytes))
+            .ok_or(PrePoolError::ResidencyChargeOverflow)
+    }
+
+    fn is_conflict(entry: &Entry) -> bool {
+        matches!(
+            entry.state,
+            EntryState::Wait(WaitState {
+                reason: WaitReason::Conflict,
+                ..
+            })
+        )
+    }
+
+    fn check_usage_delta(
+        &self,
+        old: Option<&Entry>,
+        new: Option<&Entry>,
+    ) -> Result<(), PrePoolError> {
+        let old_charge = old.map_or(Residency::default(), |entry| {
+            Residency::new(1, entry.charge_bytes)
+        });
+        let new_charge = new.map_or(Residency::default(), |entry| {
+            Residency::new(1, entry.charge_bytes)
+        });
+        let total = self
+            .total_usage
+            .checked_sub(old_charge)
+            .and_then(|usage| usage.checked_add(new_charge))
+            .ok_or(PrePoolError::Repair("total usage arithmetic"))?;
+        if !total.fits(self.limits.total) {
+            return Err(PrePoolError::TotalBudgetExceeded);
+        }
+
+        let old_peer = old.and_then(|entry| entry.source.peer());
+        let new_peer = new.and_then(|entry| entry.source.peer());
+        let mut remote = self.remote_usage;
+        if old_peer.is_some() {
+            remote = remote
+                .checked_sub(old_charge)
+                .ok_or(PrePoolError::Repair("remote usage arithmetic"))?;
+        }
+        if new_peer.is_some() {
+            remote = remote
+                .checked_add(new_charge)
+                .ok_or(PrePoolError::RemoteBudgetExceeded)?;
+        }
+        if !remote.fits(self.limits.remote) {
+            return Err(PrePoolError::RemoteBudgetExceeded);
+        }
+
+        let mut conflict = self.conflict_usage;
+        if old.is_some_and(Self::is_conflict) {
+            conflict = conflict
+                .checked_sub(old_charge)
+                .ok_or(PrePoolError::Repair("conflict usage arithmetic"))?;
+        }
+        if new.is_some_and(Self::is_conflict) {
+            conflict = conflict
+                .checked_add(new_charge)
+                .ok_or(PrePoolError::ConflictHistoryBudgetExceeded)?;
+        }
+        if !conflict.fits(self.limits.conflict_history) {
+            return Err(PrePoolError::ConflictHistoryBudgetExceeded);
+        }
+
+        for peer in old_peer.into_iter().chain(new_peer) {
+            let mut usage = self.peer_usage.get(&peer).copied().unwrap_or_default();
+            if old_peer == Some(peer) {
+                usage = usage
+                    .checked_sub(old_charge)
+                    .ok_or(PrePoolError::Repair("peer usage arithmetic"))?;
+            }
+            if new_peer == Some(peer) {
+                usage = usage
+                    .checked_add(new_charge)
+                    .ok_or(PrePoolError::PeerBudgetExceeded(peer))?;
+            }
+            if !usage.fits(self.limits.per_peer) {
+                return Err(PrePoolError::PeerBudgetExceeded(peer));
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_usage_delta(&mut self, old: Option<&Entry>, new: Option<&Entry>) {
+        let old_charge = old.map_or(Residency::default(), |entry| {
+            Residency::new(1, entry.charge_bytes)
+        });
+        let new_charge = new.map_or(Residency::default(), |entry| {
+            Residency::new(1, entry.charge_bytes)
+        });
+        self.total_usage = self
+            .total_usage
+            .checked_sub(old_charge)
+            .and_then(|usage| usage.checked_add(new_charge))
+            .expect("prevalidated total usage delta");
+        let old_peer = old.and_then(|entry| entry.source.peer());
+        let new_peer = new.and_then(|entry| entry.source.peer());
+        if old_peer.is_some() {
+            self.remote_usage = self.remote_usage.checked_sub(old_charge).unwrap();
+        }
+        if new_peer.is_some() {
+            self.remote_usage = self.remote_usage.checked_add(new_charge).unwrap();
+        }
+        if old.is_some_and(Self::is_conflict) {
+            self.conflict_usage = self.conflict_usage.checked_sub(old_charge).unwrap();
+        }
+        if new.is_some_and(Self::is_conflict) {
+            self.conflict_usage = self.conflict_usage.checked_add(new_charge).unwrap();
+        }
+        for peer in old_peer
+            .into_iter()
+            .chain(new_peer)
+            .collect::<BTreeSet<_>>()
+        {
+            let usage = self.peer_usage.get(&peer).copied().unwrap_or_default();
+            let usage = if old_peer == Some(peer) {
+                usage.checked_sub(old_charge).unwrap()
+            } else {
+                usage
+            };
+            let usage = if new_peer == Some(peer) {
+                usage.checked_add(new_charge).unwrap()
+            } else {
+                usage
+            };
+            if usage == Residency::default() {
+                self.peer_usage.remove(&peer);
+            } else {
+                self.peer_usage.insert(peer, usage);
+            }
+        }
+    }
+
+    pub(crate) fn peer_hashes(&self, peer: PeerIndex, max: usize) -> Vec<Byte32> {
+        self.by_peer
+            .get(&peer)
+            .into_iter()
+            .flatten()
+            .take(max)
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn view(&self, hash: &Byte32) -> Option<PrePoolView> {
+        self.entries.get(hash).map(Entry::view)
+    }
+
+    pub(crate) fn source_by_hash(&self, hash: &Byte32) -> Option<PrePoolSource> {
+        self.entries.get(hash).map(|entry| entry.source)
+    }
+
+    pub(crate) fn contains_hash(&self, hash: &Byte32) -> bool {
+        self.entries.contains_key(hash)
+    }
+
+    pub(crate) fn raw_by_hash(&self, hash: &Byte32) -> Option<Arc<PipelineRawTx>> {
+        self.entries.get(hash).map(|entry| Arc::clone(&entry.raw))
+    }
+
+    pub(crate) fn raw_by_short_id(&self, short_id: &ProposalShortId) -> Option<Arc<PipelineRawTx>> {
+        self.by_short_id
+            .get(short_id)
+            .and_then(|hash| self.raw_by_hash(hash))
+    }
+
+    pub(crate) fn unverified_by_hash(&self, hash: &Byte32) -> Option<&ResolvedTx> {
+        match &self.entries.get(hash)?.state {
+            EntryState::VerifyQueued { payload, .. } | EntryState::VerifyLeased { payload, .. } => {
+                Some(payload.as_ref())
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn verified_by_hash(&self, hash: &Byte32) -> Option<&PipelineVerifiedTx> {
+        match &self.entries.get(hash)?.state {
+            EntryState::Ready { payload, .. } => Some(payload.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn hash_by_short_id(&self, short_id: &ProposalShortId) -> Option<&Byte32> {
+        self.by_short_id.get(short_id)
+    }
+
+    pub(crate) fn queue_len(&self, lane: WorkLane) -> usize {
+        match lane {
+            WorkLane::Commit => self.ready.len(),
+            _ => self.queues[lane.index()].len(),
+        }
+    }
+
+    pub(crate) fn waiting_parent_len(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| {
+                matches!(
+                    entry.state,
+                    EntryState::Wait(WaitState {
+                        reason: WaitReason::Missing,
+                        ..
+                    })
+                )
+            })
+            .count()
+    }
+
+    pub(crate) fn conflict_hashes(&self) -> Vec<Byte32> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| {
+                matches!(
+                    entry.state,
+                    EntryState::Wait(WaitState {
+                        reason: WaitReason::Conflict,
+                        ..
+                    })
+                )
+            })
+            .map(|(hash, _)| hash.clone())
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn peer_active_work(&self, peer: PeerIndex) -> usize {
+        self.active_by_owner
+            .get(&WorkOwner::Remote(peer))
+            .copied()
+            .unwrap_or_default()
+    }
+}

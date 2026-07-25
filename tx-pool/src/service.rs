@@ -232,7 +232,7 @@ impl PipelineEpoch {
 #[derive(Clone)]
 pub(crate) struct PipelineState {
     /// Single authoritative pre-pool lifecycle owner.
-    pub(crate) runtime: Arc<crate::component::pipeline_runtime::PipelineRuntime>,
+    pub(crate) kernel: Arc<crate::component::pre_pool::PrePool>,
     /// Administrative generation shared by every pipeline stage.
     pub(crate) epoch: Arc<PipelineEpoch>,
     /// Chunk command receiver used by the synchronous reorg recovery path so
@@ -507,8 +507,6 @@ pub(crate) enum RemoveTxOutcome {
 
 /// Location and metadata of a transaction found in the pipeline queues.
 pub(crate) enum PipelineTxLocation {
-    /// In the pre-check queue (awaiting initial resolution).
-    PreChecking { tx: TransactionView },
     /// In the ordered resolve queue (not yet resolved/verified).
     Ordered { tx: TransactionView },
     /// In the verify queue (resolved, awaiting verification).
@@ -519,6 +517,10 @@ pub(crate) enum PipelineTxLocation {
     },
     /// In the orphan pool (missing inputs).
     Orphan { tx: TransactionView, cycle: Cycle },
+    /// Retained rejected-conflict history. This owner remains available for
+    /// conflict audit and compact-block reconstruction, but it is not live
+    /// pipeline work and therefore must never project to RPC `Pending`.
+    ConflictHistory,
 }
 
 /// Result of looking up a transaction in the tx-pool or pipeline queues.

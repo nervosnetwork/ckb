@@ -93,7 +93,7 @@ impl TxPoolService {
                 return Ok(SubmitEntryResult::Cleared);
             }
             let (mut coordinated, committed_ingress_peer, fatal_handoff_error) =
-                self.pipeline.runtime.guard_authoritative_mutation(
+                self.pipeline.kernel.guard_authoritative_mutation(
                     "synchronous authoritative pool commit panicked",
                     || {
                         let snapshot = tx_pool.cloned_snapshot();
@@ -122,7 +122,7 @@ impl TxPoolService {
                             let removed_parents =
                                 coordinated.unavailable_parent_hashes(tx_pool.snapshot());
                             let finalized = catch_unwind(AssertUnwindSafe(|| {
-                                self.pipeline.runtime.mutate(|coordinator| {
+                                self.pipeline.kernel.mutate(|coordinator| {
                                     coordinator.external_commit_with_unavailable_parents(
                                         &tx_hash,
                                         &removed_parents,
@@ -141,9 +141,7 @@ impl TxPoolService {
                                     if !error.is_transaction_rejection() {
                                         fatal_handoff_error = Some(error.clone());
                                     }
-                                    Some(crate::component::pipeline_runtime::coordinator_reject(
-                                        error,
-                                    ))
+                                    Some(crate::component::pre_pool::pre_pool_reject(error))
                                 }
                                 Err(payload) => Some(Reject::Internal(format!(
                                     "synchronous coordinator handoff panicked: {}",
@@ -158,7 +156,7 @@ impl TxPoolService {
                                     reject,
                                 )
                             {
-                                self.pipeline.runtime.fail_stop(
+                                self.pipeline.kernel.fail_stop(
                                     "synchronous coordinator handoff rollback failed",
                                     &rollback_error,
                                 );
@@ -187,7 +185,23 @@ impl TxPoolService {
                 // expanded dep-group wake metadata before `after_process`
                 // sees only the raw transaction and records the public
                 // terminal outcome.
-                tx_pool.record_conflict_entry(&entry, source);
+                let tx = entry.transaction().clone();
+                let keys = crate::component::pre_pool::conflict_dependency_keys(
+                    &tx,
+                    entry.related_dep_out_points().cloned(),
+                );
+                let raw = crate::component::pre_pool::PipelineRawTx::new(tx, source, epoch);
+                let owner = crate::component::pre_pool::historical_source(source);
+                let expires_at = crate::component::pre_pool::historical_deadline(owner);
+                if let Err(error) = self
+                    .pipeline
+                    .kernel
+                    .mutate(|kernel| kernel.retain_conflict(raw, owner, keys, expires_at))
+                {
+                    warn!(
+                        "dropping bounded direct-submit conflict history for {tx_hash}: {error:?}"
+                    );
+                }
             }
             let extra_effects = coordinated
                 .outcome
@@ -204,7 +218,7 @@ impl TxPoolService {
                 .into_iter()
                 .collect();
             let assembler_statuses = coordinated.block_assembler_statuses();
-            self.pipeline.runtime.guard_stable_effect_journal(
+            self.pipeline.kernel.guard_stable_effect_journal(
                 "synchronous stable-effect journal panicked",
                 || {
                     for status in assembler_statuses {
@@ -221,7 +235,7 @@ impl TxPoolService {
         };
         if let Some(error) = fatal_handoff_error {
             self.pipeline
-                .runtime
+                .kernel
                 .fail_stop("synchronous coordinator handoff invariant failed", &error);
         }
         outcome.result?;
@@ -240,7 +254,7 @@ impl TxPoolService {
         resolved: crate::resolved_tx::ResolvedTx,
         snapshot: Arc<Snapshot>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Result<crate::component::pipeline_runtime::PipelineVerifiedTx, Reject> {
+    ) -> Result<crate::component::pre_pool::PipelineVerifiedTx, Reject> {
         let declared_cycles = resolved.source.cycles();
         let verify_cache = self.fetch_tx_verify_cache(&resolved.tx).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
@@ -270,7 +284,7 @@ impl TxPoolService {
         }
 
         let verify_cache_hit = verify_cache.is_some();
-        Ok(crate::component::pipeline_runtime::PipelineVerifiedTx {
+        Ok(crate::component::pre_pool::PipelineVerifiedTx {
             candidate: resolved.into_pool_candidate(),
             completed: verified,
             verify_cache_hit,
@@ -402,12 +416,12 @@ impl TxPoolService {
         }
     }
 
-    /// Drain a bounded ordered slice of verified coordinator work. The
+    /// Drain a bounded ordered slice of verified pre-pool work. The
     /// serial guard is acquired before any lease is checked out, so two
     /// verify workers cannot invert commit order while awaiting `TxPool`.
     pub(crate) async fn drive_pipeline_commits(&self) {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
-        let _driver = self.pipeline.runtime.lock_commit_driver().await;
+        let _driver = self.pipeline.kernel.lock_commit_driver().await;
         for _ in 0..MAX_COMMITS_PER_DRIVE {
             let effect_permit = self
                 .reserve_required_effects(
@@ -421,22 +435,20 @@ impl TxPoolService {
         }
     }
 
-    /// Select and commit one coordinator candidate under the same TxPool write
+    /// Select and commit one Ready candidate under the same TxPool write
     /// guard. The pool guard is the authoritative membership sequencer, so a
-    /// Local/clear/reorg handoff cannot consume a `Committing` owner between
-    /// checkout and pool insertion. Keeping checkout inside this boundary also
-    /// shortens (rather than extends) the time an entry is frozen as
-    /// `Committing`; the coordinator mutex is held only for the existing
-    /// constant-time ticket transition.
+    /// Local/clear/reorg handoff cannot consume the Ready owner between ticket
+    /// validation and pool insertion. The kernel mutex is held only for the
+    /// constant-time ticket transition; no transient commit location exists.
     async fn commit_next_pipeline_entry(
         &self,
         effect_permit: crate::service::effects::EffectPermit,
     ) -> bool {
-        use crate::component::pipeline_coordinator::TerminalDisposition;
+        use crate::component::pre_pool::TerminalDisposition;
 
         let transaction = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            let prepared = self.pipeline.runtime.guard_authoritative_mutation(
+            let prepared = self.pipeline.kernel.guard_authoritative_mutation(
                 "pipeline authoritative pool commit panicked",
                 || {
                     // Checkout must be inside the TxPool write boundary. Every
@@ -444,7 +456,7 @@ impl TxPoolService {
                     // outside this driver takes the same guard first.
                     let Some(lease) = self
                         .pipeline
-                        .runtime
+                        .kernel
                         .mutate_required("pipeline commit checkout failed", |coordinator| {
                             coordinator.begin_next_commit()
                         })
@@ -481,7 +493,7 @@ impl TxPoolService {
                         let finalized = catch_unwind(AssertUnwindSafe(|| {
                             let unavailable =
                                 coordinated.unavailable_parent_hashes(tx_pool.snapshot());
-                            self.pipeline.runtime.mutate(|coordinator| {
+                            self.pipeline.kernel.mutate(|coordinator| {
                                 coordinator.commit_any_handoff_with_unavailable_parents(
                                     &lease,
                                     &unavailable,
@@ -504,7 +516,7 @@ impl TxPoolService {
                                     &mut coordinated,
                                     reject,
                                 ) {
-                                    self.pipeline.runtime.fail_stop(
+                                    self.pipeline.kernel.fail_stop(
                                 "pipeline pool rollback after coordinator finalization failed",
                                 &rollback_error,
                             );
@@ -523,7 +535,7 @@ impl TxPoolService {
                                     &mut coordinated,
                                     reject,
                                 ) {
-                                    self.pipeline.runtime.fail_stop(
+                                    self.pipeline.kernel.fail_stop(
                                         "pipeline pool rollback after coordinator panic failed",
                                         &rollback_error,
                                     );
@@ -543,10 +555,22 @@ impl TxPoolService {
                         && settlement.is_none()
                         && !coordinator_panicked
                     {
-                        failed_terminal = Some(self.pipeline.runtime.mutate_required(
-                            "rejected pipeline commit could not leave Committing",
+                        let retain_conflict = matches!(
+                            coordinated.outcome.result.as_ref(),
+                            Err(Reject::RBFRejected(..)
+                                | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_)))
+                        ) && tx_pool
+                            .pool_map
+                            .find_conflict_outpoint(entry.transaction())
+                            .is_some();
+                        failed_terminal = Some(self.pipeline.kernel.mutate_required(
+                            "rejected pipeline commit could not settle Ready",
                             |coordinator| {
-                                coordinator.fail_commit(&lease, TerminalDisposition::Rejected)
+                                if retain_conflict {
+                                    coordinator.park_failed_commit(&lease)
+                                } else {
+                                    coordinator.fail_commit(&lease, TerminalDisposition::Rejected)
+                                }
                             },
                         ));
                     }
@@ -562,15 +586,15 @@ impl TxPoolService {
                         let reject = Reject::RBFRejected(
                             Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
                         );
-                        for record in &handoff.rejected {
+                        for record in &handoff.retained_conflicts {
                             let source = self
                                 .pipeline
-                                .runtime
+                                .kernel
                                 .require_authoritative_source(&record.raw, record.source);
-                            // The winner now owns the conflicting input. Retain the
-                            // verified loser for bounded future recovery before the
-                            // publication journal makes its terminal outcome visible.
-                            tx_pool.record_conflict(record.raw.tx.clone(), source);
+                            // The winner now owns the conflicting input. The
+                            // same pre-pool entry already moved to Wait; this
+                            // record is publication metadata, not ownership.
+                            let _ = source;
                             if let Some(effect) =
                                 self.recent_reject_effect(record.hash.clone(), &reject)
                             {
@@ -585,10 +609,6 @@ impl TxPoolService {
                             }
                         }
                     } else if let Some(record) = &failed_terminal {
-                        let source = self
-                            .pipeline
-                            .runtime
-                            .require_authoritative_source(&record.raw, record.source);
                         if internal_failure {
                             if record.raw.ingress_peer().is_some() {
                                 extra_effects.push(crate::service::effects::TxPoolEffect::Relay(
@@ -598,22 +618,6 @@ impl TxPoolService {
                                 ));
                             }
                         } else if let Some(reject) = coordinated.outcome.result.as_ref().err() {
-                            if matches!(
-                                reject,
-                                Reject::RBFRejected(..)
-                                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(
-                                        _
-                                    ))
-                            ) && tx_pool
-                                .pool_map
-                                .find_conflict_outpoint(&record.raw.tx)
-                                .is_some()
-                            {
-                                // The failed winner still has its verified
-                                // PoolCandidate in this commit transaction;
-                                // preserve expanded dep-group wake edges.
-                                tx_pool.record_conflict_entry(&entry, source);
-                            }
                             if let Some(effect) =
                                 self.recent_reject_effect(record.hash.clone(), reject)
                             {
@@ -678,7 +682,7 @@ impl TxPoolService {
                     extra_effects,
                     effect_permit,
                 )) => {
-                    self.pipeline.runtime.guard_stable_effect_journal(
+                    self.pipeline.kernel.guard_stable_effect_journal(
                         "pipeline stable-effect journal panicked",
                         || {
                             for status in assembler_statuses {
@@ -718,7 +722,7 @@ impl TxPoolService {
 
         let dispatch_result = coordinated.outcome.result;
         if coordinator_panicked {
-            // `PipelineRuntime::mutate` already latched Pipeline failure and
+            // `PrePool::mutate` already latched Pipeline failure and
             // cancelled this service generation. Its inner undo restored the
             // coordinator and the PoolCommitJournal restored PoolMap, so do
             // not re-enter the failed runtime and incorrectly escalate an
@@ -727,7 +731,7 @@ impl TxPoolService {
         }
         if let Some(error) = fatal_handoff_error {
             self.pipeline
-                .runtime
+                .kernel
                 .fail_stop("pipeline coordinator handoff invariant failed", &error);
         }
         if let Some(peer) = failed_banned_peer {

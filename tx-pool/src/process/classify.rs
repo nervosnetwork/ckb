@@ -1,9 +1,8 @@
 //! Resolution for synchronous submissions and admission into the
-//! coordinator-owned asynchronous pipeline.
+//! kernel-owned asynchronous pipeline.
 
 use super::{get_tx_status, make_pre_checked_tx, resolve_tx};
-use crate::component::pipeline_coordinator::{RawStage, TerminalRecord};
-use crate::component::pipeline_runtime::PipelineRawTx;
+use crate::component::pre_pool::{ResolveLane, TerminalRecord};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::tx_source::TxSource;
@@ -175,7 +174,7 @@ impl super::TxPoolService {
     ) -> Result<bool, Reject> {
         let result = match self.current_pipeline_epoch() {
             Ok(epoch) => {
-                self.admit_pipeline_raw_at(tx.clone(), source, epoch, RawStage::PreCheck)
+                self.admit_pipeline_raw_at(tx.clone(), source, epoch, ResolveLane::Ingress)
                     .await
             }
             Err(reject) => Err(reject),
@@ -209,7 +208,7 @@ impl super::TxPoolService {
         tx: TransactionView,
         source: TxSource,
         epoch: u64,
-        stage: RawStage,
+        stage: ResolveLane,
     ) -> Result<bool, Reject> {
         self.ensure_current(epoch)?;
         let permit = self
@@ -256,7 +255,7 @@ impl super::TxPoolService {
                 "proposal short-id collision while admitting {tx_hash}"
             )));
         }
-        let admitted = self.pipeline.runtime.admit_transaction_journaled(
+        let admitted = self.pipeline.kernel.admit_transaction_journaled(
             tx.clone(),
             source,
             epoch,
@@ -272,7 +271,7 @@ impl super::TxPoolService {
                 if !self.is_pipeline_epoch_current(epoch) {
                     Err(Self::stale_pipeline_reject())
                 } else {
-                    Err(self.pipeline.runtime.reject_or_fail(
+                    Err(self.pipeline.kernel.reject_or_fail(
                         "pipeline admission violated coordinator invariants",
                         error,
                     ))
@@ -311,7 +310,7 @@ impl super::TxPoolService {
     pub(crate) fn journal_pipeline_terminal_records(
         &self,
         permit: crate::service::effects::EffectPermit,
-        records: &[TerminalRecord<PipelineRawTx>],
+        records: &[TerminalRecord],
     ) {
         let mut effects = Vec::new();
         for record in records {
@@ -337,32 +336,15 @@ impl super::TxPoolService {
     pub(crate) fn journal_pipeline_outcome(
         &self,
         permit: crate::service::effects::EffectPermit,
-        record: &TerminalRecord<PipelineRawTx>,
+        record: &TerminalRecord,
         reject: Option<&Reject>,
-        mut tx_pool: Option<&mut crate::pool::TxPool>,
     ) -> Option<ckb_network::PeerIndex> {
         let ingress_peer = record.raw.ingress_peer();
         let blame_peer = record.raw.blame_peer();
-        let source = self
-            .pipeline
-            .runtime
-            .require_authoritative_source(&record.raw, record.source);
 
         let mut effects = Vec::new();
         let mut banned_peer = None;
         if let Some(reject) = reject {
-            if matches!(
-                reject,
-                Reject::RBFRejected(..)
-                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(_))
-            ) && let Some(pool) = tx_pool.as_mut()
-                && pool
-                    .pool_map
-                    .find_conflict_outpoint(&record.raw.tx)
-                    .is_some()
-            {
-                pool.record_conflict(record.raw.tx.clone(), source);
-            }
             if let Some(effect) = self.recent_reject_effect(record.hash.clone(), reject) {
                 effects.push(effect);
             }

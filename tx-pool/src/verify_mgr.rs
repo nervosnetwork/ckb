@@ -1,9 +1,9 @@
 use crate::component::entry::TxEntry;
-use crate::component::pipeline_coordinator::{
-    CoordinatorError, CoordinatorFeeGate, CoordinatorSource, QueueKind, TerminalDisposition,
-    VerifyWorkLease, WorkerCapability,
+use crate::component::pre_pool::PipelineVerifiedTx;
+use crate::component::pre_pool::{
+    DependencyKey, FeeGate, PrePoolError, PrePoolSource, TerminalDisposition, VerifyLease,
+    WorkCapability, WorkLane,
 };
-use crate::component::pipeline_runtime::PipelineVerifiedTx;
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
@@ -40,7 +40,7 @@ struct VerifyHandler {
 impl TxPoolService {
     async fn settle_pipeline_verify_failure(
         &self,
-        lease: &VerifyWorkLease<crate::resolved_tx::ResolvedTx>,
+        lease: &VerifyLease,
         disposition: TerminalDisposition,
         mut reject: crate::error::Reject,
         internal: bool,
@@ -50,14 +50,19 @@ impl TxPoolService {
                 outpoint,
             )) = &reject
         {
-            let parents = HashSet::from([outpoint.tx_hash()]);
+            let dependencies = std::collections::BTreeSet::from([DependencyKey::Cell(
+                crate::util::compact_packed(outpoint),
+            )]);
             let permit = self
                 .reserve_required_effects(
-                    Self::unknown_parents_effect_bytes(parents.len()),
+                    Self::unknown_parents_effect_bytes(dependencies.len()),
                     "verify parent-wait effect reservation failed",
                 )
                 .await;
-            match self.settle_verify_parent_wait(lease, parents, permit).await {
+            match self
+                .settle_verify_parent_wait(lease, dependencies, permit)
+                .await
+            {
                 Some(ParentWaitOutcome::Parked) => return,
                 Some(ParentWaitOutcome::Requeued) => return,
                 Some(ParentWaitOutcome::Unavailable) => {}
@@ -67,20 +72,31 @@ impl TxPoolService {
         }
         let public_reject = (!internal).then_some(reject);
         self.settle_pipeline_terminal(
+            &lease.hash,
             public_reject,
             "verify terminal effect reservation failed",
             "current verify lease could not terminalize",
-            |coordinator| coordinator.terminalize_verification(lease, disposition),
+            |coordinator, retain_conflict| {
+                if retain_conflict {
+                    coordinator.park_conflict_or_terminalize(
+                        &lease.hash,
+                        lease.version,
+                        crate::component::pre_pool::PrePoolLocation::VerifyLeased,
+                    )
+                } else {
+                    coordinator.terminalize_verify(lease, disposition)
+                }
+            },
         )
         .await;
     }
 
     pub(crate) async fn process_pipeline_verify_lease(
         &self,
-        lease: VerifyWorkLease<crate::resolved_tx::ResolvedTx>,
+        lease: VerifyLease,
         command_rx: &mut watch::Receiver<ChunkCommand>,
     ) {
-        let authority = self.pipeline.runtime.read(|coordinator| {
+        let authority = self.pipeline.kernel.read(|coordinator| {
             coordinator
                 .source_by_hash(&lease.hash)
                 .zip(coordinator.raw_by_hash(&lease.hash))
@@ -90,7 +106,7 @@ impl TxPoolService {
         };
         let source = self
             .pipeline
-            .runtime
+            .kernel
             .require_authoritative_source(&raw, current_source);
         let epoch = raw.admitted_epoch;
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
@@ -113,9 +129,12 @@ impl TxPoolService {
         // consistent resolved bundle.
         let verification_snapshot = self.pool.tx_pool.read().await.cloned_snapshot();
         if verification_snapshot.tip_hash() != lease.payload.pre_resolve_tip {
-            self.pipeline.runtime.mutate_lease(
+            self.pipeline.kernel.mutate_lease(
                 "stale resolved verification could not return to resolve",
-                |coordinator| coordinator.verification_retry_resolution(&lease, HashSet::new()),
+                |coordinator| {
+                    coordinator
+                        .verification_retry_resolution(&lease, std::collections::BTreeSet::new())
+                },
             );
             return;
         }
@@ -142,15 +161,15 @@ impl TxPoolService {
                 Ok(verified) => verified,
                 Err(first_reject) => {
                     let promoted = if source.peer().is_some() {
-                        let authority = self.pipeline.runtime.read(|coordinator| {
+                        let authority = self.pipeline.kernel.read(|coordinator| {
                             coordinator
                                 .source_by_hash(&lease.hash)
-                                .filter(|source| !matches!(source, CoordinatorSource::Remote(_)))
+                                .filter(|source| !matches!(source, PrePoolSource::Remote(_)))
                                 .zip(coordinator.raw_by_hash(&lease.hash))
                         });
                         authority.map(|(promoted_source, raw)| {
                             self.pipeline
-                                .runtime
+                                .kernel
                                 .require_authoritative_source(&raw, promoted_source)
                         })
                     } else {
@@ -197,7 +216,7 @@ impl TxPoolService {
             // Source promotion is allowed while verification is active. Bind
             // the completed payload to the current coordinator source rather
             // than the worker's checkout snapshot.
-            let final_authority = self.pipeline.runtime.read(|coordinator| {
+            let final_authority = self.pipeline.kernel.read(|coordinator| {
                 coordinator
                     .source_by_hash(&lease.hash)
                     .zip(coordinator.raw_by_hash(&lease.hash))
@@ -207,7 +226,7 @@ impl TxPoolService {
             };
             let final_source = self
                 .pipeline
-                .runtime
+                .kernel
                 .require_authoritative_source(&raw, current_source);
             verified.candidate.source = final_source;
 
@@ -244,7 +263,7 @@ impl TxPoolService {
             }
 
             let inputs: HashSet<_> = verified.candidate.tx.input_pts_iter().collect();
-            let candidate = match CoordinatorFeeGate::new(0, 0).validate(
+            let candidate = match FeeGate::new(0, 0).validate(
                 lease.hash.clone(),
                 inputs,
                 verified.candidate.fee.as_u64(),
@@ -252,7 +271,7 @@ impl TxPoolService {
             ) {
                 Ok(candidate) => candidate,
                 Err(error) => {
-                    let reject = self.pipeline.runtime.reject_or_fail(
+                    let reject = self.pipeline.kernel.reject_or_fail(
                         "verified candidate fee gate violated coordinator invariants",
                         error,
                     );
@@ -270,11 +289,11 @@ impl TxPoolService {
                 .candidate
                 .resident_size
                 .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
-                .ok_or(CoordinatorError::ResidencyChargeOverflow)
+                .ok_or(PrePoolError::ResidencyChargeOverflow)
             {
                 Ok(charge) => charge,
                 Err(error) => {
-                    let reject = self.pipeline.runtime.reject_or_fail(
+                    let reject = self.pipeline.kernel.reject_or_fail(
                         "verified payload charge violated coordinator invariants",
                         error,
                     );
@@ -297,28 +316,21 @@ impl TxPoolService {
                     "verify completion effect reservation failed",
                 )
                 .await;
-            match self.pipeline.runtime.mutate(|coordinator| {
-                let result = coordinator.complete_verification_candidate(
-                    &lease,
-                    verified,
-                    charge_bytes,
-                    candidate,
-                );
-                if let Ok((_version, terminal)) = &result {
-                    self.journal_pipeline_terminal_records(permit, terminal);
-                }
+            match self.pipeline.kernel.mutate(|coordinator| {
+                let result = coordinator.complete_verify(&lease, verified, charge_bytes, candidate);
+                drop(permit);
                 result
             }) {
                 // Eagerly drain the candidate produced by this verify task.
                 // The dedicated commit consumer is still the level-triggered
                 // liveness path for eligibility created by every other
                 // transition; both paths share the same serial driver.
-                Ok((_version, _terminal)) => {
+                Ok(_version) => {
                     self.drive_pipeline_commits().await;
                 }
                 Err(error) if error.is_stale_lease() => {}
                 Err(error) => {
-                    let reject = self.pipeline.runtime.reject_or_fail(
+                    let reject = self.pipeline.kernel.reject_or_fail(
                         "verification completion violated coordinator invariants",
                         error,
                     );
@@ -345,7 +357,7 @@ impl TxPoolService {
             // reserve effects or settle the now-obsolete verify lease during
             // shutdown; that only creates a second panic and cannot restore a
             // transaction whose pool mutation may be partial.
-            if self.pipeline.runtime.is_failed() {
+            if self.pipeline.kernel.is_failed() {
                 return;
             }
             self.settle_pipeline_verify_failure(
@@ -360,7 +372,7 @@ impl TxPoolService {
 }
 
 impl JobHandler for VerifyHandler {
-    type Job = VerifyWorkLease<crate::resolved_tx::ResolvedTx>;
+    type Job = VerifyLease;
     type Exit = WorkerExit;
 
     fn worker_name(&self) -> &'static str {
@@ -370,37 +382,37 @@ impl JobHandler for VerifyHandler {
     async fn is_queue_empty(&self) -> bool {
         self.service
             .pipeline
-            .runtime
-            .queue_is_empty(QueueKind::Verify)
+            .kernel
+            .queue_is_empty(WorkLane::Verify)
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
         let capability = if self.role == WorkerRole::OnlySmallCycleTx {
-            WorkerCapability::SmallCycleOnly
+            WorkCapability::SmallCycleOnly
         } else {
-            WorkerCapability::Any
+            WorkCapability::Any
         };
         self.service
             .pipeline
-            .runtime
-            .subscribe(QueueKind::Verify, capability)
+            .kernel
+            .subscribe(WorkLane::Verify, capability)
     }
 
-    async fn pop_one(&mut self) -> Option<VerifyWorkLease<crate::resolved_tx::ResolvedTx>> {
+    async fn pop_one(&mut self) -> Option<VerifyLease> {
         let capability = if self.role == WorkerRole::OnlySmallCycleTx {
-            WorkerCapability::SmallCycleOnly
+            WorkCapability::SmallCycleOnly
         } else {
-            WorkerCapability::Any
+            WorkCapability::Any
         };
         self.service
             .pipeline
-            .runtime
+            .kernel
             .mutate_required("verify checkout failed", |coordinator| {
                 coordinator.checkout_verify(capability)
             })
     }
 
-    async fn process_one(&mut self, work: VerifyWorkLease<crate::resolved_tx::ResolvedTx>) {
+    async fn process_one(&mut self, work: VerifyLease) {
         self.service
             .process_pipeline_verify_lease(work, &mut self.command_rx)
             .await;

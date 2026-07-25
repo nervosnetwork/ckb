@@ -5,10 +5,10 @@
 //! # Lock hierarchy
 //!
 //! There are two executable transaction authorities: accepted membership in
-//! `TxPool`, and all pre-pool lifecycle in `PipelineCoordinator`. The latter
+//! `TxPool`, and all pre-pool lifecycle in `PrePoolKernel`. The latter
 //! is protected by one short-held synchronous mutex and is never held across
 //! `.await`. Any operation that needs both takes `tx_pool` first and then the
-//! coordinator; coordinator-only code must never acquire `tx_pool`.
+//! kernel; kernel-only code must never acquire `tx_pool`.
 //!
 //! `recovery_lock` is taken before `tx_pool` and never the other way
 //! around: reorg recovery and persistence use it to exclude an incomplete
@@ -28,7 +28,7 @@
 //! `update_proposals` and `update_transactions` do not touch the template and
 //! therefore do not acquire `template_lock`.
 //!
-//! Combined membership reads take `tx_pool` and then inspect the coordinator
+//! Combined membership reads take `tx_pool` and then inspect the pre-pool kernel
 //! under its synchronous lock, matching the writer order and preventing a
 //! visible handoff gap.
 

@@ -213,10 +213,6 @@ pub(crate) fn time_relative_verify(
     .map_err(Reject::Verification)
 }
 
-pub(crate) fn is_missing_input(reject: &Reject) -> bool {
-    matches!(reject, Reject::Resolve(out_point_err) if out_point_err.is_unknown())
-}
-
 /// Convert a panic payload to a human-readable string for logging.
 pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {

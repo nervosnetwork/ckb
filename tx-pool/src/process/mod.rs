@@ -27,7 +27,6 @@ use tokio::sync::mpsc;
 
 mod classify;
 mod post_process;
-pub(crate) mod recover;
 pub(crate) mod reorg;
 pub(crate) mod submit;
 
@@ -144,12 +143,6 @@ impl TxPoolService {
         );
     }
 
-    /// Read-lock the pool and run `f` without cloning the snapshot.
-    pub(crate) async fn read_tx_pool<U, F: FnOnce(&TxPool) -> U>(&self, f: F) -> U {
-        let tx_pool = self.pool.tx_pool.read().await;
-        f(&tx_pool)
-    }
-
     /// Read-lock the pool and return the result along with a cloned snapshot.
     pub(crate) async fn read_tx_pool_with_snapshot<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
         &self,
@@ -188,7 +181,7 @@ impl TxPoolService {
             accepted
                 || self
                     .pipeline
-                    .runtime
+                    .kernel
                     .read(|coordinator| coordinator.contains_hash(&tx.hash()))
         };
         if duplicate {
@@ -386,7 +379,7 @@ impl TxPoolService {
             Ok(permit) => permit,
             Err(error) => self
                 .pipeline
-                .runtime
+                .kernel
                 .fail_stop("reorg effect reservation failed", &error),
         };
 
@@ -395,6 +388,10 @@ impl TxPoolService {
         let mut attached = LinkedHashSet::default();
 
         let detached_headers: HashSet<Byte32> = detached_blocks
+            .iter()
+            .map(|blk| blk.header().hash())
+            .collect();
+        let attached_headers: HashSet<Byte32> = attached_blocks
             .iter()
             .map(|blk| blk.header().hash())
             .collect();
@@ -412,7 +409,7 @@ impl TxPoolService {
         {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.pool.tx_pool.write().await;
-            let transition = self.pipeline.runtime.guard_authoritative_mutation(
+            let transition = self.pipeline.kernel.guard_authoritative_mutation(
                 "reorg authoritative pool mutation panicked",
                 || -> Result<reorg::ReorgOutcome, Reject> {
                     let outcome = reorg::update_tx_pool_for_reorg(
@@ -444,13 +441,6 @@ impl TxPoolService {
                             unavailable.insert(hash);
                         }
                     }
-                    let externally_committed = self.pipeline.runtime.mutate_required(
-                        "reorg coordinator membership transaction failed",
-                        |coordinator| {
-                            coordinator
-                                .external_commits_with_unavailable_parents(&committed, &unavailable)
-                        },
-                    );
                     let mut available_outpoints = tx_pool.released_inputs_from_removed_entries(
                         outcome
                             .reject_events
@@ -460,15 +450,36 @@ impl TxPoolService {
                     );
                     // A historical candidate may have observed its conflicting
                     // input release before another required parent was mined.
-                    // Attached outputs are availability edges too; without
-                    // them that cache owner has no later event that can make
-                    // it executable.
+                    // Attached outputs and headers are potential availability
+                    // edges, but only the post-reorg overlay decides their
+                    // level: an output created and consumed in the same
+                    // attached branch is not available and must not wake a
+                    // rejected conflict into a bogus second rejection.
                     available_outpoints
                         .extend(attached.iter().flat_map(TransactionView::output_pts));
-                    tx_pool.schedule_conflicted_txs_from_inputs(available_outpoints.into_iter());
-                    if tx_pool.conflict_maintenance_pending() {
-                        self.pipeline.runtime.request_maintenance();
-                    }
+                    let mut available_dependencies =
+                        crate::service::pipeline_ops::available_cell_dependencies(
+                            &tx_pool,
+                            available_outpoints,
+                        );
+                    available_dependencies.extend(attached_headers.iter().filter_map(|hash| {
+                        let key = crate::component::pre_pool::DependencyKey::Header(
+                            crate::util::compact_packed(hash),
+                        );
+                        crate::service::pipeline_ops::dependency_is_available(&tx_pool, &key)
+                            .then_some(key)
+                    }));
+                    let externally_committed = self.pipeline.kernel.mutate_required(
+                        "reorg pre-pool membership transaction failed",
+                        |kernel| {
+                            let records = kernel.external_commits_with_unavailable_parents(
+                                &committed,
+                                &unavailable,
+                            )?;
+                            kernel.note_available(available_dependencies)?;
+                            Ok(records)
+                        },
+                    );
                     let mut effects = Vec::new();
                     for (entry, reject) in &outcome.reject_events {
                         effects.extend(self.rejected_effects(entry.clone(), reject.clone()));
@@ -564,17 +575,17 @@ impl TxPoolService {
         // the single order recovery_lock -> effect credit -> TxPool.
         let terminal_permit = self
             .reserve_required_effects(
-                Self::pipeline_terminal_effect_bytes(self.pipeline.runtime.max_entries()),
+                Self::pipeline_terminal_effect_bytes(self.pipeline.kernel.max_entries()),
                 "clear pool effect reservation failed",
             )
             .await;
         {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.runtime.guard_authoritative_mutation(
+            self.pipeline.kernel.guard_authoritative_mutation(
                 "clear-pool authoritative mutation panicked",
                 || {
                     tx_pool.clear(Arc::clone(&new_snapshot));
-                    self.pipeline.runtime.mutate_required(
+                    self.pipeline.kernel.mutate_required(
                         "clear pool could not clear pipeline coordinator",
                         |coordinator| {
                             let result = coordinator.clear();
@@ -618,9 +629,7 @@ impl TxPoolService {
         estimate_mode: EstimateMode,
         enable_fallback: bool,
     ) -> Result<FeeRate, AnyError> {
-        let all_entry_info = self
-            .read_tx_pool(|tx_pool| tx_pool.get_all_entry_info())
-            .await;
+        let all_entry_info = self.all_entry_info().await;
         match self
             .aux
             .fee_estimator

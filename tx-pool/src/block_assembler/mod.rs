@@ -250,7 +250,7 @@ impl BlockAssembler {
                 // we wait for the ancestor to be re-proposed or
                 // to be removed on timeout.
                 debug!(
-                    "Committing tx {} resolving check failed, out_point {:?}",
+                    "Commit candidate {} resolving check failed, out_point {:?}",
                     id, out_point
                 );
             }

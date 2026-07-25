@@ -58,14 +58,32 @@ impl TxPoolService {
             ret,
             Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
         ) {
-            let mut tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.runtime.guard_authoritative_mutation(
-                "post-process conflict-cache mutation panicked",
+            let tx_pool = self.pool.tx_pool.write().await;
+            self.pipeline.kernel.guard_authoritative_mutation(
+                "post-process conflict-history mutation panicked",
                 || {
                     if self.is_pipeline_epoch_current(epoch)
                         && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
                     {
-                        tx_pool.record_conflict(tx.clone(), source);
+                        let raw = crate::component::pre_pool::PipelineRawTx::new(
+                            tx.clone(),
+                            source,
+                            epoch,
+                        );
+                        let keys = crate::component::pre_pool::conflict_dependency_keys(
+                            &tx,
+                            std::iter::empty(),
+                        );
+                        let owner = crate::component::pre_pool::historical_source(source);
+                        let expires_at =
+                            crate::component::pre_pool::historical_deadline(owner);
+                        if let Err(error) = self.pipeline.kernel.mutate(|kernel| {
+                            kernel.retain_conflict(raw, owner, keys, expires_at)
+                        }) {
+                            debug!(
+                                "dropping bounded post-process conflict history for {tx_hash}: {error:?}"
+                            );
+                        }
                     }
                 },
             );
@@ -89,8 +107,8 @@ impl TxPoolService {
         }
     }
     /// Convenience helper: record a reject outcome for a transaction and run the
-    /// shared after-process side effects (relayer notification, conflict cache
-    /// update, local callbacks).
+    /// shared after-process side effects (relayer notification, historical
+    /// conflict Wait update, local callbacks).
     pub(crate) async fn reject_with_after_process(
         &self,
         tx: TransactionView,
@@ -301,7 +319,7 @@ impl TxPoolService {
         loop {
             let hashes = self
                 .pipeline
-                .runtime
+                .kernel
                 .read(|coordinator| coordinator.peer_hashes(peer, PEER_REMOVAL_SLICE));
             if hashes.is_empty() {
                 break;
@@ -312,12 +330,12 @@ impl TxPoolService {
                     "banned-peer removal effect reservation failed",
                 )
                 .await;
-            let terminal = self.pipeline.runtime.mutate_required(
+            let terminal = self.pipeline.kernel.mutate_required(
                 "banned-peer owner cohort could not terminalize",
                 |coordinator| {
                     let result = coordinator.force_terminalize_many(
                         &hashes,
-                        crate::component::pipeline_coordinator::TerminalDisposition::Removed,
+                        crate::component::pre_pool::TerminalDisposition::Removed,
                     );
                     if let Ok(records) = &result {
                         self.journal_pipeline_terminal_records(terminal_permit, records);

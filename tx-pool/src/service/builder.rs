@@ -80,13 +80,13 @@ fn assemble_service(
     chunk_rx: watch::Receiver<ChunkCommand>,
     pipeline_shutdown: CancellationToken,
 ) -> TxPoolService {
-    let runtime = Arc::new(crate::component::pipeline_runtime::PipelineRuntime::new(
+    let kernel = Arc::new(crate::component::pre_pool::PrePool::new(
         &tx_pool.config,
         &consensus,
         pipeline_shutdown,
     ));
     let tx_pool_config = tx_pool.config.clone();
-    let banned_peer_capacity = runtime
+    let banned_peer_capacity = kernel
         .max_entries()
         .saturating_add(DEFAULT_CHANNEL_SIZE)
         .saturating_add(
@@ -105,7 +105,7 @@ fn assemble_service(
     let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
         tx_pool_config.max_tx_pool_size,
         consensus.max_block_bytes() as usize,
-        runtime.max_entries(),
+        kernel.max_entries(),
     );
     let reorg_effect_bytes =
         crate::service::effects::max_pool_mutation_effect_bytes(tx_pool_config.max_tx_pool_size)
@@ -127,7 +127,7 @@ fn assemble_service(
             tx_pool_config: Arc::new(tx_pool_config),
         },
         pipeline: crate::service::PipelineState {
-            runtime,
+            kernel,
             epoch: Arc::new(crate::service::PipelineEpoch::default()),
             chunk_rx,
             verify_cache_sender,
@@ -618,7 +618,7 @@ impl TxPoolServiceBuilder {
                 )
                 .await;
 
-            if clean_shutdown && service.pipeline.runtime.pool_persistence_safe() {
+            if clean_shutdown && service.pipeline.kernel.pool_persistence_safe() {
                 info!("TxPool is saving, please wait...");
                 service.save_pool().await;
             } else {

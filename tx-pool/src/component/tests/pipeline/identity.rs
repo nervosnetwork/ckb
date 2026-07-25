@@ -58,7 +58,7 @@ async fn pool_short_id_collision_is_not_a_successful_duplicate() {
     assert!(
         !h.service
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.contains_hash(&incoming_hash))
     );
 

@@ -16,22 +16,14 @@
     {"file": "tx-pool/src/block_assembler/candidate_uncles.rs", "module": "tests", "path": "tests/candidate_uncles.rs"},
     {"file": "tx-pool/src/block_assembler/mod.rs", "module": "tests"},
     {"file": "tx-pool/src/callback.rs", "module": "tests", "path": "tests/callback.rs"},
-    {"file": "tx-pool/src/component/conflict_cache.rs", "module": "tests", "path": "tests/conflict_cache.rs"},
     {"file": "tx-pool/src/component/effect_outbox.rs", "module": "test_seam", "path": "tests/effect_outbox_seam.rs"},
     {"file": "tx-pool/src/component/links.rs", "module": "test_seam", "path": "tests/links_seam.rs"},
     {"file": "tx-pool/src/component/mod.rs", "module": "tests"},
     {"file": "tx-pool/src/component/out_point_index.rs", "module": "tests", "path": "tests/out_point_index.rs"},
-    {"file": "tx-pool/src/component/pipeline_coordinator.rs", "module": "test_seam", "path": "tests/pipeline_coordinator_seam.rs"},
-    {"file": "tx-pool/src/component/pipeline_coordinator/audit.rs", "module": "test_seam", "path": "../tests/pipeline_coordinator_audit_seam.rs"},
-    {"file": "tx-pool/src/component/pipeline_coordinator/commit.rs", "module": "test_seam", "path": "../tests/pipeline_coordinator_commit_seam.rs"},
-    {"file": "tx-pool/src/component/pipeline_coordinator/lifecycle.rs", "module": "test_seam", "path": "../tests/pipeline_coordinator_lifecycle_seam.rs"},
-    {"file": "tx-pool/src/component/pipeline_coordinator/maintenance.rs", "module": "test_seam", "path": "../tests/pipeline_coordinator_maintenance_seam.rs"},
-    {"file": "tx-pool/src/component/pipeline_coordinator/types.rs", "module": "test_seam", "path": "../tests/pipeline_coordinator_types_seam.rs"},
-    {"file": "tx-pool/src/component/pipeline_runtime.rs", "module": "test_seam", "path": "tests/pipeline_runtime_seam.rs"},
     {"file": "tx-pool/src/component/pool_map.rs", "module": "audit", "path": "tests/pool_map_audit.rs"},
+    {"file": "tx-pool/src/component/pre_pool/mod.rs", "module": "test_seam", "path": "../tests/pre_pool_seam.rs"},
     {"file": "tx-pool/src/component/recent_reject.rs", "module": "test_seam", "path": "tests/recent_reject_seam.rs"},
     {"file": "tx-pool/src/component/tx_selector.rs", "module": "tests", "path": "tests/tx_selector.rs"},
-    {"file": "tx-pool/src/pool.rs", "module": "test_seam", "path": "tests/pool_seam.rs"},
     {"file": "tx-pool/src/process/post_process.rs", "module": "test_seam", "path": "tests/post_process_seam.rs"},
     {"file": "tx-pool/src/process/reorg.rs", "module": "tests", "path": "tests/reorg.rs"},
     {"file": "tx-pool/src/process/submit/rbf_commit.rs", "module": "test_seam", "path": "../tests/rbf_commit_seam.rs"},
@@ -39,7 +31,6 @@
     {"file": "tx-pool/src/service.rs", "module": "tests"},
     {"file": "tx-pool/src/service/builder.rs", "module": "shutdown_tests", "path": "tests/builder_shutdown.rs"},
     {"file": "tx-pool/src/service/effects.rs", "module": "tests", "path": "tests/effects.rs"},
-    {"file": "tx-pool/src/service/pipeline_ops.rs", "module": "tests", "path": "tests/pipeline_ops.rs"},
     {"file": "tx-pool/src/service/workers.rs", "module": "tests", "path": "tests/workers.rs"},
     {"file": "tx-pool/src/util.rs", "module": "block_offload_tests", "path": "tests/block_offload.rs"},
     {"file": "tx-pool/src/worker.rs", "module": "tests", "path": "tests/worker.rs"}
@@ -50,24 +41,16 @@
     "tx-pool/src/block_assembler/mod.rs": 3,
     "tx-pool/src/block_assembler/notify.rs": 1,
     "tx-pool/src/callback.rs": 1,
-    "tx-pool/src/component/conflict_cache.rs": 5,
     "tx-pool/src/component/effect_outbox.rs": 1,
     "tx-pool/src/component/links.rs": 1,
     "tx-pool/src/component/mod.rs": 1,
     "tx-pool/src/component/out_point_index.rs": 1,
-    "tx-pool/src/component/pipeline_coordinator.rs": 12,
-    "tx-pool/src/component/pipeline_coordinator/audit.rs": 1,
-    "tx-pool/src/component/pipeline_coordinator/capacity.rs": 2,
-    "tx-pool/src/component/pipeline_coordinator/commit.rs": 9,
-    "tx-pool/src/component/pipeline_coordinator/lifecycle.rs": 1,
-    "tx-pool/src/component/pipeline_coordinator/maintenance.rs": 1,
-    "tx-pool/src/component/pipeline_coordinator/types.rs": 12,
-    "tx-pool/src/component/pipeline_coordinator/undo.rs": 1,
-    "tx-pool/src/component/pipeline_runtime.rs": 1,
     "tx-pool/src/component/pool_map.rs": 1,
+    "tx-pool/src/component/pre_pool/mod.rs": 9,
+    "tx-pool/src/component/pre_pool/queue.rs": 2,
     "tx-pool/src/component/recent_reject.rs": 1,
     "tx-pool/src/component/tx_selector.rs": 1,
-    "tx-pool/src/pool.rs": 6,
+    "tx-pool/src/pool.rs": 5,
     "tx-pool/src/process/post_process.rs": 1,
     "tx-pool/src/process/reorg.rs": 1,
     "tx-pool/src/process/submit/rbf_commit.rs": 2,
@@ -75,7 +58,6 @@
     "tx-pool/src/service.rs": 1,
     "tx-pool/src/service/builder.rs": 1,
     "tx-pool/src/service/effects.rs": 1,
-    "tx-pool/src/service/pipeline_ops.rs": 1,
     "tx-pool/src/service/workers.rs": 1,
     "tx-pool/src/util.rs": 1,
     "tx-pool/src/worker.rs": 1
@@ -100,46 +82,10 @@
       "behavior_ids": ["TP-TEMPLATE-001", "TP-EFFECT-001"]
     },
     {
-      "file": "tx-pool/src/component/conflict_cache.rs",
-      "symbols": ["ConflictCache::max_entries_override", "ConflictCache::max_resident_size_override"],
-      "kind": "bounded-history limit overrides",
-      "behavior_ids": ["TP-RBF-001", "TP-BUDGET-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pipeline_coordinator.rs",
-      "symbols": ["PipelineCoordinator::capacity_victim_probes", "PipelineCoordinator::candidate_victim_probes", "PipelineCoordinator::fault_after_apply_steps", "PipelineCoordinator::apply_steps_seen", "PipelineCoordinator::fail_next_handoff_after_apply"],
-      "kind": "bounded-work counters and transition fault state",
-      "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001", "TP-BUDGET-001", "TP-PERF-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pipeline_coordinator/capacity.rs",
-      "symbols": ["PipelineCoordinator::capacity_victim_probes", "PipelineCoordinator::candidate_victim_probes"],
-      "kind": "bounded victim-index operation counters",
-      "behavior_ids": ["TP-BUDGET-001", "TP-PERF-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pipeline_coordinator/commit.rs",
-      "symbols": ["CommitHandoff::hash", "CommitHandoff::peer", "CommitHandoff::ready_children", "ExternalCommitRecord::hash", "ExternalCommitRecord::ready_children", "PipelineCoordinator::handoff_error_checkpoint"],
-      "kind": "commit handoff evidence and rollback fault hook",
-      "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001", "TP-REORG-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pipeline_coordinator/maintenance.rs",
-      "symbols": ["PipelineCoordinator::apply_fault_checkpoint"],
-      "kind": "release no-op and test-only transition fault hook",
-      "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pipeline_coordinator/types.rs",
-      "symbols": ["CoordinatorAuditError", "CommitHandoff::hash", "CommitHandoff::peer", "CommitHandoff::ready_children", "ExternalCommitRecord::hash", "ExternalCommitRecord::ready_children", "TerminalRecord::disposition", "TicketQueue::selection_probes"],
-      "kind": "test evidence fields, audit error and queue probe counter",
-      "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001", "TP-DEP-001", "TP-BUDGET-001", "TP-PERF-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pipeline_coordinator/undo.rs",
-      "symbols": ["TerminalRecord::disposition"],
-      "kind": "terminal-disposition evidence initializer",
-      "behavior_ids": ["TP-OWN-001", "TP-EFFECT-001"]
+      "file": "tx-pool/src/component/pre_pool/queue.rs",
+      "symbols": ["FairQueue::audit", "FairQueue::work_keys"],
+      "kind": "independent derived-queue reconstruction used only by the test kernel audit",
+      "behavior_ids": ["TP-OWN-001", "TP-WORKER-001", "TP-PERF-001"]
     },
     {
       "file": "tx-pool/src/pool.rs",

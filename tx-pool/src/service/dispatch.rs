@@ -218,8 +218,8 @@ impl TxPoolService {
             ResolvedTxLocation::Pool { status, entry, .. } => {
                 Ok((map_pool_status(status), Some(entry.cycles)))
             }
-            ResolvedTxLocation::Pipeline(_) => Ok((TxStatus::Pending, None)),
-            ResolvedTxLocation::NotFound => {
+            ResolvedTxLocation::Pipeline(PipelineTxLocation::ConflictHistory)
+            | ResolvedTxLocation::NotFound => {
                 self.lookup_recent_reject(
                     &hash,
                     |record| (TxStatus::Rejected(record), None),
@@ -227,6 +227,7 @@ impl TxPoolService {
                 )
                 .await
             }
+            ResolvedTxLocation::Pipeline(_) => Ok((TxStatus::Pending, None)),
         };
         respond(responder, ret, "get_tx_status");
     }
@@ -254,7 +255,6 @@ impl TxPoolService {
             )),
             ResolvedTxLocation::Pipeline(location) => {
                 let (tx, tx_status, cycles, fee) = match location {
-                    PipelineTxLocation::PreChecking { tx } => (tx, TxStatus::Pending, None, None),
                     PipelineTxLocation::Ordered { tx } => (tx, TxStatus::Pending, None, None),
                     PipelineTxLocation::Verifying { tx, fee, status } => {
                         let tx_status = if status == Status::Proposed {
@@ -266,6 +266,18 @@ impl TxPoolService {
                     }
                     PipelineTxLocation::Orphan { tx, cycle } => {
                         (tx, TxStatus::Pending, Some(cycle), None)
+                    }
+                    PipelineTxLocation::ConflictHistory => {
+                        return respond(
+                            responder,
+                            self.lookup_recent_reject(
+                                &hash,
+                                TransactionWithStatus::with_rejected,
+                                TransactionWithStatus::with_unknown,
+                            )
+                            .await,
+                            "get_transaction_with_status",
+                        );
                     }
                 };
                 Ok(TransactionWithStatus {
@@ -358,8 +370,7 @@ impl TxPoolService {
 
     async fn handle_get_all_entry_info(&self, req: SyncRequest<(), TxPoolEntryInfo>) {
         let SyncRequest { responder, .. } = req;
-        let tx_pool = self.pool.tx_pool.read().await;
-        let info = tx_pool.get_all_entry_info();
+        let info = self.all_entry_info().await;
         respond(responder, info, "get_all_entry_info");
     }
 
@@ -460,10 +471,10 @@ impl TxPoolService {
         };
         let orphan_size = self
             .pipeline
-            .runtime
+            .kernel
             .read(|coordinator| coordinator.waiting_parent_len());
-        let verify_queue_size = self.pipeline.runtime.read(|coordinator| {
-            coordinator.queue_len(crate::component::pipeline_coordinator::QueueKind::Verify)
+        let verify_queue_size = self.pipeline.kernel.read(|coordinator| {
+            coordinator.queue_len(crate::component::pre_pool::WorkLane::Verify)
         });
         TxPoolInfo {
             tip_hash,
