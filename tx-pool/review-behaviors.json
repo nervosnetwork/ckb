@@ -280,6 +280,7 @@
     {"test": "removed_and_readmitted_hash_rejects_the_old_worker_incarnation", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
     {"test": "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
     {"test": "queue_sequence_exhaustion_cannot_strand_transition_reservations", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
+    {"test": "nested_undo_scope_is_forbidden", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
 
     {"test": "pool_removal_invalidation_and_winner_handoff_are_one_transaction", "behavior_id": "TP-COMMIT-001", "invariants": ["I1"]},
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2"]},
@@ -292,6 +293,7 @@
     {"test": "failed_commit_restores_all_size_evictions_with_original_status_in_lock", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
     {"test": "failed_tip_revalidation_recovers_whole_removed_cascade", "behavior_id": "TP-RBF-001", "invariants": ["I3"]},
     {"test": "under_fee_candidate_cannot_become_verified_conflict_state", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "trusted_raw_replacement_releases_the_old_conflict_and_peer_claims", "behavior_id": "TP-RBF-001", "invariants": ["I5", "I9"]},
     {"test": "unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
     {"test": "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
     {"test": "derived_conflict_relation_has_no_maintenance_gap", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},

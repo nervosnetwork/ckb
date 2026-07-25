@@ -99,6 +99,7 @@ Rust evidence:
 
 - `active_verification_terminalization_is_causal_and_aba_safe` (I4)
 - `coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject` (I4)
+- `nested_undo_scope_is_forbidden` (I1, I4)
 - `one_entry_and_revision_own_every_payload_phase_until_candidate_handoff` (I1)
 - `queue_sequence_exhaustion_cannot_strand_transition_reservations` (I4)
 - `removed_and_readmitted_hash_rejects_the_old_worker_incarnation` (I4)
@@ -129,6 +130,7 @@ Rust evidence:
 - `multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen` (I9)
 - `pipeline_concurrent_rbf_prefers_highest_fee` (I2)
 - `rbf_rejects_dep_group_member_from_replacement_victim` (I9)
+- `trusted_raw_replacement_releases_the_old_conflict_and_peer_claims` (I5, I9)
 - `under_fee_candidate_cannot_become_verified_conflict_state` (I9)
 - `unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain` (I9)
 
