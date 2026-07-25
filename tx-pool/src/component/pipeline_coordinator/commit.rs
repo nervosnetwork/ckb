@@ -114,17 +114,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             lease.version,
             &CoordinatorLocation::Committing,
         )?;
-        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.mark_children_invalid(&lease.hash, &lease.hash)?;
-            let entry = coordinator.remove_present_apply(&lease.hash)?;
-            coordinator.apply_fault_checkpoint();
-            Ok(Self::terminal_record(
-                lease.hash.clone(),
-                entry,
-                disposition,
-            ))
-        })
+        self.terminalize_present_causally(&lease.hash, disposition)
     }
 
     pub(crate) fn commit_candidate_handoff(
@@ -417,17 +407,8 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }) {
             return Err(CoordinatorError::CommitInProgress(hash.clone()));
         }
-        let undo = self.causal_undo_hashes(std::slice::from_ref(hash));
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.mark_children_invalid(hash, hash)?;
-            let entry = coordinator.remove_present_apply(hash)?;
-            coordinator.apply_fault_checkpoint();
-            Ok(Some(Self::terminal_record(
-                hash.clone(),
-                entry,
-                disposition,
-            )))
-        })
+        self.terminalize_present_causally(hash, disposition)
+            .map(Some)
     }
 
     /// Terminalize one bounded administrative cohort as a single ownership

@@ -65,41 +65,14 @@ impl TxPoolService {
                 None => return,
             }
         }
-        let public_reject = (!internal).then_some(&reject);
-        let permit = self
-            .reserve_required_effects(
-                Self::pipeline_outcome_effect_bytes(public_reject),
-                "verify terminal effect reservation failed",
-            )
-            .await;
-        let mut tx_pool = if internal {
-            None
-        } else {
-            Some(self.pool.tx_pool.write().await)
-        };
-        let mut banned_peer = None;
-        let terminal = self.pipeline.runtime.mutate_lease(
+        let public_reject = (!internal).then_some(reject);
+        self.settle_pipeline_terminal(
+            public_reject,
+            "verify terminal effect reservation failed",
             "current verify lease could not terminalize",
-            |coordinator| {
-                let result = coordinator.terminalize_verification(lease, disposition);
-                if let Ok(record) = &result {
-                    banned_peer = self.journal_pipeline_outcome(
-                        permit,
-                        record,
-                        public_reject,
-                        tx_pool.as_deref_mut(),
-                    );
-                }
-                result
-            },
-        );
-        drop(tx_pool);
-        if terminal.is_none() {
-            return;
-        }
-        if let Some(peer) = banned_peer {
-            self.remove_banned_peer_entries(peer).await;
-        }
+            |coordinator| coordinator.terminalize_verification(lease, disposition),
+        )
+        .await;
     }
 
     pub(crate) async fn process_pipeline_verify_lease(

@@ -723,17 +723,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     ) -> Result<TerminalRecord<R>, CoordinatorError> {
         let expected = CoordinatorLocation::RawActive(lease.stage);
         self.validate_version_location(&lease.hash, lease.version, &expected)?;
-        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.mark_children_invalid(&lease.hash, &lease.hash)?;
-            let entry = coordinator.remove_present_apply(&lease.hash)?;
-            coordinator.apply_fault_checkpoint();
-            Ok(Self::terminal_record(
-                lease.hash.clone(),
-                entry,
-                disposition,
-            ))
-        })
+        self.terminalize_present_causally(&lease.hash, disposition)
     }
 
     /// Terminalize exactly one active verification lease. Source promotion
@@ -750,17 +740,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             lease.version,
             &CoordinatorLocation::VerifyActive,
         )?;
-        let undo = self.causal_undo_hashes(std::slice::from_ref(&lease.hash));
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.mark_children_invalid(&lease.hash, &lease.hash)?;
-            let entry = coordinator.remove_present_apply(&lease.hash)?;
-            coordinator.apply_fault_checkpoint();
-            Ok(Self::terminal_record(
-                lease.hash.clone(),
-                entry,
-                disposition,
-            ))
-        })
+        self.terminalize_present_causally(&lease.hash, disposition)
     }
 
     /// A chain update can make an input disappear after resolution but before

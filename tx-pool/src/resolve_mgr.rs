@@ -72,40 +72,13 @@ impl TxPoolService {
         disposition: TerminalDisposition,
         reject: Option<Reject>,
     ) {
-        let permit = self
-            .reserve_required_effects(
-                Self::pipeline_outcome_effect_bytes(reject.as_ref()),
-                "raw terminal effect reservation failed",
-            )
-            .await;
-        let mut tx_pool = if reject.is_some() {
-            Some(self.pool.tx_pool.write().await)
-        } else {
-            None
-        };
-        let mut banned_peer = None;
-        let terminal = self.pipeline.runtime.mutate_lease(
+        self.settle_pipeline_terminal(
+            reject,
+            "raw terminal effect reservation failed",
             "current raw lease could not terminalize",
-            |coordinator| {
-                let result = coordinator.terminalize_raw(lease, disposition);
-                if let Ok(record) = &result {
-                    banned_peer = self.journal_pipeline_outcome(
-                        permit,
-                        record,
-                        reject.as_ref(),
-                        tx_pool.as_deref_mut(),
-                    );
-                }
-                result
-            },
-        );
-        drop(tx_pool);
-        if terminal.is_none() {
-            return;
-        }
-        if let Some(peer) = banned_peer {
-            self.remove_banned_peer_entries(peer).await;
-        }
+            |coordinator| coordinator.terminalize_raw(lease, disposition),
+        )
+        .await;
     }
 
     pub(crate) async fn process_pipeline_raw_lease(&self, lease: RawWorkLease<PipelineRawTx>) {

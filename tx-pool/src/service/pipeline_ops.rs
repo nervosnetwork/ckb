@@ -7,9 +7,10 @@
 //! here so call sites cannot invent a partial structure list or lock order.
 
 use crate::component::pipeline_coordinator::{
-    CoordinatorError, CoordinatorSource, RawWorkLease, VerifyWorkLease,
+    CoordinatorError, CoordinatorSource, RawWorkLease, TerminalRecord, VerifyWorkLease,
 };
-use crate::component::pipeline_runtime::PipelineRawTx;
+use crate::component::pipeline_runtime::{PipelineRawTx, ProductionCoordinator};
+use crate::error::Reject;
 use crate::service::{PipelineTxLocation, RemoveTxOutcome, TxPoolService};
 use ckb_store::ChainStore;
 use ckb_types::core::TransactionView;
@@ -90,7 +91,7 @@ impl TxPoolService {
         mut parents: HashSet<Byte32>,
         permit: crate::service::effects::EffectPermit,
         transition: impl FnOnce(
-            &mut crate::component::pipeline_runtime::ProductionCoordinator,
+            &mut ProductionCoordinator,
             HashSet<Byte32>,
         ) -> Result<(), CoordinatorError>,
         journal_context: &'static str,
@@ -142,6 +143,56 @@ impl TxPoolService {
             Err(error) => Some(ParentWaitOutcome::Rejected(
                 self.pipeline.runtime.reject_or_fail(error_context, error),
             )),
+        }
+    }
+
+    /// Settle one active worker lease at the common cross-authority terminal
+    /// boundary. A public rejection may need the accepted pool for conflict
+    /// history; internal/cancellation exits deliberately avoid that lock.
+    /// Effect publication and peer revocation stay inside this one protocol so
+    /// raw and verify workers cannot diverge in terminal ownership handling.
+    pub(crate) async fn settle_pipeline_terminal(
+        &self,
+        reject: Option<Reject>,
+        reservation_context: &'static str,
+        mutation_context: &'static str,
+        terminalize: impl FnOnce(
+            &mut ProductionCoordinator,
+        ) -> Result<TerminalRecord<PipelineRawTx>, CoordinatorError>
+        + Send,
+    ) {
+        let permit = self
+            .reserve_required_effects(
+                Self::pipeline_outcome_effect_bytes(reject.as_ref()),
+                reservation_context,
+            )
+            .await;
+        let mut tx_pool = if reject.is_some() {
+            Some(self.pool.tx_pool.write().await)
+        } else {
+            None
+        };
+        let mut banned_peer = None;
+        let terminal = self
+            .pipeline
+            .runtime
+            .mutate_lease(mutation_context, |coordinator| {
+                let result = terminalize(coordinator);
+                if let Ok(record) = &result {
+                    banned_peer = self.journal_pipeline_outcome(
+                        permit,
+                        record,
+                        reject.as_ref(),
+                        tx_pool.as_deref_mut(),
+                    );
+                }
+                result
+            });
+        drop(tx_pool);
+        if terminal.is_some()
+            && let Some(peer) = banned_peer
+        {
+            self.remove_banned_peer_entries(peer).await;
         }
     }
 

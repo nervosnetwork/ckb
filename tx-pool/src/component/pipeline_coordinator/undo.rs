@@ -441,6 +441,25 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.conflict_undo_hashes(&affected)
     }
 
+    /// Remove one already-validated owner and invalidate its direct children
+    /// under the same causal undo cohort. Lease-scoped raw, verify and commit
+    /// exits plus hash-scoped administration all converge here so no terminal
+    /// path can forget dependency invalidation or use a narrower rollback
+    /// boundary.
+    pub(super) fn terminalize_present_causally(
+        &mut self,
+        hash: &Byte32,
+        disposition: TerminalDisposition,
+    ) -> Result<TerminalRecord<R>, CoordinatorError> {
+        let undo = self.causal_undo_hashes(std::slice::from_ref(hash));
+        self.with_entry_undo(&undo, |coordinator| {
+            coordinator.mark_children_invalid(hash, hash)?;
+            let entry = coordinator.remove_present_apply(hash)?;
+            coordinator.apply_fault_checkpoint();
+            Ok(Self::terminal_record(hash.clone(), entry, disposition))
+        })
+    }
+
     pub(super) fn conflict_undo_hashes(&self, roots: &[Byte32]) -> Vec<Byte32> {
         let mut affected: HashSet<_> = roots.iter().cloned().collect();
         // Removing a candidate can change commit eligibility only for its
