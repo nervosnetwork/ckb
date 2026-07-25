@@ -84,15 +84,17 @@ impl TxPoolService {
         }
     }
 
-    /// Recheck a raw resolver miss and install its wait/retry state while a
-    /// parent cannot move from coordinator ownership into TxPool membership.
-    /// This closes the lost-wakeup window between observing `Unknown` and
-    /// registering `WaitingParents`.
-    pub(crate) async fn settle_raw_parent_wait(
+    async fn settle_parent_wait(
         &self,
-        lease: &RawWorkLease<PipelineRawTx>,
+        hash: &Byte32,
         mut parents: HashSet<Byte32>,
         permit: crate::service::effects::EffectPermit,
+        transition: impl FnOnce(
+            &mut crate::component::pipeline_runtime::ProductionCoordinator,
+            HashSet<Byte32>,
+        ) -> Result<(), CoordinatorError>,
+        journal_context: &'static str,
+        error_context: &'static str,
     ) -> Option<ParentWaitOutcome> {
         let pool = self.pool.tx_pool.read().await;
         retain_unavailable_parents(&pool, &mut parents);
@@ -101,21 +103,21 @@ impl TxPoolService {
         let outcome: Result<ParentWaitOutcome, CoordinatorError> =
             self.pipeline.runtime.mutate(|coordinator| {
                 let source = coordinator
-                    .view(&lease.hash)
+                    .view(hash)
                     .map(|view| view.source)
-                    .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-                if parents.is_empty() {
-                    coordinator.requeue_raw(lease)?;
-                    return Ok(ParentWaitOutcome::Requeued);
-                }
-                if !matches!(source, CoordinatorSource::Remote(_))
+                    .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
+                if !parents.is_empty()
+                    && !matches!(source, CoordinatorSource::Remote(_))
                     && parents
                         .iter()
                         .any(|parent| !coordinator.contains_hash(parent))
                 {
                     return Ok(ParentWaitOutcome::Unavailable);
                 }
-                coordinator.wait_for_parents(lease, parents.clone())?;
+                transition(coordinator, parents.clone())?;
+                if parents.is_empty() {
+                    return Ok(ParentWaitOutcome::Requeued);
+                }
                 if let CoordinatorSource::Remote(peer) = source {
                     let effect = crate::service::effects::TxPoolEffect::Relay(
                         crate::service::TxVerificationResult::UnknownParents {
@@ -128,7 +130,7 @@ impl TxPoolService {
                             .take()
                             .expect("parent-wait effect permit is consumed at most once"),
                         vec![effect],
-                        "reserved raw parent-wait journal failed",
+                        journal_context,
                     );
                 }
                 Ok(ParentWaitOutcome::Parked)
@@ -138,12 +140,36 @@ impl TxPoolService {
             Ok(outcome) => Some(outcome),
             Err(error) if error.is_stale_lease() => None,
             Err(error) => Some(ParentWaitOutcome::Rejected(
-                self.pipeline.runtime.reject_or_fail(
-                    "current raw lease could not extend parent-wait dependencies",
-                    error,
-                ),
+                self.pipeline.runtime.reject_or_fail(error_context, error),
             )),
         }
+    }
+
+    /// Recheck a raw resolver miss and install its wait/retry state while a
+    /// parent cannot move from coordinator ownership into TxPool membership.
+    /// This closes the lost-wakeup window between observing `Unknown` and
+    /// registering `WaitingParents`.
+    pub(crate) async fn settle_raw_parent_wait(
+        &self,
+        lease: &RawWorkLease<PipelineRawTx>,
+        parents: HashSet<Byte32>,
+        permit: crate::service::effects::EffectPermit,
+    ) -> Option<ParentWaitOutcome> {
+        self.settle_parent_wait(
+            &lease.hash,
+            parents,
+            permit,
+            |coordinator, parents| {
+                if parents.is_empty() {
+                    coordinator.requeue_raw(lease).map(|_| ())
+                } else {
+                    coordinator.wait_for_parents(lease, parents).map(|_| ())
+                }
+            },
+            "reserved raw parent-wait journal failed",
+            "current raw lease could not extend parent-wait dependencies",
+        )
+        .await
     }
 
     /// Verification can discover that its resolution snapshot went stale.
@@ -152,60 +178,22 @@ impl TxPoolService {
     pub(crate) async fn settle_verify_parent_wait(
         &self,
         lease: &VerifyWorkLease<crate::resolved_tx::ResolvedTx>,
-        mut parents: HashSet<Byte32>,
+        parents: HashSet<Byte32>,
         permit: crate::service::effects::EffectPermit,
     ) -> Option<ParentWaitOutcome> {
-        let pool = self.pool.tx_pool.read().await;
-        retain_unavailable_parents(&pool, &mut parents);
-        let parents = detach_parent_hashes(parents);
-        let mut permit = Some(permit);
-        let outcome: Result<ParentWaitOutcome, CoordinatorError> =
-            self.pipeline.runtime.mutate(|coordinator| {
-                let source = coordinator
-                    .view(&lease.hash)
-                    .map(|view| view.source)
-                    .ok_or_else(|| CoordinatorError::Missing(lease.hash.clone()))?;
-                if !parents.is_empty()
-                    && !matches!(source, CoordinatorSource::Remote(_))
-                    && parents
-                        .iter()
-                        .any(|parent| !coordinator.contains_hash(parent))
-                {
-                    return Ok(ParentWaitOutcome::Unavailable);
-                }
-                coordinator.verification_retry_resolution(lease, parents.clone())?;
-                if parents.is_empty() {
-                    Ok(ParentWaitOutcome::Requeued)
-                } else {
-                    if let CoordinatorSource::Remote(peer) = source {
-                        let effect = crate::service::effects::TxPoolEffect::Relay(
-                            crate::service::TxVerificationResult::UnknownParents {
-                                peer,
-                                parents: parents.clone(),
-                            },
-                        );
-                        self.publish_required_reserved_effects(
-                            permit
-                                .take()
-                                .expect("parent-wait effect permit is consumed at most once"),
-                            vec![effect],
-                            "reserved verify parent-wait journal failed",
-                        );
-                    }
-                    Ok(ParentWaitOutcome::Parked)
-                }
-            });
-        drop(permit);
-        match outcome {
-            Ok(outcome) => Some(outcome),
-            Err(error) if error.is_stale_lease() => None,
-            Err(error) => Some(ParentWaitOutcome::Rejected(
-                self.pipeline.runtime.reject_or_fail(
-                    "current verify lease could not extend parent-wait dependencies",
-                    error,
-                ),
-            )),
-        }
+        self.settle_parent_wait(
+            &lease.hash,
+            parents,
+            permit,
+            |coordinator, parents| {
+                coordinator
+                    .verification_retry_resolution(lease, parents)
+                    .map(|_| ())
+            },
+            "reserved verify parent-wait journal failed",
+            "current verify lease could not extend parent-wait dependencies",
+        )
+        .await
     }
 
     /// Remove a transaction by hash from every pipeline structure it may
