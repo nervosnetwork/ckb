@@ -144,6 +144,18 @@ const COORDINATOR_LIFECYCLE_TICKET_BYTES: usize = 512;
 const COORDINATOR_DEADLINE_TICKET_BYTES: usize = 256;
 const COORDINATOR_CONFLICT_INPUT_BYTES: usize = 512;
 
+/// Every executable readiness domain. Construction and post-transition
+/// publication must use the same registry: adding a worker capability to only
+/// one side would create either a lost wakeup or a notification with no
+/// consumer.
+const WORKER_CLASSES: [(QueueKind, WorkerCapability); 5] = [
+    (QueueKind::PreCheck, WorkerCapability::Any),
+    (QueueKind::Resolve, WorkerCapability::Any),
+    (QueueKind::Verify, WorkerCapability::Any),
+    (QueueKind::Verify, WorkerCapability::SmallCycleOnly),
+    (QueueKind::Commit, WorkerCapability::Any),
+];
+
 /// Actorless production owner. Every mutation is synchronous under `state`;
 /// notifications are emitted only after the lock is released.
 pub(crate) struct PipelineRuntime {
@@ -224,28 +236,7 @@ impl PipelineRuntime {
         Self {
             state: Mutex::new(PipelineCoordinator::new(limits)),
             failure_domain: AtomicU8::new(FailureDomain::Healthy as u8),
-            ready: HashMap::from([
-                (
-                    (QueueKind::PreCheck, WorkerCapability::Any),
-                    Arc::new(Notify::new()),
-                ),
-                (
-                    (QueueKind::Resolve, WorkerCapability::Any),
-                    Arc::new(Notify::new()),
-                ),
-                (
-                    (QueueKind::Verify, WorkerCapability::Any),
-                    Arc::new(Notify::new()),
-                ),
-                (
-                    (QueueKind::Verify, WorkerCapability::SmallCycleOnly),
-                    Arc::new(Notify::new()),
-                ),
-                (
-                    (QueueKind::Commit, WorkerCapability::Any),
-                    Arc::new(Notify::new()),
-                ),
-            ]),
+            ready: HashMap::from(WORKER_CLASSES.map(|class| (class, Arc::new(Notify::new())))),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
             commit_serial: tokio::sync::Mutex::new(()),
@@ -395,14 +386,7 @@ impl PipelineRuntime {
         let transition = catch_unwind(AssertUnwindSafe(|| {
             let mut state = self.lock();
             let result = apply(&mut state);
-            let ready = [
-                (QueueKind::PreCheck, WorkerCapability::Any),
-                (QueueKind::Resolve, WorkerCapability::Any),
-                (QueueKind::Verify, WorkerCapability::Any),
-                (QueueKind::Verify, WorkerCapability::SmallCycleOnly),
-                (QueueKind::Commit, WorkerCapability::Any),
-            ]
-            .map(|class| {
+            let ready = WORKER_CLASSES.map(|class| {
                 let executable = state
                     .work_is_ready(class.0, class.1)
                     .unwrap_or_else(|error| panic!("invalid pipeline readiness state: {error:?}"));
