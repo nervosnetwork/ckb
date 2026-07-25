@@ -526,59 +526,61 @@ pub(crate) enum CoordinatorError {
     },
 }
 
+enum CoordinatorRejectionClass {
+    Policy,
+    FixedCapacity,
+    RetryableCapacity,
+}
+
 impl CoordinatorError {
+    /// Single authoritative classification table. Adapter predicates below
+    /// are projections of this value so a new internal invariant error cannot
+    /// accidentally be downgraded by updating only one of several lists.
+    fn rejection_class(&self) -> Option<CoordinatorRejectionClass> {
+        use CoordinatorRejectionClass::{FixedCapacity, Policy, RetryableCapacity};
+
+        Some(match self {
+            Self::SelfDependency(_)
+            | Self::DependencyCycle(_)
+            | Self::NoConflictInputs(_)
+            | Self::ZeroTransactionSize(_)
+            | Self::UnderReplacementFee { .. }
+            | Self::UnderFeeRate { .. }
+            | Self::FeeRateOverflow => Policy,
+            Self::DependencyLimitExceeded
+            | Self::ConflictInputLimitExceeded
+            | Self::ResidencyChargeOverflow => FixedCapacity,
+            Self::ShortIdCollision { .. }
+            | Self::DependencyAncestorLimitExceeded
+            | Self::ParentFanoutLimitExceeded(_)
+            | Self::ConflictCandidateLimitExceeded(_)
+            | Self::ConflictCohortLimitExceeded
+            | Self::ConflictEdgeLimitExceeded
+            | Self::CapacityEvictionLimitExceeded
+            | Self::GlobalBudgetExceeded
+            | Self::PeerBudgetExceeded(_)
+            | Self::QueueReservationFailed
+            | Self::ActiveWorkLimitExceeded
+            | Self::PeerActiveWorkLimitExceeded(_) => RetryableCapacity,
+            _ => return None,
+        })
+    }
+
     /// Errors caused by bounded admission/completion policy. These leave the
     /// coordinator transaction unchanged and may safely become a transaction
     /// rejection. Every variant not listed here denotes an ownership/index/
     /// sequence invariant and must never be downgraded to a per-transaction
     /// outcome by a production adapter.
     pub(crate) fn is_transaction_rejection(&self) -> bool {
-        matches!(
-            self,
-            Self::ShortIdCollision { .. }
-                | Self::SelfDependency(_)
-                | Self::DependencyCycle(_)
-                | Self::DependencyLimitExceeded
-                | Self::DependencyAncestorLimitExceeded
-                | Self::ParentFanoutLimitExceeded(_)
-                | Self::NoConflictInputs(_)
-                | Self::ZeroTransactionSize(_)
-                | Self::UnderReplacementFee { .. }
-                | Self::UnderFeeRate { .. }
-                | Self::FeeRateOverflow
-                | Self::ConflictInputLimitExceeded
-                | Self::ConflictCandidateLimitExceeded(_)
-                | Self::ConflictCohortLimitExceeded
-                | Self::ConflictEdgeLimitExceeded
-                | Self::CapacityEvictionLimitExceeded
-                | Self::GlobalBudgetExceeded
-                | Self::PeerBudgetExceeded(_)
-                | Self::ResidencyChargeOverflow
-                | Self::QueueReservationFailed
-                | Self::ActiveWorkLimitExceeded
-                | Self::PeerActiveWorkLimitExceeded(_)
-        )
+        self.rejection_class().is_some()
     }
 
     /// Capacity pressure is retryable and must not poison recent-reject state.
     pub(crate) fn is_capacity_rejection(&self) -> bool {
+        use CoordinatorRejectionClass::{FixedCapacity, RetryableCapacity};
         matches!(
-            self,
-            Self::ShortIdCollision { .. }
-                | Self::DependencyLimitExceeded
-                | Self::DependencyAncestorLimitExceeded
-                | Self::ParentFanoutLimitExceeded(_)
-                | Self::ConflictInputLimitExceeded
-                | Self::ConflictCandidateLimitExceeded(_)
-                | Self::ConflictCohortLimitExceeded
-                | Self::ConflictEdgeLimitExceeded
-                | Self::CapacityEvictionLimitExceeded
-                | Self::GlobalBudgetExceeded
-                | Self::PeerBudgetExceeded(_)
-                | Self::ResidencyChargeOverflow
-                | Self::QueueReservationFailed
-                | Self::ActiveWorkLimitExceeded
-                | Self::PeerActiveWorkLimitExceeded(_)
+            self.rejection_class(),
+            Some(FixedCapacity | RetryableCapacity)
         )
     }
 
@@ -589,21 +591,8 @@ impl CoordinatorError {
     /// to public `Full`, but retrying the identical payload can never change
     /// their outcome.
     pub(crate) fn is_retryable_capacity_rejection(&self) -> bool {
-        matches!(
-            self,
-            Self::ShortIdCollision { .. }
-                | Self::DependencyAncestorLimitExceeded
-                | Self::ParentFanoutLimitExceeded(_)
-                | Self::ConflictCandidateLimitExceeded(_)
-                | Self::ConflictCohortLimitExceeded
-                | Self::ConflictEdgeLimitExceeded
-                | Self::CapacityEvictionLimitExceeded
-                | Self::GlobalBudgetExceeded
-                | Self::PeerBudgetExceeded(_)
-                | Self::QueueReservationFailed
-                | Self::ActiveWorkLimitExceeded
-                | Self::PeerActiveWorkLimitExceeded(_)
-        )
+        use CoordinatorRejectionClass::RetryableCapacity;
+        matches!(self.rejection_class(), Some(RetryableCapacity))
     }
 
     /// A worker lease may legitimately lose ownership to clear, dependency
@@ -1806,14 +1795,14 @@ impl TicketQueue {
                             .chain(owner.large.iter())
                             .filter(|ranked| self.live.contains(&ranked.ticket))
                             .max()
-                    && owner.published_any.as_ref().map_or(true, |head| {
+                    && owner.published_any.as_ref().is_none_or(|head| {
                         self.heads_any
                             .iter()
                             .filter(|physical| *physical == head)
                             .count()
                             == 1
                     })
-                    && owner.published_small.as_ref().map_or(true, |head| {
+                    && owner.published_small.as_ref().is_none_or(|head| {
                         self.heads_small
                             .iter()
                             .filter(|physical| *physical == head)

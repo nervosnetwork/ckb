@@ -344,12 +344,14 @@ impl ConflictCache {
         let mut seen = HashSet::new();
         let mut scheduled = 0;
         for input in inputs {
-            if !seen.insert(input.clone())
-                || !self
-                    .by_outpoint
-                    .get(&input)
-                    .is_some_and(|ids| !ids.is_empty())
-            {
+            if !seen.insert(input.clone()) {
+                continue;
+            }
+            let has_candidates = self
+                .by_outpoint
+                .get(&input)
+                .is_some_and(|ids| !ids.is_empty());
+            if !has_candidates {
                 continue;
             }
             if let Some(state) = self.discovery_pending.get_mut(&input) {
@@ -582,9 +584,8 @@ impl ConflictCache {
         let scheduled_order = self
             .recovery_queue
             .iter()
-            .filter_map(|(generation, hash)| {
-                (self.recovery_scheduled.get(hash) == Some(generation)).then(|| hash.clone())
-            })
+            .filter(|(generation, hash)| self.recovery_scheduled.get(hash) == Some(generation))
+            .map(|(_, hash)| hash.clone())
             .collect::<Vec<_>>();
         let mut compact = VecDeque::with_capacity(self.by_hash.len());
         let mut generation = 0u64;
@@ -754,36 +755,32 @@ impl ConflictCache {
             }
         }
         for (hash, generation) in &self.recovery_scheduled {
-            if !self
+            let entry_matches = self
                 .by_hash
                 .get(hash)
-                .is_some_and(|entry| entry.generation == *generation)
-                || self
-                    .recovery_queue
-                    .iter()
-                    .filter(|(queued_generation, queued_hash)| {
-                        queued_generation == generation && queued_hash == hash
-                    })
-                    .count()
-                    != 1
-            {
+                .is_some_and(|entry| entry.generation == *generation);
+            let ticket_count = self
+                .recovery_queue
+                .iter()
+                .filter(|(queued_generation, queued_hash)| {
+                    queued_generation == generation && queued_hash == hash
+                })
+                .count();
+            if !entry_matches || ticket_count != 1 {
                 return Err("conflict cache live recovery ticket mismatch");
             }
         }
         for (input, state) in &self.discovery_pending {
-            if !self
+            let has_candidates = self
                 .by_outpoint
                 .get(input)
-                .is_some_and(|ids| !ids.is_empty())
-                || self
-                    .discovery_queue
-                    .iter()
-                    .filter(|(generation, queued)| {
-                        *generation == state.generation && queued == input
-                    })
-                    .count()
-                    != 1
-            {
+                .is_some_and(|ids| !ids.is_empty());
+            let ticket_count = self
+                .discovery_queue
+                .iter()
+                .filter(|(generation, queued)| *generation == state.generation && queued == input)
+                .count();
+            if !has_candidates || ticket_count != 1 {
                 return Err("conflict cache live discovery ticket mismatch");
             }
         }

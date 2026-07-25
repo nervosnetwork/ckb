@@ -150,16 +150,13 @@ async fn run_retained_receiver<T, F, Fut>(
 /// waiting, or terminal entirely inside the coordinator; there is no trailing
 /// `finish` call that a stale worker could apply to a newer incarnation.
 pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
-    loop {
-        match service
-            .pipeline
-            .runtime
-            .wait_raw(crate::component::pipeline_coordinator::RawStage::PreCheck)
-            .await
-        {
-            Some(lease) => service.process_pipeline_raw_lease(lease).await,
-            None => break,
-        }
+    while let Some(lease) = service
+        .pipeline
+        .runtime
+        .wait_raw(crate::component::pipeline_coordinator::RawStage::PreCheck)
+        .await
+    {
+        service.process_pipeline_raw_lease(lease).await;
     }
 }
 
@@ -275,7 +272,7 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 _ = cancel.cancelled() => break,
             }
 
-            loop {
+            while !cancel.is_cancelled() {
                 let now = ckb_systemtime::unix_time().as_secs();
                 let expiry_permit = match service
                     .reserve_effects(TxPoolService::pipeline_terminal_effect_bytes(SLICE))

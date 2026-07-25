@@ -603,7 +603,11 @@ impl PipelineRuntime {
             RawStage::Resolve => QueueKind::Resolve,
         };
         let ready = self.subscribe(kind);
-        loop {
+        while !self.shutdown.is_cancelled() {
+            // Cancellation is the dispatch barrier. In particular, do not
+            // keep checking out a non-empty queue after shutdown: checkout
+            // republishes the level-triggered queue notification and can
+            // otherwise keep a runtime worker alive indefinitely.
             // Register before checking the queue so an admission between the
             // check and `.await` leaves a permit for this waiter.
             let notified = ready.notified();
@@ -615,6 +619,7 @@ impl PipelineRuntime {
                 _ = self.shutdown.cancelled() => return None,
             }
         }
+        None
     }
 
     pub(crate) async fn lock_commit_driver(&self) -> tokio::sync::MutexGuard<'_, ()> {

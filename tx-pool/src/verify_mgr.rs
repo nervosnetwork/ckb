@@ -172,21 +172,20 @@ impl TxPoolService {
                     let promoted = if source.peer().is_some() {
                         let authority = self.pipeline.runtime.read(|coordinator| {
                             coordinator.view(&lease.hash).and_then(|view| {
-                                (!matches!(view.source, CoordinatorSource::Remote(_))).then(|| {
+                                if matches!(view.source, CoordinatorSource::Remote(_)) {
+                                    None
+                                } else {
                                     coordinator
                                         .raw_by_hash(&lease.hash)
                                         .map(|raw| (view.source, raw))
-                                })
+                                }
                             })
                         });
-                        match authority.flatten() {
-                            Some((promoted_source, raw)) => Some(
-                                self.pipeline
-                                    .runtime
-                                    .require_authoritative_source(&raw, promoted_source),
-                            ),
-                            None => None,
-                        }
+                        authority.map(|(promoted_source, raw)| {
+                            self.pipeline
+                                .runtime
+                                .require_authoritative_source(&raw, promoted_source)
+                        })
                     } else {
                         None
                     };

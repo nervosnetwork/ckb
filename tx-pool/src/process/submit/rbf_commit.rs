@@ -390,13 +390,13 @@ impl TxPoolService {
         // commit — replaced no one, so rejecting its held candidates would
         // be wrong.
         let replaced = fx.pool_journal.contains(RemovalCause::Replacement);
-        if result.is_err() {
-            if let Err(rollback_error) = fx.rollback_on_failure(tx_pool, &entry_id) {
-                self.pipeline.runtime.fail_stop(
-                    "tx-pool exact rollback failed after rejected submit",
-                    &(result, rollback_error),
-                );
-            }
+        if result.is_err()
+            && let Err(rollback_error) = fx.rollback_on_failure(tx_pool, &entry_id)
+        {
+            self.pipeline.runtime.fail_stop(
+                "tx-pool exact rollback failed after rejected submit",
+                &(result, rollback_error),
+            );
         }
 
         CoordinatedSubmitOutcome {

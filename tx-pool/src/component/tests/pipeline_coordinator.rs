@@ -63,6 +63,38 @@ fn roomy() -> PipelineCoordinator<Raw, Unverified, Verified> {
     ))
 }
 
+impl PipelineCoordinator<Raw, Unverified, Verified> {
+    #[allow(clippy::too_many_arguments)]
+    fn admit_raw(
+        &mut self,
+        hash: Byte32,
+        short_id: ProposalShortId,
+        raw: Raw,
+        initial_stage: RawStage,
+        peer: Option<PeerIndex>,
+        charge_bytes: usize,
+        dependencies: HashSet<Byte32>,
+    ) -> Result<
+        (
+            crate::component::pipeline_coordinator::CoordinatorVersion,
+            Vec<crate::component::pipeline_coordinator::TerminalRecord<Raw>>,
+        ),
+        CoordinatorError,
+    > {
+        let source = peer.map_or(CoordinatorSource::Local, CoordinatorSource::Remote);
+        self.admit_raw_sourced(
+            hash,
+            short_id,
+            raw,
+            initial_stage,
+            source,
+            None,
+            charge_bytes,
+            dependencies,
+        )
+    }
+}
+
 fn enqueue_verify(
     coordinator: &mut PipelineCoordinator<Raw, Unverified, Verified>,
     seed: u8,
@@ -877,7 +909,7 @@ fn scheduling_order_rebuilds_from_authoritative_ticket_keys() {
         VerifySchedule::new(1, false),
     );
 
-    coordinator.rebuild_derived_indexes_for_test().unwrap();
+    coordinator.rebuild_derived_indexes().unwrap();
     coordinator.audit().unwrap();
     let order = [0; 3].map(|_| {
         coordinator
@@ -1522,12 +1554,12 @@ fn deterministic_state_machine_audits_every_ownership_boundary() {
         match action {
             0 => {
                 if coordinator.view(&tx_hash).is_none() {
-                    let source = if seed % 3 == 0 {
+                    let source = if seed.is_multiple_of(3) {
                         CoordinatorSource::Remote(PeerIndex::from((seed % 4 + 1) as usize))
                     } else {
                         CoordinatorSource::Local
                     };
-                    let stage = if seed % 2 == 0 {
+                    let stage = if seed.is_multiple_of(2) {
                         RawStage::PreCheck
                     } else {
                         RawStage::Resolve
@@ -1596,7 +1628,7 @@ fn deterministic_state_machine_audits_every_ownership_boundary() {
                 }
             }
             10 => {
-                let promotion = if seed % 2 == 0 {
+                let promotion = if seed.is_multiple_of(2) {
                     TrustedSource::Proposal
                 } else {
                     TrustedSource::Local

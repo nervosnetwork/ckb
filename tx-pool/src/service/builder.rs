@@ -120,7 +120,7 @@ fn assemble_service(
         )
         .unwrap_or_else(|error| panic!("failed to allocate tx-pool effect outbox: {error:?}")),
     );
-    let service = TxPoolService {
+    TxPoolService {
         pool: crate::service::PoolCore {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             consensus,
@@ -149,8 +149,7 @@ fn assemble_service(
         },
         block_assembler,
         recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
-    };
-    service
+    }
 }
 
 impl TxPoolServiceBuilder {
@@ -301,71 +300,6 @@ impl BackgroundWorkerHandles {
                 }
             };
         state_workers_clean && effect_publisher_clean
-    }
-}
-
-#[cfg(test)]
-mod shutdown_tests {
-    use super::BackgroundWorkerHandles;
-    use crate::network::DummyTxPoolNetwork;
-    use crate::service::TxVerificationResult;
-    use crate::service::effects::{EffectEndpoints, EffectQueue, run_effect_publisher};
-    use std::sync::Arc;
-    use std::time::Duration;
-    use tokio_util::sync::CancellationToken;
-
-    fn finished() -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async {})
-    }
-
-    fn handles(
-        effects: tokio::task::JoinHandle<()>,
-        verify_cache: tokio::task::JoinHandle<()>,
-    ) -> BackgroundWorkerHandles {
-        BackgroundWorkerHandles {
-            effects,
-            verify_cache,
-            maintenance: finished(),
-            commit: finished(),
-            pre_check: vec![finished()],
-            verify_mgr: finished(),
-            resolver: finished(),
-            block_assembler: Some(finished()),
-            reorg: Some(finished()),
-        }
-    }
-
-    #[tokio::test]
-    async fn panicked_state_worker_makes_shutdown_ineligible_for_persistence() {
-        let queue = Arc::new(EffectQueue::new(8, 1_000_000).unwrap());
-        let (relay_tx, _relay_rx) = ckb_channel::bounded::<TxVerificationResult>(8);
-        let publisher = tokio::spawn(run_effect_publisher(
-            Arc::clone(&queue),
-            EffectEndpoints {
-                network: Arc::new(DummyTxPoolNetwork),
-                tx_relay_sender: relay_tx,
-                failure_cancel: CancellationToken::new(),
-            },
-        ));
-        let panicked = tokio::spawn(async { panic!("injected state-worker failure") });
-
-        assert!(
-            !handles(publisher, panicked)
-                .quiesce(Duration::from_secs(1), &queue)
-                .await
-        );
-    }
-
-    #[tokio::test]
-    async fn panicked_effect_publisher_makes_shutdown_ineligible_for_persistence() {
-        let queue = Arc::new(EffectQueue::new(8, 1_000_000).unwrap());
-        let publisher = tokio::spawn(async { panic!("injected effect-publisher failure") });
-
-        assert!(
-            !handles(publisher, finished())
-                .quiesce(Duration::from_secs(1), &queue)
-                .await
-        );
     }
 }
 
@@ -909,4 +843,69 @@ pub(crate) struct BenchServiceParts {
     pub signal: CancellationToken,
     pub verify_cache_receiver: mpsc::Receiver<VerifyCacheUpdate>,
     pub effect_publisher: tokio::task::JoinHandle<()>,
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::BackgroundWorkerHandles;
+    use crate::network::DummyTxPoolNetwork;
+    use crate::service::TxVerificationResult;
+    use crate::service::effects::{EffectEndpoints, EffectQueue, run_effect_publisher};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+
+    fn finished() -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async {})
+    }
+
+    fn handles(
+        effects: tokio::task::JoinHandle<()>,
+        verify_cache: tokio::task::JoinHandle<()>,
+    ) -> BackgroundWorkerHandles {
+        BackgroundWorkerHandles {
+            effects,
+            verify_cache,
+            maintenance: finished(),
+            commit: finished(),
+            pre_check: vec![finished()],
+            verify_mgr: finished(),
+            resolver: finished(),
+            block_assembler: Some(finished()),
+            reorg: Some(finished()),
+        }
+    }
+
+    #[tokio::test]
+    async fn panicked_state_worker_makes_shutdown_ineligible_for_persistence() {
+        let queue = Arc::new(EffectQueue::new(8, 1_000_000).unwrap());
+        let (relay_tx, _relay_rx) = ckb_channel::bounded::<TxVerificationResult>(8);
+        let publisher = tokio::spawn(run_effect_publisher(
+            Arc::clone(&queue),
+            EffectEndpoints {
+                network: Arc::new(DummyTxPoolNetwork),
+                tx_relay_sender: relay_tx,
+                failure_cancel: CancellationToken::new(),
+            },
+        ));
+        let panicked = tokio::spawn(async { panic!("injected state-worker failure") });
+
+        assert!(
+            !handles(publisher, panicked)
+                .quiesce(Duration::from_secs(1), &queue)
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn panicked_effect_publisher_makes_shutdown_ineligible_for_persistence() {
+        let queue = Arc::new(EffectQueue::new(8, 1_000_000).unwrap());
+        let publisher = tokio::spawn(async { panic!("injected effect-publisher failure") });
+
+        assert!(
+            !handles(publisher, finished())
+                .quiesce(Duration::from_secs(1), &queue)
+                .await
+        );
+    }
 }

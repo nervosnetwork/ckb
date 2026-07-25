@@ -27,6 +27,7 @@
       "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject",
       "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale",
       "queue_sequence_exhaustion_cannot_strand_transition_reservations",
+      "cancelled_runtime_does_not_checkout_queued_raw_work",
       "production_pool_coordinator_outbox_fault_matrix_is_atomic",
       "coordinator_handoff_panic_preserves_pool_recovery_point",
       "production_handoff_invariant_settles_then_fails_closed"
