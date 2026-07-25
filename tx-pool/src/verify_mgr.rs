@@ -81,11 +81,9 @@ impl TxPoolService {
         command_rx: &mut watch::Receiver<ChunkCommand>,
     ) {
         let authority = self.pipeline.runtime.read(|coordinator| {
-            coordinator.view(&lease.hash).and_then(|view| {
-                coordinator
-                    .raw_by_hash(&lease.hash)
-                    .map(|raw| (view.source, raw))
-            })
+            coordinator
+                .source_by_hash(&lease.hash)
+                .zip(coordinator.raw_by_hash(&lease.hash))
         });
         let Some((current_source, raw)) = authority else {
             return;
@@ -145,15 +143,10 @@ impl TxPoolService {
                 Err(first_reject) => {
                     let promoted = if source.peer().is_some() {
                         let authority = self.pipeline.runtime.read(|coordinator| {
-                            coordinator.view(&lease.hash).and_then(|view| {
-                                if matches!(view.source, CoordinatorSource::Remote(_)) {
-                                    None
-                                } else {
-                                    coordinator
-                                        .raw_by_hash(&lease.hash)
-                                        .map(|raw| (view.source, raw))
-                                }
-                            })
+                            coordinator
+                                .source_by_hash(&lease.hash)
+                                .filter(|source| !matches!(source, CoordinatorSource::Remote(_)))
+                                .zip(coordinator.raw_by_hash(&lease.hash))
                         });
                         authority.map(|(promoted_source, raw)| {
                             self.pipeline
@@ -205,11 +198,9 @@ impl TxPoolService {
             // the completed payload to the current coordinator source rather
             // than the worker's checkout snapshot.
             let final_authority = self.pipeline.runtime.read(|coordinator| {
-                coordinator.view(&lease.hash).and_then(|view| {
-                    coordinator
-                        .raw_by_hash(&lease.hash)
-                        .map(|raw| (view.source, raw))
-                })
+                coordinator
+                    .source_by_hash(&lease.hash)
+                    .zip(coordinator.raw_by_hash(&lease.hash))
             });
             let Some((current_source, raw)) = final_authority else {
                 return;

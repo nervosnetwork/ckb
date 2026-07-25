@@ -104,8 +104,7 @@ impl TxPoolService {
         let outcome: Result<ParentWaitOutcome, CoordinatorError> =
             self.pipeline.runtime.mutate(|coordinator| {
                 let source = coordinator
-                    .view(hash)
-                    .map(|view| view.source)
+                    .source_by_hash(hash)
                     .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
                 if !parents.is_empty()
                     && !matches!(source, CoordinatorSource::Remote(_))

@@ -87,7 +87,7 @@ impl TxPoolService {
         let Some(current_source) = self
             .pipeline
             .runtime
-            .read(|coordinator| coordinator.view(&lease.hash).map(|view| view.source))
+            .read(|coordinator| coordinator.source_by_hash(&lease.hash))
         else {
             return;
         };

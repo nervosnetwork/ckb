@@ -163,6 +163,19 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         self.entries.get(hash).map(CoordinatorEntry::view)
     }
 
+    /// Lightweight source lookup for worker and mutation paths. Building a
+    /// complete [`CoordinatorView`] clones dependency and missing-parent sets
+    /// and is reserved for RPC/diagnostic snapshots.
+    pub(crate) fn source_by_hash(&self, hash: &Byte32) -> Option<CoordinatorSource> {
+        self.entries.get(hash).map(|entry| entry.source)
+    }
+
+    pub(crate) fn is_committing_hash(&self, hash: &Byte32) -> bool {
+        self.entries
+            .get(hash)
+            .is_some_and(CoordinatorEntry::is_committing)
+    }
+
     pub(crate) fn contains_hash(&self, hash: &Byte32) -> bool {
         self.entries.contains_key(hash)
     }

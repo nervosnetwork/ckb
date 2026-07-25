@@ -530,8 +530,10 @@ impl PipelineRuntime {
                 };
                 if let Some(promotion) = promotion {
                     let existing_source = coordinator
-                        .view(&lookup_hash)
-                        .map(|view| view.source)
+                        .source_by_hash(&lookup_hash)
+                        .ok_or_else(|| CoordinatorError::Missing(lookup_hash.clone()))?;
+                    let existing = coordinator
+                        .raw_by_hash(&lookup_hash)
                         .ok_or_else(|| CoordinatorError::Missing(lookup_hash.clone()))?;
                     // Admission is a source-preference merge, not an order to
                     // overwrite the current authority. A Local historical
@@ -545,18 +547,9 @@ impl PipelineRuntime {
                         journal(&terminal);
                         return Ok((false, terminal));
                     }
-                    let existing = coordinator
-                        .raw_by_hash(&lookup_hash)
-                        .ok_or_else(|| CoordinatorError::Missing(lookup_hash.clone()))?;
-                    let location = coordinator
-                        .view(&lookup_hash)
-                        .map(|view| view.location)
-                        .ok_or_else(|| CoordinatorError::Missing(lookup_hash.clone()))?;
-                    let committing = matches!(
-                        &location,
-                        crate::component::pipeline_coordinator::CoordinatorLocation::Committing
-                    );
-                    if existing.tx.witness_hash() != tx.witness_hash() && !committing {
+                    if existing.tx.witness_hash() != tx.witness_hash()
+                        && !coordinator.is_committing_hash(&lookup_hash)
+                    {
                         let incoming = PipelineRawTx::new(tx, source, epoch);
                         let replacement = existing.trusted_variant(incoming.tx, epoch);
                         let replacement_charge = replacement.charge_bytes();
