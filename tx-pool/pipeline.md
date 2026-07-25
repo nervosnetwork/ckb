@@ -648,10 +648,12 @@ by adding lifecycle state. Only a P0/P1 correctness defect, exploitable resource
 or service denial, invariant/authoritative uncertainty, template liveness, or a
 measured performance regression may reopen the frozen architecture.
 
-Current executable evidence is listed in
-[`security-regression-manifest.json`](security-regression-manifest.json) and
-validated against `cargo nextest list` by
-[`devtools/check_tx_pool_security_manifest.py`](../devtools/check_tx_pool_security_manifest.py).
+Current executable evidence is normalized in
+[`review-behaviors.json`](review-behaviors.json), rendered for reviewers in
+[`REVIEW_GUIDE.md`](REVIEW_GUIDE.md), and selected with the frozen inventory by
+[`security-regression-manifest.json`](security-regression-manifest.json).
+CI validates guide/seam drift and every Rust anchor against `cargo nextest list`
+through the three `devtools/check_tx_pool_*` gates.
 Historical names in the larger ledger are archival and are intentionally not
 treated as compile-time anchors. Release mode additionally requires the
 manifest's blocker list to be empty. Benchmarking remains outside phases 0-7.
@@ -702,7 +704,7 @@ The frozen migration baseline is:
 - 34 production files containing at least one `cfg(test)` site;
 - 17 named `*_for_test` functions.
 
-Only explicit machine-readable manifest entries are executable anchors.
+Only explicit machine-readable behavior-registry entries are executable anchors.
 Backticked names in the historical ledger are provenance, never anchors
 discovered by prose regex or identifier-length heuristics. A generated test
 inventory protects the physical-move and compaction phases from accidental
@@ -793,7 +795,7 @@ and architecture gates.
 | S0 | Complete (checkpoint is the commit containing this row) | Safety checkpoint `172b9c935`; exact 328-test inventory, evidence terminology, source/seam counts and semantic-compaction gates were frozen before any physical move. The manifest validator rejects missing, renamed, duplicate and unrecorded tests; release validation passes with 79 invariant references, 59 unique Rust tests and 10 process-level anchors. No production behavior changed. |
 | S1 | Complete (checkpoint is the commit containing this row) | Historical evidence was compared with the current coordinator/pool/outbox architecture. Ten stale legacy test labels now point to current tests or explicitly state that the vulnerable mechanism was deleted. Four properties that remain source-enforced but lacked an exact current counterexample—active peer revocation, expiry cascade, save/reorg serialization and zero-worker clamping—are marked `Guarded by current boundary` and are mandatory S3 regressions rather than falsely reported as Covered. Whole-architecture review found no ownership, lock, accounting, effect, reorg/template or attack-surface change because this phase changed evidence only. |
 | S2 | Complete (checkpoint is the commit containing this row) | Physically moved every inline test body and white-box helper into declared test roots while preserving all 328 frozen baseline names. CI now rejects inline tests, unreviewed module wiring, visibility drift and undeclared seams; the release implementation retains only 31 module wires, 79 `cfg(test)` sites and 32 named, behavior-tagged seams, with no production visibility widening. Whole-architecture liveness review of every production `Notify`, waiter and checkout found that queue-nonempty readiness could self-wake an active-cap-blocked peer, a shared verify permit could be consumed by `SmallCycleOnly` while only large work existed, a respawn could inherit a consumed permit, and outbox `notify_waiters` had a check-to-sleep registration window. Readiness is now derived from the authoritative capability-aware checkout predicate and re-armed on subscription; outbox waiters register before checking. Five explicit regressions increased the intentional inventory to 333. Fresh gates: 333/333 internal nextest in 24.514s, zero-warning all-target clippy, format/diff/layout checks, and 90 invariant references covering 64 unique Rust tests plus 10 integration anchors. No lifecycle state, executable owner, work queue, lock, compensation path or population-sized hot scan was added; benchmark execution remains deferred. |
-| S3 | Pending | — |
+| S3 | Complete (checkpoint is the commit containing this row) | Added four hostile-boundary regressions that were previously only source-guarded: active peer revocation refunds its live lease/budget, reorg expiry cascades through fresh descendants, persistence waits for complete detached replay, and a configured zero verify-worker count still executes and shuts down a remote pipeline. `review-behaviors.json` is now the sole normalized mapping for 15 stable `TP-*` behaviors, 75 unique Rust tests / 112 invariant references and 10 process specs; it generates the evidence section of `REVIEW_GUIDE.md`. CI rejects guide drift, unknown test-seam behavior IDs, renamed/missing/new inventory tests and stale I1-I12/source anchors. The readiness/lost-wakeup family is permanently assigned to `TP-WORKER-001` and `TP-EFFECT-001`, with explicit hostile cases and focused commands. Migration comparison proved all 64 prior Rust evidence anchors and all 10 prior specs remain. Whole-architecture review found no production state, owner, lock, queue, worker, visibility, hot scan or behavior change in S3. Fresh gates: 337/337 isolated nextest in 25.696s, zero-warning all-target clippy, format/diff and all three evidence/layout checks. Benchmarking remains S7 only. |
 | S4 | Pending | — |
 | S5 | Pending | — |
 | S6 | Pending | — |

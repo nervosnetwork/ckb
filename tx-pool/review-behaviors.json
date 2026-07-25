@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "guide": "tx-pool/REVIEW_GUIDE.md",
+  "behaviors": [
+    {
+      "id": "TP-OWN-001",
+      "title": "Single pre-pool ownership",
+      "change_surfaces": [
+        "tx-pool/src/component/pipeline_coordinator.rs",
+        "tx-pool/src/component/pipeline_coordinator",
+        "tx-pool/src/component/pipeline_runtime.rs"
+      ],
+      "required_behavior": "An admitted transaction has one coordinator entry, one typed location, one admission incarnation and one current lease revision until an atomic handoff transfers sole authority to TxPool.",
+      "hostile_case": "A stale worker, duplicate admission, failed transition or ABA remove/readmit race must not create two owners, resurrect an old payload or silently erase the current owner.",
+      "reviewer_questions": [
+        "Does every transition consume exactly the state and lease it proves current?",
+        "Are every queue, deadline, dependency and conflict structure derived indexes rather than payload owners?",
+        "Does failure restore the old owner or publish one explicit terminal outcome?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(one_entry_and_revision|active_verification_terminalization|removed_and_readmitted_hash|queue_sequence_exhaustion|coordinator_invariant_error)/)'",
+      "performance_bound": "No second owner map, compensating queue, global post-transition scan or extra hot-path lock."
+    },
+    {
+      "id": "TP-COMMIT-001",
+      "title": "Authoritative commit and handoff",
+      "change_surfaces": [
+        "tx-pool/src/process/submit",
+        "tx-pool/src/component/pipeline_coordinator/commit.rs",
+        "tx-pool/src/pool.rs"
+      ],
+      "required_behavior": "The existing TxPool write guard is the only final membership/RBF sequencer; tentative pool mutation, coordinator handoff, exact rollback and stable effects form one causally ordered boundary.",
+      "hostile_case": "Concurrent commits, injected handoff failure or panic must not expose a pool/coordinator ownership gap, strand Committing or report success for a rolled-back mutation.",
+      "reviewer_questions": [
+        "Is every final fee/conflict decision recomputed under the pool write guard?",
+        "Can any error release the guard before coordinator settlement and pool rollback are exact?",
+        "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(pool_removal_invalidation|pipeline_commit_worker|production_pool_coordinator|coordinator_handoff_panic|production_handoff_invariant|second_independent_commit)/)'",
+      "performance_bound": "Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation."
+    },
+    {
+      "id": "TP-RBF-001",
+      "title": "Deterministic RBF preference and rollback",
+      "change_surfaces": [
+        "tx-pool/src/process/submit/rbf_commit.rs",
+        "tx-pool/src/component/pipeline_coordinator/indexes.rs",
+        "tx-pool/src/component/conflict_cache.rs"
+      ],
+      "required_behavior": "Only verified candidates participate in deterministic conflict ordering, while TxPool recomputes the complete replacement closure and both fee gates before atomic victim displacement.",
+      "hostile_case": "An under-fee, multi-input, dep-group or concurrent candidate must not preempt through speculative state; failed replacement must restore the complete original closure before competitors advance.",
+      "reviewer_questions": [
+        "Is coordinator ordering still provisional rather than an admission verdict?",
+        "Are all input and expanded dependency conflicts included in final closure and rollback?",
+        "Does every failed path preserve original statuses, accounting and descendant order?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(rbf|replacement|under_fee_candidate|unverified_high_fee|multi_input_verified|derived_conflict|model_random_transitions|failed_tip_revalidation)/)'",
+      "performance_bound": "Conflict work stays within indexed bounded cohorts and immutable mutation plans; no full-pool scan under the write guard."
+    },
+    {
+      "id": "TP-DEP-001",
+      "title": "Causal dependency graph",
+      "change_surfaces": [
+        "tx-pool/src/component/pipeline_coordinator/lifecycle.rs",
+        "tx-pool/src/resolved_tx.rs",
+        "tx-pool/src/component/links.rs"
+      ],
+      "required_behavior": "Raw, resolved and accepted dependency edges—including expanded dep-group members—share complete causal semantics: availability wakes children and definitive loss invalidates them atomically.",
+      "hostile_case": "Late-discovered parents, transitive cycles, stale resolved children or parent replacement must not strand a child, lose its wake edge or let it commit against unavailable inputs.",
+      "reviewer_questions": [
+        "Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?",
+        "Does parent success/failure update reverse edges, accounting and child location in one transition?",
+        "Are cascade size and maintenance work explicitly bounded?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(parent_handoff|parent_exit|parent_wait|dependency_cycle|dependency|dep_group|trusted_parent|verified_parent|successful_resolution)/)'",
+      "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
+    },
+    {
+      "id": "TP-CACHE-001",
+      "title": "Conflict-history ownership and wakeup",
+      "change_surfaces": [
+        "tx-pool/src/component/conflict_cache.rs",
+        "tx-pool/src/service/pipeline_ops.rs",
+        "tx-pool/src/process/reorg.rs"
+      ],
+      "required_behavior": "ConflictCache is one bounded non-executable owner until every indexed input and expanded dependency is available; cache-to-coordinator transfer is atomic and generation-safe.",
+      "hostile_case": "A release observed before another parent becomes live, duplicate metadata enrichment or high-fanout input must not lose the only future wake, duplicate ownership or cause unbounded pool-lock work.",
+      "reviewer_questions": [
+        "Does the cache retain ownership until all recovery outpoints are live?",
+        "Can every chain/pool availability edge re-arm a previously examined entry?",
+        "Are discovery, generations and fanout work bounded and fair?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(conflict_recovery|accepted_entry_metadata|attached_parent_output)/)'",
+      "performance_bound": "Bound history count/bytes and process indexed recovery in fixed fair slices outside population-sized scans."
+    },
+    {
+      "id": "TP-BUDGET-001",
+      "title": "Continuous hostile-state accounting",
+      "change_surfaces": [
+        "tx-pool/src/component/pipeline_coordinator/capacity.rs",
+        "tx-pool/src/component/effect_outbox.rs",
+        "tx-pool/src/component/conflict_cache.rs"
+      ],
+      "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects.",
+      "hostile_case": "Parking, invalidation, reservation, peer churn or an oversized displacement plan must not refund resident state, evict unrelated stronger work or mutate before proving the bound.",
+      "reviewer_questions": [
+        "Is every owner charged if and only if it is resident?",
+        "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
+        "Does an impossible peer admission fail before global eviction planning?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(metadata_residency|count_and_byte_limits|escape_hatch_rejects)/)'",
+      "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
+    },
+    {
+      "id": "TP-WORKER-001",
+      "title": "Level-triggered executable readiness",
+      "change_surfaces": [
+        "tx-pool/src/component/pipeline_runtime.rs",
+        "tx-pool/src/service/workers.rs",
+        "tx-pool/src/service/builder.rs"
+      ],
+      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent and subscription/respawn re-arms executable work.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers or respawn must not strand executable work.",
+      "reviewer_questions": [
+        "Does notification mean at least one worker of this capability can execute now?",
+        "Can a consumed permit be reconstructed from authoritative state after subscribe or respawn?",
+        "Does cancellation stop checkout before another self-sustaining wake loop begins?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(ineligible_checkout|large_verify_work|worker_resubscribe|cancelled_runtime|zero_verify_worker)/)'",
+      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; no polling loop, per-item task or queue-wide scan."
+    },
+    {
+      "id": "TP-ADMIN-001",
+      "title": "Administrative and hostile-peer terminalization",
+      "change_surfaces": [
+        "tx-pool/src/service.rs",
+        "tx-pool/src/service/pipeline_ops.rs",
+        "tx-pool/src/component/recent_reject.rs"
+      ],
+      "required_behavior": "Ban, expiry, clear and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects.",
+      "hostile_case": "An already active malicious peer must not pin an active slot, resurrect through a late lease or turn a typed malformed input into fail-stop or an ineligible relay reject.",
+      "reviewer_questions": [
+        "Does administrative removal make every outstanding lease stale atomically?",
+        "Are trusted promotion and immutable ingress attribution preserved deliberately?",
+        "Are ban/reject history and relay policy separate explicit decisions?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_revokes|malformed_remote_preflight)/)'",
+      "performance_bound": "Administrative removal uses indexed owners and bounded batches; peer fences/history remain bounded and expiring."
+    },
+    {
+      "id": "TP-EFFECT-001",
+      "title": "Reserved stable-state effects",
+      "change_surfaces": [
+        "tx-pool/src/component/effect_outbox.rs",
+        "tx-pool/src/service/effects.rs",
+        "tx-pool/src/callback.rs"
+      ],
+      "required_behavior": "Mutation-coupled effects reserve capacity before state change, enter one FIFO sequence while state is stable and publish outside authority locks; capacity/close waits cannot lose wakeups.",
+      "hostile_case": "A full or panicking consumer, callback re-entry, close race or check-before-wait window must not expose intermediate state, reorder outcomes, lose charges or sleep forever.",
+      "reviewer_questions": [
+        "Was sufficient effect credit reserved before every coupled mutation?",
+        "Is publication outside locks while FIFO ownership and charge remain retained?",
+        "Do waiters register before checking and does close use the correct stored/broadcast wake semantic?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(effect_credit|fifo_sequence|full_relayer|close_wakes|idle_publisher)/)'",
+      "performance_bound": "One bounded publisher/outbox; no unbounded channel, callback-under-lock, busy retry or task per effect."
+    },
+    {
+      "id": "TP-REORG-001",
+      "title": "Serialized reliable chain transitions",
+      "change_surfaces": [
+        "tx-pool/src/process/reorg.rs",
+        "tx-pool/src/service.rs",
+        "tx-pool/src/service/pipeline_ops.rs"
+      ],
+      "required_behavior": "Reorg deltas remain ordered and retained through retry; recovery_lock serializes complete detached replay, clear and persistence, while final effects describe only authoritative post-replay state.",
+      "hostile_case": "Repeated callback panic, duplicate detached roots, clear/save races or partial replay must not drop/overtake a delta, expose an ownership gap, deadlock effect credit or persist an intermediate pool.",
+      "reviewer_questions": [
+        "Is lock order recovery_lock then effect credit then TxPool preserved?",
+        "Can retry replay an already completed authoritative phase or an obsolete snapshot?",
+        "Are duplicate recovery, final-state effects and attached/detached identities exact?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_status_transition|reorg_retain_duplicate|retained_receiver|clear_during_reorg|cross_authority_query)/)'",
+      "performance_bound": "Retain a capacity-one ordered delta and bounded replay slices; no independent recovery worker or full-history duplication."
+    },
+    {
+      "id": "TP-PERSIST-001",
+      "title": "Coherent persistence recovery point",
+      "change_surfaces": [
+        "tx-pool/src/service.rs",
+        "tx-pool/src/component/pool_map.rs",
+        "tx-pool/src/process/reorg.rs"
+      ],
+      "required_behavior": "Persistence snapshots only a coherent accepted pool after complete recovery, orders by the authoritative expanded dependency graph and is disabled only when authoritative mutation may be uncertain.",
+      "hostile_case": "Save racing detached replay, effect-journal failure or expanded dep-group ordering must not persist half a reorg, lose a recoverable pool or serialize children before required parents.",
+      "reviewer_questions": [
+        "Does save hold recovery serialization across its complete snapshot boundary?",
+        "Is PoolMap the only ordering authority, including expanded dependencies?",
+        "Does each failure domain make the intended persistence decision?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(save_pool_waits|stable_effect_journal|persisted_file_orders)/)'",
+      "performance_bound": "Shutdown-only clone/sort work stays off admission paths; do not add a continuously maintained persistence projection."
+    },
+    {
+      "id": "TP-POOL-001",
+      "title": "Atomic accepted-pool graph integrity",
+      "change_surfaces": [
+        "tx-pool/src/component/pool_map.rs",
+        "tx-pool/src/component/links.rs",
+        "tx-pool/src/pool.rs"
+      ],
+      "required_behavior": "Pool entries, status counters, dependency links, conflict closure, ancestor/descendant weights and exact rollback journals mutate as one authoritative graph.",
+      "hostile_case": "Ghost links, counter drift, late-parent insertion, expired-parent cascades or escape-hatch eviction must not corrupt graph weights, preserve impossible children or remove required ancestors.",
+      "reviewer_questions": [
+        "Does one immutable plan cover the complete mutation before any write?",
+        "Does the independent audit rebuild agree after success and rollback?",
+        "Are required parents distinguished from ordering-only references?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(conflict_closure_ignores|status_counter_underflow|escape_hatch_never|test_dep_group|parent_added_after_child|reorg_expiry_cascades)/)'",
+      "performance_bound": "Mutation and audit work is bounded by explicit graph/victim caps; cold repair must never hide hot-path drift."
+    },
+    {
+      "id": "TP-TEMPLATE-001",
+      "title": "Block-template liveness and priority",
+      "change_surfaces": [
+        "tx-pool/src/block_assembler",
+        "tx-pool/src/pool.rs",
+        "tx-pool/src/process/reorg.rs"
+      ],
+      "required_behavior": "Reset and full rebuild remain mutually exclusive with full highest priority; optimistic proposal/transaction updates are revision-safe, and valid recovered transactions always regain a proposal/commit path.",
+      "hostile_case": "Detached uncle proposals, stale Gap status or an update_full race must not make a valid transaction RPC-pending but forever absent from normal get_block_template mining.",
+      "reviewer_questions": [
+        "Does full/reset retain authority over every optimistic delta and re-dirty skipped generations?",
+        "Can uncle proposal filtering exclude the sole proposal path of a recovered transaction?",
+        "Are Gap/Pending/Proposed transitions reflected to assembler selection?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_and_uncle_updates)/)'",
+      "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."
+    },
+    {
+      "id": "TP-IDENTITY-001",
+      "title": "Full transaction and witness identity",
+      "change_surfaces": [
+        "tx-pool/src/process/submit/mod.rs",
+        "tx-pool/src/component/conflict_cache.rs",
+        "tx-pool/src/component/pool_map.rs"
+      ],
+      "required_behavior": "Ownership and duplicate boundaries use full raw hashes, proposal short IDs remain non-authoritative indexes, and verification-cache proofs are keyed only by the exact witness hash through TxVerificationCacheKey.",
+      "hostile_case": "Short-ID collisions or same-raw/different-witness variants must not alias accepted/cache/history ownership, obtain a false duplicate success or reuse an invalid verification proof during reorg.",
+      "reviewer_questions": [
+        "Is a short ID used only where collision-aware lookup semantics are explicit?",
+        "Can any cache call construct a key from raw hash or arbitrary bytes?",
+        "Does reorg recovery query the exact transaction witness variant?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(short_id_collision|complete_hash_identity|verification_cache_isolated|reorg_recovery_reads_cache)/)'",
+      "performance_bound": "Use compact full hashes/typed cache keys without retaining packed backing; collision handling remains indexed and bounded."
+    },
+    {
+      "id": "TP-PERF-001",
+      "title": "Bounded attacker-controlled work",
+      "change_surfaces": [
+        "tx-pool/src/component/pipeline_coordinator/capacity.rs",
+        "tx-pool/src/component/pipeline_coordinator/scheduling.rs",
+        "tx-pool/src/benchmark.rs",
+        "devtools/tx_pool_bench.py"
+      ],
+      "required_behavior": "Owner-head scheduling, victim selection and conflict probing stop at maintained bounds independent of unrelated population; benchmark comparisons use fingerprinted paired checkpoints and reject noisy samples.",
+      "hostile_case": "A capped peer prefix, stronger suffix or large independent population must not turn one admission/checkout into an O(pool) scan; a noisy or mismatched harness must not claim a performance win.",
+      "reviewer_questions": [
+        "Is operation count bounded by owners/cohort/config rather than resident transaction count?",
+        "Did the change add allocation, lock, task, scan or mutable projection to a hot path?",
+        "When benchmarking is authorized, are worktree, binary, config, repetitions and spread comparable?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(capped_peer_prefix|victim_selection_stops|model_conflict_probe_cost)/)'",
+      "performance_bound": "Deterministic operation-count regressions are always required; timing A/B is the separately authorized final gate, never inferred from unit duration."
+    }
+  ],
+  "unit_evidence": [
+    {"test": "one_entry_and_revision_own_every_payload_phase_until_candidate_handoff", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
+    {"test": "active_verification_terminalization_is_causal_and_aba_safe", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
+    {"test": "removed_and_readmitted_hash_rejects_the_old_worker_incarnation", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
+    {"test": "coordinator_invariant_error_cannot_be_downgraded_to_transaction_reject", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
+    {"test": "queue_sequence_exhaustion_cannot_strand_transition_reservations", "behavior_id": "TP-OWN-001", "invariants": ["I4"]},
+
+    {"test": "pool_removal_invalidation_and_winner_handoff_are_one_transaction", "behavior_id": "TP-COMMIT-001", "invariants": ["I1"]},
+    {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2"]},
+    {"test": "production_pool_coordinator_outbox_fault_matrix_is_atomic", "behavior_id": "TP-COMMIT-001", "invariants": ["I1", "I3", "I4", "I8"]},
+    {"test": "coordinator_handoff_panic_preserves_pool_recovery_point", "behavior_id": "TP-COMMIT-001", "invariants": ["I4", "I7"]},
+    {"test": "production_handoff_invariant_settles_then_fails_closed", "behavior_id": "TP-COMMIT-001", "invariants": ["I4", "I7"]},
+    {"test": "second_independent_commit_checkout_waits_for_first_terminal_transition", "behavior_id": "TP-COMMIT-001", "invariants": ["I9"]},
+
+    {"test": "pipeline_concurrent_rbf_prefers_highest_fee", "behavior_id": "TP-RBF-001", "invariants": ["I2"]},
+    {"test": "failed_commit_restores_all_size_evictions_with_original_status_in_lock", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
+    {"test": "failed_tip_revalidation_recovers_whole_removed_cascade", "behavior_id": "TP-RBF-001", "invariants": ["I3"]},
+    {"test": "under_fee_candidate_cannot_become_verified_conflict_state", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "unverified_high_fee_work_cannot_own_or_preempt_a_conflict_domain", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "multi_input_verified_candidate_is_all_or_none_and_committing_is_frozen", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "derived_conflict_relation_has_no_maintenance_gap", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "model_random_transitions_always_match_full_rebuild", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+    {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["I9"]},
+
+    {"test": "accepted_parent_handoff_wakes_waiting_children_atomically", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "every_definitive_parent_exit_invalidates_dependents_in_the_same_transition", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "raw_parent_wait_extends_a_dep_group_discovered_dependency", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "behavior_id": "TP-DEP-001", "invariants": ["I4"]},
+    {"test": "successful_resolution_tracks_live_dep_group_members_before_verify", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "transitive_dependency_cycle_is_rejected_before_admission", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
+    {"test": "trusted_parent_invalidation_drops_typed_payload_and_makes_active_verify_lease_stale", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "verified_parent_invalidation_is_raw_only_and_releases_conflict_projection", "behavior_id": "TP-DEP-001", "invariants": ["I5", "I6"]},
+
+    {"test": "accepted_entry_metadata_extends_duplicate_wake_edges", "behavior_id": "TP-CACHE-001", "invariants": ["I5"]},
+    {"test": "conflict_recovery_waits_for_cell_dep_parent_output", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6"]},
+    {"test": "attached_parent_output_rearms_conflict_cache_after_earlier_release", "behavior_id": "TP-CACHE-001", "invariants": ["I6", "I7"]},
+
+    {"test": "metadata_residency_is_charged_continuously_across_every_payload_phase", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
+    {"test": "count_and_byte_limits_cover_reserved_queued_and_active_batches", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
+    {"test": "escape_hatch_rejects_mutation_larger_than_displacement_bound", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
+
+    {"test": "cancelled_runtime_does_not_checkout_queued_raw_work", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
+    {"test": "ineligible_checkout_does_not_self_notify_until_active_owner_settles", "behavior_id": "TP-WORKER-001", "invariants": ["I5", "I12"]},
+    {"test": "large_verify_work_wakes_only_a_capable_worker_without_losing_readiness", "behavior_id": "TP-WORKER-001", "invariants": ["I5", "I12"]},
+    {"test": "worker_resubscribe_rearms_authoritative_ready_work", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
+
+    {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
+    {"test": "malformed_remote_preflight_is_banned_recorded_and_not_relayed", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I8"]},
+
+    {"test": "local_commit_waits_for_effect_credit_before_mutating_pool", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
+    {"test": "fifo_sequence_follows_authoritative_commit_not_reservation_order", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
+    {"test": "full_relayer_retains_fifo_head_and_outbox_charge", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
+    {"test": "close_wakes_every_blocked_capacity_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
+    {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
+
+    {"test": "reorg_status_transition_failure_has_no_false_reject_and_replay_converges", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
+    {"test": "reorg_retain_duplicate_does_not_cascade_dependents", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
+    {"test": "retained_receiver_preserves_fifo_across_panics", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
+    {"test": "clear_during_reorg_recovery_owns_the_final_empty_state", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7", "I8"]},
+    {"test": "cross_authority_query_is_serialized_with_clear_and_reorg", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I2", "I7"]},
+
+    {"test": "save_pool_waits_for_complete_reorg_recovery_point", "behavior_id": "TP-PERSIST-001", "invariants": ["I7"]},
+    {"test": "stable_effect_journal_failure_preserves_pool_persistence", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I8"]},
+    {"test": "persisted_file_orders_expanded_dep_group_parents", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I10"]},
+
+    {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "status_counter_underflow_recomputes_from_authoritative_entries", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "escape_hatch_never_evicts_a_required_parent", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "test_dep_group", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "parent_added_after_child_gets_descendant_weight", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "reorg_expiry_cascades_from_expired_parent_to_fresh_child", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+
+    {"test": "reorg_demotes_stale_gap_to_pending", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
+    {"test": "pending_proposals_filter_conflicting_uncle_subtree", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
+    {"test": "full_and_uncle_updates_share_template_serialization_lock", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
+
+    {"test": "complete_hash_identity_retains_short_id_collisions", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I5"]},
+    {"test": "full_hash_lookup_does_not_alias_a_proposal_short_id_collision", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I10"]},
+    {"test": "conflict_recovery_retries_pool_short_id_collision_without_losing_history", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I4", "I9"]},
+    {"test": "pool_short_id_collision_is_not_a_successful_duplicate", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I2", "I10"]},
+    {"test": "synchronous_precheck_does_not_alias_short_id_collision_as_duplicate", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I4"]},
+    {"test": "verification_cache_isolated_by_witness_hash_not_raw_hash", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I9"]},
+    {"test": "reorg_recovery_reads_cache_by_exact_witness_hash", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I7", "I9"]},
+
+    {"test": "capped_peer_prefix_selection_is_bounded_by_owners_not_transactions", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
+    {"test": "conflict_edge_victim_selection_stops_before_stronger_pool_suffix", "behavior_id": "TP-PERF-001", "invariants": ["I12"]},
+    {"test": "global_capacity_victim_selection_stops_before_stronger_pool_suffix", "behavior_id": "TP-PERF-001", "invariants": ["I12"]},
+    {"test": "model_conflict_probe_cost_ignores_independent_population", "behavior_id": "TP-PERF-001", "invariants": ["I12"]}
+  ],
+  "integration_evidence": [
+    {"id": "normal-mining-reorg-tree", "behavior_id": "TP-TEMPLATE-001", "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs", "anchor": "ReorgRecoversDependentPendingTree", "invariants": ["I7", "I11"]},
+    {"id": "dependent-reorg-chain", "behavior_id": "TP-REORG-001", "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs", "anchor": "ReorgRecoversDependentChain", "invariants": ["I7"]},
+    {"id": "dependent-reorg-transactions", "behavior_id": "TP-REORG-001", "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs", "anchor": "ReorgRecoversDependentTxs", "invariants": ["I7"]},
+    {"id": "rbf-proposed-template-refresh", "behavior_id": "TP-TEMPLATE-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfRejectReplaceProposed", "invariants": ["I9", "I11"]},
+    {"id": "rbf-conflict-recovery", "behavior_id": "TP-CACHE-001", "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs", "anchor": "RbfOrphanRecovery", "invariants": ["I7", "I9"]},
+    {"id": "rbf-basic", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfBasic", "invariants": ["I2", "I9"]},
+    {"id": "rbf-proposed-success", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfReplaceProposedSuccess", "invariants": ["I2", "I9"]},
+    {"id": "rbf-concurrency", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfConcurrency", "invariants": ["I2", "I9"]},
+    {"id": "rbf-cycling-attack", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfCyclingAttack", "invariants": ["I5", "I9", "I12"]},
+    {"id": "rbf-cell-deps", "behavior_id": "TP-RBF-001", "path": "test/src/specs/tx_pool/replace.rs", "anchor": "RbfCellDepsCheck", "invariants": ["I2", "I9", "I10"]}
+  ]
+}

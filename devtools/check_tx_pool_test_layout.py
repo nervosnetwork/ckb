@@ -9,6 +9,12 @@ from pathlib import Path
 import re
 import sys
 
+from check_tx_pool_review_guide import (
+    behavior_ids as registered_behavior_ids,
+    load_registry,
+    validate_registry,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPO_ROOT / "tx-pool" / "src"
@@ -69,6 +75,10 @@ def validate() -> list[str]:
     errors: list[str] = []
     if manifest.get("schema_version") != 1:
         errors.append("test-layout manifest schema_version must be 1")
+
+    registry = load_registry()
+    errors.extend(validate_registry(registry))
+    known_behavior_ids = registered_behavior_ids(registry)
 
     try:
         allowed_roots = tuple(repo_path(path) for path in manifest["allowed_test_roots"])
@@ -172,6 +182,8 @@ def validate() -> list[str]:
             for behavior_id in behavior_ids:
                 if not isinstance(behavior_id, str) or not BEHAVIOR_ID.fullmatch(behavior_id):
                     errors.append(f"invalid behavior ID {behavior_id!r} for {file}")
+                elif behavior_id not in known_behavior_ids:
+                    errors.append(f"unknown behavior ID {behavior_id!r} for {file}")
         source = production_sources.get(file)
         if source is None:
             errors.append(f"test seam points outside production source: {file}")

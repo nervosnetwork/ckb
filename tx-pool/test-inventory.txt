@@ -44,6 +44,7 @@ component::tests::estimate::test_estimate_fee_rate
 component::tests::gap_reorg::overlapping_detached_proposals_requeue_each_descendant_once
 component::tests::gap_reorg::reorg_demotes_stale_gap_even_without_mine_mode
 component::tests::gap_reorg::reorg_demotes_stale_gap_to_pending
+component::tests::gap_reorg::reorg_expiry_cascades_from_expired_parent_to_fresh_child
 component::tests::gap_reorg::reorg_keeps_gap_when_still_in_gap_window
 component::tests::gap_reorg::reorg_leaves_true_pending_proposable
 component::tests::gap_reorg::reorg_promotes_gap_to_proposed_when_in_proposed_window
@@ -71,6 +72,8 @@ component::tests::persisted::dependent_chain_survives_save_and_restart
 component::tests::persisted::dispatcher_channel_close_quiesces_workers_and_persists_pool
 component::tests::persisted::persisted_file_is_topologically_ordered
 component::tests::persisted::persisted_file_orders_expanded_dep_group_parents
+component::tests::persisted::save_pool_waits_for_complete_reorg_recovery_point
+component::tests::persisted::zero_verify_worker_config_still_runs_remote_pipeline
 component::tests::pipeline::dependency::attached_commit_settles_pre_pool_remote_ingress
 component::tests::pipeline::dependency::attached_parent_output_rearms_conflict_cache_after_earlier_release
 component::tests::pipeline::dependency::clear_during_reorg_recovery_owns_the_final_empty_state
@@ -110,6 +113,7 @@ component::tests::pipeline::identity::reorg_recovery_reads_cache_by_exact_witnes
 component::tests::pipeline::identity::synchronous_precheck_does_not_alias_short_id_collision_as_duplicate
 component::tests::pipeline::identity::verification_cache_isolated_by_witness_hash_not_raw_hash
 component::tests::pipeline::identity::verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
+component::tests::pipeline::lifecycle::banned_peer_revokes_active_remote_lease_and_releases_budget
 component::tests::pipeline::lifecycle::cross_authority_query_is_serialized_with_clear_and_reorg
 component::tests::pipeline::lifecycle::duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted
 component::tests::pipeline::lifecycle::local_commit_waits_for_effect_credit_before_mutating_pool

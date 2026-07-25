@@ -406,6 +406,158 @@ async fn dispatcher_channel_close_quiesces_workers_and_persists_pool() {
     );
 }
 
+/// A zero worker configuration is normalized at every production spawn and
+/// dispatcher-capacity boundary. It must still run one complete remote
+/// resolve/verify/commit pipeline instead of silently creating zero workers or
+/// a zero-permit dispatcher.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn zero_verify_worker_config_still_runs_remote_pipeline() {
+    use ckb_async_runtime::Handle;
+    use ckb_fee_estimator::FeeEstimator;
+    use ckb_stop_handler::CancellationToken;
+    use ckb_verification::cache::init_cache;
+    use std::time::Duration;
+    use tokio::sync::RwLock;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let (consensus, funding) = super::pipeline::test_consensus(1);
+    let consensus = Arc::new(consensus);
+    let (_store, snapshot) = super::pipeline::snapshot_with_genesis(consensus);
+    let mut config = super::pipeline::tx_pool_config();
+    config.max_tx_verify_workers = 0;
+    config.persisted_data = tmp.path().join("tx_pool");
+
+    let runtime = Handle::new(tokio::runtime::Handle::current(), None);
+    let (relay_sender, _relay_receiver) = ckb_channel::bounded(16);
+    let (mut builder, controller) = crate::TxPoolServiceBuilder::new(
+        config,
+        snapshot,
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &runtime,
+        relay_sender,
+        FeeEstimator::new_dummy(),
+    );
+    builder.signal_receiver = CancellationToken::new();
+    let dispatcher = builder.start_with_handle(super::harness::dummy_network());
+
+    let tx = build_resolvable_tx(&funding[0], 4_000);
+    let cycles = controller
+        .test_accept_tx(tx.clone())
+        .expect("dispatcher responds with zero configured workers")
+        .expect("transaction is measurable")
+        .cycles;
+    controller
+        .submit_remote_tx(tx, cycles, 1.into())
+        .await
+        .expect("remote admission is accepted");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if controller.get_tx_pool_info().unwrap().pending_size == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the clamped worker set must commit remote work");
+
+    // Close the user-facing message channel rather than cancelling the
+    // process-wide token. `start_with_handle` drops its startup controller
+    // clone, so this is also evidence that zero configured workers did not
+    // create a hidden sender/owner.
+    drop(controller);
+    tokio::time::timeout(Duration::from_secs(10), dispatcher)
+        .await
+        .expect("zero-worker configuration shuts down cleanly")
+        .expect("dispatcher task must not panic");
+}
+
+/// Persistence is serialized behind the complete reorg slice, including
+/// detached-transaction replay. A save that begins after reorg owns
+/// `recovery_lock` must contain the recovered transaction rather than a
+/// half-updated pool snapshot.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn save_pool_waits_for_complete_reorg_recovery_point() {
+    use ckb_types::core::{BlockBuilder, TransactionBuilder};
+    use std::collections::{HashSet, VecDeque};
+    use std::time::Duration;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_resolvable_tx(&h.out_points[0], 4_000);
+    let tx_id = tx.proposal_short_id();
+    let detached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(tx)
+        .build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+
+    // Hold TxPool so reorg acquires recovery serialization and pauses before
+    // the authoritative update/replay. Save must queue behind that lock.
+    let mut pool_guard = h.service.pool.tx_pool.write().await;
+    pool_guard.config.persisted_data = tmp.path().join("tx_pool");
+    let reorg_service = h.service.clone();
+    let reorg_snapshot = Arc::clone(&snapshot);
+    let reorg = tokio::spawn(async move {
+        reorg_service
+            .update_tx_pool_for_reorg(
+                VecDeque::from([detached]),
+                VecDeque::new(),
+                HashSet::new(),
+                reorg_snapshot,
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match h.service.recovery_lock.try_lock() {
+                Ok(guard) => drop(guard),
+                Err(_) => break,
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reorg acquires recovery serialization before save starts");
+
+    let save_service = h.service.clone();
+    let mut save = tokio::spawn(async move { save_service.save_pool().await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut save)
+            .await
+            .is_err(),
+        "save must not persist the pool while detached replay is blocked"
+    );
+
+    drop(pool_guard);
+    tokio::time::timeout(Duration::from_secs(10), reorg)
+        .await
+        .expect("reorg recovery completes")
+        .expect("reorg task joins")
+        .expect("detached transaction is recoverable");
+    tokio::time::timeout(Duration::from_secs(10), save)
+        .await
+        .expect("save follows the complete recovery slice")
+        .expect("save task joins");
+
+    let loaded = h
+        .service
+        .pool
+        .tx_pool
+        .read()
+        .await
+        .load_from_file()
+        .expect("saved recovery point is readable");
+    assert!(
+        loaded
+            .iter()
+            .any(|loaded_tx| loaded_tx.proposal_short_id() == tx_id),
+        "persistence must include the detached transaction recovered before it"
+    );
+    h.cancel.cancel();
+}
+
 /// External callbacks run on the dedicated effect publisher, not under a
 /// message-dispatch permit. Two concurrent submit handlers may therefore fill
 /// the dispatcher semaphore without preventing a callback from synchronously

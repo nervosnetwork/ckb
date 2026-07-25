@@ -441,6 +441,73 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
     h.cancel.cancel();
 }
 
+/// A peer ban must revoke an already checked-out remote owner, release its
+/// active-work accounting and make the worker's lease stale in one
+/// coordinator transition. Otherwise an attacker can keep its budget slot
+/// resident until the expensive worker eventually returns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
+    use crate::component::pipeline_coordinator::RawStage;
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(17);
+    h.service
+        .submit_remote_tx(tx, TxSource::Remote { cycles: 0, peer })
+        .await
+        .unwrap();
+    let lease = h
+        .service
+        .pipeline
+        .runtime
+        .checkout_raw(RawStage::PreCheck)
+        .unwrap();
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.peer_active_work(peer)),
+        1
+    );
+
+    h.service
+        .ban_malformed(peer, "focused active-owner revocation".to_string())
+        .await;
+    h.service.relay.effects.wait_idle().await;
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash))
+    );
+    assert_eq!(
+        h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.peer_active_work(peer)),
+        0,
+        "revocation must refund the peer's active-work slot immediately"
+    );
+
+    // Late worker completion observes no owner and cannot resurrect or
+    // terminalize a newer incarnation.
+    h.service.process_pipeline_raw_lease(lease).await;
+    assert!(
+        !h.service
+            .pipeline
+            .runtime
+            .read(|coordinator| coordinator.contains_hash(&hash))
+    );
+    assert!(matches!(
+        h.relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
+    h.cancel.cancel();
+}
+
 /// Resolved work can wait behind expensive verification for many blocks. It
 /// must not pin one RocksDB snapshot per historical tip while queued; a stale
 /// resolution returns to the ordered resolver before script execution.

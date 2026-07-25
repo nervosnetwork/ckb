@@ -9,6 +9,13 @@ from pathlib import Path
 import subprocess
 import sys
 
+from check_tx_pool_review_guide import (
+    invariant_unit_evidence,
+    load_registry,
+    repo_path,
+    validate_registry,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
@@ -73,9 +80,9 @@ def discover_tests(manifest: dict) -> tuple[set[str], int]:
     return tests, int(listing.get("test-count", len(tests)))
 
 
-def validate_test_anchors(manifest: dict, tests: set[str]) -> list[str]:
+def validate_test_anchors(registry: dict, tests: set[str]) -> list[str]:
     errors: list[str] = []
-    evidence = manifest.get("evidence", {})
+    evidence = invariant_unit_evidence(registry)
     missing_invariants = REQUIRED_INVARIANTS.difference(evidence)
     extra_invariants = set(evidence).difference(REQUIRED_INVARIANTS)
     if missing_invariants:
@@ -94,6 +101,16 @@ def validate_test_anchors(manifest: dict, tests: set[str]) -> list[str]:
                     f"{invariant} anchor {anchor!r} matched {len(matches)} tests: {matches}"
                 )
     return errors
+
+
+def registry_path(manifest: dict) -> Path:
+    value = manifest.get("behavior_registry")
+    if not isinstance(value, str):
+        raise SystemExit("manifest behavior_registry must be a repository-relative path")
+    try:
+        return repo_path(value)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
 
 def inventory_path(manifest: dict) -> Path:
@@ -140,31 +157,22 @@ def validate_test_inventory(manifest: dict, tests: set[str]) -> list[str]:
     return errors
 
 
-def validate_source_anchors(manifest: dict) -> list[str]:
-    errors: list[str] = []
-    for entry in manifest.get("source_anchors", []):
-        path = REPO_ROOT / entry["path"]
-        try:
-            source = path.read_text()
-        except OSError as error:
-            errors.append(f"{entry['id']}: cannot read {path}: {error}")
-            continue
-        if entry["anchor"] not in source:
-            errors.append(
-                f"{entry['id']}: {entry['anchor']!r} is absent from {entry['path']}"
-            )
-    return errors
-
-
 def main() -> int:
     args = parse_args()
     manifest = load_manifest(args.manifest)
+    if manifest.get("schema_version") != 3:
+        raise SystemExit("security manifest schema_version must be 3")
+    if "evidence" in manifest or "source_anchors" in manifest:
+        raise SystemExit(
+            "security manifest may not duplicate evidence owned by behavior_registry"
+        )
+    registry = load_registry(registry_path(manifest))
     tests, test_count = discover_tests(manifest)
     if args.update_inventory:
         write_test_inventory(inventory_path(manifest), tests)
-    errors = validate_test_anchors(manifest, tests)
+    errors = validate_registry(registry)
+    errors.extend(validate_test_anchors(registry, tests))
     errors.extend(validate_test_inventory(manifest, tests))
-    errors.extend(validate_source_anchors(manifest))
     blockers = manifest.get("release_blockers", [])
     if args.release and blockers:
         errors.extend(
@@ -176,11 +184,10 @@ def main() -> int:
         return 1
     baseline = manifest.get("baseline", {}).get("nextest_count")
     delta = "" if baseline is None else f" (baseline {baseline}, delta {test_count - baseline:+d})"
-    references = sum(map(len, manifest["evidence"].values()))
-    unique_tests = len(
-        {anchor for anchors in manifest["evidence"].values() for anchor in anchors}
-    )
-    source_anchors = len(manifest.get("source_anchors", []))
+    evidence = invariant_unit_evidence(registry)
+    references = sum(map(len, evidence.values()))
+    unique_tests = len(registry["unit_evidence"])
+    source_anchors = len(registry["integration_evidence"])
     print(
         f"validated {references} invariant references covering {unique_tests} unique Rust "
         f"tests and {source_anchors} integration source anchors against "

@@ -187,6 +187,66 @@ async fn reorg_suppresses_intermediate_notify_when_entry_exits_terminally() {
     assert!(tx_pool.pool_map.get_by_id(&id).is_none());
 }
 
+/// Reorg expiry is a graph mutation, not a set of independent timestamp
+/// removals. A fresh child of an expired parent must leave in the same cascade
+/// because the parent's outputs disappear with it.
+#[tokio::test]
+async fn reorg_expiry_cascades_from_expired_parent_to_fresh_child() {
+    let h = harness(1).workers(WorkerSet::None).build();
+    let service = h.service;
+    let live = h.out_points[0].clone();
+    let store = h.store;
+    let mut tx_pool = service.pool.tx_pool.write().await;
+    tx_pool.onchain_reconcile_done = true;
+    tx_pool.expiry = 60_000;
+
+    let parent = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let ids = [parent.proposal_short_id(), child.proposal_short_id()];
+    let hashes = HashSet::from([parent.hash(), child.hash()]);
+    let mut parent_entry =
+        TxEntry::dummy_resolve(parent, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE);
+    parent_entry.timestamp = 0;
+    let mut child_entry =
+        TxEntry::dummy_resolve(child, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE);
+    child_entry.timestamp = ckb_systemtime::unix_time_as_millis();
+    tx_pool
+        .pool_map
+        .add_entry(parent_entry, Status::Pending)
+        .unwrap();
+    tx_pool
+        .pool_map
+        .add_entry(child_entry, Status::Pending)
+        .unwrap();
+
+    let snapshot =
+        snapshot_with_proposals(tx_pool.snapshot(), &store, HashSet::new(), HashSet::new());
+    let outcome = crate::process::reorg::update_tx_pool_for_reorg(
+        &mut tx_pool,
+        &LinkedHashSet::default(),
+        &HashSet::default(),
+        HashSet::new(),
+        snapshot,
+        true,
+    )
+    .unwrap();
+
+    assert!(outcome.notify_events.is_empty());
+    assert_eq!(outcome.reject_events.len(), 2);
+    assert_eq!(
+        outcome
+            .reject_events
+            .iter()
+            .map(|(entry, _)| entry.transaction().hash())
+            .collect::<HashSet<_>>(),
+        hashes
+    );
+    assert!(
+        ids.iter()
+            .all(|id| tx_pool.pool_map.get_by_id(id).is_none())
+    );
+}
+
 /// Gap short id leaves both windows → demote to Pending and notify.
 #[tokio::test]
 async fn reorg_demotes_stale_gap_to_pending() {
