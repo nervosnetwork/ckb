@@ -99,18 +99,14 @@ impl crate::service::TxPoolService {
         let mut capacity_blocked = false;
 
         for _ in 0..initial {
-            let permit = match self
-                .reserve_effects(Self::pipeline_terminal_effect_bytes(
-                    crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
-                ))
-                .await
-            {
-                Ok(permit) => permit,
-                Err(error) => self
-                    .pipeline
-                    .runtime
-                    .fail_stop("conflict recovery effect reservation failed", &error),
-            };
+            let permit = self
+                .reserve_required_effects(
+                    Self::pipeline_terminal_effect_bytes(
+                        crate::constants::MAX_POOL_MUTATION_CANDIDATES.saturating_add(1),
+                    ),
+                    "conflict recovery effect reservation failed",
+                )
+                .await;
             let step = {
                 let mut tx_pool = self.pool.tx_pool.write().await;
                 self.pipeline.runtime.guard_authoritative_mutation(

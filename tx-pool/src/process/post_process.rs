@@ -306,16 +306,12 @@ impl TxPoolService {
             if hashes.is_empty() {
                 break;
             }
-            let terminal_permit = match self
-                .reserve_effects(Self::pipeline_terminal_effect_bytes(PEER_REMOVAL_SLICE))
-                .await
-            {
-                Ok(permit) => permit,
-                Err(error) => self
-                    .pipeline
-                    .runtime
-                    .fail_stop("banned-peer removal effect reservation failed", &error),
-            };
+            let terminal_permit = self
+                .reserve_required_effects(
+                    Self::pipeline_terminal_effect_bytes(PEER_REMOVAL_SLICE),
+                    "banned-peer removal effect reservation failed",
+                )
+                .await;
             let terminal = self.pipeline.runtime.mutate_required(
                 "banned-peer owner cohort could not terminalize",
                 |coordinator| {

@@ -354,18 +354,12 @@ impl TxPoolService {
     /// Linearizably clear queued and active pipeline work without touching
     /// transactions that already committed to the main pool.
     pub(crate) async fn clear_pipeline(&self) {
-        let terminal_permit = match self
-            .reserve_effects(Self::pipeline_terminal_effect_bytes(
-                self.pipeline.runtime.max_entries(),
-            ))
-            .await
-        {
-            Ok(permit) => permit,
-            Err(error) => self
-                .pipeline
-                .runtime
-                .fail_stop("clear pipeline effect reservation failed", &error),
-        };
+        let terminal_permit = self
+            .reserve_required_effects(
+                Self::pipeline_terminal_effect_bytes(self.pipeline.runtime.max_entries()),
+                "clear pipeline effect reservation failed",
+            )
+            .await;
         self.advance_pipeline_epoch();
         // A submit that acquired the pool write lock and validated its epoch
         // before the generation advance is allowed to finish. Waiting on the

@@ -409,13 +409,12 @@ impl TxPoolService {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
         let _driver = self.pipeline.runtime.lock_commit_driver().await;
         for _ in 0..MAX_COMMITS_PER_DRIVE {
-            let effect_permit = match self.reserve_effects(self.max_submit_effect_bytes()).await {
-                Ok(permit) => permit,
-                Err(error) => self
-                    .pipeline
-                    .runtime
-                    .fail_stop("pipeline commit effect reservation failed", &error),
-            };
+            let effect_permit = self
+                .reserve_required_effects(
+                    self.max_submit_effect_bytes(),
+                    "pipeline commit effect reservation failed",
+                )
+                .await;
             if !self.commit_next_pipeline_entry(effect_permit).await {
                 break;
             }

@@ -323,7 +323,6 @@ pub(crate) struct EffectQueue {
     state: Mutex<QueueState>,
     ready: Notify,
     space: Notify,
-    quiescent: Notify,
     ordinary_max_batches: usize,
     ordinary_max_bytes: usize,
     max_bytes: usize,
@@ -413,7 +412,6 @@ impl EffectQueue {
             }),
             ready: Notify::new(),
             space: Notify::new(),
-            quiescent: Notify::new(),
             ordinary_max_batches,
             ordinary_max_bytes,
             max_bytes,
@@ -605,7 +603,6 @@ pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: Eff
                 if closed && empty {
                     break;
                 }
-                queue.quiescent.notify_waiters();
                 ready.await;
                 continue;
             }
@@ -645,7 +642,6 @@ pub(crate) async fn run_effect_publisher(queue: Arc<EffectQueue>, endpoints: Eff
                 fail(error);
             }
             queue.space.notify_waiters();
-            queue.quiescent.notify_waiters();
         }
     }
     info!("tx-pool effect publisher drained and exited");
@@ -699,13 +695,6 @@ impl TxPoolService {
         max_pool_mutation_effect_bytes(self.pool.tx_pool_config.max_tx_pool_size).max(4096)
     }
 
-    pub(crate) async fn reserve_effects(
-        &self,
-        bytes: usize,
-    ) -> Result<EffectPermit, EffectQueueError> {
-        self.relay.effects.reserve(bytes).await
-    }
-
     /// Required stable-state publication has no recoverable reservation
     /// error: ordinary pressure waits inside `reserve`, while Closed,
     /// BatchTooLarge and outbox invariants mean the service cannot preserve
@@ -715,7 +704,7 @@ impl TxPoolService {
         bytes: usize,
         context: &'static str,
     ) -> EffectPermit {
-        match self.reserve_effects(bytes).await {
+        match self.relay.effects.reserve(bytes).await {
             Ok(permit) => permit,
             Err(error) => self.pipeline.runtime.fail_stop(context, &error),
         }

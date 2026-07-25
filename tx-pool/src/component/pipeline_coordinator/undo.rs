@@ -1,5 +1,13 @@
 use super::*;
 
+enum SnapshotMembership<'a> {
+    Present,
+    Absent(&'a Byte32),
+    Mixed,
+}
+
+type PreparedEntrySnapshot<R, U, V> = (Vec<EntrySnapshot<R, U, V>>, HashSet<Byte32>);
+
 impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(super) fn with_entry_undo<T, F>(
         &mut self,
@@ -9,27 +17,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     where
         F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
     {
-        let mut unique = HashSet::new();
-        let mut snapshot = Vec::new();
-        for hash in hashes {
-            if unique.contains(hash) {
-                continue;
-            }
-            unique
-                .try_reserve(1)
-                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-            snapshot
-                .try_reserve(1)
-                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-            unique.insert(hash.clone());
-            let entry = self
-                .entries
-                .get(hash)
-                .cloned()
-                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-            snapshot.push((hash.clone(), Some(entry)));
-        }
-        self.with_entry_snapshot(snapshot, unique, apply)
+        let (snapshot, cohort) =
+            self.prepare_entry_snapshot(hashes, SnapshotMembership::Present)?;
+        self.with_entry_snapshot(snapshot, cohort, apply)
     }
 
     pub(super) fn with_absent_entry_undo<T, F>(
@@ -41,38 +31,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     where
         F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
     {
-        if self.entries.contains_key(absent) {
-            return Err(CoordinatorError::DuplicateHash(absent.clone()));
-        }
-        let mut unique = HashSet::new();
-        unique
-            .try_reserve(1)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        let mut snapshot = Vec::new();
-        snapshot
-            .try_reserve(1)
-            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-        unique.insert(absent.clone());
-        snapshot.push((absent.clone(), None));
-        for hash in hashes {
-            if unique.contains(hash) {
-                continue;
-            }
-            unique
-                .try_reserve(1)
-                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-            snapshot
-                .try_reserve(1)
-                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-            unique.insert(hash.clone());
-            let entry = self
-                .entries
-                .get(hash)
-                .cloned()
-                .ok_or_else(|| CoordinatorError::Missing(hash.clone()))?;
-            snapshot.push((hash.clone(), Some(entry)));
-        }
-        self.with_entry_snapshot(snapshot, unique, apply)
+        let (snapshot, cohort) =
+            self.prepare_entry_snapshot(hashes, SnapshotMembership::Absent(absent))?;
+        self.with_entry_snapshot(snapshot, cohort, apply)
     }
 
     /// Snapshot the current presence/absence of an arbitrary bounded cohort.
@@ -87,22 +48,52 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     where
         F: FnOnce(&mut Self) -> Result<T, CoordinatorError>,
     {
-        let mut unique = HashSet::new();
+        let (snapshot, cohort) = self.prepare_entry_snapshot(hashes, SnapshotMembership::Mixed)?;
+        self.with_entry_snapshot(snapshot, cohort, apply)
+    }
+
+    fn prepare_entry_snapshot(
+        &self,
+        hashes: &[Byte32],
+        membership: SnapshotMembership<'_>,
+    ) -> Result<PreparedEntrySnapshot<R, U, V>, CoordinatorError> {
+        let absent = match membership {
+            SnapshotMembership::Absent(hash) => {
+                if self.entries.contains_key(hash) {
+                    return Err(CoordinatorError::DuplicateHash(hash.clone()));
+                }
+                Some(hash)
+            }
+            SnapshotMembership::Present | SnapshotMembership::Mixed => None,
+        };
+        let capacity = hashes.len().saturating_add(usize::from(absent.is_some()));
+        let mut cohort = HashSet::new();
+        cohort
+            .try_reserve(capacity)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         let mut snapshot = Vec::new();
+        snapshot
+            .try_reserve(capacity)
+            .map_err(|_| CoordinatorError::QueueReservationFailed)?;
+        if let Some(hash) = absent {
+            cohort.insert(hash.clone());
+            snapshot.push((hash.clone(), None));
+        }
         for hash in hashes {
-            if unique.contains(hash) {
+            if !cohort.insert(hash.clone()) {
                 continue;
             }
-            unique
-                .try_reserve(1)
-                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-            snapshot
-                .try_reserve(1)
-                .map_err(|_| CoordinatorError::QueueReservationFailed)?;
-            unique.insert(hash.clone());
-            snapshot.push((hash.clone(), self.entries.get(hash).cloned()));
+            let entry = self.entries.get(hash).cloned();
+            if matches!(
+                membership,
+                SnapshotMembership::Present | SnapshotMembership::Absent(_)
+            ) && entry.is_none()
+            {
+                return Err(CoordinatorError::Missing(hash.clone()));
+            }
+            snapshot.push((hash.clone(), entry));
         }
-        self.with_entry_snapshot(snapshot, unique, apply)
+        Ok((snapshot, cohort))
     }
 
     pub(super) fn with_entry_snapshot<T, F>(

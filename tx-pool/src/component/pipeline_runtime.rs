@@ -23,7 +23,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
 use ckb_verification::cache::Completed;
-use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::{
     Arc, Mutex, MutexGuard,
@@ -168,7 +167,7 @@ pub(crate) struct PipelineRuntime {
     /// Readiness is keyed by both queue and worker capability. In particular,
     /// a small-cycle verifier must never consume the only wake intended for a
     /// verifier capable of processing a large-cycle transaction.
-    ready: HashMap<(QueueKind, WorkerCapability), Arc<Notify>>,
+    ready: [Arc<Notify>; WORKER_CLASSES.len()],
     maintenance_ready: Arc<Notify>,
     shutdown: CancellationToken,
     commit_serial: tokio::sync::Mutex<()>,
@@ -236,7 +235,7 @@ impl PipelineRuntime {
         Self {
             state: Mutex::new(PipelineCoordinator::new(limits)),
             failure_domain: AtomicU8::new(FailureDomain::Healthy as u8),
-            ready: HashMap::from(WORKER_CLASSES.map(|class| (class, Arc::new(Notify::new())))),
+            ready: WORKER_CLASSES.map(|_| Arc::new(Notify::new())),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
             commit_serial: tokio::sync::Mutex::new(()),
@@ -325,13 +324,7 @@ impl PipelineRuntime {
         context: &'static str,
         apply: impl FnOnce() -> T,
     ) -> T {
-        match catch_unwind(AssertUnwindSafe(apply)) {
-            Ok(result) => result,
-            Err(payload) => {
-                self.fail_closed(FailureDomain::Pipeline, context);
-                resume_unwind(payload)
-            }
-        }
+        self.guard_pipeline_boundary(context, apply)
     }
 
     pub(crate) fn is_failed(&self) -> bool {
@@ -362,13 +355,16 @@ impl PipelineRuntime {
     }
 
     pub(crate) fn read<T>(&self, inspect: impl FnOnce(&ProductionCoordinator) -> T) -> T {
-        match catch_unwind(AssertUnwindSafe(|| inspect(&self.lock()))) {
+        self.guard_pipeline_boundary("panic while inspecting coordinator state", || {
+            inspect(&self.lock())
+        })
+    }
+
+    fn guard_pipeline_boundary<T>(&self, context: &'static str, apply: impl FnOnce() -> T) -> T {
+        match catch_unwind(AssertUnwindSafe(apply)) {
             Ok(result) => result,
             Err(payload) => {
-                self.fail_closed(
-                    FailureDomain::Pipeline,
-                    "panic while inspecting coordinator state",
-                );
+                self.fail_closed(FailureDomain::Pipeline, context);
                 resume_unwind(payload)
             }
         }
@@ -383,30 +379,24 @@ impl PipelineRuntime {
     /// failed checkout is naturally silent in its own readiness domain while
     /// another capable worker still receives its independent wake.
     pub(crate) fn mutate<T>(&self, apply: impl FnOnce(&mut ProductionCoordinator) -> T) -> T {
-        let transition = catch_unwind(AssertUnwindSafe(|| {
-            let mut state = self.lock();
-            let result = apply(&mut state);
-            let ready = WORKER_CLASSES.map(|class| {
-                let executable = state
-                    .work_is_ready(class.0, class.1)
-                    .unwrap_or_else(|error| panic!("invalid pipeline readiness state: {error:?}"));
-                (class, executable)
-            });
-            let maintenance_pending = state.dependency_failure_len() != 0;
-            (result, ready, maintenance_pending)
-        }));
-        let (result, ready, maintenance_pending) = match transition {
-            Ok(result) => result,
-            Err(payload) => {
-                self.fail_closed(
-                    FailureDomain::Pipeline,
-                    "panic inside coordinator state/effect transaction",
-                );
-                resume_unwind(payload)
-            }
-        };
-        for (class, executable) in ready {
-            if executable && let Some(notify) = self.ready.get(&class) {
+        let (result, ready, maintenance_pending) = self.guard_pipeline_boundary(
+            "panic inside coordinator state/effect transaction",
+            || {
+                let mut state = self.lock();
+                let result = apply(&mut state);
+                let ready = WORKER_CLASSES.map(|(kind, capability)| {
+                    state
+                        .work_is_ready(kind, capability)
+                        .unwrap_or_else(|error| {
+                            panic!("invalid pipeline readiness state: {error:?}")
+                        })
+                });
+                let maintenance_pending = state.dependency_failure_len() != 0;
+                (result, ready, maintenance_pending)
+            },
+        );
+        for (notify, executable) in self.ready.iter().zip(ready) {
+            if executable {
                 notify.notify_one();
             }
         }
@@ -460,11 +450,11 @@ impl PipelineRuntime {
     }
 
     pub(crate) fn subscribe(&self, kind: QueueKind, capability: WorkerCapability) -> Arc<Notify> {
-        let ready = Arc::clone(
-            self.ready
-                .get(&(kind, capability))
-                .expect("every production worker class has a notifier"),
-        );
+        let index = WORKER_CLASSES
+            .iter()
+            .position(|class| *class == (kind, capability))
+            .expect("every production worker class has a notifier");
+        let ready = Arc::clone(&self.ready[index]);
         // A previous worker can consume a notification and panic before
         // checkout. Re-derive readiness when its replacement subscribes so a
         // live queue never depends on the lost generation's wake permit.

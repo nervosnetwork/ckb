@@ -249,16 +249,12 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
 
             while !cancel.is_cancelled() {
                 let now = ckb_systemtime::unix_time().as_secs();
-                let expiry_permit = match service
-                    .reserve_effects(TxPoolService::pipeline_terminal_effect_bytes(SLICE))
-                    .await
-                {
-                    Ok(permit) => permit,
-                    Err(error) => service
-                        .pipeline
-                        .runtime
-                        .fail_stop("tx-pool expiry effect reservation failed", &error),
-                };
+                let expiry_permit = service
+                    .reserve_required_effects(
+                        TxPoolService::pipeline_terminal_effect_bytes(SLICE),
+                        "tx-pool expiry effect reservation failed",
+                    )
+                    .await;
                 let expired = service.pipeline.runtime.mutate_required(
                     "tx-pool pipeline expiry failed",
                     |coordinator| {
@@ -269,16 +265,12 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                         result
                     },
                 );
-                let dependency_permit = match service
-                    .reserve_effects(TxPoolService::pipeline_terminal_effect_bytes(SLICE))
-                    .await
-                {
-                    Ok(permit) => permit,
-                    Err(error) => service
-                        .pipeline
-                        .runtime
-                        .fail_stop("tx-pool dependency effect reservation failed", &error),
-                };
+                let dependency_permit = service
+                    .reserve_required_effects(
+                        TxPoolService::pipeline_terminal_effect_bytes(SLICE),
+                        "tx-pool dependency effect reservation failed",
+                    )
+                    .await;
                 let failed = service.pipeline.runtime.mutate_required(
                     "tx-pool dependency maintenance failed",
                     |coordinator| {

@@ -65,6 +65,17 @@ impl TxPoolService {
     pub(crate) const SUPERSEDED_BY_HIGHER_FEE_CANDIDATE: &'static str =
         "superseded by higher-fee-rate in-flight candidate";
 
+    fn wake_block_assembler(&self, message: BlockAssemblerMessage, saturated: &'static str) {
+        if let Err(error) = self.relay.block_assembler_sender.try_send(message) {
+            match error {
+                mpsc::error::TrySendError::Full(_) => debug!("{saturated}"),
+                mpsc::error::TrySendError::Closed(_) => {
+                    error!("block_assembler receiver dropped")
+                }
+            }
+        }
+    }
+
     pub(crate) async fn get_block_template(&self) -> Result<BlockTemplate, AnyError> {
         if let Some(ref block_assembler) = self.block_assembler {
             Ok(block_assembler.get_current().await)
@@ -93,16 +104,10 @@ impl TxPoolService {
             return;
         }
         self.relay.mark_block_assembler_dirty(&message);
-        if let Err(err) = self.relay.block_assembler_sender.try_send(message) {
-            match err {
-                mpsc::error::TrySendError::Full(_) => {
-                    debug!("block_assembler channel full; dirty update retained")
-                }
-                mpsc::error::TrySendError::Closed(_) => {
-                    error!("block_assembler receiver dropped")
-                }
-            }
-        }
+        self.wake_block_assembler(
+            message,
+            "block_assembler channel full; dirty update retained",
+        );
     }
 
     /// Preserve the original block-assembler priority model: `update_full`
@@ -118,16 +123,10 @@ impl TxPoolService {
             BlockAssemblerMessage::Pending,
             BlockAssemblerMessage::Proposed,
         ] {
-            if let Err(err) = self.relay.block_assembler_sender.try_send(message) {
-                match err {
-                    mpsc::error::TrySendError::Full(_) => {
-                        debug!("block_assembler channel full; post-full reconcile retained")
-                    }
-                    mpsc::error::TrySendError::Closed(_) => {
-                        error!("block_assembler receiver dropped")
-                    }
-                }
-            }
+            self.wake_block_assembler(
+                message,
+                "block_assembler channel full; post-full reconcile retained",
+            );
         }
     }
 
@@ -139,20 +138,10 @@ impl TxPoolService {
             return;
         }
         self.relay.mark_block_assembler_reset(snapshot);
-        if let Err(err) = self
-            .relay
-            .block_assembler_sender
-            .try_send(BlockAssemblerMessage::Reset)
-        {
-            match err {
-                mpsc::error::TrySendError::Full(_) => {
-                    debug!("block_assembler channel full; reset retained")
-                }
-                mpsc::error::TrySendError::Closed(_) => {
-                    error!("block_assembler receiver dropped")
-                }
-            }
-        }
+        self.wake_block_assembler(
+            BlockAssemblerMessage::Reset,
+            "block_assembler channel full; reset retained",
+        );
     }
 
     /// Read-lock the pool and run `f` without cloning the snapshot.
@@ -573,18 +562,12 @@ impl TxPoolService {
         // in-flight reorg owns that lock and its retained-transaction submits
         // need the same ordinary credit. Recovery-serialized operations use
         // the single order recovery_lock -> effect credit -> TxPool.
-        let terminal_permit = match self
-            .reserve_effects(Self::pipeline_terminal_effect_bytes(
-                self.pipeline.runtime.max_entries(),
-            ))
-            .await
-        {
-            Ok(permit) => permit,
-            Err(error) => self
-                .pipeline
-                .runtime
-                .fail_stop("clear pool effect reservation failed", &error),
-        };
+        let terminal_permit = self
+            .reserve_required_effects(
+                Self::pipeline_terminal_effect_bytes(self.pipeline.runtime.max_entries()),
+                "clear pool effect reservation failed",
+            )
+            .await;
         {
             let mut tx_pool = self.pool.tx_pool.write().await;
             self.pipeline.runtime.guard_authoritative_mutation(

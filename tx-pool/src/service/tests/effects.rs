@@ -34,14 +34,23 @@ impl EffectQueue {
 
     pub(crate) async fn wait_idle(&self) {
         loop {
-            let quiescent = self.quiescent.notified();
-            tokio::pin!(quiescent);
-            quiescent.as_mut().enable();
+            let space = self.space.notified();
+            tokio::pin!(space);
+            space.as_mut().enable();
             if self.usage().batches == 0 {
                 return;
             }
-            quiescent.await;
+            space.await;
         }
+    }
+}
+
+impl TxPoolService {
+    pub(crate) async fn reserve_effects(
+        &self,
+        bytes: usize,
+    ) -> Result<EffectPermit, EffectQueueError> {
+        self.relay.effects.reserve(bytes).await
     }
 }
 
