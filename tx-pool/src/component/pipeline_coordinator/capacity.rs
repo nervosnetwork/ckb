@@ -17,15 +17,9 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(super) fn candidate_victim_key(
         hash: &Byte32,
         entry: &CoordinatorEntry<R, U, V>,
-    ) -> Option<CandidateVictimKey> {
+    ) -> Option<CandidateRank> {
         let candidate = entry.candidate()?;
-        (!entry.is_committing()).then(|| CandidateVictimKey {
-            source_strength: entry.source.trust(),
-            fee: candidate.fee,
-            tx_size: candidate.tx_size,
-            arrival: candidate.arrival,
-            hash: hash.clone(),
-        })
+        (!entry.is_committing()).then(|| CandidateRank::verified(hash, entry.source, candidate))
     }
 
     pub(super) fn sync_victim_indexes(&mut self, snapshot: &[EntrySnapshot<R, U, V>]) {
@@ -66,7 +60,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(super) fn current_victim_keys(
         &self,
         hash: &Byte32,
-    ) -> (Option<CapacityVictimKey>, Option<CandidateVictimKey>) {
+    ) -> (Option<CapacityVictimKey>, Option<CandidateRank>) {
         let entry = self.entries.get(hash);
         (
             entry.and_then(|entry| Self::capacity_victim_key(hash, entry)),
@@ -77,7 +71,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
     pub(super) fn refresh_victim_indexes(
         &mut self,
         hash: &Byte32,
-        old: (Option<CapacityVictimKey>, Option<CandidateVictimKey>),
+        old: (Option<CapacityVictimKey>, Option<CandidateRank>),
     ) {
         if self.entry_transaction_depth != 0 {
             // The outer undo snapshot owns derived-index publication for the
@@ -388,13 +382,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         projected_edges = projected_edges
             .checked_add(incoming.inputs.len())
             .ok_or(CoordinatorError::ConflictEdgeLimitExceeded)?;
-        let incoming_key = CandidateVictimKey {
-            source_strength: incoming_source.trust(),
-            fee: incoming.fee,
-            tx_size: incoming.tx_size,
-            arrival: incoming.arrival,
-            hash: incoming_hash.clone(),
-        };
+        let incoming_key = CandidateRank::verified(incoming_hash, incoming_source, incoming);
         for key in &self.candidate_victim_index {
             #[cfg(test)]
             self.candidate_victim_probes

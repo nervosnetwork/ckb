@@ -45,7 +45,7 @@ pub(crate) struct PipelineCoordinator<R, U, V> {
     deadlines: BinaryHeap<Reverse<DeadlineTicket>>,
     live_deadlines: HashMap<Byte32, DeadlineTicket>,
     capacity_victim_index: BTreeSet<CapacityVictimKey>,
-    candidate_victim_index: BTreeSet<CandidateVictimKey>,
+    candidate_victim_index: BTreeSet<CandidateRank>,
     /// Nested undo scopes mutate one authoritative entry cohort. Derived
     /// victim indexes are published only by the outermost successful scope,
     /// preventing intermediate keys from becoming a second state history.

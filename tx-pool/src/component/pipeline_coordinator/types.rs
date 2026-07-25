@@ -1034,46 +1034,6 @@ impl PartialOrd for CapacityVictimKey {
     }
 }
 
-/// Weakest-first key for the global verified-conflict edge budget. Its order
-/// exactly mirrors `compare_candidate_capacity`, allowing the planner to stop
-/// as soon as it reaches the incoming candidate instead of rescanning every
-/// live entry for each displaced victim.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CandidateVictimKey {
-    pub(super) source_strength: SourceTrust,
-    pub(super) fee: u64,
-    pub(super) tx_size: usize,
-    pub(super) arrival: u64,
-    pub(super) hash: Byte32,
-}
-
-impl Ord for CandidateVictimKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        CandidateRank {
-            committing: false,
-            source_strength: self.source_strength,
-            fee: self.fee,
-            tx_size: self.tx_size,
-            arrival: self.arrival,
-            hash: self.hash.clone(),
-        }
-        .cmp(&CandidateRank {
-            committing: false,
-            source_strength: other.source_strength,
-            fee: other.fee,
-            tx_size: other.tx_size,
-            arrival: other.arrival,
-            hash: other.hash.clone(),
-        })
-    }
-}
-
-impl PartialOrd for CandidateVictimKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 impl<R, U, V> CoordinatorEntry<R, U, V> {
     pub(super) fn state_shape_valid(&self, hash: &Byte32, limits: &CoordinatorLimits) -> bool {
         if self.dependencies.contains(hash)
