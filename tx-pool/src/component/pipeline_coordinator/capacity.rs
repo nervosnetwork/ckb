@@ -654,14 +654,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         }
         let transaction = move |coordinator: &mut Self| {
             for victim in victims {
-                coordinator.mark_children_invalid(&victim, &victim)?;
-                let entry = coordinator.remove_present_apply(&victim)?;
-                terminal.push(Self::terminal_record(
+                terminal.push(coordinator.terminalize_present_apply(
                     victim,
-                    entry,
+                    None,
                     TerminalDisposition::CapacityEvicted,
-                ));
-                coordinator.apply_fault_checkpoint();
+                )?);
             }
             let result = apply_subject(coordinator)?;
             coordinator.apply_fault_checkpoint();

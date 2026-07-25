@@ -1357,14 +1357,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
                     .and_then(CoordinatorEntry::invalidated_cause)
                     .cloned()
                     .ok_or(CoordinatorError::ConflictInvariant)?;
-                coordinator.mark_children_invalid(&hash, &cause)?;
-                let entry = coordinator.remove_present_apply(&hash)?;
-                terminal.push(Self::terminal_record(
+                terminal.push(coordinator.terminalize_present_apply(
                     hash,
-                    entry,
+                    Some(cause),
                     TerminalDisposition::DependencyFailed,
-                ));
-                coordinator.apply_fault_checkpoint();
+                )?);
             }
             Ok(terminal)
         })

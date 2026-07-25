@@ -452,12 +452,23 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
         disposition: TerminalDisposition,
     ) -> Result<TerminalRecord<R>, CoordinatorError> {
         let undo = self.causal_undo_hashes(std::slice::from_ref(hash));
-        self.with_entry_undo(&undo, |coordinator| {
-            coordinator.mark_children_invalid(hash, hash)?;
-            let entry = coordinator.remove_present_apply(hash)?;
-            coordinator.apply_fault_checkpoint();
-            Ok(Self::terminal_record(hash.clone(), entry, disposition))
+        let hash = hash.clone();
+        self.with_entry_undo(&undo, move |coordinator| {
+            coordinator.terminalize_present_apply(hash, None, disposition)
         })
+    }
+
+    /// Apply one definitive exit inside the caller's single/batch undo scope.
+    pub(super) fn terminalize_present_apply(
+        &mut self,
+        hash: Byte32,
+        descendant_cause: Option<Byte32>,
+        disposition: TerminalDisposition,
+    ) -> Result<TerminalRecord<R>, CoordinatorError> {
+        self.mark_children_invalid(&hash, descendant_cause.as_ref().unwrap_or(&hash))?;
+        let entry = self.remove_present_apply(&hash)?;
+        self.apply_fault_checkpoint();
+        Ok(Self::terminal_record(hash, entry, disposition))
     }
 
     pub(super) fn conflict_undo_hashes(&self, roots: &[Byte32]) -> Vec<Byte32> {

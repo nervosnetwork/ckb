@@ -64,14 +64,11 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         self.with_entry_undo(&affected, |coordinator| {
             for ticket in selected {
-                coordinator.mark_children_invalid(&ticket.hash, &ticket.hash)?;
-                let entry = coordinator.remove_present_apply(&ticket.hash)?;
-                terminal.push(Self::terminal_record(
+                terminal.push(coordinator.terminalize_present_apply(
                     ticket.hash,
-                    entry,
+                    None,
                     TerminalDisposition::Expired,
-                ));
-                coordinator.apply_fault_checkpoint();
+                )?);
             }
             Ok(terminal)
         })

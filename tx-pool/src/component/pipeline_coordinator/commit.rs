@@ -449,10 +449,7 @@ impl<R, U, V> PipelineCoordinator<R, U, V> {
             .map_err(|_| CoordinatorError::QueueReservationFailed)?;
         self.with_entry_undo(&undo, |coordinator| {
             for hash in roots {
-                coordinator.mark_children_invalid(&hash, &hash)?;
-                let entry = coordinator.remove_present_apply(&hash)?;
-                coordinator.apply_fault_checkpoint();
-                terminal.push(Self::terminal_record(hash, entry, disposition));
+                terminal.push(coordinator.terminalize_present_apply(hash, None, disposition)?);
             }
             Ok(terminal)
         })
