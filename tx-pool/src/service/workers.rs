@@ -61,10 +61,10 @@ pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: C
         crate::component::pre_pool::WorkCapability::Any,
     );
     loop {
-        // Notify is only a hint. In particular, a driver panic consumes the
-        // current permit while deliberately retaining the Ready owner. Read
-        // the authoritative level before sleeping so that retained work is
-        // retried after backoff without requiring an unrelated mutation.
+        // Notify is only a hint; read the authoritative level before sleeping
+        // so a permit consumed before this iteration cannot lose Ready work.
+        // A driver panic is not retried here: supervision performs a
+        // controlled shutdown and makes persistence ineligible.
         if service.pipeline.kernel.queue_is_empty(WorkLane::Commit) {
             tokio::select! {
                 _ = ready.notified() => {}
@@ -117,7 +117,7 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 let preview = service
                     .pipeline
                     .kernel
-                    .read(|kernel| kernel.due_terminal_records(now, SLICE, true));
+                    .read(|kernel| kernel.due_terminal_records(now, SLICE));
                 if let Some(batch) = service.pipeline_terminal_effects(&preview)
                     && service
                         .relay
@@ -132,35 +132,35 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 // with the commit driver is therefore the proof that a
                 // read-only commit ticket remains owned until its paired
                 // pool/kernel settlement finishes.
-                let commit_guard = service.pipeline.kernel.try_lock_commit_driver();
-                let expired = match service.pipeline.kernel.mutate_authoritative(|coordinator| {
-                    let records =
-                        coordinator.due_terminal_records(now, SLICE, commit_guard.is_some());
-                    let batch = service.pipeline_terminal_effects(&records);
-                    service
-                        .relay
-                        .effects
-                        .try_apply(batch, EffectClass::Trusted, || {
-                            coordinator.expire_due(now, SLICE, commit_guard.is_some())
-                        })
-                }) {
-                    Ok(Ok(records)) => {
-                        drop(commit_guard);
-                        records
+                let commit_guard = (!preview.is_empty())
+                    .then(|| service.pipeline.kernel.try_lock_commit_driver())
+                    .flatten();
+                let expiry_deferred = !preview.is_empty() && commit_guard.is_none();
+                let expired = if let Some(commit_guard) = commit_guard {
+                    let result = service.pipeline.kernel.mutate_authoritative(|coordinator| {
+                        let records = coordinator.due_terminal_records(now, SLICE);
+                        let batch = service.pipeline_terminal_effects(&records);
+                        service
+                            .relay
+                            .effects
+                            .try_apply(batch, EffectClass::Trusted, || {
+                                coordinator.expire_due(now, SLICE)
+                            })
+                    });
+                    drop(commit_guard);
+                    match result {
+                        Ok(Ok(records)) => records,
+                        Ok(Err(error)) => {
+                            panic!("pipeline expiry invariant failed: {error:?}")
+                        }
+                        Err(EffectJournalError::Full) => continue,
+                        Err(error) => {
+                            ckb_logger::error!("tx-pool expiry journal unavailable: {error:?}");
+                            break;
+                        }
                     }
-                    Ok(Err(error)) => {
-                        drop(commit_guard);
-                        panic!("pipeline expiry invariant failed: {error:?}")
-                    }
-                    Err(EffectJournalError::Full) => {
-                        drop(commit_guard);
-                        continue;
-                    }
-                    Err(error) => {
-                        drop(commit_guard);
-                        ckb_logger::error!("tx-pool expiry journal unavailable: {error:?}");
-                        break;
-                    }
+                } else {
+                    Vec::new()
                 };
                 let woke = match service
                     .pipeline
@@ -171,6 +171,13 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                     Err(error) => panic!("wait maintenance invariant failed: {error:?}"),
                 };
                 let saturated = expired.len() == SLICE || woke == SLICE;
+                // Never scan through a due Ready prefix while another commit
+                // owns the serialization guard. Expiry is level-triggered by
+                // the next coarse tick; dependency wakes may still make one
+                // useful bounded slice of progress now.
+                if expiry_deferred && woke < SLICE {
+                    break;
+                }
                 if !saturated && !service.pipeline.kernel.maintenance_pending() {
                     break;
                 }

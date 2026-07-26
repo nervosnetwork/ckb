@@ -205,8 +205,19 @@ Ready selection uses one total `ReadyKey`, strongest last:
 3. absolute fee;
 4. earlier arrival;
 5. smaller full hash;
-6. entry version;
-7. transaction size as the final total-order tie breaker.
+6. process-global entry version.
+
+The reverse comparisons for arrival/hash are intentional because the driver
+selects the greatest key. Version is globally unique, so a later transaction-
+size comparison would be unreachable rather than an additional ordering rule.
+There is deliberately no time-dependent aging: source and fee preference are
+stable, Remote residency remains deadline/budget bounded, and only bounded
+chain-derived Proposal/Recovery ingress can outrank Remote. Under sustained
+overload a lower-fee Remote candidate can therefore wait until its residency
+deadline, matching fee-market preference at the cost of strict per-candidate
+fairness; P7 must measure saturation throughput and tail latency. Dynamic aging
+would require periodic reindexing of every Ready key and is not justified
+without evidence that this explicit trade-off is unacceptable.
 
 A `CommitTicket` proves the selected entry's hash, version and rank. A later,
 stronger Ready entry does not invalidate an already selected exact ticket; the
@@ -215,9 +226,12 @@ arrival race becoming an invariant failure or livelock.
 
 ### 7.3 Wait is level-triggered
 
-`Wait` records the exact dependency keys and their observed availability
-epochs. Availability changes dirty a bounded key; maintenance drains bounded
-slices. A missed notification is harmless because the level remains visible.
+`Wait` records the exact dependency keys and their observed level epochs.
+Availability and definitive loss both dirty a bounded key; maintenance drains
+bounded slices. A missed notification is harmless because the level remains
+visible. Parent terminalization and dependent invalidation share one cohort
+Apply, so trusted Proposal/Recovery children re-evaluate terminal policy rather
+than parking forever, while Remote children retain their request/expiry policy.
 Parent loss demotes resolved/verified consumers using the same exact keys.
 Final accepted-pool validation remains authoritative even if background
 demotion has not run yet.
@@ -536,7 +550,7 @@ The human proof obligations are:
 - T13 TemplateAuthority: reset/full/deltas cannot publish an old-parent or
   proposal-stranding template.
 
-The 152 historical findings remain mapped to I1–I12 in
+The 155 historical findings remain mapped to I1–I12 in
 [`security-regression-ledger.md`](security-regression-ledger.md). The mapping is
 evidence history, not permission to retain obsolete mechanisms.
 
@@ -553,6 +567,6 @@ evidence history, not permission to retain obsolete mechanisms.
 - R7: complete process-level integration acceptance remains P6 work.
 
 No release claim is valid until document validators, all `ckb-tx-pool`
-`nextest`, the complete 149-spec integration impact universe and final
+`nextest`, the complete 150-spec integration impact universe and final
 performance gates pass. Findings that are low-value, incompatible or unproven
 must be recorded as residuals rather than hidden by another mechanism.

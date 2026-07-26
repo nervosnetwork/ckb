@@ -73,7 +73,7 @@ component::tests::pipeline::dependency::remote_parent_wait_and_unknown_parents_e
 component::tests::pipeline::dependency::remove_pool_closure_demotes_consumers_of_removed_descendants
 component::tests::pipeline::dependency::reorg_direct_replay_treats_pool_duplicates_as_idempotent
 component::tests::pipeline::dependency::reorg_replays_detached_parent_with_accepted_descendant_closure
-component::tests::pipeline::dependency::resolve_job_registers_the_exact_unknown_outpoint
+component::tests::pipeline::dependency::resolve_job_registers_complete_unknown_outpoint_frontier
 component::tests::pipeline::identity::limit_size_fails_fast_instead_of_masking_counter_drift
 component::tests::pipeline::identity::pool_short_id_collision_is_not_a_successful_duplicate
 component::tests::pipeline::identity::reorg_recovery_reads_cache_by_exact_witness_hash
@@ -108,7 +108,10 @@ component::tests::pre_pool_kernel::availability_without_a_wait_owner_retains_no_
 component::tests::pre_pool_kernel::commit_handoff_terminalizes_superseded_entries_when_history_is_full
 component::tests::pre_pool_kernel::commit_ticket_remains_valid_when_a_higher_rank_arrives
 component::tests::pre_pool_kernel::concrete_kernel_transitions_preserve_recomputed_projections
+component::tests::pre_pool_kernel::definitive_parent_terminalization_wakes_trusted_dependents
 component::tests::pre_pool_kernel::empty_generation_recovery_retains_closure_safe_prefix
+component::tests::pre_pool_kernel::equal_priority_ready_candidates_commit_earlier_arrival_first
+component::tests::pre_pool_kernel::expiry_batch_is_bounded_without_a_ready_prefix_scan
 component::tests::pre_pool_kernel::full_conflict_history_terminalizes_rejected_owner_without_panicking
 component::tests::pre_pool_kernel::multi_input_conflict_union_uses_the_product_bound
 component::tests::pre_pool_kernel::over_budget_recovery_plan_is_mutation_free
@@ -119,7 +122,6 @@ component::tests::pre_pool_kernel::parent_loss_invalidates_an_active_lease_into_
 component::tests::pre_pool_kernel::parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget
 component::tests::pre_pool_kernel::proposal_promotion_transfers_active_accounting_without_invalidating_same_witness
 component::tests::pre_pool_kernel::randomized_public_transitions_always_match_full_rebuild
-component::tests::pre_pool_kernel::ready_expiry_filter_does_not_starve_later_non_ready_deadlines
 component::tests::pre_pool_kernel::recovery_batch_is_atomic_parent_first_and_uses_ordered_resolve
 component::tests::pre_pool_kernel::recovery_leases_share_the_trusted_active_work_budget
 component::tests::pre_pool_kernel::remote_conflict_history_keeps_its_bounded_residency_deadline
@@ -290,6 +292,7 @@ InboundMinedDuringSync
 InboundSync
 InvalidHeaderDep
 LoadProgramFailedTx
+LocalTestSubmissionIsDirect
 LongForks
 MalformedTx
 MiningBasic

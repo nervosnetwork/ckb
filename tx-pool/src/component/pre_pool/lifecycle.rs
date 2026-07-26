@@ -675,7 +675,10 @@ impl PrePoolKernel {
         Ok(())
     }
 
-    pub(super) fn remove_entry(&mut self, hash: &Byte32) -> Result<TerminalRecord, PrePoolError> {
+    pub(super) fn remove_entry_without_dependency_change(
+        &mut self,
+        hash: &Byte32,
+    ) -> Result<TerminalRecord, PrePoolError> {
         let (active_plan, usage_plan) = {
             let entry = self
                 .entries
@@ -700,6 +703,73 @@ impl PrePoolKernel {
             raw: entry.raw,
             source: entry.source,
         })
+    }
+
+    /// Remove a definitive-unavailable cohort and invalidate every exact
+    /// consumer in the same Plan/Apply. The level change is then queued for
+    /// bounded maintenance, which re-resolves remote consumers (and therefore
+    /// republishes their missing-parent request) while trusted consumers reach
+    /// their ordinary terminal policy instead of remaining parked forever.
+    pub(super) fn remove_unavailable_entries(
+        &mut self,
+        hashes: &[Byte32],
+    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
+        let mut present = hashes
+            .iter()
+            .filter(|hash| self.entries.contains_key(*hash))
+            .cloned()
+            .collect::<Vec<_>>();
+        present.sort_unstable();
+        present.dedup();
+        if present.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let parents = present.iter().cloned().collect::<HashSet<_>>();
+        let changed_keys = self.dependency_keys_for_parents(&parents);
+        let records = present
+            .iter()
+            .map(|hash| {
+                self.terminal_record(hash)
+                    .expect("present unavailable cohort member has a terminal record")
+            })
+            .collect::<Vec<_>>();
+        let mut version_cursor = self.next_version;
+        let mut desired = self
+            .unavailable_replacements(&parents, &mut version_cursor)?
+            .into_iter()
+            .map(|(hash, entry)| (hash, Some(entry)))
+            .collect::<BTreeMap<_, _>>();
+        for hash in present {
+            desired.insert(hash, None);
+        }
+        let plan = self.plan_cohort(
+            desired.into_iter().collect(),
+            version_cursor,
+            self.next_arrival,
+        )?;
+        self.apply_cohort(plan);
+        self.note_dependency_changes(changed_keys);
+        Ok(records)
+    }
+
+    pub(super) fn remove_unavailable_entry(
+        &mut self,
+        hash: &Byte32,
+    ) -> Result<TerminalRecord, PrePoolError> {
+        if !self.entries.contains_key(hash) {
+            return Err(PrePoolError::Missing(hash.clone()));
+        }
+        // Definitive rejection without a dependent is the common hostile
+        // input path. Preserve the original allocation-free O(1) removal;
+        // only a real reverse-edge fan-out pays for cohort planning.
+        if self.by_parent.get(hash).is_none_or(BTreeSet::is_empty) {
+            return self.remove_entry_without_dependency_change(hash);
+        }
+        let mut records = self.remove_unavailable_entries(std::slice::from_ref(hash))?;
+        records
+            .pop()
+            .ok_or_else(|| PrePoolError::Missing(hash.clone()))
     }
 
     pub(super) fn validate_location(
@@ -970,7 +1040,7 @@ impl PrePoolKernel {
         lease: &ResolveLease,
     ) -> Result<TerminalRecord, PrePoolError> {
         self.validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?;
-        self.remove_entry(&lease.hash)
+        self.remove_unavailable_entry(&lease.hash)
     }
 
     pub(crate) fn terminalize_verify(
@@ -978,7 +1048,7 @@ impl PrePoolKernel {
         lease: &VerifyLease,
     ) -> Result<TerminalRecord, PrePoolError> {
         self.validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?;
-        self.remove_entry(&lease.hash)
+        self.remove_unavailable_entry(&lease.hash)
     }
 
     pub(crate) fn complete_resolve(
@@ -1111,55 +1181,32 @@ impl PrePoolKernel {
         if !self.entries.contains_key(hash) {
             return Ok(None);
         }
-        self.remove_entry(hash).map(Some)
+        self.remove_unavailable_entry(hash).map(Some)
     }
 
     pub(crate) fn force_terminalize_many(
         &mut self,
         hashes: &[Byte32],
     ) -> Result<Vec<TerminalRecord>, PrePoolError> {
-        let mut unique = hashes.to_vec();
-        unique.sort_unstable();
-        unique.dedup();
-        let present = unique
-            .into_iter()
-            .filter(|hash| self.entries.contains_key(hash))
-            .collect::<Vec<_>>();
-        let records = present
-            .iter()
-            .map(|hash| {
-                self.terminal_record(hash)
-                    .expect("present cohort member has a terminal record")
-            })
-            .collect();
-        let desired = present.into_iter().map(|hash| (hash, None)).collect();
-        let plan = self.plan_cohort(desired, self.next_version, self.next_arrival)?;
-        self.apply_cohort(plan);
-        Ok(records)
+        self.remove_unavailable_entries(hashes)
     }
 
-    fn due_hashes(&self, now: u64, limit: usize, include_ready: bool) -> Vec<Byte32> {
+    fn due_hashes(&self, now: u64, limit: usize) -> Vec<Byte32> {
         self.deadlines
             .iter()
             .take_while(|deadline| deadline.expires_at <= now)
             .filter(|deadline| {
-                self.entries.get(&deadline.hash).is_some_and(|entry| {
-                    entry.version == deadline.version
-                        && (include_ready || !matches!(entry.state, EntryState::Ready { .. }))
-                })
+                self.entries
+                    .get(&deadline.hash)
+                    .is_some_and(|entry| entry.version == deadline.version)
             })
             .take(limit)
             .map(|deadline| deadline.hash.clone())
             .collect()
     }
 
-    pub(crate) fn due_terminal_records(
-        &self,
-        now: u64,
-        limit: usize,
-        include_ready: bool,
-    ) -> Vec<TerminalRecord> {
-        self.due_hashes(now, limit, include_ready)
+    pub(crate) fn due_terminal_records(&self, now: u64, limit: usize) -> Vec<TerminalRecord> {
+        self.due_hashes(now, limit)
             .iter()
             .filter_map(|hash| self.terminal_record(hash))
             .collect()
@@ -1169,20 +1216,9 @@ impl PrePoolKernel {
         &mut self,
         now: u64,
         limit: usize,
-        include_ready: bool,
     ) -> Result<Vec<TerminalRecord>, PrePoolError> {
-        let hashes = self.due_hashes(now, limit, include_ready);
-        let records = hashes
-            .iter()
-            .map(|hash| {
-                self.terminal_record(hash)
-                    .expect("due cohort member has a terminal record")
-            })
-            .collect();
-        let desired = hashes.into_iter().map(|hash| (hash, None)).collect();
-        let plan = self.plan_cohort(desired, self.next_version, self.next_arrival)?;
-        self.apply_cohort(plan);
-        Ok(records)
+        let hashes = self.due_hashes(now, limit);
+        self.remove_unavailable_entries(&hashes)
     }
 
     pub(crate) fn work_is_ready(&self, lane: WorkLane, capability: WorkCapability) -> bool {

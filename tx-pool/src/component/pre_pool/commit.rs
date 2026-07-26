@@ -99,7 +99,7 @@ impl PrePoolKernel {
         ticket: &CommitTicket,
     ) -> Result<TerminalRecord, PrePoolError> {
         self.validate_commit(ticket)?;
-        self.remove_entry(&ticket.hash)
+        self.remove_unavailable_entry(&ticket.hash)
     }
 
     pub(crate) fn park_failed_commit(
@@ -115,6 +115,7 @@ impl PrePoolKernel {
         ticket: &CommitTicket,
         unavailable_parents: &HashSet<Byte32>,
     ) -> Result<CommitSettlement, PrePoolError> {
+        let changed_keys = self.dependency_keys_for_parents(unavailable_parents);
         let (winner_inputs, winner_raw, winner_source) = match self.validate_commit(ticket)? {
             Entry {
                 state: EntryState::Ready { inputs, .. },
@@ -166,6 +167,7 @@ impl PrePoolKernel {
             Err(error) => return Err(error),
         };
         self.apply_cohort(plan);
+        self.note_dependency_changes(changed_keys);
         let winner_record = TerminalRecord {
             hash: ticket.hash.clone(),
             raw: winner_raw,
@@ -194,6 +196,7 @@ impl PrePoolKernel {
         committed: &HashSet<Byte32>,
         unavailable_parents: &HashSet<Byte32>,
     ) -> Result<Vec<TerminalRecord>, PrePoolError> {
+        let changed_keys = self.dependency_keys_for_parents(unavailable_parents);
         let mut hashes = committed.iter().cloned().collect::<Vec<_>>();
         hashes.sort_unstable();
         let records = hashes
@@ -215,6 +218,7 @@ impl PrePoolKernel {
             self.next_arrival,
         )?;
         self.apply_cohort(plan);
+        self.note_dependency_changes(changed_keys);
         Ok(records)
     }
 }

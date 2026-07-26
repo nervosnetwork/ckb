@@ -14,6 +14,7 @@ from check_tx_pool_review_guide import (
     invariant_unit_evidence,
     load_registry,
     repo_path,
+    validate_minimum_command_arms,
     validate_registry,
 )
 
@@ -39,7 +40,6 @@ REQUIRED_READY_KEY = [
     "earlier_arrival",
     "smaller_full_hash",
     "entry_version",
-    "transaction_size_total_tiebreaker",
 ]
 REQUIRED_LOCK_ORDER = [
     "optional_serial_or_work_or_plan_permit",
@@ -119,6 +119,13 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         errors.append("architecture contract PlanOutcome set is incomplete")
     if contract.get("ready_key") != REQUIRED_READY_KEY:
         errors.append("architecture contract ReadyKey order differs from the frozen order")
+    if contract.get("ready_aging") != {
+        "policy": "none",
+        "remote_bound": "residency_deadline_and_budget",
+        "trusted_bound": "bounded_chain_derived_ingress",
+        "acceptance_gate": "P7_saturation_throughput_and_tail_latency",
+    }:
+        errors.append("architecture contract Ready aging trade-off is not explicit")
     if contract.get("lock_order") != REQUIRED_LOCK_ORDER:
         errors.append("architecture contract authority lock order differs from the frozen order")
     identity = contract.get("identity")
@@ -173,9 +180,9 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
                 )
             )
     row_ids = [row_id for row_id, _ in rows]
-    if row_ids != list(range(1, 153)):
+    if row_ids != list(range(1, 165)):
         errors.append(
-            "historical ledger must contain exactly ordered finding IDs 1-152 with I1-I12 mappings"
+            "historical ledger must contain exactly ordered finding IDs 1-164 with I1-I12 mappings"
         )
     for row_id, invariants in rows:
         if not invariants or not invariants <= set(bridge):
@@ -312,8 +319,8 @@ def load_integration_impact(manifest: dict) -> tuple[set[str], list[str]]:
             repo_path(path_value).read_text()
         except (OSError, ValueError) as error:
             errors.append(f"cannot read integration impact source {path_value}: {error}")
-    if len(specs) != 149:
-        errors.append(f"integration impact must contain frozen P0 count 149, found {len(specs)}")
+    if len(specs) != 150:
+        errors.append(f"integration impact must contain the managed count 150, found {len(specs)}")
     return specs, errors
 
 
@@ -545,6 +552,9 @@ def main() -> int:
                 inventory_path(manifest), tests, managed_integration_specs
             )
         errors.extend(validate_test_anchors(registry, tests))
+        errors.extend(
+            validate_minimum_command_arms(registry, tests, "discovered nextest test")
+        )
     errors.extend(
         validate_test_inventory(
             manifest,

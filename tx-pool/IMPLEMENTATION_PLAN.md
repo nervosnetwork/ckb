@@ -5,8 +5,8 @@ Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
 Status date: 2026-07-26
-Current stable checkpoint: `6d0577ad4`
-Current phase: P6, complete process-level integration acceptance
+Current stable checkpoint: `288031ebc`
+Current phase: P7, controlled performance acceptance (awaiting explicit authorization)
 
 This file is the live execution ledger. It is updated at every checkpoint so a
 compaction or restart can resume from the actual code rather than an obsolete
@@ -80,6 +80,7 @@ states do not travel through the same recoverable error channel as input.
 | C11 | `77dcbb0c1` | relay saturation coalesces to durable reconciliation |
 | C12 | `015d88be2` | Rust-native invariants and level-triggered derived recovery |
 | C13 | `6d0577ad4` | move-only authority Apply and redundant-envelope removal |
+| C14 | `288031ebc` | six-state production contract and evidence acceptance |
 
 No checkpoint before P7 is a performance verdict.
 
@@ -229,11 +230,12 @@ No checkpoint before P7 is a performance verdict.
 - Rewrote `ARCHITECTURE.md`, `ARCHITECTURE_AUDIT.md`, `pipeline.md`, the review
   guide/registry, machine contract, security ledger/manifests and test
   inventory against the final six-state/Rust-native model.
-- Test isolation now validates 23 external module wires, 29 explicit
+- Test isolation now validates 23 external module wires, 28 explicit
   `cfg(test)` sites and only two named production observation seams. Candidate
   uncle tests use production limits.
-- The regenerated evidence maps 16 behaviors to 106 current Rust anchors and
-  13 focused integrations; the complete managed process universe remains 149.
+- The regenerated evidence maps 16 behaviors to current Rust anchors and 16
+  focused integrations; the complete managed process universe is now 150
+  after adding the Local test-RPC direct-path regression.
 - The internal-feature gate found a real benchmark-harness authority bug: its
   direct service dropped the only worker command sender and stalled a two-tx
   dependency case at 1/2 for 120 seconds. The handle now owns command authority
@@ -275,7 +277,25 @@ process suite and the separately authorized P7 performance verdict.
 - integration and unit/model behavior agree;
 - failures and any exclusions have reproducible evidence.
 
+P6 exit gate: **passed**. The final release binary passed all 150 managed
+integration specs through `make integration` with `-c 1 --no-fail-fast` in
+896.49 seconds. No spec was excluded. The final correction set also passed
+230/230 nextest tests, clippy with warnings denied, and all review/security/test-
+layout validators.
+
+The closing hostile review confirmed and fixed definitive parent-loss
+liveness, zero-match review-command anchors, production callback-timeout test
+parity and the due-Ready prefix scan. It corrected the false later-arrival
+claim, removed the genuinely dead ReadyKey size comparison, and recorded the
+no-aging fee-priority trade-off for P7. The common no-dependent rejection path
+retains direct allocation-free O(1) removal; cohort planning is paid only for a
+real reverse-edge fan-out.
+
 ## 8. P7 — Performance and production acceptance
+
+Execution is deliberately paused until the user's explicit benchmark
+instruction. Correctness evidence is complete, but no performance superiority
+claim is made before this gate.
 
 - Audit benchmark setup, invariant assertions, warmup, variance and workload
   equivalence before trusting results.

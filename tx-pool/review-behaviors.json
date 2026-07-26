@@ -41,7 +41,7 @@
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(pipeline_commit_worker|local_commit_waits|target_model_exercises_every_plan_outcome|sparse_plan_matches)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches)/)'",
       "performance_bound": "Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation."
     },
     {
@@ -73,8 +73,8 @@
         "tx-pool/src/pool_cell.rs",
         "tx-pool/src/component/tx_selector.rs"
       ],
-      "required_behavior": "Raw, resolved and accepted exact dependency keys—including headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection.",
-      "hostile_case": "Late-discovered parents, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, lose its wake edge or let a template commit an invalid order.",
+      "required_behavior": "Raw, resolved and accepted exact dependency keys—including the complete direct missing-cell frontier, headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection.",
+      "hostile_case": "A cell provider reporting only its first miss, late-discovered parents, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, make RelayV3 reject an unrequested parent, lose its wake edge or let a template commit an invalid order.",
       "reviewer_questions": [
         "Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?",
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
@@ -117,7 +117,7 @@
         "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
         "Does an impossible peer admission fail before global eviction planning?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|count_and_byte_limits|conflict_closure_aborts|self_eviction_plan)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
@@ -137,7 +137,7 @@
         "Can a consumed wake be reconstructed from authoritative state after subscribe or a contained job panic?",
         "Does cancellation stop checkout before another self-sustaining wake loop begins?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|ready_expiry_filter|worker_|zero_verify_worker)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker)/)'",
       "performance_bound": "Readiness checks inspect bounded owner heads/caps only; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
     },
     {
@@ -223,6 +223,7 @@
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/process/mod.rs",
         "tx-pool/src/process/submit/mod.rs",
+        "tx-pool/src/service/dispatch.rs",
         "sync/src/relayer/mod.rs"
       ],
       "required_behavior": "All legal malformed, policy, capacity, duplicate and stale outcomes remain typed before Apply; untrusted job/endpoint panics are contained at their boundary, while a primary/index/accounting contradiction fails fast, cancels the service and makes graceful persistence ineligible rather than repairing or persisting unknown state.",
@@ -306,7 +307,7 @@
         "Did the change add allocation, lock, task, scan or mutable projection to a hot path?",
         "When benchmarking is authorized, are worktree, binary, config, repetitions and spread comparable?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|ready_expiry_filter|randomized_public_transitions)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|randomized_public_transitions)/)'",
       "performance_bound": "Deterministic operation-count regressions are always required; timing A/B is the separately authorized final gate, never inferred from unit duration."
     }
   ],
@@ -320,6 +321,8 @@
 
     {"test": "target_model_exercises_every_plan_outcome_without_partial_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I4"]},
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I9"]},
+    {"test": "local_submit_bypasses_and_settles_matching_remote_owner", "behavior_id": "TP-COMMIT-001", "invariants": ["I1", "I2", "I4"]},
+    {"test": "equal_priority_ready_candidates_commit_earlier_arrival_first", "behavior_id": "TP-COMMIT-001", "invariants": ["I2", "I4"]},
 
     {"test": "successful_replacement_does_not_recover_removed_descendants", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
     {"test": "failed_size_plan_is_mutation_free_with_original_statuses", "behavior_id": "TP-RBF-001", "invariants": ["I3", "I10"]},
@@ -330,9 +333,10 @@
 
     {"test": "target_model_wait_wake_and_ready_conflict_use_recomputed_views", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I9"]},
     {"test": "parent_loss_invalidates_an_active_lease_into_exact_wait", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "definitive_parent_terminalization_wakes_trusted_dependents", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6", "I12"]},
     {"test": "repeated_dependency_epochs_are_level_triggered_and_bounded", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6", "I12"]},
     {"test": "parent_commit_before_wait_registration_requeues_child", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
-    {"test": "resolve_job_registers_the_exact_unknown_outpoint", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
+    {"test": "resolve_job_registers_complete_unknown_outpoint_frontier", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member", "behavior_id": "TP-DEP-001", "invariants": ["I6"]},
     {"test": "successive_expanded_parent_losses_keep_exact_causal_keys_in_wait", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "behavior_id": "TP-DEP-001", "invariants": ["I4"]},
@@ -357,7 +361,7 @@
     {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
     {"test": "verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
 
-    {"test": "ready_expiry_filter_does_not_starve_later_non_ready_deadlines", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "expiry_batch_is_bounded_without_a_ready_prefix_scan", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "catch_job_panic_captures_panic_and_lets_work_continue", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "worker_exits_when_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "panicked_state_worker_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
@@ -371,6 +375,7 @@
     {"test": "journal_sequence_is_total_apply_order", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
     {"test": "remote_byte_ceiling_cannot_borrow_trusted_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "active_critical_batch_does_not_consume_ordinary_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
+    {"test": "trusted_saturation_cannot_consume_critical_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "full_relayer_coalesces_to_bounded_reconciliation", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "hung_callback_opens_one_stable_circuit_and_does_not_pin_relay", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
     {"test": "replacement_publisher_resumes_the_charged_active_batch", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8"]},
@@ -550,6 +555,33 @@
       "invariants": ["I2", "I9", "I10"],
       "unit_anchors": ["rbf_rejects_dep_group_member_from_replacement_victim"],
       "boundary": "Final node admission rejects a replacement that depends on a cell from its victim closure and records the failed candidate without corrupting the accepted pool graph."
+    },
+    {
+      "id": "multi-parent-orphan-frontier",
+      "behavior_ids": ["TP-DEP-001", "TP-EFFECT-001"],
+      "path": "test/src/specs/tx_pool/orphan_tx.rs",
+      "anchor": "TxPoolOrphanReverse",
+      "invariants": ["I4", "I6", "I8"],
+      "unit_anchors": ["resolve_job_registers_complete_unknown_outpoint_frontier", "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "journal_sequence_is_total_apply_order"],
+      "boundary": "A child with three unavailable direct parents installs one exact Wait owner and atomically requests the complete currently missing parent frontier, so RelayV3 accepts every reverse-order parent and the whole graph converges without polling or an inferred orphan store."
+    },
+    {
+      "id": "local-test-rpc-direct",
+      "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001", "TP-DEFECT-001"],
+      "path": "test/src/specs/tx_pool/local_test_submission.rs",
+      "anchor": "LocalTestSubmissionIsDirect",
+      "invariants": ["I1", "I2", "I4"],
+      "unit_anchors": ["local_submit_bypasses_and_settles_matching_remote_owner"],
+      "boundary": "The integration-only send_test_transaction RPC returns a typed missing-parent rejection without stopping the service, then synchronously commits a valid Local transaction with no pre-pool owner or verify-queue residue."
+    },
+    {
+      "id": "async-uncle-candidate-publication",
+      "behavior_ids": ["TP-REORG-001", "TP-TEMPLATE-001"],
+      "path": "test/src/specs/mining/uncle.rs",
+      "anchor": "UncleInheritFromForkBlock",
+      "invariants": ["I7", "I11"],
+      "unit_anchors": ["failed_block_assembler_update_retains_dirty_generation_for_retry", "full_and_uncle_updates_share_template_serialization_lock"],
+      "boundary": "After a forced fork, the process test waits for phase-two detached-uncle publication instead of mistaking the authoritative blank reset template for final convergence; it then consumes every eligible uncle and validates the descendant rule."
     }
   ]
 }

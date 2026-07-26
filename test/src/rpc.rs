@@ -376,6 +376,7 @@ jsonrpc!(
     pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
     pub fn estimate_cycles(&self, _tx: Transaction) -> EstimateCycles;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
+    pub fn send_test_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn remove_transaction(&self, tx_hash: H256) -> bool;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
     pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool;

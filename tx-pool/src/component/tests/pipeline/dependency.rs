@@ -1,11 +1,13 @@
 use super::*;
 
-/// Resolution parks on the exact `Unknown` out-point reported by the cell
-/// provider. Once that edge becomes available, a fresh resolution can discover
-/// the next missing edge without guessing or registering unrelated parents.
+/// The cell provider reports only the first `Unknown` out-point, but RelayV3
+/// will accept another parent transaction only after its hash was requested.
+/// The worker must therefore enrich that discovery from the primary entry's
+/// canonical cell frontier; the authoritative parent-wait transition later
+/// filters already available keys.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn resolve_job_registers_the_exact_unknown_outpoint() {
-    use crate::component::pre_pool::DependencyKey;
+async fn resolve_job_registers_complete_unknown_outpoint_frontier() {
+    use crate::component::pre_pool::{DependencyKey, ResolveLane};
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::resolve_mgr::ResolveStageResult;
     use ckb_types::packed::Byte32;
@@ -25,6 +27,20 @@ async fn resolve_job_registers_the_exact_unknown_outpoint() {
         .output_data(Bytes::default().pack())
         .build();
 
+    let tx_hash = tx.hash();
+    h.service
+        .pipeline
+        .kernel
+        .admit_transaction(
+            tx.clone(),
+            TxSource::Remote {
+                cycles: 0,
+                peer: 1.into(),
+            },
+            h.service.current_pipeline_epoch().unwrap(),
+            ResolveLane::Ordered,
+        )
+        .unwrap();
     let result = crate::resolve_mgr::resolve_job(
         &h.service,
         tx,
@@ -35,13 +51,22 @@ async fn resolve_job_registers_the_exact_unknown_outpoint() {
         0,
     )
     .await;
-    assert!(matches!(
-        result,
-        ResolveStageResult::Orphan(dependencies)
-            if dependencies == std::collections::BTreeSet::from([
-                DependencyKey::Cell(OutPoint::new(first_parent, 0)),
-            ])
-    ));
+    let ResolveStageResult::Orphan(discovered) = result else {
+        panic!("unknown direct inputs must report an orphan")
+    };
+    let dependencies = h
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.cell_dependency_frontier(&tx_hash, discovered))
+        .unwrap();
+    assert_eq!(
+        dependencies,
+        std::collections::BTreeSet::from([
+            DependencyKey::Cell(OutPoint::new(first_parent, 0)),
+            DependencyKey::Cell(OutPoint::new(second_parent, 0)),
+        ])
+    );
 
     h.cancel.cancel();
 }
@@ -148,6 +173,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .read(|coordinator| coordinator.view(&child_hash).unwrap().dependencies);
     assert!(expected_dependencies.contains(&direct_parent));
     expected_dependencies.insert(discovered_parent.clone());
+    let expected_parents = HashSet::from([direct_parent, discovered_parent.clone()]);
     let lease = h
         .service
         .pipeline
@@ -193,7 +219,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
             parents,
         } => {
             assert_eq!(relayed_peer, peer);
-            assert_eq!(parents, HashSet::from([discovered_parent]));
+            assert_eq!(parents, expected_parents);
         }
         other => panic!("unexpected relay result: {other:?}"),
     }

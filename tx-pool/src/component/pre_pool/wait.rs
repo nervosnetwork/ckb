@@ -42,7 +42,7 @@ impl PrePoolKernel {
             Ok(record) => Ok(record),
             Err(error) if error.is_capacity_rejection() => {
                 self.validate_location(hash, version, expected)?;
-                self.remove_entry(hash)
+                self.remove_unavailable_entry(hash)
             }
             Err(error) => Err(error),
         }
@@ -143,10 +143,42 @@ impl PrePoolKernel {
         Ok((version, source))
     }
 
-    /// Record a level change. This never scans the waiter fan-out while a
+    /// Return the exact dependency levels observed by consumers of `parents`.
+    /// The reverse index bounds this work by the configured parent fan-out;
+    /// callers use the keys to publish one level change after their atomic
+    /// primary/cohort Apply.
+    pub(super) fn dependency_keys_for_parents(
+        &self,
+        parents: &HashSet<Byte32>,
+    ) -> BTreeSet<DependencyKey> {
+        let mut keys = BTreeSet::new();
+        for parent in parents {
+            let Some(children) = self.by_parent.get(parent) else {
+                continue;
+            };
+            for child in children {
+                let Some(entry) = self.entries.get(child) else {
+                    continue;
+                };
+                keys.extend(
+                    entry
+                        .dependencies
+                        .iter()
+                        .filter(|key| parents.contains(&key.parent_hash()))
+                        .cloned(),
+                );
+            }
+        }
+        keys
+    }
+
+    /// Record a dependency level change. This never scans the waiter fan-out while a
     /// TxPool write guard is held; bounded maintenance resumes each ordered
     /// bucket by its last processed exact edge.
-    pub(crate) fn note_available(&mut self, keys: impl IntoIterator<Item = DependencyKey>) {
+    pub(super) fn note_dependency_changes(
+        &mut self,
+        keys: impl IntoIterator<Item = DependencyKey>,
+    ) {
         let mut unique = BTreeSet::new();
         unique.extend(keys.into_iter().map(DependencyKey::into_compact));
         let mut planned = Vec::with_capacity(unique.len());
@@ -185,6 +217,11 @@ impl PrePoolKernel {
                 self.dirty_order.push_back(key);
             }
         }
+    }
+
+    /// Record levels which became available in the accepted pool/snapshot.
+    pub(crate) fn note_available(&mut self, keys: impl IntoIterator<Item = DependencyKey>) {
+        self.note_dependency_changes(keys);
     }
 
     pub(crate) fn wait_wake_pending(&self) -> bool {
@@ -341,6 +378,7 @@ impl PrePoolKernel {
         &mut self,
         parents: &HashSet<Byte32>,
     ) -> Result<(), PrePoolError> {
+        let changed_keys = self.dependency_keys_for_parents(parents);
         let mut version_cursor = self.next_version;
         let desired = self
             .unavailable_replacements(parents, &mut version_cursor)?
@@ -349,6 +387,7 @@ impl PrePoolKernel {
             .collect();
         let plan = self.plan_cohort(desired, version_cursor, self.next_arrival)?;
         self.apply_cohort(plan);
+        self.note_dependency_changes(changed_keys);
         Ok(())
     }
 
@@ -444,6 +483,10 @@ impl PrePoolKernel {
         if !conflict {
             return Ok(false);
         }
-        self.remove_entry(hash).map(|_| true)
+        // Conflict history is not an executable provider. Its removal is
+        // paired with a winning accepted-pool insertion and the corresponding
+        // availability event at the cross-authority handoff.
+        self.remove_entry_without_dependency_change(hash)
+            .map(|_| true)
     }
 }

@@ -487,6 +487,43 @@ fn parent_loss_also_invalidates_recovery_after_it_has_resolved() {
 }
 
 #[test]
+fn definitive_parent_terminalization_wakes_trusted_dependents() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let parent = transaction(117);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    assert_eq!(
+        kernel
+            .retain_recovery_batch(vec![parent.clone(), child.clone()], 1)
+            .unwrap(),
+        2
+    );
+
+    let parent_lease = kernel
+        .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
+        .unwrap();
+    assert_eq!(parent_lease.hash, parent.hash());
+    kernel.terminalize_resolve(&parent_lease).unwrap();
+
+    assert_eq!(
+        kernel.view(&child.hash()).unwrap().location,
+        PrePoolLocation::Wait(WaitReason::Missing),
+        "parent removal and child invalidation are one cohort Apply"
+    );
+    assert!(
+        kernel.wait_wake_pending(),
+        "definitive loss must publish a level change for bounded maintenance"
+    );
+    assert_eq!(kernel.drain_wait_wakes(1).unwrap(), 1);
+    assert_eq!(
+        kernel.view(&child.hash()).unwrap().location,
+        PrePoolLocation::ResolveQueued,
+        "trusted work must re-evaluate terminal policy instead of parking forever"
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
 fn parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget() {
     let parent = Byte32::new([0xbc; 32]);
     let tx = build_tx(vec![(&parent, 0)], 1);
@@ -855,6 +892,28 @@ fn commit_ticket_remains_valid_when_a_higher_rank_arrives() {
 }
 
 #[test]
+fn equal_priority_ready_candidates_commit_earlier_arrival_first() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let earlier = transaction(0xd3);
+    stage_ready(
+        &mut kernel,
+        earlier.clone(),
+        TxSource::Proposal,
+        None,
+        1_000,
+    );
+    let later = transaction(0xd4);
+    stage_ready(&mut kernel, later, TxSource::Proposal, None, 1_000);
+
+    assert_eq!(
+        kernel.begin_next_commit().unwrap().unwrap().hash,
+        earlier.hash(),
+        "the reversed comparator feeds ready.last(), so equal priority is FIFO"
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
 fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
     let mut constrained = limits();
     constrained.conflict_history = Residency::default();
@@ -948,8 +1007,8 @@ fn remote_conflict_history_keeps_its_bounded_residency_deadline() {
             Some(5),
         )
         .unwrap();
-    assert_eq!(kernel.expire_due(4, 1, false).unwrap().len(), 0);
-    let expired = kernel.expire_due(5, 1, false).unwrap();
+    assert_eq!(kernel.expire_due(4, 1).unwrap().len(), 0);
+    let expired = kernel.expire_due(5, 1).unwrap();
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].hash, tx.hash());
     assert_eq!(kernel.total_usage(), Residency::default());
@@ -959,7 +1018,7 @@ fn remote_conflict_history_keeps_its_bounded_residency_deadline() {
 }
 
 #[test]
-fn ready_expiry_filter_does_not_starve_later_non_ready_deadlines() {
+fn expiry_batch_is_bounded_without_a_ready_prefix_scan() {
     let mut kernel = PrePoolKernel::new(limits());
     let ready_tx = transaction(15);
     stage_ready(
@@ -984,11 +1043,12 @@ fn ready_expiry_filter_does_not_starve_later_non_ready_deadlines() {
         Some(5),
     )
     .unwrap();
-    let expired = kernel.expire_due(5, 1, false).unwrap();
-    assert_eq!(expired.len(), 1);
-    assert_eq!(expired[0].hash, queued_tx.hash());
-    assert!(kernel.contains_hash(&ready_tx.hash()));
-    assert_eq!(kernel.expire_due(5, 1, true).unwrap().len(), 1);
+    let expired = kernel.expire_due(5, 2).unwrap();
+    assert_eq!(expired.len(), 2);
+    assert!(expired.iter().any(|record| record.hash == ready_tx.hash()));
+    assert!(expired.iter().any(|record| record.hash == queued_tx.hash()));
+    assert!(!kernel.contains_hash(&ready_tx.hash()));
+    assert!(!kernel.contains_hash(&queued_tx.hash()));
     kernel.audit().unwrap();
 }
 
@@ -1031,6 +1091,11 @@ fn recovery_batch_is_atomic_parent_first_and_uses_ordered_resolve() {
         "an active borrower must not create a persistence gap"
     );
     kernel.terminalize_resolve(&parent_lease).unwrap();
+    assert_eq!(
+        kernel.view(&child.hash()).unwrap().location,
+        PrePoolLocation::Wait(WaitReason::Missing)
+    );
+    assert_eq!(kernel.drain_wait_wakes(1).unwrap(), 1);
     let child_lease = kernel
         .checkout_resolve(ResolveLane::Ordered)
         .unwrap()

@@ -129,7 +129,7 @@ impl DependencyKey {
     }
 }
 
-pub(crate) fn conflict_dependency_keys(
+fn cell_dependency_keys(
     tx: &ckb_types::core::TransactionView,
     expanded: impl IntoIterator<Item = OutPoint>,
 ) -> BTreeSet<DependencyKey> {
@@ -137,6 +137,15 @@ pub(crate) fn conflict_dependency_keys(
         .chain(tx.cell_deps().into_iter().map(|dep| dep.out_point()))
         .chain(expanded)
         .map(|out_point| DependencyKey::Cell(crate::util::compact_packed(&out_point)))
+        .collect()
+}
+
+pub(crate) fn conflict_dependency_keys(
+    tx: &ckb_types::core::TransactionView,
+    expanded: impl IntoIterator<Item = OutPoint>,
+) -> BTreeSet<DependencyKey> {
+    cell_dependency_keys(tx, expanded)
+        .into_iter()
         .chain(
             tx.header_deps()
                 .into_iter()
@@ -461,10 +470,12 @@ impl Ord for ReadyKey {
             .cmp(&other.source_class)
             .then_with(|| left_rate.cmp(&right_rate))
             .then_with(|| self.fee.cmp(&other.fee))
+            // `ready.last()` selects the maximum: reverse comparisons make
+            // earlier arrivals and smaller hashes the stronger deterministic
+            // tie-breakers. Process-global versions make the order total.
             .then_with(|| other.arrival.cmp(&self.arrival))
             .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
             .then_with(|| self.version.cmp(&other.version))
-            .then_with(|| self.tx_size.cmp(&other.tx_size))
     }
 }
 
@@ -869,6 +880,27 @@ impl PrePoolKernel {
 
     pub(crate) fn contains_hash(&self, hash: &Byte32) -> bool {
         self.entries.contains_key(hash)
+    }
+
+    /// Reuse the primary entry's canonical cell graph when a worker reports
+    /// the provider's first missing edge. This avoids rebuilding direct
+    /// dependencies from the raw transaction and retains expanded dep-group
+    /// members discovered by an earlier resolution generation.
+    pub(crate) fn cell_dependency_frontier(
+        &self,
+        hash: &Byte32,
+        discovered: impl IntoIterator<Item = DependencyKey>,
+    ) -> Option<BTreeSet<DependencyKey>> {
+        let entry = self.entries.get(hash)?;
+        Some(
+            entry
+                .dependencies
+                .iter()
+                .filter(|key| matches!(key, DependencyKey::Cell(_)))
+                .cloned()
+                .chain(discovered.into_iter().map(DependencyKey::into_compact))
+                .collect(),
+        )
     }
 
     pub(crate) fn raw_by_hash(&self, hash: &Byte32) -> Option<Arc<PipelineRawTx>> {

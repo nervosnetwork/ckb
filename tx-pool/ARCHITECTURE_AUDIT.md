@@ -104,9 +104,9 @@ replay. That is a larger, less auditable protocol and can persist corruption.
 | template liveness | pass in unit evidence | Gap reevaluation and uncle/proposal conflict filter; Reset/full priority preserved; deltas level-triggered |
 | hostile input bounds | pass with one residual | entry/byte/peer/work/graph/effect/uncle bounds precede retention; trusted `NotifyTxs` vector length needs upstream proof |
 | failure semantics | pass | legal hostile input typed; worker/endpoint unwind isolated; impossible internal contradiction fail-fast/skips persistence |
-| test/production parity | pass after correction | candidate-uncle test-only limits removed; remaining `cfg(test)` sites are wiring/observation/fault seams tracked by manifest |
+| test/production parity | pass after correction | candidate-uncle test-only limits and callback-timeout divergence removed; remaining `cfg(test)` sites are wiring/observation/fault seams tracked by manifest |
 | simplification | pass for P5 code slice | redundant entry clones, disposal wrappers, submit envelopes, duplicate reorg plan and assembler loop removed without new state |
-| integration | open | complete managed 149-spec universe must pass through `make integration` |
+| integration | pass | the current release binary passed the complete managed 150-spec universe through `make integration` in 896.49 seconds with no failure |
 | performance | open/blocking | no superiority claim before controlled checkpoint A/B and lock/allocation/tail-latency analysis |
 
 ## 6. Panic audit

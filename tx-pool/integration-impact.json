@@ -12,6 +12,7 @@
     "test/src/specs/tx_pool/different_txs_with_same_input.rs": ["DifferentTxsWithSameInputWithOutRBF"],
     "test/src/specs/tx_pool/get_raw_tx_pool.rs": ["GetRawTxPool"],
     "test/src/specs/tx_pool/limit.rs": ["SizeLimit", "TxPoolLimitAncestorCount"],
+    "test/src/specs/tx_pool/local_test_submission.rs": ["LocalTestSubmissionIsDirect"],
     "test/src/specs/tx_pool/orphan_tx.rs": ["OrphanTxAccepted", "OrphanTxRejected", "TxPoolOrphanDoubleSpend", "TxPoolOrphanNormal", "TxPoolOrphanPartialInputUnknown", "TxPoolOrphanReverse", "TxPoolOrphanUnordered"],
     "test/src/specs/tx_pool/orphan_tx_recovery.rs": ["RbfOrphanRecovery"],
     "test/src/specs/tx_pool/pool_persisted.rs": ["PoolPersisted"],

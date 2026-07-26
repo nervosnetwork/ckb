@@ -23,6 +23,7 @@ START_MARKER = "<!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->"
 END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+MINIMUM_TEST_FILTER = re.compile(r"-E\s+['\"]test\(/\(([^)]+)\)/\)['\"]")
 REQUIRED_INVARIANTS = {f"I{number}" for number in range(1, 13)}
 
 
@@ -85,6 +86,51 @@ def _nonempty_strings(value: object) -> bool:
     )
 
 
+def validate_minimum_command_arms(
+    registry: dict, tests: set[str], evidence_name: str
+) -> list[str]:
+    """Require every documented nextest alternation arm to select evidence.
+
+    Nextest intentionally treats a zero-match alternation arm as harmless when
+    another arm matches. Review commands are security anchors, so that normal
+    runner behavior would otherwise hide a renamed or deleted regression.
+    """
+
+    errors: list[str] = []
+    for behavior in registry.get("behaviors", []):
+        behavior_id = behavior.get("id", "<unknown>")
+        command = behavior.get("minimum_command")
+        if not isinstance(command, str):
+            continue
+        matches = MINIMUM_TEST_FILTER.findall(command)
+        if len(matches) != 1:
+            errors.append(
+                f"{behavior_id} minimum_command must contain exactly one supported "
+                "test(/(arm|...)/) filter"
+            )
+            continue
+        arms = matches[0].split("|")
+        if len(arms) != len(set(arms)):
+            errors.append(f"{behavior_id} minimum_command repeats a regex arm")
+        for arm in arms:
+            if not arm:
+                errors.append(f"{behavior_id} minimum_command has an empty regex arm")
+                continue
+            try:
+                compiled = re.compile(arm)
+            except re.error as error:
+                errors.append(
+                    f"{behavior_id} minimum_command arm {arm!r} is invalid: {error}"
+                )
+                continue
+            if not any(compiled.search(test) for test in tests):
+                errors.append(
+                    f"{behavior_id} minimum_command arm {arm!r} matches no "
+                    f"{evidence_name}"
+                )
+    return errors
+
+
 def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     errors: list[str] = []
     if registry.get("schema_version") != 2:
@@ -125,9 +171,9 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
             if name in seen_impact:
                 errors.append(f"duplicate integration impact spec: {name}")
             seen_impact.add(name)
-    if len(seen_impact) != 149:
+    if len(seen_impact) != 150:
         errors.append(
-            f"integration impact must contain frozen P0 count 149, found {len(seen_impact)}"
+            f"integration impact must contain the managed count 150, found {len(seen_impact)}"
         )
 
     runner = registry.get("integration_runner")
@@ -251,6 +297,11 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         for entry in unit_evidence
         if isinstance(entry, dict) and isinstance(entry.get("test"), str)
     }
+    errors.extend(
+        validate_minimum_command_arms(
+            registry, seen_tests, "registered unit evidence anchor"
+        )
+    )
 
     integration_evidence = registry.get("integration_evidence")
     if not isinstance(integration_evidence, list):
@@ -405,7 +456,7 @@ def render_generated(registry: dict, impact: dict) -> str:
     lines = [
         "### Managed process suite",
         "",
-        "The ten focused security anchors are the minimum process gate for the mapped behavior rows:",
+        f"The {len(registry['integration_evidence'])} focused security anchors are the minimum process gate for the mapped behavior rows:",
         "",
         f"`{integration_command(registry, [entry['anchor'] for entry in registry['integration_evidence']])}`",
         "",

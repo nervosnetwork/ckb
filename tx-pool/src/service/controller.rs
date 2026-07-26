@@ -402,7 +402,8 @@ impl TxPoolController {
         send_message!(self, PackageTxs, bytes_limit)
     }
 
-    /// Submit local test tx to tx-pool, this tx will be put into verify queue directly.
+    /// Submit a local transaction through the integration-test RPC and return
+    /// its definitive validation/commit result synchronously.
     pub fn submit_local_test_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         reject_callback_mutation!("submit_local_test_tx");
         send_message!(self, SubmitLocalTestTx, tx)

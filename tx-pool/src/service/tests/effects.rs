@@ -224,17 +224,24 @@ async fn recent_reject_database_write_runs_as_a_journaled_effect() {
     let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
     let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
     let tx_hash = Byte32::new([0x42; 32]);
+    let serialized = serialized_recent_reject(&Reject::Expiry(42));
     queue
         .enqueue(
             EffectBatch::new(vec![TxPoolEffect::RecentReject {
                 store: Arc::clone(&store),
                 tx_hash: tx_hash.clone(),
-                serialized: serialized_recent_reject(&Reject::Expiry(42)),
+                serialized: serialized.clone(),
             }])
             .unwrap(),
         )
         .await
         .unwrap();
+    assert_eq!(
+        queue.pending_recent_reject(&tx_hash),
+        Some(serialized),
+        "accepted Apply is immediately visible before persistence"
+    );
+    assert!(store.get(&tx_hash).unwrap().is_none());
     let publisher = tokio::spawn(run_effect_publisher(
         Arc::clone(&queue),
         endpoints(relay_tx),
@@ -243,6 +250,7 @@ async fn recent_reject_database_write_runs_as_a_journaled_effect() {
         .await
         .unwrap();
     assert!(store.get(&tx_hash).unwrap().is_some());
+    assert!(queue.pending_recent_reject(&tx_hash).is_none());
     queue.close();
     publisher.await.unwrap();
 }
@@ -462,7 +470,10 @@ async fn hung_callback_opens_one_stable_circuit_and_does_not_pin_relay() {
     let observed = Arc::clone(&calls);
     callbacks.register_pending(Box::new(move |_| {
         observed.fetch_add(1, Ordering::SeqCst);
-        std::thread::sleep(Duration::from_millis(250));
+        // Exercise the exact production circuit-breaker duration. Keeping a
+        // shorter cfg(test) constant previously left the deployed path
+        // untested and allowed silent policy drift.
+        std::thread::sleep(CALLBACK_TIMEOUT + Duration::from_millis(200));
     }));
     let callbacks = Arc::new(callbacks);
     let expected = Byte32::new([0x66; 32]);
@@ -483,7 +494,7 @@ async fn hung_callback_opens_one_stable_circuit_and_does_not_pin_relay() {
         Arc::clone(&queue),
         endpoints(relay_tx),
     ));
-    tokio::time::timeout(Duration::from_secs(1), queue.wait_idle())
+    tokio::time::timeout(CALLBACK_TIMEOUT + Duration::from_secs(1), queue.wait_idle())
         .await
         .expect("hung callback must not pin the journal");
     assert_eq!(calls.load(Ordering::SeqCst), 1);

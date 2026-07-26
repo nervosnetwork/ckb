@@ -147,7 +147,6 @@ impl Ord for ReadyKey {
             .then_with(|| other.arrival.cmp(&self.arrival))
             .then_with(|| other.id.cmp(&self.id))
             .then_with(|| self.version.cmp(&other.version))
-            .then_with(|| self.serialized_size.cmp(&other.serialized_size))
     }
 }
 

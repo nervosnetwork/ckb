@@ -510,6 +510,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(DeclaredWrongCycles),
         Box::new(DeclaredWrongCyclesChunk),
         Box::new(DeclaredWrongCyclesAndRelayAgain),
+        Box::new(LocalTestSubmissionIsDirect),
         Box::new(OrphanTxAccepted),
         Box::new(TxPoolOrphanNormal),
         Box::new(TxPoolOrphanReverse),

@@ -49,9 +49,14 @@
     "absolute_fee",
     "earlier_arrival",
     "smaller_full_hash",
-    "entry_version",
-    "transaction_size_total_tiebreaker"
+    "entry_version"
   ],
+  "ready_aging": {
+    "policy": "none",
+    "remote_bound": "residency_deadline_and_budget",
+    "trusted_bound": "bounded_chain_derived_ingress",
+    "acceptance_gate": "P7_saturation_throughput_and_tail_latency"
+  },
   "lock_order": [
     "optional_serial_or_work_or_plan_permit",
     "effect_capacity_hint_released",

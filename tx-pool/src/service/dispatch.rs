@@ -105,13 +105,11 @@ impl TxPoolService {
             responder,
             arguments: tx,
         } = req;
-        let result = async {
-            self.check_tx_basic_validity(&tx).await?;
-            self.classify_and_enqueue_tx_spawn(tx, TxSource::local())
-                .await
-                .map(|_| ())
-        }
-        .await;
+        // This integration-only RPC still has Local submission semantics. It
+        // must return the definitive validation result and must never create a
+        // test-only pre-pool owner (Local admission is structurally forbidden
+        // by PrePoolKernel).
+        let result = self.process_tx(tx, TxSource::local()).await.map(|_| ());
         respond(responder, result, "submit_local_test_tx");
     }
 
@@ -510,6 +508,9 @@ impl TxPoolService {
         on_rejected: impl FnOnce(String) -> T,
         on_unknown: impl FnOnce() -> T,
     ) -> Result<T, AnyError> {
+        if let Some(record) = self.relay.effects.pending_recent_reject(hash) {
+            return Ok(on_rejected(record));
+        }
         if let Some(ref db) = self.aux.recent_reject {
             match db.get(hash) {
                 Ok(Some(record)) => Ok(on_rejected(record)),

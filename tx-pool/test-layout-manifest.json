@@ -58,7 +58,7 @@
     "tx-pool/src/resolved_tx.rs": 1,
     "tx-pool/src/service.rs": 1,
     "tx-pool/src/service/builder.rs": 1,
-    "tx-pool/src/service/effects.rs": 2,
+    "tx-pool/src/service/effects.rs": 1,
     "tx-pool/src/util.rs": 1,
     "tx-pool/src/worker.rs": 1
   },

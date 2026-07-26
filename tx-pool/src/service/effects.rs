@@ -19,7 +19,7 @@ use ckb_types::core::TransactionBuilder;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::Byte32;
 use futures_util::FutureExt;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -39,6 +39,9 @@ pub(crate) const MAX_POOL_MUTATION_REJECT_BYTES: usize = 256;
 pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
 /// Cap attacker-controlled verifier diagnostics retained for observability.
 pub(crate) const MAX_RECENT_REJECT_BYTES: usize = 1024;
+/// Conservative residency charge for the journal's hash-to-envelope
+/// projection used by immediate RPC rejection reads.
+const PENDING_REJECT_INDEX_BYTES: usize = 128;
 
 fn minimum_serialized_transaction_bytes() -> usize {
     static MINIMUM: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
@@ -62,6 +65,7 @@ pub(crate) fn max_pool_mutation_effect_bytes(event_transaction_bytes: usize) -> 
     let per_event_metadata = EFFECT_ENVELOPE_BYTES
         .saturating_mul(3)
         .saturating_add(CALLBACK_SNAPSHOT_OVERHEAD_BYTES)
+        .saturating_add(PENDING_REJECT_INDEX_BYTES)
         .saturating_add(MAX_POOL_MUTATION_REJECT_BYTES.saturating_mul(2));
     event_transaction_bytes.saturating_add(max_events.saturating_mul(per_event_metadata))
 }
@@ -82,6 +86,7 @@ pub(crate) fn max_submit_effect_bytes(max_pool_bytes: usize, max_block_bytes: us
         )
         .saturating_add(EFFECT_ENVELOPE_BYTES.saturating_mul(3))
         .saturating_add(MAX_COMMIT_BAN_REASON_BYTES)
+        .saturating_add(PENDING_REJECT_INDEX_BYTES)
         .saturating_add(MAX_RECENT_REJECT_BYTES);
     pool_effects.saturating_add(coordinator_effects).max(4096)
 }
@@ -265,15 +270,16 @@ impl TxPoolEffect {
                 | TxVerificationResult::GenerationReset,
             ) => EFFECT_ENVELOPE_BYTES,
             Self::BanPeer { reason, .. } => EFFECT_ENVELOPE_BYTES.saturating_add(reason.len()),
-            Self::RecentReject { serialized, .. } => {
-                EFFECT_ENVELOPE_BYTES.saturating_add(serialized.len())
-            }
+            Self::RecentReject { serialized, .. } => EFFECT_ENVELOPE_BYTES
+                .saturating_add(PENDING_REJECT_INDEX_BYTES)
+                .saturating_add(serialized.len()),
         }
     }
 }
 
 pub(crate) struct EffectBatch {
     effects: Vec<TxPoolEffect>,
+    recent_reject_indices: Box<[usize]>,
     next: AtomicUsize,
     charge_bytes: usize,
 }
@@ -290,8 +296,17 @@ impl EffectBatch {
         let charge_bytes = effects.iter().fold(0usize, |total, effect| {
             total.saturating_add(effect.charge_bytes())
         });
+        let recent_reject_indices = effects
+            .iter()
+            .enumerate()
+            .filter_map(|(index, effect)| {
+                matches!(effect, TxPoolEffect::RecentReject { .. }).then_some(index)
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         Some(Self {
             effects,
+            recent_reject_indices,
             next: AtomicUsize::new(0),
             charge_bytes,
         })
@@ -300,6 +315,7 @@ impl EffectBatch {
     fn reset_record() -> Self {
         Self {
             effects: vec![TxPoolEffect::Relay(TxVerificationResult::GenerationReset)],
+            recent_reject_indices: Box::new([]),
             next: AtomicUsize::new(0),
             charge_bytes: 0,
         }
@@ -363,10 +379,20 @@ struct EffectEnvelope {
     batch: Arc<EffectBatch>,
 }
 
+struct PendingReject {
+    sequence: u128,
+    batch: Arc<EffectBatch>,
+    effect_index: usize,
+}
+
 struct JournalState {
     queued: VecDeque<EffectEnvelope>,
     active: Option<EffectEnvelope>,
     latest_generation_reset: Option<EffectEnvelope>,
+    /// Read-only projection of already charged journal records. It closes the
+    /// interval between accepted Apply and recent-reject persistence without
+    /// performing I/O under a transaction authority lock.
+    pending_recent_rejects: HashMap<Byte32, PendingReject>,
     /// Cumulative region lattice: Remote batches charge all three slots,
     /// Trusted batches charge ordinary+total, and Critical charges total.
     usage: [EffectUsage; EffectClass::REGION_COUNT],
@@ -412,10 +438,23 @@ impl JournalState {
     fn push(&mut self, class: EffectClass, batch: EffectBatch) {
         let sequence = self.allocate_sequence();
         self.charge(class, batch.charge_bytes);
+        let batch = Arc::new(batch);
+        for &effect_index in batch.recent_reject_indices.iter() {
+            if let TxPoolEffect::RecentReject { tx_hash, .. } = &batch.effects[effect_index] {
+                self.pending_recent_rejects.insert(
+                    tx_hash.clone(),
+                    PendingReject {
+                        sequence,
+                        batch: Arc::clone(&batch),
+                        effect_index,
+                    },
+                );
+            }
+        }
         self.queued.push_back(EffectEnvelope {
             sequence,
             class: Some(class),
-            batch: Arc::new(batch),
+            batch,
         });
     }
 }
@@ -460,6 +499,10 @@ impl EffectJournal {
         critical_batches: usize,
         critical_bytes: usize,
     ) -> Result<Self, EffectJournalError> {
+        // The service builder derives these region sizes from the largest
+        // indivisible submit/reorg formulas. This constructor owns allocation,
+        // overflow and the minimum usable Remote-region checks; it cannot
+        // re-derive workload bounds from six already-materialized capacities.
         let ordinary_batches = remote_max_batches
             .checked_add(trusted_headroom_batches)
             .ok_or(EffectJournalError::AllocationFailed)?;
@@ -494,6 +537,7 @@ impl EffectJournal {
                 queued,
                 active: None,
                 latest_generation_reset: None,
+                pending_recent_rejects: HashMap::new(),
                 usage: [EffectUsage::default(); EffectClass::REGION_COUNT],
                 next_sequence: 1,
                 closed: false,
@@ -728,6 +772,25 @@ impl EffectJournal {
         self.ready.notify_one();
         self.space.notify_waiters();
     }
+
+    /// Return a rejection committed to the charged journal but not necessarily
+    /// persisted yet. The index points into the immutable batch and is removed
+    /// only after that batch finishes publication.
+    pub(crate) fn pending_recent_reject(&self, hash: &Byte32) -> Option<String> {
+        let state = self.lock_state();
+        let pending = state.pending_recent_rejects.get(hash)?;
+        match &pending.batch.effects[pending.effect_index] {
+            TxPoolEffect::RecentReject {
+                tx_hash,
+                serialized,
+                ..
+            } => {
+                assert_eq!(tx_hash, hash, "pending-reject index must match its effect");
+                Some(serialized.clone())
+            }
+            _ => unreachable!("pending-reject index must reference a rejection effect"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -779,6 +842,17 @@ impl EffectJournal {
         );
         let bytes = active.batch.charge_bytes;
         let class = active.class;
+        let batch = Arc::clone(&active.batch);
+        for &effect_index in batch.recent_reject_indices.iter() {
+            if let TxPoolEffect::RecentReject { tx_hash, .. } = &batch.effects[effect_index]
+                && state
+                    .pending_recent_rejects
+                    .get(tx_hash)
+                    .is_some_and(|pending| pending.sequence == sequence)
+            {
+                state.pending_recent_rejects.remove(tx_hash);
+            }
+        }
         if let Some(class) = class {
             state.release(class, bytes);
         }
@@ -800,10 +874,7 @@ impl EffectJournal {
     }
 }
 
-#[cfg(not(test))]
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(1);
-#[cfg(test)]
-const CALLBACK_TIMEOUT: Duration = Duration::from_millis(50);
 const RELAY_RETRY_TIMEOUT: Duration = Duration::from_millis(250);
 
 async fn publish_callback(

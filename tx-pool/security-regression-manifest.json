@@ -7,19 +7,15 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "C13 six-state Plan/Apply convergence",
-    "unit_test_count": 228,
-    "integration_spec_count": 149
+    "checkpoint": "C14 six-state production contract",
+    "unit_test_count": 230,
+    "integration_spec_count": 150
   },
   "baseline": {
     "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
     "nextest_count": 303
   },
   "release_blockers": [
-    {
-      "id": "P6-INTEGRATION-ACCEPTANCE",
-      "reason": "The complete managed 149-spec tx-pool process impact universe has not yet passed against C13 through make integration"
-    },
     {
       "id": "P7-PERFORMANCE-ACCEPTANCE",
       "reason": "Controlled clean-checkpoint throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains the final blocking production gate"

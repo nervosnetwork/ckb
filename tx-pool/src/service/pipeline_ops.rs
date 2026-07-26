@@ -104,7 +104,7 @@ impl TxPoolService {
     async fn settle_parent_wait(
         &self,
         hash: &Byte32,
-        mut dependencies: BTreeSet<DependencyKey>,
+        discovered_dependencies: BTreeSet<DependencyKey>,
         mut transition: impl FnMut(
             &mut PrePoolKernel,
             BTreeSet<DependencyKey>,
@@ -112,15 +112,23 @@ impl TxPoolService {
     ) -> Option<ParentWaitOutcome> {
         loop {
             let pool = self.pool.tx_pool.read().await;
-            retain_unavailable_dependencies(&pool, &mut dependencies);
-            let parents = dependencies
-                .iter()
-                .map(DependencyKey::parent_hash)
-                .collect::<HashSet<_>>();
+            let mut effect_bytes = 0;
             let outcome: Result<
                 Result<Result<ParentWaitOutcome, PrePoolError>, EffectJournalError>,
                 PrePoolError,
             > = self.pipeline.kernel.mutate_authoritative(|coordinator| {
+                // Resolution reports one new miss at a time. Rebuild the full
+                // level from the current primary while both authorities are
+                // held, then filter accepted availability from that exact
+                // snapshot. A Full retry therefore cannot forget a parent.
+                let mut unavailable = coordinator
+                    .cell_dependency_frontier(hash, discovered_dependencies.iter().cloned())
+                    .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+                retain_unavailable_dependencies(&pool, &mut unavailable);
+                let parents = unavailable
+                    .iter()
+                    .map(DependencyKey::parent_hash)
+                    .collect::<HashSet<_>>();
                 let source = coordinator
                     .source_by_hash(hash)
                     .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
@@ -133,7 +141,7 @@ impl TxPoolService {
                     return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
                 }
                 let batch = if let PrePoolSource::Remote(peer) = source
-                    && !dependencies.is_empty()
+                    && !unavailable.is_empty()
                 {
                     EffectBatch::new(vec![TxPoolEffect::Relay(
                         crate::service::TxVerificationResult::UnknownParents {
@@ -149,9 +157,10 @@ impl TxPoolService {
                 } else {
                     EffectClass::Trusted
                 };
+                effect_bytes = Self::unknown_parents_effect_bytes(unavailable.len());
                 Ok(self.relay.effects.try_apply(batch, class, || {
-                    transition(coordinator, dependencies.clone())?;
-                    Ok(if dependencies.is_empty() {
+                    transition(coordinator, unavailable.clone())?;
+                    Ok(if unavailable.is_empty() {
                         ParentWaitOutcome::Requeued
                     } else {
                         ParentWaitOutcome::Parked
@@ -174,10 +183,7 @@ impl TxPoolService {
                     if self
                         .relay
                         .effects
-                        .wait_capacity(
-                            Self::unknown_parents_effect_bytes(dependencies.len()),
-                            EffectClass::Remote,
-                        )
+                        .wait_capacity(effect_bytes, EffectClass::Remote)
                         .await
                         .is_err()
                     {
@@ -302,20 +308,6 @@ impl TxPoolService {
         lease: &ResolveLease,
         dependencies: BTreeSet<DependencyKey>,
     ) -> Option<ParentWaitOutcome> {
-        if self
-            .relay
-            .effects
-            .wait_capacity(
-                Self::unknown_parents_effect_bytes(dependencies.len()),
-                EffectClass::Remote,
-            )
-            .await
-            .is_err()
-        {
-            return Some(ParentWaitOutcome::Rejected(Reject::Full(
-                "effect journal unavailable".to_owned(),
-            )));
-        }
         self.settle_parent_wait(&lease.hash, dependencies, |coordinator, dependencies| {
             if dependencies.is_empty() {
                 coordinator.requeue_resolve(lease).map(|_| ())
@@ -334,20 +326,6 @@ impl TxPoolService {
         lease: &VerifyLease,
         dependencies: BTreeSet<DependencyKey>,
     ) -> Option<ParentWaitOutcome> {
-        if self
-            .relay
-            .effects
-            .wait_capacity(
-                Self::unknown_parents_effect_bytes(dependencies.len()),
-                EffectClass::Remote,
-            )
-            .await
-            .is_err()
-        {
-            return Some(ParentWaitOutcome::Rejected(Reject::Full(
-                "effect journal unavailable".to_owned(),
-            )));
-        }
         self.settle_parent_wait(&lease.hash, dependencies, |coordinator, dependencies| {
             coordinator
                 .verification_retry_resolution(lease, dependencies)
