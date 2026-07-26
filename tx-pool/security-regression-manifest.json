@@ -7,7 +7,7 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "C14 six-state production contract",
+    "checkpoint": "C15 production correctness acceptance",
     "unit_test_count": 230,
     "integration_spec_count": 150
   },

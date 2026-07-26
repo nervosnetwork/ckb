@@ -5,7 +5,7 @@ Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
 Status date: 2026-07-26
-Current stable checkpoint: `288031ebc`
+Current stable checkpoint: `64ecdd0eb`
 Current phase: P7, controlled performance acceptance (awaiting explicit authorization)
 
 This file is the live execution ledger. It is updated at every checkpoint so a
@@ -81,6 +81,7 @@ states do not travel through the same recoverable error channel as input.
 | C12 | `015d88be2` | Rust-native invariants and level-triggered derived recovery |
 | C13 | `6d0577ad4` | move-only authority Apply and redundant-envelope removal |
 | C14 | `288031ebc` | six-state production contract and evidence acceptance |
+| C15 | `64ecdd0eb` | complete correctness, liveness and managed-integration acceptance |
 
 No checkpoint before P7 is a performance verdict.
 

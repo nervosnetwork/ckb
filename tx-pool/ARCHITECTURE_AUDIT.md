@@ -6,7 +6,7 @@ Execution ledger: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Code checkpoint: `6d0577ad4`
+Code checkpoint: `64ecdd0eb`
 
 ## 1. Verdict
 
@@ -18,10 +18,10 @@ kernel, accepted immutable Plan/total Apply, bounded stable-effect journal and
 level-triggered progress rules form one compatible model rather than a set of
 local patches.
 
-The design is implementation-complete enough for production acceptance work,
-but production readiness is not yet claimed. Documentation/evidence migration,
-the complete process integration universe and controlled performance A/B are
-still open. Performance is a hard gate, not a deferred nice-to-have.
+The design and correctness acceptance are complete: documentation/evidence is
+aligned and the complete managed process-integration universe passes. Full
+production readiness is not yet claimed because the controlled performance A/B
+remains open. Performance is a hard gate, not a deferred nice-to-have.
 
 ## 2. Audit method
 
