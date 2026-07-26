@@ -1,9 +1,13 @@
-use super::BackgroundWorkerHandles;
+use super::{BackgroundWorkerHandles, MessageHandlerGuard};
 use crate::network::DummyTxPoolNetwork;
 use crate::service::TxVerificationResult;
 use crate::service::effects::{EffectEndpoints, EffectJournal, run_effect_publisher};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 fn finished() -> tokio::task::JoinHandle<()> {
     tokio::spawn(async {})
@@ -24,6 +28,29 @@ fn handles(
         block_assembler: Some(finished()),
         reorg: Some(finished()),
     }
+}
+
+#[test]
+fn unwinding_message_handler_guard_requests_fail_stop() {
+    let shutdown = CancellationToken::new();
+    let failed = Arc::new(AtomicBool::new(false));
+    drop(MessageHandlerGuard::new(
+        shutdown.clone(),
+        Arc::clone(&failed),
+    ));
+    assert!(shutdown.is_cancelled());
+    assert!(failed.load(Ordering::Acquire));
+}
+
+#[test]
+fn completed_message_handler_guard_does_not_cancel_service() {
+    let shutdown = CancellationToken::new();
+    let failed = Arc::new(AtomicBool::new(false));
+    let mut guard = MessageHandlerGuard::new(shutdown.clone(), Arc::clone(&failed));
+    guard.complete();
+    drop(guard);
+    assert!(!shutdown.is_cancelled());
+    assert!(!failed.load(Ordering::Acquire));
 }
 
 #[tokio::test]

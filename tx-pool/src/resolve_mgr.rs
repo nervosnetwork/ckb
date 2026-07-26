@@ -148,18 +148,15 @@ impl TxPoolService {
                         cycles > self.pool.tx_pool_config.max_tx_verify_cycles
                     }),
                 );
-                match self.pipeline.kernel.transition(
-                    "raw completion mutation panicked",
-                    |coordinator| {
-                        coordinator.complete_resolve(
-                            &lease,
-                            resolved,
-                            charge_bytes,
-                            schedule,
-                            resolved_dependencies,
-                        )
-                    },
-                ) {
+                match self.pipeline.kernel.mutate_authoritative(|coordinator| {
+                    coordinator.complete_resolve(
+                        &lease,
+                        resolved,
+                        charge_bytes,
+                        schedule,
+                        resolved_dependencies,
+                    )
+                }) {
                     Ok(_version) => {}
                     Err(error) if error.is_stale_lease() => {}
                     Err(error) => {

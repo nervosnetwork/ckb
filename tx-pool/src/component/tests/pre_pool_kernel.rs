@@ -459,6 +459,36 @@ fn parent_loss_invalidates_an_active_lease_into_exact_wait() {
 }
 
 #[test]
+fn parent_loss_also_invalidates_recovery_after_it_has_resolved() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let parent = Byte32::new([0xbd; 32]);
+    let tx = build_tx(vec![(&parent, 0)], 1);
+    assert_eq!(
+        kernel.retain_recovery_batch(vec![tx.clone()], 1).unwrap(),
+        1
+    );
+    let lease = kernel
+        .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
+        .unwrap();
+    let value = resolved(tx.clone(), TxSource::Local, 1_000);
+    let charge = value.resident_size;
+    kernel
+        .complete_raw(&lease, value, charge, VerifySchedule::default())
+        .unwrap();
+
+    kernel
+        .parents_unavailable(&HashSet::from([parent]))
+        .unwrap();
+
+    assert_eq!(
+        kernel.view(&tx.hash()).unwrap().location,
+        PrePoolLocation::Wait(WaitReason::Missing)
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
 fn parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget() {
     let parent = Byte32::new([0xbc; 32]);
     let tx = build_tx(vec![(&parent, 0)], 1);
@@ -558,6 +588,39 @@ fn successive_expanded_parent_losses_keep_exact_causal_keys_in_wait() {
     assert_eq!(view.location, PrePoolLocation::Wait(WaitReason::Missing));
     assert!(view.dependencies.contains(&expanded_a.tx_hash()));
     assert!(view.dependencies.contains(&expanded_b.tx_hash()));
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn oversized_missing_dependency_set_is_rejected_without_mutating_the_lease() {
+    let mut constrained = limits();
+    constrained.max_dependencies_per_entry = 2;
+    let mut kernel = PrePoolKernel::new(constrained);
+    let tx = transaction(147);
+    admit(
+        &mut kernel,
+        tx.clone(),
+        TxSource::Proposal,
+        ResolveLane::Ingress,
+        None,
+    )
+    .unwrap();
+    let lease = kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    let dependencies = (0..3)
+        .map(|index| DependencyKey::Cell(OutPoint::new(Byte32::new([index; 32]), u32::from(index))))
+        .collect();
+
+    assert!(matches!(
+        kernel.wait_resolve(&lease, dependencies),
+        Err(PrePoolError::DependencyLimitExceeded)
+    ));
+    assert_eq!(
+        kernel.view(&tx.hash()).unwrap().location,
+        PrePoolLocation::ResolveLeased
+    );
     kernel.audit().unwrap();
 }
 
@@ -709,6 +772,80 @@ fn full_conflict_history_terminalizes_rejected_owner_without_panicking() {
         .park_conflict_or_terminalize(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)
         .unwrap();
     assert!(!kernel.contains_hash(&tx.hash()));
+    assert_eq!(kernel.conflict_usage(), Residency::default());
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn multi_input_conflict_union_uses_the_product_bound() {
+    let mut constrained = limits();
+    constrained.max_inputs_per_ready = 3;
+    constrained.max_candidates_per_input = 2;
+    let mut kernel = PrePoolKernel::new(constrained);
+    let parents = [
+        Byte32::new([0xe1; 32]),
+        Byte32::new([0xe2; 32]),
+        Byte32::new([0xe3; 32]),
+    ];
+    let losers = parents
+        .iter()
+        .enumerate()
+        .map(|(index, parent)| {
+            let tx = build_tx(vec![(parent, 0)], index + 1);
+            stage_ready(&mut kernel, tx.clone(), TxSource::Proposal, None, 1_000);
+            tx
+        })
+        .collect::<Vec<_>>();
+    let winner = build_tx(parents.iter().map(|parent| (parent, 0)).collect(), 10);
+    let ticket = stage_ready(
+        &mut kernel,
+        winner.clone(),
+        TxSource::Proposal,
+        None,
+        100_000,
+    );
+
+    let settlement = kernel
+        .commit_any_handoff_with_unavailable_parents(&ticket, &HashSet::new())
+        .unwrap();
+
+    assert_eq!(settlement.winner.hash, winner.hash());
+    assert_eq!(settlement.superseded.len(), 3);
+    for loser in losers {
+        assert_eq!(
+            kernel.view(&loser.hash()).unwrap().location,
+            PrePoolLocation::Wait(WaitReason::Conflict)
+        );
+    }
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
+    let mut constrained = limits();
+    constrained.conflict_history = Residency::default();
+    let mut kernel = PrePoolKernel::new(constrained);
+    let parent = Byte32::new([0xe4; 32]);
+    let loser = build_tx(vec![(&parent, 0)], 1);
+    stage_ready(&mut kernel, loser.clone(), TxSource::Proposal, None, 1_000);
+    let winner = build_tx(vec![(&parent, 0)], 2);
+    let ticket = stage_ready(
+        &mut kernel,
+        winner.clone(),
+        TxSource::Proposal,
+        None,
+        100_000,
+    );
+
+    let settlement = kernel
+        .commit_any_handoff_with_unavailable_parents(&ticket, &HashSet::new())
+        .unwrap();
+
+    assert_eq!(settlement.winner.hash, winner.hash());
+    assert_eq!(settlement.superseded.len(), 1);
+    assert_eq!(settlement.superseded[0].hash, loser.hash());
+    assert!(!kernel.contains_hash(&winner.hash()));
+    assert!(!kernel.contains_hash(&loser.hash()));
     assert_eq!(kernel.conflict_usage(), Residency::default());
     kernel.audit().unwrap();
 }
@@ -867,6 +1004,24 @@ fn recovery_batch_is_atomic_parent_first_and_uses_ordered_resolve() {
     assert_eq!(child_lease.hash, child.hash());
     kernel.terminalize_resolve(&child_lease).unwrap();
     assert!(kernel.recovery_snapshot().is_empty());
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn recovery_leases_share_the_trusted_active_work_budget() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let tx = transaction(146);
+    kernel.retain_recovery_batch(vec![tx.clone()], 1).unwrap();
+
+    let lease = kernel
+        .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.hash, tx.hash());
+    assert_eq!(kernel.active_work(), 1);
+
+    kernel.requeue_resolve(&lease).unwrap();
+    assert_eq!(kernel.active_work(), 0);
     kernel.audit().unwrap();
 }
 

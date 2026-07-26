@@ -20,7 +20,6 @@ use crate::service::{
     BlockAssemblerMessage, ChainReorgArgs, Message, Notify, TxPoolController, TxPoolService,
     TxVerificationResult, VerifyCacheUpdate, process,
 };
-use crate::util::panic_payload_to_string;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_fee_estimator::FeeEstimator;
@@ -30,9 +29,6 @@ use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
-use futures_util::FutureExt;
-
-use std::panic::AssertUnwindSafe;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -224,7 +220,58 @@ struct BackgroundWorkerHandles {
     reorg: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// Rust-native supervision bridge for detached concurrent message handlers.
+/// A normal return disarms the guard. Unwinding drops it armed, marks the
+/// generation ineligible for persistence, and asks the owning dispatcher to
+/// quiesce every state worker. It does not catch, retry, or repair the panic.
+struct MessageHandlerGuard {
+    shutdown: CancellationToken,
+    failed: Arc<AtomicBool>,
+    completed: bool,
+}
+
+impl MessageHandlerGuard {
+    fn new(shutdown: CancellationToken, failed: Arc<AtomicBool>) -> Self {
+        Self {
+            shutdown,
+            failed,
+            completed: false,
+        }
+    }
+
+    fn complete(&mut self) {
+        self.completed = true;
+    }
+}
+
+impl Drop for MessageHandlerGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.failed.store(true, Ordering::Release);
+            self.shutdown.cancel();
+        }
+    }
+}
+
 impl BackgroundWorkerHandles {
+    fn any_finished(&self) -> bool {
+        self.effects.is_finished()
+            || self.verify_cache.is_finished()
+            || self.maintenance.is_finished()
+            || self.commit.is_finished()
+            || self.pre_check.iter().any(|handle| handle.is_finished())
+            || self.verify.iter().any(|handle| handle.is_finished())
+            || self.resolver.is_finished()
+            || self
+                .block_assembler
+                .as_ref()
+                .is_some_and(|handle| handle.is_finished())
+            || self
+                .reorg
+                .as_ref()
+                .is_some_and(|handle| handle.is_finished())
+    }
+
     /// Wait for every background worker to finish concurrently, logging a
     /// warning if any of them does not exit within the supplied timeout.
     ///
@@ -546,6 +593,13 @@ impl TxPoolServiceBuilder {
             .expect("tx_pool.max_tx_verify_workers exceeds dispatcher permit capacity");
         let semaphore = Arc::new(Semaphore::new(message_concurrency as usize));
         handle.spawn(async move {
+            let handler_failed = Arc::new(AtomicBool::new(false));
+            let mut worker_failed = false;
+            let mut supervisor = tokio::time::interval_at(
+                tokio::time::Instant::now() + Duration::from_millis(100),
+                Duration::from_millis(100),
+            );
+            supervisor.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     message = receiver.recv() => {
@@ -559,18 +613,16 @@ impl TxPoolServiceBuilder {
                                         break;
                                     }
                                 };
+                                let handler_shutdown = signal_receiver.clone();
+                                let handler_failed = Arc::clone(&handler_failed);
                                 runtime_handle.spawn(async move {
                                     let _permit = permit;
-                                    // Message handlers must never take the whole
-                                    // dispatcher down with a panic: catch and log,
-                                    // matching the background workers' behaviour.
-                                    let handler = process(service_clone, message);
-                                    if let Err(payload) = AssertUnwindSafe(handler).catch_unwind().await {
-                                        error!(
-                                            "tx-pool message handler panicked: {}",
-                                            panic_payload_to_string(payload.as_ref())
-                                        );
-                                    }
+                                    let mut guard = MessageHandlerGuard::new(
+                                        handler_shutdown,
+                                        handler_failed,
+                                    );
+                                    process(service_clone, message).await;
+                                    guard.complete();
                                 });
                             }
                             None => {
@@ -586,6 +638,13 @@ impl TxPoolServiceBuilder {
                     },
                     _ = signal_receiver.cancelled() => {
                         break
+                    },
+                    _ = supervisor.tick() => {
+                        if !signal_receiver.is_cancelled() && worker_handles.any_finished() {
+                            error!("tx-pool background worker exited unexpectedly; shutting down");
+                            worker_failed = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -610,12 +669,15 @@ impl TxPoolServiceBuilder {
                 .await;
 
             info!("TxPool is quiescing background workers...");
-            let clean_shutdown = worker_handles
+            let workers_clean = worker_handles
                 .quiesce(
                     Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS),
                     &service.relay.effects,
                 )
                 .await;
+            let clean_shutdown = workers_clean
+                && !worker_failed
+                && !handler_failed.load(Ordering::Acquire);
 
             if clean_shutdown {
                 info!("TxPool is saving, please wait...");

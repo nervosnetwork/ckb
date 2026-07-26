@@ -104,13 +104,9 @@ impl TxPoolService {
         // consistent resolved bundle.
         let verification_snapshot = self.pool.tx_pool.read().await.cloned_snapshot();
         if verification_snapshot.tip_hash() != lease.payload.pre_resolve_tip {
-            match self.pipeline.kernel.transition(
-                "stale verify requeue mutation panicked",
-                |coordinator| {
-                    coordinator
-                        .verification_retry_resolution(&lease, std::collections::BTreeSet::new())
-                },
-            ) {
+            match self.pipeline.kernel.mutate_authoritative(|coordinator| {
+                coordinator.verification_retry_resolution(&lease, std::collections::BTreeSet::new())
+            }) {
                 Ok(_) => {}
                 Err(error) if error.is_stale_lease() => {}
                 Err(error) => panic!("stale verify requeue invariant failed: {error:?}"),
@@ -289,12 +285,9 @@ impl TxPoolService {
             }
         };
 
-        match self
-            .pipeline
-            .kernel
-            .transition("verification completion mutation panicked", |coordinator| {
-                coordinator.complete_verify(&lease, verified, charge_bytes, candidate)
-            }) {
+        match self.pipeline.kernel.mutate_authoritative(|coordinator| {
+            coordinator.complete_verify(&lease, verified, charge_bytes, candidate)
+        }) {
             // Eagerly drain the candidate produced by this verify task.
             // The dedicated commit consumer is still the level-triggered
             // liveness path for eligibility created by every other
@@ -342,9 +335,8 @@ impl JobHandler for VerifyHandler {
             .service
             .pipeline
             .kernel
-            .transition("verify checkout mutation panicked", |coordinator| {
-                coordinator.checkout_verify(self.capability)
-            }) {
+            .mutate_authoritative(|coordinator| coordinator.checkout_verify(self.capability))
+        {
             Ok(lease) => lease,
             Err(error) => panic!("verify checkout invariant failed: {error:?}"),
         }

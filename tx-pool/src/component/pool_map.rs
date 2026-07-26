@@ -11,7 +11,7 @@ use crate::component::out_point_index::OutPointIndex;
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 use crate::error::Reject;
-use ckb_logger::{debug, error};
+use ckb_logger::debug;
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::packed::OutPoint;
@@ -175,10 +175,9 @@ pub struct PoolStats {
 }
 
 impl PoolStats {
-    /// Apply one status transition without hiding an impossible underflow or
-    /// overflow. The caller can then rebuild these cached counts from the
-    /// authoritative entry set on the cold invariant-recovery path.
-    fn checked_adjust_status_count(&mut self, remove: Option<Status>, add: Option<Status>) -> bool {
+    /// Apply one prevalidated status transition. A counter failure means the
+    /// derived projection was already inconsistent with accepted ownership.
+    fn adjust_status_count(&mut self, remove: Option<Status>, add: Option<Status>) {
         let mut pending = self.pending_count;
         let mut gap = self.gap_count;
         let mut proposed = self.proposed_count;
@@ -188,10 +187,9 @@ impl PoolStats {
                 Status::Gap => &mut gap,
                 Status::Proposed => &mut proposed,
             };
-            let Some(next) = count.checked_sub(1) else {
-                return false;
-            };
-            *count = next;
+            *count = count
+                .checked_sub(1)
+                .expect("accepted-pool status projection cannot underflow");
         }
         if let Some(status) = add {
             let count = match status {
@@ -199,59 +197,28 @@ impl PoolStats {
                 Status::Gap => &mut gap,
                 Status::Proposed => &mut proposed,
             };
-            let Some(next) = count.checked_add(1) else {
-                return false;
-            };
-            *count = next;
+            *count = count
+                .checked_add(1)
+                .expect("accepted-pool status projection cannot overflow");
         }
         self.pending_count = pending;
         self.gap_count = gap;
         self.proposed_count = proposed;
-        true
     }
 
-    /// Atomically adjust cached total size and cycles for a removed tx.
-    /// If either counter underflows, use `recompute` (precomputed by the caller)
-    /// to recover both counters together and stay consistent.
-    fn adjust_totals(
-        &mut self,
-        tx_size: usize,
-        resident_size: usize,
-        cycles: Cycle,
-        recompute: Option<(usize, usize, Cycle)>,
-        action: &'static str,
-    ) {
-        match (
-            self.total_tx_size.checked_sub(tx_size),
-            self.total_tx_resident_size.checked_sub(resident_size),
-            self.total_tx_cycles.checked_sub(cycles),
-        ) {
-            (Some(size), Some(remaining_resident), Some(remaining_cycles)) => {
-                self.total_tx_size = size;
-                self.total_tx_resident_size = remaining_resident;
-                self.total_tx_cycles = remaining_cycles;
-            }
-            _ => match recompute {
-                Some((recomputed_size, recomputed_resident, recomputed_cycles)) => {
-                    error!(
-                        "tx-pool total stats underflowed when removing size {} resident {} cycles {} in {}, recomputed size {} resident {} cycles {}",
-                        tx_size,
-                        resident_size,
-                        cycles,
-                        action,
-                        recomputed_size,
-                        recomputed_resident,
-                        recomputed_cycles
-                    );
-                    self.total_tx_size = recomputed_size;
-                    self.total_tx_resident_size = recomputed_resident;
-                    self.total_tx_cycles = recomputed_cycles;
-                }
-                None => panic!(
-                    "tx-pool authoritative totals overflowed while repairing an underflow in {action}"
-                ),
-            },
-        }
+    fn remove_totals(&mut self, tx_size: usize, resident_size: usize, cycles: Cycle) {
+        self.total_tx_size = self
+            .total_tx_size
+            .checked_sub(tx_size)
+            .expect("accepted-pool serialized total cannot underflow");
+        self.total_tx_resident_size = self
+            .total_tx_resident_size
+            .checked_sub(resident_size)
+            .expect("accepted-pool resident total cannot underflow");
+        self.total_tx_cycles = self
+            .total_tx_cycles
+            .checked_sub(cycles)
+            .expect("accepted-pool cycle total cannot underflow");
     }
 }
 
@@ -373,12 +340,9 @@ impl PoolMap {
             if !removed.insert(id.clone()) {
                 continue;
             }
-            let entry = self.get_by_id(id).ok_or_else(|| {
-                Reject::Malformed(
-                    "pool".to_string(),
-                    format!("planned RBF victim {id} is missing"),
-                )
-            })?;
+            let entry = self
+                .get_by_id(id)
+                .expect("bounded RBF closure contains only accepted victims");
             removals.push(PlannedRemoval {
                 id: id.clone(),
                 hash: entry.hash.clone(),
@@ -411,17 +375,15 @@ impl PoolMap {
                 .get_by_id(id)
                 .expect("planned mandatory victim remains present")
                 .inner;
-            total_size = total_size.checked_sub(entry.size).ok_or_else(|| {
-                Reject::Malformed("pool".to_string(), "serialized total underflow".to_string())
-            })?;
+            total_size = total_size
+                .checked_sub(entry.size)
+                .expect("accepted serialized total covers every planned victim");
             total_resident = total_resident
                 .checked_sub(entry.resident_size())
-                .ok_or_else(|| {
-                    Reject::Malformed("pool".to_string(), "resident total underflow".to_string())
-                })?;
-            total_cycles = total_cycles.checked_sub(entry.cycles).ok_or_else(|| {
-                Reject::Malformed("pool".to_string(), "cycle total underflow".to_string())
-            })?;
+                .expect("accepted resident total covers every planned victim");
+            total_cycles = total_cycles
+                .checked_sub(entry.cycles)
+                .expect("accepted cycle total covers every planned victim");
         }
         total_size = total_size.checked_add(candidate.size).ok_or_else(|| {
             Reject::Malformed("pool".to_string(), "serialized total overflow".to_string())
@@ -586,7 +548,7 @@ impl PoolMap {
         if ancestors.len() >= self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
-        self.apply_ancestor_weights(entry, &ancestors)?;
+        self.apply_ancestor_weights(entry, &ancestors);
         Ok((parents, ancestors))
     }
 
@@ -1194,25 +1156,13 @@ impl PoolMap {
     /// the pool: it must stay safe to call before all fallible validations
     /// have run, so it never touches `self.links` (see
     /// [`Self::commit_ancestor_links`]).
-    fn apply_ancestor_weights(
-        &self,
-        entry: &mut TxEntry,
-        ancestors: &HashSet<ProposalShortId>,
-    ) -> Result<(), Reject> {
+    fn apply_ancestor_weights(&self, entry: &mut TxEntry, ancestors: &HashSet<ProposalShortId>) {
         for ancestor_id in ancestors {
-            let ancestor = self.get_by_id(ancestor_id).ok_or_else(|| {
-                error!(
-                    "tx-pool internal invariant broken: missing entry for ancestor {}",
-                    ancestor_id
-                );
-                Reject::Malformed(
-                    "pool".to_string(),
-                    format!("inconsistent pool: missing entry for {}", ancestor_id),
-                )
-            })?;
+            let ancestor = self
+                .get_by_id(ancestor_id)
+                .expect("every accepted ancestor link resolves to an entry");
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        Ok(())
     }
 
     /// Commit the ancestor links for an entry that has passed every fallible
@@ -1294,16 +1244,7 @@ impl PoolMap {
     }
 
     fn track_entry_statistics(&mut self, remove: Option<Status>, add: Option<Status>) {
-        if !self.stats.checked_adjust_status_count(remove, add) {
-            let (pending, gap, proposed) = self.recompute_status_counts();
-            error!(
-                "tx-pool status counters drifted during transition {:?} -> {:?}; recomputed pending {} gap {} proposed {}",
-                remove, add, pending, gap, proposed
-            );
-            self.stats.pending_count = pending;
-            self.stats.gap_count = gap;
-            self.stats.proposed_count = proposed;
-        }
+        self.stats.adjust_status_count(remove, add);
         debug_assert_eq!(
             self.stats.pending_count + self.stats.gap_count + self.stats.proposed_count,
             self.entries.len()
@@ -1324,61 +1265,8 @@ impl PoolMap {
         }
     }
 
-    fn recompute_status_counts(&self) -> (usize, usize, usize) {
-        self.entries.iter().fold(
-            (0usize, 0usize, 0usize),
-            |(pending, gap, proposed), (_, entry)| match entry.status {
-                Status::Pending => (pending + 1, gap, proposed),
-                Status::Gap => (pending, gap + 1, proposed),
-                Status::Proposed => (pending, gap, proposed + 1),
-            },
-        )
-    }
-
-    fn recompute_total_stat(&self) -> Option<(usize, usize, Cycle)> {
-        self.entries.iter().try_fold(
-            (0usize, 0usize, 0 as Cycle),
-            |(total_size, total_resident_size, total_cycles), (_, entry)| {
-                Some((
-                    total_size.checked_add(entry.inner.size)?,
-                    total_resident_size.checked_add(entry.inner.resident_size())?,
-                    total_cycles.checked_add(entry.inner.cycles)?,
-                ))
-            },
-        )
-    }
-
-    /// Repair cached totals from the authoritative entries. This is a cold
-    /// invariant-recovery path, never part of ordinary insertion/removal.
-    pub(crate) fn repair_total_statistics(&mut self, action: &'static str) {
-        let (size, resident, cycles) = self
-            .recompute_total_stat()
-            .unwrap_or_else(|| panic!("tx-pool authoritative totals overflowed in {action}"));
-        error!(
-            "tx-pool total counters drifted in {}; recomputed serialized {} resident {} cycles {}",
-            action, size, resident, cycles
-        );
-        self.stats.total_tx_size = size;
-        self.stats.total_tx_resident_size = resident;
-        self.stats.total_tx_cycles = cycles;
-    }
-
     /// Update size and cycles statistics for remove tx.
-    /// Cycles overflow is possible because cycle counts are not always accurate.
     fn update_stat_for_remove_tx(&mut self, tx_size: usize, resident_size: usize, cycles: Cycle) {
-        let needs_recompute = self.stats.total_tx_size.checked_sub(tx_size).is_none()
-            || self
-                .stats
-                .total_tx_resident_size
-                .checked_sub(resident_size)
-                .is_none()
-            || self.stats.total_tx_cycles.checked_sub(cycles).is_none();
-        let recompute = if needs_recompute {
-            self.recompute_total_stat()
-        } else {
-            None
-        };
-        self.stats
-            .adjust_totals(tx_size, resident_size, cycles, recompute, "remove_tx");
+        self.stats.remove_totals(tx_size, resident_size, cycles);
     }
 }

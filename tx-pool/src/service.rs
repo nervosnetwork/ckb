@@ -45,10 +45,8 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::cache::TxVerificationCache;
-use futures_util::FutureExt;
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
-use std::panic::AssertUnwindSafe;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -588,22 +586,9 @@ impl TxPoolService {
                     .filter(|uncle| retained.insert(uncle.clone()))
                     .collect::<Vec<_>>()
             };
-            let full = AssertUnwindSafe(block_assembler.update_full(&self.pool.tx_pool))
-                .catch_unwind()
-                .await;
-            match full {
-                Err(payload) => {
-                    let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
-                    for uncle in &inserted_uncles {
-                        candidate_uncles.remove_by_number(uncle);
-                    }
-                    return Err(format!(
-                        "block assembler update panicked: {}",
-                        crate::util::panic_payload_to_string(payload.as_ref())
-                    ));
-                }
-                Ok(Ok(true)) => self.journal_block_assembler_full_reconcile(),
-                Ok(Ok(false)) => {
+            match block_assembler.update_full(&self.pool.tx_pool).await {
+                Ok(true) => self.journal_block_assembler_full_reconcile(),
+                Ok(false) => {
                     let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
                     for uncle in &inserted_uncles {
                         candidate_uncles.remove_by_number(uncle);
@@ -616,7 +601,7 @@ impl TxPoolService {
                         "block assembler full rebuild observed a tx-pool tip mismatch".to_string(),
                     );
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
                     for uncle in &inserted_uncles {
                         candidate_uncles.remove_by_number(uncle);

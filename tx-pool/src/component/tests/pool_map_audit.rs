@@ -351,7 +351,7 @@ impl PoolMap {
         if ancestors.len() >= self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
-        self.apply_ancestor_weights(entry, &ancestors)?;
+        self.apply_ancestor_weights(entry, &ancestors);
         Ok(parents)
     }
 

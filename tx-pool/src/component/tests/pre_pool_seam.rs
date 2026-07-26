@@ -262,12 +262,10 @@ impl PrePoolKernel {
                     .checked_add(charge)
                     .ok_or_else(|| "conflict audit charge overflow".to_string())?;
             }
-            if entry.source != PrePoolSource::Recovery
-                && matches!(
-                    entry.state,
-                    EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
-                )
-            {
+            if matches!(
+                entry.state,
+                EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
+            ) {
                 active_work = active_work
                     .checked_add(1)
                     .ok_or_else(|| "active audit count overflow".to_string())?;

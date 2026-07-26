@@ -58,15 +58,6 @@ pub struct TxPool {
     /// skipped: a full scan with a store lookup per entry is too expensive
     /// to repeat on every block.
     pub(crate) onchain_reconcile_done: bool,
-    /// One-shot fault injection for the reorg status-transition boundary.
-    /// Production builds have neither the field nor the branch.
-    #[cfg(test)]
-    pub(crate) fail_next_status_transition: bool,
-    /// One-shot panic injection at the final pool commit boundary. Production
-    /// has no corresponding branch; this proves the service-wide fail-close
-    /// guard rather than a coordinator-only unit transition.
-    #[cfg(test)]
-    pub(crate) fail_next_pool_commit_panic: bool,
 }
 
 impl TxPool {
@@ -80,10 +71,6 @@ impl TxPool {
             snapshot,
             expiry,
             onchain_reconcile_done: false,
-            #[cfg(test)]
-            fail_next_status_transition: false,
-            #[cfg(test)]
-            fail_next_pool_commit_panic: false,
         }
     }
 
@@ -356,7 +343,6 @@ impl TxPool {
     ) -> Option<Reject> {
         let mut ret = None;
         let resident_limit = self.config.tx_pool_resident_size_budget();
-        let mut repaired_counters = false;
         while self.pool_map.stats.total_tx_size > self.config.max_tx_pool_size
             || self.pool_map.stats.total_tx_resident_size > resident_limit
         {
@@ -385,18 +371,9 @@ impl TxPool {
                     reject_events.push((entry, reject));
                 }
             } else {
-                // The status index covers every entry, so an empty eviction
-                // scan can only mean cached totals drifted (typically high)
-                // or the multi-index itself is corrupt. Rebuild once from the
-                // authoritative entries. Silently returning over budget would
-                // turn an invariant failure into an attacker-retainable state.
-                assert!(
-                    !repaired_counters,
-                    "tx-pool remains over capacity after authoritative counter repair"
+                panic!(
+                    "accepted-pool totals exceed capacity without an indexed eviction candidate"
                 );
-                self.pool_map
-                    .repair_total_statistics("limit_size_without_candidate");
-                repaired_counters = true;
             }
         }
         ret
@@ -480,21 +457,6 @@ impl TxPool {
         )
         .map(Arc::new)
         .map_err(Reject::Resolve)
-    }
-
-    /// Run the only fallible reorg status hook before snapshot or membership
-    /// mutation. Production status plans are derived and applied under one
-    /// write lock, so a later failure would be an internal invariant rather
-    /// than a retryable transaction outcome.
-    pub(crate) fn preflight_reorg_status_transitions(&mut self) -> Result<(), Reject> {
-        #[cfg(test)]
-        if std::mem::take(&mut self.fail_next_status_transition) {
-            return Err(Reject::Malformed(
-                "injected status transition failure".to_string(),
-                "before reorg mutation".to_string(),
-            ));
-        }
-        Ok(())
     }
 
     pub(crate) fn transition_to_status_required(
@@ -590,11 +552,6 @@ impl TxPool {
         self.snapshot = snapshot;
         self.committed_txs_hash_cache.clear();
         self.onchain_reconcile_done = false;
-        #[cfg(test)]
-        {
-            self.fail_next_status_transition = false;
-            self.fail_next_pool_commit_panic = false;
-        }
         retired
     }
 

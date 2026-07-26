@@ -14,10 +14,7 @@ use ckb_types::packed::ProposalShortId;
 use ckb_types::prelude::Unpack;
 use ckb_util::LinkedHashSet;
 use std::collections::HashSet;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::Arc;
 
 use super::harness::{WorkerSet, harness};
 use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx};
@@ -539,95 +536,4 @@ async fn reorg_leaves_true_pending_proposable() {
     assert_eq!(entry_status(&tx_pool, &id), Status::Pending);
     let proposals = tx_pool.package_proposals(10);
     assert!(proposals.contains(&id));
-}
-
-/// Bug #53: a status-transition failure leaves the entry live in its old
-/// status. The reorg delta must remain unacknowledged (production retries the
-/// retained head), and replaying it must converge with exactly one real status
-/// notification and no false rejection.
-#[tokio::test]
-async fn reorg_status_transition_failure_has_no_false_reject_and_replay_converges() {
-    let mut h = harness(2).workers(WorkerSet::None).build();
-    let live = h.out_points[0].clone();
-
-    let pending_calls = Arc::new(AtomicUsize::new(0));
-    let reject_calls = Arc::new(AtomicUsize::new(0));
-    let mut callbacks = crate::callback::Callbacks::new();
-    let pending_calls_cb = Arc::clone(&pending_calls);
-    let pool_for_callback = Arc::clone(&h.service.pool.tx_pool);
-    callbacks.register_pending(Box::new(move |_| {
-        assert!(
-            pool_for_callback.try_read().is_ok(),
-            "reorg callbacks must publish after the authoritative pool slice"
-        );
-        pending_calls_cb.fetch_add(1, Ordering::SeqCst);
-    }));
-    let reject_calls_cb = Arc::clone(&reject_calls);
-    callbacks.register_reject(Box::new(move |_, _| {
-        reject_calls_cb.fetch_add(1, Ordering::SeqCst);
-    }));
-    h.service.relay.callbacks = Arc::new(callbacks);
-
-    let tx = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
-    let id = tx.proposal_short_id();
-    let (snapshot, original_tip) = {
-        let mut tx_pool = h.service.pool.tx_pool.write().await;
-        let original_tip = tx_pool.snapshot().tip_hash();
-        tx_pool.onchain_reconcile_done = true;
-        tx_pool
-            .pool_map
-            .add_entry(
-                TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE),
-                Status::Gap,
-            )
-            .unwrap();
-        tx_pool.fail_next_status_transition = true;
-        (
-            snapshot_with_proposals(tx_pool.snapshot(), &h.store, HashSet::new(), HashSet::new()),
-            original_tip,
-        )
-    };
-
-    let run = |service: crate::service::TxPoolService, snapshot: Arc<Snapshot>| async move {
-        service
-            .update_tx_pool_for_reorg(
-                Default::default(),
-                Default::default(),
-                HashSet::new(),
-                snapshot,
-            )
-            .await
-    };
-
-    assert!(run(h.service.clone(), Arc::clone(&snapshot)).await.is_err());
-    h.service.relay.effects.wait_idle().await;
-    let (status_after_failure, tip_after_failure) = {
-        let tx_pool = h.service.pool.tx_pool.read().await;
-        (entry_status(&tx_pool, &id), tx_pool.snapshot().tip_hash())
-    };
-    assert_eq!(
-        status_after_failure,
-        Status::Gap,
-        "failed transition must leave the live entry in its old status"
-    );
-    assert_eq!(
-        tip_after_failure, original_tip,
-        "a retryable preflight error must not expose the new snapshot before the reorg slice commits"
-    );
-    assert_eq!(pending_calls.load(Ordering::SeqCst), 0);
-    assert_eq!(reject_calls.load(Ordering::SeqCst), 0);
-
-    run(h.service.clone(), snapshot).await.unwrap();
-    h.service.relay.effects.wait_idle().await;
-    let status_after_replay = {
-        let tx_pool = h.service.pool.tx_pool.read().await;
-        entry_status(&tx_pool, &id)
-    };
-    assert_eq!(
-        status_after_replay,
-        Status::Pending,
-        "replaying the authoritative state must converge"
-    );
-    assert_eq!(pending_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(reject_calls.load(Ordering::SeqCst), 0);
 }

@@ -28,8 +28,8 @@ async fn run_retained_receiver<T, F, Fut>(
 }
 
 #[test]
-fn respawn_backoff_progresses_caps_and_resets() {
-    let mut backoff = RespawnBackoff::new();
+fn retry_backoff_progresses_caps_and_resets() {
+    let mut backoff = RetryBackoff::new();
     let crash = Duration::from_millis(5);
 
     // Consecutive crashes: 100ms, 200ms, 400ms, ...
@@ -72,47 +72,6 @@ async fn retained_message_retries_until_success() {
 
     assert!(completed);
     assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 4);
-}
-
-#[tokio::test]
-async fn second_phase_retry_never_replays_completed_first_phase() {
-    let cancel = CancellationToken::new();
-    let first_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let second_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let first_counter = Arc::clone(&first_attempts);
-    let second_counter = Arc::clone(&second_attempts);
-    let completed = retry_retained_two_phase(
-        "test authoritative phase",
-        "test derived refresh phase",
-        9usize,
-        &cancel,
-        move |item| {
-            let attempts = Arc::clone(&first_counter);
-            async move {
-                assert_eq!(item, 9);
-                attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                // Phase one deliberately returns a smaller authority token;
-                // the original message is not retained through phase two.
-                Ok::<_, &'static str>(item + 1)
-            }
-        },
-        move |item| {
-            let attempts = Arc::clone(&second_counter);
-            async move {
-                assert_eq!(item, 10);
-                if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    Err("injected derived refresh failure")
-                } else {
-                    Ok(())
-                }
-            }
-        },
-    )
-    .await;
-
-    assert!(completed);
-    assert_eq!(first_attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert_eq!(second_attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
 
 /// Persistent failure must be cancel-aware while retaining the item; it
@@ -180,7 +139,7 @@ async fn cancel_during_backoff_exits_immediately() {
 
     // Spawn a task that simulates a worker in backoff sleep.
     let handle = tokio::spawn(async move {
-        let mut backoff = RespawnBackoff::new();
+        let mut backoff = RetryBackoff::new();
         // Simulate a crash to get a non-trivial backoff delay.
         let _ = backoff.delay_for(Duration::from_millis(1));
         let _ = backoff.delay_for(Duration::from_millis(1));

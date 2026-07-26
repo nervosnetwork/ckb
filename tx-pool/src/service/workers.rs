@@ -8,7 +8,7 @@
 use crate::component::pre_pool::WorkLane;
 use crate::service::effects::{EffectClass, EffectJournalError};
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
-use crate::worker::RespawnBackoff;
+use crate::worker::RetryBackoff;
 use ckb_async_runtime::Handle;
 use ckb_logger::{error, info};
 use std::sync::Arc;
@@ -30,7 +30,7 @@ where
     Fut: std::future::Future<Output = Result<(), E>>,
     E: std::fmt::Debug,
 {
-    let mut backoff = RespawnBackoff::new();
+    let mut backoff = RetryBackoff::new();
     loop {
         if cancel.is_cancelled() {
             return false;
@@ -51,72 +51,6 @@ where
             }
         }
     }
-}
-
-/// Output-producing counterpart used only for the first reorg phase. The
-/// successful output is the bounded phase-two authority token; the original
-/// transaction-bearing input is dropped when this function returns.
-async fn retry_retained_output<T, U, E, F, Fut>(
-    worker_name: &'static str,
-    item: T,
-    cancel: &CancellationToken,
-    mut handler: F,
-) -> Option<U>
-where
-    T: Clone,
-    F: FnMut(T) -> Fut,
-    Fut: std::future::Future<Output = Result<U, E>>,
-    E: std::fmt::Debug,
-{
-    let mut backoff = RespawnBackoff::new();
-    loop {
-        if cancel.is_cancelled() {
-            return None;
-        }
-        let started = std::time::Instant::now();
-        match handler(item.clone()).await {
-            Ok(output) => return Some(output),
-            Err(error) => {
-                let delay = backoff.delay_for(started.elapsed());
-                error!(
-                    "{} failed; retaining head message and retrying in {:?}: {:?}",
-                    worker_name, delay, error
-                );
-                tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
-                    _ = cancel.cancelled() => return None,
-                }
-            }
-        }
-    }
-}
-
-/// Retry two ordered phases independently. Once phase one has completed, a
-/// deterministic phase-two failure must never replay it. Reorg uses this to
-/// keep an assembler refresh retry from reapplying an already-committed
-/// TxPool snapshot/membership transition after a concurrent clear.
-async fn retry_retained_two_phase<T, U, E1, E2, F1, Fut1, F2, Fut2>(
-    first_name: &'static str,
-    second_name: &'static str,
-    item: T,
-    cancel: &CancellationToken,
-    mut first: F1,
-    mut second: F2,
-) -> bool
-where
-    T: Clone,
-    F1: FnMut(T) -> Fut1,
-    Fut1: std::future::Future<Output = Result<U, E1>>,
-    E1: std::fmt::Debug,
-    U: Clone,
-    F2: FnMut(U) -> Fut2,
-    Fut2: std::future::Future<Output = Result<(), E2>>,
-    E2: std::fmt::Debug,
-{
-    let Some(phase_two) = retry_retained_output(first_name, item, cancel, &mut first).await else {
-        return false;
-    };
-    retry_retained_message(second_name, phase_two, cancel, &mut second).await
 }
 
 /// The pre-check worker body. Ownership moves queued → active → resolved,
@@ -269,9 +203,8 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 let woke = match service
                     .pipeline
                     .kernel
-                    .transition("wait maintenance mutation panicked", |kernel| {
-                        kernel.drain_wait_wakes(SLICE)
-                    }) {
+                    .mutate_authoritative(|kernel| kernel.drain_wait_wakes(SLICE))
+                {
                     Ok(woke) => woke,
                     Err(error) => panic!("wait maintenance invariant failed: {error:?}"),
                 };
@@ -311,31 +244,34 @@ pub(crate) fn spawn_reorg_handler(
             let Some(item) = item else {
                 break;
             };
-            let first_service = service.clone();
-            let second_service = service.clone();
-            let completed = retry_retained_two_phase(
-                "tx-pool reorg transition",
+            let Notify {
+                arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
+            } = item;
+            // The authoritative phase is a prevalidated, total Apply. It must
+            // never be replayed through a generic error loop: shutdown before
+            // linearization is its only ordinary failure mode.
+            let phase_two = match service
+                .update_tx_pool_for_reorg(
+                    detached_blocks,
+                    attached_blocks,
+                    detached_proposal_id,
+                    snapshot,
+                )
+                .await
+            {
+                Ok(output) => output,
+                Err(EffectJournalError::Closed) => break,
+                Err(error) => panic!("reorg authoritative apply failed: {error:?}"),
+            };
+            // Template publication is derived state. Retain only this bounded
+            // phase-two token across explicit assembler failures; phase one can
+            // no longer be replayed after it has linearized.
+            let completed = retry_retained_message(
                 "block-assembler reorg refresh",
-                item,
+                phase_two,
                 &signal_receiver,
-                move |Notify {
-                          arguments:
-                              (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-                      }| {
-                    let service = first_service.clone();
-                    async move {
-                        service
-                            .update_tx_pool_for_reorg(
-                                detached_blocks,
-                                attached_blocks,
-                                detached_proposal_id,
-                                snapshot,
-                            )
-                            .await
-                    }
-                },
-                move |(candidate_uncles, snapshot)| {
-                    let service = second_service.clone();
+                |(candidate_uncles, snapshot)| {
+                    let service = service.clone();
                     async move {
                         service
                             .refresh_block_assembler_after_tx_pool_reorg(candidate_uncles, snapshot)

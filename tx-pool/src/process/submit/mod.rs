@@ -491,7 +491,7 @@ impl TxPoolService {
                                     let reject = Reject::RBFRejected(
                                         Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
                                     );
-                                    for record in &handoff.retained_conflicts {
+                                    for record in &handoff.superseded {
                                         record
                                             .raw
                                             .authoritative_source(record.source)

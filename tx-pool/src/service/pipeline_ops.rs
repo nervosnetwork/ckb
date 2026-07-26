@@ -109,7 +109,6 @@ impl TxPoolService {
             &mut PrePoolKernel,
             BTreeSet<DependencyKey>,
         ) -> Result<(), PrePoolError>,
-        error_context: &'static str,
     ) -> Option<ParentWaitOutcome> {
         loop {
             let pool = self.pool.tx_pool.read().await;
@@ -121,47 +120,44 @@ impl TxPoolService {
             let outcome: Result<
                 Result<Result<ParentWaitOutcome, PrePoolError>, EffectJournalError>,
                 PrePoolError,
-            > = self
-                .pipeline
-                .kernel
-                .transition(error_context, |coordinator| {
-                    let source = coordinator
-                        .source_by_hash(hash)
-                        .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-                    if !parents.is_empty()
-                        && !matches!(source, PrePoolSource::Remote(_))
-                        && parents
-                            .iter()
-                            .any(|parent| !coordinator.contains_hash(parent))
-                    {
-                        return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
-                    }
-                    let batch = if let PrePoolSource::Remote(peer) = source
-                        && !dependencies.is_empty()
-                    {
-                        EffectBatch::new(vec![TxPoolEffect::Relay(
-                            crate::service::TxVerificationResult::UnknownParents {
-                                peer,
-                                parents: parents.clone(),
-                            },
-                        )])
+            > = self.pipeline.kernel.mutate_authoritative(|coordinator| {
+                let source = coordinator
+                    .source_by_hash(hash)
+                    .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+                if !parents.is_empty()
+                    && !matches!(source, PrePoolSource::Remote(_))
+                    && parents
+                        .iter()
+                        .any(|parent| !coordinator.contains_hash(parent))
+                {
+                    return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
+                }
+                let batch = if let PrePoolSource::Remote(peer) = source
+                    && !dependencies.is_empty()
+                {
+                    EffectBatch::new(vec![TxPoolEffect::Relay(
+                        crate::service::TxVerificationResult::UnknownParents {
+                            peer,
+                            parents: parents.clone(),
+                        },
+                    )])
+                } else {
+                    None
+                };
+                let class = if matches!(source, PrePoolSource::Remote(_)) {
+                    EffectClass::Remote
+                } else {
+                    EffectClass::Trusted
+                };
+                Ok(self.relay.effects.try_apply(batch, class, || {
+                    transition(coordinator, dependencies.clone())?;
+                    Ok(if dependencies.is_empty() {
+                        ParentWaitOutcome::Requeued
                     } else {
-                        None
-                    };
-                    let class = if matches!(source, PrePoolSource::Remote(_)) {
-                        EffectClass::Remote
-                    } else {
-                        EffectClass::Trusted
-                    };
-                    Ok(self.relay.effects.try_apply(batch, class, || {
-                        transition(coordinator, dependencies.clone())?;
-                        Ok(if dependencies.is_empty() {
-                            ParentWaitOutcome::Requeued
-                        } else {
-                            ParentWaitOutcome::Parked
-                        })
-                    }))
-                });
+                        ParentWaitOutcome::Parked
+                    })
+                }))
+            });
             drop(pool);
             match outcome {
                 Ok(Ok(Ok(outcome))) => return Some(outcome),
@@ -172,7 +168,7 @@ impl TxPoolService {
                             crate::component::pre_pool::pre_pool_reject(error),
                         ));
                     }
-                    panic!("{error_context}: pre-pool invariant failed: {error:?}");
+                    panic!("parent-wait settlement invariant failed: {error:?}");
                 }
                 Ok(Err(EffectJournalError::Full)) => {
                     if self
@@ -191,7 +187,9 @@ impl TxPoolService {
                     }
                 }
                 Ok(Err(error)) => {
-                    ckb_logger::error!("{error_context}: effect journal unavailable: {error:?}");
+                    ckb_logger::error!(
+                        "parent-wait settlement effect journal unavailable: {error:?}"
+                    );
                     return Some(ParentWaitOutcome::Rejected(Reject::Full(
                         "effect journal unavailable".to_owned(),
                     )));
@@ -318,18 +316,13 @@ impl TxPoolService {
                 "effect journal unavailable".to_owned(),
             )));
         }
-        self.settle_parent_wait(
-            &lease.hash,
-            dependencies,
-            |coordinator, dependencies| {
-                if dependencies.is_empty() {
-                    coordinator.requeue_resolve(lease).map(|_| ())
-                } else {
-                    coordinator.wait_resolve(lease, dependencies).map(|_| ())
-                }
-            },
-            "current raw lease could not extend parent-wait dependencies",
-        )
+        self.settle_parent_wait(&lease.hash, dependencies, |coordinator, dependencies| {
+            if dependencies.is_empty() {
+                coordinator.requeue_resolve(lease).map(|_| ())
+            } else {
+                coordinator.wait_resolve(lease, dependencies).map(|_| ())
+            }
+        })
         .await
     }
 
@@ -355,16 +348,11 @@ impl TxPoolService {
                 "effect journal unavailable".to_owned(),
             )));
         }
-        self.settle_parent_wait(
-            &lease.hash,
-            dependencies,
-            |coordinator, dependencies| {
-                coordinator
-                    .verification_retry_resolution(lease, dependencies)
-                    .map(|_| ())
-            },
-            "current verify lease could not extend parent-wait dependencies",
-        )
+        self.settle_parent_wait(&lease.hash, dependencies, |coordinator, dependencies| {
+            coordinator
+                .verification_retry_resolution(lease, dependencies)
+                .map(|_| ())
+        })
         .await
     }
 
@@ -391,7 +379,7 @@ impl TxPoolService {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            let mutation = (|| -> Result<_, PrePoolError> {
+            (|| -> Result<_, PrePoolError> {
                 let pool_target = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
                 let (record, removed_entries) = if pool_target {
                     // Compute the exact accepted closure before any mutation.
@@ -463,8 +451,7 @@ impl TxPoolService {
                 };
                 let conflict_removed = false;
                 Ok(Some((record, removed_entries, conflict_removed)))
-            })();
-            mutation
+            })()
         };
         let mutation = match mutation {
             Ok(mutation) => mutation,

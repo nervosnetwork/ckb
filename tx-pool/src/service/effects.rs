@@ -933,29 +933,8 @@ async fn run_effect_publisher_once(queue: Arc<EffectJournal>, endpoints: EffectE
     }
 }
 
-/// Supervise the sole publisher. An unwind releases only the publisher claim;
-/// the active batch remains charged in the stable journal and is resumed from
-/// its per-effect cursor by the replacement loop.
 pub(crate) async fn run_effect_publisher(queue: Arc<EffectJournal>, endpoints: EffectEndpoints) {
-    loop {
-        let result = AssertUnwindSafe(run_effect_publisher_once(
-            Arc::clone(&queue),
-            endpoints.clone(),
-        ))
-        .catch_unwind()
-        .await;
-        match result {
-            Ok(()) if queue.closed_and_empty() => break,
-            Ok(()) => tokio::task::yield_now().await,
-            Err(payload) => {
-                error!(
-                    "restarting tx-pool effect publisher after panic: {}",
-                    crate::util::panic_payload_to_string(payload.as_ref())
-                );
-                tokio::task::yield_now().await;
-            }
-        }
-    }
+    run_effect_publisher_once(queue, endpoints).await;
     info!("tx-pool effect publisher drained and exited");
 }
 

@@ -599,7 +599,7 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn limit_size_repairs_high_counter_drift_before_returning() {
+async fn limit_size_fails_fast_instead_of_masking_counter_drift() {
     use crate::component::tests::harness::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
@@ -610,11 +610,13 @@ async fn limit_size_repairs_high_counter_drift_before_returning() {
     pool.pool_map.stats.total_tx_resident_size = resident_drift;
 
     let mut rejects = Vec::new();
-    assert!(pool.limit_size(None, &mut rejects).is_none());
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pool.limit_size(None, &mut rejects)
+    }));
+    assert!(panicked.is_err());
     assert!(rejects.is_empty());
-    assert_eq!(pool.pool_map.stats.total_tx_size, 0);
-    assert_eq!(pool.pool_map.stats.total_tx_resident_size, 0);
-    assert_eq!(pool.pool_map.stats.total_tx_cycles, 0);
+    assert_eq!(pool.pool_map.stats.total_tx_size, serialized_drift);
+    assert_eq!(pool.pool_map.stats.total_tx_resident_size, resident_drift);
     drop(pool);
     h.cancel.cancel();
 }

@@ -149,12 +149,18 @@ impl FairQueue {
     fn remove_head(&mut self, owner: WorkOwner) {
         if let Some(queue) = self.owners.get(&owner) {
             if let Some(head) = Self::head_for(owner, queue, WorkCapability::Any) {
-                self.heads.remove(&head);
+                assert!(
+                    self.heads.remove(&head),
+                    "runnable head is an exact owner-queue projection"
+                );
             }
             if self.lane == WorkLane::Verify
                 && let Some(head) = Self::head_for(owner, queue, WorkCapability::SmallCycleOnly)
             {
-                self.small_cycle_heads.remove(&head);
+                assert!(
+                    self.small_cycle_heads.remove(&head),
+                    "small-cycle head is an exact owner-queue projection"
+                );
             }
         }
     }
@@ -162,12 +168,18 @@ impl FairQueue {
     fn insert_head(&mut self, owner: WorkOwner) {
         if let Some(queue) = self.owners.get(&owner) {
             if let Some(head) = Self::head_for(owner, queue, WorkCapability::Any) {
-                self.heads.insert(head);
+                assert!(
+                    self.heads.insert(head),
+                    "runnable head is uniquely derived from its owner queue"
+                );
             }
             if self.lane == WorkLane::Verify
                 && let Some(head) = Self::head_for(owner, queue, WorkCapability::SmallCycleOnly)
             {
-                self.small_cycle_heads.insert(head);
+                assert!(
+                    self.small_cycle_heads.insert(head),
+                    "small-cycle head is uniquely derived from its owner queue"
+                );
             }
         }
     }
@@ -178,15 +190,20 @@ impl FairQueue {
             .checked_add(1)
             .ok_or(PrePoolError::VersionExhausted)?;
         let owner = WorkOwner::from(key.source);
+        if self
+            .owners
+            .get(&owner)
+            .is_some_and(|queue| queue.work.contains(&key))
+        {
+            return Err(PrePoolError::Repair("duplicate exact work key"));
+        }
         self.remove_head(owner);
         let queue = self.owners.entry(owner).or_insert_with(|| OwnerQueue {
             runnable: true,
             ..OwnerQueue::default()
         });
-        if !queue.work.insert(key) {
-            self.insert_head(owner);
-            return Err(PrePoolError::Repair("duplicate exact work key"));
-        }
+        let inserted = queue.work.insert(key);
+        debug_assert!(inserted, "work-key presence was prevalidated");
         self.len = next_len;
         self.insert_head(owner);
         Ok(())
@@ -198,16 +215,21 @@ impl FairQueue {
             .checked_sub(1)
             .ok_or(PrePoolError::Repair("work count underflow"))?;
         let owner = WorkOwner::from(key.source);
+        let queue = self
+            .owners
+            .get(&owner)
+            .ok_or(PrePoolError::Repair("work owner missing"))?;
+        if !queue.work.contains(key) {
+            return Err(PrePoolError::Repair("work key missing"));
+        }
         self.remove_head(owner);
         let empty = {
             let queue = self
                 .owners
                 .get_mut(&owner)
-                .ok_or(PrePoolError::Repair("work owner missing"))?;
-            if !queue.work.remove(key) {
-                self.insert_head(owner);
-                return Err(PrePoolError::Repair("work key missing"));
-            }
+                .expect("work owner presence was prevalidated");
+            let removed = queue.work.remove(key);
+            debug_assert!(removed, "work-key presence was prevalidated");
             queue.work.is_empty()
         };
         self.len = next_len;
@@ -254,15 +276,23 @@ impl FairQueue {
             .len
             .checked_sub(1)
             .ok_or(PrePoolError::Repair("work count underflow"))?;
+        let queue = self
+            .owners
+            .get(&head.owner)
+            .ok_or(PrePoolError::Repair("runnable owner missing"))?;
+        if Self::head_for(head.owner, queue, capability).as_ref() != Some(&head) {
+            return Err(PrePoolError::Repair(
+                "runnable head differs from its owner queue",
+            ));
+        }
         self.remove_head(head.owner);
         let empty = {
             let queue = self
                 .owners
                 .get_mut(&head.owner)
-                .ok_or(PrePoolError::Repair("runnable owner missing"))?;
-            if !queue.work.remove(&head.work) {
-                return Err(PrePoolError::Repair("runnable head missing"));
-            }
+                .expect("runnable owner presence was prevalidated");
+            let removed = queue.work.remove(&head.work);
+            debug_assert!(removed, "runnable head presence was prevalidated");
             queue.turn = next_turn;
             queue.work.is_empty()
         };

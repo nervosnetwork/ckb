@@ -706,21 +706,20 @@ fn coexisting_dep_reader_and_spender_update_total_stats() {
 }
 
 #[test]
-fn status_counter_underflow_recomputes_from_authoritative_entries() {
+fn status_counter_underflow_fails_fast_instead_of_masking_corruption() {
     let mut pool = PoolMap::new(10);
     let tx = TransactionBuilder::default().build();
     let id = tx.proposal_short_id();
     let entry = TxEntry::dummy_resolve(tx, 100, Capacity::shannons(100), 200);
     pool.add_entry(entry, Status::Proposed).unwrap();
 
-    // Simulate legacy/corrupt cached metadata. Removal must not use a
-    // saturating decrement and silently leave the status totals plausible.
+    // Simulate corrupt cached metadata. Ordinary inputs never create this
+    // state, so removal must stop at the invariant boundary rather than start
+    // a partial cache-repair protocol.
     pool.stats.proposed_count = 0;
-    assert!(pool.remove_entry(&id).is_some());
-    assert_eq!(pool.stats.pending_count, 0);
-    assert_eq!(pool.stats.gap_count, 0);
-    assert_eq!(pool.stats.proposed_count, 0);
-    assert!(pool.entries.is_empty());
+    let panicked =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pool.remove_entry(&id)));
+    assert!(panicked.is_err());
 }
 
 #[test]

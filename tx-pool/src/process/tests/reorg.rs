@@ -13,7 +13,6 @@ pub(crate) fn update_tx_pool_for_reorg(
     snapshot: Arc<Snapshot>,
     mine_mode: bool,
 ) -> Result<ReorgOutcome, Reject> {
-    tx_pool.preflight_reorg_status_transitions()?;
     let mut outcome = begin_tx_pool_reorg(
         tx_pool,
         attached,

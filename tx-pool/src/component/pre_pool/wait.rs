@@ -44,7 +44,7 @@ impl PrePoolKernel {
         }
     }
 
-    fn observed_dependencies(
+    pub(super) fn observed_dependencies(
         &self,
         keys: impl IntoIterator<Item = DependencyKey>,
     ) -> BTreeMap<DependencyKey, u128> {
@@ -150,6 +150,7 @@ impl PrePoolKernel {
     ) -> Result<(), PrePoolError> {
         let mut unique = BTreeSet::new();
         unique.extend(keys.into_iter().map(DependencyKey::into_compact));
+        let mut planned = Vec::with_capacity(unique.len());
         for key in unique {
             if !self.dirty.contains_key(&key)
                 && self.waiters.get(&key).is_none_or(|edges| edges.is_empty())
@@ -163,6 +164,9 @@ impl PrePoolKernel {
                 .unwrap_or(0)
                 .checked_add(1)
                 .ok_or(PrePoolError::VersionExhausted)?;
+            planned.push((key, epoch));
+        }
+        for (key, epoch) in planned {
             self.availability_epoch.insert(key.clone(), epoch);
             if let Some(dirty) = self.dirty.get_mut(&key) {
                 dirty.pending_epoch = Some(epoch);
@@ -192,10 +196,11 @@ impl PrePoolKernel {
     pub(crate) fn drain_wait_wakes(&mut self, limit: usize) -> Result<usize, PrePoolError> {
         let mut examined = 0;
         while examined < limit {
-            let Some(key) = self.dirty_order.pop_front() else {
+            let Some(key) = self.dirty_order.front().cloned() else {
                 break;
             };
             let Some(dirty) = self.dirty.get(&key).cloned() else {
+                self.dirty_order.pop_front();
                 continue;
             };
             let next = self.waiters.get(&key).and_then(|edges| {
@@ -213,6 +218,7 @@ impl PrePoolKernel {
                 )
             });
             let Some(edge) = next else {
+                self.dirty_order.pop_front();
                 if let Some(pending_epoch) = dirty.pending_epoch {
                     self.dirty.insert(
                         key.clone(),
@@ -233,11 +239,6 @@ impl PrePoolKernel {
             };
 
             examined += 1;
-            if let Some(current) = self.dirty.get_mut(&key) {
-                current.cursor = Some(edge.clone());
-            }
-            self.dirty_order.push_back(key.clone());
-
             let should_wake = self.entries.get(&edge.hash).is_some_and(|entry| {
                 entry.version == edge.version
                     && match &entry.state {
@@ -248,9 +249,28 @@ impl PrePoolKernel {
                         _ => false,
                     }
             });
-            if should_wake {
-                match self.move_to_resolve(&edge.hash, ResolveLane::Ordered) {
-                    Ok(_) => {}
+            let wake_plan = if should_wake {
+                let old = self
+                    .entries
+                    .get(&edge.hash)
+                    .cloned()
+                    .expect("wake edge primary was just validated");
+                let mut next = old;
+                next.version = self.next_version;
+                let next_version = self
+                    .next_version
+                    .checked_add(1)
+                    .ok_or(PrePoolError::VersionExhausted)?;
+                next.state = EntryState::ResolveQueued {
+                    lane: ResolveLane::Ordered,
+                };
+                next.charge_bytes = self.entry_charge(&next)?;
+                match self.plan_cohort(
+                    vec![(edge.hash.clone(), Some(next))],
+                    next_version,
+                    self.next_arrival,
+                ) {
+                    Ok(plan) => Some(plan),
                     Err(error) if error.is_retryable_capacity_rejection() => {
                         return Err(PrePoolError::Repair(
                             "wait wake increased a continuously reserved budget",
@@ -258,6 +278,18 @@ impl PrePoolKernel {
                     }
                     Err(error) => return Err(error),
                 }
+            } else {
+                None
+            };
+
+            let popped = self.dirty_order.pop_front();
+            debug_assert_eq!(popped.as_ref(), Some(&key));
+            if let Some(current) = self.dirty.get_mut(&key) {
+                current.cursor = Some(edge);
+            }
+            self.dirty_order.push_back(key);
+            if let Some(plan) = wake_plan {
+                self.apply_cohort(plan);
             }
         }
         Ok(examined)
@@ -265,28 +297,23 @@ impl PrePoolKernel {
 
     /// Demote resolved/verified consumers immediately to the one resolve
     /// state. No Invalidated location or later terminal cascade exists.
-    pub(crate) fn parents_unavailable(
-        &mut self,
+    pub(super) fn unavailable_replacements(
+        &self,
         parents: &HashSet<Byte32>,
-    ) -> Result<(), PrePoolError> {
+        version_cursor: &mut EntryVersion,
+    ) -> Result<Vec<(Byte32, Entry)>, PrePoolError> {
         let mut affected = BTreeSet::new();
         for parent in parents {
             if let Some(children) = self.by_parent.get(parent) {
                 affected.extend(children.iter().cloned());
             }
         }
+        let mut replacements = Vec::with_capacity(affected.len());
         for hash in affected {
-            let Some(entry) = self.entries.get(&hash) else {
+            let Some(entry) = self.entries.get(&hash).cloned() else {
                 continue;
             };
-            // A recovery owner has not derived any reusable resolved state;
-            // its dedicated direct lease will validate against the new
-            // overlay. Moving it into the ordinary waiter/worker scheduler
-            // would create a second recovery protocol and active-work class.
-            if entry.source == PrePoolSource::Recovery {
-                continue;
-            }
-            let mut keys = Self::causal_keys(entry)
+            let mut keys = Self::causal_keys(&entry)
                 .into_iter()
                 .filter(|key| parents.contains(&key.parent_hash()))
                 .collect::<BTreeSet<_>>();
@@ -298,8 +325,35 @@ impl PrePoolKernel {
             if let EntryState::Wait(wait) = &entry.state {
                 keys.extend(wait.observed.keys().cloned());
             }
-            self.move_to_wait(&hash, WaitReason::Missing, keys, None)?;
+            let version = *version_cursor;
+            *version_cursor = version_cursor
+                .checked_add(1)
+                .ok_or(PrePoolError::VersionExhausted)?;
+            let mut next = entry;
+            next.version = version;
+            next.dependencies.extend(keys.iter().cloned());
+            next.state = EntryState::Wait(WaitState {
+                reason: WaitReason::Missing,
+                observed: self.observed_dependencies(keys),
+            });
+            next.charge_bytes = self.entry_charge(&next)?;
+            replacements.push((hash, next));
         }
+        Ok(replacements)
+    }
+
+    pub(crate) fn parents_unavailable(
+        &mut self,
+        parents: &HashSet<Byte32>,
+    ) -> Result<(), PrePoolError> {
+        let mut version_cursor = self.next_version;
+        let desired = self
+            .unavailable_replacements(parents, &mut version_cursor)?
+            .into_iter()
+            .map(|(hash, entry)| (hash, Some(entry)))
+            .collect();
+        let plan = self.plan_cohort(desired, version_cursor, self.next_arrival)?;
+        self.apply_cohort(plan);
         Ok(())
     }
 

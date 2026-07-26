@@ -43,8 +43,8 @@ impl PrePoolKernel {
     ///
     /// Planning touches only the incoming cohort and its exact existing
     /// owners. Every fallible identity, graph, clock and budget predicate is
-    /// checked before the first primary/index mutation. The returned session
-    /// is the sole completion barrier; the reorg handler retains no payload.
+    /// checked before the first primary/index mutation. Recovery then uses the
+    /// same ordered-resolve worker protocol as every other source.
     pub(crate) fn retain_recovery_batch(
         &mut self,
         txs: Vec<TransactionView>,
@@ -56,7 +56,6 @@ impl PrePoolKernel {
 
         let retained = txs.len();
         let mut hashes = HashSet::with_capacity(retained);
-        let mut short_ids = HashMap::with_capacity(retained);
         let mut version_cursor = self.next_version;
         let mut arrival_cursor = self.next_arrival;
         let mut planned = Vec::with_capacity(retained);
@@ -67,14 +66,6 @@ impl PrePoolKernel {
                 continue;
             }
             let short_id = crate::util::compact_packed(&tx.proposal_short_id());
-            if let Some(existing_hash) = short_ids.insert(short_id.clone(), hash.clone())
-                && existing_hash != hash
-            {
-                return Err(PrePoolError::ShortIdCollision {
-                    short_id,
-                    existing_hash,
-                });
-            }
             let old = self.entries.get(&hash).cloned();
             let version = version_cursor;
             version_cursor = version_cursor
@@ -110,163 +101,12 @@ impl PrePoolKernel {
             };
             next.payload_charge_bytes = next.raw.charge_bytes();
             next.charge_bytes = self.entry_charge(&next)?;
-            self.validate_entry_shape(&hash, &next)?;
-            planned.push((hash, old, next));
+            planned.push((hash, Some(next)));
         }
-
-        let planned_hashes = planned
-            .iter()
-            .map(|(hash, _, _)| hash.clone())
-            .collect::<HashSet<_>>();
-        for (hash, _, next) in &planned {
-            if let Some(existing_hash) = self.by_short_id.get(&next.short_id)
-                && existing_hash != hash
-                && !planned_hashes.contains(existing_hash)
-            {
-                return Err(PrePoolError::ShortIdCollision {
-                    short_id: next.short_id.clone(),
-                    existing_hash: existing_hash.clone(),
-                });
-            }
-        }
-
-        // Validate the aggregate parent projection. Per-entry validation is
-        // insufficient when several new children name the same parent.
-        let mut parent_counts = HashMap::<Byte32, usize>::new();
-        for (_, old, next) in &planned {
-            for parent in old
-                .iter()
-                .flat_map(|entry| entry.dependencies.iter())
-                .map(DependencyKey::parent_hash)
-                .collect::<BTreeSet<_>>()
-            {
-                let count = parent_counts
-                    .entry(parent.clone())
-                    .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
-                *count = count
-                    .checked_sub(1)
-                    .ok_or(PrePoolError::Repair("recovery parent projection underflow"))?;
-            }
-            for parent in next
-                .dependencies
-                .iter()
-                .map(DependencyKey::parent_hash)
-                .collect::<BTreeSet<_>>()
-            {
-                let count = parent_counts
-                    .entry(parent.clone())
-                    .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
-                *count = count
-                    .checked_add(1)
-                    .ok_or(PrePoolError::ResidencyChargeOverflow)?;
-                if *count > self.limits.max_dependents_per_parent {
-                    return Err(PrePoolError::ParentFanoutLimitExceeded(parent));
-                }
-            }
-        }
-
-        let removed = planned
-            .iter()
-            .try_fold(Residency::default(), |usage, (_, old, _)| {
-                old.as_ref().map_or(Ok(usage), |entry| {
-                    usage
-                        .checked_add(Residency::new(1, entry.charge_bytes))
-                        .ok_or(PrePoolError::ResidencyChargeOverflow)
-                })
-            })?;
-        let added = planned
-            .iter()
-            .try_fold(Residency::default(), |usage, (_, _, next)| {
-                usage
-                    .checked_add(Residency::new(1, next.charge_bytes))
-                    .ok_or(PrePoolError::ResidencyChargeOverflow)
-            })?;
-        let final_total = self
-            .total_usage
-            .checked_sub(removed)
-            .and_then(|usage| usage.checked_add(added))
-            .ok_or(PrePoolError::Repair("recovery total usage arithmetic"))?;
-        if !final_total.fits(self.limits.total) {
-            return Err(PrePoolError::TotalBudgetExceeded);
-        }
-
-        // Recovery owners are trusted and non-conflict. Replacing an old
-        // remote/conflict owner can only reduce those sub-partitions, but the
-        // exact subtraction still proves the current primary/index equation.
-        let removed_remote =
-            planned
-                .iter()
-                .try_fold(Residency::default(), |usage, (_, old, _)| {
-                    old.as_ref()
-                        .filter(|entry| entry.source.peer().is_some())
-                        .map_or(Ok(usage), |entry| {
-                            usage
-                                .checked_add(Residency::new(1, entry.charge_bytes))
-                                .ok_or(PrePoolError::ResidencyChargeOverflow)
-                        })
-                })?;
-        self.remote_usage
-            .checked_sub(removed_remote)
-            .ok_or(PrePoolError::Repair("recovery remote usage arithmetic"))?;
-        let removed_conflict =
-            planned
-                .iter()
-                .try_fold(Residency::default(), |usage, (_, old, _)| {
-                    old.as_ref()
-                        .filter(|entry| Self::is_conflict(entry))
-                        .map_or(Ok(usage), |entry| {
-                            usage
-                                .checked_add(Residency::new(1, entry.charge_bytes))
-                                .ok_or(PrePoolError::ResidencyChargeOverflow)
-                        })
-                })?;
-        self.conflict_usage
-            .checked_sub(removed_conflict)
-            .ok_or(PrePoolError::Repair("recovery conflict usage arithmetic"))?;
-        let active_removals = planned
-            .iter()
-            .filter_map(|(_, old, _)| {
-                old.as_ref()
-                    .and_then(|entry| Self::active_owner(entry.source, &entry.state))
-            })
-            .collect::<Vec<_>>();
-        self.active_work
-            .checked_sub(active_removals.len())
-            .ok_or(PrePoolError::Repair("recovery active work projection"))?;
-        let mut removal_counts = HashMap::<WorkOwner, usize>::new();
-        for owner in &active_removals {
-            let count = removal_counts.entry(*owner).or_default();
-            *count = count
-                .checked_add(1)
-                .ok_or(PrePoolError::Repair("recovery active owner projection"))?;
-        }
-        for (owner, removed) in removal_counts {
-            self.active_by_owner
-                .get(&owner)
-                .copied()
-                .ok_or(PrePoolError::Repair("recovery active owner missing"))?
-                .checked_sub(removed)
-                .ok_or(PrePoolError::Repair("recovery active owner projection"))?;
-        }
-
-        // Total Apply: all fallible cohort predicates above precede mutation.
-        for (hash, old, _) in &planned {
-            if let Some(old) = old {
-                let active = Self::active_owner(old.source, &old.state);
-                self.detach_indexes(hash, old);
-                self.apply_prevalidated_usage_delta(Some(old), None);
-                self.entries.remove(hash);
-                self.apply_prevalidated_active_transition(active, None);
-            }
-        }
-        for (hash, _, next) in &planned {
-            self.apply_prevalidated_usage_delta(None, Some(next));
-            self.entries.insert(hash.clone(), next.clone());
-            self.attach_indexes(hash, next);
-        }
-        self.next_version = version_cursor;
-        self.next_arrival = arrival_cursor;
-        Ok(planned.len())
+        let retained = planned.len();
+        let plan = self.plan_cohort(planned, version_cursor, arrival_cursor)?;
+        self.apply_cohort(plan);
+        Ok(retained)
     }
 
     pub(crate) fn recovery_snapshot(&self) -> Vec<TransactionView> {

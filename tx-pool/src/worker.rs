@@ -17,12 +17,12 @@ use tokio::sync::{Notify, watch};
 
 use crate::util::panic_payload_to_string;
 
-/// Bounded exponential delay shared by every retained worker restart loop.
-pub(crate) struct RespawnBackoff {
+/// Bounded exponential delay for explicitly retryable retained work.
+pub(crate) struct RetryBackoff {
     failures: u32,
 }
 
-impl RespawnBackoff {
+impl RetryBackoff {
     const BASE: Duration = Duration::from_millis(100);
     const MAX: Duration = Duration::from_secs(30);
     const HEALTHY_RUN: Duration = Duration::from_secs(60);

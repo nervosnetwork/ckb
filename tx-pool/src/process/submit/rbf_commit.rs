@@ -292,10 +292,6 @@ impl TxPoolService {
         plan: PoolMutationPlan,
         fx: &mut SubmitSideEffects,
     ) {
-        #[cfg(test)]
-        if std::mem::take(&mut tx_pool.fail_next_pool_commit_panic) {
-            panic!("injected authoritative pool commit panic");
-        }
         let AppliedPoolMutation { removals } = tx_pool.pool_map.apply_mutation(plan);
         for applied in removals {
             let reject = match applied.cause {

@@ -220,14 +220,6 @@ impl PrePool {
         result
     }
 
-    pub(crate) fn transition<T>(
-        &self,
-        _context: &'static str,
-        apply: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> Result<T, PrePoolError> {
-        self.mutate_authoritative(apply)
-    }
-
     pub(crate) fn mutate_required<T>(
         &self,
         context: &'static str,
@@ -309,7 +301,7 @@ impl PrePool {
     ) -> Result<bool, PrePoolError> {
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
-        self.transition("pre-pool admission mutation panicked", |kernel| {
+        self.mutate_authoritative(|kernel| {
             if let Some(existing) = kernel.entries.get(&hash).cloned() {
                 return match source {
                     TxSource::Local => Err(PrePoolError::LocalMustRunDirect),
@@ -349,9 +341,7 @@ impl PrePool {
         &self,
         lane: ResolveLane,
     ) -> Result<Option<ResolveLease>, PrePoolError> {
-        self.transition("resolve checkout mutation panicked", |state| {
-            state.checkout_resolve(lane)
-        })
+        self.mutate_authoritative(|state| state.checkout_resolve(lane))
     }
 
     pub(crate) fn recovery_snapshot(&self) -> Vec<TransactionView> {

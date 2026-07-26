@@ -442,9 +442,11 @@ pub(crate) struct TerminalRecord {
 #[derive(Clone, Debug)]
 pub(crate) struct CommitSettlement {
     pub(crate) winner: TerminalRecord,
-    /// Conflict owners moved to Wait. These records describe the public
-    /// superseded outcome; they do not transfer payload ownership.
-    pub(crate) retained_conflicts: Vec<TerminalRecord>,
+    /// Conflict owners superseded by the winner. They normally remain as
+    /// bounded conflict history, but are terminalized when that optional
+    /// partition is full. These records describe the public outcome; they do
+    /// not transfer payload ownership.
+    pub(crate) superseded: Vec<TerminalRecord>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -855,17 +857,6 @@ impl PrePoolKernel {
                 self.peer_usage.insert(peer, usage);
             }
         }
-    }
-
-    pub(in crate::component::pre_pool) fn apply_prevalidated_usage_delta(
-        &mut self,
-        old: Option<&Entry>,
-        new: Option<&Entry>,
-    ) {
-        let plan = self
-            .plan_usage_delta(old, new)
-            .expect("aggregate plan prevalidated every usage delta");
-        self.apply_usage_plan(plan);
     }
 
     pub(crate) fn peer_hashes(&self, peer: PeerIndex, max: usize) -> Vec<Byte32> {
