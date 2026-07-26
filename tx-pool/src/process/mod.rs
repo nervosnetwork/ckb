@@ -539,9 +539,7 @@ impl TxPoolService {
                         let externally_committed = kernel
                             .external_commits_with_unavailable_parents(&committed, &unavailable)
                             .expect("planned reorg pre-pool membership update");
-                        kernel
-                            .note_available(available_dependencies)
-                            .expect("planned reorg availability update");
+                        kernel.note_available(available_dependencies);
                         let mut effects = Vec::new();
                         if publish_detail {
                             for (entry, reject) in &outcome.reject_events {

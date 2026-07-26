@@ -188,15 +188,15 @@ impl FairQueue {
         let next_len = self
             .len
             .checked_add(1)
-            .ok_or(PrePoolError::VersionExhausted)?;
+            .expect("queue length must fit usize under the residency budget");
         let owner = WorkOwner::from(key.source);
-        if self
-            .owners
-            .get(&owner)
-            .is_some_and(|queue| queue.work.contains(&key))
-        {
-            return Err(PrePoolError::Repair("duplicate exact work key"));
-        }
+        assert!(
+            !self
+                .owners
+                .get(&owner)
+                .is_some_and(|queue| queue.work.contains(&key)),
+            "an exact work key may have only one queue owner"
+        );
         self.remove_head(owner);
         let queue = self.owners.entry(owner).or_insert_with(|| OwnerQueue {
             runnable: true,
@@ -213,15 +213,16 @@ impl FairQueue {
         let next_len = self
             .len
             .checked_sub(1)
-            .ok_or(PrePoolError::Repair("work count underflow"))?;
+            .expect("work count must cover every queue key");
         let owner = WorkOwner::from(key.source);
         let queue = self
             .owners
             .get(&owner)
-            .ok_or(PrePoolError::Repair("work owner missing"))?;
-        if !queue.work.contains(key) {
-            return Err(PrePoolError::Repair("work key missing"));
-        }
+            .expect("every work key must have an owner queue");
+        assert!(
+            queue.work.contains(key),
+            "the work owner queue must contain its exact key"
+        );
         self.remove_head(owner);
         let empty = {
             let queue = self
@@ -271,20 +272,20 @@ impl FairQueue {
         let next_turn = self
             .next_turn
             .checked_add(1)
-            .ok_or(PrePoolError::VersionExhausted)?;
+            .expect("u128 queue turn must not exhaust during process lifetime");
         let next_len = self
             .len
             .checked_sub(1)
-            .ok_or(PrePoolError::Repair("work count underflow"))?;
+            .expect("work count must cover every runnable head");
         let queue = self
             .owners
             .get(&head.owner)
-            .ok_or(PrePoolError::Repair("runnable owner missing"))?;
-        if Self::head_for(head.owner, queue, capability).as_ref() != Some(&head) {
-            return Err(PrePoolError::Repair(
-                "runnable head differs from its owner queue",
-            ));
-        }
+            .expect("every runnable head must have an owner queue");
+        assert_eq!(
+            Self::head_for(head.owner, queue, capability).as_ref(),
+            Some(&head),
+            "runnable head must be derived from its owner queue"
+        );
         self.remove_head(head.owner);
         let empty = {
             let queue = self

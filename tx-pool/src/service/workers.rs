@@ -8,50 +8,12 @@
 use crate::component::pre_pool::WorkLane;
 use crate::service::effects::{EffectClass, EffectJournalError};
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
-use crate::worker::RetryBackoff;
 use ckb_async_runtime::Handle;
-use ckb_logger::{error, info};
+use ckb_logger::info;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-
-/// Retain one ordered state-transition message across explicit retryable
-/// errors.  Panics are invariant failures, not a transport for retry control.
-async fn retry_retained_message<T, E, F, Fut>(
-    worker_name: &'static str,
-    item: T,
-    cancel: &CancellationToken,
-    mut handler: F,
-) -> bool
-where
-    T: Clone,
-    F: FnMut(T) -> Fut,
-    Fut: std::future::Future<Output = Result<(), E>>,
-    E: std::fmt::Debug,
-{
-    let mut backoff = RetryBackoff::new();
-    loop {
-        if cancel.is_cancelled() {
-            return false;
-        }
-        let started = std::time::Instant::now();
-        match handler(item.clone()).await {
-            Ok(()) => return true,
-            Err(error) => {
-                let delay = backoff.delay_for(started.elapsed());
-                error!(
-                    "{} failed; retaining head message and retrying in {:?}: {:?}",
-                    worker_name, delay, error
-                );
-                tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
-                    _ = cancel.cancelled() => return false,
-                }
-            }
-        }
-    }
-}
 
 /// The pre-check worker body. Ownership moves queued → active → resolved,
 /// waiting, or terminal entirely inside the coordinator; there is no trailing
@@ -227,14 +189,10 @@ pub(crate) fn spawn_reorg_handler(
     signal_receiver: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     handle.spawn(async move {
-        // Reorg deltas are ordered state transitions. Keep the received head
-        // message until it succeeds; receiving the next delta first would let
-        // a panic create a permanent tip/pool mismatch. Authoritative updates
-        // are convergence-idempotent: repeated removals/status transitions are
-        // no-ops, retained transactions re-add independently, fee-estimator
-        // commits ignore an already-seen height, and template updates rebuild
-        // from the current snapshot. User callbacks contain their own panics,
-        // so external side effects cannot trap this retry loop.
+        // Reorg deltas are ordered authoritative transitions. Each TxPool/
+        // kernel Apply executes exactly once. Template refresh is derived,
+        // level-triggered state and must never retain this channel head: a
+        // deterministic cellbase/template error cannot block later chain tips.
         let mut reorg_receiver = reorg_receiver;
         loop {
             let item = tokio::select! {
@@ -263,26 +221,9 @@ pub(crate) fn spawn_reorg_handler(
                 Err(EffectJournalError::Closed) => break,
                 Err(error) => panic!("reorg authoritative apply failed: {error:?}"),
             };
-            // Template publication is derived state. Retain only this bounded
-            // phase-two token across explicit assembler failures; phase one can
-            // no longer be replayed after it has linearized.
-            let completed = retry_retained_message(
-                "block-assembler reorg refresh",
-                phase_two,
-                &signal_receiver,
-                |(candidate_uncles, snapshot)| {
-                    let service = service.clone();
-                    async move {
-                        service
-                            .refresh_block_assembler_after_tx_pool_reorg(candidate_uncles, snapshot)
-                            .await
-                    }
-                },
-            )
-            .await;
-            if !completed {
-                break;
-            }
+            service
+                .refresh_block_assembler_after_tx_pool_reorg(phase_two.0, phase_two.1)
+                .await;
         }
         if signal_receiver.is_cancelled() {
             info!("TxPool reorg process service received exit signal, exit now");
@@ -321,7 +262,3 @@ pub(crate) fn spawn_verify_cache_worker(
         info!("verify-cache worker exited (channel closed)");
     })
 }
-
-#[cfg(test)]
-#[path = "tests/workers.rs"]
-mod tests;

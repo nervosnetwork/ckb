@@ -68,7 +68,7 @@ fn admit(
     lane: ResolveLane,
     expires_at: Option<u64>,
 ) -> Result<EntryVersion, PrePoolError> {
-    let owner = pre_pool_source(source)?;
+    let owner = pre_pool_source(source);
     let raw = PipelineRawTx::new(tx.clone(), source, 1);
     kernel.admit(
         tx.hash(),
@@ -390,8 +390,8 @@ fn repeated_dependency_epochs_are_level_triggered_and_bounded() {
     kernel
         .wait_resolve(&lease, BTreeSet::from([key.clone()]))
         .unwrap();
-    kernel.note_available([key.clone()]).unwrap();
-    kernel.note_available([key]).unwrap();
+    kernel.note_available([key.clone()]);
+    kernel.note_available([key]);
     for _ in 0..8 {
         if !kernel.wait_wake_pending() {
             break;
@@ -411,13 +411,11 @@ fn repeated_dependency_epochs_are_level_triggered_and_bounded() {
 #[test]
 fn availability_without_a_wait_owner_retains_no_epoch_history() {
     let mut kernel = PrePoolKernel::new(limits());
-    kernel
-        .note_available((0u16..10_000).map(|tag| {
-            let mut bytes = [0u8; 32];
-            bytes[..2].copy_from_slice(&tag.to_le_bytes());
-            DependencyKey::Cell(OutPoint::new(Byte32::new(bytes), 0))
-        }))
-        .unwrap();
+    kernel.note_available((0u16..10_000).map(|tag| {
+        let mut bytes = [0u8; 32];
+        bytes[..2].copy_from_slice(&tag.to_le_bytes());
+        DependencyKey::Cell(OutPoint::new(Byte32::new(bytes), 0))
+    }));
     assert_eq!(kernel.dependency_epoch_len(), 0);
     assert!(!kernel.wait_wake_pending());
     kernel.audit().unwrap();
@@ -821,6 +819,42 @@ fn multi_input_conflict_union_uses_the_product_bound() {
 }
 
 #[test]
+fn commit_ticket_remains_valid_when_a_higher_rank_arrives() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let selected = transaction(0xd1);
+    let ticket = stage_ready(
+        &mut kernel,
+        selected.clone(),
+        TxSource::Proposal,
+        None,
+        1_000,
+    );
+    let later = transaction(0xd2);
+    stage_ready(
+        &mut kernel,
+        later.clone(),
+        TxSource::Proposal,
+        None,
+        100_000,
+    );
+    assert_eq!(
+        kernel.begin_next_commit().unwrap().unwrap().hash,
+        later.hash(),
+        "the later candidate becomes the next scheduling head"
+    );
+
+    let settlement = kernel
+        .commit_any_handoff_with_unavailable_parents(&ticket, &HashSet::new())
+        .expect("the already selected exact owner remains a valid ticket");
+    assert_eq!(settlement.winner.hash, selected.hash());
+    assert_eq!(
+        kernel.view(&later.hash()).unwrap().location,
+        PrePoolLocation::Ready
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
 fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
     let mut constrained = limits();
     constrained.conflict_history = Residency::default();
@@ -887,7 +921,7 @@ fn remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry() {
         Err(PrePoolError::RemoteBudgetExceeded)
     ));
 
-    kernel.note_available([key]).unwrap();
+    kernel.note_available([key]);
     assert_eq!(kernel.drain_wait_wakes(8).unwrap(), 1);
     assert!(!kernel.wait_wake_pending());
     assert_eq!(
@@ -1102,7 +1136,7 @@ fn randomized_public_transitions_always_match_full_rebuild() {
             }
             4 => {
                 let key = DependencyKey::Cell(OutPoint::new(tx.hash(), 0));
-                let _ = kernel.note_available([key]);
+                kernel.note_available([key]);
                 let _ = kernel.drain_wait_wakes(4);
             }
             _ => {

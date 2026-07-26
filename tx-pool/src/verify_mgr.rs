@@ -80,10 +80,7 @@ impl TxPoolService {
         let Some((current_source, raw)) = authority else {
             return;
         };
-        let source = match raw.authoritative_source(current_source) {
-            Ok(source) => source,
-            Err(error) => panic!("verify lease source attribution invariant failed: {error:?}"),
-        };
+        let source = raw.authoritative_source(current_source);
         let epoch = raw.admitted_epoch;
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_verify_failure(
@@ -153,17 +150,8 @@ impl TxPoolService {
                             .filter(|source| !matches!(source, PrePoolSource::Remote(_)))
                             .zip(coordinator.raw_by_hash(&lease.hash))
                     });
-                    match authority {
-                        Some((promoted_source, raw)) => {
-                            match raw.authoritative_source(promoted_source) {
-                                Ok(source) => Some(source),
-                                Err(error) => panic!(
-                                    "promoted verify source attribution invariant failed: {error:?}"
-                                ),
-                            }
-                        }
-                        None => None,
-                    }
+                    authority
+                        .map(|(promoted_source, raw)| raw.authoritative_source(promoted_source))
                 } else {
                     None
                 };
@@ -222,10 +210,7 @@ impl TxPoolService {
         let Some((current_source, raw)) = final_authority else {
             return;
         };
-        let final_source = match raw.authoritative_source(current_source) {
-            Ok(source) => source,
-            Err(error) => panic!("completed verify source attribution invariant failed: {error:?}"),
-        };
+        let final_source = raw.authoritative_source(current_source);
         verified.candidate.source = final_source;
 
         let entry = TxEntry::new_with_resident_size(

@@ -418,10 +418,9 @@ impl TxPoolService {
                     let released_inputs = tx_pool.released_inputs_from_removed_entries(&removed);
                     let available_dependencies =
                         available_cell_dependencies(&tx_pool, released_inputs);
-                    self.pipeline.kernel.mutate_required(
-                        "administrative removal availability update failed",
-                        |kernel| kernel.note_available(available_dependencies),
-                    );
+                    self.pipeline.kernel.mutate_authoritative(|kernel| {
+                        kernel.note_available(available_dependencies)
+                    });
                     for status in removal_statuses {
                         self.journal_block_assembler_update(status);
                     }

@@ -32,7 +32,7 @@ impl PrePoolKernel {
             let version = version_cursor;
             version_cursor = version_cursor
                 .checked_add(1)
-                .ok_or(PrePoolError::VersionExhausted)?;
+                .expect("u128 entry version must not exhaust during process lifetime");
             let mut next = entry;
             next.version = version;
             next.state = EntryState::Wait(WaitState {
@@ -54,20 +54,19 @@ impl PrePoolKernel {
             .entries
             .get(&rank.hash)
             .ok_or_else(|| PrePoolError::Missing(rank.hash.clone()))?;
-        if entry.version != rank.version {
-            return Err(PrePoolError::Repair("ready rank version drift"));
-        }
+        assert_eq!(
+            entry.version, rank.version,
+            "ready rank version must match its primary"
+        );
         let EntryState::Ready {
             payload,
             rank: current,
             ..
         } = &entry.state
         else {
-            return Err(PrePoolError::Repair("ready rank points to non-ready entry"));
+            panic!("ready rank must point to a Ready primary");
         };
-        if current != &rank {
-            return Err(PrePoolError::Repair("ready primary rank drift"));
-        }
+        assert_eq!(current, &rank, "ready rank must match its primary");
         Ok(Some(CommitTicket {
             hash: rank.hash.clone(),
             version: rank.version,
@@ -81,7 +80,11 @@ impl PrePoolKernel {
         let EntryState::Ready { rank, .. } = &entry.state else {
             unreachable!();
         };
-        if rank != &ticket.rank || self.ready.last() != Some(rank) {
+        // The commit driver is serialized, but verification can publish a
+        // higher-ranked Ready owner while the selected ticket waits for the
+        // TxPool write boundary. That does not invalidate this exact owner:
+        // the later candidate remains Ready for the next driver iteration.
+        if rank != &ticket.rank {
             return Err(PrePoolError::Stale {
                 hash: ticket.hash.clone(),
                 expected: ticket.version,
@@ -127,11 +130,10 @@ impl PrePoolKernel {
             if let Some(candidates) = self.ready_by_input.get(input) {
                 for rank in candidates.iter().filter(|rank| rank.hash != ticket.hash) {
                     losers.insert(rank.hash.clone());
-                    if losers.len() > max_losers {
-                        return Err(PrePoolError::Repair(
-                            "ready conflict union exceeds configured bound",
-                        ));
-                    }
+                    assert!(
+                        losers.len() <= max_losers,
+                        "ready conflict union must fit the input/candidate product bound"
+                    );
                 }
             }
         }

@@ -41,11 +41,10 @@ impl PrePoolKernel {
     }
 
     fn validate_entry_intrinsic(&self, hash: &Byte32, entry: &Entry) -> Result<(), PrePoolError> {
-        if entry.raw.tx.hash() != *hash || entry.raw.tx.proposal_short_id() != entry.short_id {
-            return Err(PrePoolError::Repair(
-                "primary identity differs from retained transaction",
-            ));
-        }
+        assert!(
+            entry.raw.tx.hash() == *hash && entry.raw.tx.proposal_short_id() == entry.short_id,
+            "primary identity must match its retained transaction"
+        );
         if entry
             .dependencies
             .iter()
@@ -56,45 +55,37 @@ impl PrePoolKernel {
         if entry.dependencies.len() > self.limits.max_dependencies_per_entry {
             return Err(PrePoolError::DependencyLimitExceeded);
         }
-        if let EntryState::Wait(wait) = &entry.state
-            && wait.observed.is_empty()
-        {
-            return Err(PrePoolError::Repair("wait owner has no dependency key"));
-        }
+        assert!(
+            !matches!(&entry.state, EntryState::Wait(wait) if wait.observed.is_empty()),
+            "wait owner must have a dependency key"
+        );
         if let EntryState::Wait(wait) = &entry.state
             && wait.observed.len() > self.limits.max_dependencies_per_entry
         {
             return Err(PrePoolError::DependencyLimitExceeded);
         }
-        if let EntryState::Wait(wait) = &entry.state
-            && wait
-                .observed
-                .keys()
-                .any(|key| !entry.dependencies.contains(key))
-        {
-            return Err(PrePoolError::Repair(
-                "wait dependency key has no canonical parent",
-            ));
-        }
+        assert!(
+            !matches!(&entry.state, EntryState::Wait(wait)
+                if wait.observed.keys().any(|key| !entry.dependencies.contains(key))),
+            "every wait dependency must have a canonical primary edge"
+        );
         if let EntryState::Ready { inputs, rank, .. } = &entry.state {
             if inputs.is_empty() || inputs.len() > self.limits.max_inputs_per_ready {
                 return Err(PrePoolError::ConflictInputLimitExceeded);
             }
-            if rank.hash != *hash
-                || rank.version != entry.version
-                || rank.arrival != entry.arrival
-                || rank.source_class != entry.source.priority()
-            {
-                return Err(PrePoolError::Repair(
-                    "ready rank differs from its primary owner",
-                ));
-            }
+            assert!(
+                rank.hash == *hash
+                    && rank.version == entry.version
+                    && rank.arrival == entry.arrival
+                    && rank.source_class == entry.source.priority(),
+                "ready rank must be derived from its primary owner"
+            );
         }
-        if entry.charge_bytes != self.entry_charge(entry)? {
-            return Err(PrePoolError::Repair(
-                "entry charge is not derived from its primary state",
-            ));
-        }
+        assert_eq!(
+            entry.charge_bytes,
+            self.entry_charge(entry)?,
+            "entry charge must be derived from its primary state"
+        );
         Ok(())
     }
 
@@ -154,9 +145,10 @@ impl PrePoolKernel {
         let mut seen = HashSet::with_capacity(desired.len());
         let mut changes = Vec::with_capacity(desired.len());
         for (hash, next) in desired {
-            if !seen.insert(hash.clone()) {
-                return Err(PrePoolError::Repair("duplicate hash in cohort plan"));
-            }
+            assert!(
+                seen.insert(hash.clone()),
+                "a cohort plan must contain one final primary per hash"
+            );
             if let Some(next) = &next {
                 self.validate_entry_intrinsic(&hash, next)?;
             }
@@ -173,11 +165,12 @@ impl PrePoolKernel {
             .collect::<HashSet<_>>();
         let mut final_short_ids = HashMap::<ProposalShortId, Byte32>::new();
         for change in &changes {
-            if let Some(old) = &change.old
-                && self.by_short_id.get(&old.short_id) != Some(&change.hash)
-            {
-                return Err(PrePoolError::Repair("short-id projection drift"));
-            }
+            assert!(
+                change.old.as_ref().is_none_or(|old| {
+                    self.by_short_id.get(&old.short_id) == Some(&change.hash)
+                }),
+                "short-id projection must match its primary owner"
+            );
             let Some(next) = &change.next else {
                 continue;
             };
@@ -216,7 +209,7 @@ impl PrePoolKernel {
                     .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
                 *count = count
                     .checked_sub(1)
-                    .ok_or(PrePoolError::Repair("parent projection underflow"))?;
+                    .expect("parent projection must cover every primary edge");
             }
             if let Some(EntryState::Ready { inputs, .. }) =
                 change.old.as_ref().map(|entry| &entry.state)
@@ -227,7 +220,7 @@ impl PrePoolKernel {
                         .or_insert_with(|| self.ready_by_input.get(input).map_or(0, BTreeSet::len));
                     *count = count
                         .checked_sub(1)
-                        .ok_or(PrePoolError::Repair("ready-input projection underflow"))?;
+                        .expect("ready-input projection must cover every primary edge");
                 }
             }
         }
@@ -278,27 +271,27 @@ impl PrePoolKernel {
                 let charge = Residency::new(1, old.charge_bytes);
                 total_usage = total_usage
                     .checked_sub(charge)
-                    .ok_or(PrePoolError::Repair("cohort total usage underflow"))?;
+                    .expect("total usage must cover every cohort primary");
                 if let Some(peer) = old.source.peer() {
                     remote_usage = remote_usage
                         .checked_sub(charge)
-                        .ok_or(PrePoolError::Repair("cohort remote usage underflow"))?;
+                        .expect("remote usage must cover every remote cohort primary");
                     let usage = peer_updates
                         .entry(peer)
                         .or_insert_with(|| self.peer_usage.get(&peer).copied().unwrap_or_default());
                     *usage = usage
                         .checked_sub(charge)
-                        .ok_or(PrePoolError::Repair("cohort peer usage underflow"))?;
+                        .expect("peer usage must cover every peer cohort primary");
                 }
                 if Self::is_conflict(old) {
                     conflict_usage = conflict_usage
                         .checked_sub(charge)
-                        .ok_or(PrePoolError::Repair("cohort conflict usage underflow"))?;
+                        .expect("conflict usage must cover every conflict primary");
                 }
                 if let Some(owner) = Self::active_owner(old.source, &old.state) {
                     active_work = active_work
                         .checked_sub(1)
-                        .ok_or(PrePoolError::Repair("cohort active-work underflow"))?;
+                        .expect("active-work usage must cover every active primary");
                     let active = owner_updates.entry(owner).or_insert_with(|| {
                         self.active_by_owner
                             .get(&owner)
@@ -307,7 +300,7 @@ impl PrePoolKernel {
                     });
                     *active = active
                         .checked_sub(1)
-                        .ok_or(PrePoolError::Repair("cohort active-owner underflow"))?;
+                        .expect("active-owner usage must cover every active primary");
                 }
                 affected_owners.insert(old.source.into());
             }
@@ -729,7 +722,7 @@ impl PrePoolKernel {
             .active_work
             .checked_sub(usize::from(old.is_some()))
             .and_then(|value| value.checked_add(usize::from(new.is_some())))
-            .ok_or(PrePoolError::Repair("active work projection arithmetic"))?;
+            .expect("active-work usage must match active primaries");
         if active_work > self.limits.max_active_work {
             return Err(PrePoolError::ActiveWorkLimitExceeded);
         }
@@ -741,7 +734,7 @@ impl PrePoolKernel {
                 .unwrap_or_default()
                 .checked_sub(usize::from(old == Some(owner)))
                 .and_then(|value| value.checked_add(usize::from(new == Some(owner))))
-                .ok_or(PrePoolError::Repair("active owner projection arithmetic"))?;
+                .expect("active-owner usage must match active primaries");
             if active > self.owner_active_limit(owner) {
                 return Err(Self::active_limit_error(owner));
             }
@@ -812,8 +805,8 @@ impl PrePoolKernel {
             .into_iter()
             .map(DependencyKey::into_compact)
             .collect::<BTreeSet<_>>();
-        let version = self.allocate_version()?;
-        let arrival = self.allocate_arrival()?;
+        let version = self.allocate_version();
+        let arrival = self.allocate_arrival();
         let mut entry = Entry {
             short_id,
             raw: Arc::new(raw),
@@ -850,13 +843,13 @@ impl PrePoolKernel {
         if let EntryState::Wait(wait) = &next.state
             && wait.reason == WaitReason::Missing
         {
-            next.version = self.allocate_version()?;
+            next.version = self.allocate_version();
             next.state = EntryState::ResolveQueued {
                 lane: ResolveLane::Ordered,
             };
         }
         if let EntryState::Ready { rank, .. } = &mut next.state {
-            next.version = self.allocate_version()?;
+            next.version = self.allocate_version();
             rank.source_class = PrePoolSource::Proposal.priority();
             rank.version = next.version;
         }
@@ -881,7 +874,7 @@ impl PrePoolKernel {
         next.raw = Arc::new(raw);
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
-        next.version = self.allocate_version()?;
+        next.version = self.allocate_version();
         next.payload_charge_bytes = raw_bytes;
         next.state = EntryState::ResolveQueued { lane };
         next.charge_bytes = self.entry_charge(&next)?;
@@ -906,7 +899,7 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(key.hash.clone()))?;
         self.validate_location(&key.hash, key.version, PrePoolLocation::ResolveQueued)?;
-        let version = self.allocate_version()?;
+        let version = self.allocate_version();
         let mut next = entry.clone();
         next.version = version;
         next.state = EntryState::ResolveLeased;
@@ -916,11 +909,11 @@ impl PrePoolKernel {
         let next_active = Self::active_owner(next.source, &next.state);
         let active_plan = self.plan_active_transition(old_active, next_active)?;
         let popped = self.queues[work_lane.index()].pop(WorkCapability::Any)?;
-        if popped.as_ref() != Some(&key) {
-            return Err(PrePoolError::Repair(
-                "resolve head changed inside kernel lock",
-            ));
-        }
+        assert_eq!(
+            popped.as_ref(),
+            Some(&key),
+            "resolve queue head cannot change inside the kernel lock"
+        );
         // The queue key was removed directly by pop. Replace only the primary
         // and non-queue indexes to avoid attempting a second exact removal.
         self.replace_after_queue_pop(&key.hash, &entry, &next, usage_plan, active_plan);
@@ -965,7 +958,7 @@ impl PrePoolKernel {
                 .into_iter()
                 .map(DependencyKey::into_compact),
         );
-        next.version = self.allocate_version()?;
+        next.version = self.allocate_version();
         next.payload_charge_bytes = charge_bytes;
         next.state = EntryState::VerifyQueued {
             payload: Arc::new(resolved),
@@ -990,7 +983,7 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(key.hash.clone()))?;
         self.validate_location(&key.hash, key.version, PrePoolLocation::VerifyQueued)?;
-        let version = self.allocate_version()?;
+        let version = self.allocate_version();
         let payload = match &entry.state {
             EntryState::VerifyQueued { payload, .. } => Arc::clone(payload),
             _ => unreachable!(),
@@ -1006,11 +999,11 @@ impl PrePoolKernel {
         let next_active = Self::active_owner(next.source, &next.state);
         let active_plan = self.plan_active_transition(old_active, next_active)?;
         let popped = self.queues[lane.index()].pop(capability)?;
-        if popped.as_ref() != Some(&key) {
-            return Err(PrePoolError::Repair(
-                "verify head changed inside kernel lock",
-            ));
-        }
+        assert_eq!(
+            popped.as_ref(),
+            Some(&key),
+            "verify queue head cannot change inside the kernel lock"
+        );
         self.replace_after_queue_pop(&key.hash, &entry, &next, usage_plan, active_plan);
         Ok(Some(VerifyLease {
             hash: key.hash,
@@ -1032,7 +1025,7 @@ impl PrePoolKernel {
         if candidate.inputs.len() > self.limits.max_inputs_per_ready {
             return Err(PrePoolError::ConflictInputLimitExceeded);
         }
-        let version = self.allocate_version()?;
+        let version = self.allocate_version();
         let rank = ReadyKey {
             source_class: old.source.priority(),
             fee: candidate.fee,

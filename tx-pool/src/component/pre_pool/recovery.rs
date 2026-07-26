@@ -16,11 +16,10 @@ impl PrePoolKernel {
         txs: Vec<TransactionView>,
         admitted_epoch: u64,
     ) -> Result<usize, PrePoolError> {
-        if !self.entries.is_empty() {
-            return Err(PrePoolError::Repair(
-                "recovery prefix requires an empty generation",
-            ));
-        }
+        assert!(
+            self.entries.is_empty(),
+            "recovery-prefix planning requires a fresh generation"
+        );
         let mut probe = Self::new(self.limits);
         probe.next_version = self.next_version;
         probe.next_arrival = self.next_arrival;
@@ -70,14 +69,14 @@ impl PrePoolKernel {
             let version = version_cursor;
             version_cursor = version_cursor
                 .checked_add(1)
-                .ok_or(PrePoolError::VersionExhausted)?;
+                .expect("u128 entry version must not exhaust during process lifetime");
             let arrival = if let Some(old) = &old {
                 old.arrival
             } else {
                 let arrival = arrival_cursor;
                 arrival_cursor = arrival_cursor
                     .checked_add(1)
-                    .ok_or(PrePoolError::VersionExhausted)?;
+                    .expect("u128 arrival clock must not exhaust during process lifetime");
                 arrival
             };
             let raw = PipelineRawTx::recovery(tx, admitted_epoch);

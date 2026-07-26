@@ -1,367 +1,277 @@
-# Tx-Pool Root-Cause Redesign — Execution Plan
+# Tx-Pool Root-Cause Refactor — Live Execution Plan
 
 Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Status: plan frozen; P4/C6 is a committed correctness checkpoint and P5 is in
-progress. Its first architecture correction converges defect, expected chain
-fallback and clear on the same stable-shell generation swap with sealed
-lock-outside disposal; the remaining explicit blocker is the 14k production
-review envelope. P5 therefore continues deletion-first rather than treating
-C6 or the disposal correction as production-ready.
-Correctness and static safety precede the final separately measured performance
-gate. Each phase is a recoverable commit and ends with a whole-architecture
-review, not only a review of edited files.
+Status date: 2026-07-26
+Current stable checkpoint: `77dcbb0c1`
+Current phase: P4, Rust-native failure semantics and cross-authority acceptance
 
-## 1. Execution rules
+This file is the live execution ledger. It is updated at every checkpoint so a
+compaction or restart can resume from the actual code rather than an obsolete
+design stage. The architecture and review documents are deliberately listed as
+P5 work until they have been rewritten against the final code; their remaining
+references to seven states, `RecoveryRetained`, `DefectDomain`, panic recovery,
+or a 14k line gate are not current implementation authority.
 
-1. The target model has exactly two executable authorities and the seven states
-   frozen in the design. A phase may remove old encoding; it may not introduce
-   a transitional payload owner, transferable queue or compensating state.
-2. Work proceeds deletion-first. A production phase is net-negative in lines
-   and removes the named old mechanisms in the same checkpoint that cuts over
-   their last caller.
-3. A normal implementation defect is fixed only by completing the already
-   frozen rule. If evidence contradicts the rule itself, revert the phase and
-   reopen architecture audit; do not add local undo/state/index layers.
-4. Tests are behavior evidence. A stale test is changed only with an explicit
-   policy-register and review-guide update. A product defect is fixed at its
-   authority/Plan boundary, not in the integration adapter.
-5. Tests use `cargo nextest`; process integration uses `make integration` with
-   the complete generated tx-pool impact universe, not only
-   `test/src/specs/tx_pool`.
-6. No benchmark runs before P7. P7 compares the saved pre-redesign checkpoint,
-   `develop`, and final code with unchanged workloads/safety assertions.
-7. Each passing phase is committed. A failing hard gate is reverted to the
-   previous checkpoint rather than patched forward with new architecture.
+## 1. Frozen direction
 
-## 2. Recoverable checkpoints
+The refactor is allowed to retain only concepts needed to prove a develop bug
+or a stated security/performance boundary.
 
-| Checkpoint | Content | Recovery meaning |
+1. There are two executable transaction authorities: accepted `TxPool` and
+   pre-accepted `PrePoolKernel`.
+2. A pre-accepted transaction occupies exactly one of six locations:
+   `ResolveQueued`, `ResolveLeased`, `Wait`, `VerifyQueued`, `VerifyLeased`, or
+   `Ready`. Missing/conflict are reasons within `Wait`; recovery is a trusted
+   source, not a seventh location.
+3. Local submission remains the direct synchronous path by design. Remote,
+   Proposal and reorg Recovery use the retained pipeline only where their
+   scheduling/liveness requirements need it.
+4. Ordinary accepted-pool mutation is immutable Plan followed by total Apply.
+   No nested undo, rollback journal, speculative victim owner, or post-removal
+   policy decision may return.
+5. Derived indexes and accounting are projections of primary ownership. They
+   may be rebuilt in tests, but production does not repair contradictions and
+   continue.
+6. Effect publication is sequenced and bounded. Remote traffic cannot consume
+   trusted or chain-critical headroom; a saturated detail path converges via a
+   constant-size `GenerationReset` authority.
+7. Performance is a hard acceptance criterion. Hot single-entry transitions
+   keep stack-sized plans; the heap-backed cohort planner is reserved for
+   bounded multi-entry transitions. No benchmark runs before P7.
+8. Production line counts exclude tests and benchmarks. There is no arbitrary
+   line target: growth must be justified by removed develop failure modes and
+   measured performance, while every safe deletion remains required.
+
+## 2. Rust-native failure contract
+
+The final develop comparison must audit this contract explicitly.
+
+| Outcome | Encoding | Service effect |
 |---|---|---|
-| C0 | `35cabc9b7` | committed current coordinator baseline |
-| C1 | `02e648255`: preserved correctness/integration fixes + audited design/plan | pre-redesign A/B and rollback base |
-| C2 | `8596c6c5d`: P0 formal contract/model/evidence migration | documentation and oracle base |
-| C3 | `1d9e0cf5b`: P1 PrePoolKernel vertical cutover | old coordinator/runtime/conflict owner gone |
-| C4 | P2 PoolMutationPlan/causal graph cutover | nested undo and post-removal decisions gone |
-| C5 | P3 stable effect shell cutover | dynamic reservation/fail-stop effect protocol gone |
-| C6 | P4 chain/wait/persistence/DefectDomain convergence | recovery lock and service fail-stop gone |
-| C7 | P5 correctness/review acceptance | unit/static/document evidence complete |
-| C8 | P6 integration acceptance | complete process behavior green/classified |
-| C9 | P7 performance/production acceptance | A/B green and final audit complete |
+| malformed/policy rejection | typed `Reject`/`PrePoolError` | reject or ban according to policy; service remains live |
+| bounded capacity/backpressure | typed `Result` | no mutation or bounded optional-history degradation |
+| stale asynchronous lease/race | typed stale/duplicate outcome | discard, retry the level, or preserve the exact current owner |
+| shutdown/channel/config/resource outcome | typed at its external boundary | controlled shutdown or startup failure |
+| untrusted resolver/verifier/callback/endpoint panic | catch only at the computation/side-effect endpoint | terminalize/quarantine the owned job; no state repair protocol |
+| primary/index/accounting contradiction | assertion/`expect` inside the authority boundary | fail-fast, cancel workers, and skip persistence |
 
-No checkpoint claims a later gate. In particular C1-C8 are not performance
-verdicts.
+The target is not an Erlang-style panic-free or generation-restart framework.
+Legal hostile input must not reach the last row; truly impossible internal
+states do not travel through the same recoverable error channel as input.
 
-## 3. P0 — Formal contract and migration matrix
+## 3. Checkpoints
 
-### Work
+| Checkpoint | Commit | Meaning |
+|---|---|---|
+| C0 | `35cabc9b7` | pre-redesign coordinator baseline |
+| C1 | `02e648255` | audited fixes and rollback/A-B base |
+| C2 | `8596c6c5d` | formal target and evidence base |
+| C3 | `1d9e0cf5b` | single-owner `PrePoolKernel` cutover |
+| C4 | `7219778be` | accepted `PoolMutationPlan`/total Apply cutover |
+| C5 | `74a5049bd` | statically partitioned effect journal |
+| C6 | `d9aac44e4` | retained reorg recovery and chain convergence |
+| C7 | `e3ab95375` | unified generation-reset disposal |
+| C8 | `473b4e927` | worker supervision and persistence eligibility |
+| C9 | `693413cf6` | simplified recovery/failure boundaries |
+| C10 | `1e0d0098d` | total bounded cohort transitions |
+| C11 | `77dcbb0c1` | relay saturation coalesces to durable reconciliation |
 
-- Promote the audited design to the permanent architecture authority and link
-  it bidirectionally with `pipeline.md`, `REVIEW_GUIDE.md`, the security ledger,
-  behavior registry, manifest and inventory.
-- Freeze machine-readable target authorities, states, commands, ReadyKey,
-  PlanOutcome, resource classes/equations, lock edges, displacement causes,
-  effect regions, policy differences and residual risks.
-- Add a test-only small recomputing reference model. Its indexes are derived
-  from primary maps on every command; it must not share optimized production
-  transition code.
-- Give all 152 ledger findings at least one F1-F8 family and target behavior
-  mapping. Validators reject missing mappings and stale test/source anchors.
-- Regenerate the integration impact universe from all specs that exercise
-  submit/test/clear/remove/pool-info/detail RPCs, relay transaction/proposal
-  paths, RBF, persistence/restart, reorg, mining/proposal/template, compact
-  blocks and fee estimation. Record why every included spec is relevant and why
-  any syntactic candidate is excluded.
-- Record production/test/benchmark line counts separately and the exact guard
-  count command.
+No checkpoint before P7 is a performance verdict.
 
-### Exit gates
+## 4. Completed work
 
-- documentation/manifest/inventory validators pass;
-- the reference model enumerates every state/command outcome and stale lease;
-- every retained mechanism has one develop/current counterexample, one target
-  invariant and one falsification behavior;
-- no production behavior changes and no benchmark starts.
+### P0 — Contract and reference evidence
 
-### Whole-architecture review
+- Frozen ownership, state, budget, identity, effect and lock-order contracts.
+- Added an independent recomputing reference model and generated transition
+  tests.
+- Established review/security manifests and test inventory. They must be
+  regenerated in P5 because their prose still describes superseded designs.
 
-Re-run authority/state/lock/resource/policy/performance-feasibility matrices.
-If the evidence schema needs a new production concept, P0 fails—the schema must
-describe the frozen model, not design it.
+### P1 — PrePoolKernel cutover
 
-## 4. P1 — PrePoolKernel vertical cutover
+- Removed the legacy multi-queue inferred-location ownership model.
+- Installed one concrete primary entry map, exact versioned leases, derived
+  queues/indexes, per-peer/global residency and active-work bounds.
+- Collapsed Missing and historical Conflict into `Wait` and preserved Local as
+  direct submission.
+- Removed `RaceLost`, `Invalidated`, `Committing`, dual incarnation/revision
+  ownership and standalone conflict payload ownership.
 
-### Work
+### P2 — Accepted-pool Plan/Apply
 
-- Replace `PipelineCoordinator`/`PipelineRuntime` in place with a concrete,
-  non-generic stable `PrePoolKernel` shell and swappable entry generation.
-- Implement the seven closed variants, global checked `u128` version, exact
-  full-hash owner map, unique collision-aware short-ID index, canonical compact
-  state vectors and capacity-charged containers.
-- Implement Remote/Proposal partitions, global/per-peer limits, exact
-  per-owner fair runnable heads, ingress/work permits and residence deadlines.
-  Local remains a direct charged borrower and is never a retained source.
-- Implement checkout/complete leases, exact `ReadyKey`, global/per-input Ready
-  indexes, one serial commit driver and final version/rank checks. Do not add a
-  `Committing` state.
-- Merge Missing and historical Conflict ownership into Wait; implement atomic
-  park, ordered epoch cursor, pending follow-up and resolved-dependency reverse
-  projection. Resolve completion is `TxPool read -> kernel` before the read
-  opens.
-- Rewire workers, RPC/query and administrative removal directly. Delete the
-  old coordinator generic bundles, dual tokens, raw stages, relation counts,
-  ticket heaps, capacity victim transactions, coordinator undo/audit runtime,
-  `ConflictCache` payload ownership and RaceLost/Invalidated/Committing.
-- Retain the existing accepted PoolCommitJournal and effect implementation only
-  as explicitly tracked dependencies of P2/P3; do not emulate deleted pre-pool
-  states around them.
+- Replaced RBF/capacity mutation and nested undo with one read-only
+  `PoolMutationPlan` and total Apply.
+- Bounded the multi-input conflict union by the full input×candidate product.
+- Separated causal producer links from conditional dep-reader ordering.
+- Added role-aware post-RBF liveness, sparse virtual eviction and deterministic
+  selected-set cycle handling.
+- Audited tx verification cache access: current tx-pool paths construct
+  `TxVerificationCacheKey::from_transaction`, hence use witness hash.
 
-### Exit gates
+### P3 — Stable bounded effects and chain recovery
 
-- phase production lines are net-negative;
-- repository search finds exactly two executable transaction owners and none of
-  the deleted pre-pool mechanism names in production;
-- model differential covers ownership, ABA, promotion, Local cancellation,
-  per-peer saturation, dirty-key mutation, worker panic/cancel and stale
-  completion;
-- targeted nextest and admission/relay/orphan/RBF process specs pass.
+- Replaced carried effect reservations with static Remote/Trusted/Critical
+  regions and one global ordered publisher.
+- Made callback and external endpoint isolation explicit and bounded.
+- Preserved a constant-size generation reset across FIFO saturation.
+- Fixed relayer-full loss: individual terminal edges coalesce to a reset that
+  remains authoritative until the receiver can accept it.
+- Removed accounting recomputation-after-drift; poisoned journal state now
+  fails fast instead of continuing after an invariant panic.
+- Reorg authoritative mutation runs once; only compact derived template work
+  remains retryable. Recovery is a trusted source in the six-state kernel.
+- Preserved block assembler semantics: Reset/update_full serialize on the full
+  template boundary, update_full has priority, and optimistic proposal/
+  transaction deltas remain level-triggered.
 
-### Whole-architecture review
+## 5. P4 — Current: failure semantics and authority acceptance
 
-Recompute the ownership/resource equations from actual fields and allocated
-capacities; inspect every TxPool→kernel edge; compare policy with section 22.4;
-verify the remaining old pool/effect code is only the declared C3→C4/C5
-migration debt.
+### Completed in the working tree
 
-## 5. P2 — PoolMutationPlan and causal graph cutover
+- Removed `PrePoolError::Repair` and the generic Defect error class.
+- Converted primary/index/accounting contradictions to assertions inside the
+  kernel authority; expected rejection, capacity, duplicate and stale outcomes
+  remain typed.
+- Made source attribution and `u128` clocks total under their construction
+  invariants.
+- Made dependency-availability notification a total transition rather than a
+  fictitious fallible API.
+- Found a real legal race during the full nextest gate: a selected Ready ticket
+  could retain the same version while a later higher-ranked Ready owner became
+  the scheduling head. The old validator returned stale and the caller
+  panicked. The root correction validates the ticket's exact owner/version/rank
+  only; the later owner remains Ready for the next serialized commit. A
+  deterministic regression now covers the interleaving.
 
-### Work
+### Remaining P4 work
 
-- Make accepted primary identity full-hash based with a unique
-  collision-detecting proposal-slot index. Make links/status/sort/outpoint/
-  aggregate totals rebuildable projections.
-- Implement the explicit displacement authority table and one immutable
-  `PoolMutationPlan`: RBF union, role-aware final resolution, causal ancestor
-  limits, exact sparse virtual serialized/resident eviction, classified
-  removals, candidate parents and exact post-Apply totals.
-- Implement total Apply with checked precomputed arithmetic and canonical
-  projection construction. Apply has no recoverable allocation or policy error
-  surface; process OOM is outside the legal-input state machine. Every
-  non-Apply outcome leaves byte-for-byte equivalent primary and recomputed
-  views.
-- Split resolver roles: inputs observe pool spends; cell deps/dep groups read
-  pre-spend chain/accepted producer data and ignore pool consumers.
-- Restrict persistent links/weights/cascades to causal producers. Add bounded
-  selected-set conditional edges, deterministic topological order and cycle
-  shedding in `TxSelector`.
-- Pair the final kernel CAS/delta with pool Apply. Delete PoolCommitJournal,
-  restore-before-recover, cell-ref escape eviction, nested/cohort undo and every
-  fallible post-removal handoff.
+- [x] Re-run clippy and all `ckb-tx-pool` nextest tests after the ticket fix
+      (232/232 before the retry-protocol deletion).
+- [x] Audit every retry loop. The retained reorg phase-two/backoff protocol was
+      removed: an assembler failure now leaves the existing reset and
+      proposal/transaction generations dirty, while later chain deltas keep
+      flowing. Remaining retries are capacity-notified or level-triggered
+      external/derived work; no authoritative mutation is replayed.
+- [x] Complete the call-graph proof. A capacity hint takes and releases the
+      journal lock first; nested mutation then follows
+      `TxPool → PrePoolKernel → effect journal`, with no reverse await or I/O
+      under a state lock. Kernel-only worker transitions are the sole shorter
+      form.
+- [x] Verify every cross-authority pool plan settles kernel ownership before
+      accepted Apply. Expected policy/capacity decisions finish in Plan;
+      coordinator operations after Plan are continuous-reservation/identity
+      obligations and fail-fast only on a structural contradiction.
+- [x] Classify residual startup/config fail-fast separately: minimum pre-pool
+      residency, effect-region construction and dispatcher permit conversion
+      are administrator/startup validation, not remotely selected transaction
+      outcomes. Final documentation must keep them visible as residual risk.
+- [x] Re-run full clippy/nextest after deleting the retained reorg retry
+      protocol: clippy is clean and nextest passes 227/227.
+- [ ] Commit the passing P4 checkpoint and freeze the state/failure model.
 
-### Exit gates
+### P4 exit gate
 
-- no production `undo`, rollback journal or fallible ordinary Apply remains;
-- exhaustive small-model and randomized differential match current CPFP/status
-  eviction policy except the documented cell-ref policy;
-- failures injected after every Plan step leave primary/view/effects unchanged;
-- both reader/spender arrival orders, conditional cycles, RBF overlap,
-  self-eviction, short-ID collision and wtx-cache tests pass;
-- phase production lines are net-negative.
+- legal transaction, concurrency, reorg, capacity and endpoint outcomes cannot
+  trigger service fail-stop;
+- internal contradictions cannot be converted to an RPC rejection or repaired
+  into continued execution;
+- no generic retry replays an authoritative mutation;
+- clippy and full library nextest pass;
+- the phase adds no owner, location, lock or recovery mechanism.
 
-### Whole-architecture review
+## 6. P5 — Global simplification and documentation acceptance
 
-Re-audit all removal authority, graph roles, work bounds and effects as one
-model. If sparse overlay requires a second mutable PoolMap or nested snapshot,
-P2 fails and returns to design audit.
+- Recount production/test/benchmark lines separately and compare every new
+  production structure with develop.
+- Delete only encoding duplication with a proven owner: redundant result
+  plumbing, stale adapters, duplicate projections, and obsolete test seams.
+- Do not force bounded single-entry hot paths through the general cohort plan.
+- Re-audit state count, lock hold time, allocations, retained snapshots and
+  graph bounds at the whole-architecture level.
+- Rewrite `ARCHITECTURE.md`, `ARCHITECTURE_AUDIT.md`, `pipeline.md`,
+  `REVIEW_GUIDE.md`, machine-readable contracts, security ledger and manifests
+  against the final six-state/Rust-native model.
+- Keep tests outside production files. Regenerate `test-inventory.txt` and the
+  review table so a reviewer can drive review from behavior to production
+  boundary and back to unit/model/integration evidence.
+- Explicitly document any valuable issue not changed because its correction is
+  incompatible, unproven, low-value or performance-negative.
 
-## 6. P3 — Stable effect shell cutover
+### P5 exit gate
 
-### Work
+- no stale architecture concept remains in documentation or machine-readable
+  evidence;
+- test-layout/review/security validators pass;
+- production net growth is explained by a develop counterexample and invariant,
+  not by migration residue;
+- full nextest and clippy remain green.
 
-- Keep the effect journal, global sequence/version clocks and DefectDomain in
-  the stable kernel shell; entry-generation swaps cannot discard them.
-- Replace dynamic effect reservations/population formulas with preallocated
-  ordinary Remote ceiling + trusted headroom and a replaceable constant-size
-  latest chain-authority register.
-- Account bounded ingress requests before admission and make ordinary capacity
-  a final Plan predicate. No state lock waits for capacity.
-- Add publisher restart, bounded relay retry/reconcile, callback panic/hang
-  isolation and validated endpoint-count permits. Preserve the existing
-  latest-generation assembler reset register; P4 binds it to chain plans and
-  installs the constant `GenerationReset` fallback.
-- Delete generic EffectOutbox/reservation IDs, credit-across-lock paths and
-  journal-triggered service fail-stop.
+## 7. P6 — Complete tx-pool integration acceptance
 
-### Exit gates
+- Build once, enumerate every registered spec touching transaction submission,
+  relay/proposal, RBF, reorg, persistence/restart, mining/template, compact
+  blocks, pool RPCs and fee estimation—not only `test/src/specs/tx_pool`.
+- Run through `make integration` in diagnosable deterministic batches and then
+  as the documented complete impact universe.
+- Classify each failure before editing: product bug, deliberately changed
+  policy/stale test, harness isolation issue, or unrelated environment.
+- Correct product defects only at the frozen authority/Plan/effect boundary;
+  do not add adapter patches.
+- Link every integration regression into `REVIEW_GUIDE.md`, the inventory and
+  the security ledger.
 
-- exact slot/byte accounting and largest-indivisible-batch startup checks pass;
-- Remote saturation cannot consume trusted/critical progress;
-- two consecutive critical authorities converge to the newest even when the
-  older record is queued/active;
-- pre-admission cancellation, relayer full/close, callback re-entry/panic/hang
-  and publisher panic tests pass;
-- phase production lines are net-negative.
+### P6 exit gate
 
-### Whole-architecture review
+- the complete registered impact universe passes with no silent filtering;
+- integration and unit/model behavior agree;
+- failures and any exclusions have reproducible evidence.
 
-Trace every state mutation to its prepared effect and every endpoint payload to
-an owner/permit. Confirm entry-generation swap preserves committed ordinary
-records and critical authority. Reject any new deferred payload channel.
+## 8. P7 — Performance and production acceptance
 
-## 7. P4 — Chain, persistence and DefectDomain convergence
+- Audit benchmark setup, invariant assertions, warmup, variance and workload
+  equivalence before trusting results.
+- Compare clean worktrees/checkpoints for `develop`, C1 and final P6. Run quick
+  repeated A/B first; expand only statistically inconclusive or regressed
+  scenarios.
+- Measure throughput, p50/p95/p99 latency, allocations/RSS, TxPool/kernel lock
+  hold, worker utilization and commit/reorg/template latency.
+- Throughput must not regress materially. A statistically significant
+  regression blocks production even when correctness is green.
+- Performance corrections may optimize projections/hints only; they may not
+  add owner/state/undo protocols. Re-run correctness gates after each change.
 
-### Work
+### P7 exit gate
 
-- Move bounded detached replay into charged/persistable
-  `RecoveryRetained(session,ordinal)` and direct trusted drain; delete
-  `recovery_lock` and handler-local replay ownership. Transfer the bounded
-  accepted descendant closure of detached producers into the same parent-first
-  recovery session before startup zombie reconciliation; over-bound fanout
-  takes the one generation-reset fallback rather than a late-parent exception.
-- Implement exact reorg Gap/Proposed/Pending classification, proposal-wins
-  optional-uncle filtering, immediate blank authority and latest-generation
-  full refresh.
-- Make oversized/full chain detail choose one prebuilt constant
-  `GenerationReset` authority while still applying the chain mutation, rather
-  than waiting behind callback/relay publication.
-- Require every returned template to match current chain generation/parent;
-  preserve reset/full mutual exclusion and same-generation full priority.
-- Implement v2 explicit-save snapshot of causal-parent-first accepted and
-  recovery-owned raw items, charged snapshot permit and serialized atomic
-  writers.
-- Implement touched repair, accepted cold rebuild, over-bound generation reset,
-  one prebuilt spare, one DisposalPermit and one Remote DefectGate. Catch Plan,
-  worker, endpoint and Apply unwind at the frozen failure boundary.
-- Add metrics/logs for repair/reset/gate, Remote saturation/identity floor,
-  effect regions, Wait backlog, chain recovery and template generations.
+- no material throughput regression and no hidden latency/RSS/CPU regression;
+- all P5/P6 gates remain green;
+- final develop comparison proves necessity, safety, maintainability,
+  extensibility, Rust-native failure semantics and residual risk.
 
-### Exit gates
+## 9. Per-stage whole-architecture review
 
-- no `recovery_lock`, authoritative fail-stop or uncertain-state persistence;
-- reorg/clear/save/cascading-reorg/restart/template matrix passes;
-- hostile high-fanout chain event yields one observable reset while chain/RPC/
-  Local/Proposal/template authority remains live;
-- production build profile is unwind and fault injection cannot persist or
-  expose partial Apply;
-- phase production lines are net-negative.
+Every checkpoint answers all rows, not only the files edited in that phase.
 
-### Whole-architecture review
-
-Audit the complete failure domain and borrower memory equation, including old
-generation destruction and in-flight worker/save/template Arcs. Verify chain
-events cannot be rejected and a delayed hint cannot expose an old-parent
-template.
-
-## 8. P5 — Correctness, test isolation and review acceptance
-
-### Work
-
-- Move every inline production test body into dedicated test files/modules;
-  test-only seams expose behavior, not mutable production bypasses.
-- Rewrite old encoding tests against target invariants; delete tests whose only
-  subject was a deleted mechanism while preserving their historical behavior
-  mapping.
-- Update `REVIEW_GUIDE.md` tables with invariant, attack, expected behavior,
-  production boundary, unit/model/integration anchors and exact minimum/full
-  commands.
-- Regenerate inventory/manifest/checkpoint counts and production/test line
-  totals.
-- Run format, validators, `cargo nextest` for `ckb-tx-pool` including internal
-  features, contextual dependent crates and clippy with zero new warnings.
-
-### Exit gates
-
-- all unit/model/fault tests pass in nextest isolation;
-- every one of 152 findings and every policy row has live evidence;
-- production source ≤14k or implementation stops for architecture re-audit;
-- no tests/benchmarks hide production growth.
-
-### Whole-architecture review
-
-Repeat the complete signed matrix from `ARCHITECTURE_AUDIT.md` against actual
-types and searches. Classify every deviation as implementation bug, deliberate
-documented policy or architecture blocker.
-
-## 9. P6 — Complete process integration acceptance
-
-### Work
-
-- Build once, list all registered specs, and execute the generated complete
-  tx-pool impact universe through
-  `make integration CKB_TEST_ARGS='-c 1 ...'`.
-- Run families in deterministic small batches for diagnosis, then the complete
-  universe in one acceptance command to expose isolation/order leaks.
-- For each failure, preserve logs and classify root cause before editing:
-  product defect, deliberate policy change with stale assertion, harness
-  isolation defect, or unrelated environmental failure.
-- Fix product defects only at the frozen authority/Plan/effect boundary; update
-  stale tests only with behavior/guide evidence. Rerun the failing family and
-  complete universe.
-
-### Exit gates
-
-- every registered impact spec passes under the documented command;
-- no spec is silently filtered because it lives outside `specs/tx_pool`;
-- manifest and guide match the actual final command/log verdict;
-- no failure is waived as flaky without a reproduced harness cause and bounded
-  correction.
-
-### Whole-architecture review
-
-Use integration observations to re-audit real RPC/relay/chain/miner semantics,
-especially Local synchronous results, reorg/template priority and failure
-containment. A failure revealing a design contradiction returns to the previous
-checkpoint and architecture audit.
-
-## 10. P7 — Performance and production acceptance
-
-### Work
-
-- Audit benchmark workload correctness, setup cost, invariant assertions,
-  sampling variance and timeout/noise before using results.
-- Use separate clean worktrees for `develop`, C1 and C8. Run repeated quick A/B
-  first; attribute throughput, p50/p95/p99 latency, TxPool/kernel lock hold,
-  allocations/RSS, resolve/verify utilization, commit/reorg/template latency and
-  hostile fairness.
-- Do not run the previously wasteful broad medium suite by default. Expand only
-  a statistically inconclusive or regressed scenario, keeping workload and
-  safety checks identical.
-- Optimize measured causes only with frozen derived projections/hints. Any new
-  owner/state/order/undo protocol is forbidden and returns to audit.
-- Rerun correctness gates after every performance change and repeat quick A/B
-  until no material regression remains.
-
-### Exit gates
-
-- throughput geometric mean does not decrease; repeated/statistically
-  significant scenario regression blocks production;
-- latency/RSS/CPU and hostile fairness meet the guide thresholds without weaker
-  workloads or safety assertions;
-- all P5/P6 tests still pass;
-- final whole-architecture and attack audit has no unrecorded issue.
-
-## 11. Per-phase review worksheet
-
-Every phase commit contains answers/evidence for all rows:
-
-| Dimension | Mandatory question |
+| Dimension | Required question |
 |---|---|
 | authority | Are `TxPool` and `PrePoolKernel` still the only executable payload owners? |
-| state | Is every retained pre-accept payload in exactly one of seven variants? |
-| identity/ABA | Are raw full hash, wtx cache key and one non-reused version used at their exact domains? |
-| plan/apply | Can any ordinary failure occur after the linearization point or require rollback? |
-| graph/wait | Are causal, conditional and availability relations distinct and event-safe? |
-| effects | Is every required outcome prepared/charged before mutation and stable across reset? |
-| resources | Do actual container capacities and every borrower fit the two envelopes? |
-| locks | Does every nested path follow permit → TxPool → kernel with no I/O/work wait? |
-| chain/template | Can any delayed effect/status/uncle expose a stale-parent or stranded-pending template? |
-| failure | Can legal hostile input stop the service, persist uncertain state or create a reset loop? |
-| policy | Is every observable difference in section 22.4 and the review guide? |
-| performance | Is work edge/cohort bounded, source net-negative, and any optimization evidence-driven? |
-| evidence | Do unit/model/integration anchors test behavior rather than deleted encoding? |
+| state | Is every pre-accepted payload in exactly one of the six locations? |
+| source | Are Remote/Proposal/Recovery attribution and Local-direct policy explicit and non-owning? |
+| identity/ABA | Are raw hash, witness-hash cache key, short ID and monotonic version used only in their correct domains? |
+| plan/apply | Can any ordinary failure occur after Apply begins or require rollback? |
+| graph/wait | Are causal, conditional and availability relations distinct, bounded and level-triggered? |
+| effects | Is every required stable outcome sequenced, charged and recoverable from endpoint saturation? |
+| resources | Are every retained byte, active slot, peer share and graph fan-out bounded? |
+| locks | Is a capacity hint released before `TxPool → kernel → journal`, with no reverse await/I/O under a state lock? |
+| chain/template | Can reorg, Gap or uncle state strand a transaction or expose an old-parent template? |
+| failure | Is the outcome typed when legal, caught only at an untrusted endpoint, and fail-fast only when structurally impossible? |
+| attack | Can a peer turn legal input, saturation or a repeatable race into service-level DoS or unbounded work/residency? |
+| performance | Is hot-path work bounded and allocation-conscious, with final claims deferred to A/B evidence? |
+| evidence | Do unit/model/integration tests prove behavior rather than a deleted encoding? |
 
-The worksheet is the anti-snowball gate. Finding a problem is not permission to
-add a mechanism; it first asks which frozen equation was violated and whether
-the existing design already supplies the correction.
+Finding a problem is not permission to add a mechanism. First identify the
+violated frozen rule, choose the smallest correction at its authority boundary,
+and revert/reopen design if that rule itself is wrong.

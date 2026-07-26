@@ -12,34 +12,9 @@ use futures_util::FutureExt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{Notify, watch};
 
 use crate::util::panic_payload_to_string;
-
-/// Bounded exponential delay for explicitly retryable retained work.
-pub(crate) struct RetryBackoff {
-    failures: u32,
-}
-
-impl RetryBackoff {
-    const BASE: Duration = Duration::from_millis(100);
-    const MAX: Duration = Duration::from_secs(30);
-    const HEALTHY_RUN: Duration = Duration::from_secs(60);
-
-    pub(crate) const fn new() -> Self {
-        Self { failures: 0 }
-    }
-
-    pub(crate) fn delay_for(&mut self, ran_for: Duration) -> Duration {
-        if ran_for >= Self::HEALTHY_RUN {
-            self.failures = 0;
-        }
-        let delay = Self::BASE.saturating_mul(2u32.saturating_pow(self.failures.min(10)));
-        self.failures = self.failures.saturating_add(1);
-        delay.min(Self::MAX)
-    }
-}
 
 /// Run one untrusted computation boundary, catching any panic it raises.
 ///

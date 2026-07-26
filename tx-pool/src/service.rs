@@ -544,11 +544,11 @@ impl TxPoolService {
         &self,
         candidate_uncles: Vec<UncleBlockView>,
         expected_snapshot: Arc<Snapshot>,
-    ) -> Result<(), String> {
+    ) {
         if let Some(ref block_assembler) = self.block_assembler {
             if self.pool.tx_pool.read().await.snapshot().tip_hash() != expected_snapshot.tip_hash()
             {
-                return Ok(());
+                return;
             }
             // Consume the generation-tagged authority journal instead of the
             // reorg handler's captured snapshot. A later clear may have won
@@ -556,14 +556,19 @@ impl TxPoolService {
             // snapshot here would resurrect stale template authority.
             match crate::block_assembler::process_reset(self.clone(), false).await {
                 crate::block_assembler::ResetApply::Retry => {
-                    return Err("block assembler authoritative reset remains pending".to_string());
+                    // The assembler loop owns the latest reset and retries it
+                    // level-wise. Keep the pool-derived deltas dirty, but do
+                    // not retain this reorg channel head behind a deterministic
+                    // template/cellbase failure.
+                    self.journal_block_assembler_full_reconcile();
+                    return;
                 }
                 crate::block_assembler::ResetApply::Superseded => {
                     // This reorg refresh was superseded (for example by a
                     // later clear). The newer generation is now the sole
                     // template authority; retrying the retained old reorg
                     // would resurrect stale chain state.
-                    return Ok(());
+                    return;
                 }
                 crate::block_assembler::ResetApply::Idle
                 | crate::block_assembler::ResetApply::Applied => {}
@@ -572,41 +577,32 @@ impl TxPoolService {
             {
                 let current = self.pool.tx_pool.read().await.cloned_snapshot();
                 self.journal_block_assembler_reset(current);
-                return Ok(());
+                self.journal_block_assembler_full_reconcile();
+                return;
             }
-            // Candidate uncles are installed only after the exact reset
-            // generation and target tip have been validated. This prevents a
-            // reset retry followed by clear/supersession from leaving an old
-            // detached uncle in the candidate set with no phase-two owner
-            // left to remove it.
-            let inserted_uncles = {
+            // Candidate uncles are a bounded optional cache, not a retained
+            // reorg phase. Once the matching reset generation is current they
+            // can remain for the ordinary level-triggered uncle/proposal
+            // updater even when this eager full refresh fails.
+            {
                 let mut retained = block_assembler.candidate_uncles.lock().await;
-                candidate_uncles
-                    .into_iter()
-                    .filter(|uncle| retained.insert(uncle.clone()))
-                    .collect::<Vec<_>>()
-            };
+                for uncle in candidate_uncles {
+                    retained.insert(uncle);
+                }
+            }
             match block_assembler.update_full(&self.pool.tx_pool).await {
                 Ok(true) => self.journal_block_assembler_full_reconcile(),
                 Ok(false) => {
-                    let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
-                    for uncle in &inserted_uncles {
-                        candidate_uncles.remove_by_number(uncle);
-                    }
-                    drop(candidate_uncles);
-                    if self.relay.block_assembler_reset_pending() {
-                        return Ok(());
-                    }
-                    return Err(
-                        "block assembler full rebuild observed a tx-pool tip mismatch".to_string(),
+                    ckb_logger::debug!(
+                        "block assembler full rebuild observed a tx-pool tip mismatch; retaining level-triggered reconcile"
                     );
+                    self.journal_block_assembler_full_reconcile();
                 }
                 Err(e) => {
-                    let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
-                    for uncle in &inserted_uncles {
-                        candidate_uncles.remove_by_number(uncle);
-                    }
-                    return Err(format!("block assembler update failed: {e:?}"));
+                    ckb_logger::error!(
+                        "block assembler full rebuild failed; retaining level-triggered reconcile: {e:?}"
+                    );
+                    self.journal_block_assembler_full_reconcile();
                 }
             }
             // A reset is already a valid blank template if the full rebuild
@@ -615,7 +611,6 @@ impl TxPoolService {
                 block_assembler.notify().await;
             }
         }
-        Ok(())
     }
 
     #[cfg(feature = "internal")]

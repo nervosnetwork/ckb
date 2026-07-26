@@ -95,12 +95,7 @@ impl TxPoolService {
         else {
             return;
         };
-        let source = match lease.payload.authoritative_source(current_source) {
-            Ok(source) => source,
-            Err(error) => {
-                panic!("raw lease source attribution invariant failed: {error:?}")
-            }
-        };
+        let source = lease.payload.authoritative_source(current_source);
 
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_raw_lease(&lease, None).await;

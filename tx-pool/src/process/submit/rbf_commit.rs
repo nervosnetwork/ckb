@@ -188,9 +188,7 @@ impl TxPoolService {
         kernel
             .remove_conflict_hash(&entry.transaction().hash())
             .unwrap_or_else(|error| panic!("planned conflict removal failed: {error:?}"));
-        kernel
-            .note_available(released)
-            .unwrap_or_else(|error| panic!("planned dependency wake failed: {error:?}"));
+        kernel.note_available(released);
         let epoch = self.pipeline.epoch.current().unwrap_or(0);
         for victim in plan
             .removals

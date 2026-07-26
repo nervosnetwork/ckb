@@ -57,21 +57,25 @@ impl PipelineRawTx {
         }
     }
 
-    pub(crate) fn authoritative_source(
-        &self,
-        source: PrePoolSource,
-    ) -> Result<TxSource, PrePoolError> {
+    pub(crate) fn authoritative_source(&self, source: PrePoolSource) -> TxSource {
         match source {
-            PrePoolSource::Proposal => Ok(TxSource::Proposal),
+            PrePoolSource::Proposal => TxSource::Proposal,
             // Recovery owns its payload in the kernel but deliberately uses
             // the direct trusted validation policy. Public Local admission is
             // still rejected by `admit_transaction`.
-            PrePoolSource::Recovery => Ok(TxSource::Local),
-            PrePoolSource::Remote(peer) => self
-                .declared_cycles
-                .filter(|_| self.ingress_peer == Some(peer) && self.payload_peer == Some(peer))
-                .map(|cycles| TxSource::Remote { cycles, peer })
-                .ok_or(PrePoolError::Repair("source attribution mismatch")),
+            PrePoolSource::Recovery => TxSource::Local,
+            PrePoolSource::Remote(peer) => {
+                assert!(
+                    self.ingress_peer == Some(peer) && self.payload_peer == Some(peer),
+                    "remote source attribution must match its immutable ingress payload"
+                );
+                TxSource::Remote {
+                    cycles: self
+                        .declared_cycles
+                        .expect("remote ingress must retain its declared cycles"),
+                    peer,
+                }
+            }
         }
     }
 
@@ -302,9 +306,13 @@ impl PrePool {
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
         self.mutate_authoritative(|kernel| {
+            assert!(
+                !matches!(source, TxSource::Local),
+                "Local submissions must use the direct validation path"
+            );
             if let Some(existing) = kernel.entries.get(&hash).cloned() {
                 return match source {
-                    TxSource::Local => Err(PrePoolError::LocalMustRunDirect),
+                    TxSource::Local => unreachable!("Local source was rejected above"),
                     TxSource::Remote { .. } => Ok(false),
                     TxSource::Proposal => {
                         if existing.raw.tx.witness_hash() != tx.witness_hash() {
@@ -318,7 +326,7 @@ impl PrePool {
                     }
                 };
             }
-            let owner = pre_pool_source(source)?;
+            let owner = pre_pool_source(source);
             let raw = PipelineRawTx::new(tx, source, epoch);
             let raw_bytes = raw.charge_bytes();
             let dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty());
@@ -377,11 +385,11 @@ impl PrePool {
     }
 }
 
-pub(crate) fn pre_pool_source(source: TxSource) -> Result<PrePoolSource, PrePoolError> {
+pub(crate) fn pre_pool_source(source: TxSource) -> PrePoolSource {
     match source {
-        TxSource::Remote { peer, .. } => Ok(PrePoolSource::Remote(peer)),
-        TxSource::Proposal => Ok(PrePoolSource::Proposal),
-        TxSource::Local => Err(PrePoolError::LocalMustRunDirect),
+        TxSource::Remote { peer, .. } => PrePoolSource::Remote(peer),
+        TxSource::Proposal => PrePoolSource::Proposal,
+        TxSource::Local => panic!("Local submissions must use the direct validation path"),
     }
 }
 

@@ -249,7 +249,6 @@ pub(crate) enum PrePoolError {
         short_id: ProposalShortId,
         existing_hash: Byte32,
     },
-    LocalMustRunDirect,
     SelfDependency(Byte32),
     DependencyLimitExceeded,
     ParentFanoutLimitExceeded(Byte32),
@@ -273,7 +272,6 @@ pub(crate) enum PrePoolError {
     ConflictHistoryBudgetExceeded,
     ActiveWorkLimitExceeded,
     PeerActiveWorkLimitExceeded(PeerIndex),
-    VersionExhausted,
     Missing(Byte32),
     Stale {
         hash: Byte32,
@@ -285,7 +283,6 @@ pub(crate) enum PrePoolError {
         expected: PrePoolLocation,
         actual: PrePoolLocation,
     },
-    Repair(&'static str),
 }
 
 #[derive(Clone, Copy)]
@@ -294,7 +291,7 @@ enum ErrorClass {
     Capacity,
     RetryableCapacity,
     Stale,
-    Defect,
+    Duplicate,
 }
 
 impl PrePoolError {
@@ -320,10 +317,7 @@ impl PrePoolError {
             Self::Missing(_) | Self::Stale { .. } | Self::LocationMismatch { .. } => {
                 ErrorClass::Stale
             }
-            Self::DuplicateHash(_)
-            | Self::LocalMustRunDirect
-            | Self::VersionExhausted
-            | Self::Repair(_) => ErrorClass::Defect,
+            Self::DuplicateHash(_) => ErrorClass::Duplicate,
         }
     }
 
@@ -658,22 +652,22 @@ impl PrePoolKernel {
         }
     }
 
-    fn allocate_version(&mut self) -> Result<EntryVersion, PrePoolError> {
+    fn allocate_version(&mut self) -> EntryVersion {
         let version = self.next_version;
         self.next_version = self
             .next_version
             .checked_add(1)
-            .ok_or(PrePoolError::VersionExhausted)?;
-        Ok(version)
+            .expect("u128 entry version must not exhaust during process lifetime");
+        version
     }
 
-    fn allocate_arrival(&mut self) -> Result<u128, PrePoolError> {
+    fn allocate_arrival(&mut self) -> u128 {
         let arrival = self.next_arrival;
         self.next_arrival = self
             .next_arrival
             .checked_add(1)
-            .ok_or(PrePoolError::VersionExhausted)?;
-        Ok(arrival)
+            .expect("u128 arrival clock must not exhaust during process lifetime");
+        arrival
     }
 
     fn lane_for_resolve(lane: ResolveLane) -> WorkLane {
@@ -777,7 +771,7 @@ impl PrePoolKernel {
             .total_usage
             .checked_sub(old_charge)
             .and_then(|usage| usage.checked_add(new_charge))
-            .ok_or(PrePoolError::Repair("total usage arithmetic"))?;
+            .expect("total usage is derived from the primary map");
         if !total.fits(self.limits.total) {
             return Err(PrePoolError::TotalBudgetExceeded);
         }
@@ -788,7 +782,7 @@ impl PrePoolKernel {
         if old_peer.is_some() {
             remote = remote
                 .checked_sub(old_charge)
-                .ok_or(PrePoolError::Repair("remote usage arithmetic"))?;
+                .expect("remote usage is derived from the primary map");
         }
         if new_peer.is_some() {
             remote = remote
@@ -803,7 +797,7 @@ impl PrePoolKernel {
         if old.is_some_and(Self::is_conflict) {
             conflict = conflict
                 .checked_sub(old_charge)
-                .ok_or(PrePoolError::Repair("conflict usage arithmetic"))?;
+                .expect("conflict usage is derived from the primary map");
         }
         if new.is_some_and(Self::is_conflict) {
             conflict = conflict
@@ -819,7 +813,7 @@ impl PrePoolKernel {
             if old_peer == Some(peer) {
                 usage = usage
                     .checked_sub(old_charge)
-                    .ok_or(PrePoolError::Repair("peer usage arithmetic"))?;
+                    .expect("peer usage is derived from the primary map");
             }
             if new_peer == Some(peer) {
                 usage = usage

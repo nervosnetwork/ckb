@@ -63,9 +63,7 @@ impl PrePoolKernel {
         keys: BTreeSet<DependencyKey>,
         charge_bytes: Option<usize>,
     ) -> Result<EntryVersion, PrePoolError> {
-        if keys.is_empty() {
-            return Err(PrePoolError::Repair("empty wait transition"));
-        }
+        assert!(!keys.is_empty(), "a wait transition requires a causal key");
         let keys = keys
             .into_iter()
             .map(DependencyKey::into_compact)
@@ -76,7 +74,7 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
         let mut next = old.clone();
-        next.version = self.allocate_version()?;
+        next.version = self.allocate_version();
         next.dependencies.extend(keys.iter().cloned());
         if let Some(charge_bytes) = charge_bytes {
             next.payload_charge_bytes = charge_bytes;
@@ -101,7 +99,7 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
         let mut next = old.clone();
-        next.version = self.allocate_version()?;
+        next.version = self.allocate_version();
         next.state = EntryState::ResolveQueued { lane };
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(hash, next.clone())?;
@@ -144,10 +142,7 @@ impl PrePoolKernel {
     /// Record a level change. This never scans the waiter fan-out while a
     /// TxPool write guard is held; bounded maintenance resumes each ordered
     /// bucket by its last processed exact edge.
-    pub(crate) fn note_available(
-        &mut self,
-        keys: impl IntoIterator<Item = DependencyKey>,
-    ) -> Result<(), PrePoolError> {
+    pub(crate) fn note_available(&mut self, keys: impl IntoIterator<Item = DependencyKey>) {
         let mut unique = BTreeSet::new();
         unique.extend(keys.into_iter().map(DependencyKey::into_compact));
         let mut planned = Vec::with_capacity(unique.len());
@@ -163,7 +158,7 @@ impl PrePoolKernel {
                 .copied()
                 .unwrap_or(0)
                 .checked_add(1)
-                .ok_or(PrePoolError::VersionExhausted)?;
+                .expect("u128 availability epoch must not exhaust during process lifetime");
             planned.push((key, epoch));
         }
         for (key, epoch) in planned {
@@ -186,7 +181,6 @@ impl PrePoolKernel {
                 self.dirty_order.push_back(key);
             }
         }
-        Ok(())
     }
 
     pub(crate) fn wait_wake_pending(&self) -> bool {
@@ -260,7 +254,7 @@ impl PrePoolKernel {
                 let next_version = self
                     .next_version
                     .checked_add(1)
-                    .ok_or(PrePoolError::VersionExhausted)?;
+                    .expect("u128 entry version must not exhaust during process lifetime");
                 next.state = EntryState::ResolveQueued {
                     lane: ResolveLane::Ordered,
                 };
@@ -272,9 +266,7 @@ impl PrePoolKernel {
                 ) {
                     Ok(plan) => Some(plan),
                     Err(error) if error.is_retryable_capacity_rejection() => {
-                        return Err(PrePoolError::Repair(
-                            "wait wake increased a continuously reserved budget",
-                        ));
+                        panic!("wait wake must fit its continuously reserved budget: {error:?}");
                     }
                     Err(error) => return Err(error),
                 }
@@ -317,18 +309,17 @@ impl PrePoolKernel {
                 .into_iter()
                 .filter(|key| parents.contains(&key.parent_hash()))
                 .collect::<BTreeSet<_>>();
-            if keys.is_empty() {
-                return Err(PrePoolError::Repair(
-                    "parent index has no canonical dependency key",
-                ));
-            }
+            assert!(
+                !keys.is_empty(),
+                "every parent projection must have a canonical dependency key"
+            );
             if let EntryState::Wait(wait) = &entry.state {
                 keys.extend(wait.observed.keys().cloned());
             }
             let version = *version_cursor;
             *version_cursor = version_cursor
                 .checked_add(1)
-                .ok_or(PrePoolError::VersionExhausted)?;
+                .expect("u128 entry version must not exhaust during process lifetime");
             let mut next = entry;
             next.version = version;
             next.dependencies.extend(keys.iter().cloned());
@@ -365,9 +356,10 @@ impl PrePoolKernel {
         expires_at: Option<u64>,
     ) -> Result<(bool, Vec<TerminalRecord>), PrePoolError> {
         let hash = raw.tx.hash();
-        if keys.is_empty() {
-            return Err(PrePoolError::Repair("conflict history without wake keys"));
-        }
+        assert!(
+            !keys.is_empty(),
+            "conflict history requires at least one wake key"
+        );
         let keys = keys
             .into_iter()
             .map(DependencyKey::into_compact)
@@ -384,7 +376,7 @@ impl PrePoolKernel {
                 next.raw = Arc::new(raw);
                 next.expires_at = None;
             }
-            next.version = self.allocate_version()?;
+            next.version = self.allocate_version();
             next.dependencies.extend(keys.iter().cloned());
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
@@ -402,8 +394,8 @@ impl PrePoolKernel {
                 existing_hash: existing_hash.clone(),
             });
         }
-        let version = self.allocate_version()?;
-        let arrival = self.allocate_arrival()?;
+        let version = self.allocate_version();
+        let arrival = self.allocate_arrival();
         let mut dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty());
         dependencies.extend(keys.iter().cloned());
         let payload_charge_bytes = raw.charge_bytes();

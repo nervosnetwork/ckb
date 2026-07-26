@@ -424,39 +424,33 @@ impl TxPoolService {
                 let entry_id = entry.proposal_short_id();
                 let snapshot = tx_pool.cloned_snapshot();
                 Some(self.pipeline.kernel.mutate_authoritative(|kernel| {
-                        self.relay.effects.try_apply_bounded(
-                            effect_bound,
-                            EffectClass::Remote,
-                            || {
-                                let (mut coordinated, settlement) = self
-                                    .try_submit_entry_with_handoff(
-                                        &mut tx_pool,
-                                        snapshot,
-                                        verified.candidate.pre_resolve_tip.clone(),
-                                        entry.clone(),
-                                        |tx_pool, plan| {
-                                            let unavailable = self
-                                                .planned_unavailable_parent_hashes(
-                                                    plan,
-                                                    tx_pool.snapshot(),
-                                                );
-                                            let handoff = kernel
-                                                .commit_any_handoff_with_unavailable_parents(
-                                                    &lease,
-                                                    &unavailable,
-                                                )
-                                                .unwrap_or_else(|error| {
-                                                    panic!("planned pipeline handoff failed: {error:?}")
-                                                });
-                                            self.settle_kernel_for_pool_plan(
-                                                kernel, tx_pool, &entry, plan,
-                                            );
-                                            handoff
-                                        },
+                    self.relay
+                        .effects
+                        .try_apply_bounded(effect_bound, EffectClass::Remote, || {
+                            let (mut coordinated, settlement) = self.try_submit_entry_with_handoff(
+                                &mut tx_pool,
+                                snapshot,
+                                verified.candidate.pre_resolve_tip.clone(),
+                                entry.clone(),
+                                |tx_pool, plan| {
+                                    let unavailable = self.planned_unavailable_parent_hashes(
+                                        plan,
+                                        tx_pool.snapshot(),
                                     );
-                                let failed_terminal = if coordinated.outcome.result.is_err()
-                                    && settlement.is_none()
-                                {
+                                    let handoff = kernel
+                                        .commit_any_handoff_with_unavailable_parents(
+                                            &lease,
+                                            &unavailable,
+                                        )
+                                        .unwrap_or_else(|error| {
+                                            panic!("planned pipeline handoff failed: {error:?}")
+                                        });
+                                    self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan);
+                                    handoff
+                                },
+                            );
+                            let failed_terminal =
+                                if coordinated.outcome.result.is_err() && settlement.is_none() {
                                     let retain_conflict = matches!(
                                         coordinated.outcome.result.as_ref(),
                                         Err(Reject::RBFRejected(..)
@@ -479,67 +473,27 @@ impl TxPoolService {
                                 } else {
                                     None
                                 };
-                                let mut failed_banned_peer = None;
-                                let mut extra_effects = Vec::new();
-                                if let Some(handoff) = &settlement {
-                                    extra_effects.push(TxPoolEffect::Relay(
-                                        crate::service::TxVerificationResult::Ok {
-                                            original_peer: handoff.winner.raw.ingress_peer(),
-                                            tx_hash: verified.candidate.tx.hash(),
-                                        },
-                                    ));
-                                    let reject = Reject::RBFRejected(
-                                        Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
-                                    );
-                                    for record in &handoff.superseded {
-                                        record
-                                            .raw
-                                            .authoritative_source(record.source)
-                                            .unwrap_or_else(|error| {
-                                                panic!(
-                                                    "planned conflict source attribution failed: {error:?}"
-                                                )
-                                            });
-                                        if let Some(effect) =
-                                            self.recent_reject_effect(record.hash.clone(), &reject)
-                                        {
-                                            extra_effects.push(effect);
-                                        }
-                                        if record.raw.ingress_peer().is_some()
-                                            && reject.is_allowed_relay()
-                                        {
-                                            extra_effects.push(TxPoolEffect::Relay(
-                                                crate::service::TxVerificationResult::Reject {
-                                                    tx_hash: record.hash.clone(),
-                                                },
-                                            ));
-                                        }
-                                    }
-                                } else if let Some(record) = &failed_terminal
-                                    && let Some(reject) = coordinated.outcome.result.as_ref().err()
-                                {
+                            let mut failed_banned_peer = None;
+                            let mut extra_effects = Vec::new();
+                            if let Some(handoff) = &settlement {
+                                extra_effects.push(TxPoolEffect::Relay(
+                                    crate::service::TxVerificationResult::Ok {
+                                        original_peer: handoff.winner.raw.ingress_peer(),
+                                        tx_hash: verified.candidate.tx.hash(),
+                                    },
+                                ));
+                                let reject = Reject::RBFRejected(
+                                    Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
+                                );
+                                for record in &handoff.superseded {
+                                    record.raw.authoritative_source(record.source);
                                     if let Some(effect) =
-                                        self.recent_reject_effect(record.hash.clone(), reject)
+                                        self.recent_reject_effect(record.hash.clone(), &reject)
                                     {
                                         extra_effects.push(effect);
                                     }
-                                    if reject.is_malformed_tx()
-                                        && let Some(peer) = record.raw.blame_peer()
-                                    {
-                                        let duration = std::time::Duration::from_secs(
-                                            crate::constants::MALFORMED_TX_BAN_SECONDS,
-                                        );
-                                        self.record_peer_ban(peer, duration);
-                                        extra_effects.push(TxPoolEffect::BanPeer {
-                                            peer,
-                                            duration,
-                                            reason: bounded_commit_ban_reason(reject),
-                                        });
-                                        failed_banned_peer = Some(peer);
-                                    }
                                     if record.raw.ingress_peer().is_some()
                                         && reject.is_allowed_relay()
-                                        && !matches!(reject, Reject::Duplicated(_))
                                     {
                                         extra_effects.push(TxPoolEffect::Relay(
                                             crate::service::TxVerificationResult::Reject {
@@ -548,26 +502,56 @@ impl TxPoolService {
                                         ));
                                     }
                                 }
-                                for status in coordinated.block_assembler_statuses() {
-                                    self.journal_block_assembler_update(status);
+                            } else if let Some(record) = &failed_terminal
+                                && let Some(reject) = coordinated.outcome.result.as_ref().err()
+                            {
+                                if let Some(effect) =
+                                    self.recent_reject_effect(record.hash.clone(), reject)
+                                {
+                                    extra_effects.push(effect);
                                 }
-                                let batch = self.prepare_submit_effects(
-                                    &mut coordinated.outcome,
-                                    extra_effects,
-                                );
+                                if reject.is_malformed_tx()
+                                    && let Some(peer) = record.raw.blame_peer()
+                                {
+                                    let duration = std::time::Duration::from_secs(
+                                        crate::constants::MALFORMED_TX_BAN_SECONDS,
+                                    );
+                                    self.record_peer_ban(peer, duration);
+                                    extra_effects.push(TxPoolEffect::BanPeer {
+                                        peer,
+                                        duration,
+                                        reason: bounded_commit_ban_reason(reject),
+                                    });
+                                    failed_banned_peer = Some(peer);
+                                }
+                                if record.raw.ingress_peer().is_some()
+                                    && reject.is_allowed_relay()
+                                    && !matches!(reject, Reject::Duplicated(_))
+                                {
+                                    extra_effects.push(TxPoolEffect::Relay(
+                                        crate::service::TxVerificationResult::Reject {
+                                            tx_hash: record.hash.clone(),
+                                        },
+                                    ));
+                                }
+                            }
+                            for status in coordinated.block_assembler_statuses() {
+                                self.journal_block_assembler_update(status);
+                            }
+                            let batch = self
+                                .prepare_submit_effects(&mut coordinated.outcome, extra_effects);
+                            (
                                 (
-                                    (
-                                        coordinated,
-                                        settlement,
-                                        failed_banned_peer,
-                                        verified,
-                                        entry_id,
-                                    ),
-                                    batch,
-                                )
-                            },
-                        )
-                    }))
+                                    coordinated,
+                                    settlement,
+                                    failed_banned_peer,
+                                    verified,
+                                    entry_id,
+                                ),
+                                batch,
+                            )
+                        })
+                }))
             })();
             match prepared {
                 None => None,
