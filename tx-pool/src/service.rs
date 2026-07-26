@@ -44,8 +44,10 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::cache::TxVerificationCache;
+use futures_util::FutureExt;
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
+use std::panic::AssertUnwindSafe;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -152,6 +154,9 @@ pub enum TxVerificationResult {
         /// transaction hash
         tx_hash: Byte32,
     },
+    /// Constant-size reconciliation after an authoritative generation swap
+    /// deliberately discards optional pre-pool residents.
+    GenerationReset,
 }
 
 /// Auxiliary read-mostly services bundled to keep [`TxPoolService`] field
@@ -485,12 +490,10 @@ pub(crate) struct TxPoolService {
     pub(crate) relay: RelayState,
     pub(crate) aux: AuxServices,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    /// Held while the lock-free section of a reorg (retained-transaction
-    /// recovery) is in progress. `save_pool` acquires it before persisting
-    /// so the file always represents a complete recovery point: a snapshot
-    /// taken mid-recovery would silently lose the detached transactions
-    /// that have not been re-added yet.
-    pub(crate) recovery_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes immutable persistence snapshots and their atomic writers.
+    /// It never protects pool/kernel ownership and may therefore be held
+    /// across blocking file I/O without creating a state-lock cycle.
+    pub(crate) persistence_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// Outcome of an administrative `remove_tx` attempt.
@@ -568,20 +571,18 @@ impl TxPoolService {
     /// head later fails its preflight.
     pub async fn refresh_block_assembler_after_tx_pool_reorg(
         &self,
-        detached_blocks: VecDeque<BlockView>,
+        candidate_uncles: Vec<UncleBlockView>,
+        expected_snapshot: Arc<Snapshot>,
     ) -> Result<(), String> {
         if let Some(ref block_assembler) = self.block_assembler {
+            if self.pool.tx_pool.read().await.snapshot().tip_hash() != expected_snapshot.tip_hash()
             {
-                let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
-                for detached_block in detached_blocks {
-                    candidate_uncles.insert(detached_block.as_uncle());
-                }
+                return Ok(());
             }
-
             // Consume the generation-tagged authority journal instead of the
             // reorg handler's captured snapshot. A later clear may have won
-            // after tx-pool recovery released `recovery_lock`; applying the
-            // captured snapshot here would resurrect a stale template.
+            // while retained payloads were validating; applying the captured
+            // snapshot here would resurrect stale template authority.
             match crate::block_assembler::process_reset(self.clone(), false).await {
                 crate::block_assembler::ResetApply::Retry => {
                     return Err("block assembler authoritative reset remains pending".to_string());
@@ -596,9 +597,45 @@ impl TxPoolService {
                 crate::block_assembler::ResetApply::Idle
                 | crate::block_assembler::ResetApply::Applied => {}
             }
-            match block_assembler.update_full(&self.pool.tx_pool).await {
-                Ok(true) => self.journal_block_assembler_full_reconcile(),
-                Ok(false) => {
+            if self.pool.tx_pool.read().await.snapshot().tip_hash() != expected_snapshot.tip_hash()
+            {
+                let current = self.pool.tx_pool.read().await.cloned_snapshot();
+                self.journal_block_assembler_reset(current);
+                return Ok(());
+            }
+            // Candidate uncles are installed only after the exact reset
+            // generation and target tip have been validated. This prevents a
+            // reset retry followed by clear/supersession from leaving an old
+            // detached uncle in the candidate set with no phase-two owner
+            // left to remove it.
+            let inserted_uncles = {
+                let mut retained = block_assembler.candidate_uncles.lock().await;
+                candidate_uncles
+                    .into_iter()
+                    .filter(|uncle| retained.insert(uncle.clone()))
+                    .collect::<Vec<_>>()
+            };
+            let full = AssertUnwindSafe(block_assembler.update_full(&self.pool.tx_pool))
+                .catch_unwind()
+                .await;
+            match full {
+                Err(payload) => {
+                    let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
+                    for uncle in &inserted_uncles {
+                        candidate_uncles.remove_by_number(uncle);
+                    }
+                    return Err(format!(
+                        "block assembler update panicked: {}",
+                        crate::util::panic_payload_to_string(payload.as_ref())
+                    ));
+                }
+                Ok(Ok(true)) => self.journal_block_assembler_full_reconcile(),
+                Ok(Ok(false)) => {
+                    let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
+                    for uncle in &inserted_uncles {
+                        candidate_uncles.remove_by_number(uncle);
+                    }
+                    drop(candidate_uncles);
                     if self.relay.block_assembler_reset_pending() {
                         return Ok(());
                     }
@@ -606,7 +643,13 @@ impl TxPoolService {
                         "block assembler full rebuild observed a tx-pool tip mismatch".to_string(),
                     );
                 }
-                Err(e) => error!("block_assembler update failed {:?}", e),
+                Ok(Err(e)) => {
+                    let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
+                    for uncle in &inserted_uncles {
+                        candidate_uncles.remove_by_number(uncle);
+                    }
+                    return Err(format!("block assembler update failed: {e:?}"));
+                }
             }
             // A reset is already a valid blank template if the full rebuild
             // fails; publish at most once after the complete refresh attempt.

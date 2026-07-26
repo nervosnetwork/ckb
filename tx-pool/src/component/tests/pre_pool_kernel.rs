@@ -55,7 +55,9 @@ fn with_cached_hash(tx: TransactionView, hash: Byte32) -> TransactionView {
 fn source_peer(source: PrePoolSource) -> PeerIndex {
     match source {
         PrePoolSource::Remote(peer) => peer,
-        PrePoolSource::Proposal => panic!("expected a remote owner"),
+        PrePoolSource::Proposal | PrePoolSource::Recovery => {
+            panic!("expected a remote owner")
+        }
     }
 }
 
@@ -820,6 +822,99 @@ fn ready_expiry_filter_does_not_starve_later_non_ready_deadlines() {
     assert_eq!(expired[0].hash, queued_tx.hash());
     assert!(kernel.contains_hash(&ready_tx.hash()));
     assert_eq!(kernel.expire_due(5, 1, true).unwrap().len(), 1);
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn recovery_batch_is_atomic_parent_first_and_persistable_while_leased() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let parent = transaction(201);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let batch = kernel
+        .retain_recovery_batch(vec![parent.clone(), child.clone()], 7)
+        .unwrap();
+    assert_eq!(batch.retained, 2);
+    assert_eq!(
+        kernel.view(&parent.hash()).unwrap().location,
+        PrePoolLocation::RecoveryRetained
+    );
+    assert_eq!(
+        kernel.view(&child.hash()).unwrap().location,
+        PrePoolLocation::RecoveryRetained
+    );
+    assert_eq!(
+        kernel
+            .recovery_snapshot()
+            .into_iter()
+            .map(|item| item.tx.hash())
+            .collect::<Vec<_>>(),
+        vec![parent.hash(), child.hash()]
+    );
+
+    let parent_lease = kernel.checkout_recovery(batch.session).unwrap().unwrap();
+    assert_eq!(parent_lease.hash, parent.hash());
+    assert!(kernel.recovery_session_pending(batch.session));
+    assert!(
+        kernel
+            .recovery_snapshot()
+            .iter()
+            .any(|item| item.tx.hash() == parent.hash()),
+        "an active borrower must not create a persistence gap"
+    );
+    kernel
+        .terminalize_resolve(&parent_lease, TerminalDisposition::Removed)
+        .unwrap();
+    let child_lease = kernel.checkout_recovery(batch.session).unwrap().unwrap();
+    assert_eq!(child_lease.hash, child.hash());
+    kernel
+        .terminalize_resolve(&child_lease, TerminalDisposition::Removed)
+        .unwrap();
+    assert!(!kernel.recovery_session_pending(batch.session));
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn over_budget_recovery_plan_is_mutation_free() {
+    let mut limits = limits();
+    limits.total.entries = 1;
+    let mut kernel = PrePoolKernel::new(limits);
+    let first = transaction(202);
+    let second = transaction(203);
+    assert_eq!(
+        kernel.retain_recovery_batch(vec![first.clone(), second], 9),
+        Err(PrePoolError::TotalBudgetExceeded)
+    );
+    assert!(!kernel.contains_hash(&first.hash()));
+    assert_eq!(kernel.len(), 0);
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn empty_generation_recovery_retains_closure_safe_prefix() {
+    let mut limits = limits();
+    limits.total.entries = 2;
+    let mut kernel = PrePoolKernel::new(limits);
+    let parent = transaction(204);
+    let child = build_tx(vec![(&parent.hash(), 0)], 1);
+    let grandchild = build_tx(vec![(&child.hash(), 0)], 2);
+
+    let batch = kernel
+        .retain_recovery_prefix_after_clear(
+            vec![parent.clone(), child.clone(), grandchild.clone()],
+            10,
+        )
+        .unwrap();
+
+    assert_eq!(batch.retained, 2);
+    assert!(kernel.contains_hash(&parent.hash()));
+    assert!(kernel.contains_hash(&child.hash()));
+    assert!(!kernel.contains_hash(&grandchild.hash()));
+    assert!(
+        kernel
+            .recovery_snapshot()
+            .iter()
+            .all(|item| item.meta.session == batch.session)
+    );
     kernel.audit().unwrap();
 }
 

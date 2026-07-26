@@ -208,7 +208,7 @@ impl HarnessBuilder {
                 fee_estimator: FeeEstimator::new_dummy(),
             },
             block_assembler: None,
-            recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+            persistence_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
 
         // The effect publisher is deliberately independent from pipeline

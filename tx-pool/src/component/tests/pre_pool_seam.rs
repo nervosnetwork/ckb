@@ -66,9 +66,8 @@ impl PrePoolKernel {
             .and_then(|value| value.checked_add(usize::from(entry.expires_at.is_some())))
             .ok_or_else(|| "common projection charge overflow".to_string())?;
         let current_state_memberships = match &entry.state {
-            EntryState::RecoveryRetained { .. }
-            | EntryState::ResolveLeased
-            | EntryState::VerifyLeased { .. } => 0,
+            EntryState::RecoveryRetained => 1,
+            EntryState::ResolveLeased | EntryState::VerifyLeased { .. } => 0,
             EntryState::ResolveQueued { .. } | EntryState::VerifyQueued { .. } => 3,
             EntryState::Wait(wait) => wait
                 .observed
@@ -135,6 +134,7 @@ impl PrePoolKernel {
         let mut ready = BTreeSet::new();
         let mut ready_by_input = HashMap::<_, BTreeSet<_>>::new();
         let mut deadlines = BTreeSet::new();
+        let mut recovery = BTreeSet::new();
         let mut total_usage = Residency::default();
         let mut remote_usage = Residency::default();
         let mut conflict_usage = Residency::default();
@@ -214,6 +214,15 @@ impl PrePoolKernel {
             if let Some(deadline) = Self::deadline_key(hash, entry) {
                 deadlines.insert(deadline);
             }
+            if matches!(entry.state, EntryState::RecoveryRetained) {
+                recovery.insert(RecoveryKey {
+                    meta: entry.recovery.ok_or_else(|| {
+                        "recovery owner is missing parent-first metadata".to_string()
+                    })?,
+                    hash: hash.clone(),
+                    version: entry.version,
+                });
+            }
 
             let charge = Residency::new(1, entry.charge_bytes);
             total_usage = total_usage
@@ -236,10 +245,12 @@ impl PrePoolKernel {
                     .checked_add(charge)
                     .ok_or_else(|| "conflict audit charge overflow".to_string())?;
             }
-            if matches!(
-                entry.state,
-                EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
-            ) {
+            if entry.source != PrePoolSource::Recovery
+                && matches!(
+                    entry.state,
+                    EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
+                )
+            {
                 active_work = active_work
                     .checked_add(1)
                     .ok_or_else(|| "active audit count overflow".to_string())?;
@@ -254,6 +265,7 @@ impl PrePoolKernel {
             || ready != self.ready
             || ready_by_input != self.ready_by_input
             || deadlines != self.deadlines
+            || recovery != self.recovery
             || total_usage != self.total_usage
             || remote_usage != self.remote_usage
             || conflict_usage != self.conflict_usage

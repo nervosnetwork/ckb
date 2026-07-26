@@ -4,10 +4,14 @@ Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Status: plan frozen; P3/C5 is complete and P4/C6 is next. Correctness and static
-safety precede the final separately measured performance gate. Each phase is a
-recoverable commit and ends with a whole-architecture review, not only a review
-of edited files.
+Status: plan frozen; P3/C5 is complete and P4 correctness is ready for a C6
+recovery checkpoint. P4 architecture acceptance is withheld: the phase is not
+net-negative and normal reorg generation fallback has not yet converged on the
+same lock-outside disposal primitive as DefectDomain. P5 begins with that
+architecture re-audit rather than treating C6 as production-ready.
+Correctness and static safety precede the final separately measured performance
+gate. Each phase is a recoverable commit and ends with a whole-architecture
+review, not only a review of edited files.
 
 ## 1. Execution rules
 
@@ -211,12 +215,16 @@ records and critical authority. Reject any new deferred payload channel.
 
 - Move bounded detached replay into charged/persistable
   `RecoveryRetained(session,ordinal)` and direct trusted drain; delete
-  `recovery_lock` and handler-local replay ownership.
+  `recovery_lock` and handler-local replay ownership. Transfer the bounded
+  accepted descendant closure of detached producers into the same parent-first
+  recovery session before startup zombie reconciliation; over-bound fanout
+  takes the one generation-reset fallback rather than a late-parent exception.
 - Implement exact reorg Gap/Proposed/Pending classification, proposal-wins
   optional-uncle filtering, immediate blank authority and latest-generation
   full refresh.
-- Make oversized/full chain detail choose one constant `GenerationReset`
-  authority before mutation rather than waiting on ordinary publication.
+- Make oversized/full chain detail choose one prebuilt constant
+  `GenerationReset` authority while still applying the chain mutation, rather
+  than waiting behind callback/relay publication.
 - Require every returned template to match current chain generation/parent;
   preserve reset/full mutual exclusion and same-generation full priority.
 - Implement v2 explicit-save snapshot of causal-parent-first accepted and

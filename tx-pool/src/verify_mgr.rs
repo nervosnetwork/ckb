@@ -332,14 +332,6 @@ impl TxPoolService {
                 "tx-pool verify worker panicked on {}: {}",
                 lease.hash, message
             );
-            // An authoritative pool/coordinator boundary panic has already
-            // latched service-wide fail-closed state. Do not attempt to
-            // reserve effects or settle the now-obsolete verify lease during
-            // shutdown; that only creates a second panic and cannot restore a
-            // transaction whose pool mutation may be partial.
-            if self.pipeline.kernel.is_failed() {
-                return;
-            }
             self.settle_pipeline_verify_failure(
                 &lease,
                 TerminalDisposition::Internal,

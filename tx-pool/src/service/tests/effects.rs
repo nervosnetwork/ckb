@@ -27,7 +27,13 @@ impl EffectJournal {
             let space = self.space.notified();
             tokio::pin!(space);
             space.as_mut().enable();
-            if self.usage().batches == 0 {
+            let idle = {
+                let state = self.state.lock().unwrap();
+                state.active.is_none()
+                    && state.queued.is_empty()
+                    && state.latest_generation_reset.is_none()
+            };
+            if idle {
                 return;
             }
             space.await;
@@ -300,6 +306,89 @@ async fn close_drains_every_queued_batch_in_order() {
     run_effect_publisher(Arc::clone(&queue), endpoints(relay_tx)).await;
     assert_eq!(*order.lock().unwrap(), vec![1, 2]);
     assert_eq!(queue.usage().batches, 0);
+}
+
+#[tokio::test]
+async fn generation_reset_register_bypasses_full_fifo_and_coalesces() {
+    let queue = Arc::new(EffectJournal::new(2, 1_000).unwrap());
+    queue
+        .try_apply(Some(reject_batch(1)), EffectClass::Trusted, || ())
+        .unwrap();
+    queue.install_generation_reset().unwrap();
+    queue
+        .install_generation_reset()
+        .expect("a newer reset replaces the reserved record");
+    queue
+        .try_apply(Some(reject_batch(2)), EffectClass::Trusted, || ())
+        .unwrap();
+    assert_eq!(queue.usage().batches, 2, "reset owns no FIFO budget");
+    assert!(
+        matches!(
+            queue.try_apply(Some(reject_batch(3)), EffectClass::Trusted, || ()),
+            Err(EffectJournalError::Full)
+        ),
+        "ordinary FIFO is saturated independently of the reset register"
+    );
+
+    let (relay_tx, relay_rx) = ckb_channel::bounded(4);
+    queue.close();
+    run_effect_publisher(Arc::clone(&queue), endpoints(relay_tx)).await;
+    let published = (0..3)
+        .map(|_| relay_rx.try_recv().unwrap())
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        &published[0],
+        TxVerificationResult::Reject { tx_hash } if tx_hash == &Byte32::new([1; 32])
+    ));
+    assert!(matches!(
+        published[1],
+        TxVerificationResult::GenerationReset
+    ));
+    assert!(matches!(
+        &published[2],
+        TxVerificationResult::Reject { tx_hash } if tx_hash == &Byte32::new([2; 32])
+    ));
+    assert!(relay_rx.try_recv().is_err(), "two resets coalesce to one");
+}
+
+#[tokio::test]
+async fn authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full() {
+    let queue = Arc::new(EffectJournal::new_partitioned(1, 128, 0, 0, 1, 128).unwrap());
+    queue
+        .try_apply(Some(reject_batch(1)), EffectClass::Remote, || ())
+        .unwrap();
+    queue
+        .try_apply(Some(reject_batch(2)), EffectClass::Critical, || ())
+        .unwrap();
+    let applied = AtomicUsize::new(0);
+    queue
+        .try_apply_authoritative(EFFECT_ENVELOPE_BYTES, |publish_detail| {
+            assert!(!publish_detail, "the detailed critical FIFO is saturated");
+            applied.fetch_add(1, Ordering::SeqCst);
+            ((), None)
+        })
+        .expect("chain authority does not backpressure behind publication");
+    assert_eq!(applied.load(Ordering::SeqCst), 1);
+    assert_eq!(queue.usage().batches, 2, "reset is outside FIFO capacity");
+
+    let (relay_tx, relay_rx) = ckb_channel::bounded(3);
+    queue.close();
+    run_effect_publisher(Arc::clone(&queue), endpoints(relay_tx)).await;
+    let published = (0..3)
+        .map(|_| relay_rx.try_recv().unwrap())
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        &published[0],
+        TxVerificationResult::Reject { tx_hash } if tx_hash == &Byte32::new([1; 32])
+    ));
+    assert!(matches!(
+        &published[1],
+        TxVerificationResult::Reject { tx_hash } if tx_hash == &Byte32::new([2; 32])
+    ));
+    assert!(matches!(
+        published[2],
+        TxVerificationResult::GenerationReset
+    ));
 }
 
 #[tokio::test]

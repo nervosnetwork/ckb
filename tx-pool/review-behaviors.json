@@ -165,14 +165,14 @@
         "tx-pool/src/service/builder.rs",
         "tx-pool/src/callback.rs"
       ],
-      "required_behavior": "A mutation-coupled immutable batch passes one exact static-region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; no reservation or capacity token crosses a lock or await. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and bounded publication occurs outside authority locks.",
-      "hostile_case": "Remote saturation, a permanently full relay endpoint, callback re-entry/panic/hang, publisher unwind, close race or check-before-wait window must not mutate without a matching record, consume trusted/critical progress, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
+      "required_behavior": "A mutation-coupled immutable batch passes one exact static-region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; no reservation or capacity token crosses a lock or await. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and a chain transition that cannot publish detail installs one prebuilt replaceable GenerationReset without waiting behind the FIFO.",
+      "hostile_case": "Remote saturation, a full critical FIFO, a permanently full relay endpoint, callback re-entry/panic/hang, publisher unwind, close race or check-before-wait window must not mutate without a matching authority record, consume trusted/critical progress, delay chain convergence, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
       "reviewer_questions": [
         "Is the immutable batch exact before Apply, or covered by one statically proved largest-indivisible Plan bound?",
         "Does Full/Closed/Oversize return before Apply, with the journal lock innermost and no capacity token crossing a lock or await?",
-        "Are Remote, trusted and critical usage accounted independently while queued and active, and are endpoint failure/circuit dispositions bounded?"
+        "Are Remote, trusted and critical usage accounted independently while queued and active, and does saturated chain detail fall back to the prebuilt reset register rather than wait?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|remote_byte_ceiling|critical_headroom|permanently_full_relayer|hung_callback|replacement_publisher|close_wakes|idle_publisher)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|remote_byte_ceiling|critical_headroom|authoritative_apply|generation_reset_register|permanently_full_relayer|hung_callback|replacement_publisher|close_wakes|idle_publisher)/)'",
       "performance_bound": "One bounded journal publisher and one bounded callback endpoint worker; O(1) admission/accounting, no per-effect task, unbounded channel, callback-under-lock or busy retry."
     },
     {
@@ -180,36 +180,60 @@
       "title": "Serialized reliable chain transitions",
       "change_surfaces": [
         "tx-pool/src/process/reorg.rs",
+        "tx-pool/src/component/pre_pool/recovery.rs",
         "tx-pool/src/service.rs",
         "tx-pool/src/service/pipeline_ops.rs"
       ],
-      "required_behavior": "Reorg deltas remain ordered and retained through retry; recovery_lock serializes complete detached replay, clear and persistence, while final effects describe only authoritative post-replay state.",
-      "hostile_case": "Repeated callback panic, duplicate detached roots, clear/save races or partial replay must not drop/overtake a delta, expose an ownership gap, block on a capacity resource held across recovery or persist an intermediate pool.",
+      "required_behavior": "The first retained reorg phase atomically switches snapshot/membership, transfers the complete bounded accepted descendant closure of detached producers into one charged parent-first RecoveryRetained session, then journals the immediate template reset; its trusted drainer uses ordinary admission while the independently retried second phase carries only a bounded compact-uncle token and publishes the matching final generation.",
+      "hostile_case": "Repeated phase panic, a late accepted child, startup zombie reconcile, an over-budget or over-fanout descendant closure, duplicate/colliding detached roots, clear/save races or a stale full-template retry must not drop/overtake chain authority, expose a parentless accepted suffix or unowned payload interval, retain transaction-bearing blocks outside the kernel, cross a missing parent prefix or publish stale uncles/template state.",
       "reviewer_questions": [
-        "Is the compatibility order recovery_lock then TxPool then PrePoolKernel then innermost EffectJournal preserved, with capacity waits owning no state?",
-        "Can retry replay an already completed authoritative phase or an obsolete snapshot?",
-        "Are duplicate recovery, final-state effects and attached/detached identities exact?"
+        "Does the paired mutation follow TxPool then PrePoolKernel then innermost EffectJournal, with every recovery payload charged before locks open and no stateful guard crossing an await?",
+        "Can phase-two retry replay phase one, retain full detached blocks, or leave its inserted uncles after panic/supersession?",
+        "Are accepted descendants planned before startup zombie reconciliation, transferred child-first/retained parent-first, and reset as one ephemeral generation when the bounded closure cannot fit?",
+        "Are duplicate/collision handling, closure-safe truncation, full/witness identity, non-reused session/version clocks and clear epoch ordering exact?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_status_transition|reorg_retain_duplicate|retained_receiver|clear_during_reorg|cross_authority_query)/)'",
-      "performance_bound": "Retain a capacity-one ordered delta and bounded replay slices; no independent recovery worker or full-history duplication."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_status_transition|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|second_phase_retry|retained_receiver|clear_during_reorg|cross_authority_query)/)'",
+      "performance_bound": "First-phase graph traversal and transfer stop at the fixed mutation/recovery bounds and use one generation reset beyond them; phase two contains at most the assembler candidate bound, with no recovery lock, independent worker, population scan or full-block duplication after phase one."
     },
     {
       "id": "TP-PERSIST-001",
       "title": "Coherent persistence recovery point",
       "change_surfaces": [
         "tx-pool/src/service.rs",
+        "tx-pool/src/persisted.rs",
+        "tx-pool/src/component/pre_pool/recovery.rs",
         "tx-pool/src/component/pool_map.rs",
         "tx-pool/src/process/reorg.rs"
       ],
-      "required_behavior": "Persistence snapshots only a coherent accepted pool after complete recovery, orders by the authoritative expanded dependency graph and is disabled only when authoritative mutation may be uncertain.",
-      "hostile_case": "Save racing detached replay, effect-journal failure or expanded dep-group ordering must not persist half a reorg, lose a recoverable pool or serialize children before required parents.",
+      "required_behavior": "Under one TxPool-read then PrePoolKernel snapshot boundary, persistence copies causal-parent-first accepted entries plus every retained/leased recovery-source payload into a bounded v2 envelope, releases authority locks, and serializes atomic writers without draining live state; startup also accepts the legacy v1 vector and revalidates every transaction.",
+      "hostile_case": "Save racing detached replay/clear, an active recovery lease, malformed or oversized disk data, writer failure or expanded dep-group ordering must not persist an ownership gap, allocate from an unbounded length, lose the previous atomic file, drain the live pool or serialize children before required parents.",
       "reviewer_questions": [
-        "Does save hold recovery serialization across its complete snapshot boundary?",
-        "Is PoolMap the only ordering authority, including expanded dependencies?",
-        "Does each failure domain make the intended persistence decision?"
+        "Does save use only the universal TxPool-read then kernel order and include accepted xor every recovery owner at one linearization point?",
+        "Is PoolMap the accepted ordering authority, including expanded dependencies, while recovery metadata preserves parent-first session order?",
+        "Are file bytes/counts bounded before allocation, writes temp-sync-rename atomic, and all startup payloads revalidated rather than trusted?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(save_pool_waits|stable_effect_journal|persisted_file_orders)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(save_pool_captures_complete_reorg_ownership|dependent_chain_survives_save_and_restart|dispatcher_channel_close|persisted_file_orders|persistence_v2_rejects_oversized|persistence_loader_accepts_legacy)/)'",
       "performance_bound": "Shutdown-only clone/sort work stays off admission paths; do not add a continuously maintained persistence projection."
+    },
+    {
+      "id": "TP-DEFECT-001",
+      "title": "Generation-local defect containment",
+      "change_surfaces": [
+        "tx-pool/src/component/pre_pool/runtime.rs",
+        "tx-pool/src/process/mod.rs",
+        "tx-pool/src/process/submit/mod.rs",
+        "sync/src/relayer/mod.rs"
+      ],
+      "required_behavior": "An impossible authoritative unwind exchanges only ephemeral accepted/entry generations while the TxPool guard remains closed, preserves process-global version/session clocks, emits one prebuilt GenerationReset and keeps chain, Local, Proposal, query and mining paths live; the sealed retired accepted/kernel bundle is destroyed only after authority guards open and replenishes the single emergency spare, while Remote alone enters bounded cooling, exact-witness quarantine and circuit-open after repeated resets.",
+      "hostile_case": "A reproducible legal witness, stale pre-reset lease, session reuse, relay saturation or repeated witness variants must not cancel the tx-pool service, persist/reuse a partial generation, ABA-delete a new owner or force an endless whole-pool reset loop.",
+      "reviewer_questions": [
+        "Does the swap install the target/current chain snapshot and fresh primary/index generation before either authority guard opens?",
+        "Do entry versions, recovery sessions and stable effect/template authorities survive the generation exchange?",
+        "Does the one disposal permit keep retired residency bounded and force destruction/spare replenishment outside both authority locks?",
+        "Is exact wtx quarantine/cooling absent from the healthy hot-path lock set, bounded in memory, and fail-closed only for Remote after repeated resets?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(authoritative_defect|authoritative_generation_swap)/)'",
+      "performance_bound": "Healthy admission adds no new mutex acquisition; one prebuilt spare, one prebuilt reset record and one serialized disposal permit make the impossible swap bounded without destroying population-sized graphs under authority locks."
     },
     {
       "id": "TP-POOL-001",
@@ -348,16 +372,33 @@
     {"test": "replacement_publisher_resumes_the_charged_active_batch", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8"]},
     {"test": "close_wakes_every_blocked_capacity_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
+    {"test": "authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full", "behavior_id": "TP-EFFECT-001", "invariants": ["I7", "I8", "I12"]},
 
     {"test": "reorg_status_transition_failure_has_no_false_reject_and_replay_converges", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
     {"test": "retained_receiver_preserves_fifo_across_panics", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
     {"test": "clear_during_reorg_recovery_owns_the_final_empty_state", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7", "I8"]},
     {"test": "cross_authority_query_is_serialized_with_clear_and_reorg", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I2", "I7"]},
     {"test": "reorg_direct_replay_treats_pool_duplicates_as_idempotent", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7"]},
+    {"test": "recovery_batch_is_atomic_parent_first_and_persistable_while_leased", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I5", "I7"]},
+    {"test": "over_budget_recovery_plan_is_mutation_free", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I5", "I7"]},
+    {"test": "empty_generation_recovery_retains_closure_safe_prefix", "behavior_id": "TP-REORG-001", "invariants": ["I5", "I6", "I7"]},
+    {"test": "second_phase_retry_never_replays_completed_first_phase", "behavior_id": "TP-REORG-001", "invariants": ["I7", "I11"]},
+    {"test": "accepted_reorg_recovery_plan_is_parent_first_and_total", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I7", "I10"]},
+    {"test": "accepted_reorg_recovery_plan_reports_over_bound_fanout", "behavior_id": "TP-REORG-001", "invariants": ["I5", "I7", "I12"]},
+    {"test": "reorg_replays_detached_parent_with_accepted_descendant_closure", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I6", "I7", "I10"]},
+    {"test": "over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I5", "I7", "I8", "I12"]},
 
-    {"test": "save_pool_waits_for_complete_reorg_recovery_point", "behavior_id": "TP-PERSIST-001", "invariants": ["I7"]},
+    {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["I1", "I7"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I8"]},
     {"test": "persisted_file_orders_expanded_dep_group_parents", "behavior_id": "TP-PERSIST-001", "invariants": ["I7", "I10"]},
+    {"test": "dependent_chain_survives_save_and_restart", "behavior_id": "TP-PERSIST-001", "invariants": ["I6", "I7"]},
+    {"test": "persistence_v2_rejects_oversized_file_before_reading_payload", "behavior_id": "TP-PERSIST-001", "invariants": ["I5", "I7"]},
+    {"test": "persistence_loader_accepts_legacy_v1_vector", "behavior_id": "TP-PERSIST-001", "invariants": ["I7"]},
+
+    {"test": "authoritative_defect_is_generation_local_not_service_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8", "I12"]},
+    {"test": "authoritative_generation_swap_preserves_aba_clocks", "behavior_id": "TP-DEFECT-001", "invariants": ["I1", "I4", "I7"]},
+    {"test": "generation_reset_register_bypasses_full_fifo_and_coalesces", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8"]},
+    {"test": "structural_recovery_defect_advances_reorg_without_service_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
 
     {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "status_counter_underflow_recomputes_from_authoritative_entries", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
@@ -431,6 +472,15 @@
       "invariants": ["I6", "I7"],
       "unit_anchors": ["sort_txs_by_dependencies_orders_parents_before_children", "reorg_direct_replay_treats_pool_duplicates_as_idempotent"],
       "boundary": "A detached parent and its dependent child are both recovered through the node reorg callback and remain committable as one dependency-ordered pool graph."
+    },
+    {
+      "id": "accepted-descendants-after-parent-reorg",
+      "behavior_ids": ["TP-DEP-001", "TP-REORG-001", "TP-POOL-001"],
+      "path": "test/src/specs/tx_pool/pool_reconcile.rs",
+      "anchor": "PoolResolveConflictAfterReorg",
+      "invariants": ["I1", "I6", "I7", "I10"],
+      "unit_anchors": ["accepted_reorg_recovery_plan_is_parent_first_and_total", "reorg_replays_detached_parent_with_accepted_descendant_closure", "over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation"],
+      "boundary": "When a formerly committed parent is detached while its child and grandchild remain accepted, the node transfers the complete accepted closure into parent-first recovery, restores all three as Proposed and retains the ordinary dead-input conflict verdict."
     },
     {
       "id": "rbf-proposed-template-refresh",

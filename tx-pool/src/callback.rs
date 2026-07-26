@@ -46,7 +46,7 @@ impl Drop for CallbackContextGuard {
 
 /// Read-only controller calls are safe from callbacks. Synchronous mutations
 /// are not: they can wait for the same publisher that is executing the
-/// callback, directly or through `recovery_lock`/effect capacity.
+/// callback, directly or through effect-journal backpressure.
 pub(crate) fn in_callback() -> bool {
     CALLBACK_DEPTH.with(|depth| depth.get() != 0)
 }

@@ -68,7 +68,7 @@ not sufficient to freeze the current HEAD topology.
 | Conflict relation counts and victim indexes are required for bounded work | Not proven | A global ready order plus per-input ordered buckets, and reject-on-full admission with trusted reserve, may provide stronger bounds with fewer projections |
 | HEAD already realizes `Plan -> Apply -> Publish` | Only partially true | Generic undo and fallible post-mutation handoff show that Apply is not yet total; the redesign must move every ordinary failure before mutation |
 | Legal input does not reach invariant fail-stop | False on the reviewed checkpoint | A valid duplicate expanded dependency reached a PoolMap removal assertion and Authoritative fail-stop; this is an explicit topology-unfreeze falsifier |
-| `effect reserve -> recovery_lock -> TxPool` is the lock order | Incorrect and the premise is deleted | P3 has no effect reservation/credit owner. Capacity waits own no state; the current compatibility mutation order is `recovery_lock -> TxPool -> PrePoolKernel -> EffectJournal`, with the journal innermost. P4 deletes `recovery_lock`. |
+| `effect reserve -> recovery_lock -> TxPool` is the lock order | Incorrect and the premise is deleted | There is no effect reservation/credit owner or recovery-wide lock. Capacity waits own no state; the implemented mutation order is `TxPool -> PrePoolKernel -> EffectJournal`, with the journal innermost. |
 | Correctness superiority is enough to freeze HEAD | Does not meet the requested gate | Complexity, availability, maintainability, and static performance are part of the required superiority proof |
 
 The report therefore contributes evidence for leaving `develop`, but its
@@ -1124,21 +1124,26 @@ full rebuild exposes all recovered proposals/transactions at once.
 
 The v1.2 report supplies a better construction than a lock held across this
 awaitable interval: **the barrier is charged, persistable ownership data**.
-Before the switch, detached transactions are deduplicated, parent-first sorted
-and closure-safely truncated to the ChainRecovery quota outside state locks. The
-paired `TxPool -> kernel` Plan pre-reserves entry/index capacity, rechecks exact
-full-hash ownership and moves the bounded vector into ordinary
-`RecoveryRetained` entry variants while changing the pool snapshot. This is
-honestly `O(retained batch)` work under the lock, not a nominal O(1) container
-swap that would require another batch owner/index. The configured bound or the
-generation-swap fallback limits it; no transaction is held only in the reorg
-handler. The same plan carries the exact critical reset record and a
-consensus-bounded prepared candidate-uncle set, so the new chain snapshot and
-the authority that invalidates the old template cannot be separated by
-cancellation or journal saturation.
+Detached transactions are deduplicated and parent-first sorted before the
+authoritative slice. Under `TxPool -> kernel`, Begin installs the target
+snapshot and removes attached conflicts; an indexed bounded plan then finds
+every still-accepted input/dep consumer of a detached producer plus its causal
+descendants. That closure is removed child-first from accepted membership and
+the combined vector is installed parent-first as ordinary `RecoveryRetained`
+entries before Finish runs startup zombie reconciliation, size limiting and
+final notification coalescing. Thus ordinary admission never needs a special
+late-parent mutation and startup cleanup cannot destroy the closure before it
+is owned for replay. This is honestly `O(retained batch)` work under the lock,
+not a nominal O(1) container swap that would require another batch owner/index.
+The configured mutation/recovery bounds or one generation-swap fallback limit
+it; no transaction is held only in the reorg handler. The same plan carries an
+immediate template reset and a consensus-bounded prepared candidate-uncle set.
+If the detailed critical FIFO is saturated, state still linearizes and the
+prebuilt latest-generation reset register replaces callbacks/relay detail, so
+chain convergence cannot wait behind publication.
 
-The same chain plan reclassifies the complete affected accepted set against
-the target snapshot: all current `Gap`/`Proposed` entries, plus (when local
+The same chain plan also reclassifies the complete status-affected accepted set
+against the target snapshot: all current `Gap`/`Proposed` entries, plus (when local
 packaging is enabled) Pending pool entries named by the target proposal/gap
 windows. Promotion preserves the existing mine-mode policy; demotion is
 unconditional. Thus `Proposed`/`Gap` always has current-window justification,
@@ -1277,9 +1282,10 @@ None of these defects skips chain progress, persists uncertain state, or
 cancels the whole tx-pool service.
 
 The swap path does not allocate its escape route while already handling a
-defect. Runtime construction keeps one prebuilt empty PoolMap/kernel generation
-with a critical reset slot. After any use, its replacement is prepared outside
-authority locks before Remote admission reopens. The authoritative command
+defect. PoolMap's empty generation is an allocation-free set of default
+containers; runtime construction keeps one prebuilt empty kernel generation
+and one prebuilt critical reset record. After any use, the kernel replacement
+is prepared outside authority locks before Remote admission reopens. The authoritative command
 supplies the chain snapshot to install (base snapshot for an ordinary command,
 target snapshot for a chain command), so a partially written in-memory snapshot
 is never trusted as the recovery source.

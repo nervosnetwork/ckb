@@ -46,11 +46,14 @@
     "tx-pool/src/component/pool_map.rs": 1,
     "tx-pool/src/component/pre_pool/mod.rs": 9,
     "tx-pool/src/component/pre_pool/queue.rs": 2,
+    "tx-pool/src/component/pre_pool/recovery.rs": 2,
+    "tx-pool/src/component/pre_pool/runtime.rs": 2,
     "tx-pool/src/component/recent_reject.rs": 1,
     "tx-pool/src/component/tx_selector.rs": 1,
-    "tx-pool/src/pool.rs": 5,
+    "tx-pool/src/persisted.rs": 2,
+    "tx-pool/src/pool.rs": 6,
     "tx-pool/src/process/post_process.rs": 1,
-    "tx-pool/src/process/reorg.rs": 1,
+    "tx-pool/src/process/reorg.rs": 2,
     "tx-pool/src/process/submit/rbf_commit.rs": 2,
     "tx-pool/src/resolved_tx.rs": 1,
     "tx-pool/src/service.rs": 1,
@@ -86,6 +89,24 @@
       "behavior_ids": ["TP-OWN-001", "TP-WORKER-001", "TP-PERF-001"]
     },
     {
+      "file": "tx-pool/src/component/pre_pool/recovery.rs",
+      "symbols": ["PrePoolKernel::recovery_session_pending", "PrePoolKernel::exhaust_recovery_sessions_for_test"],
+      "kind": "recovery-session observation and checked-clock exhaustion fault seam",
+      "behavior_ids": ["TP-REORG-001", "TP-OWN-001", "TP-ADMIN-001"]
+    },
+    {
+      "file": "tx-pool/src/component/pre_pool/runtime.rs",
+      "symbols": ["PrePool::remote_admission_open", "PrePool::emergency_spare_available"],
+      "kind": "DefectDomain gate and single-disposal-permit observation seam",
+      "behavior_ids": ["TP-ADMIN-001", "TP-BUDGET-001", "TP-REORG-001"]
+    },
+    {
+      "file": "tx-pool/src/persisted.rs",
+      "symbols": ["TxPool::load_from_file", "TxPool::save_into_file"],
+      "kind": "focused persistence compatibility helpers; production uses immutable service snapshots",
+      "behavior_ids": ["TP-PERSIST-001"]
+    },
+    {
       "file": "tx-pool/src/pool.rs",
       "symbols": ["TxPool::fail_next_status_transition", "TxPool::fail_next_pool_commit_panic"],
       "kind": "authoritative pool fault state and reorg transition fault hook",
@@ -96,6 +117,12 @@
       "symbols": ["TxPool::fail_next_pool_commit_panic"],
       "kind": "authoritative pool commit panic hook",
       "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001"]
+    },
+    {
+      "file": "tx-pool/src/process/reorg.rs",
+      "symbols": ["update_tx_pool_for_reorg"],
+      "kind": "focused accepted-pool reorg wrapper; production composes Begin/Transfer/Finish under one guard",
+      "behavior_ids": ["TP-REORG-001", "TP-TEMPLATE-001"]
     }
   ]
 }

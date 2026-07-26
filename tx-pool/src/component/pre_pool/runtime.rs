@@ -10,7 +10,7 @@ use ckb_verification::cache::Completed;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
     Arc, Mutex, MutexGuard,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicU64, Ordering},
 };
 use std::time::Instant;
 use tokio::sync::Notify;
@@ -21,6 +21,9 @@ const DEPENDENCY_EDGE_BYTES: usize = 160;
 const CONFLICT_HISTORY_MAX_ENTRIES: usize = 10_000;
 const CONFLICT_HISTORY_MAX_BYTES: usize = 50_000_000;
 const REMOTE_RESIDENCY_BLOCKS: u64 = 100;
+const DEFECT_FINGERPRINTS: usize = 256;
+const DEFECT_RESET_WINDOW_SECS: u64 = 300;
+const DEFECT_RESETS_BEFORE_OPEN: u64 = 8;
 
 #[derive(Clone, Debug)]
 pub(crate) struct PipelineRawTx {
@@ -67,11 +70,25 @@ impl PipelineRawTx {
     ) -> Result<TxSource, PrePoolError> {
         match source {
             PrePoolSource::Proposal => Ok(TxSource::Proposal),
+            // Recovery owns its payload in the kernel but deliberately uses
+            // the direct trusted validation policy. Public Local admission is
+            // still rejected by `admit_transaction`.
+            PrePoolSource::Recovery => Ok(TxSource::Local),
             PrePoolSource::Remote(peer) => self
                 .declared_cycles
                 .filter(|_| self.ingress_peer == Some(peer) && self.payload_peer == Some(peer))
                 .map(|cycles| TxSource::Remote { cycles, peer })
                 .ok_or(PrePoolError::Repair("source attribution mismatch")),
+        }
+    }
+
+    pub(crate) fn recovery(tx: TransactionView, admitted_epoch: u64) -> Self {
+        Self {
+            tx: tx.into_compact(),
+            declared_cycles: None,
+            ingress_peer: None,
+            payload_peer: None,
+            admitted_epoch,
         }
     }
 
@@ -102,12 +119,113 @@ const WORKER_CLASSES: [(WorkLane, WorkCapability); 5] = [
 /// TxPool boundary; P2/P4 replace that legacy pool path with total Apply.
 pub(crate) struct PrePool {
     state: Mutex<PrePoolKernel>,
-    authoritative_failed: AtomicBool,
+    limits: PrePoolLimits,
+    defect: DefectDomain,
     ready: [Arc<Notify>; WORKER_CLASSES.len()],
     maintenance_ready: Arc<Notify>,
     shutdown: CancellationToken,
     commit_serial: tokio::sync::Mutex<()>,
     max_entries: usize,
+}
+
+/// One cohesive availability boundary for impossible kernel/apply defects.
+/// The spare is built before it is needed; a reset exchanges only ephemeral
+/// entry/index ownership and drops the retired generation outside both
+/// authority locks. Remote cooling prevents a reproducible hostile witness
+/// from creating a reset loop while trusted and chain work remain live.
+struct DefectDomain {
+    spare: Mutex<Option<PrePoolKernel>>,
+    reset_count: AtomicU64,
+    consecutive_resets: AtomicU64,
+    last_reset_at: AtomicU64,
+    remote_cooling_until: AtomicU64,
+    fingerprints: Mutex<lru::LruCache<ckb_types::packed::Byte32, ()>>,
+}
+
+/// Sealed retired pre-pool generation. Holding the spare guard is the single
+/// disposal permit: a second reset waits until this bundle is destroyed and a
+/// fresh emergency generation is replenished. Callers must drop it only after
+/// releasing `TxPool` and the live kernel mutex.
+#[must_use = "retired generation must be dropped after authority guards are released"]
+pub(crate) struct KernelDisposal<'a> {
+    retired: Option<PrePoolKernel>,
+    spare: MutexGuard<'a, Option<PrePoolKernel>>,
+    limits: PrePoolLimits,
+}
+
+impl Drop for KernelDisposal<'_> {
+    fn drop(&mut self) {
+        drop(self.retired.take());
+        *self.spare = Some(PrePoolKernel::new(self.limits));
+    }
+}
+
+impl DefectDomain {
+    fn new(limits: PrePoolLimits) -> Self {
+        Self {
+            spare: Mutex::new(Some(PrePoolKernel::new(limits))),
+            reset_count: AtomicU64::new(0),
+            consecutive_resets: AtomicU64::new(0),
+            last_reset_at: AtomicU64::new(0),
+            remote_cooling_until: AtomicU64::new(0),
+            fingerprints: Mutex::new(lru::LruCache::new(DEFECT_FINGERPRINTS)),
+        }
+    }
+
+    fn remote_open(&self) -> bool {
+        ckb_systemtime::unix_time().as_secs() >= self.remote_cooling_until.load(Ordering::Acquire)
+    }
+
+    fn allows(&self, tx: &TransactionView) -> bool {
+        if !self.remote_open() {
+            return false;
+        }
+        // The healthy hot path never takes the diagnostic fingerprint lock.
+        // It becomes relevant only after this process has contained a defect.
+        self.reset_count.load(Ordering::Acquire) == 0
+            || !self
+                .fingerprints
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .contains(&tx.witness_hash())
+    }
+
+    fn record_reset(&self, fingerprint: Option<ckb_types::packed::Byte32>) -> u64 {
+        let resets = self
+            .reset_count
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        if let Some(fingerprint) = fingerprint {
+            self.fingerprints
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .put(crate::util::compact_packed(&fingerprint), ());
+        }
+        let now = ckb_systemtime::unix_time().as_secs();
+        let last = self.last_reset_at.swap(now, Ordering::AcqRel);
+        let consecutive = if now.saturating_sub(last) > DEFECT_RESET_WINDOW_SECS {
+            self.consecutive_resets.store(1, Ordering::Release);
+            1
+        } else {
+            self.consecutive_resets
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1)
+        };
+        let exponent = u32::try_from(consecutive.saturating_sub(1).min(6)).unwrap_or(6);
+        let cooling = 1u64.checked_shl(exponent).unwrap_or(64).min(60);
+        self.remote_cooling_until.store(
+            if consecutive >= DEFECT_RESETS_BEFORE_OPEN {
+                // Circuit-open is fail-closed only for untrusted ingress.
+                // Restart/operator intervention re-enables it; chain, Local,
+                // Proposal, query and mining authority remain live.
+                u64::MAX
+            } else {
+                now.saturating_add(cooling)
+            },
+            Ordering::Release,
+        );
+        resets
+    }
 }
 
 impl PrePool {
@@ -157,7 +275,8 @@ impl PrePool {
         };
         Self {
             state: Mutex::new(PrePoolKernel::new(limits)),
-            authoritative_failed: AtomicBool::new(false),
+            limits,
+            defect: DefectDomain::new(limits),
             ready: WORKER_CLASSES.map(|_| Arc::new(Notify::new())),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
@@ -238,24 +357,72 @@ impl PrePool {
         &self,
         context: &'static str,
         apply: impl FnOnce() -> T,
-    ) -> T {
+    ) -> Result<T, String> {
         match catch_unwind(AssertUnwindSafe(apply)) {
-            Ok(value) => value,
+            Ok(value) => Ok(value),
             Err(payload) => {
-                self.authoritative_failed.store(true, Ordering::Release);
-                self.shutdown.cancel();
                 let message = crate::util::panic_payload_to_string(payload.as_ref());
-                panic!("{context}: {message}")
+                Err(format!("{context}: {message}"))
             }
         }
     }
 
-    pub(crate) fn is_failed(&self) -> bool {
-        self.authoritative_failed.load(Ordering::Acquire)
+    #[cfg(test)]
+    pub(crate) fn remote_admission_open(&self) -> bool {
+        self.defect.remote_open()
     }
 
-    pub(crate) fn pool_persistence_safe(&self) -> bool {
-        !self.is_failed()
+    #[cfg(test)]
+    pub(crate) fn emergency_spare_available(&self) -> bool {
+        self.defect
+            .spare
+            .try_lock()
+            .is_ok_and(|spare| spare.is_some())
+    }
+
+    fn remote_transaction_allowed(&self, tx: &TransactionView) -> bool {
+        self.defect.allows(tx)
+    }
+
+    pub(crate) fn reset_after_defect(
+        &self,
+        fingerprint: Option<ckb_types::packed::Byte32>,
+    ) -> (u64, KernelDisposal<'_>) {
+        let mut spare = self
+            .defect
+            .spare
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fresh = spare
+            .take()
+            .expect("the one disposal permit replenishes the emergency generation");
+        let (retired, generation) = {
+            let mut state = self.lock();
+            let mut fresh = fresh;
+            // Versions and recovery sessions are process-global ABA tokens,
+            // not entry-generation data. An old worker/reorg handler may
+            // still hold either token after this swap, so a fresh generation
+            // must continue every monotonic clock rather than restart at one.
+            fresh.next_version = state.next_version;
+            fresh.next_arrival = state.next_arrival;
+            fresh.next_recovery_session = state.next_recovery_session;
+            let retired = std::mem::replace(&mut *state, fresh);
+            self.state.clear_poison();
+            // Close Remote ingress before opening the state mutex. A remote
+            // request that passed the optimistic outer gate must recheck it
+            // after acquiring this same mutex and therefore cannot enter the
+            // replacement generation in the reset/cooling race window.
+            let generation = self.defect.record_reset(fingerprint);
+            (retired, generation)
+        };
+        (
+            generation,
+            KernelDisposal {
+                retired: Some(retired),
+                spare,
+                limits: self.limits,
+            },
+        )
     }
 
     pub(crate) fn require_authoritative_source(
@@ -306,9 +473,15 @@ impl PrePool {
         epoch: u64,
         lane: ResolveLane,
     ) -> Result<bool, PrePoolError> {
+        if matches!(source, TxSource::Remote { .. }) && !self.remote_transaction_allowed(&tx) {
+            return Err(PrePoolError::RemoteDefectGateClosed);
+        }
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
         self.mutate(|kernel| {
+            if matches!(source, TxSource::Remote { .. }) && !self.remote_transaction_allowed(&tx) {
+                return Err(PrePoolError::RemoteDefectGateClosed);
+            }
             if let Some(existing) = kernel.entries.get(&hash).cloned() {
                 return match source {
                     TxSource::Local => Err(PrePoolError::LocalMustRunDirect),
@@ -348,6 +521,17 @@ impl PrePool {
         self.mutate_required("resolve checkout failed", |state| {
             state.checkout_resolve(lane)
         })
+    }
+
+    pub(crate) fn checkout_recovery(
+        &self,
+        session: u128,
+    ) -> Result<Option<ResolveLease>, PrePoolError> {
+        self.mutate(|kernel| kernel.checkout_recovery(session))
+    }
+
+    pub(crate) fn recovery_snapshot(&self) -> Vec<RecoverySnapshotItem> {
+        self.read(PrePoolKernel::recovery_snapshot)
     }
 
     pub(crate) async fn wait_resolve(&self, lane: ResolveLane) -> Option<ResolveLease> {

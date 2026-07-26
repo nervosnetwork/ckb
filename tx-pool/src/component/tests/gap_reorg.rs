@@ -64,6 +64,75 @@ fn entry_status(tx_pool: &crate::TxPool, id: &ProposalShortId) -> Status {
 }
 
 #[tokio::test]
+async fn accepted_reorg_recovery_plan_is_parent_first_and_total() {
+    let h = harness(1).workers(WorkerSet::None).build();
+    let mut tx_pool = h.service.pool.tx_pool.write().await;
+    let live = &h.out_points[0];
+    let detached_parent = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 1);
+    let child = build_tx(vec![(&detached_parent.hash(), 0)], 1);
+    let grandchild = build_tx(vec![(&child.hash(), 0)], 1);
+    for tx in [child.clone(), grandchild.clone()] {
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE),
+                Status::Proposed,
+            )
+            .unwrap();
+    }
+
+    let plan = crate::process::reorg::plan_accepted_recovery(
+        &tx_pool,
+        std::slice::from_ref(&detached_parent),
+        2,
+    );
+    assert_eq!(
+        plan.transactions_parent_first()
+            .into_iter()
+            .map(|tx| tx.hash())
+            .collect::<Vec<_>>(),
+        vec![child.hash(), grandchild.hash()]
+    );
+    let removed = crate::process::reorg::apply_accepted_recovery(&mut tx_pool, plan);
+    assert_eq!(
+        removed
+            .iter()
+            .map(|removed| removed.entry.transaction().hash())
+            .collect::<Vec<_>>(),
+        vec![grandchild.hash(), child.hash()],
+        "total Apply removes children before parents"
+    );
+    assert_eq!(tx_pool.pool_map.len(), 0);
+}
+
+#[tokio::test]
+async fn accepted_reorg_recovery_plan_reports_over_bound_fanout() {
+    let h = harness(1).workers(WorkerSet::None).build();
+    let mut tx_pool = h.service.pool.tx_pool.write().await;
+    let live = &h.out_points[0];
+    let detached_parent = build_tx(vec![(&live.tx_hash(), live.index().unpack())], 3);
+    for index in 0..3 {
+        let child = build_tx(vec![(&detached_parent.hash(), index)], 1);
+        tx_pool
+            .pool_map
+            .add_entry(
+                TxEntry::dummy_resolve(child, MOCK_CYCLES, Capacity::shannons(1_000), MOCK_SIZE),
+                Status::Pending,
+            )
+            .unwrap();
+    }
+
+    assert!(matches!(
+        crate::process::reorg::plan_accepted_recovery(
+            &tx_pool,
+            std::slice::from_ref(&detached_parent),
+            2,
+        ),
+        crate::process::reorg::AcceptedRecoveryPlan::OverBound
+    ));
+}
+
+#[tokio::test]
 async fn overlapping_detached_proposals_requeue_each_descendant_once() {
     let h = harness(1).workers(WorkerSet::None).build();
     let service = h.service;

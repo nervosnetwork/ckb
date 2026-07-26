@@ -94,11 +94,49 @@ where
     }
 }
 
+/// Output-producing counterpart used only for the first reorg phase. The
+/// successful output is the bounded phase-two authority token; the original
+/// transaction-bearing input is dropped when this function returns.
+async fn retry_retained_output<T, U, F, Fut>(
+    worker_name: &'static str,
+    item: T,
+    cancel: &CancellationToken,
+    mut handler: F,
+) -> Option<U>
+where
+    T: Clone,
+    F: FnMut(T) -> Fut,
+    Fut: std::future::Future<Output = U>,
+{
+    let mut backoff = RespawnBackoff::new();
+    loop {
+        if cancel.is_cancelled() {
+            return None;
+        }
+        let started = std::time::Instant::now();
+        match AssertUnwindSafe(handler(item.clone())).catch_unwind().await {
+            Ok(output) => return Some(output),
+            Err(payload) => {
+                let message = crate::util::panic_payload_to_string(payload.as_ref());
+                let delay = backoff.delay_for(started.elapsed());
+                error!(
+                    "{} panicked; retaining head message and retrying in {:?}: {}",
+                    worker_name, delay, message
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {}
+                    _ = cancel.cancelled() => return None,
+                }
+            }
+        }
+    }
+}
+
 /// Retry two ordered phases independently. Once phase one has completed, a
 /// deterministic phase-two failure must never replay it. Reorg uses this to
 /// keep an assembler refresh retry from reapplying an already-committed
 /// TxPool snapshot/membership transition after a concurrent clear.
-async fn retry_retained_two_phase<T, F1, Fut1, F2, Fut2>(
+async fn retry_retained_two_phase<T, U, F1, Fut1, F2, Fut2>(
     first_name: &'static str,
     second_name: &'static str,
     item: T,
@@ -109,14 +147,15 @@ async fn retry_retained_two_phase<T, F1, Fut1, F2, Fut2>(
 where
     T: Clone,
     F1: FnMut(T) -> Fut1,
-    Fut1: std::future::Future<Output = ()>,
-    F2: FnMut(T) -> Fut2,
+    Fut1: std::future::Future<Output = U>,
+    U: Clone,
+    F2: FnMut(U) -> Fut2,
     Fut2: std::future::Future<Output = ()>,
 {
-    if !retry_retained_message(first_name, item.clone(), cancel, &mut first).await {
+    let Some(phase_two) = retry_retained_output(first_name, item, cancel, &mut first).await else {
         return false;
-    }
-    retry_retained_message(second_name, item, cancel, &mut second).await
+    };
+    retry_retained_message(second_name, phase_two, cancel, &mut second).await
 }
 
 /// The pre-check worker body. Ownership moves queued → active → resolved,
@@ -210,9 +249,6 @@ pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: C
             .catch_unwind()
             .await;
         if let Err(payload) = outcome {
-            if service.pipeline.kernel.is_failed() {
-                break;
-            }
             let message = crate::util::panic_payload_to_string(payload.as_ref());
             let delay = backoff.delay_for(started.elapsed());
             error!(
@@ -468,16 +504,14 @@ pub(crate) fn spawn_reorg_handler(
                             .await
                             .unwrap_or_else(|error| {
                                 panic!("retryable tx-pool reorg transition failed: {error}")
-                            });
+                            })
                     }
                 },
-                move |Notify {
-                          arguments: (detached_blocks, _, _, _),
-                      }| {
+                move |(candidate_uncles, snapshot)| {
                     let service = second_service.clone();
                     async move {
                         service
-                            .refresh_block_assembler_after_tx_pool_reorg(detached_blocks)
+                            .refresh_block_assembler_after_tx_pool_reorg(candidate_uncles, snapshot)
                             .await
                             .unwrap_or_else(|error| {
                                 panic!("retryable block-assembler reorg refresh failed: {error}")

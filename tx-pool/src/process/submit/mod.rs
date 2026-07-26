@@ -99,6 +99,7 @@ impl TxPoolService {
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
             }
+            let defect_snapshot = tx_pool.cloned_snapshot();
             let applied = self.pipeline.kernel.guard_authoritative_mutation(
                     "synchronous authoritative pool commit panicked",
                     || {
@@ -197,12 +198,29 @@ impl TxPoolService {
                     },
                 );
             match applied {
-                Ok(outcome) => break outcome,
-                Err(EffectJournalError::Full) => continue,
-                Err(error) => {
+                Ok(Ok(outcome)) => break outcome,
+                Ok(Err(EffectJournalError::Full)) => continue,
+                Ok(Err(error)) => {
                     return Err(Reject::Full(format!(
                         "tx-pool effect journal unavailable: {error:?}"
                     )));
+                }
+                Err(defect) => {
+                    let disposal = self.recover_authoritative_defect_with_fingerprint(
+                        &mut tx_pool,
+                        defect_snapshot,
+                        "synchronous authoritative pool commit",
+                        defect,
+                        source
+                            .peer()
+                            .is_some()
+                            .then(|| entry.transaction().witness_hash()),
+                    );
+                    drop(tx_pool);
+                    drop(disposal);
+                    return Err(Reject::Full(
+                        "tx-pool recovered an internal commit defect".to_owned(),
+                    ));
                 }
             }
         };
@@ -417,6 +435,8 @@ impl TxPoolService {
 
         let transaction = {
             let mut tx_pool = self.pool.tx_pool.write().await;
+            let defect_snapshot = tx_pool.cloned_snapshot();
+            let mut defect_fingerprint = None;
             let prepared = self.pipeline.kernel.guard_authoritative_mutation(
                 "pipeline authoritative pool commit panicked",
                 || {
@@ -430,6 +450,9 @@ impl TxPoolService {
                             coordinator.begin_next_commit()
                         })?;
                     let verified = Arc::clone(&lease.payload);
+                    if verified.candidate.source.peer().is_some() {
+                        defect_fingerprint = Some(verified.candidate.tx.witness_hash());
+                    }
                     let entry = TxEntry::new_with_resident_size(
                         Arc::clone(&verified.candidate.rtx),
                         verified.completed.cycles,
@@ -580,11 +603,23 @@ impl TxPoolService {
                 },
             );
             match prepared {
-                None => None,
-                Some(Ok(value)) => Some(value),
-                Some(Err(EffectJournalError::Full)) => return true,
-                Some(Err(error)) => {
+                Ok(None) => None,
+                Ok(Some(Ok(value))) => Some(value),
+                Ok(Some(Err(EffectJournalError::Full))) => return true,
+                Ok(Some(Err(error))) => {
                     ckb_logger::error!("pipeline commit effect journal unavailable: {error:?}");
+                    return true;
+                }
+                Err(defect) => {
+                    let disposal = self.recover_authoritative_defect_with_fingerprint(
+                        &mut tx_pool,
+                        defect_snapshot,
+                        "pipeline authoritative pool commit",
+                        defect,
+                        defect_fingerprint,
+                    );
+                    drop(tx_pool);
+                    drop(disposal);
                     return true;
                 }
             }

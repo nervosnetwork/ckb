@@ -8,6 +8,7 @@
 mod commit;
 mod lifecycle;
 mod queue;
+mod recovery;
 mod runtime;
 mod wait;
 
@@ -18,8 +19,8 @@ mod test_seam;
 #[cfg(test)]
 pub(crate) use runtime::pre_pool_source;
 pub(crate) use runtime::{
-    PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline, historical_source,
-    pre_pool_reject,
+    KernelDisposal, PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline,
+    historical_source, pre_pool_reject,
 };
 
 use self::queue::{FairQueue, WorkKey, WorkOwner};
@@ -37,13 +38,17 @@ pub(crate) type EntryVersion = u128;
 pub(crate) enum PrePoolSource {
     Remote(PeerIndex),
     Proposal,
+    /// Trusted transaction retained by an authoritative detached-chain
+    /// transition. This is deliberately not `TxSource::Local`: local RPC
+    /// submissions remain direct and never acquire pre-pool ownership.
+    Recovery,
 }
 
 impl PrePoolSource {
     fn peer(self) -> Option<PeerIndex> {
         match self {
             Self::Remote(peer) => Some(peer),
-            Self::Proposal => None,
+            Self::Proposal | Self::Recovery => None,
         }
     }
 
@@ -51,6 +56,7 @@ impl PrePoolSource {
         match self {
             Self::Remote(_) => 0,
             Self::Proposal => 1,
+            Self::Recovery => 2,
         }
     }
 }
@@ -239,6 +245,7 @@ pub(crate) enum PrePoolError {
     ConflictHistoryBudgetExceeded,
     ActiveWorkLimitExceeded,
     PeerActiveWorkLimitExceeded(PeerIndex),
+    RemoteDefectGateClosed,
     VersionExhausted,
     Missing(Byte32),
     Stale {
@@ -275,6 +282,7 @@ impl PrePoolError {
                 | Self::ConflictHistoryBudgetExceeded
                 | Self::ActiveWorkLimitExceeded
                 | Self::PeerActiveWorkLimitExceeded(_)
+                | Self::RemoteDefectGateClosed
         )
     }
 
@@ -292,6 +300,7 @@ impl PrePoolError {
                 | Self::ConflictHistoryBudgetExceeded
                 | Self::ActiveWorkLimitExceeded
                 | Self::PeerActiveWorkLimitExceeded(_)
+                | Self::RemoteDefectGateClosed
         )
     }
 
@@ -305,6 +314,7 @@ impl PrePoolError {
                 | Self::ConflictHistoryBudgetExceeded
                 | Self::ActiveWorkLimitExceeded
                 | Self::PeerActiveWorkLimitExceeded(_)
+                | Self::RemoteDefectGateClosed
         )
     }
 
@@ -381,6 +391,24 @@ pub(crate) struct ResolveLease {
     pub(crate) lane: ResolveLane,
     pub(crate) version: EntryVersion,
     pub(crate) payload: Arc<PipelineRawTx>,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RecoveryMeta {
+    pub(crate) session: u128,
+    pub(crate) ordinal: u32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RecoverySnapshotItem {
+    pub(crate) tx: ckb_types::core::TransactionView,
+    pub(crate) meta: RecoveryMeta,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RecoveryBatch {
+    pub(crate) session: u128,
+    pub(crate) retained: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -497,9 +525,7 @@ enum EntryState {
     // the state in the frozen kernel vocabulary now prevents the recovery
     // cutover from inventing an eighth transient location later.
     #[allow(dead_code)]
-    RecoveryRetained {
-        ordinal: u32,
-    },
+    RecoveryRetained,
     ResolveQueued {
         lane: ResolveLane,
     },
@@ -522,7 +548,7 @@ enum EntryState {
 impl EntryState {
     fn location(&self) -> PrePoolLocation {
         match self {
-            Self::RecoveryRetained { .. } => PrePoolLocation::RecoveryRetained,
+            Self::RecoveryRetained => PrePoolLocation::RecoveryRetained,
             Self::ResolveQueued { .. } => PrePoolLocation::ResolveQueued,
             Self::ResolveLeased => PrePoolLocation::ResolveLeased,
             Self::Wait(wait) => PrePoolLocation::Wait(wait.reason),
@@ -534,10 +560,13 @@ impl EntryState {
 }
 
 #[derive(Clone, Debug)]
-struct Entry {
+pub(in crate::component::pre_pool) struct Entry {
     short_id: ProposalShortId,
     raw: Arc<PipelineRawTx>,
     source: PrePoolSource,
+    /// Present for the complete lifetime of an authoritative recovery owner,
+    /// including while its versioned lease is being validated.
+    recovery: Option<RecoveryMeta>,
     state: EntryState,
     version: EntryVersion,
     arrival: u128,
@@ -602,6 +631,13 @@ struct DeadlineKey {
     version: EntryVersion,
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct RecoveryKey {
+    meta: RecoveryMeta,
+    hash: Byte32,
+    version: EntryVersion,
+}
+
 /// Concrete primary owner and exact derived projections. No method awaits or
 /// acquires `TxPool`; callers establish the universal `TxPool -> kernel`
 /// order around cross-authority commands.
@@ -619,6 +655,7 @@ pub(crate) struct PrePoolKernel {
     ready: BTreeSet<ReadyKey>,
     ready_by_input: HashMap<OutPoint, BTreeSet<ReadyKey>>,
     deadlines: BTreeSet<DeadlineKey>,
+    recovery: BTreeSet<RecoveryKey>,
     total_usage: Residency,
     remote_usage: Residency,
     conflict_usage: Residency,
@@ -628,6 +665,7 @@ pub(crate) struct PrePoolKernel {
     limits: PrePoolLimits,
     next_version: EntryVersion,
     next_arrival: u128,
+    next_recovery_session: u128,
 }
 
 impl PrePoolKernel {
@@ -645,6 +683,7 @@ impl PrePoolKernel {
             ready: BTreeSet::new(),
             ready_by_input: HashMap::new(),
             deadlines: BTreeSet::new(),
+            recovery: BTreeSet::new(),
             total_usage: Residency::default(),
             remote_usage: Residency::default(),
             conflict_usage: Residency::default(),
@@ -654,6 +693,7 @@ impl PrePoolKernel {
             limits,
             next_version: 1,
             next_arrival: 0,
+            next_recovery_session: 1,
         }
     }
 
@@ -705,9 +745,8 @@ impl PrePoolKernel {
             .and_then(|value| value.checked_add(usize::from(entry.expires_at.is_some())))
             .ok_or(PrePoolError::ResidencyChargeOverflow)?;
         let current_state_memberships = match &entry.state {
-            EntryState::RecoveryRetained { .. }
-            | EntryState::ResolveLeased
-            | EntryState::VerifyLeased { .. } => 0,
+            EntryState::RecoveryRetained => 1,
+            EntryState::ResolveLeased | EntryState::VerifyLeased { .. } => 0,
             // Work key, owner bucket and runnable head in the worst case.
             EntryState::ResolveQueued { .. } | EntryState::VerifyQueued { .. } => 3,
             // Exact waiter edge, dependency bucket, availability epoch and
@@ -831,7 +870,11 @@ impl PrePoolKernel {
         Ok(())
     }
 
-    fn apply_usage_delta(&mut self, old: Option<&Entry>, new: Option<&Entry>) {
+    pub(in crate::component::pre_pool) fn apply_usage_delta(
+        &mut self,
+        old: Option<&Entry>,
+        new: Option<&Entry>,
+    ) {
         let old_charge = old.map_or(Residency::default(), |entry| {
             Residency::new(1, entry.charge_bytes)
         });

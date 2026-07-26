@@ -89,12 +89,15 @@ async fn second_phase_retry_never_replays_completed_first_phase() {
             async move {
                 assert_eq!(item, 9);
                 attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                // Phase one deliberately returns a smaller authority token;
+                // the original message is not retained through phase two.
+                item + 1
             }
         },
         move |item| {
             let attempts = Arc::clone(&second_counter);
             async move {
-                assert_eq!(item, 9);
+                assert_eq!(item, 10);
                 if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
                     panic!("injected derived refresh failure");
                 }

@@ -263,10 +263,9 @@ async fn remove_pool_closure_demotes_consumers_of_removed_descendants() {
     h.cancel.cancel();
 }
 
-/// `clear_pool` advances the pipeline epoch immediately, then waits behind an
-/// in-flight reorg's whole recovery slice. Even if that reorg subsequently
-/// re-adds a detached transaction, clear must run last and return with neither
-/// accepted nor coordinator ownership left behind.
+/// `clear_pool` advances the pipeline epoch before waiting for authority. An
+/// older reorg queued on TxPool must therefore become stale without relying on
+/// a lock held across detached validation.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
     use crate::callback::Callbacks;
@@ -292,12 +291,14 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
     }));
     h.service.relay.callbacks = Arc::new(callbacks);
 
-    // Hold TxPool so the reorg deterministically acquires recovery_lock and
-    // pauses before its first authoritative slice.
+    // Hold TxPool so the older reorg is queued before its first authoritative
+    // slice, then let clear publish the later epoch barrier.
     let pool_guard = h.service.pool.tx_pool.write().await;
     let reorg_service = h.service.clone();
     let reorg_snapshot = Arc::clone(&snapshot);
+    let (reorg_started, reorg_started_rx) = tokio::sync::oneshot::channel();
     let reorg = tokio::spawn(async move {
+        reorg_started.send(()).unwrap();
         reorg_service
             .update_tx_pool_for_reorg(
                 VecDeque::from([detached]),
@@ -307,17 +308,12 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
             )
             .await
     });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            match h.service.recovery_lock.try_lock() {
-                Ok(guard) => drop(guard),
-                Err(_) => break,
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("reorg acquires recovery serialization before clear starts");
+    reorg_started_rx.await.unwrap();
+    // The spawned task runs synchronously through epoch capture until it
+    // blocks on the TxPool guard held above. This explicit handoff avoids a
+    // scheduler-dependent test where clear could start before the alleged
+    // "older" reorg had even been polled.
+    tokio::task::yield_now().await;
 
     let old_epoch = h.service.current_pipeline_epoch().unwrap();
     let mut clear_service = h.service.clone();
@@ -342,10 +338,9 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
         .expect("clear task joins");
     h.service.relay.effects.wait_idle().await;
 
-    assert_eq!(
-        pending_calls.load(Ordering::SeqCst),
-        1,
-        "the in-flight reorg really re-added its detached transaction before clear"
+    assert!(
+        pending_calls.load(Ordering::SeqCst) <= 1,
+        "reorg may linearize before clear, but it must not replay twice"
     );
     assert!(
         h.service
@@ -365,6 +360,60 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
         "clear is also the final pre-pool state"
     );
 
+    h.cancel.cancel();
+}
+
+/// A structural recovery failure is an authoritative defect, not a retryable
+/// reorg result. The first phase must exchange the ephemeral generation and
+/// return its compact phase-two token so the retained FIFO head cannot
+/// livelock every later chain update.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn structural_recovery_defect_advances_reorg_without_service_fail_stop() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+    use std::collections::{HashSet, VecDeque};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let detached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(tx)
+        .build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    let old_epoch = h.service.current_pipeline_epoch().unwrap();
+    h.service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.exhaust_recovery_sessions_for_test());
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        h.service.update_tx_pool_for_reorg(
+            VecDeque::from([detached]),
+            VecDeque::new(),
+            HashSet::new(),
+            snapshot,
+        ),
+    )
+    .await
+    .expect("a structural defect cannot retain/retry the reorg head")
+    .expect("DefectDomain converts the unwind into a completed phase");
+
+    assert!(!h.cancel.is_cancelled());
+    assert!(h.service.current_pipeline_epoch().unwrap() > old_epoch);
+    let reset = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv()
+                && matches!(result, TxVerificationResult::GenerationReset)
+            {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the replaceable generation reset reaches the relayer");
+    assert!(matches!(reset, TxVerificationResult::GenerationReset));
     h.cancel.cancel();
 }
 
@@ -1001,6 +1050,156 @@ async fn reorg_direct_replay_treats_pool_duplicates_as_idempotent() {
 
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// When a committed parent is detached, already-accepted descendants become
+/// parentless even though they were not themselves present in the detached
+/// block. Reorg must transfer that complete closure back to retained recovery
+/// and replay it parent-first; ordinary admission deliberately rejects a late
+/// causal parent and must not gain a reorg-only exception.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reorg_replays_detached_parent_with_accepted_descendant_closure() {
+    use std::collections::{HashSet, VecDeque};
+
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
+    let parent = build_tx(&issue_out_points[0], 4_000);
+    let child = build_tx(&OutPoint::new(parent.hash(), 0), 3_000);
+    let grandchild = build_tx(&OutPoint::new(child.hash(), 0), 2_000);
+
+    for tx in [&parent, &child, &grandchild] {
+        service
+            .process_tx(tx.clone(), TxSource::Local)
+            .await
+            .expect("dependent transaction is accepted before the simulated commit");
+    }
+
+    // Simulate the parent being committed on the old branch. PoolMap keeps
+    // the accepted descendants and removes their now-on-chain parent link.
+    service
+        .pool
+        .tx_pool
+        .write()
+        .await
+        .pool_map
+        .remove_entry(&parent.proposal_short_id())
+        .expect("parent was accepted");
+
+    let detached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(parent.clone())
+        .build();
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+    service
+        .update_tx_pool_for_reorg(
+            VecDeque::from([detached]),
+            VecDeque::new(),
+            HashSet::new(),
+            snapshot,
+        )
+        .await
+        .expect("detached parent and accepted closure recover through ordinary admission");
+
+    let pool = service.pool.tx_pool.read().await;
+    for tx in [&parent, &child, &grandchild] {
+        assert!(
+            pool.pool_map.get_by_hash(&tx.hash()).is_some(),
+            "recovery closure member {} is accepted; resident hashes: {:?}",
+            tx.hash(),
+            pool.pool_map
+                .iter()
+                .map(|entry| entry.hash.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+    assert_eq!(
+        pool.pool_map
+            .calc_ancestors(&grandchild.proposal_short_id()),
+        HashSet::from([parent.proposal_short_id(), child.proposal_short_id(),]),
+        "ordinary replay reconstructs the exact accepted causal graph"
+    );
+    drop(pool);
+    assert_eq!(
+        service.pipeline.kernel.read(|kernel| kernel.len()),
+        0,
+        "the recovery session owns no payload after the complete drain"
+    );
+
+    signal.cancel();
+}
+
+/// A hostile detached producer can invalidate a descendant fanout larger than
+/// the bounded cross-authority transition. The chain event must converge via
+/// one observable mempool-generation reset rather than scan/move an unbounded
+/// closure, panic, or leave a parentless accepted suffix.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+    use std::collections::{HashSet, VecDeque};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let parent = build_tx(&h.out_points[0], 4_000);
+    h.service
+        .process_tx(parent.clone(), TxSource::Local)
+        .await
+        .expect("parent is accepted");
+
+    let mut previous = parent.clone();
+    for offset in 1..=crate::constants::MAX_POOL_MUTATION_CANDIDATES + 1 {
+        let child = build_tx(&OutPoint::new(previous.hash(), 0), 4_000 - offset);
+        h.service
+            .process_tx(child.clone(), TxSource::Local)
+            .await
+            .expect("bounded test descendant is accepted");
+        previous = child;
+    }
+    h.service
+        .pool
+        .tx_pool
+        .write()
+        .await
+        .pool_map
+        .remove_entry(&parent.proposal_short_id())
+        .expect("parent was accepted");
+
+    let detached = BlockBuilder::default()
+        .transaction(TransactionBuilder::default().build())
+        .transaction(parent.clone())
+        .build();
+    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    h.service
+        .update_tx_pool_for_reorg(
+            VecDeque::from([detached]),
+            VecDeque::new(),
+            HashSet::new(),
+            snapshot,
+        )
+        .await
+        .expect("over-bound chain recovery converges");
+
+    let pool = h.service.pool.tx_pool.read().await;
+    assert_eq!(pool.pool_map.len(), 1);
+    assert!(pool.pool_map.get_by_hash(&parent.hash()).is_some());
+    drop(pool);
+    assert_eq!(h.service.pipeline.kernel.read(|kernel| kernel.len()), 0);
+    let reset = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv()
+                && matches!(result, TxVerificationResult::GenerationReset)
+            {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the over-bound fallback is observable by the relayer");
+    assert!(matches!(reset, TxVerificationResult::GenerationReset));
+    assert!(
+        !h.cancel.is_cancelled(),
+        "chain input cannot stop the service"
+    );
+    h.cancel.cancel();
 }
 
 // ---------------------------------------------------------------------------

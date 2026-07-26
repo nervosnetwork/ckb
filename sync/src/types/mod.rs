@@ -355,6 +355,10 @@ impl<T: Eq + Hash + Clone> TtlFilter<T> {
         self.inner.pop(item).is_some()
     }
 
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+
     /// Removes expired items.
     pub fn remove_expired(&mut self) {
         let now = ckb_systemtime::unix_time().as_secs();
@@ -1435,6 +1439,10 @@ impl SyncState {
 
     pub fn remove_from_known_txs(&self, hash: &Byte32) {
         self.tx_filter.lock().remove(hash);
+    }
+
+    pub fn reset_known_txs(&self) {
+        self.tx_filter.lock().clear();
     }
 
     // maybe someday we can use

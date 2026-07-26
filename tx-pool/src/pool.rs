@@ -584,6 +584,26 @@ impl TxPool {
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
     }
 
+    /// Exchange the accepted entry/index generation without destroying the
+    /// retired payload graph under the pool write guard. The returned sealed
+    /// map has no authority API at the call site and is dropped together with
+    /// the retired pre-pool generation after both authority guards open.
+    pub(crate) fn reset_generation(&mut self, snapshot: Arc<Snapshot>) -> PoolMap {
+        let retired = std::mem::replace(
+            &mut self.pool_map,
+            PoolMap::new(self.config.max_ancestors_count),
+        );
+        self.snapshot = snapshot;
+        self.committed_txs_hash_cache.clear();
+        self.onchain_reconcile_done = false;
+        #[cfg(test)]
+        {
+            self.fail_next_status_transition = false;
+            self.fail_next_pool_commit_panic = false;
+        }
+        retired
+    }
+
     pub(crate) fn package_proposals(&self, proposals_limit: u64) -> Vec<ProposalShortId> {
         // Select proposals independently of the template's optional uncles.
         // The block assembler atomically filters conflicting uncles after this

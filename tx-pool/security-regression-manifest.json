@@ -7,13 +7,22 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "P3/C5",
-    "unit_test_count": 210,
+    "checkpoint": "P4/C6 acceptance",
+    "unit_test_count": 224,
     "integration_spec_count": 149
   },
   "baseline": {
     "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
     "nextest_count": 303
   },
-  "release_blockers": []
+  "release_blockers": [
+    {
+      "id": "P4-PRODUCTION-SIZE",
+      "reason": "P4 correctness checkpoint has 20,129 production Rust lines, +1,378 from C5 and above the frozen 14k review envelope; P5 must perform architecture-level deletion before release acceptance"
+    },
+    {
+      "id": "P4-RESET-DISPOSAL",
+      "reason": "Defect resets dispose retired generations outside authority locks, but expected over-bound/capacity reorg fallback still clears accepted/pre-pool population under the TxPool/kernel/effect critical section; normal and defect generation swaps must converge on one lock-outside disposal primitive"
+    }
+  ]
 }

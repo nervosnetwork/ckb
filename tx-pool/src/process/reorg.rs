@@ -1,15 +1,11 @@
 use crate::component::entry::TxEntry;
-use crate::component::pool_map::Status;
+use crate::component::pool_map::{ConflictClosure, RemovedPoolEntry, Status};
 use crate::error::Reject;
 use crate::pool::TxPool;
-use crate::service::effects::{EffectBatch, EffectClass};
-use crate::util::compact_packed;
 use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
-use ckb_store::ChainStore;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::{Byte32, ProposalShortId};
-use ckb_types::prelude::Entity;
 use ckb_util::LinkedHashSet;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -34,125 +30,132 @@ pub(crate) fn detached_not_attached(
 /// Collected results of [`update_tx_pool_for_reorg`]. The service binds their
 /// pre-pool membership delta and effect journal before releasing the pool
 /// write lock; external callbacks run later through the effect publisher.
+#[derive(Default)]
 pub(crate) struct ReorgOutcome {
     /// Reject events for removed entries.
     pub(crate) reject_events: Vec<(TxEntry, Reject)>,
     /// Entries removed silently by the post-startup reconcile: they freed
     /// their inputs, so the RBF-registration cleanup must see them too.
     pub(crate) silently_removed: Vec<TxEntry>,
+    /// Accepted entries transferred atomically to `RecoveryRetained`. Their
+    /// causal producers are temporarily unavailable, but their inputs are not
+    /// published as released to conflict history while replay is pending.
+    pub(crate) recovery_removed: Vec<TxEntry>,
     /// Proposed/pending notifications (user callbacks must not run
     /// in-lock).
     pub(crate) notify_events: Vec<(TxEntry, Status)>,
 }
 
-impl crate::service::TxPoolService {
-    /// A detached transaction that cannot be recovered makes every accepted
-    /// input/cell-dep consumer of its outputs permanently unresolvable. Remove
-    /// the complete descendant closure while holding the universal TxPool ->
-    /// pre-pool boundary, then bind callbacks and Wait availability changes
-    /// before the pool mutation becomes visible.
-    pub(crate) async fn cascade_failed_reorg_recovery(&self, tx: &TransactionView) {
-        let effect_bound = self.max_reorg_effect_bytes();
-        if self
-            .relay
-            .effects
-            .wait_capacity(effect_bound, EffectClass::Critical)
-            .await
-            .is_err()
-        {
-            return;
+/// Exact accepted-pool ownership that must move back through authoritative
+/// recovery because one of its causal producers was detached from the chain.
+///
+/// The removal order is child-first, matching `PoolMap`'s total removal
+/// primitive. Recovery payloads are exposed in the reverse (parent-first)
+/// order so ordinary admission never needs a special late-parent mutation.
+pub(crate) enum AcceptedRecoveryPlan {
+    Bounded { removals: Vec<PlannedRecoveryEntry> },
+    OverBound,
+}
+
+pub(crate) struct PlannedRecoveryEntry {
+    id: ProposalShortId,
+    hash: Byte32,
+    status: Status,
+    entry: TxEntry,
+}
+
+impl AcceptedRecoveryPlan {
+    pub(crate) fn transactions_parent_first(&self) -> Vec<TransactionView> {
+        match self {
+            Self::Bounded { removals } => removals
+                .iter()
+                .rev()
+                .map(|planned| planned.entry.transaction().clone())
+                .collect(),
+            Self::OverBound => Vec::new(),
         }
-        let mut tx_pool = self.pool.tx_pool.write().await;
-        self.pipeline.kernel.guard_authoritative_mutation(
-            "reorg recovery cascade mutation panicked",
-            || {
-                let result = self.pipeline.kernel.mutate(|kernel| {
-                    self.relay.effects.try_apply_bounded(
-                        effect_bound,
-                        EffectClass::Critical,
-                        || {
-                let mut roots: HashMap<ProposalShortId, ckb_types::packed::OutPoint> =
-                    HashMap::new();
-                for out_point in tx.output_pts() {
-                    if let Some(id) = tx_pool
-                        .pool_map
-                        .out_point_index
-                        .get_input_ref(&out_point)
-                        .cloned()
-                    {
-                        roots
-                            .entry(id)
-                            .or_insert_with(|| compact_packed(&out_point));
-                    }
-                    if let Some(ids) = tx_pool.pool_map.out_point_index.get_deps_ref(&out_point) {
-                        for id in ids {
-                            roots
-                                .entry(id.clone())
-                                .or_insert_with(|| compact_packed(&out_point));
-                        }
-                    }
-                }
-
-                let mut removal_ids: HashSet<_> = roots.keys().cloned().collect();
-                for root in roots.keys() {
-                    removal_ids.extend(tx_pool.pool_map.calc_descendants(root));
-                }
-                let removal_hashes: HashSet<_> = removal_ids
-                    .iter()
-                    .filter_map(|id| {
-                        tx_pool
-                            .pool_map
-                            .get_by_id(id)
-                            .map(|entry| entry.inner.transaction().hash())
-                    })
-                    .filter(|hash| !tx_pool.snapshot().transaction_exists(hash))
-                    .collect();
-                kernel
-                    .parents_unavailable(&removal_hashes)
-                    .expect("planned reorg cascade parent demotion");
-
-                let mut ordered_roots: Vec<_> = roots.into_iter().collect();
-                ordered_roots
-                    .sort_by(|(left, _), (right, _)| left.as_slice().cmp(right.as_slice()));
-                let mut effects = Vec::new();
-                let mut available_outpoints = Vec::new();
-                for (child_id, out_point) in ordered_roots {
-                    let removed = tx_pool.pool_map.remove_entry_and_descendants(&child_id);
-                    available_outpoints
-                        .extend(tx_pool.released_inputs_from_removed_entries(&removed));
-                    for entry in removed {
-                        debug!(
-                            "cascade-remove pool tx {}: its reference {:?} died with the failed re-add",
-                            entry.transaction().hash(),
-                            out_point,
-                        );
-                        effects.extend(self.rejected_effects(
-                            entry,
-                            Reject::Resolve(ckb_types::core::error::OutPointError::Dead(
-                                out_point.clone(),
-                            )),
-                        ));
-                    }
-                }
-                kernel
-                    .note_available(crate::service::pipeline_ops::available_cell_dependencies(
-                        &tx_pool,
-                        available_outpoints,
-                    ))
-                    .expect("planned reorg cascade availability update");
-                ((), EffectBatch::new(effects))
-                        },
-                    )
-                });
-                if let Err(error) = result {
-                    ckb_logger::error!("reorg cascade effect journal unavailable: {error:?}");
-                }
-            },
-        );
     }
 }
 
-pub(crate) fn update_tx_pool_for_reorg(
+/// Plan the accepted causal closure made parentless by detached transactions.
+///
+/// A transaction already in the accepted pool can legally depend on a
+/// committed chain transaction. If that producer is later detached, leaving
+/// the consumer resident while replaying the producer would require a second
+/// late-parent graph mutation (and would expose an unresolvable accepted
+/// entry during replay). Instead, move the complete bounded closure back to
+/// `RecoveryRetained` and replay the existing ordinary parent-first path.
+pub(crate) fn plan_accepted_recovery(
+    tx_pool: &TxPool,
+    detached: &[TransactionView],
+    limit: usize,
+) -> AcceptedRecoveryPlan {
+    let mut roots = HashSet::new();
+    for tx in detached {
+        for output in tx.output_pts() {
+            if let Some(spender) = tx_pool.pool_map.out_point_index.get_input_ref(&output) {
+                roots.insert(spender.clone());
+            }
+            if let Some(readers) = tx_pool.pool_map.out_point_index.get_deps_ref(&output) {
+                roots.extend(readers.iter().cloned());
+            }
+        }
+    }
+
+    let ConflictClosure::Complete { removal, .. } =
+        tx_pool.pool_map.conflict_closure(&roots, limit)
+    else {
+        return AcceptedRecoveryPlan::OverBound;
+    };
+    let removals = removal
+        .into_iter()
+        .filter_map(|id| {
+            tx_pool
+                .pool_map
+                .get_by_id(&id)
+                .map(|current| PlannedRecoveryEntry {
+                    id,
+                    hash: current.hash.clone(),
+                    status: current.status,
+                    entry: current.inner.clone(),
+                })
+        })
+        .collect();
+    AcceptedRecoveryPlan::Bounded { removals }
+}
+
+/// Total Apply for a previously validated accepted-recovery plan. The caller
+/// holds the pool write guard continuously between Plan and Apply.
+pub(crate) fn apply_accepted_recovery(
+    tx_pool: &mut TxPool,
+    plan: AcceptedRecoveryPlan,
+) -> Vec<RemovedPoolEntry> {
+    let AcceptedRecoveryPlan::Bounded { removals } = plan else {
+        unreachable!("an over-bound accepted recovery uses generation reset")
+    };
+    removals
+        .into_iter()
+        .map(|planned| {
+            let current = tx_pool
+                .pool_map
+                .get_by_id(&planned.id)
+                .expect("planned reorg recovery entry remains accepted");
+            assert_eq!(current.hash, planned.hash);
+            assert_eq!(current.status, planned.status);
+            tx_pool
+                .pool_map
+                .remove_entry_with_status(&planned.id)
+                .expect("planned reorg recovery removal is total")
+        })
+        .collect()
+}
+
+/// Begin the accepted-pool half of one reorg transaction. Startup zombie
+/// reconciliation and size limiting are deliberately deferred: the caller
+/// must first transfer descendants of detached producers to retained recovery,
+/// otherwise the startup sweep would destroy the very closure that reorg is
+/// required to replay.
+pub(crate) fn begin_tx_pool_reorg(
     tx_pool: &mut TxPool,
     attached: &LinkedHashSet<TransactionView>,
     detached_headers: &HashSet<Byte32>,
@@ -244,6 +247,18 @@ pub(crate) fn update_tx_pool_for_reorg(
     // Remove expired transaction from pending
     tx_pool.remove_expired(&mut reject_events);
 
+    Ok(ReorgOutcome {
+        reject_events,
+        silently_removed: Vec::new(),
+        recovery_removed: Vec::new(),
+        notify_events,
+    })
+}
+
+/// Complete the accepted reorg transaction after the bounded recovery
+/// ownership transfer. This tail is total and runs under the same pool write
+/// guard as [`begin_tx_pool_reorg`].
+pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutcome) {
     // One-shot post-startup reconcile for entries committed (or zombied)
     // while their reorg notifications were skipped during the startup
     // reload. This runs against the fresh snapshot swapped in above, so the
@@ -253,20 +268,19 @@ pub(crate) fn update_tx_pool_for_reorg(
     // caller: they freed their inputs, so the same RBF-registration
     // cleanup that runs for the reject events must also run for them
     // (otherwise ghost registrations block future replacements forever).
-    let mut silently_removed = Vec::new();
     if !tx_pool.onchain_reconcile_done {
         tx_pool.onchain_reconcile_done = true;
-        silently_removed = tx_pool.remove_onchain_entries();
-        if !silently_removed.is_empty() {
+        outcome.silently_removed = tx_pool.remove_onchain_entries();
+        if !outcome.silently_removed.is_empty() {
             debug!(
                 "reconcile dropped {} on-chain pool entries",
-                silently_removed.len()
+                outcome.silently_removed.len()
             );
         }
     }
 
     // Remove transactions from the pool until its size <= size_limit.
-    let current_reject = tx_pool.limit_size(None, &mut reject_events);
+    let current_reject = tx_pool.limit_size(None, &mut outcome.reject_events);
     debug_assert!(
         current_reject.is_none(),
         "reorg size reconciliation has no distinguished incoming entry"
@@ -277,13 +291,14 @@ pub(crate) fn update_tx_pool_for_reorg(
     // for an entry that expiry/size reconciliation removed later in the same
     // transaction. Coalesce by full hash and read the final authoritative
     // status; a short-id collision must never attribute another transaction.
-    let rejected_hashes: HashSet<_> = reject_events
+    let rejected_hashes: HashSet<_> = outcome
+        .reject_events
         .iter()
         .map(|(entry, _)| entry.transaction().hash())
         .collect();
     let mut positions = HashMap::new();
     let mut stable_notify_events: Vec<(TxEntry, Status)> = Vec::new();
-    for (entry, _) in notify_events {
+    for (entry, _) in std::mem::take(&mut outcome.notify_events) {
         let hash = entry.transaction().hash();
         if rejected_hashes.contains(&hash) {
             continue;
@@ -300,11 +315,31 @@ pub(crate) fn update_tx_pool_for_reorg(
         }
     }
 
-    Ok(ReorgOutcome {
-        reject_events,
-        silently_removed,
-        notify_events: stable_notify_events,
-    })
+    outcome.notify_events = stable_notify_events;
+}
+
+/// Standalone compatibility wrapper used by focused pool tests. Production
+/// reorg orchestration calls Begin, performs the cross-authority recovery
+/// transfer, then calls Finish under one uninterrupted write guard.
+#[cfg(test)]
+pub(crate) fn update_tx_pool_for_reorg(
+    tx_pool: &mut TxPool,
+    attached: &LinkedHashSet<TransactionView>,
+    detached_headers: &HashSet<Byte32>,
+    detached_proposal_id: HashSet<ProposalShortId>,
+    snapshot: Arc<Snapshot>,
+    mine_mode: bool,
+) -> Result<ReorgOutcome, Reject> {
+    let mut outcome = begin_tx_pool_reorg(
+        tx_pool,
+        attached,
+        detached_headers,
+        detached_proposal_id,
+        snapshot,
+        mine_mode,
+    )?;
+    finish_tx_pool_reorg(tx_pool, &mut outcome);
+    Ok(outcome)
 }
 
 #[cfg(test)]

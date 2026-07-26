@@ -386,7 +386,8 @@ impl TxPoolService {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.kernel.guard_authoritative_mutation(
+            let defect_snapshot = tx_pool.cloned_snapshot();
+            let mutation = self.pipeline.kernel.guard_authoritative_mutation(
                 "administrative removal mutation panicked",
                 || {
                     let pool_target = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
@@ -470,7 +471,21 @@ impl TxPoolService {
                     let conflict_removed = false;
                     Some((record, removed_entries, conflict_removed))
                 },
-            )
+            );
+            match mutation {
+                Ok(mutation) => mutation,
+                Err(defect) => {
+                    let disposal = self.recover_authoritative_defect(
+                        &mut tx_pool,
+                        defect_snapshot,
+                        "administrative removal mutation",
+                        defect,
+                    );
+                    drop(tx_pool);
+                    drop(disposal);
+                    return RemoveTxOutcome::InProgress;
+                }
+            }
         };
         let Some((record, removed_entries, conflict_removed)) = mutation else {
             return RemoveTxOutcome::InProgress;
@@ -506,7 +521,8 @@ impl TxPoolService {
             {
                 return;
             }
-            let _tx_pool = self.pool.tx_pool.write().await;
+            let mut tx_pool = self.pool.tx_pool.write().await;
+            let defect_snapshot = tx_pool.cloned_snapshot();
             let result = self.pipeline.kernel.guard_authoritative_mutation(
                 "clear-pipeline authoritative mutation panicked",
                 || {
@@ -520,14 +536,25 @@ impl TxPoolService {
                 },
             );
             match result {
-                Ok(Ok(_)) => break,
-                Err(EffectJournalError::Full) => continue,
-                Ok(Err(error)) => {
+                Ok(Ok(Ok(_))) => break,
+                Ok(Err(EffectJournalError::Full)) => continue,
+                Ok(Ok(Err(error))) => {
                     ckb_logger::error!("clear pipeline failed: {error:?}");
                     break;
                 }
-                Err(error) => {
+                Ok(Err(error)) => {
                     ckb_logger::error!("clear pipeline journal unavailable: {error:?}");
+                    break;
+                }
+                Err(defect) => {
+                    let disposal = self.recover_authoritative_defect(
+                        &mut tx_pool,
+                        defect_snapshot,
+                        "clear-pipeline authoritative mutation",
+                        defect,
+                    );
+                    drop(tx_pool);
+                    drop(disposal);
                     break;
                 }
             }

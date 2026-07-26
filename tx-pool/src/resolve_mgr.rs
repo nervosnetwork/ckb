@@ -199,9 +199,6 @@ impl TxPoolService {
 
         if let Err(message) = outcome {
             error!("tx-pool raw worker panicked on {}: {}", lease.hash, message);
-            if self.pipeline.kernel.is_failed() {
-                return;
-            }
             self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
                 .await;
         }

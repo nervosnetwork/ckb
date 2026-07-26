@@ -154,7 +154,7 @@ fn assemble_service(
             fee_estimator,
         },
         block_assembler,
-        recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+        persistence_lock: Arc::new(tokio::sync::Mutex::new(())),
     }
 }
 
@@ -409,8 +409,8 @@ impl TxPoolServiceBuilder {
         let pre_check_cancel = signal_receiver.child_token();
 
         let tx_pool = TxPool::new(tx_pool_config, snapshot);
-        let txs = match tx_pool.load_from_file() {
-            Ok(txs) => txs,
+        let txs = match tx_pool.load_persistence_snapshot() {
+            Ok(snapshot) => snapshot.into_transactions(),
             Err(e) => {
                 error!("{}", e.to_string());
                 error!("Failed to load txs from tx-pool persistent data file, all txs are ignored");
@@ -619,7 +619,7 @@ impl TxPoolServiceBuilder {
                 )
                 .await;
 
-            if clean_shutdown && service.pipeline.kernel.pool_persistence_safe() {
+            if clean_shutdown {
                 info!("TxPool is saving, please wait...");
                 service.save_pool().await;
             } else {

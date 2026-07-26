@@ -60,8 +60,9 @@ impl TxPoolService {
             ret,
             Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
         ) {
-            let tx_pool = self.pool.tx_pool.write().await;
-            self.pipeline.kernel.guard_authoritative_mutation(
+            let mut tx_pool = self.pool.tx_pool.write().await;
+            let defect_snapshot = tx_pool.cloned_snapshot();
+            let mutation = self.pipeline.kernel.guard_authoritative_mutation(
                 "post-process conflict-history mutation panicked",
                 || {
                     if self.is_pipeline_epoch_current(epoch)
@@ -89,6 +90,19 @@ impl TxPoolService {
                     }
                 },
             );
+            let disposal = if let Err(defect) = mutation {
+                Some(self.recover_authoritative_defect_with_fingerprint(
+                    &mut tx_pool,
+                    defect_snapshot,
+                    "post-process conflict-history mutation",
+                    defect,
+                    source.peer().is_some().then(|| tx.witness_hash()),
+                ))
+            } else {
+                None
+            };
+            drop(tx_pool);
+            drop(disposal);
         }
 
         match source {

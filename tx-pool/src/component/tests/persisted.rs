@@ -12,7 +12,9 @@ use ckb_types::core::{
     Capacity, DepType, TransactionBuilder, TransactionView,
     cell::{CellMeta, ResolvedTransaction, get_related_dep_out_points},
 };
-use ckb_types::packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec};
+use ckb_types::packed::{
+    Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec, TransactionVec,
+};
 use ckb_types::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -473,73 +475,33 @@ async fn zero_verify_worker_config_still_runs_remote_pipeline() {
         .expect("dispatcher task must not panic");
 }
 
-/// Persistence is serialized behind the complete reorg slice, including
-/// detached-transaction replay. A save that begins after reorg owns
-/// `recovery_lock` must contain the recovered transaction rather than a
-/// half-updated pool snapshot.
+/// Persistence observes the ownership partition, not a handler-wide lock. A
+/// save racing the reorg switch contains the detached transaction whether it
+/// sees `RecoveryRetained` or its later accepted owner.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn save_pool_waits_for_complete_reorg_recovery_point() {
-    use ckb_types::core::{BlockBuilder, TransactionBuilder};
-    use std::collections::{HashSet, VecDeque};
-    use std::time::Duration;
-
+async fn save_pool_captures_complete_reorg_ownership() {
     let tmp = tempfile::TempDir::new().unwrap();
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_resolvable_tx(&h.out_points[0], 4_000);
     let tx_id = tx.proposal_short_id();
-    let detached = BlockBuilder::default()
-        .transaction(TransactionBuilder::default().build())
-        .transaction(tx)
-        .build();
-    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
+    h.service.pool.tx_pool.write().await.config.persisted_data = tmp.path().join("tx_pool");
+    let epoch = h.service.current_pipeline_epoch().unwrap();
+    let batch = h
+        .service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.retain_recovery_batch(vec![tx], epoch))
+        .expect("recovery ownership installs");
+    assert_eq!(batch.retained, 1);
+    let lease = h
+        .service
+        .pipeline
+        .kernel
+        .checkout_recovery(batch.session)
+        .unwrap()
+        .expect("recovery owner is actively leased");
 
-    // Hold TxPool so reorg acquires recovery serialization and pauses before
-    // the authoritative update/replay. Save must queue behind that lock.
-    let mut pool_guard = h.service.pool.tx_pool.write().await;
-    pool_guard.config.persisted_data = tmp.path().join("tx_pool");
-    let reorg_service = h.service.clone();
-    let reorg_snapshot = Arc::clone(&snapshot);
-    let reorg = tokio::spawn(async move {
-        reorg_service
-            .update_tx_pool_for_reorg(
-                VecDeque::from([detached]),
-                VecDeque::new(),
-                HashSet::new(),
-                reorg_snapshot,
-            )
-            .await
-    });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            match h.service.recovery_lock.try_lock() {
-                Ok(guard) => drop(guard),
-                Err(_) => break,
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("reorg acquires recovery serialization before save starts");
-
-    let save_service = h.service.clone();
-    let mut save = tokio::spawn(async move { save_service.save_pool().await });
-    assert!(
-        tokio::time::timeout(Duration::from_millis(50), &mut save)
-            .await
-            .is_err(),
-        "save must not persist the pool while detached replay is blocked"
-    );
-
-    drop(pool_guard);
-    tokio::time::timeout(Duration::from_secs(10), reorg)
-        .await
-        .expect("reorg recovery completes")
-        .expect("reorg task joins")
-        .expect("detached transaction is recoverable");
-    tokio::time::timeout(Duration::from_secs(10), save)
-        .await
-        .expect("save follows the complete recovery slice")
-        .expect("save task joins");
+    h.service.save_pool().await;
 
     let loaded = h
         .service
@@ -547,14 +509,83 @@ async fn save_pool_waits_for_complete_reorg_recovery_point() {
         .tx_pool
         .read()
         .await
-        .load_from_file()
+        .load_persistence_snapshot()
         .expect("saved recovery point is readable");
     assert!(
         loaded
+            .recovery
             .iter()
-            .any(|loaded_tx| loaded_tx.proposal_short_id() == tx_id),
-        "persistence must include the detached transaction recovered before it"
+            .any(|item| item.tx.proposal_short_id() == tx_id && item.meta.session == batch.session),
+        "persistence must include the kernel-owned detached transaction while leased"
     );
+    assert_eq!(lease.payload.tx.proposal_short_id(), tx_id);
+    h.cancel.cancel();
+}
+
+#[tokio::test]
+async fn persistence_v2_rejects_oversized_file_before_reading_payload() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let h = harness(1).workers(WorkerSet::None).build();
+    let (base, max_bytes) = {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.config.persisted_data = tmp.path().join("tx_pool");
+        let max_bytes = pool
+            .config
+            .max_tx_pool_size
+            .saturating_add(pool.config.tx_pipeline_resident_size_budget())
+            .saturating_mul(2)
+            .saturating_add(1024 * 1024);
+        (pool.config.persisted_data.clone(), max_bytes)
+    };
+    let mut path = base;
+    path.set_extension("v2");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .unwrap();
+    file.set_len(u64::try_from(max_bytes).unwrap().saturating_add(1))
+        .unwrap();
+
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .load_persistence_snapshot()
+            .is_err(),
+        "metadata length is rejected before allocating/reading the sparse payload"
+    );
+    h.cancel.cancel();
+}
+
+#[tokio::test]
+async fn persistence_loader_accepts_legacy_v1_vector() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_resolvable_tx(&h.out_points[0], 4_000);
+    let mut base = {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        pool.config.persisted_data = tmp.path().join("tx_pool");
+        pool.config.persisted_data.clone()
+    };
+    base.set_extension("v1");
+    let vector = TransactionVec::new_builder().push(tx.data()).build();
+    std::fs::write(base, vector.as_slice()).unwrap();
+
+    let loaded = h
+        .service
+        .pool
+        .tx_pool
+        .read()
+        .await
+        .load_persistence_snapshot()
+        .unwrap();
+    assert_eq!(loaded.accepted.len(), 1);
+    assert_eq!(loaded.accepted[0].witness_hash(), tx.witness_hash());
+    assert!(loaded.recovery.is_empty());
     h.cancel.cancel();
 }
 

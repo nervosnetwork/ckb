@@ -87,7 +87,6 @@ impl PrePoolKernel {
         });
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(hash, next.clone())?;
-        self.deactivate_if_leased(old.source, &old.state)?;
         Ok(next.version)
     }
 
@@ -106,7 +105,6 @@ impl PrePoolKernel {
         next.state = EntryState::ResolveQueued { lane };
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(hash, next.clone())?;
-        self.deactivate_if_leased(old.source, &old.state)?;
         Ok(next.version)
     }
 
@@ -281,6 +279,13 @@ impl PrePoolKernel {
             let Some(entry) = self.entries.get(&hash) else {
                 continue;
             };
+            // A recovery owner has not derived any reusable resolved state;
+            // its dedicated direct lease will validate against the new
+            // overlay. Moving it into the ordinary waiter/worker scheduler
+            // would create a second recovery protocol and active-work class.
+            if entry.source == PrePoolSource::Recovery {
+                continue;
+            }
             let mut keys = Self::causal_keys(entry)
                 .into_iter()
                 .filter(|key| parents.contains(&key.parent_hash()))
@@ -333,7 +338,6 @@ impl PrePoolKernel {
             });
             next.charge_bytes = self.entry_charge(&next)?;
             self.replace_entry(&hash, next)?;
-            self.deactivate_if_leased(old.source, &old.state)?;
             return Ok((false, Vec::new()));
         }
 
@@ -353,6 +357,7 @@ impl PrePoolKernel {
             short_id,
             raw: Arc::new(raw),
             source,
+            recovery: None,
             state: EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys),

@@ -24,6 +24,28 @@ impl PrePoolKernel {
         {
             return Err(PrePoolError::SelfDependency(hash.clone()));
         }
+        if (entry.source == PrePoolSource::Recovery) != entry.recovery.is_some() {
+            return Err(PrePoolError::Repair(
+                "recovery source and metadata must be paired",
+            ));
+        }
+        if matches!(entry.state, EntryState::RecoveryRetained)
+            && entry.source != PrePoolSource::Recovery
+        {
+            return Err(PrePoolError::Repair(
+                "only a recovery source may be retained",
+            ));
+        }
+        if entry.source == PrePoolSource::Recovery
+            && !matches!(
+                entry.state,
+                EntryState::RecoveryRetained | EntryState::ResolveLeased
+            )
+        {
+            return Err(PrePoolError::Repair(
+                "recovery source escaped retained/direct-lease states",
+            ));
+        }
         if entry.dependencies.len() > self.limits.max_dependencies_per_entry {
             return Err(PrePoolError::DependencyLimitExceeded);
         }
@@ -151,9 +173,16 @@ impl PrePoolKernel {
         if let Some(deadline) = Self::deadline_key(hash, entry) {
             self.deadlines.insert(deadline);
         }
+        if matches!(entry.state, EntryState::RecoveryRetained) {
+            self.recovery.insert(RecoveryKey {
+                meta: entry.recovery.expect("validated recovery metadata"),
+                hash: hash.clone(),
+                version: entry.version,
+            });
+        }
     }
 
-    fn detach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+    pub(super) fn detach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
         self.by_short_id.remove(&entry.short_id);
         if let Some(peer) = entry.source.peer()
             && let Some(hashes) = self.by_peer.get_mut(&peer)
@@ -217,6 +246,13 @@ impl PrePoolKernel {
         if let Some(deadline) = Self::deadline_key(hash, entry) {
             self.deadlines.remove(&deadline);
         }
+        if matches!(entry.state, EntryState::RecoveryRetained) {
+            self.recovery.remove(&RecoveryKey {
+                meta: entry.recovery.expect("validated recovery metadata"),
+                hash: hash.clone(),
+                version: entry.version,
+            });
+        }
     }
 
     pub(super) fn replace_entry(&mut self, hash: &Byte32, next: Entry) -> Result<(), PrePoolError> {
@@ -227,6 +263,9 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
         self.check_usage_delta(Some(&old), Some(&next))?;
+        let old_active = Self::active_owner(old.source, &old.state);
+        let next_active = Self::active_owner(next.source, &next.state);
+        self.check_active_transition(old_active, next_active)?;
         if old.short_id != next.short_id
             && let Some(existing_hash) = self.by_short_id.get(&next.short_id)
         {
@@ -239,6 +278,7 @@ impl PrePoolKernel {
         self.apply_usage_delta(Some(&old), Some(&next));
         self.entries.insert(hash.clone(), next.clone());
         self.attach_indexes(hash, &next);
+        self.apply_active_transition(old_active, next_active);
         self.refresh_owner_runnable(old.source.into());
         self.refresh_owner_runnable(next.source.into());
         Ok(())
@@ -251,11 +291,17 @@ impl PrePoolKernel {
     ) -> Result<TerminalRecord, PrePoolError> {
         let entry = self
             .entries
-            .remove(hash)
+            .get(hash)
+            .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+        let old_active = Self::active_owner(entry.source, &entry.state);
+        self.check_active_transition(old_active, None)?;
+        self.entries
+            .remove(hash)
+            .expect("remove prevalidated primary entry");
         self.detach_indexes(hash, &entry);
         self.apply_usage_delta(Some(&entry), None);
-        self.deactivate_if_leased(entry.source, &entry.state)?;
+        self.apply_active_transition(old_active, None);
         self.refresh_owner_runnable(entry.source.into());
         Ok(TerminalRecord {
             hash: hash.clone(),
@@ -292,62 +338,17 @@ impl PrePoolKernel {
         Ok(entry)
     }
 
-    fn activate(&mut self, source: PrePoolSource) -> Result<(), PrePoolError> {
-        if self.active_work >= self.limits.max_active_work {
-            return Err(PrePoolError::ActiveWorkLimitExceeded);
-        }
-        let owner = source.into();
-        let active = self
-            .active_by_owner
-            .get(&owner)
-            .copied()
-            .unwrap_or_default();
-        if active >= self.owner_active_limit(owner) {
-            return Err(match owner {
-                WorkOwner::Remote(peer) => PrePoolError::PeerActiveWorkLimitExceeded(peer),
-                WorkOwner::Trusted => PrePoolError::ActiveWorkLimitExceeded,
-            });
-        }
-        self.active_work += 1;
-        self.active_by_owner.insert(owner, active + 1);
-        self.refresh_owner_runnable(owner);
-        Ok(())
-    }
-
-    fn deactivate(&mut self, source: PrePoolSource) -> Result<(), PrePoolError> {
-        let owner = source.into();
-        self.active_work = self
-            .active_work
-            .checked_sub(1)
-            .ok_or(PrePoolError::Repair("active work underflow"))?;
-        let active = self
-            .active_by_owner
-            .get(&owner)
-            .copied()
-            .ok_or(PrePoolError::Repair("active owner missing"))?
-            .checked_sub(1)
-            .ok_or(PrePoolError::Repair("active owner underflow"))?;
-        if active == 0 {
-            self.active_by_owner.remove(&owner);
+    pub(super) fn active_owner(source: PrePoolSource, state: &EntryState) -> Option<WorkOwner> {
+        if source != PrePoolSource::Recovery
+            && matches!(
+                state,
+                EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
+            )
+        {
+            Some(source.into())
         } else {
-            self.active_by_owner.insert(owner, active);
+            None
         }
-        self.refresh_owner_runnable(owner);
-        Ok(())
-    }
-
-    pub(super) fn deactivate_if_leased(
-        &mut self,
-        source: PrePoolSource,
-        state: &EntryState,
-    ) -> Result<(), PrePoolError> {
-        if matches!(
-            state,
-            EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
-        ) {
-            self.deactivate(source)?;
-        }
-        Ok(())
     }
 
     fn owner_active_limit(&self, owner: WorkOwner) -> usize {
@@ -357,44 +358,87 @@ impl PrePoolKernel {
         }
     }
 
-    fn transfer_active_source(
-        &mut self,
-        old_source: PrePoolSource,
-        new_source: PrePoolSource,
-        state: &EntryState,
+    fn active_limit_error(owner: WorkOwner) -> PrePoolError {
+        match owner {
+            WorkOwner::Remote(peer) => PrePoolError::PeerActiveWorkLimitExceeded(peer),
+            WorkOwner::Trusted => PrePoolError::ActiveWorkLimitExceeded,
+        }
+    }
+
+    pub(super) fn check_active_transition(
+        &self,
+        old: Option<WorkOwner>,
+        new: Option<WorkOwner>,
     ) -> Result<(), PrePoolError> {
-        if old_source == new_source
-            || !matches!(
-                state,
-                EntryState::ResolveLeased | EntryState::VerifyLeased { .. }
-            )
-        {
+        if old == new {
             return Ok(());
         }
-        let old_owner = WorkOwner::from(old_source);
-        let new_owner = WorkOwner::from(new_source);
-        let old_active = self
-            .active_by_owner
-            .get(&old_owner)
-            .copied()
-            .ok_or(PrePoolError::Repair("promoted active owner missing"))?;
-        let new_active = self
-            .active_by_owner
-            .get(&new_owner)
-            .copied()
-            .unwrap_or_default();
-        if new_active >= self.owner_active_limit(new_owner) {
-            return Err(PrePoolError::Repair("promoted active owner exceeds limit"));
+        let active_work = self
+            .active_work
+            .checked_sub(usize::from(old.is_some()))
+            .and_then(|value| value.checked_add(usize::from(new.is_some())))
+            .ok_or(PrePoolError::Repair("active work projection arithmetic"))?;
+        if active_work > self.limits.max_active_work {
+            return Err(PrePoolError::ActiveWorkLimitExceeded);
         }
-        if old_active == 1 {
-            self.active_by_owner.remove(&old_owner);
-        } else {
-            self.active_by_owner.insert(old_owner, old_active - 1);
+        for owner in [old, new].into_iter().flatten() {
+            let projected = self
+                .active_by_owner
+                .get(&owner)
+                .copied()
+                .unwrap_or_default()
+                .checked_sub(usize::from(old == Some(owner)))
+                .and_then(|value| value.checked_add(usize::from(new == Some(owner))))
+                .ok_or(PrePoolError::Repair("active owner projection arithmetic"))?;
+            if projected > self.owner_active_limit(owner) {
+                return Err(Self::active_limit_error(owner));
+            }
         }
-        self.active_by_owner.insert(new_owner, new_active + 1);
-        self.refresh_owner_runnable(old_owner);
-        self.refresh_owner_runnable(new_owner);
         Ok(())
+    }
+
+    pub(super) fn apply_active_transition(
+        &mut self,
+        old: Option<WorkOwner>,
+        new: Option<WorkOwner>,
+    ) {
+        if old == new {
+            return;
+        }
+        self.active_work = self
+            .active_work
+            .checked_sub(usize::from(old.is_some()))
+            .and_then(|value| value.checked_add(usize::from(new.is_some())))
+            .expect("prevalidated active work transition");
+        if let Some(owner) = old {
+            let active = self
+                .active_by_owner
+                .get(&owner)
+                .copied()
+                .expect("prevalidated active owner")
+                .checked_sub(1)
+                .expect("prevalidated active owner decrement");
+            if active == 0 {
+                self.active_by_owner.remove(&owner);
+            } else {
+                self.active_by_owner.insert(owner, active);
+            }
+            self.refresh_owner_runnable(owner);
+        }
+        if let Some(owner) = new {
+            let active = self
+                .active_by_owner
+                .get(&owner)
+                .copied()
+                .unwrap_or_default();
+            self.active_by_owner.insert(
+                owner,
+                active
+                    .checked_add(1)
+                    .expect("prevalidated active owner increment"),
+            );
+            self.refresh_owner_runnable(owner);
+        }
     }
 
     fn refresh_owner_runnable(&mut self, owner: WorkOwner) {
@@ -443,6 +487,7 @@ impl PrePoolKernel {
             short_id,
             raw: Arc::new(raw),
             source,
+            recovery: None,
             state: EntryState::ResolveQueued { lane },
             version,
             arrival,
@@ -487,7 +532,6 @@ impl PrePoolKernel {
         }
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(hash, next.clone())?;
-        self.transfer_active_source(old.source, next.source, &old.state)?;
         Ok(next.version)
     }
 
@@ -512,10 +556,6 @@ impl PrePoolKernel {
         next.state = EntryState::ResolveQueued { lane };
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(hash, next.clone())?;
-        // Commit the fully validated primary/index replacement before
-        // releasing the active-work charge. A fallible replacement must not
-        // leave a leased entry with no matching active reservation.
-        self.deactivate_if_leased(old.source, &old.state)?;
         Ok(next.version)
     }
 
@@ -542,15 +582,14 @@ impl PrePoolKernel {
         next.state = EntryState::ResolveLeased;
         next.charge_bytes = self.entry_charge(&next)?;
         self.check_usage_delta(Some(&entry), Some(&next))?;
+        let old_active = Self::active_owner(entry.source, &entry.state);
+        let next_active = Self::active_owner(next.source, &next.state);
+        self.check_active_transition(old_active, next_active)?;
         let popped = self.queues[work_lane.index()].pop(WorkCapability::Any)?;
         if popped.as_ref() != Some(&key) {
             return Err(PrePoolError::Repair(
                 "resolve head changed inside kernel lock",
             ));
-        }
-        if let Err(error) = self.activate(entry.source) {
-            self.queues[work_lane.index()].insert(key)?;
-            return Err(error);
         }
         // The queue key was removed directly by pop. Replace only the primary
         // and non-queue indexes to avoid attempting a second exact removal.
@@ -559,6 +598,7 @@ impl PrePoolKernel {
         self.apply_usage_delta(Some(&entry), Some(&next));
         self.entries.insert(key.hash.clone(), next.clone());
         self.attach_nonqueue_indexes(&key.hash, &next);
+        self.apply_active_transition(old_active, next_active);
         Ok(Some(ResolveLease {
             hash: key.hash,
             lane,
@@ -610,7 +650,6 @@ impl PrePoolKernel {
         };
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(&lease.hash, next.clone())?;
-        self.deactivate(old.source)?;
         Ok(next.version)
     }
 
@@ -640,21 +679,21 @@ impl PrePoolKernel {
         };
         next.charge_bytes = self.entry_charge(&next)?;
         self.check_usage_delta(Some(&entry), Some(&next))?;
+        let old_active = Self::active_owner(entry.source, &entry.state);
+        let next_active = Self::active_owner(next.source, &next.state);
+        self.check_active_transition(old_active, next_active)?;
         let popped = self.queues[lane.index()].pop(capability)?;
         if popped.as_ref() != Some(&key) {
             return Err(PrePoolError::Repair(
                 "verify head changed inside kernel lock",
             ));
         }
-        if let Err(error) = self.activate(entry.source) {
-            self.queues[lane.index()].insert(key)?;
-            return Err(error);
-        }
         self.by_short_id.remove(&entry.short_id);
         self.detach_nonqueue_indexes(&key.hash, &entry);
         self.apply_usage_delta(Some(&entry), Some(&next));
         self.entries.insert(key.hash.clone(), next.clone());
         self.attach_nonqueue_indexes(&key.hash, &next);
+        self.apply_active_transition(old_active, next_active);
         Ok(Some(VerifyLease {
             hash: key.hash,
             version,
@@ -694,7 +733,6 @@ impl PrePoolKernel {
         };
         next.charge_bytes = self.entry_charge(&next)?;
         self.replace_entry(&lease.hash, next)?;
-        self.deactivate(old.source)?;
         Ok(version)
     }
 

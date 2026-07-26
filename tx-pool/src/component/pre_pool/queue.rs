@@ -15,7 +15,7 @@ impl From<PrePoolSource> for WorkOwner {
     fn from(source: PrePoolSource) -> Self {
         match source {
             PrePoolSource::Remote(peer) => Self::Remote(peer),
-            PrePoolSource::Proposal => Self::Trusted,
+            PrePoolSource::Proposal | PrePoolSource::Recovery => Self::Trusted,
         }
     }
 }

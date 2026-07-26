@@ -673,6 +673,9 @@ impl Relayer {
                     TxVerificationResult::Reject { tx_hash } => {
                         self.shared.state().remove_from_known_txs(&tx_hash);
                     }
+                    TxVerificationResult::GenerationReset => {
+                        self.shared.state().reset_known_txs();
+                    }
                     TxVerificationResult::UnknownParents { peer, parents } => {
                         let tx_hashes: Vec<_> = {
                             let mut tx_filter = self.shared.state().tx_filter();

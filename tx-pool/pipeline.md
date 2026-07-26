@@ -6,7 +6,8 @@ review is [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), staged gates are in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), and executable review
 evidence is generated in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
 
-Status: **P3 stable-effect cutover complete at C5**. The old
+Status: **P4 chain-correctness checkpoint ready for C6; architecture acceptance
+is intentionally withheld**. The old
 `PipelineCoordinator`, `PipelineRuntime` and `ConflictCache` have been deleted.
 PoolCommitJournal, nested restoration and persistent cell-ref ancestry are now
 also deleted. P3-P4 migration debt is named explicitly below; it must be removed by the
@@ -212,9 +213,10 @@ capacity hint (owns no state) -> TxPool write -> Pool Plan
 ```
 
 Every transaction-shaped, policy, conflict, liveness, arithmetic and capacity
-error occurs before either accepted membership or its effects change. Internal
-kernel defect containment and generation rebuilding remain P4 work; they are
-not reclassified as transaction rejects.
+error occurs before either accepted membership or its effects change. An
+impossible Apply unwind exchanges both ephemeral generations at the existing
+TxPool write boundary, emits `GenerationReset`, and cools only Remote ingress;
+it is not reclassified as a transaction rejection or a service stop.
 
 ## 9. Effects, chain changes and templates
 
@@ -224,11 +226,14 @@ credit-across-lock ownership and journal-triggered service fail-stop. Remote
 cannot consume trusted/critical progress; queued and active batches remain
 exactly charged and publisher replacement resumes the active cursor.
 
-Reorg reconciliation still uses `recovery_lock` to serialize detached replay,
-clear and persistence. Attached outputs and released accepted inputs advance
-the same dependency epochs used by ordinary commits. Detached transaction
-sorting and cache lookup use full/witness identity. P4 moves the retained
-replay owner to `RecoveryRetained` and deletes the cross-actor lock.
+Reorg reconciliation installs the parent-first detached cohort as charged
+`RecoveryRetained` entries in the same `TxPool -> PrePoolKernel` slice that
+switches the chain snapshot. A dedicated retained handler leases one entry at
+a time without keeping payload ownership; clear invalidates its epoch and save
+copies accepted plus active/retained recovery owners into the v2 envelope.
+There is no cross-await recovery lock or pipeline-specific recovery cascade.
+Attached outputs and released accepted inputs advance the ordinary dependency
+epochs, while sorting and cache lookup retain full/witness identity.
 
 Block assembler priority is unchanged:
 
@@ -241,18 +246,21 @@ Block assembler priority is unchanged:
 Normal `get_block_template` mining, not a hand-authored proposal block, is the
 required regression for recovered dependent transactions.
 
-## 10. Failure domains at P3
+## 10. Failure domains at P4
 
 Typed transaction, backpressure and stale outcomes do not stop the service.
 Worker panics are contained by worker supervision, and conflict-history
 saturation terminalizes only that history owner.
 
-One declared migration boundary remains: `PrePool::mutate_required`,
-poisoned-mutex recovery, `recovery_lock` and the service-wide authoritative
-failure latch are P4 compatibility debt. P4 replaces them with retained chain
-ownership plus the designed `DefectDomain` rebuild/generation swap. The current
-critical effect region is isolated, while P4 completes the constant-size
-`GenerationReset` fallback for oversized chain/admin detail.
+The former service-wide authoritative failure latch and poisoned-state reuse
+are deleted. One `DefectDomain` owns a prebuilt empty kernel generation, one
+serialized disposal/replenishment permit, a reset counter and an exponential
+Remote cooling gate. The caller still holding TxPool write authority replaces
+the accepted PoolMap with the target chain snapshot before either guard opens;
+Local, Proposal, chain, query and assembler paths remain live. Reorg capacity
+overflow uses the same constant-size `GenerationReset` settlement and gives
+the empty trusted generation to detached recovery instead of waiting behind
+attacker-filled optional ingress.
 
 No hostile or legal capacity input may be routed to those structural paths.
 Any newly discovered reachable trigger is a phase blocker and must be fixed at
@@ -314,7 +322,7 @@ DAO and hardfork ingress outside `test/src/specs/tx_pool`.
 | P1 / C3 | Complete (`1d9e0cf5b`) | concrete seven-state kernel cut over; old coordinator/runtime/conflict owner deleted; production Rust is 18,957 raw lines versus C2's 24,236 (−5,279, tests and benchmark excluded); test Rust is reported separately at 12,745 versus 21,650 and benchmark remains 1,422; 204/204 internal nextest, zero-warning all-target clippy and all document gates are green; all 18 targeted process integrations passed through `make integration`, including normal-mining reorg, RBF status/history, relay, orphan, collision and dependency-order boundaries |
 | P2 / C4 | Complete | immutable accepted `PoolMutationPlan`, full-hash primary index, causal-only graph, role-aware resolution and selected-set SCC ordering cut over; nested undo/journal rollback/cell-ref escape deleted; internal instrumentation also uses Plan/Apply while permissive child-first construction is test-only; tx-pool production Rust is 18,757 lines (−200 from C3), test Rust is separately 13,051 and benchmark remains 1,422; 209/209 internal-feature nextest, production/internal clippy, all document gates and 16 targeted process integrations pass |
 | P3 / C5 | Complete | concrete static `EffectJournal`; generic outbox/reservation IDs and credit-across-lock paths deleted; Remote/ordinary/critical region lattice, exact queued+active charge, total Apply+append, publisher cursor restart, one bounded callback circuit and allocation-free relay retry/timeout isolation; tx-pool production Rust is 18,751 raw lines (−6 from C4), tests are separately 12,885 and benchmark remains 1,422; 210/210 internal-feature nextest, two clippy profiles, all document gates and 12 targeted process integrations pass |
-| P4 / C6 | Pending | `RecoveryRetained`, v2 persistence, `DefectDomain`, exact assembler generation and deletion of `recovery_lock` |
+| P4 / C6 | Correctness checkpoint; not phase-complete | charged parent-first `RecoveryRetained`, including bounded accepted descendants of detached producers; immutable bounded v2 accepted+recovery persistence; immediate reset/final full assembler sequencing with stale-uncle cleanup; `recovery_lock`, handler payload ownership, recovery cascade and service fail-stop deleted; 224/224 internal-feature nextest, zero-warning tx-pool/sync clippy, document gates and the 13-spec P4 integration batch pass. Whole-architecture review found two explicit blockers: production Rust is 20,129 lines (+1,378 from C5; tests 13,608 and benchmark 1,422 are separate), and expected over-bound/capacity reorg fallback still destroys population under authority locks instead of using the DefectDomain's sealed lock-outside disposal primitive. C6 is a recoverable correctness checkpoint only; P5 must remove both blockers before release acceptance. |
 | P5 / C7 | Pending | final correctness, static, source-size and review acceptance |
 | P6 / C8 | Pending | complete 149-spec process acceptance and classification |
 | P7 / C9 | Deferred | controlled C1/develop/final A/B performance acceptance |

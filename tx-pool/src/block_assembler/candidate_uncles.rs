@@ -100,6 +100,13 @@ impl CandidateUncles {
         self.map.values().flat_map(HashSet::iter)
     }
 
+    /// Consume the bounded container into compact candidate values. Reorg
+    /// phase handoff uses this to release transaction-bearing detached blocks
+    /// before retained recovery awaits.
+    pub(crate) fn into_values(self) -> Vec<UncleBlockView> {
+        self.map.into_values().flatten().collect()
+    }
+
     /// Removes uncles from the container by specified uncle's number
     pub fn remove_by_number(&mut self, uncle: &UncleBlockView) -> bool {
         let number: BlockNumber = uncle.header().number();

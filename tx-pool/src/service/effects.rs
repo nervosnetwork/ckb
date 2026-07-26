@@ -165,8 +165,8 @@ pub(crate) enum EffectClass {
     /// Local, proposal and bounded maintenance work may borrow unused Remote
     /// capacity and the separately provisioned trusted headroom.
     Trusted,
-    /// Compatibility lane for the P3->P4 chain cutover. P4 replaces detailed
-    /// population effects with the latest generation authority register.
+    /// Chain/admin headroom. When this detailed region is saturated, chain
+    /// Apply uses the capacity-independent latest-generation reset register.
     Critical,
 }
 
@@ -214,6 +214,9 @@ impl TxPoolEffect {
                     tx_hash: compact_packed(&tx_hash),
                 })
             }
+            Self::Relay(TxVerificationResult::GenerationReset) => {
+                Self::Relay(TxVerificationResult::GenerationReset)
+            }
             Self::Relay(TxVerificationResult::UnknownParents { peer, parents }) => {
                 Self::Relay(TxVerificationResult::UnknownParents {
                     peer,
@@ -256,9 +259,11 @@ impl TxPoolEffect {
                 EFFECT_ENVELOPE_BYTES
                     .saturating_add(parents.len().saturating_mul(UNKNOWN_PARENT_HASH_BYTES))
             }
-            Self::Relay(TxVerificationResult::Ok { .. } | TxVerificationResult::Reject { .. }) => {
-                EFFECT_ENVELOPE_BYTES
-            }
+            Self::Relay(
+                TxVerificationResult::Ok { .. }
+                | TxVerificationResult::Reject { .. }
+                | TxVerificationResult::GenerationReset,
+            ) => EFFECT_ENVELOPE_BYTES,
             Self::BanPeer { reason, .. } => EFFECT_ENVELOPE_BYTES.saturating_add(reason.len()),
             Self::RecentReject { serialized, .. } => {
                 EFFECT_ENVELOPE_BYTES.saturating_add(serialized.len())
@@ -269,27 +274,56 @@ impl TxPoolEffect {
 
 pub(crate) struct EffectBatch {
     effects: Vec<TxPoolEffect>,
+    /// A generation reset is a replaceable authority record, not an ordinary
+    /// FIFO resident. Keeping the marker separate lets a saturated journal
+    /// linearize it without borrowing or waiting for any batch capacity.
+    generation_reset: bool,
     next: AtomicUsize,
     charge_bytes: usize,
 }
 
 impl EffectBatch {
     pub(crate) fn new(effects: Vec<TxPoolEffect>) -> Option<Self> {
-        if effects.is_empty() {
-            return None;
-        }
+        let mut generation_reset = false;
         let effects: Vec<_> = effects
             .into_iter()
-            .map(TxPoolEffect::into_compact)
+            .filter_map(|effect| {
+                if matches!(
+                    effect,
+                    TxPoolEffect::Relay(TxVerificationResult::GenerationReset)
+                ) {
+                    generation_reset = true;
+                    None
+                } else {
+                    Some(effect.into_compact())
+                }
+            })
             .collect();
+        if effects.is_empty() && !generation_reset {
+            return None;
+        }
         let charge_bytes = effects.iter().fold(0usize, |total, effect| {
             total.saturating_add(effect.charge_bytes())
         });
         Some(Self {
             effects,
+            generation_reset,
             next: AtomicUsize::new(0),
             charge_bytes,
         })
+    }
+
+    fn reset_record() -> Self {
+        Self {
+            effects: vec![TxPoolEffect::Relay(TxVerificationResult::GenerationReset)],
+            generation_reset: false,
+            next: AtomicUsize::new(0),
+            charge_bytes: 0,
+        }
+    }
+
+    fn has_ordinary_effects(&self) -> bool {
+        !self.effects.is_empty()
     }
 
     pub(crate) fn charge_bytes(&self) -> usize {
@@ -350,13 +384,15 @@ impl EffectUsage {
 
 struct EffectEnvelope {
     sequence: u128,
-    class: EffectClass,
+    /// `None` is the statically owned latest-generation reset slot.
+    class: Option<EffectClass>,
     batch: Arc<EffectBatch>,
 }
 
 struct JournalState {
     queued: VecDeque<EffectEnvelope>,
     active: Option<EffectEnvelope>,
+    latest_generation_reset: Option<EffectEnvelope>,
     /// Cumulative region lattice: Remote batches charge all three slots,
     /// Trusted batches charge ordinary+total, and Critical charges total.
     usage: [EffectUsage; EffectClass::REGION_COUNT],
@@ -377,16 +413,37 @@ impl JournalState {
             .all(|usage| usage.release(bytes))
     }
 
-    fn push(&mut self, class: EffectClass, batch: EffectBatch) {
+    fn allocate_sequence(&mut self) -> u128 {
         let sequence = self.next_sequence;
         self.next_sequence = self
             .next_sequence
             .checked_add(1)
             .expect("u128 effect sequence exhausted");
+        sequence
+    }
+
+    fn push_generation_reset(&mut self, reset_batch: &Arc<EffectBatch>) {
+        let sequence = self.allocate_sequence();
+        self.latest_generation_reset = Some(EffectEnvelope {
+            sequence,
+            class: None,
+            batch: Arc::clone(reset_batch),
+        });
+    }
+
+    fn push(&mut self, class: EffectClass, mut batch: EffectBatch, reset_batch: &Arc<EffectBatch>) {
+        if batch.generation_reset {
+            self.push_generation_reset(reset_batch);
+            batch.generation_reset = false;
+        }
+        if !batch.has_ordinary_effects() {
+            return;
+        }
+        let sequence = self.allocate_sequence();
         self.charge(class, batch.charge_bytes);
         self.queued.push_back(EffectEnvelope {
             sequence,
-            class,
+            class: Some(class),
             batch: Arc::new(batch),
         });
     }
@@ -396,8 +453,10 @@ impl JournalState {
     fn recompute_usage(&mut self) {
         let mut usage = [EffectUsage::default(); EffectClass::REGION_COUNT];
         for envelope in self.active.iter().chain(self.queued.iter()) {
-            for region in &mut usage[envelope.class.region()..] {
-                region.charge(envelope.batch.charge_bytes);
+            if let Some(class) = envelope.class {
+                for region in &mut usage[class.region()..] {
+                    region.charge(envelope.batch.charge_bytes);
+                }
             }
         }
         self.usage = usage;
@@ -423,6 +482,10 @@ pub(crate) struct EffectJournal {
     publisher_running: AtomicBool,
     callback_circuit_open: AtomicBool,
     callback_sender: std::sync::mpsc::SyncSender<CallbackJob>,
+    /// Prebuilt, allocation-free emergency authority record. Installing a
+    /// reset under a chain/defect lock only clones this Arc into the one
+    /// replaceable slot.
+    generation_reset_batch: Arc<EffectBatch>,
 }
 
 impl EffectJournal {
@@ -467,6 +530,7 @@ impl EffectJournal {
             state: Mutex::new(JournalState {
                 queued,
                 active: None,
+                latest_generation_reset: None,
                 usage: [EffectUsage::default(); EffectClass::REGION_COUNT],
                 next_sequence: 1,
                 closed: false,
@@ -481,6 +545,7 @@ impl EffectJournal {
             publisher_running: AtomicBool::new(false),
             callback_circuit_open: AtomicBool::new(false),
             callback_sender,
+            generation_reset_batch: Arc::new(EffectBatch::reset_record()),
         })
     }
 
@@ -538,18 +603,18 @@ impl EffectJournal {
         };
         let bytes = batch.charge_bytes;
         let max_bytes = self.class_limit(class).bytes;
-        if bytes > max_bytes {
+        if batch.has_ordinary_effects() && bytes > max_bytes {
             return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
-        if !self.fits(&state, class, bytes) {
+        if batch.has_ordinary_effects() && !self.fits(&state, class, bytes) {
             return Err(EffectJournalError::Full);
         }
         let result = apply();
-        state.push(class, batch);
+        state.push(class, batch, &self.generation_reset_batch);
         drop(state);
         self.ready.notify_one();
         Ok(result)
@@ -588,7 +653,55 @@ impl EffectJournal {
             );
             debug_assert!(bytes <= max_bytes);
         }
-        state.push(class, batch);
+        state.push(class, batch, &self.generation_reset_batch);
+        drop(state);
+        self.ready.notify_one();
+        Ok(result)
+    }
+
+    /// Apply a chain-authoritative transition without waiting behind detailed
+    /// publication. If the critical FIFO can hold the proven batch, `apply`
+    /// receives `true` and its detail is appended normally. Otherwise it
+    /// receives `false`, the state transition still linearizes, and one
+    /// prebuilt replaceable GenerationReset is installed instead.
+    ///
+    /// This is intentionally narrower than `try_apply_bounded`: ordinary
+    /// admission may backpressure, while chain convergence may discard
+    /// observational detail but cannot wait behind callbacks or relay retry.
+    pub(crate) fn try_apply_authoritative<T>(
+        &self,
+        max_detail_bytes: usize,
+        apply: impl FnOnce(bool) -> (T, Option<EffectBatch>),
+    ) -> Result<T, EffectJournalError> {
+        let class = EffectClass::Critical;
+        let class_max = self.class_limit(class).bytes;
+        if max_detail_bytes > class_max {
+            return Err(EffectJournalError::BatchTooLarge {
+                bytes: max_detail_bytes,
+                max_bytes: class_max,
+            });
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.closed {
+            return Err(EffectJournalError::Closed);
+        }
+        let publish_detail = self.fits(&state, class, max_detail_bytes);
+        let (result, batch) = apply(publish_detail);
+        if publish_detail {
+            if let Some(batch) = batch {
+                let bytes = batch.charge_bytes;
+                if bytes > max_detail_bytes {
+                    error!(
+                        "authoritative effect plan exceeded its proven bound: actual {bytes}, bound {max_detail_bytes}"
+                    );
+                    debug_assert!(bytes <= max_detail_bytes);
+                }
+                state.push(class, batch, &self.generation_reset_batch);
+            }
+        } else {
+            debug_assert!(batch.is_none(), "reset fallback must not retain detail");
+            state.push_generation_reset(&self.generation_reset_batch);
+        }
         drop(state);
         self.ready.notify_one();
         Ok(result)
@@ -601,24 +714,51 @@ impl EffectJournal {
     ) -> Result<(), EffectJournalError> {
         let bytes = batch.charge_bytes;
         let max_bytes = self.class_limit(class).bytes;
-        if bytes > max_bytes {
+        if batch.has_ordinary_effects() && bytes > max_bytes {
             return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
         let mut batch = Some(batch);
         loop {
-            self.wait_capacity(bytes, class).await?;
+            if batch
+                .as_ref()
+                .is_some_and(EffectBatch::has_ordinary_effects)
+            {
+                self.wait_capacity(bytes, class).await?;
+            }
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.closed {
                 return Err(EffectJournalError::Closed);
             }
-            if !self.fits(&state, class, bytes) {
+            if batch
+                .as_ref()
+                .is_some_and(EffectBatch::has_ordinary_effects)
+                && !self.fits(&state, class, bytes)
+            {
                 continue;
             }
-            state.push(class, batch.take().expect("batch appended once"));
+            state.push(
+                class,
+                batch.take().expect("batch appended once"),
+                &self.generation_reset_batch,
+            );
             drop(state);
             self.ready.notify_one();
             return Ok(());
         }
+    }
+
+    /// Install the one replaceable, statically resident relayer reset record.
+    /// It participates in the journal sequence but never waits for or borrows
+    /// FIFO capacity. Repeated resets coalesce to the latest authority.
+    pub(crate) fn install_generation_reset(&self) -> Result<(), EffectJournalError> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.closed {
+            return Err(EffectJournalError::Closed);
+        }
+        state.push_generation_reset(&self.generation_reset_batch);
+        drop(state);
+        self.ready.notify_one();
+        Ok(())
     }
 
     #[cfg(test)]
@@ -656,7 +796,18 @@ impl EffectJournal {
     fn checkout(&self) -> Option<(u128, Arc<EffectBatch>)> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.active.is_none() {
-            state.active = state.queued.pop_front();
+            let queued_sequence = state.queued.front().map(|envelope| envelope.sequence);
+            let reset_sequence = state
+                .latest_generation_reset
+                .as_ref()
+                .map(|envelope| envelope.sequence);
+            state.active = match (queued_sequence, reset_sequence) {
+                (Some(queued), Some(reset)) if reset < queued => {
+                    state.latest_generation_reset.take()
+                }
+                (None, Some(_)) => state.latest_generation_reset.take(),
+                _ => state.queued.pop_front(),
+            };
         }
         state
             .active
@@ -680,7 +831,9 @@ impl EffectJournal {
         let bytes = active.batch.charge_bytes;
         let class = active.class;
         state.active.take();
-        if !state.release(class, bytes) {
+        if let Some(class) = class
+            && !state.release(class, bytes)
+        {
             error!("effect journal accounting drift detected; rebuilding from resident batches");
             state.recompute_usage();
             drop(state);
@@ -693,7 +846,10 @@ impl EffectJournal {
 
     fn closed_and_empty(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.closed && state.active.is_none() && state.queued.is_empty()
+        state.closed
+            && state.active.is_none()
+            && state.queued.is_empty()
+            && state.latest_generation_reset.is_none()
     }
 }
 
