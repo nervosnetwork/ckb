@@ -33,13 +33,12 @@
     {"file": "tx-pool/src/service.rs", "module": "tests"},
     {"file": "tx-pool/src/service/builder.rs", "module": "shutdown_tests", "path": "tests/builder_shutdown.rs"},
     {"file": "tx-pool/src/service/effects.rs", "module": "tests", "path": "tests/effects.rs"},
-    {"file": "tx-pool/src/service/workers.rs", "module": "tests", "path": "tests/workers.rs"},
     {"file": "tx-pool/src/util.rs", "module": "block_offload_tests", "path": "tests/block_offload.rs"},
     {"file": "tx-pool/src/worker.rs", "module": "tests", "path": "tests/worker.rs"}
   ],
   "cfg_test_occurrences": {
     "tx-pool/src/benchmark.rs": 1,
-    "tx-pool/src/block_assembler/candidate_uncles.rs": 3,
+    "tx-pool/src/block_assembler/candidate_uncles.rs": 1,
     "tx-pool/src/block_assembler/mod.rs": 3,
     "tx-pool/src/block_assembler/notify.rs": 1,
     "tx-pool/src/callback.rs": 1,
@@ -53,25 +52,17 @@
     "tx-pool/src/component/recent_reject.rs": 1,
     "tx-pool/src/component/tx_selector.rs": 1,
     "tx-pool/src/persisted.rs": 1,
-    "tx-pool/src/pool.rs": 6,
     "tx-pool/src/process/post_process.rs": 1,
     "tx-pool/src/process/reorg.rs": 2,
-    "tx-pool/src/process/submit/rbf_commit.rs": 2,
+    "tx-pool/src/process/submit/rbf_commit.rs": 1,
     "tx-pool/src/resolved_tx.rs": 1,
     "tx-pool/src/service.rs": 1,
     "tx-pool/src/service/builder.rs": 1,
     "tx-pool/src/service/effects.rs": 2,
-    "tx-pool/src/service/workers.rs": 1,
     "tx-pool/src/util.rs": 1,
     "tx-pool/src/worker.rs": 1
   },
   "seams": [
-    {
-      "file": "tx-pool/src/block_assembler/candidate_uncles.rs",
-      "symbols": ["MAX_CANDIDATE_UNCLES", "MAX_PER_HEIGHT"],
-      "kind": "test-scale constants",
-      "behavior_ids": ["TP-TEMPLATE-001", "TP-BUDGET-001"]
-    },
     {
       "file": "tx-pool/src/block_assembler/mod.rs",
       "symbols": ["BlockAssembler::notify_count"],
@@ -83,18 +74,6 @@
       "symbols": ["BlockAssembler::notify_count"],
       "kind": "external notification observation hook",
       "behavior_ids": ["TP-TEMPLATE-001", "TP-EFFECT-001"]
-    },
-    {
-      "file": "tx-pool/src/pool.rs",
-      "symbols": ["TxPool::fail_next_status_transition", "TxPool::fail_next_pool_commit_panic"],
-      "kind": "authoritative pool fault state and reorg transition fault hook",
-      "behavior_ids": ["TP-COMMIT-001", "TP-REORG-001"]
-    },
-    {
-      "file": "tx-pool/src/process/submit/rbf_commit.rs",
-      "symbols": ["TxPool::fail_next_pool_commit_panic"],
-      "kind": "authoritative pool commit panic hook",
-      "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001"]
     }
   ]
 }

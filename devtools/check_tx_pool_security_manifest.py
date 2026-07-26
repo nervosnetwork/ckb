@@ -24,7 +24,6 @@ REQUIRED_INVARIANTS = {f"I{number}" for number in range(1, 13)}
 REQUIRED_ROOT_FAMILIES = {f"F{number}" for number in range(1, 9)}
 REQUIRED_TARGET_INVARIANTS = {f"T{number}" for number in range(1, 14)}
 REQUIRED_PREPOOL_STATES = {
-    "RecoveryRetained",
     "ResolveQueued",
     "ResolveLeased",
     "Wait",
@@ -32,19 +31,22 @@ REQUIRED_PREPOOL_STATES = {
     "VerifyLeased",
     "Ready",
 }
-REQUIRED_PLAN_OUTCOMES = {"Apply", "Reject", "Backpressure", "Stale", "Repair"}
+REQUIRED_PLAN_OUTCOMES = {"Apply", "Reject", "Backpressure", "Stale", "Duplicate"}
 REQUIRED_READY_KEY = [
-    "source_class_Remote_lt_Proposal",
+    "source_class_Remote_lt_Proposal_lt_Recovery",
     "fee_rate_u128_cross_product",
     "absolute_fee",
     "earlier_arrival",
     "smaller_full_hash",
     "entry_version",
+    "transaction_size_total_tiebreaker",
 ]
 REQUIRED_LOCK_ORDER = [
     "optional_serial_or_work_or_plan_permit",
+    "effect_capacity_hint_released",
     "TxPool_read_or_write",
     "PrePoolKernel",
+    "EffectJournal",
 ]
 LEDGER_ROW = re.compile(
     r"^\|\s*(?P<id>\d+)\s*\|.*\|\s*(?P<invariants>"
@@ -112,7 +114,7 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     if contract.get("authorities") != ["TxPool", "PrePoolKernel"]:
         errors.append("architecture contract must declare exactly TxPool then PrePoolKernel")
     if _string_set(contract.get("prepool_states")) != REQUIRED_PREPOOL_STATES:
-        errors.append("architecture contract prepool_states differ from the frozen seven states")
+        errors.append("architecture contract prepool_states differ from the frozen six states")
     if _string_set(contract.get("plan_outcomes")) != REQUIRED_PLAN_OUTCOMES:
         errors.append("architecture contract PlanOutcome set is incomplete")
     if contract.get("ready_key") != REQUIRED_READY_KEY:

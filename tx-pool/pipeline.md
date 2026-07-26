@@ -1,333 +1,310 @@
-# Tx-Pool Pipeline — Current Implementation and Migration Record
+# Tx-Pool Pipeline
 
-This document maps the normative design in
-[`ARCHITECTURE.md`](ARCHITECTURE.md) to production code. The independent design
-review is [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), staged gates are in
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), and executable review
-evidence is generated in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
+This is the implementation map for the architecture frozen in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). It explains the ordinary data flow and
+where reviewers should expect each proof. Current execution status and
+checkpoint history live in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 
-Status: **P4/C6 is committed and P5 architecture convergence is in progress;
-production acceptance is intentionally withheld**. The old
-`PipelineCoordinator`, `PipelineRuntime` and `ConflictCache` have been deleted.
-PoolCommitJournal, nested restoration and persistent cell-ref ancestry are now
-also deleted. P3-P4 migration debt is named explicitly below; it must be removed by the
-corresponding phase rather than copied into the new kernel.
+## 1. Scope
 
-## 1. Authority and ownership
+The pipeline applies to Remote, Proposal and detached-chain Recovery traffic.
+Local RPC submission intentionally runs the direct synchronous
+resolve/verify/commit path and returns its result. Both paths converge at the
+same accepted-pool immutable Plan/total Apply boundary.
 
-There are exactly two executable transaction owners:
-
-| Authority | Owns | Does not own |
-|---|---|---|
-| `TxPool` | accepted `Pending`, `Gap` and `Proposed` entries | unaccepted work, historical conflicts, worker leases |
-| `PrePoolKernel` | every admitted remote/proposal transaction before accepted-pool handoff | local submissions, accepted entries, effects |
-
-`PrePoolKernel.entries: HashMap<Byte32, Entry>` is the sole pre-pool payload
-map. Short-ID, owner, parent, Wait, deadline, work and Ready structures contain
-only identities/versioned keys and are synchronously derived from that map.
-Workers borrow immutable `Arc` payloads; a borrow is charged active work, not a
-third owner.
-
-Local submission remains synchronous by design. It borrows bounded service
-resources, resolves/verifies directly and returns the authoritative result. If
-the same hash has a remote/proposal pre-pool owner, settlement occurs under the
-universal `TxPool -> PrePoolKernel` order.
-
-## 2. Closed state model
-
-The kernel has exactly seven locations:
+There are two payload authorities:
 
 ```text
-RecoveryRetained
-ResolveQueued -> ResolveLeased
+PrePoolKernel  --successful commit handoff-->  TxPool
+```
+
+No queue, worker, conflict cache, effect batch, reorg handler or block template
+owns an executable transaction.
+
+## 2. Ordinary remote/proposal flow
+
+```text
+controller message
+  -> non-contextual verification + cross-authority duplicate fence
+  -> PrePoolKernel admission and continuous budget charge
+  -> ResolveQueued(Ingress or Ordered)
+  -> versioned ResolveLeased
+     -> Wait(Missing/Conflict), or
+     -> VerifyQueued(resolved payload)
+  -> versioned VerifyLeased
+  -> script verification + fee gate
+  -> Ready(verified payload, inputs, total rank)
+  -> single commit driver
+  -> accepted Plan
+  -> kernel handoff + total PoolMap Apply + stable effect append
+  -> callback/relay/template work outside authority locks
+```
+
+Remote and Proposal work may resolve/verify concurrently. Accepted commits are
+serialized because `PoolMap` mutation and final RBF/ancestry status are one
+authoritative order. Serialization begins only at Ready; it does not remove the
+pipeline's expensive verification parallelism.
+
+## 3. Local direct flow
+
+```text
+local RPC
+  -> non-contextual verification
+  -> resolve against snapshot/pool overlay
+  -> script verification (cache keyed by witness hash)
+  -> accepted Plan
+  -> settle matching pre-pool owner
+  -> total PoolMap Apply + stable effect append
+  -> return result and publish effects
+```
+
+Local does not queue and does not create a speculative competing owner. A local
+duplicate can rebroadcast an already accepted transaction; a matching retained
+Remote owner is settled under the accepted write guard so it cannot later
+commit twice.
+
+## 4. PrePoolKernel
+
+Implementation: `src/component/pre_pool/`.
+
+### Primary entry
+
+The primary map is keyed by full transaction hash. An entry contains compact
+raw payload, source, one typed state, non-reused `u128` version, arrival,
+deadline, charge and canonical dependency keys.
+
+The six locations are:
+
+```text
+ResolveQueued
+ResolveLeased
 Wait(Missing | Conflict)
-VerifyQueued  -> VerifyLeased
+VerifyQueued
+VerifyLeased
 Ready
 ```
 
-`RecoveryRetained` is frozen in the model and is connected to detached replay
-in P4. It is not emulated with a temporary queue in P1.
+Recovery is a source. Missing and Conflict are Wait reasons. They are not extra
+locations.
 
-There is no `Committing`, `Invalidated`, `RaceLost`, victim-hold or inferred
-active state. Final commit uses an immutable `CommitTicket` that names the
-current Ready rank and version. Dependency loss moves any queued, leased,
-verified or Ready entry directly to `Wait(Missing)`, making every old lease
-stale in the same kernel transition.
+### Projections
 
-## 3. Identity and stale-work rejection
+`FairQueue`, `by_short_id`, `by_peer`, `by_parent`, `waiters`, `deadlines`,
+`ready`, `ready_by_input`, usage and active-work maps are derived in the same
+mutex section as the primary. Tests recompute them independently.
 
-- Ownership keys are full raw transaction hashes.
-- Proposal short IDs are collision-detecting indexes, never owners.
-- One checked global `u128` clock issues a non-reused version for every live
-  transition and re-admission.
-- Resolve, verify and commit completions carry the version they checked out.
-  Missing hash, different version, wrong location or different Ready rank is a
-  typed stale result and cannot mutate the current owner.
-- Verification cache access uses `TxVerificationCacheKey`, which is based on
-  the exact witness hash. Reorg recovery never substitutes raw hash identity.
+### Single-entry transitions
 
-Proposal promotion changes scheduling/accounting attribution without trusting
-the ordinal representation of peer IDs. A different trusted witness variant
-replaces the payload at the authoritative handoff and invalidates stale work.
+Hot transitions validate the final entry and exact usage/active delta before
+moving the primary. They use stack-sized plans; they do not allocate a generic
+cohort snapshot.
 
-## 4. Continuous resource accounting
+### Cohort transitions
 
-Every resident entry is charged by:
+Commit settlement, parent loss, bounded recovery and wait cascades can update
+multiple primaries. `plan_cohort` validates one final primary per hash, short-ID
+uniqueness, fan-out and exact final counters. `apply_cohort` moves entries and
+projections; it does not clone old entries or roll back.
 
-```text
-current retained payload bytes
-+ fixed primary/index overhead
-+ canonical exact DependencyKey storage
-+ conservative derived-index and future Wait reservation
-```
+### Leases
 
-The kernel maintains checked count/byte partitions for total, remote,
-per-peer and historical-conflict residency. Active resolve/verify borrows have
-global and per-owner limits. Dependency fanout, dependencies per entry, Ready
-inputs and candidates per input are independently capped.
+Resolve/verify leases carry full hash, exact version and immutable `Arc`
+payload. Checkout advances the version and active counters. Completion mutates
+only if hash/version/location still match. Clear, promotion, parent loss or
+re-admission makes old work stale without reusing an identity.
 
-A remote Conflict owner remains charged to both remote/per-peer and conflict
-partitions and retains its ordinary remote deadline. Wait reserves its exact
-waiter/epoch/dirty-cursor footprint before invalidation; moving Wait back to a
-resolve queue cannot require new capacity. Witness-variant replacement charges
-the replacement payload, never the displaced witness size.
+## 5. Resolve, wait and verification
 
-Admission and every recharge compute the prospective charge before replacing
-the primary entry. A capacity rejection leaves primary state and all derived
-views unchanged. Conflict history is optional armor: when its partition is
-full, the rejected owner is terminalized rather than panicking, evicting
-unrelated executable work or escaping to service fail-stop.
+Implementation:
 
-The limits currently derive from `TxPoolConfig`, consensus block size and the
-existing bounded pool-mutation cohort. P5/P7 must validate the memory equation
-and allocator/RSS consequences; timing benchmarks remain deferred to P7.
+- `src/resolve_mgr.rs`
+- `src/verify_mgr.rs`
+- `src/service/workers.rs`
+- `src/process/classify.rs`
+- `src/process/submit/`
 
-## 5. Scheduling and readiness
+Resolve lanes distinguish ordinary ingress from parent-first ordered work.
+Unknown/dead dependencies are converted into exact `DependencyKey` sets.
+`Wait` keeps one observed availability epoch per key; dirty keys are drained in
+bounded maintenance slices. A missed wake notification cannot erase the level.
 
-`FairQueue` keeps one runnable head per source owner. A capped owner contributes
-no head, so checkout is bounded by owner heads rather than scanning an
-attacker-controlled prefix. Successful service advances that owner's turn;
-initial service cannot repeatedly favor the first peer. Proposal work retains
-trusted priority, while remote peers receive round-robin opportunities subject
-to active limits.
+Verification uses the declared Remote cycle cap where applicable and checks
+the exact snapshot generation. The cache key is
+`TxVerificationCacheKey::from_transaction`, i.e. witness hash. A resolved
+payload is compacted so a small retained transaction cannot pin large block or
+cell backing allocations outside its charge.
 
-Readiness notifications are level-triggered hints. After every kernel mutation
-the shell recomputes capability-aware readiness from authoritative heads and
-notifies matching workers. Consuming or losing a notification does not remove
-work. Small-cycle workers cannot consume the sole wake for ineligible large
-work. The commit consumer reads the authoritative Ready level before sleeping,
-so a panic that consumed a Notify but retained the owner retries after bounded
-backoff without waiting for an unrelated mutation.
+Worker panic boundaries surround untrusted job computation. They settle the
+owned job instead of unwinding authority state. A manager/guard panic that
+means authority supervision itself failed requests service shutdown and makes
+persistence ineligible; it is not repaired by spawning a new model generation.
 
-Verify ordering uses the configured policy. Every total order includes source,
-fee policy, arrival, full hash, version and the remaining schedule fields, so
-two distinct keys never compare equal accidentally.
+## 6. Ready and commit
 
-## 6. Dependency and historical-conflict liveness
+Implementation:
 
-`DependencyKey` distinguishes an exact cell outpoint from a header hash.
-Resolver and verifier `Unknown(outpoint)` results register that exact outpoint;
-they do not replace the witness with every declared parent hash. Successful
-dep-group expansion adds every discovered member to the entry's canonical
-`DependencyKey` set. Input, cell-dep, header and expanded keys survive every
-payload/state transition; `by_parent` is derived from those keys rather than
-being a second, less precise causal fact.
+- `src/component/pre_pool/commit.rs`
+- `src/process/submit/rbf_commit.rs`
+- `src/component/pool_map.rs`
 
-Both missing dependencies and rejected conflict history use `Wait`:
+Ready order is source priority, exact fee rate, absolute fee, earlier arrival,
+smaller full hash, version and size. One commit driver takes an exact
+`CommitTicket`. Later stronger arrivals remain Ready for the next iteration and
+do not invalidate the selected ticket.
 
-1. the entry stores the exact key and the key's observed availability epoch;
-2. `waiters` is a versioned reverse projection;
-3. an availability change advances the key epoch and enqueues one dirty-key
-   cursor;
-4. bounded maintenance wakes only entries that observed an older epoch;
-5. a concurrent newer change records a pending epoch and starts one follow-up
-   pass after the current cursor finishes;
-6. waking always re-resolves against current `TxPool`/chain state.
+Under the accepted write guard, submission:
 
-This is level-triggered. Re-waiting at the current epoch does not immediately
-wake again, preventing missing-parent and dep-group resolution livelocks.
-Epoch/dirty records exist only while a waiter or an in-progress cursor exists;
-availability for a key with no waiter retains no permanent history. A later
-parent loss unions with an existing Wait set, so sequential expanded-parent
-loss cannot erase the earlier exact dependency.
-Ready deadlines are filtered before the maintenance slice limit so skipped
-Ready entries cannot starve later eligible expirations.
+1. computes current RBF closure and all policy checks;
+2. calls `PoolMap::plan_mutation` to simulate removals/capacity and post totals;
+3. settles the matching Ready owner and consumers of planned-unavailable
+   parents in `PrePoolKernel` while accepted membership is unchanged;
+4. calls `PoolMap::apply_mutation`, which only moves prevalidated entries;
+5. appends the stable effect batch in the journal's innermost section.
 
-## 7. Verification and Ready commit
+Every legal rejection occurs in steps 1–2. Steps 3–5 contain only continuity
+and construction assertions. There is no nested undo or failed-winner restore.
 
-Resolution reads accepted-pool/chain state concurrently and publishes only a
-version-checked immutable `ResolvedTx`. Verification performs contextual fee,
-cycle, conflict and snapshot checks, then publishes a compact verified payload
-and exact input set.
+## 7. RBF and conflict history
 
-`ReadyKey` is the sole provisional preference order. It compares trusted
-source, fee rate without division, stable arrival/full-hash ties and version.
-`ready_by_input` is a derived index. Only Ready entries participate in pre-pool
-conflict preference; an unverified high-fee transaction cannot displace or pin
-verified work.
+RBF closure includes exact input conflicts and required descendants and is
+bounded before traversal by the full input×candidate product. The replacement
+must pass both pool-level RBF policy and pre-pool size-based fee gates.
 
-One async commit serial chooses the best current Ready ticket. Under the
-existing `TxPool` write guard, final RBF, role-aware liveness, status, causal
-ancestry and serialized/resident capacity decisions compile into one immutable
-`PoolMutationPlan`. A sparse overlay reproduces the exact Pending -> Gap ->
-Proposed eviction policy and re-ranks affected ancestors after each bounded
-closure without cloning PoolMap. The versioned kernel handoff completes while
-accepted membership is unchanged; PoolMap Apply then consists only of
-prevalidated moves and assertions. There is no ordinary rollback path or
-persistent committing state.
+An unsuccessful verified conflict may be retained in `Wait(Conflict)` as
+optional bounded history. It remains charged and owns its original immutable
+source attribution. If history capacity is unavailable it is terminalized;
+optional observability cannot block a valid winner. Availability of every
+conflict key is rechecked before it wakes through ordinary resolution.
 
-Accepted identity is a unique full-hash index plus a collision-detecting
-proposal slot. The persistent graph contains only causal accepted producers of
-inputs and expanded deps. Cell-dep reader -> spender is conditional consensus
-ordering: it is added only to the already selected template set and
-topologically ordered with stable selection-rank ties. Exact SCCs prevent
-acyclic downstream entries from being misclassified as cycle members; every
-round sheds the weakest member of each cyclic SCC and its causal descendants,
-with a 64-round dense-SCC fallback. A dep-heavy entry that exhausts the
-ordering budget cannot censor an independent zero-dep suffix.
+## 8. Effects
 
-## 8. Cross-authority operations
+Implementation: `src/service/effects.rs`.
 
-The universal order is:
+The journal contains immutable callback, relay, ban and recent-reject effects.
+Capacity is partitioned Remote/Trusted/Critical. Remote cannot consume trusted
+or chain-critical headroom.
 
-```text
-optional bounded permit -> TxPool -> PrePoolKernel
-```
+`wait_capacity` is only a level-triggered hint and holds no reservation. Under
+state locks, `try_apply`/`try_apply_bounded` checks exact/static capacity,
+executes total Apply and appends one sequence. Callbacks, network sends and
+database writes execute later outside state locks.
 
-No kernel guard spans worker computation, external I/O or await. RPC/query,
-administrative remove, clear, chain commit and local/worker handoff use shared
-operations in `service/pipeline_ops.rs` so call sites cannot invent a different
-structure list or reverse lock edge.
+If detailed state-coupled publication cannot fit a proven bound, a prebuilt
+replaceable `GenerationReset` record converges the relayer without an unbounded
+emergency queue. A full relay endpoint retains/coalesces authority rather than
+dropping the only wake.
 
-Administrative removal computes the accepted descendant closure while holding
-`TxPool`, moves every pre-pool consumer of removed parents to exact
-`Wait(Missing)`, removes the accepted closure, then publishes released-input
-availability before the write guard opens.
+## 9. Reorg and administrative flow
 
-Ordinary acceptance follows one paired boundary:
+Implementation:
 
-```text
-capacity hint (owns no state) -> TxPool write -> Pool Plan
-  -> PrePoolKernel handoff/settlement -> EffectJournal exact/static predicate
-  -> total Pool Apply + append -> unlock
-```
+- `src/process/reorg.rs`
+- `src/component/pre_pool/recovery.rs`
+- `src/service/pipeline_ops.rs`
+- `src/persisted.rs`
 
-Every transaction-shaped, policy, conflict, liveness, arithmetic and capacity
-error occurs before either accepted membership or its effects change. An
-impossible Apply unwind exchanges both ephemeral generations at the existing
-TxPool write boundary, emits `GenerationReset`, and cools only Remote ingress;
-it is not reclassified as a transaction rejection or a service stop.
+Reorg runs chain mutation once under the accepted write guard. It combines
+detached transactions with the accepted descendant closure of detached
+producers, sorts one recovery set parent-first and applies one trusted kernel
+plan. Those entries use the ordinary six states and `Recovery` source.
 
-## 9. Effects, chain changes and templates
+If the authoritative recovery closure exceeds the frozen representation bound,
+the accepted/pre-pool ephemeral generation is reset rather than keeping an
+unsafe child suffix. There is no generic phase replay, cross-await recovery
+lock or handler-local retained payload.
 
-Stable external effects are immutable, statically partitioned journal records
-published outside authority locks. P3 deleted `EffectOutbox`, reservation IDs,
-credit-across-lock ownership and journal-triggered service fail-stop. Remote
-cannot consume trusted/critical progress; queued and active batches remain
-exactly charged and publisher replacement resumes the active cursor.
+Clear advances the pipeline epoch and swaps the pre-pool generation while
+holding the accepted guard. Old population is destroyed after the lock.
+Persistence takes the same administrative ordering and saves dependency-ordered
+accepted/recovery-relevant transactions only after supervised workers quiesce.
 
-Reorg reconciliation installs the parent-first detached cohort as charged
-`RecoveryRetained` entries in the same `TxPool -> PrePoolKernel` slice that
-switches the chain snapshot. A dedicated retained handler leases one entry at
-a time without keeping payload ownership; clear invalidates its epoch and save
-copies accepted plus active/retained recovery owners into the v2 envelope.
-There is no cross-await recovery lock or pipeline-specific recovery cascade.
-Attached outputs and released accepted inputs advance the ordinary dependency
-epochs, while sorting and cache lookup retain full/witness identity.
+## 10. Block assembler
 
-Block assembler priority is unchanged:
+Implementation: `src/block_assembler/` and the assembler loop in
+`src/service/builder.rs`.
 
-- `update_full` and reset are mutually exclusive;
-- a full rebuild has priority over optimistic proposal/transaction deltas;
-- skipped optimistic generations remain dirty and are retried;
-- detached candidate uncles conflicting with recovered proposal paths are
-  filtered, and stale `Gap` entries are reconciled to the new proposal window.
+Reset/`update_full` are the full-template authority and serialize together.
+`update_full` has priority. Proposal and transaction changes are optimistic
+level-triggered generations; losing an individual channel edge does not lose
+the dirty level.
 
-Normal `get_block_template` mining, not a hand-authored proposal block, is the
-required regression for recovered dependent transactions.
+After reorg, accepted Gap status is reevaluated against the new proposal
+window. Candidate uncles that would suppress proposal IDs needed by recovered
+transactions are filtered. Production/test limits are identical: 128 total
+candidates and 10 per height.
 
-## 10. Failure domains at P4
+The unified loop supports:
 
-Typed transaction, backpressure and stale outcomes do not stop the service.
-Worker panics are contained by worker supervision, and conflict-history
-saturation terminalizes only that history owner.
+- normal interval: immediate first tick, periodic reset/delta application and
+  miner notification after progress;
+- zero interval: eager delta application, one-second reset retry and no
+  external miner notification;
+- failed/superseded reset: hard barrier retaining ordinary deltas until the
+  latest full rebuild succeeds.
 
-The former service-wide authoritative failure latch and poisoned-state reuse
-are deleted. One `DefectDomain` owns a prebuilt empty kernel generation, one
-serialized disposal/replenishment permit, a reset counter and an exponential
-Remote cooling gate. The caller still holding TxPool write authority replaces
-the accepted PoolMap with the target chain snapshot before either guard opens;
-Local, Proposal, chain, query and assembler paths remain live. Reorg capacity
-overflow uses the same constant-size `GenerationReset` settlement and gives
-the empty trusted generation to detached recovery instead of waiting behind
-attacker-filled optional ingress.
+## 11. Controller and query behavior
 
-No hostile or legal capacity input may be routed to those structural paths.
-Any newly discovered reachable trigger is a phase blocker and must be fixed at
-the authority/Plan boundary, not classified as an ordinary reject or wrapped
-with another rollback layer.
+RPC/query lookup checks accepted and pre-pool ownership under the universal
+accepted→kernel order. Pre-pool locations project to compatibility statuses;
+internal Gap may still appear RPC-pending, so liveness tests use detailed entry
+status where distinction matters.
 
-## 11. Executable review contract
+Proposal filtering treats any accepted or pre-pool owner as known because the
+same locations are searched for compact-block reconstruction. Full hash remains
+authoritative; proposal short ID never aliases a collision into success.
 
-All test code is physically separate from production modules. Test-only seams
-are enumerated in `test-layout-manifest.json`; the independent kernel audit in
-`component/tests/pre_pool_seam.rs` recomputes every projection and resource
-counter without calling production transition repair code.
+`NotifyTxs(Vec<_>)` is a trusted controller input. Element validation and
+pre-pool accounting are bounded; P5/P6 must retain an explicit residual until
+the caller-side vector bound is proven.
 
-The current P2 evidence includes:
-
-- exact seven-state and typed-outcome reference-model tests;
-- full primary-to-projection rebuild after deterministic and randomized public
-  transitions;
-- ABA, short-ID collision, source promotion and witness-cache identity;
-- closed total/remote/per-peer/conflict accounting, replacement-payload charge,
-  fair owner heads and active caps;
-- exact canonical causal keys, sequential expanded-parent loss, pruned
-  dependency epochs, active-lease parent loss and bounded maintenance;
-- full conflict-history behavior, remote deadline and wakeup without service
-  panic or capacity self-retry;
-- post-mutation overlay-level cell/header availability, so a same-branch
-  create-and-spend cannot falsely wake conflict history or overwrite its
-  public rejection, and retained conflict history never projects as RPC
-  `Pending`;
-- real service/RPC/RBF/reorg/template/persistence regressions.
-- a 96-seed accepted-graph differential proving sparse Plan/total Apply matches
-  the stepwise CPFP/status reference and leaves every rejected state unchanged;
-- role-separated resolver/checker tests, both reader/spender arrival orders,
-  2,000-reader fanout, selected-set ordering, exact SCC/downstream isolation,
-  dense-cycle work fallback and dep-budget suffix liveness;
-- full-hash accepted lookup, proposal-slot collision and exact witness-cache
-  identity regressions.
-
-Run:
+## 12. Lock and await rules
 
 ```text
-python3 devtools/check_tx_pool_review_guide.py
-python3 devtools/check_tx_pool_test_layout.py
-python3 devtools/check_tx_pool_security_manifest.py
-cargo nextest run -p ckb-tx-pool --features internal --no-fail-fast
-cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D warnings
+capacity hint (released)
+  -> TxPool RwLock
+    -> PrePoolKernel Mutex
+      -> EffectJournal Mutex
 ```
 
-Process tests must run through `make integration`; the generated 149-spec
-universe intentionally includes mining, RPC, relay, compact block, sync/fork,
-DAO and hardfork ingress outside `test/src/specs/tx_pool`.
+Shorter kernel-only transitions are allowed. Reverse acquisition is not.
+Await/I/O/callback/payload destruction does not occur under nested authority
+locks. Full block-template serialization is independent and does not acquire
+the transaction authority chain in reverse.
 
-## 12. Checkpoints
+## 13. Testing and review
 
-| Checkpoint/phase | State | Evidence |
-|---|---|---|
-| C1 | Complete (`02e648255`) | preserved correctness fixes and froze the audited redesign; no benchmark |
-| P0 / C2 | Complete (`8596c6c5d`) | architecture contract, independent reference model, 152-finding bridge and 149-spec impact universe |
-| P1 / C3 | Complete (`1d9e0cf5b`) | concrete seven-state kernel cut over; old coordinator/runtime/conflict owner deleted; production Rust is 18,957 raw lines versus C2's 24,236 (−5,279, tests and benchmark excluded); test Rust is reported separately at 12,745 versus 21,650 and benchmark remains 1,422; 204/204 internal nextest, zero-warning all-target clippy and all document gates are green; all 18 targeted process integrations passed through `make integration`, including normal-mining reorg, RBF status/history, relay, orphan, collision and dependency-order boundaries |
-| P2 / C4 | Complete | immutable accepted `PoolMutationPlan`, full-hash primary index, causal-only graph, role-aware resolution and selected-set SCC ordering cut over; nested undo/journal rollback/cell-ref escape deleted; internal instrumentation also uses Plan/Apply while permissive child-first construction is test-only; tx-pool production Rust is 18,757 lines (−200 from C3), test Rust is separately 13,051 and benchmark remains 1,422; 209/209 internal-feature nextest, production/internal clippy, all document gates and 16 targeted process integrations pass |
-| P3 / C5 | Complete | concrete static `EffectJournal`; generic outbox/reservation IDs and credit-across-lock paths deleted; Remote/ordinary/critical region lattice, exact queued+active charge, total Apply+append, publisher cursor restart, one bounded callback circuit and allocation-free relay retry/timeout isolation; tx-pool production Rust is 18,751 raw lines (−6 from C4), tests are separately 12,885 and benchmark remains 1,422; 210/210 internal-feature nextest, two clippy profiles, all document gates and 12 targeted process integrations pass |
-| P4 / C6 | Correctness checkpoint; not phase-complete | charged parent-first `RecoveryRetained`, including bounded accepted descendants of detached producers; immutable bounded v2 accepted+recovery persistence; immediate reset/final full assembler sequencing with stale-uncle cleanup; `recovery_lock`, handler payload ownership, recovery cascade and service fail-stop deleted; 224/224 internal-feature nextest, zero-warning tx-pool/sync clippy, document gates and the 13-spec P4 integration batch pass. Whole-architecture review found two explicit blockers: production Rust is 20,129 lines (+1,378 from C5; tests 13,608 and benchmark 1,422 are separate), and expected over-bound/capacity reorg fallback still destroys population under authority locks instead of using the DefectDomain's sealed lock-outside disposal primitive. C6 is a recoverable correctness checkpoint only; P5 must remove both blockers before release acceptance. |
-| P5 / C7 | In progress | stable-shell entry generations make normal reorg fallback, clear and defects share one bounded swap plus lock-outside disposal primitive; process-global ABA/effect clocks survive the swap and only defects cool Remote. Worker lifecycle now has exactly one supervisor per verify/resolve worker: duplicate manager/monitor tasks, exit channels and role wrappers are deleted, panic retry uses one shared bounded backoff, and command-authority loss is terminal instead of an immediate respawn livelock. Duplicate commit handoff records and the unreachable ordinary-batch reset marker are also deleted. Current production Rust is 19,597 raw lines (+846 from C5), tests are separately 13,636 and benchmark is 1,416; 226/226 internal-feature nextest, zero-warning tx-pool/sync clippy, all document gates and three targeted process integrations pass. The remaining explicit blocker is the frozen 14k production review envelope; full P5 acceptance gates are not yet claimed. |
-| P6 / C8 | Pending | complete 149-spec process acceptance and classification |
-| P7 / C9 | Deferred | controlled C1/develop/final A/B performance acceptance |
+Production modules contain only `cfg(test)` wiring, observation or named fault
+seams listed in `test-layout-manifest.json`; test bodies live in dedicated test
+files. `review-behaviors.json` is the machine-readable mapping from architecture
+behavior to unit/model and process regressions. The generated section of
+[`REVIEW_GUIDE.md`](REVIEW_GUIDE.md) is the reviewer-facing table.
 
-Every completed phase ends with a whole-architecture review. A correction may
-complete a frozen rule or delete accidental encoding; it may not add an owner,
-state, rollback layer, reverse lock edge, unbounded scan or input-triggerable
-service fail-stop.
+The required sequence is:
+
+1. `cargo clippy -p ckb-tx-pool --all-targets -- -D warnings`
+2. `cargo nextest run -p ckb-tx-pool --lib`
+3. document/test/security validators
+4. complete managed process suite via `make integration`
+5. checkpoint A/B benchmark only after correctness and harness-noise review
+
+## 14. Implementation checkpoints
+
+| Checkpoint | Meaning |
+|---|---|
+| C0 `35cabc9b7` | pre-redesign coordinator baseline |
+| C1 `02e648255` | audited fixes and rollback/A-B base |
+| C2 `8596c6c5d` | formal target/evidence base |
+| C3 `1d9e0cf5b` | six-state `PrePoolKernel` cutover |
+| C4 `7219778be` | accepted immutable Plan/total Apply |
+| C5 `74a5049bd` | statically partitioned effects |
+| C6 `d9aac44e4` | reorg recovery and chain convergence |
+| C7 `e3ab95375` | generation-swap disposal |
+| C8 `473b4e927` | supervision and persistence eligibility |
+| C9 `693413cf6` | recovery/failure boundary simplification |
+| C10 `1e0d0098d` | bounded total cohort transitions |
+| C11 `77dcbb0c1` | durable relay reconciliation |
+| C12 `015d88be2` | Rust-native invariant outcomes |
+| C13 `6d0577ad4` | move-only Apply and redundant-envelope removal |
+
+Checkpoint history is evidence for recovery and A/B, not a list of mechanisms
+that remain in the final architecture.

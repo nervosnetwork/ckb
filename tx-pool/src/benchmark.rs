@@ -476,6 +476,10 @@ struct BenchServiceHandle {
     /// benchmark tasks are still running.
     service: Option<TxPoolService>,
     signal: CancellationToken,
+    /// Keeps stage command authority alive until teardown, matching the
+    /// production controller. Dropping the last sender is a worker shutdown
+    /// signal, so this cannot be a function-local temporary.
+    chunk_tx: Option<watch::Sender<ChunkCommand>>,
     worker_handles: Vec<tokio::task::JoinHandle<()>>,
     effect_publisher: Option<tokio::task::JoinHandle<()>>,
     drain_handle: Option<tokio::task::JoinHandle<()>>,
@@ -493,6 +497,7 @@ impl BenchServiceHandle {
 impl Drop for BenchServiceHandle {
     fn drop(&mut self) {
         self.signal.cancel();
+        self.chunk_tx.take();
         // Worker tasks own service clones, so join them first. Then release the
         // handle's final service (and relay sender) before awaiting the relay
         // drain; doing these in one join set creates a sender/drain deadlock.
@@ -550,7 +555,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // not affected by the process-wide exit signal used by the builder.
     let local_signal = CancellationToken::new();
     builder.signal_receiver = local_signal;
-    let mut parts = build_bench_service(builder, Arc::clone(&shared.network));
+    let parts = build_bench_service(builder, Arc::clone(&shared.network));
 
     let mut worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
@@ -599,6 +604,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     BenchServiceHandle {
         service: Some(parts.service),
         signal,
+        chunk_tx: Some(chunk_tx),
         worker_handles,
         effect_publisher: Some(parts.effect_publisher),
         drain_handle: Some(drain_handle),
@@ -663,11 +669,11 @@ async fn wait_for_pending_service(service: &TxPoolService, count: usize) {
 
 /// Measure verification cycles for a set of transactions.
 ///
-/// For dependent chains, txs are submitted through the real pipeline via
-/// `notify_tx` (which does not require declared cycles), so the cycle numbers
-/// reflect the full resolve -> verify -> submit path including orphan recovery
-/// and the ordered resolver.  Children are submitted before their parents so
-/// the measurement exercises the recovery path.
+/// For dependent chains, txs are submitted parent-first through the real
+/// pipeline via `notify_tx` (which does not require declared cycles), so cycle
+/// numbers reflect the full resolve -> verify -> submit path. The benchmark
+/// workload may reverse the already measured vector afterward to exercise
+/// dependency recovery without making cycle measurement itself order-sensitive.
 ///
 /// secp256k1 ECDSA verification has non-deterministic cycle counts per tx
 /// (different signature values take different CKB-VM execution paths), so each

@@ -5,15 +5,15 @@ Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
 Status date: 2026-07-26
-Current stable checkpoint: `015d88be2`
-Current phase: P5, global simplification and documentation acceptance
+Current stable checkpoint: `6d0577ad4`
+Current phase: P6, complete process-level integration acceptance
 
 This file is the live execution ledger. It is updated at every checkpoint so a
 compaction or restart can resume from the actual code rather than an obsolete
-design stage. The architecture and review documents are deliberately listed as
-P5 work until they have been rewritten against the final code; their remaining
-references to seven states, `RecoveryRetained`, `DefectDomain`, panic recovery,
-or a 14k line gate are not current implementation authority.
+design stage. The architecture, audit, pipeline, review registry, test-layout
+and security documents were migrated to the final six-state/Rust-native model
+in P5; any historical mechanism named by the security ledger is evidence, not
+current implementation authority.
 
 ## 1. Frozen direction
 
@@ -79,6 +79,7 @@ states do not travel through the same recoverable error channel as input.
 | C10 | `1e0d0098d` | total bounded cohort transitions |
 | C11 | `77dcbb0c1` | relay saturation coalesces to durable reconciliation |
 | C12 | `015d88be2` | Rust-native invariants and level-triggered derived recovery |
+| C13 | `6d0577ad4` | move-only authority Apply and redundant-envelope removal |
 
 No checkpoint before P7 is a performance verdict.
 
@@ -215,20 +216,32 @@ No checkpoint before P7 is a performance verdict.
   selected) instead of changing scheduling behavior under `cfg(test)`.
 - Deleted stale multi-queue/orphan terminology at production boundaries.
 
-### Remaining P5 work
+### Completed architecture/evidence acceptance
 
-- Recount production/test/benchmark lines separately and compare every new
-  production structure with develop using a cfg-aware method.
-- Re-audit state count, lock hold time, allocations, retained snapshots and
-  graph bounds at the whole-architecture level.
-- Rewrite `ARCHITECTURE.md`, `ARCHITECTURE_AUDIT.md`, `pipeline.md`,
-  `REVIEW_GUIDE.md`, machine-readable contracts, security ledger and manifests
-  against the final six-state/Rust-native model.
-- Keep tests outside production files. Regenerate `test-inventory.txt` and the
-  review table so a reviewer can drive review from behavior to production
-  boundary and back to unit/model/integration evidence.
-- Explicitly document any valuable issue not changed because its correction is
-  incompatible, unproven, low-value or performance-negative.
+- Recounted physical Rust lines with tests and benchmark excluded from
+  production: C13 has 18,532 production lines versus C1's 24,236 (−5,704) and
+  develop's 7,297 (+11,235). Tests are 13,602 lines and benchmark is 1,469;
+  neither is used to hide production growth.
+- Re-audited all six locations, two authorities, lock hold/await order,
+  allocations, retained snapshots, graph/worker/effect bounds and hostile
+  input paths. No new owner, state, rollback, repair or generic retry was
+  accepted.
+- Rewrote `ARCHITECTURE.md`, `ARCHITECTURE_AUDIT.md`, `pipeline.md`, the review
+  guide/registry, machine contract, security ledger/manifests and test
+  inventory against the final six-state/Rust-native model.
+- Test isolation now validates 23 external module wires, 29 explicit
+  `cfg(test)` sites and only two named production observation seams. Candidate
+  uncle tests use production limits.
+- The regenerated evidence maps 16 behaviors to 106 current Rust anchors and
+  13 focused integrations; the complete managed process universe remains 149.
+- The internal-feature gate found a real benchmark-harness authority bug: its
+  direct service dropped the only worker command sender and stalled a two-tx
+  dependency case at 1/2 for 120 seconds. The handle now owns command authority
+  until cancellation; the regression passes in under two seconds and is in the
+  review registry/inventory.
+- All three document validators pass. All-target internal-feature clippy is
+  warning-free and `cargo nextest run -p ckb-tx-pool --features internal`
+  passes 228/228 in 21.9 seconds.
 
 ### P5 exit gate
 
@@ -238,6 +251,9 @@ No checkpoint before P7 is a performance verdict.
 - production net growth is explained by a develop counterexample and invariant,
   not by migration residue;
 - full nextest and clippy remain green.
+
+P5 exit gate: **passed**. The remaining release blockers are the complete P6
+process suite and the separately authorized P7 performance verdict.
 
 ## 7. P6 — Complete tx-pool integration acceptance
 

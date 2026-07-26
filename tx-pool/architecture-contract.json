@@ -12,7 +12,6 @@
     "entry_version": "process_global_non_reused_u128"
   },
   "prepool_states": [
-    "RecoveryRetained",
     "ResolveQueued",
     "ResolveLeased",
     "Wait",
@@ -24,6 +23,7 @@
     "Committing",
     "Invalidated",
     "RaceLost",
+    "RecoveryRetained",
     "ConflictOwned",
     "Undoing"
   ],
@@ -42,19 +42,22 @@
     "chain_reconcile",
     "generation_change"
   ],
-  "plan_outcomes": ["Apply", "Reject", "Backpressure", "Stale", "Repair"],
+  "plan_outcomes": ["Apply", "Reject", "Backpressure", "Stale", "Duplicate"],
   "ready_key": [
-    "source_class_Remote_lt_Proposal",
+    "source_class_Remote_lt_Proposal_lt_Recovery",
     "fee_rate_u128_cross_product",
     "absolute_fee",
     "earlier_arrival",
     "smaller_full_hash",
-    "entry_version"
+    "entry_version",
+    "transaction_size_total_tiebreaker"
   ],
   "lock_order": [
     "optional_serial_or_work_or_plan_permit",
+    "effect_capacity_hint_released",
     "TxPool_read_or_write",
-    "PrePoolKernel"
+    "PrePoolKernel",
+    "EffectJournal"
   ],
   "root_families": {
     "F1": "ownership_and_ABA",
@@ -96,9 +99,10 @@
     "I12": {"root_families": ["F4", "F7"], "target_invariants": ["T3", "T8", "T10", "T11", "T13"], "behavior_ids": ["TP-PERF-001", "TP-BUDGET-001", "TP-TEMPLATE-001"]}
   },
   "effect_regions": [
-    "remote_ordinary_ceiling",
-    "trusted_ordinary_headroom",
-    "replaceable_latest_authority"
+    "Remote",
+    "Trusted",
+    "Critical",
+    "replaceable_generation_reset"
   ],
   "resource_classes": [
     "accepted_authority_and_projections",
@@ -107,15 +111,15 @@
     "trusted_and_recovery",
     "worker_borrowers",
     "plan_admin_template_effect_borrowers",
-    "disposal_and_emergency_spare"
+    "sealed_retired_generation"
   ],
   "residual_risks": ["R1", "R2", "R3", "R4", "R5", "R6", "R7"],
   "p0_source_baseline": {
     "checkpoint": "02e648255",
     "production_rust_files": 60,
     "production_rust_lines": 24236,
-    "test_rust_files": 56,
-    "test_rust_lines": 21650,
+    "test_rust_files": 55,
+    "test_rust_lines": 20808,
     "benchmark_rust_files": 1,
     "benchmark_rust_lines": 1422,
     "direct_tx_pool_guard_sites": 34,

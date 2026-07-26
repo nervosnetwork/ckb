@@ -7,8 +7,8 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "P5 worker-supervision convergence",
-    "unit_test_count": 226,
+    "checkpoint": "C13 six-state Plan/Apply convergence",
+    "unit_test_count": 228,
     "integration_spec_count": 149
   },
   "baseline": {
@@ -17,8 +17,12 @@
   },
   "release_blockers": [
     {
-      "id": "P5-PRODUCTION-SIZE",
-      "reason": "P5 worker-supervision convergence has 19,597 production Rust lines, +846 from C5 and above the frozen 14k review envelope; P5 must continue architecture-level deletion before release acceptance"
+      "id": "P6-INTEGRATION-ACCEPTANCE",
+      "reason": "The complete managed 149-spec tx-pool process impact universe has not yet passed against C13 through make integration"
+    },
+    {
+      "id": "P7-PERFORMANCE-ACCEPTANCE",
+      "reason": "Controlled clean-checkpoint throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains the final blocking production gate"
     }
   ]
 }

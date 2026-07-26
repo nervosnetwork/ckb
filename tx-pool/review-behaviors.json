@@ -16,7 +16,7 @@
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/service/workers.rs"
       ],
-      "required_behavior": "An admitted transaction has one full-hash PrePoolKernel entry, one of the frozen seven locations and one globally non-reused version until an atomic handoff transfers sole authority to TxPool.",
+      "required_behavior": "An admitted transaction has one full-hash PrePoolKernel entry, one of the frozen six locations and one globally non-reused version until an atomic handoff transfers sole authority to TxPool.",
       "hostile_case": "A stale worker, duplicate admission, failed transition or ABA remove/readmit race must not create two owners, resurrect an old payload or silently erase the current owner.",
       "reviewer_questions": [
         "Does every transition consume exactly the state and lease it proves current?",
@@ -130,15 +130,15 @@
         "tx-pool/src/service/builder.rs",
         "tx-pool/src/worker.rs"
       ],
-      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent and one supervisor per worker re-arms executable work after a panic with shared bounded backoff. Cancellation and loss of command authority are terminal.",
-      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify before panic or a permanently closed command channel must neither strand executable work nor create an immediate respawn loop.",
+      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent, a job-computation panic settles that borrowed job and re-arms retained work, and loss of worker/command authority requests controlled service shutdown rather than model restart.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify around a job panic or a permanently closed command channel must neither strand executable work nor create a respawn loop.",
       "reviewer_questions": [
         "Does notification mean at least one worker of this capability can execute now?",
-        "Can a consumed permit be reconstructed from authoritative state after subscribe or respawn?",
+        "Can a consumed wake be reconstructed from authoritative state after subscribe or a contained job panic?",
         "Does cancellation stop checkout before another self-sustaining wake loop begins?"
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|ready_expiry_filter|worker_|zero_verify_worker)/)'",
-      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; worker count is configuration-bounded and each worker has exactly one supervisor with bounded restart rate; no manager task, exit channel, polling loop, per-item task or queue-wide scan."
+      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
     },
     {
       "id": "TP-ADMIN-001",
@@ -173,7 +173,7 @@
         "Does Full/Closed/Oversize return before Apply, with the journal lock innermost and no capacity token crossing a lock or await?",
         "Are Remote, trusted and critical usage accounted independently while queued and active, and does saturated chain detail fall back to the prebuilt reset register rather than wait?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|remote_byte_ceiling|critical_headroom|authoritative_apply|generation_reset_register|permanently_full_relayer|hung_callback|replacement_publisher|close_wakes|idle_publisher)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|remote_byte_ceiling|critical_headroom|authoritative_apply|generation_reset_register|full_relayer|hung_callback|replacement_publisher|close_wakes|idle_publisher)/)'",
       "performance_bound": "One bounded journal publisher and one bounded callback endpoint worker; O(1) admission/accounting, no per-effect task, unbounded channel, callback-under-lock or busy retry."
     },
     {
@@ -185,16 +185,16 @@
         "tx-pool/src/service.rs",
         "tx-pool/src/service/pipeline_ops.rs"
       ],
-      "required_behavior": "The first retained reorg phase atomically switches snapshot/membership, transfers the complete bounded accepted descendant closure of detached producers into one charged parent-first RecoveryRetained session, then journals the immediate template reset; its trusted drainer uses ordinary admission while the independently retried second phase carries only a bounded compact-uncle token and publishes the matching final generation.",
-      "hostile_case": "Repeated phase panic, a late accepted child, startup zombie reconcile, an over-budget or over-fanout descendant closure, duplicate/colliding detached roots, clear/save races or a stale full-template retry must not drop/overtake chain authority, expose a parentless accepted suffix or unowned payload interval, retain transaction-bearing blocks outside the kernel, cross a missing parent prefix or publish stale uncles/template state.",
+      "required_behavior": "One chain-authoritative reorg phase switches snapshot/membership once, combines detached transactions with the complete bounded accepted descendant closure of detached producers, installs one charged parent-first Recovery-source plan in the ordinary six-state kernel, and journals the immediate reset plus level-triggered template generations.",
+      "hostile_case": "A late accepted child, startup zombie reconcile, over-budget or over-fanout descendant closure, duplicate/colliding detached roots, clear/save races or a stale/failed full-template rebuild must not replay chain mutation, expose a parentless accepted suffix or unowned payload interval, retain transaction-bearing blocks outside the kernel, cross a missing parent prefix or publish stale uncles/template state.",
       "reviewer_questions": [
         "Does the paired mutation follow TxPool then PrePoolKernel then innermost EffectJournal, with every recovery payload charged before locks open and no stateful guard crossing an await?",
-        "Can phase-two retry replay phase one, retain full detached blocks, or leave its inserted uncles after panic/supersession?",
-        "Are accepted descendants planned before startup zombie reconciliation, transferred child-first/retained parent-first, and reset as one ephemeral generation when the bounded closure cannot fit?",
-        "Are duplicate/collision handling, closure-safe truncation, full/witness identity, non-reused session/version clocks and clear epoch ordering exact?"
+        "Can any derived retry replay the authoritative chain mutation or retain full detached blocks as a second payload owner?",
+        "Are accepted descendants planned before startup zombie reconciliation, retained parent-first, and reset as one ephemeral generation when the complete bounded closure cannot fit?",
+        "Are duplicate/collision handling, full/witness identity, non-reused versions and clear epoch ordering exact?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_status_transition|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|second_phase_retry|retained_receiver|clear_during_reorg|cross_authority_query)/)'",
-      "performance_bound": "First-phase graph traversal and transfer stop at the fixed mutation/recovery bounds and use one generation reset beyond them; phase two contains at most the assembler candidate bound, with no recovery lock, independent worker, population scan or full-block duplication after phase one."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query)/)'",
+      "performance_bound": "The single graph traversal/transfer stops at fixed mutation and recovery bounds and uses one generation reset beyond them; no recovery lock, replay worker, duplicate accepted traversal or full-block payload owner remains."
     },
     {
       "id": "TP-PERSIST-001",
@@ -218,23 +218,23 @@
     },
     {
       "id": "TP-DEFECT-001",
-      "title": "Generation-local defect containment",
+      "title": "Rust-native failure and persistence boundary",
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/process/mod.rs",
         "tx-pool/src/process/submit/mod.rs",
         "sync/src/relayer/mod.rs"
       ],
-      "required_behavior": "An impossible authoritative unwind exchanges only ephemeral accepted/entry generations while the TxPool guard remains closed, preserves process-global version/session clocks, emits one prebuilt GenerationReset and keeps chain, Local, Proposal, query and mining paths live; the sealed retired accepted/kernel bundle is destroyed only after authority guards open and replenishes the single emergency spare, while Remote alone enters bounded cooling, exact-witness quarantine and circuit-open after repeated resets.",
-      "hostile_case": "A reproducible legal witness, stale pre-reset lease, session reuse, relay saturation or repeated witness variants must not cancel the tx-pool service, persist/reuse a partial generation, ABA-delete a new owner or force an endless whole-pool reset loop.",
+      "required_behavior": "All legal malformed, policy, capacity, duplicate and stale outcomes remain typed before Apply; untrusted job/endpoint panics are contained at their boundary, while a primary/index/accounting contradiction fails fast, cancels the service and makes graceful persistence ineligible rather than repairing or persisting unknown state.",
+      "hostile_case": "A reproducible legal transaction, stale lease, endpoint panic/hang or relay saturation must not reach the structural assertion boundary; a genuine internal contradiction must not be converted to success/rejection, restarted into an unknown generation or written to persistence.",
       "reviewer_questions": [
-        "Does the swap install the target/current chain snapshot and fresh primary/index generation before either authority guard opens?",
-        "Do entry versions, recovery sessions and stable effect/template authorities survive the generation exchange?",
-        "Does the one disposal permit keep retired residency bounded and force destruction/spare replenishment outside both authority locks?",
-        "Is exact wtx quarantine/cooling absent from the healthy hot-path lock set, bounded in memory, and fail-closed only for Remote after repeated resets?"
+        "Can every peer-selectable legal outcome be traced to a typed result before an assertion?",
+        "Are catch_unwind boundaries limited to borrowed computation and external endpoints rather than authority repair?",
+        "Does an invariant failure cancel supervised state work and skip persistence?",
+        "Are ordinary clear/over-bound chain generation swaps kept distinct from invariant-panic recovery?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(authoritative_defect|authoritative_generation_swap|chain_generation_reset)/)'",
-      "performance_bound": "Healthy admission adds no new mutex acquisition; one prebuilt spare, one prebuilt reset record and one serialized disposal permit make the impossible swap bounded without destroying population-sized graphs under authority locks."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_accounting_drift|authoritative_generation_swap|chain_generation_reset|panicked_effect_publisher)/)'",
+      "performance_bound": "Healthy admission adds no recovery mutex, quarantine lookup, spare generation or restart protocol; job/endpoint unwind guards stay at existing bounded boundaries."
     },
     {
       "id": "TP-POOL-001",
@@ -311,7 +311,7 @@
     }
   ],
   "unit_evidence": [
-    {"test": "target_model_declares_exactly_the_frozen_seven_states", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
+    {"test": "target_model_declares_exactly_the_frozen_six_states", "behavior_id": "TP-OWN-001", "invariants": ["I1"]},
     {"test": "target_model_stale_lease_cannot_mutate_a_replaced_witness_owner", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4"]},
     {"test": "target_model_generated_commands_preserve_partition_lease_budget_and_indexes", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5", "I6", "I9"]},
     {"test": "concrete_kernel_transitions_preserve_recomputed_projections", "behavior_id": "TP-OWN-001", "invariants": ["I1", "I4", "I5", "I6", "I9"]},
@@ -358,9 +358,9 @@
     {"test": "verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
 
     {"test": "ready_expiry_filter_does_not_starve_later_non_ready_deadlines", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
-    {"test": "cancel_during_backoff_exits_immediately", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "catch_job_panic_captures_panic_and_lets_work_continue", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "worker_exits_when_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
-    {"test": "supervisor_does_not_respawn_after_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "panicked_state_worker_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
 
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
@@ -371,22 +371,22 @@
     {"test": "journal_sequence_is_total_apply_order", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
     {"test": "remote_byte_ceiling_cannot_borrow_trusted_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "active_critical_batch_does_not_consume_ordinary_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
-    {"test": "permanently_full_relayer_has_bounded_fifo_residency", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
+    {"test": "full_relayer_coalesces_to_bounded_reconciliation", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "hung_callback_opens_one_stable_circuit_and_does_not_pin_relay", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
     {"test": "replacement_publisher_resumes_the_charged_active_batch", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8"]},
     {"test": "close_wakes_every_blocked_capacity_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8", "I12"]},
     {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["I8", "I12"]},
     {"test": "authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full", "behavior_id": "TP-EFFECT-001", "invariants": ["I7", "I8", "I12"]},
 
-    {"test": "reorg_status_transition_failure_has_no_false_reject_and_replay_converges", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
-    {"test": "retained_receiver_preserves_fifo_across_panics", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
+    {"test": "reorg_publishes_only_the_final_status_after_multiple_transitions", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
+    {"test": "overlapping_detached_proposals_requeue_each_descendant_once", "behavior_id": "TP-REORG-001", "invariants": ["I7"]},
     {"test": "clear_during_reorg_recovery_owns_the_final_empty_state", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7", "I8"]},
     {"test": "cross_authority_query_is_serialized_with_clear_and_reorg", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I2", "I7"]},
     {"test": "reorg_direct_replay_treats_pool_duplicates_as_idempotent", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I7"]},
-    {"test": "recovery_batch_is_atomic_parent_first_and_persistable_while_leased", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I5", "I7"]},
+    {"test": "recovery_batch_is_atomic_parent_first_and_uses_ordered_resolve", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I5", "I7"]},
     {"test": "over_budget_recovery_plan_is_mutation_free", "behavior_id": "TP-REORG-001", "invariants": ["I4", "I5", "I7"]},
     {"test": "empty_generation_recovery_retains_closure_safe_prefix", "behavior_id": "TP-REORG-001", "invariants": ["I5", "I6", "I7"]},
-    {"test": "second_phase_retry_never_replays_completed_first_phase", "behavior_id": "TP-REORG-001", "invariants": ["I7", "I11"]},
+    {"test": "failed_block_assembler_update_retains_dirty_generation_for_retry", "behavior_id": "TP-REORG-001", "invariants": ["I7", "I11"]},
     {"test": "accepted_reorg_recovery_plan_is_parent_first_and_total", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I7", "I10"]},
     {"test": "accepted_reorg_recovery_plan_reports_over_bound_fanout", "behavior_id": "TP-REORG-001", "invariants": ["I5", "I7", "I12"]},
     {"test": "reorg_replays_detached_parent_with_accepted_descendant_closure", "behavior_id": "TP-REORG-001", "invariants": ["I1", "I6", "I7", "I10"]},
@@ -399,14 +399,14 @@
     {"test": "persistence_v2_rejects_oversized_file_before_reading_payload", "behavior_id": "TP-PERSIST-001", "invariants": ["I5", "I7"]},
     {"test": "persistence_loader_accepts_legacy_v1_vector", "behavior_id": "TP-PERSIST-001", "invariants": ["I7"]},
 
-    {"test": "authoritative_defect_is_generation_local_not_service_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8", "I12"]},
+    {"test": "journal_accounting_drift_fails_fast_instead_of_repairing", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8", "I12"]},
     {"test": "authoritative_generation_swap_preserves_aba_clocks", "behavior_id": "TP-DEFECT-001", "invariants": ["I1", "I4", "I7"]},
-    {"test": "chain_generation_reset_reuses_lock_outside_disposal_without_remote_cooling", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I7", "I8"]},
+    {"test": "chain_generation_reset_retires_old_generation_outside_the_lock", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I7", "I8"]},
     {"test": "generation_reset_register_bypasses_full_fifo_and_coalesces", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8"]},
-    {"test": "structural_recovery_defect_advances_reorg_without_service_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
+    {"test": "panicked_effect_publisher_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
 
     {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
-    {"test": "status_counter_underflow_recomputes_from_authoritative_entries", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
+    {"test": "status_counter_underflow_fails_fast_instead_of_masking_corruption", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "causal_ancestor_limit_never_evicts_existing_entries", "behavior_id": "TP-POOL-001", "invariants": ["I3", "I10"]},
     {"test": "test_dep_group", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "parent_added_after_child_gets_descendant_weight", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
@@ -430,7 +430,8 @@
     {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["I1", "I9"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["I5", "I12"]},
-    {"test": "descendants_cache_members_stay_within_budget", "behavior_id": "TP-PERF-001", "invariants": ["I12"]}
+    {"test": "descendants_cache_members_stay_within_budget", "behavior_id": "TP-PERF-001", "invariants": ["I12"]},
+    {"test": "controller_dependent_secp_chain_reverse", "behavior_id": "TP-PERF-001", "invariants": ["I4", "I12"]}
   ],
   "integration_evidence": [
     {
@@ -457,7 +458,7 @@
       "path": "test/src/specs/tx_pool/reorg_recovers_dependent.rs",
       "anchor": "ReorgRecoversDependentPendingTree",
       "invariants": ["I7", "I11"],
-      "unit_anchors": ["reorg_status_transition_failure_has_no_false_reject_and_replay_converges", "reorg_demotes_stale_gap_to_pending", "pending_proposals_filter_conflicting_uncle_subtree"],
+      "unit_anchors": ["reorg_publishes_only_the_final_status_after_multiple_transitions", "reorg_demotes_stale_gap_to_pending", "pending_proposals_filter_conflicting_uncle_subtree"],
       "boundary": "A detached dependent tree is recovered as real Pending and is re-proposed and committed by normal get_block_template mining without relying on optional uncles or a hand-authored proposal block."
     },
     {
