@@ -1,8 +1,6 @@
 use super::component::entry::TxEntrySnapshot;
 use crate::error::Reject;
-use ckb_logger::error;
 use std::cell::Cell;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 thread_local! {
     /// The sole effect publisher invokes callbacks synchronously. Mutating
@@ -15,55 +13,21 @@ thread_local! {
     /// it. Callback ancestry cannot safely be inferred across arbitrary
     /// threads; callers that spawn helper threads must not synchronously join
     /// helpers which re-enter a mutating controller operation.
-    static CALLBACK_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
-struct CallbackContextGuard;
-
-impl CallbackContextGuard {
-    fn enter() -> Self {
-        CALLBACK_DEPTH.with(|depth| {
-            depth.set(
-                depth
-                    .get()
-                    .checked_add(1)
-                    .expect("callback nesting count cannot overflow"),
-            );
-        });
-        Self
-    }
-}
-
-impl Drop for CallbackContextGuard {
-    fn drop(&mut self) {
-        CALLBACK_DEPTH.with(|depth| {
-            let previous = depth.get();
-            assert_ne!(previous, 0, "callback context depth is balanced");
-            depth.set(previous - 1);
-        });
-    }
+/// Mark the dedicated callback worker once at thread startup. Callback code
+/// never runs on an authority/effect-publisher thread and needs no unwind-
+/// based recovery or nesting counter.
+pub(crate) fn mark_callback_thread() {
+    CALLBACK_THREAD.with(|marked| marked.set(true));
 }
 
 /// Read-only controller calls are safe from callbacks. Synchronous mutations
 /// are not: they can wait for the same publisher that is executing the
 /// callback, directly or through effect-journal backpressure.
 pub(crate) fn in_callback() -> bool {
-    CALLBACK_DEPTH.with(|depth| depth.get() != 0)
-}
-
-/// User-supplied callbacks are side effects, not part of the authoritative
-/// pool transition. Contain their panics so a notifier cannot unwind a
-/// completed pool mutation, make a reorg delta retry forever, or kill a
-/// pipeline worker.
-fn call_guarded(name: &'static str, call: impl FnOnce()) {
-    let _context = CallbackContextGuard::enter();
-    if let Err(payload) = catch_unwind(AssertUnwindSafe(call)) {
-        error!(
-            "tx-pool {} callback panicked: {}",
-            name,
-            crate::util::panic_payload_to_string(payload.as_ref())
-        );
-    }
+    CALLBACK_THREAD.with(Cell::get)
 }
 
 /// Callback boxed fn pointer wrapper.
@@ -137,19 +101,19 @@ impl Callbacks {
 
     fn call_pending_now(&self, entry: &TxEntrySnapshot) {
         if let Some(call) = &self.pending {
-            call_guarded("pending", || call(entry));
+            call(entry);
         }
     }
 
     fn call_proposed_now(&self, entry: &TxEntrySnapshot) {
         if let Some(call) = &self.proposed {
-            call_guarded("proposed", || call(entry));
+            call(entry);
         }
     }
 
     fn call_reject_now(&self, entry: &TxEntrySnapshot, reject: Reject) {
         if let Some(call) = &self.reject {
-            call_guarded("reject", || call(entry, reject));
+            call(entry, reject);
         }
     }
 }

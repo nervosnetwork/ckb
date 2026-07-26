@@ -1,25 +1,10 @@
-use super::{Callbacks, call_guarded, in_callback};
+use super::{Callbacks, in_callback, mark_callback_thread};
 use crate::component::entry::TxEntry;
 use ckb_types::core::{Capacity, TransactionBuilder};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-
-#[test]
-fn guarded_callback_panic_cannot_escape_or_block_later_callbacks() {
-    let calls = AtomicUsize::new(0);
-
-    call_guarded("test", || {
-        calls.fetch_add(1, Ordering::SeqCst);
-        panic!("injected callback panic");
-    });
-    call_guarded("test", || {
-        calls.fetch_add(1, Ordering::SeqCst);
-    });
-
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
-}
 
 #[test]
 fn publish_dispatches_the_typed_event() {
@@ -41,19 +26,13 @@ fn publish_dispatches_the_typed_event() {
 }
 
 #[test]
-fn callback_context_is_scoped_across_panics_and_nested_calls() {
+fn callback_worker_marker_is_thread_local() {
     assert!(!in_callback());
-    call_guarded("outer", || {
+    std::thread::spawn(|| {
+        mark_callback_thread();
         assert!(in_callback());
-        // Unrelated threads must never inherit callback ancestry: chain
-        // reorg delivery and ordinary RPC traffic remain authoritative
-        // while this callback is running.
-        std::thread::spawn(|| assert!(!in_callback()))
-            .join()
-            .unwrap();
-        call_guarded("inner", || assert!(in_callback()));
-        assert!(in_callback());
-        panic!("injected callback panic");
-    });
+    })
+    .join()
+    .unwrap();
     assert!(!in_callback());
 }

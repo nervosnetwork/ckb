@@ -57,7 +57,9 @@ fn aggregate_adjustments_match_across_cache_modes() {
     for budget in [usize::MAX, 0] {
         let mut selector = TxSelector::new(&pool_map);
         selector.set_descendants_cache_budget_for_test(budget);
-        selector.update_modified_entries(&committed, &committed_ids);
+        selector
+            .update_modified_entries(&committed, &committed_ids)
+            .unwrap();
         let c_adj = selector
             .modified_entries
             .get(&c.proposal_short_id())
@@ -96,7 +98,7 @@ fn descendants_cache_members_stay_within_budget() {
     selector.set_descendants_cache_budget_for_test(2);
 
     for tx in [&a, &b, &c, &d] {
-        let _ = selector.descendants_of(&tx.proposal_short_id());
+        selector.descendants_of(&tx.proposal_short_id()).unwrap();
     }
     assert!(selector.descendants_cache_members <= 2);
     // A's descendant set ({C, D}) fit exactly; B's identical set pushed
@@ -135,7 +137,9 @@ fn selected_reader_is_ordered_before_spender() {
     add_proposed(&mut pool, &reader, 100);
     add_proposed(&mut pool, &spender, 10_000);
 
-    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    let (selected, _, _) = TxSelector::new(&pool)
+        .txs_to_commit(usize::MAX, u64::MAX)
+        .unwrap();
     let ids = selected
         .iter()
         .map(TxEntry::proposal_short_id)
@@ -157,7 +161,9 @@ fn conditional_cycle_drops_weakest_member() {
     add_proposed(&mut pool, &a, 100);
     add_proposed(&mut pool, &b, 10_000);
 
-    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    let (selected, _, _) = TxSelector::new(&pool)
+        .txs_to_commit(usize::MAX, u64::MAX)
+        .unwrap();
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].proposal_short_id(), b.proposal_short_id());
 }
@@ -183,7 +189,9 @@ fn conditional_cycle_does_not_drop_acyclic_downstream_entry() {
     add_proposed(&mut pool, &b, 10_000);
     add_proposed(&mut pool, &c, 1);
 
-    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    let (selected, _, _) = TxSelector::new(&pool)
+        .txs_to_commit(usize::MAX, u64::MAX)
+        .unwrap();
     let ids = selected
         .iter()
         .map(TxEntry::proposal_short_id)
@@ -218,7 +226,9 @@ fn dense_conditional_scc_uses_bounded_fallback_and_keeps_strongest() {
         strongest = Some(tx.proposal_short_id());
     }
 
-    let (selected, _, _) = TxSelector::new(&pool).txs_to_commit(usize::MAX, u64::MAX);
+    let (selected, _, _) = TxSelector::new(&pool)
+        .txs_to_commit(usize::MAX, u64::MAX)
+        .unwrap();
     assert_eq!(selected.len(), 1);
     assert_eq!(
         selected[0].proposal_short_id(),
@@ -251,13 +261,15 @@ fn over_budget_dep_entry_does_not_censor_independent_suffix() {
     add_proposed(&mut pool, &independent, 1);
 
     let selector = TxSelector::new(&pool);
-    let retained = selector.retain_selected_with_dep_budget(
-        vec![
-            pool.get(&expensive.proposal_short_id()).unwrap().clone(),
-            pool.get(&independent.proposal_short_id()).unwrap().clone(),
-        ],
-        1,
-    );
+    let retained = selector
+        .retain_selected_with_dep_budget(
+            vec![
+                pool.get(&expensive.proposal_short_id()).unwrap().clone(),
+                pool.get(&independent.proposal_short_id()).unwrap().clone(),
+            ],
+            1,
+        )
+        .unwrap();
     assert_eq!(retained.len(), 1);
     assert_eq!(
         retained[0].proposal_short_id(),

@@ -1,3 +1,4 @@
+use super::lifecycle::MutationSet;
 use super::*;
 use ckb_types::core::TransactionView;
 
@@ -16,10 +17,11 @@ impl PrePoolKernel {
         txs: Vec<TransactionView>,
         admitted_epoch: u64,
     ) -> Result<usize, PrePoolError> {
-        assert!(
-            self.entries.is_empty(),
-            "recovery-prefix planning requires a fresh generation"
-        );
+        if !self.entries.is_empty() {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "recovery-prefix planning requires a fresh generation",
+            ));
+        }
         let mut probe = Self::new(self.limits);
         probe.next_version = self.next_version;
         probe.next_arrival = self.next_arrival;
@@ -57,35 +59,28 @@ impl PrePoolKernel {
         let mut hashes = HashSet::with_capacity(retained);
         let mut version_cursor = self.next_version;
         let mut arrival_cursor = self.next_arrival;
-        let mut planned = Vec::with_capacity(retained);
+        let mut planned = MutationSet::default();
+        let mut planned_count = 0usize;
 
         for tx in txs {
             let hash = crate::util::compact_packed(&tx.hash());
             if !hashes.insert(hash.clone()) {
                 continue;
             }
-            let short_id = crate::util::compact_packed(&tx.proposal_short_id());
             let old_arrival = self.entries.get(&hash).map(|old| old.arrival);
-            let version = version_cursor;
-            version_cursor = version_cursor
-                .checked_add(1)
-                .expect("u128 entry version must not exhaust during process lifetime");
+            let version = EntryVersion::take(&mut version_cursor)?;
             let arrival = if let Some(arrival) = old_arrival {
                 arrival
             } else {
-                let arrival = arrival_cursor;
-                arrival_cursor = arrival_cursor
-                    .checked_add(1)
-                    .expect("u128 arrival clock must not exhaust during process lifetime");
-                arrival
+                Arrival::take(&mut arrival_cursor)?
             };
             let raw = PipelineRawTx::recovery(tx, admitted_epoch);
             let dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty())
                 .into_iter()
                 .map(DependencyKey::into_compact)
                 .collect();
-            let mut next = Entry {
-                short_id,
+            let payload_charge_bytes = raw.charge_bytes();
+            let next = Entry {
                 raw: Arc::new(raw),
                 source: PrePoolSource::Recovery,
                 state: EntryState::ResolveQueued {
@@ -94,18 +89,19 @@ impl PrePoolKernel {
                 version,
                 arrival,
                 expires_at: None,
-                payload_charge_bytes: 0,
-                charge_bytes: 0,
+                payload_charge_bytes,
                 dependencies,
             };
-            next.payload_charge_bytes = next.raw.charge_bytes();
-            next.charge_bytes = self.entry_charge(&next)?;
-            planned.push((hash, Some(next)));
+            let next = StoredEntry::prepare(next, self.limits)?;
+            planned.set_entry(next);
+            planned_count = planned_count
+                .checked_add(1)
+                .ok_or(PrePoolError::ResidencyChargeOverflow)?;
         }
-        let retained = planned.len();
-        let plan = self.plan_cohort(planned, version_cursor, arrival_cursor)?;
-        self.apply_cohort(plan);
-        Ok(retained)
+        let prepared =
+            self.prepare_cohort(planned, version_cursor, arrival_cursor, std::iter::empty())?;
+        prepared.apply();
+        Ok(planned_count)
     }
 
     pub(crate) fn recovery_snapshot(&self) -> Vec<TransactionView> {

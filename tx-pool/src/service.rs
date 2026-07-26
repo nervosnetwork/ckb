@@ -43,9 +43,11 @@ use ckb_types::{
     core::{BlockView, Capacity, UncleBlockView, tx_pool::TxStatus},
     packed::{Byte32, ProposalShortId},
 };
+use ckb_util::Mutex;
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -179,6 +181,36 @@ pub(crate) struct PoolCore {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
+    pub(crate) dispatcher_capacity: DispatcherCapacity,
+}
+
+/// Dispatcher concurrency validated once before any service task is spawned.
+///
+/// Tokio's semaphore stores a `usize` permit count while its atomic
+/// `acquire_many` operation accepts `u32`. Keeping both representations in a
+/// private validated value makes zero and truncating conversions
+/// unrepresentable in the running service.
+#[derive(Clone, Copy)]
+pub(crate) struct DispatcherCapacity {
+    permits: usize,
+    acquire_many: NonZeroU32,
+}
+
+impl DispatcherCapacity {
+    pub(crate) fn new(permits: usize) -> Option<Self> {
+        Some(Self {
+            permits,
+            acquire_many: NonZeroU32::new(u32::try_from(permits).ok()?)?,
+        })
+    }
+
+    pub(crate) fn permits(self) -> usize {
+        self.permits
+    }
+
+    pub(crate) fn acquire_many(self) -> u32 {
+        self.acquire_many.get()
+    }
 }
 
 /// Monotonic administrative generation for the asynchronous pipeline.
@@ -214,7 +246,7 @@ impl PipelineEpoch {
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 (value != u64::MAX).then(|| value.saturating_add(1))
             }) {
-            Ok(previous) => (previous != u64::MAX - 1).then_some(previous + 1),
+            Ok(previous) => previous.checked_add(1).filter(|next| *next != u64::MAX),
             Err(_) => None,
         }
     }
@@ -264,6 +296,7 @@ pub(crate) struct RelayState {
 /// older completion cannot have its newer work erased.
 #[derive(Default)]
 pub(crate) struct BlockAssemblerDirtyJournal {
+    next_generation: AtomicU64,
     pending: AtomicU64,
     proposed: AtomicU64,
     uncle: AtomicU64,
@@ -271,7 +304,12 @@ pub(crate) struct BlockAssemblerDirtyJournal {
 
 #[derive(Default)]
 pub(crate) struct BlockAssemblerResetJournal {
-    state: std::sync::Mutex<BlockAssemblerResetState>,
+    state: Mutex<BlockAssemblerResetState>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BlockAssemblerJournalError {
+    GenerationExhausted,
 }
 
 #[derive(Default)]
@@ -281,32 +319,23 @@ struct BlockAssemblerResetState {
 }
 
 impl BlockAssemblerResetJournal {
-    fn mark(&self, snapshot: Arc<Snapshot>) {
-        let mut state = self
-            .state
-            .lock()
-            .expect("block-assembler reset journal mutex poisoned");
+    fn mark(&self, snapshot: Arc<Snapshot>) -> Result<(), BlockAssemblerJournalError> {
+        let mut state = self.state.lock();
         state.next_generation = state
             .next_generation
             .checked_add(1)
-            .expect("block-assembler reset generation exhausted");
+            .ok_or(BlockAssemblerJournalError::GenerationExhausted)?;
         let generation = state.next_generation;
         state.pending = Some((generation, snapshot));
+        Ok(())
     }
 
     fn load(&self) -> Option<(u64, Arc<Snapshot>)> {
-        self.state
-            .lock()
-            .expect("block-assembler reset journal mutex poisoned")
-            .pending
-            .clone()
+        self.state.lock().pending.clone()
     }
 
     fn complete(&self, completed_generation: u64) {
-        let mut state = self
-            .state
-            .lock()
-            .expect("block-assembler reset journal mutex poisoned");
+        let mut state = self.state.lock();
         if state
             .pending
             .as_ref()
@@ -317,11 +346,7 @@ impl BlockAssemblerResetJournal {
     }
 
     fn is_pending(&self) -> bool {
-        self.state
-            .lock()
-            .expect("block-assembler reset journal mutex poisoned")
-            .pending
-            .is_some()
+        self.state.lock().pending.is_some()
     }
 }
 
@@ -335,14 +360,30 @@ impl BlockAssemblerDirtyJournal {
         }
     }
 
-    fn mark(&self, message: &BlockAssemblerMessage) {
+    fn next_generation(&self) -> Result<u64, BlockAssemblerJournalError> {
+        self.next_generation
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
+                generation.checked_add(1)
+            })
+            .and_then(|generation| generation.checked_add(1).ok_or(generation))
+            .map_err(|_| BlockAssemblerJournalError::GenerationExhausted)
+    }
+
+    fn mark(&self, message: &BlockAssemblerMessage) -> Result<(), BlockAssemblerJournalError> {
         let Some(slot) = self.slot(message) else {
-            return;
+            return Ok(());
         };
-        slot.fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
-            generation.checked_add(1)
-        })
-        .expect("block-assembler dirty generation exhausted");
+        let generation = self.next_generation()?;
+        slot.fetch_max(generation, Ordering::AcqRel);
+        Ok(())
+    }
+
+    fn mark_full_reconcile(&self) -> Result<(), BlockAssemblerJournalError> {
+        let generation = self.next_generation()?;
+        self.pending.fetch_max(generation, Ordering::AcqRel);
+        self.proposed.fetch_max(generation, Ordering::AcqRel);
+        self.uncle.fetch_max(generation, Ordering::AcqRel);
+        Ok(())
     }
 
     fn load(&self) -> Vec<(BlockAssemblerMessage, u64)> {
@@ -369,8 +410,11 @@ impl BlockAssemblerDirtyJournal {
 }
 
 impl RelayState {
-    pub(crate) fn mark_block_assembler_dirty(&self, message: &BlockAssemblerMessage) {
-        self.block_assembler_dirty.mark(message);
+    pub(crate) fn mark_block_assembler_dirty(
+        &self,
+        message: &BlockAssemblerMessage,
+    ) -> Result<(), BlockAssemblerJournalError> {
+        self.block_assembler_dirty.mark(message)
     }
 
     pub(crate) fn load_block_assembler_dirty(&self) -> Vec<(BlockAssemblerMessage, u64)> {
@@ -385,19 +429,21 @@ impl RelayState {
         self.block_assembler_dirty.complete(message, generation);
     }
 
-    /// A high-priority full swap may intentionally overwrite optimistic
-    /// proposal/transaction updates that completed while it was building.
-    /// Reissue both level-triggered generations after that swap so an update
-    /// acknowledged immediately before the full writer cannot be lost.
-    pub(crate) fn mark_block_assembler_full_reconcile(&self) {
-        self.block_assembler_dirty
-            .mark(&BlockAssemblerMessage::Pending);
-        self.block_assembler_dirty
-            .mark(&BlockAssemblerMessage::Proposed);
+    /// A high-priority full/reset swap may intentionally overwrite any
+    /// optimistic partial update that completed while it was building.
+    /// Reissue every level-triggered generation after that swap so an update
+    /// acknowledged immediately before the replacement cannot be lost.
+    pub(crate) fn mark_block_assembler_full_reconcile(
+        &self,
+    ) -> Result<(), BlockAssemblerJournalError> {
+        self.block_assembler_dirty.mark_full_reconcile()
     }
 
-    pub(crate) fn mark_block_assembler_reset(&self, snapshot: Arc<Snapshot>) {
-        self.block_assembler_reset.mark(snapshot);
+    pub(crate) fn mark_block_assembler_reset(
+        &self,
+        snapshot: Arc<Snapshot>,
+    ) -> Result<(), BlockAssemblerJournalError> {
+        self.block_assembler_reset.mark(snapshot)
     }
 
     /// Load the latest required reset without consuming it. The reset journal
@@ -426,13 +472,13 @@ impl RelayState {
 /// churn attack must not turn those transient markers into an unbounded
 /// three-day HashMap.
 pub(crate) struct BannedPeerSet {
-    entries: std::sync::Mutex<lru::LruCache<ckb_network::PeerIndex, std::time::Instant>>,
+    entries: Mutex<lru::LruCache<ckb_network::PeerIndex, std::time::Instant>>,
 }
 
 impl BannedPeerSet {
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
-            entries: std::sync::Mutex::new(lru::LruCache::new(capacity.max(1))),
+            entries: Mutex::new(lru::LruCache::new(capacity.max(1))),
         }
     }
 
@@ -440,11 +486,11 @@ impl BannedPeerSet {
         let expires_at = std::time::Instant::now()
             .checked_add(duration)
             .unwrap_or_else(std::time::Instant::now);
-        self.entries.lock().unwrap().put(peer, expires_at);
+        self.entries.lock().put(peer, expires_at);
     }
 
     pub(crate) fn contains(&self, peer: ckb_network::PeerIndex) -> bool {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = self.entries.lock();
         match entries.peek(&peer).copied() {
             Some(expires_at) if expires_at > std::time::Instant::now() => true,
             Some(_) => {
@@ -474,10 +520,9 @@ pub(crate) struct TxPoolService {
     pub(crate) relay: RelayState,
     pub(crate) aux: AuxServices,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    /// Serializes immutable persistence snapshots and their atomic writers.
-    /// It never protects pool/kernel ownership and may therefore be held
-    /// across blocking file I/O without creating a state-lock cycle.
-    pub(crate) persistence_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Orders immutable persistence snapshots without holding an async guard
+    /// across blocking file I/O.
+    pub(crate) persistence_writer: Arc<crate::persisted::PersistenceWriter>,
 }
 
 /// Outcome of an administrative `remove_tx` attempt.
@@ -609,24 +654,22 @@ impl TxPoolService {
     }
 
     #[cfg(feature = "internal")]
-    pub async fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) {
+    pub async fn plug_entry(
+        &self,
+        entries: Vec<TxEntry>,
+        target: PlugTarget,
+    ) -> Result<(), crate::error::Reject> {
         {
             let mut tx_pool = self.pool.tx_pool.write().await;
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
-                        tx_pool
-                            .pool_map
-                            .plug_entry(entry, Status::Pending)
-                            .expect("administrative pool insertion failed");
+                        tx_pool.pool_map.plug_entry(entry, Status::Pending)?;
                     }
                 }
                 PlugTarget::Proposed => {
                     for entry in entries {
-                        tx_pool
-                            .pool_map
-                            .plug_entry(entry, Status::Proposed)
-                            .expect("administrative pool insertion failed");
+                        tx_pool.pool_map.plug_entry(entry, Status::Proposed)?;
                     }
                 }
             };
@@ -639,6 +682,7 @@ impl TxPoolService {
             };
             self.journal_block_assembler_message(msg);
         }
+        Ok(())
     }
 }
 

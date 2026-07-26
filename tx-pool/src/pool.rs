@@ -1,6 +1,6 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
-use crate::component::pool_map::{ConflictClosure, PoolEntry, PoolMap, Status};
+use crate::component::pool_map::{ConflictClosure, PoolEntry, PoolMap, PoolMutationFault, Status};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
@@ -63,7 +63,10 @@ pub struct TxPool {
 impl TxPool {
     /// Create new TxPool
     pub fn new(config: TxPoolConfig, snapshot: Arc<Snapshot>) -> TxPool {
-        let expiry = config.expiry_hours as u64 * 60 * 60 * 1000;
+        let expiry = u64::from(config.expiry_hours)
+            .saturating_mul(60)
+            .saturating_mul(60)
+            .saturating_mul(1000);
         TxPool {
             pool_map: PoolMap::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
@@ -172,7 +175,7 @@ impl TxPool {
         txs: impl Iterator<Item = &'a TransactionView>,
         detached_headers: &HashSet<Byte32>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) {
+    ) -> Result<(), PoolMutationFault> {
         for tx in txs {
             // Attached-block accessors are views into the whole block. This
             // LRU outlives reorg processing, so materialize both cached values
@@ -180,38 +183,43 @@ impl TxPool {
             let tx_hash = crate::util::compact_packed(&tx.hash());
             let short_id = crate::util::compact_packed(&tx.proposal_short_id());
             debug!("try remove_committed_tx {}", tx_hash);
-            self.remove_committed_tx(tx, reject_events);
+            self.remove_committed_tx(tx, reject_events)?;
 
             self.committed_txs_hash_cache.put(short_id, tx_hash);
         }
 
         if !detached_headers.is_empty() {
-            self.resolve_conflict_header_dep(detached_headers, reject_events)
+            self.resolve_conflict_header_dep(detached_headers, reject_events)?;
         }
+        Ok(())
     }
 
     fn resolve_conflict_header_dep(
         &mut self,
         detached_headers: &HashSet<Byte32>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) {
-        for (entry, reject) in self.pool_map.resolve_conflict_header_dep(detached_headers) {
+    ) -> Result<(), PoolMutationFault> {
+        for (entry, reject) in self
+            .pool_map
+            .resolve_conflict_header_dep(detached_headers)?
+        {
             reject_events.push((entry, reject));
         }
+        Ok(())
     }
 
     fn remove_committed_tx(
         &mut self,
         tx: &TransactionView,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) {
+    ) -> Result<(), PoolMutationFault> {
         let short_id = tx.proposal_short_id();
         let exact_resident = self.pool_map.get_by_hash(&tx.hash()).is_some();
-        if exact_resident && self.pool_map.remove_entry(&short_id).is_some() {
+        if exact_resident && self.pool_map.remove_entry(&short_id)?.is_some() {
             debug!("remove_committed_tx for {}", tx.hash());
         }
         {
-            for (entry, reject) in self.pool_map.resolve_conflict(tx) {
+            for (entry, reject) in self.pool_map.resolve_conflict(tx)? {
                 debug!(
                     "removed {} for committed: {}",
                     entry.transaction().hash(),
@@ -220,16 +228,26 @@ impl TxPool {
                 reject_events.push((entry, reject));
             }
         }
+        Ok(())
     }
 
     // Expire all transaction (and their dependencies) in the pool.
-    pub(crate) fn remove_expired(&mut self, reject_events: &mut Vec<(TxEntry, Reject)>) {
+    pub(crate) fn remove_expired(
+        &mut self,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+    ) -> Result<(), PoolMutationFault> {
         let now_ms = ckb_systemtime::unix_time_as_millis();
 
         let expired: Vec<_> = self
             .pool_map
             .iter()
-            .filter(|&entry| self.expiry + entry.inner.timestamp < now_ms)
+            .filter(|&entry| {
+                entry
+                    .inner
+                    .timestamp
+                    .checked_add(self.expiry)
+                    .is_some_and(|deadline| deadline < now_ms)
+            })
             .map(|entry| entry.id.clone())
             .collect();
 
@@ -240,7 +258,7 @@ impl TxPool {
             // `limit_size` and this function's own documentation. Entries
             // already taken down by an earlier cascade in this same pass
             // simply yield an empty removal here.
-            let removed = self.pool_map.remove_entry_and_descendants(&id);
+            let removed = self.pool_map.remove_entry_and_descendants(&id)?;
             for entry in removed {
                 let tx_hash = entry.transaction().hash();
                 debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
@@ -248,6 +266,7 @@ impl TxPool {
                 reject_events.push((entry, reject));
             }
         }
+        Ok(())
     }
 
     /// One-shot post-startup reconcile: drop pool entries that can no
@@ -271,7 +290,7 @@ impl TxPool {
     ///      main chain (their dependencies changed in the skipped window).
     ///      Zombie removal cascades to descendants, which cannot resolve
     ///      either.
-    pub(crate) fn remove_onchain_entries(&mut self) -> Vec<TxEntry> {
+    pub(crate) fn remove_onchain_entries(&mut self) -> Result<Vec<TxEntry>, PoolMutationFault> {
         let committed: Vec<ProposalShortId> = self
             .pool_map
             .iter()
@@ -283,7 +302,7 @@ impl TxPool {
             .collect();
         let mut removed = Vec::new();
         for id in committed {
-            if let Some(entry) = self.pool_map.remove_entry(&id) {
+            if let Some(entry) = self.pool_map.remove_entry(&id)? {
                 removed.push(entry);
             }
         }
@@ -320,9 +339,9 @@ impl TxPool {
             .map(|entry| entry.id.clone())
             .collect();
         for id in zombies {
-            removed.extend(self.pool_map.remove_entry_and_descendants(&id));
+            removed.extend(self.pool_map.remove_entry_and_descendants(&id)?);
         }
-        removed
+        Ok(removed)
     }
 
     // Remove transactions until both serialized and resolved-residency
@@ -332,7 +351,7 @@ impl TxPool {
         &mut self,
         current_entry_id: Option<&ProposalShortId>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Option<Reject> {
+    ) -> Result<Option<Reject>, PoolMutationFault> {
         self.limit_size_inner(current_entry_id, reject_events)
     }
 
@@ -340,7 +359,7 @@ impl TxPool {
         &mut self,
         current_entry_id: Option<&ProposalShortId>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Option<Reject> {
+    ) -> Result<Option<Reject>, PoolMutationFault> {
         let mut ret = None;
         let resident_limit = self.config.tx_pool_resident_size_budget();
         while self.pool_map.stats.total_tx_size > self.config.max_tx_pool_size
@@ -354,9 +373,8 @@ impl TxPool {
             };
 
             if let Some(id) = next_evict_entry() {
-                let removed = self.pool_map.remove_entry_and_descendants_with_status(&id);
-                for removed in removed {
-                    let entry = removed.entry;
+                let removed = self.pool_map.remove_entry_and_descendants(&id)?;
+                for entry in removed {
                     let tx_hash = entry.transaction().hash();
                     debug!(
                         "Removed by size limit {} timestamp({})",
@@ -371,12 +389,12 @@ impl TxPool {
                     reject_events.push((entry, reject));
                 }
             } else {
-                panic!(
-                    "accepted-pool totals exceed capacity without an indexed eviction candidate"
-                );
+                return Err(PoolMutationFault::ProjectionMismatch(
+                    "accepted totals exceed capacity without an eviction candidate",
+                ));
             }
         }
-        ret
+        Ok(ret)
     }
 
     // Demote a detached proposal and its causal descendants to Pending.
@@ -384,7 +402,7 @@ impl TxPool {
         &mut self,
         ids: impl Iterator<Item = &'a ProposalShortId>,
         notify_events: &mut Vec<(TxEntry, Status)>,
-    ) {
+    ) -> Result<(), PoolMutationFault> {
         let roots = ids
             .filter(|id| {
                 self.pool_map
@@ -396,9 +414,13 @@ impl TxPool {
         let ids = match self.pool_map.conflict_closure(&roots, self.pool_map.len()) {
             ConflictClosure::Complete { removal, .. } => removal,
             ConflictClosure::Exceeded { .. } => {
-                unreachable!("accepted descendant union cannot exceed accepted membership")
+                return Err(PoolMutationFault::ProjectionMismatch(
+                    "accepted descendant union exceeded accepted membership",
+                ));
             }
         };
+        let mut transitions = Vec::new();
+        let mut pending_events = Vec::new();
         for id in ids {
             let Some(entry) = self.pool_map.get_by_id(&id) else {
                 continue;
@@ -407,13 +429,14 @@ impl TxPool {
                 continue;
             }
             let entry = entry.inner.clone();
-            self.pool_map.set_entry(&id, Status::Pending);
-            notify_events.push((entry, Status::Pending));
+            transitions.push((id, Status::Pending));
+            pending_events.push((entry, Status::Pending));
         }
-    }
-
-    pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
-        self.pool_map.remove_entry_and_descendants(id)
+        if !transitions.is_empty() {
+            self.pool_map.prepare_status_changes(transitions)?.apply();
+            notify_events.extend(pending_events);
+        }
+        Ok(())
     }
 
     /// Final role-aware validation against the immutable virtual pool left by
@@ -457,23 +480,6 @@ impl TxPool {
         )
         .map(Arc::new)
         .map_err(Reject::Resolve)
-    }
-
-    pub(crate) fn transition_to_status_required(
-        &mut self,
-        short_id: &ProposalShortId,
-        target: Status,
-    ) {
-        let entry = self
-            .get_pool_entry(short_id)
-            .expect("reorg status plan references a live pool entry");
-        let tx_hash = entry.inner.transaction().hash();
-        assert_ne!(
-            entry.status, target,
-            "reorg status plan contains a redundant transition for {tx_hash}"
-        );
-        debug!("transition_to_status: {:?} => {:?}", tx_hash, target);
-        self.pool_map.set_entry(short_id, target);
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.
@@ -572,9 +578,9 @@ impl TxPool {
         &self,
         max_block_cycles: Cycle,
         txs_size_limit: usize,
-    ) -> (Vec<TxEntry>, usize, Cycle) {
+    ) -> Result<(Vec<TxEntry>, usize, Cycle), crate::component::tx_selector::TxSelectionError> {
         let (entries, size, cycles) =
-            TxSelector::new(&self.pool_map).txs_to_commit(txs_size_limit, max_block_cycles);
+            TxSelector::new(&self.pool_map).txs_to_commit(txs_size_limit, max_block_cycles)?;
 
         if !entries.is_empty() {
             ckb_logger::info!(
@@ -586,7 +592,7 @@ impl TxPool {
                 max_block_cycles
             );
         }
-        (entries, size, cycles)
+        Ok((entries, size, cycles))
     }
 
     pub(crate) fn estimate_fee_rate(
@@ -597,7 +603,11 @@ impl TxPool {
             return Err(FeeEstimatorError::NoProperFeeRate);
         }
         let closest = self.snapshot.consensus().tx_proposal_window().closest();
-        let target_blocks = target_to_be_committed.saturating_sub(closest).max(1) as usize;
+        let target_blocks = target_to_be_committed.saturating_sub(closest).max(1);
+        let target_blocks = usize::try_from(target_blocks)
+            .ok()
+            .and_then(std::num::NonZeroUsize::new)
+            .ok_or(FeeEstimatorError::NoProperFeeRate)?;
         let fee_rate = self.pool_map.estimate_fee_rate(
             target_blocks,
             self.snapshot.consensus().max_block_bytes() as usize,
@@ -620,7 +630,7 @@ impl TxPool {
                     .pending_gap_entries()
                     .position(|pending| pending.proposal_short_id() == *id)
                     .unwrap_or_default()
-                    + 1
+                    .saturating_add(1)
             };
             let res = PoolTxDetailInfo {
                 timestamp: entry.inner.timestamp,

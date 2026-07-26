@@ -33,10 +33,9 @@ async fn resolve_job_registers_complete_unknown_outpoint_frontier() {
         .kernel
         .admit_transaction(
             tx.clone(),
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(1.into(), 0),
+            ),
             h.service.current_pipeline_epoch().unwrap(),
             ResolveLane::Ordered,
         )
@@ -90,10 +89,9 @@ async fn parent_commit_before_wait_registration_requeues_child() {
         .kernel
         .admit_transaction(
             child,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(1.into(), 0),
+            ),
             epoch,
             ResolveLane::Ordered,
         )
@@ -161,7 +159,9 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .kernel
         .admit_transaction(
             child,
-            TxSource::Remote { cycles: 0, peer },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(peer, 0),
+            ),
             epoch,
             ResolveLane::Ordered,
         )
@@ -260,10 +260,9 @@ async fn remove_pool_closure_demotes_consumers_of_removed_descendants() {
         .kernel
         .admit_transaction(
             consumer,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(1.into(), 0),
+            ),
             h.service.current_pipeline_epoch().unwrap(),
             ResolveLane::Ordered,
         )
@@ -447,10 +446,9 @@ async fn local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member() {
         .kernel
         .admit_transaction(
             consumer.clone(),
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(1.into(), 0),
+            ),
             epoch,
             ResolveLane::Ordered,
         )

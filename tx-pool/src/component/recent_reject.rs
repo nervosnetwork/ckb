@@ -6,6 +6,7 @@ use ckb_logger::error;
 use ckb_types::{packed::Byte32, prelude::*};
 use rand::distributions::Uniform;
 use rand::{Rng, thread_rng};
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,7 +21,7 @@ const DEFAULT_SHARDS: u32 = 5;
 #[derive(Debug)]
 pub struct RecentReject {
     ttl: i32,
-    shard_num: u32,
+    shard_num: NonZeroU32,
     count_limit: u64,
     /// Approximate key count across all shards.  Incremented inside the DB
     /// guard critical section (see `put`), so the estimate stays totally
@@ -62,7 +63,9 @@ impl RecentReject {
     where
         P: AsRef<Path>,
     {
-        let cf_names: Vec<_> = (0..shard_num).map(|c| c.to_string()).collect();
+        let shard_num = NonZeroU32::new(shard_num)
+            .ok_or_else(|| OtherError::new("recent-reject shard count must be non-zero"))?;
+        let cf_names: Vec<_> = (0..shard_num.get()).map(|c| c.to_string()).collect();
         let db = DBWithTTL::open_cf(path, cf_names.clone(), ttl)?;
         let estimate_keys_num = cf_names
             .iter()
@@ -97,7 +100,7 @@ impl RecentReject {
     /// contain shared packed views or other hidden allocations.
     pub(crate) fn put_serialized(&self, hash: &Byte32, json_string: &str) -> Result<(), AnyError> {
         let hash_slice = hash.as_slice();
-        let shard = self.get_shard(hash_slice).to_string();
+        let shard = self.get_shard(hash).to_string();
         let json_bytes = json_string.as_bytes();
 
         // Fast path: hold the read lock across the DB write so that `shrink`
@@ -189,7 +192,7 @@ impl RecentReject {
     /// Returns the serialized rejection reason for `hash`, if one exists.
     pub fn get(&self, hash: &Byte32) -> Result<Option<String>, AnyError> {
         let slice = hash.as_slice();
-        let shard = self.get_shard(slice).to_string();
+        let shard = self.get_shard(hash).to_string();
         block_offload(|| {
             let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
             // A missing shard column family (e.g. dropped by `shrink` and
@@ -240,7 +243,9 @@ impl RecentReject {
 
     fn shrink(&self) -> Result<u64, AnyError> {
         let mut rng = thread_rng();
-        let shard = rng.sample(Uniform::new(0, self.shard_num)).to_string();
+        let shard = rng
+            .sample(Uniform::new(0, self.shard_num.get()))
+            .to_string();
         // Exclusive write lock: blocks all concurrent put/get while we
         // drop and recreate a column family.  This is a very cold path
         // (triggered only when key count exceeds `count_limit`), so brief
@@ -285,10 +290,13 @@ impl RecentReject {
         }
     }
 
-    fn get_shard(&self, hash: &[u8]) -> u32 {
-        let mut low_u32 = [0u8; 4];
-        low_u32.copy_from_slice(&hash[0..4]);
-        u32::from_le_bytes(low_u32) % self.shard_num
+    fn get_shard(&self, hash: &Byte32) -> u32 {
+        hash.as_slice()
+            .first_chunk::<4>()
+            .copied()
+            .map(u32::from_le_bytes)
+            .unwrap_or_default()
+            .rem_euclid(self.shard_num.get())
     }
 }
 

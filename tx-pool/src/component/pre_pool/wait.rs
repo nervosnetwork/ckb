@@ -1,3 +1,5 @@
+use super::lifecycle::MutationSet;
+use super::lifecycle::PreparedKernelMutation;
 use super::*;
 
 impl PrePoolKernel {
@@ -51,13 +53,15 @@ impl PrePoolKernel {
     pub(super) fn observed_dependencies(
         &self,
         keys: impl IntoIterator<Item = DependencyKey>,
-    ) -> BTreeMap<DependencyKey, u128> {
-        keys.into_iter()
+    ) -> Result<ObservedDependencies, PrePoolError> {
+        let observed = keys
+            .into_iter()
             .map(|key| {
                 let epoch = self.availability_epoch.get(&key).copied().unwrap_or(0);
                 (key, epoch)
             })
-            .collect()
+            .collect();
+        ObservedDependencies::new(observed)
     }
 
     pub(super) fn move_to_wait(
@@ -67,7 +71,6 @@ impl PrePoolKernel {
         keys: BTreeSet<DependencyKey>,
         charge_bytes: Option<usize>,
     ) -> Result<EntryVersion, PrePoolError> {
-        assert!(!keys.is_empty(), "a wait transition requires a causal key");
         let keys = keys
             .into_iter()
             .map(DependencyKey::into_compact)
@@ -76,19 +79,26 @@ impl PrePoolKernel {
             .entries
             .get(hash)
             .cloned()
-            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        next.version = self.allocate_version();
+            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
+            .into_draft();
+        let mut version_cursor = self.next_version;
+        next.version = EntryVersion::take(&mut version_cursor)?;
         next.dependencies.extend(keys.iter().cloned());
         if let Some(charge_bytes) = charge_bytes {
             next.payload_charge_bytes = charge_bytes;
         }
         next.state = EntryState::Wait(WaitState {
             reason,
-            observed: self.observed_dependencies(keys),
+            observed: self.observed_dependencies(keys)?,
         });
-        next.charge_bytes = self.entry_charge(&next)?;
         let version = next.version;
-        self.replace_entry(hash, next)?;
+        self.replace_entry(
+            hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            super::lifecycle::ReplacementMode::Ordinary,
+        )?;
         Ok(version)
     }
 
@@ -101,12 +111,19 @@ impl PrePoolKernel {
             .entries
             .get(hash)
             .cloned()
-            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        next.version = self.allocate_version();
+            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
+            .into_draft();
+        let mut version_cursor = self.next_version;
+        next.version = EntryVersion::take(&mut version_cursor)?;
         next.state = EntryState::ResolveQueued { lane };
-        next.charge_bytes = self.entry_charge(&next)?;
         let version = next.version;
-        self.replace_entry(hash, next)?;
+        self.replace_entry(
+            hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            super::lifecycle::ReplacementMode::Ordinary,
+        )?;
         Ok(version)
     }
 
@@ -175,17 +192,16 @@ impl PrePoolKernel {
     /// Record a dependency level change. This never scans the waiter fan-out while a
     /// TxPool write guard is held; bounded maintenance resumes each ordered
     /// bucket by its last processed exact edge.
-    pub(super) fn note_dependency_changes(
-        &mut self,
+    pub(super) fn plan_dependency_changes_for_cohort(
+        &self,
         keys: impl IntoIterator<Item = DependencyKey>,
-    ) {
+        cohort: &super::lifecycle::CohortPlan,
+    ) -> Result<DependencyChangePlan, PrePoolError> {
         let mut unique = BTreeSet::new();
         unique.extend(keys.into_iter().map(DependencyKey::into_compact));
         let mut planned = Vec::with_capacity(unique.len());
         for key in unique {
-            if !self.dirty.contains_key(&key)
-                && self.waiters.get(&key).is_none_or(|edges| edges.is_empty())
-            {
+            if !self.dirty.contains_key(&key) && self.projected_waiter_count(&key, cohort)? == 0 {
                 continue;
             }
             let epoch = self
@@ -194,9 +210,16 @@ impl PrePoolKernel {
                 .copied()
                 .unwrap_or(0)
                 .checked_add(1)
-                .expect("u128 availability epoch must not exhaust during process lifetime");
+                .ok_or(PrePoolError::CounterExhausted)?;
             planned.push((key, epoch));
         }
+        Ok(DependencyChangePlan(planned))
+    }
+
+    pub(super) fn apply_dependency_change_plan(
+        &mut self,
+        DependencyChangePlan(planned): DependencyChangePlan,
+    ) {
         for (key, epoch) in planned {
             self.availability_epoch.insert(key.clone(), epoch);
             if let Some(dirty) = self.dirty.get_mut(&key) {
@@ -217,11 +240,6 @@ impl PrePoolKernel {
                 self.dirty_order.push_back(key);
             }
         }
-    }
-
-    /// Record levels which became available in the accepted pool/snapshot.
-    pub(crate) fn note_available(&mut self, keys: impl IntoIterator<Item = DependencyKey>) {
-        self.note_dependency_changes(keys);
     }
 
     pub(crate) fn wait_wake_pending(&self) -> bool {
@@ -273,7 +291,7 @@ impl PrePoolKernel {
                 continue;
             };
 
-            examined += 1;
+            examined = examined.saturating_add(1);
             let should_wake = self.entries.get(&edge.hash).is_some_and(|entry| {
                 entry.version == edge.version
                     && match &entry.state {
@@ -285,29 +303,24 @@ impl PrePoolKernel {
                     }
             });
             let wake_plan = if should_wake {
-                let old = self
-                    .entries
-                    .get(&edge.hash)
-                    .cloned()
-                    .expect("wake edge primary was just validated");
-                let mut next = old;
-                next.version = self.next_version;
-                let next_version = self
-                    .next_version
-                    .checked_add(1)
-                    .expect("u128 entry version must not exhaust during process lifetime");
+                let old = self.entries.get(&edge.hash).cloned().ok_or(
+                    PrePoolError::ProjectionInconsistent("wake edge lost its validated primary"),
+                )?;
+                let mut next = old.into_draft();
+                let mut next_version = self.next_version;
+                next.version = EntryVersion::take(&mut next_version)?;
                 next.state = EntryState::ResolveQueued {
                     lane: ResolveLane::Ordered,
                 };
-                next.charge_bytes = self.entry_charge(&next)?;
-                match self.plan_cohort(
-                    vec![(edge.hash.clone(), Some(next))],
-                    next_version,
-                    self.next_arrival,
-                ) {
-                    Ok(plan) => Some(plan),
+                let next = StoredEntry::prepare(next, self.limits)?;
+                let mut desired = MutationSet::default();
+                desired.set_entry(next);
+                match self.compile_cohort(desired, next_version, self.next_arrival) {
+                    Ok(cohort) => Some(cohort),
                     Err(error) if error.is_retryable_capacity_rejection() => {
-                        panic!("wait wake must fit its continuously reserved budget: {error:?}");
+                        return Err(PrePoolError::ProjectionInconsistent(
+                            "wait wake exceeded its continuously reserved budget",
+                        ));
                     }
                     Err(error) => return Err(error),
                 }
@@ -315,14 +328,14 @@ impl PrePoolKernel {
                 None
             };
 
-            let popped = self.dirty_order.pop_front();
-            debug_assert_eq!(popped.as_ref(), Some(&key));
+            self.dirty_order.pop_front();
             if let Some(current) = self.dirty.get_mut(&key) {
                 current.cursor = Some(edge);
             }
             self.dirty_order.push_back(key);
-            if let Some(plan) = wake_plan {
-                self.apply_cohort(plan);
+            if let Some(cohort) = wake_plan {
+                let prepared = self.seal_cohort(cohort, std::iter::empty())?;
+                prepared.apply();
             }
         }
         Ok(examined)
@@ -334,7 +347,7 @@ impl PrePoolKernel {
         &self,
         parents: &HashSet<Byte32>,
         version_cursor: &mut EntryVersion,
-    ) -> Result<Vec<(Byte32, Entry)>, PrePoolError> {
+    ) -> Result<Vec<(Byte32, StoredEntry)>, PrePoolError> {
         let mut affected = BTreeSet::new();
         for parent in parents {
             if let Some(children) = self.by_parent.get(parent) {
@@ -350,45 +363,43 @@ impl PrePoolKernel {
                 .into_iter()
                 .filter(|key| parents.contains(&key.parent_hash()))
                 .collect::<BTreeSet<_>>();
-            assert!(
-                !keys.is_empty(),
-                "every parent projection must have a canonical dependency key"
-            );
+            if keys.is_empty() {
+                return Err(PrePoolError::EmptyWaitDependencies);
+            }
             if let EntryState::Wait(wait) = &entry.state {
                 keys.extend(wait.observed.keys().cloned());
             }
-            let version = *version_cursor;
-            *version_cursor = version_cursor
-                .checked_add(1)
-                .expect("u128 entry version must not exhaust during process lifetime");
-            let mut next = entry;
+            let version = EntryVersion::take(version_cursor)?;
+            let mut next = entry.into_draft();
             next.version = version;
             next.dependencies.extend(keys.iter().cloned());
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Missing,
-                observed: self.observed_dependencies(keys),
+                observed: self.observed_dependencies(keys)?,
             });
-            next.charge_bytes = self.entry_charge(&next)?;
+            let next = StoredEntry::prepare(next, self.limits)?;
             replacements.push((hash, next));
         }
         Ok(replacements)
     }
 
-    pub(crate) fn parents_unavailable(
+    /// Compile the pre-pool half of a cross-authority dependency change.
+    /// Parent-loss demotions and newly available dependency levels share one
+    /// cohort and one exclusive Apply capability; the accepted-pool caller can
+    /// therefore validate both authorities before mutating either one.
+    pub(crate) fn prepare_dependency_reconciliation(
         &mut self,
-        parents: &HashSet<Byte32>,
-    ) -> Result<(), PrePoolError> {
-        let changed_keys = self.dependency_keys_for_parents(parents);
+        unavailable_parents: &HashSet<Byte32>,
+        available: impl IntoIterator<Item = DependencyKey>,
+    ) -> Result<PreparedKernelMutation<'_>, PrePoolError> {
+        let mut changed_keys = self.dependency_keys_for_parents(unavailable_parents);
+        changed_keys.extend(available);
         let mut version_cursor = self.next_version;
-        let desired = self
-            .unavailable_replacements(parents, &mut version_cursor)?
-            .into_iter()
-            .map(|(hash, entry)| (hash, Some(entry)))
-            .collect();
-        let plan = self.plan_cohort(desired, version_cursor, self.next_arrival)?;
-        self.apply_cohort(plan);
-        self.note_dependency_changes(changed_keys);
-        Ok(())
+        let mut desired = MutationSet::default();
+        for (_, entry) in self.unavailable_replacements(unavailable_parents, &mut version_cursor)? {
+            desired.set_entry(entry);
+        }
+        self.prepare_cohort(desired, version_cursor, self.next_arrival, changed_keys)
     }
 
     pub(crate) fn retain_conflict(
@@ -399,10 +410,6 @@ impl PrePoolKernel {
         expires_at: Option<u64>,
     ) -> Result<(bool, Vec<TerminalRecord>), PrePoolError> {
         let hash = raw.tx.hash();
-        assert!(
-            !keys.is_empty(),
-            "conflict history requires at least one wake key"
-        );
         let keys = keys
             .into_iter()
             .map(DependencyKey::into_compact)
@@ -412,7 +419,8 @@ impl PrePoolKernel {
                 .entries
                 .get(&hash)
                 .cloned()
-                .expect("existing conflict owner was just observed");
+                .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
+                .into_draft();
             let trusted_refresh = source == PrePoolSource::Proposal
                 && (next.source != PrePoolSource::Proposal
                     || next.raw.tx.witness_hash() != raw.tx.witness_hash());
@@ -422,71 +430,63 @@ impl PrePoolKernel {
                 next.raw = Arc::new(raw);
                 next.expires_at = None;
             }
-            next.version = self.allocate_version();
+            let mut version_cursor = self.next_version;
+            next.version = EntryVersion::take(&mut version_cursor)?;
             next.dependencies.extend(keys.iter().cloned());
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
-                observed: self.observed_dependencies(keys),
+                observed: self.observed_dependencies(keys)?,
             });
-            next.charge_bytes = self.entry_charge(&next)?;
-            self.replace_entry(&hash, next)?;
+            self.replace_entry(
+                &hash,
+                next,
+                version_cursor,
+                self.next_arrival,
+                super::lifecycle::ReplacementMode::Ordinary,
+            )?;
             return Ok((false, Vec::new()));
         }
 
         let short_id = raw.tx.proposal_short_id();
         if let Some(existing_hash) = self.by_short_id.get(&short_id) {
-            return Err(PrePoolError::ShortIdCollision {
+            return Err(PrePoolError::ShortIdCollision(
                 short_id,
-                existing_hash: existing_hash.clone(),
-            });
+                existing_hash.clone(),
+            ));
         }
-        let version = self.allocate_version();
-        let arrival = self.allocate_arrival();
+        let mut version_cursor = self.next_version;
+        let version = EntryVersion::take(&mut version_cursor)?;
+        let mut arrival_cursor = self.next_arrival;
+        let arrival = Arrival::take(&mut arrival_cursor)?;
         let mut dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty());
         dependencies.extend(keys.iter().cloned());
         let payload_charge_bytes = raw.charge_bytes();
-        let mut entry = Entry {
-            short_id,
+        let entry = Entry {
             raw: Arc::new(raw),
             source,
             state: EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
-                observed: self.observed_dependencies(keys),
+                observed: self.observed_dependencies(keys)?,
             }),
             version,
             arrival,
             expires_at,
             payload_charge_bytes,
-            charge_bytes: 0,
             dependencies,
         };
-        entry.charge_bytes = self.entry_charge(&entry)?;
+        let entry = StoredEntry::prepare(entry, self.limits)?;
         self.validate_entry_shape(&hash, &entry)?;
         let usage_plan = self.plan_usage_delta(None, Some(&entry))?;
+        let mut queue_lengths = self.queues.map(FairQueue::len);
+        self.apply_queue_transition(&mut queue_lengths, None, Some(&entry))?;
         self.apply_usage_plan(usage_plan);
         self.attach_indexes(&hash, &entry);
-        let previous = self.entries.insert(hash, entry);
-        assert!(previous.is_none(), "conflict hash was prevalidated vacant");
-        Ok((true, Vec::new()))
-    }
-
-    pub(crate) fn remove_conflict_hash(&mut self, hash: &Byte32) -> Result<bool, PrePoolError> {
-        let conflict = self.entries.get(hash).is_some_and(|entry| {
-            matches!(
-                entry.state,
-                EntryState::Wait(WaitState {
-                    reason: WaitReason::Conflict,
-                    ..
-                })
-            )
-        });
-        if !conflict {
-            return Ok(false);
+        self.entries.insert(entry.hash().clone(), entry);
+        for (lane, len) in queue_lengths.into_entries() {
+            self.queues.get_mut(lane).set_len(len);
         }
-        // Conflict history is not an executable provider. Its removal is
-        // paired with a winning accepted-pool insertion and the corresponding
-        // availability event at the cross-authority handoff.
-        self.remove_entry_without_dependency_change(hash)
-            .map(|_| true)
+        self.next_version = version_cursor;
+        self.next_arrival = arrival_cursor;
+        Ok((true, Vec::new()))
     }
 }

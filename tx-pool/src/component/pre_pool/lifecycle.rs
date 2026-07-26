@@ -5,6 +5,22 @@ struct ActivePlan {
     owner_updates: [Option<(WorkOwner, usize)>; 2],
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ReplacementMode {
+    Ordinary,
+    Checkout(WorkCapability),
+}
+
+struct EntryReplacementPlan {
+    old: StoredEntry,
+    usage: UsagePlan,
+    active: ActivePlan,
+    queue_lengths: WorkLaneSlots<usize>,
+    checkout: Option<(WorkLane, WorkKey, u128)>,
+    next_version: EntryVersion,
+    next_arrival: Arrival,
+}
+
 /// A bounded multi-entry state change compiled entirely from the current
 /// primary map. Every identity, shape, fan-out and budget predicate is checked
 /// before Apply; Apply only detaches old projections, installs the exact final
@@ -17,15 +33,67 @@ pub(super) struct CohortPlan {
     peer_updates: HashMap<PeerIndex, Residency>,
     active_work: usize,
     owner_updates: BTreeMap<WorkOwner, usize>,
+    queue_lengths: WorkLaneSlots<usize>,
     affected_owners: BTreeSet<WorkOwner>,
     next_version: EntryVersion,
-    next_arrival: u128,
+    next_arrival: Arrival,
+}
+
+/// One final primary action per hash. Stored-entry keys are always derived
+/// from the checked entry itself; callers cannot pair a payload with a
+/// different map key or submit duplicate final actions in a vector.
+#[derive(Clone, Default)]
+pub(super) struct MutationSet(BTreeMap<Byte32, Option<StoredEntry>>);
+
+impl MutationSet {
+    pub(super) fn set_entry(&mut self, entry: StoredEntry) {
+        self.0.insert(entry.hash().clone(), Some(entry));
+    }
+
+    pub(super) fn try_add_entry(&mut self, entry: StoredEntry) -> Result<(), PrePoolError> {
+        let hash = entry.hash().clone();
+        if self.0.contains_key(&hash) {
+            return Err(PrePoolError::DuplicateHash(hash));
+        }
+        self.0.insert(hash, Some(entry));
+        Ok(())
+    }
+
+    pub(super) fn set_remove(&mut self, hash: Byte32) {
+        self.0.insert(hash, None);
+    }
+
+    pub(super) fn take_entry(&mut self, hash: &Byte32) -> Option<StoredEntry> {
+        self.0.remove(hash).flatten()
+    }
+
+    fn into_iter(self) -> impl Iterator<Item = (Byte32, Option<StoredEntry>)> {
+        self.0.into_iter()
+    }
 }
 
 struct EntryChange {
     hash: Byte32,
-    had_old: bool,
-    next: Option<Entry>,
+    old: Option<StoredEntry>,
+    next: Option<StoredEntry>,
+}
+
+/// One exclusive, proof-carrying kernel transaction. The mutable borrow makes
+/// it impossible to mutate the authority between Plan and Apply; private
+/// fields make a partially validated delta impossible to construct outside
+/// this module.
+pub(crate) struct PreparedKernelMutation<'authority> {
+    authority: &'authority mut PrePoolKernel,
+    cohort: CohortPlan,
+    dependency_changes: DependencyChangePlan,
+}
+
+impl PreparedKernelMutation<'_> {
+    pub(crate) fn apply(self) {
+        self.authority.apply_cohort(self.cohort);
+        self.authority
+            .apply_dependency_change_plan(self.dependency_changes);
+    }
 }
 
 impl PrePoolKernel {
@@ -40,59 +108,24 @@ impl PrePoolKernel {
         })
     }
 
-    fn validate_entry_intrinsic(&self, hash: &Byte32, entry: &Entry) -> Result<(), PrePoolError> {
-        assert!(
-            entry.raw.tx.hash() == *hash && entry.raw.tx.proposal_short_id() == entry.short_id,
-            "primary identity must match its retained transaction"
-        );
-        if entry
-            .dependencies
-            .iter()
-            .any(|key| key.parent_hash() == *hash)
-        {
-            return Err(PrePoolError::SelfDependency(hash.clone()));
+    fn validate_entry_intrinsic(
+        &self,
+        hash: &Byte32,
+        entry: &StoredEntry,
+    ) -> Result<(), PrePoolError> {
+        if entry.hash() != hash {
+            return Err(PrePoolError::primary_key_mismatch(
+                hash.clone(),
+                entry.hash().clone(),
+            ));
         }
-        if entry.dependencies.len() > self.limits.max_dependencies_per_entry {
-            return Err(PrePoolError::DependencyLimitExceeded);
-        }
-        assert!(
-            !matches!(&entry.state, EntryState::Wait(wait) if wait.observed.is_empty()),
-            "wait owner must have a dependency key"
-        );
-        if let EntryState::Wait(wait) = &entry.state
-            && wait.observed.len() > self.limits.max_dependencies_per_entry
-        {
-            return Err(PrePoolError::DependencyLimitExceeded);
-        }
-        assert!(
-            !matches!(&entry.state, EntryState::Wait(wait)
-                if wait.observed.keys().any(|key| !entry.dependencies.contains(key))),
-            "every wait dependency must have a canonical primary edge"
-        );
-        if let EntryState::Ready { inputs, rank, .. } = &entry.state {
-            if inputs.is_empty() || inputs.len() > self.limits.max_inputs_per_ready {
-                return Err(PrePoolError::ConflictInputLimitExceeded);
-            }
-            assert!(
-                rank.hash == *hash
-                    && rank.version == entry.version
-                    && rank.arrival == entry.arrival
-                    && rank.source_class == entry.source.priority(),
-                "ready rank must be derived from its primary owner"
-            );
-        }
-        assert_eq!(
-            entry.charge_bytes,
-            self.entry_charge(entry)?,
-            "entry charge must be derived from its primary state"
-        );
         Ok(())
     }
 
     pub(super) fn validate_entry_shape(
         &self,
         hash: &Byte32,
-        entry: &Entry,
+        entry: &StoredEntry,
     ) -> Result<(), PrePoolError> {
         self.validate_entry_intrinsic(hash, entry)?;
         let parents = entry
@@ -132,35 +165,146 @@ impl PrePoolKernel {
         Ok(())
     }
 
+    fn validate_entry_projection(
+        &self,
+        hash: &Byte32,
+        entry: &StoredEntry,
+    ) -> Result<(), PrePoolError> {
+        self.validate_entry_intrinsic(hash, entry)?;
+        if self.by_short_id.get(&entry.short_id()) != Some(hash) {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "short-id projection omits its primary",
+            ));
+        }
+        if let Some(peer) = entry.source.peer()
+            && !self
+                .by_peer
+                .get(&peer)
+                .is_some_and(|hashes| hashes.contains(hash))
+        {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "peer projection omits its primary",
+            ));
+        }
+        for parent in entry
+            .dependencies
+            .iter()
+            .map(DependencyKey::parent_hash)
+            .collect::<BTreeSet<_>>()
+        {
+            if !self
+                .by_parent
+                .get(&parent)
+                .is_some_and(|children| children.contains(hash))
+            {
+                return Err(PrePoolError::ProjectionInconsistent(
+                    "parent projection omits its primary edge",
+                ));
+            }
+        }
+        if let Some(deadline) = Self::deadline_key(hash, entry)
+            && !self.deadlines.contains(&deadline)
+        {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "deadline projection omits its primary",
+            ));
+        }
+        if let Some((lane, key)) = entry.queued_work(hash, self.limits.verify_fee_rate_ordering)
+            && !self.queues.get(lane).contains(&key)
+        {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "work queue omits its primary key",
+            ));
+        }
+        if let EntryState::Wait(wait) = &entry.state {
+            let edge = WaitEdge {
+                hash: hash.clone(),
+                version: entry.version,
+            };
+            for key in wait.observed.keys() {
+                if !self
+                    .waiters
+                    .get(key)
+                    .is_some_and(|edges| edges.contains(&edge))
+                {
+                    return Err(PrePoolError::ProjectionInconsistent(
+                        "waiter projection omits its primary edge",
+                    ));
+                }
+            }
+        }
+        if let EntryState::Ready { payload, inputs } = &entry.state {
+            let rank = entry.ready_key_for(hash, payload);
+            if !self.ready.contains(&rank) {
+                return Err(PrePoolError::ProjectionInconsistent(
+                    "Ready projection omits its primary rank",
+                ));
+            }
+            for input in inputs {
+                if !self
+                    .ready_by_input
+                    .get(input)
+                    .is_some_and(|candidates| candidates.contains(&rank))
+                {
+                    return Err(PrePoolError::ProjectionInconsistent(
+                        "Ready input projection omits its primary rank",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn apply_queue_transition(
+        &self,
+        lengths: &mut WorkLaneSlots<usize>,
+        old: Option<&StoredEntry>,
+        new: Option<&StoredEntry>,
+    ) -> Result<(), PrePoolError> {
+        if let Some(old) = old
+            && let Some((lane, _)) =
+                old.queued_work(old.hash(), self.limits.verify_fee_rate_ordering)
+        {
+            *lengths.get_mut(lane) =
+                lengths
+                    .get(lane)
+                    .checked_sub(1)
+                    .ok_or(PrePoolError::ProjectionInconsistent(
+                        "queue length omits a primary work key",
+                    ))?;
+        }
+        if let Some(new) = new
+            && let Some((lane, _)) =
+                new.queued_work(new.hash(), self.limits.verify_fee_rate_ordering)
+        {
+            *lengths.get_mut(lane) = lengths
+                .get(lane)
+                .checked_add(1)
+                .ok_or(PrePoolError::CounterExhausted)?;
+        }
+        Ok(())
+    }
+
     /// Compile a bounded cohort against exact current primary ownership.
     /// `desired` contains one final primary per changed hash (`None` removes
     /// it). Clocks are supplied by the caller's local planning cursors and are
     /// installed only after a successful total Apply.
-    pub(super) fn plan_cohort(
+    pub(super) fn compile_cohort(
         &self,
-        desired: Vec<(Byte32, Option<Entry>)>,
+        desired: MutationSet,
         next_version: EntryVersion,
-        next_arrival: u128,
+        next_arrival: Arrival,
     ) -> Result<CohortPlan, PrePoolError> {
-        let mut seen = HashSet::with_capacity(desired.len());
-        let mut changes = Vec::with_capacity(desired.len());
-        for (hash, next) in desired {
-            assert!(
-                seen.insert(hash.clone()),
-                "a cohort plan must contain one final primary per hash"
-            );
+        let mut changes = Vec::with_capacity(desired.0.len());
+        for (hash, next) in desired.into_iter() {
             if let Some(next) = &next {
                 self.validate_entry_intrinsic(&hash, next)?;
             }
-            let had_old = self.entries.contains_key(&hash);
-            if !had_old && next.is_none() {
+            let old = self.entries.get(&hash).cloned();
+            if old.is_none() && next.is_none() {
                 continue;
             }
-            changes.push(EntryChange {
-                hash,
-                had_old,
-                next,
-            });
+            changes.push(EntryChange { hash, old, next });
         }
 
         let changed_hashes = changes
@@ -169,39 +313,36 @@ impl PrePoolKernel {
             .collect::<HashSet<_>>();
         let mut final_short_ids = HashMap::<ProposalShortId, Byte32>::new();
         for change in &changes {
-            assert!(
-                self.entries.get(&change.hash).is_none_or(|old| {
-                    self.by_short_id.get(&old.short_id) == Some(&change.hash)
-                }),
-                "short-id projection must match its primary owner"
-            );
+            if let Some(old) = &change.old {
+                self.validate_entry_projection(&change.hash, old)?;
+            }
             let Some(next) = &change.next else {
                 continue;
             };
             if let Some(existing_hash) =
-                final_short_ids.insert(next.short_id.clone(), change.hash.clone())
+                final_short_ids.insert(next.short_id(), change.hash.clone())
                 && existing_hash != change.hash
             {
-                return Err(PrePoolError::ShortIdCollision {
-                    short_id: next.short_id.clone(),
+                return Err(PrePoolError::ShortIdCollision(
+                    next.short_id(),
                     existing_hash,
-                });
+                ));
             }
-            if let Some(existing_hash) = self.by_short_id.get(&next.short_id)
+            if let Some(existing_hash) = self.by_short_id.get(&next.short_id())
                 && existing_hash != &change.hash
                 && !changed_hashes.contains(existing_hash)
             {
-                return Err(PrePoolError::ShortIdCollision {
-                    short_id: next.short_id.clone(),
-                    existing_hash: existing_hash.clone(),
-                });
+                return Err(PrePoolError::ShortIdCollision(
+                    next.short_id(),
+                    existing_hash.clone(),
+                ));
             }
         }
 
         let mut parent_counts = HashMap::<Byte32, usize>::new();
         let mut input_counts = HashMap::<OutPoint, usize>::new();
         for change in &changes {
-            if let Some(old) = self.entries.get(&change.hash) {
+            if let Some(old) = &change.old {
                 for parent in old
                     .dependencies
                     .iter()
@@ -213,16 +354,21 @@ impl PrePoolKernel {
                         .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
                     *count = count
                         .checked_sub(1)
-                        .expect("parent projection must cover every primary edge");
+                        .ok_or(PrePoolError::ProjectionInconsistent(
+                            "parent projection omits a primary edge",
+                        ))?;
                 }
                 if let EntryState::Ready { inputs, .. } = &old.state {
                     for input in inputs {
                         let count = input_counts.entry(input.clone()).or_insert_with(|| {
                             self.ready_by_input.get(input).map_or(0, BTreeSet::len)
                         });
-                        *count = count
-                            .checked_sub(1)
-                            .expect("ready-input projection must cover every primary edge");
+                        *count =
+                            count
+                                .checked_sub(1)
+                                .ok_or(PrePoolError::ProjectionInconsistent(
+                                    "ready-input projection omits a primary edge",
+                                ))?;
                     }
                 }
             }
@@ -269,32 +415,49 @@ impl PrePoolKernel {
         let mut owner_updates = BTreeMap::<WorkOwner, usize>::new();
         let mut affected_owners = BTreeSet::new();
         let mut active_work = self.active_work;
+        let mut queue_lengths = self.queues.map(FairQueue::len);
         for change in &changes {
-            if let Some(old) = self.entries.get(&change.hash) {
-                let charge = Residency::new(1, old.charge_bytes);
-                total_usage = total_usage
-                    .checked_sub(charge)
-                    .expect("total usage must cover every cohort primary");
-                if let Some(peer) = old.source.peer() {
-                    remote_usage = remote_usage
+            self.apply_queue_transition(
+                &mut queue_lengths,
+                change.old.as_ref(),
+                change.next.as_ref(),
+            )?;
+            if let Some(old) = &change.old {
+                let charge = Residency::new(1, old.charge_bytes());
+                total_usage =
+                    total_usage
                         .checked_sub(charge)
-                        .expect("remote usage must cover every remote cohort primary");
+                        .ok_or(PrePoolError::ProjectionInconsistent(
+                            "total usage omits a cohort primary",
+                        ))?;
+                if let Some(peer) = old.source.peer() {
+                    remote_usage = remote_usage.checked_sub(charge).ok_or(
+                        PrePoolError::ProjectionInconsistent("remote usage omits a cohort primary"),
+                    )?;
                     let usage = peer_updates
                         .entry(peer)
                         .or_insert_with(|| self.peer_usage.get(&peer).copied().unwrap_or_default());
-                    *usage = usage
-                        .checked_sub(charge)
-                        .expect("peer usage must cover every peer cohort primary");
+                    *usage =
+                        usage
+                            .checked_sub(charge)
+                            .ok_or(PrePoolError::ProjectionInconsistent(
+                                "peer usage omits a cohort primary",
+                            ))?;
                 }
                 if Self::is_conflict(old) {
-                    conflict_usage = conflict_usage
-                        .checked_sub(charge)
-                        .expect("conflict usage must cover every conflict primary");
+                    conflict_usage = conflict_usage.checked_sub(charge).ok_or(
+                        PrePoolError::ProjectionInconsistent(
+                            "conflict usage omits a cohort primary",
+                        ),
+                    )?;
                 }
                 if let Some(owner) = Self::active_owner(old.source, &old.state) {
-                    active_work = active_work
-                        .checked_sub(1)
-                        .expect("active-work usage must cover every active primary");
+                    active_work =
+                        active_work
+                            .checked_sub(1)
+                            .ok_or(PrePoolError::ProjectionInconsistent(
+                                "active-work usage omits an active primary",
+                            ))?;
                     let active = owner_updates.entry(owner).or_insert_with(|| {
                         self.active_by_owner
                             .get(&owner)
@@ -303,12 +466,14 @@ impl PrePoolKernel {
                     });
                     *active = active
                         .checked_sub(1)
-                        .expect("active-owner usage must cover every active primary");
+                        .ok_or(PrePoolError::ProjectionInconsistent(
+                            "active-owner usage omits an active primary",
+                        ))?;
                 }
                 affected_owners.insert(old.source.into());
             }
             if let Some(next) = &change.next {
-                let charge = Residency::new(1, next.charge_bytes);
+                let charge = Residency::new(1, next.charge_bytes());
                 total_usage = total_usage
                     .checked_add(charge)
                     .ok_or(PrePoolError::ResidencyChargeOverflow)?;
@@ -377,16 +542,48 @@ impl PrePoolKernel {
             peer_updates,
             active_work,
             owner_updates,
+            queue_lengths,
             affected_owners,
             next_version,
             next_arrival,
         })
     }
 
-    /// Total half of [`Self::plan_cohort`]. Any failure here is an internal
+    /// Compile every fallible primary, projection, budget, clock and
+    /// dependency-publication predicate, then retain the authority's unique
+    /// mutable borrow until the resulting transaction is consumed or dropped.
+    pub(super) fn prepare_cohort(
+        &mut self,
+        desired: MutationSet,
+        next_version: EntryVersion,
+        next_arrival: Arrival,
+        dependency_changes: impl IntoIterator<Item = DependencyKey>,
+    ) -> Result<PreparedKernelMutation<'_>, PrePoolError> {
+        let cohort = self.compile_cohort(desired, next_version, next_arrival)?;
+        self.seal_cohort(cohort, dependency_changes)
+    }
+
+    /// Seal a selected read-only delta only after all fallback policy has
+    /// finished. Callers may compile alternative policies, but only this
+    /// method creates the exclusive capability required to Apply one.
+    pub(super) fn seal_cohort(
+        &mut self,
+        cohort: CohortPlan,
+        dependency_changes: impl IntoIterator<Item = DependencyKey>,
+    ) -> Result<PreparedKernelMutation<'_>, PrePoolError> {
+        let dependency_changes =
+            self.plan_dependency_changes_for_cohort(dependency_changes, &cohort)?;
+        Ok(PreparedKernelMutation {
+            authority: self,
+            cohort,
+            dependency_changes,
+        })
+    }
+
+    /// Total half of [`Self::prepare_cohort`]. Any failure here is an internal
     /// invariant violation; no transaction-shaped input is interpreted after
     /// the first projection mutation.
-    pub(super) fn apply_cohort(
+    fn apply_cohort(
         &mut self,
         CohortPlan {
             changes,
@@ -396,6 +593,7 @@ impl PrePoolKernel {
             peer_updates,
             active_work,
             owner_updates,
+            queue_lengths,
             affected_owners,
             next_version,
             next_arrival,
@@ -421,26 +619,52 @@ impl PrePoolKernel {
         }
 
         for change in &changes {
-            if change.had_old {
-                let old = self
-                    .entries
-                    .remove(&change.hash)
-                    .expect("cohort old primary was prevalidated");
-                self.detach_indexes(&change.hash, &old);
+            if let Some(old) = &change.old {
+                self.detach_indexes(&change.hash, old);
+                self.entries.remove(&change.hash);
             }
         }
         for change in changes {
             if let Some(next) = change.next {
                 self.attach_indexes(&change.hash, &next);
-                let previous = self.entries.insert(change.hash, next);
-                assert!(previous.is_none(), "cohort hash was detached before attach");
+                self.entries.insert(change.hash, next);
             }
+        }
+        for (lane, len) in queue_lengths.into_entries() {
+            self.queues.get_mut(lane).set_len(len);
         }
         self.next_version = next_version;
         self.next_arrival = next_arrival;
         for owner in affected_owners {
             self.refresh_owner_runnable(owner);
         }
+    }
+
+    pub(super) fn projected_waiter_count(
+        &self,
+        key: &DependencyKey,
+        cohort: &CohortPlan,
+    ) -> Result<usize, PrePoolError> {
+        let mut count = self.waiters.get(key).map_or(0, BTreeSet::len);
+        for change in &cohort.changes {
+            if change.old.as_ref().is_some_and(|entry| {
+                matches!(&entry.state, EntryState::Wait(wait) if wait.observed.contains_key(key))
+            }) {
+                count = count
+                    .checked_sub(1)
+                    .ok_or(PrePoolError::ProjectionInconsistent(
+                        "waiter projection omits a cohort primary edge",
+                    ))?;
+            }
+            if change.next.as_ref().is_some_and(|entry| {
+                matches!(&entry.state, EntryState::Wait(wait) if wait.observed.contains_key(key))
+            }) {
+                count = count
+                    .checked_add(1)
+                    .ok_or(PrePoolError::CounterExhausted)?;
+            }
+        }
+        Ok(count)
     }
 
     pub(super) fn deadline_key(hash: &Byte32, entry: &Entry) -> Option<DeadlineKey> {
@@ -453,15 +677,8 @@ impl PrePoolKernel {
 
     pub(super) fn attach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
         self.attach_common_indexes(hash, entry);
-        if let Some(key) = entry.work_key(hash, self.limits.verify_fee_rate_ordering) {
-            let lane = match entry.state {
-                EntryState::ResolveQueued { lane } => Self::lane_for_resolve(lane),
-                EntryState::VerifyQueued { .. } => WorkLane::Verify,
-                _ => unreachable!("work key exists only for a queued state"),
-            };
-            self.queues[lane.index()]
-                .insert(key)
-                .expect("validated entry has one exact queue key");
+        if let Some((lane, key)) = entry.queued_work(hash, self.limits.verify_fee_rate_ordering) {
+            self.queues.get_mut(lane).apply_insert(key);
             self.refresh_owner_runnable(entry.source.into());
         }
         if let EntryState::Wait(wait) = &entry.state {
@@ -473,40 +690,25 @@ impl PrePoolKernel {
                 self.waiters
                     .entry(key.clone())
                     .or_default()
-                    .insert(edge.clone())
-                    .then_some(())
-                    .expect("wait edge is uniquely derived from primary state");
+                    .insert(edge.clone());
             }
         }
-        if let EntryState::Ready { inputs, rank, .. } = &entry.state {
-            assert!(
-                self.ready.insert(rank.clone()),
-                "ready rank is uniquely derived from primary state"
-            );
+        if let EntryState::Ready { payload, inputs } = &entry.state {
+            let rank = entry.ready_key_for(hash, payload);
+            self.ready.insert(rank.clone());
             for input in inputs {
-                assert!(
-                    self.ready_by_input
-                        .entry(input.clone())
-                        .or_default()
-                        .insert(rank.clone()),
-                    "ready input rank is uniquely derived from primary state"
-                );
+                self.ready_by_input
+                    .entry(input.clone())
+                    .or_default()
+                    .insert(rank.clone());
             }
         }
     }
 
     fn attach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
-        assert!(
-            self.by_short_id
-                .insert(entry.short_id.clone(), hash.clone())
-                .is_none(),
-            "short-id slot was prevalidated vacant"
-        );
+        self.by_short_id.insert(entry.short_id(), hash.clone());
         if let Some(peer) = entry.source.peer() {
-            assert!(
-                self.by_peer.entry(peer).or_default().insert(hash.clone()),
-                "peer projection is uniquely derived from primary state"
-            );
+            self.by_peer.entry(peer).or_default().insert(hash.clone());
         }
         for parent in entry
             .dependencies
@@ -514,33 +716,36 @@ impl PrePoolKernel {
             .map(DependencyKey::parent_hash)
             .collect::<BTreeSet<_>>()
         {
-            assert!(
-                self.by_parent
-                    .entry(parent)
-                    .or_default()
-                    .insert(hash.clone()),
-                "parent projection is uniquely derived from primary state"
-            );
+            self.by_parent
+                .entry(parent)
+                .or_default()
+                .insert(hash.clone());
         }
         if let Some(deadline) = Self::deadline_key(hash, entry) {
-            assert!(
-                self.deadlines.insert(deadline),
-                "deadline is uniquely derived from primary state"
-            );
+            self.deadlines.insert(deadline);
         }
     }
 
     pub(super) fn detach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.detach_indexes_with_checkout(hash, entry, None);
+    }
+
+    fn detach_indexes_with_checkout(
+        &mut self,
+        hash: &Byte32,
+        entry: &Entry,
+        checkout: Option<(WorkLane, WorkKey, u128)>,
+    ) {
         self.detach_common_indexes(hash, entry);
-        if let Some(key) = entry.work_key(hash, self.limits.verify_fee_rate_ordering) {
-            let lane = match entry.state {
-                EntryState::ResolveQueued { lane } => Self::lane_for_resolve(lane),
-                EntryState::VerifyQueued { .. } => WorkLane::Verify,
-                _ => unreachable!("work key exists only for a queued state"),
-            };
-            self.queues[lane.index()]
-                .remove(&key)
-                .expect("primary queued state owns its exact queue key");
+        if let Some((lane, key)) = entry.queued_work(hash, self.limits.verify_fee_rate_ordering) {
+            match checkout {
+                Some((checkout_lane, checkout_key, next_turn))
+                    if checkout_lane == lane && checkout_key == key =>
+                {
+                    self.queues.get_mut(lane).apply_checkout(&key, next_turn);
+                }
+                _ => self.queues.get_mut(lane).apply_remove(&key),
+            }
         }
         if let EntryState::Wait(wait) = &entry.state {
             let edge = WaitEdge {
@@ -548,15 +753,11 @@ impl PrePoolKernel {
                 version: entry.version,
             };
             for key in wait.observed.keys() {
-                let edges = self
-                    .waiters
-                    .get_mut(key)
-                    .expect("wait primary owns a dependency bucket");
-                assert!(
-                    edges.remove(&edge),
-                    "wait primary owns its exact dependency edge"
-                );
-                if edges.is_empty() {
+                let empty = self.waiters.get_mut(key).is_none_or(|edges| {
+                    edges.remove(&edge);
+                    edges.is_empty()
+                });
+                if empty {
                     self.waiters.remove(key);
                     if !self.dirty.contains_key(key) {
                         self.availability_epoch.remove(key);
@@ -564,18 +765,15 @@ impl PrePoolKernel {
                 }
             }
         }
-        if let EntryState::Ready { inputs, rank, .. } = &entry.state {
-            assert!(self.ready.remove(rank), "ready primary owns its exact rank");
+        if let EntryState::Ready { payload, inputs } = &entry.state {
+            let rank = entry.ready_key_for(hash, payload);
+            self.ready.remove(&rank);
             for input in inputs {
-                let candidates = self
-                    .ready_by_input
-                    .get_mut(input)
-                    .expect("ready primary owns an input bucket");
-                assert!(
-                    candidates.remove(rank),
-                    "ready primary owns its exact input rank"
-                );
-                if candidates.is_empty() {
+                let empty = self.ready_by_input.get_mut(input).is_none_or(|candidates| {
+                    candidates.remove(&rank);
+                    candidates.is_empty()
+                });
+                if empty {
                     self.ready_by_input.remove(input);
                 }
             }
@@ -583,21 +781,15 @@ impl PrePoolKernel {
     }
 
     fn detach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
-        assert_eq!(
-            self.by_short_id.remove(&entry.short_id).as_ref(),
-            Some(hash),
-            "primary owns its exact short-id slot"
-        );
+        if self.by_short_id.get(&entry.short_id()) == Some(hash) {
+            self.by_short_id.remove(&entry.short_id());
+        }
         if let Some(peer) = entry.source.peer() {
-            let hashes = self
-                .by_peer
-                .get_mut(&peer)
-                .expect("remote primary owns a peer bucket");
-            assert!(
-                hashes.remove(hash),
-                "primary owns its exact peer projection"
-            );
-            if hashes.is_empty() {
+            let empty = self.by_peer.get_mut(&peer).is_none_or(|hashes| {
+                hashes.remove(hash);
+                hashes.is_empty()
+            });
+            if empty {
                 self.by_peer.remove(&peer);
             }
         }
@@ -607,69 +799,93 @@ impl PrePoolKernel {
             .map(DependencyKey::parent_hash)
             .collect::<BTreeSet<_>>()
         {
-            let children = self
-                .by_parent
-                .get_mut(&parent)
-                .expect("dependent primary owns a parent bucket");
-            assert!(
-                children.remove(hash),
-                "primary owns its exact parent projection"
-            );
-            if children.is_empty() {
+            let empty = self.by_parent.get_mut(&parent).is_none_or(|children| {
+                children.remove(hash);
+                children.is_empty()
+            });
+            if empty {
                 self.by_parent.remove(&parent);
             }
         }
         if let Some(deadline) = Self::deadline_key(hash, entry) {
-            assert!(
-                self.deadlines.remove(&deadline),
-                "primary owns its exact deadline"
-            );
+            self.deadlines.remove(&deadline);
         }
     }
 
     fn plan_entry_replacement(
         &self,
         hash: &Byte32,
-        next: &Entry,
-    ) -> Result<(UsagePlan, ActivePlan), PrePoolError> {
+        next: &StoredEntry,
+        mode: ReplacementMode,
+        next_version: EntryVersion,
+        next_arrival: Arrival,
+    ) -> Result<EntryReplacementPlan, PrePoolError> {
         self.validate_entry_shape(hash, next)?;
         let old = self
             .entries
             .get(hash)
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        if old.short_id != next.short_id
-            && let Some(existing_hash) = self.by_short_id.get(&next.short_id)
+        self.validate_entry_projection(hash, old)?;
+        if old.short_id() != next.short_id()
+            && let Some(existing_hash) = self.by_short_id.get(&next.short_id())
         {
-            return Err(PrePoolError::ShortIdCollision {
-                short_id: next.short_id.clone(),
-                existing_hash: existing_hash.clone(),
-            });
+            return Err(PrePoolError::ShortIdCollision(
+                next.short_id(),
+                existing_hash.clone(),
+            ));
         }
         let usage = self.plan_usage_delta(Some(old), Some(next))?;
         let active = self.plan_active_transition(
             Self::active_owner(old.source, &old.state),
             Self::active_owner(next.source, &next.state),
         )?;
-        Ok((usage, active))
+        let mut queue_lengths = self.queues.map(FairQueue::len);
+        self.apply_queue_transition(&mut queue_lengths, Some(old), Some(next))?;
+        let checkout = match mode {
+            ReplacementMode::Ordinary => None,
+            ReplacementMode::Checkout(capability) => {
+                let (lane, key) = old
+                    .queued_work(hash, self.limits.verify_fee_rate_ordering)
+                    .ok_or(PrePoolError::ProjectionInconsistent(
+                        "queued checkout source has no work key",
+                    ))?;
+                let next_turn = self.queues.get(lane).plan_checkout(&key, capability)?;
+                Some((lane, key, next_turn))
+            }
+        };
+        Ok(EntryReplacementPlan {
+            old: old.clone(),
+            usage,
+            active,
+            queue_lengths,
+            checkout,
+            next_version,
+            next_arrival,
+        })
     }
 
-    pub(super) fn replace_entry(&mut self, hash: &Byte32, next: Entry) -> Result<(), PrePoolError> {
-        let (usage_plan, active_plan) = self.plan_entry_replacement(hash, &next)?;
-        let old = self
-            .entries
-            .remove(hash)
-            .expect("replacement primary was prevalidated");
-        let old_source = old.source;
-        self.detach_indexes(hash, &old);
-        self.apply_usage_plan(usage_plan);
+    pub(super) fn replace_entry(
+        &mut self,
+        hash: &Byte32,
+        next: Entry,
+        next_version: EntryVersion,
+        next_arrival: Arrival,
+        mode: ReplacementMode,
+    ) -> Result<(), PrePoolError> {
+        let next = StoredEntry::prepare(next, self.limits)?;
+        let plan = self.plan_entry_replacement(hash, &next, mode, next_version, next_arrival)?;
+        let old_source = plan.old.source;
+        self.detach_indexes_with_checkout(hash, &plan.old, plan.checkout);
+        self.apply_usage_plan(plan.usage);
         self.attach_indexes(hash, &next);
         let next_source = next.source;
-        let previous = self.entries.insert(hash.clone(), next);
-        assert!(
-            previous.is_none(),
-            "replacement primary was detached before attach"
-        );
-        self.apply_active_plan(active_plan);
+        self.entries.insert(hash.clone(), next);
+        for (lane, len) in plan.queue_lengths.into_entries() {
+            self.queues.get_mut(lane).set_len(len);
+        }
+        self.next_version = plan.next_version;
+        self.next_arrival = plan.next_arrival;
+        self.apply_active_plan(plan.active);
         self.refresh_owner_runnable(old_source.into());
         self.refresh_owner_runnable(next_source.into());
         Ok(())
@@ -679,25 +895,35 @@ impl PrePoolKernel {
         &mut self,
         hash: &Byte32,
     ) -> Result<TerminalRecord, PrePoolError> {
-        let (active_plan, usage_plan) = {
+        let (active_plan, usage_plan, queue_lengths) = {
             let entry = self
                 .entries
                 .get(hash)
                 .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+            self.validate_entry_projection(hash, entry)?;
             let old_active = Self::active_owner(entry.source, &entry.state);
+            let mut queue_lengths = self.queues.map(FairQueue::len);
+            self.apply_queue_transition(&mut queue_lengths, Some(entry), None)?;
             (
                 self.plan_active_transition(old_active, None)?,
                 self.plan_usage_delta(Some(entry), None)?,
+                queue_lengths,
             )
         };
         let entry = self
             .entries
             .remove(hash)
-            .expect("remove prevalidated primary entry");
+            .ok_or(PrePoolError::ProjectionInconsistent(
+                "prepared removal lost its primary",
+            ))?;
         self.detach_indexes(hash, &entry);
         self.apply_usage_plan(usage_plan);
         self.apply_active_plan(active_plan);
+        for (lane, len) in queue_lengths.into_entries() {
+            self.queues.get_mut(lane).set_len(len);
+        }
         self.refresh_owner_runnable(entry.source.into());
+        let entry = entry.into_draft();
         Ok(TerminalRecord {
             hash: hash.clone(),
             raw: entry.raw,
@@ -730,26 +956,24 @@ impl PrePoolKernel {
         let records = present
             .iter()
             .map(|hash| {
-                self.terminal_record(hash)
-                    .expect("present unavailable cohort member has a terminal record")
+                self.terminal_record(hash).ok_or_else(|| {
+                    PrePoolError::ProjectionInconsistent(
+                        "present unavailable cohort member lost its primary",
+                    )
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let mut version_cursor = self.next_version;
-        let mut desired = self
-            .unavailable_replacements(&parents, &mut version_cursor)?
-            .into_iter()
-            .map(|(hash, entry)| (hash, Some(entry)))
-            .collect::<BTreeMap<_, _>>();
-        for hash in present {
-            desired.insert(hash, None);
+        let mut desired = MutationSet::default();
+        for (_, entry) in self.unavailable_replacements(&parents, &mut version_cursor)? {
+            desired.set_entry(entry);
         }
-        let plan = self.plan_cohort(
-            desired.into_iter().collect(),
-            version_cursor,
-            self.next_arrival,
-        )?;
-        self.apply_cohort(plan);
-        self.note_dependency_changes(changed_keys);
+        for hash in present {
+            desired.set_remove(hash);
+        }
+        let prepared =
+            self.prepare_cohort(desired, version_cursor, self.next_arrival, changed_keys)?;
+        prepared.apply();
         Ok(records)
     }
 
@@ -777,25 +1001,21 @@ impl PrePoolKernel {
         hash: &Byte32,
         version: EntryVersion,
         expected: PrePoolLocation,
-    ) -> Result<&Entry, PrePoolError> {
+    ) -> Result<&StoredEntry, PrePoolError> {
         let entry = self
             .entries
             .get(hash)
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
         if entry.version != version {
-            return Err(PrePoolError::Stale {
-                hash: hash.clone(),
-                expected: version,
-                actual: entry.version,
-            });
+            return Err(PrePoolError::stale(hash.clone(), version, entry.version));
         }
         let actual = entry.state.location();
         if actual != expected {
-            return Err(PrePoolError::LocationMismatch {
-                hash: hash.clone(),
+            return Err(PrePoolError::location_mismatch(
+                hash.clone(),
                 expected,
                 actual,
-            });
+            ));
         }
         Ok(entry)
     }
@@ -834,7 +1054,9 @@ impl PrePoolKernel {
             .active_work
             .checked_sub(usize::from(old.is_some()))
             .and_then(|value| value.checked_add(usize::from(new.is_some())))
-            .expect("active-work usage must match active primaries");
+            .ok_or(PrePoolError::ProjectionInconsistent(
+                "active-work usage does not match primary ownership",
+            ))?;
         if active_work > self.limits.max_active_work {
             return Err(PrePoolError::ActiveWorkLimitExceeded);
         }
@@ -846,7 +1068,9 @@ impl PrePoolKernel {
                 .unwrap_or_default()
                 .checked_sub(usize::from(old == Some(owner)))
                 .and_then(|value| value.checked_add(usize::from(new == Some(owner))))
-                .expect("active-owner usage must match active primaries");
+                .ok_or(PrePoolError::ProjectionInconsistent(
+                    "active-owner usage does not match primary ownership",
+                ))?;
             if active > self.owner_active_limit(owner) {
                 return Err(Self::active_limit_error(owner));
             }
@@ -886,58 +1110,62 @@ impl PrePoolKernel {
         let runnable = self.active_work < self.limits.max_active_work
             && active < self.owner_active_limit(owner);
         for lane in [WorkLane::Ingress, WorkLane::Resolve, WorkLane::Verify] {
-            self.queues[lane.index()].set_runnable(owner, runnable);
+            self.queues.get_mut(lane).set_runnable(owner, runnable);
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn admit(
         &mut self,
-        hash: Byte32,
-        short_id: ProposalShortId,
         raw: PipelineRawTx,
         lane: ResolveLane,
         source: PrePoolSource,
         expires_at: Option<u64>,
-        raw_bytes: usize,
         dependencies: BTreeSet<DependencyKey>,
     ) -> Result<EntryVersion, PrePoolError> {
-        let hash = crate::util::compact_packed(&hash);
-        let short_id = crate::util::compact_packed(&short_id);
+        let hash = crate::util::compact_packed(&raw.tx.hash());
+        let short_id = crate::util::compact_packed(&raw.tx.proposal_short_id());
         if self.entries.contains_key(&hash) {
             return Err(PrePoolError::DuplicateHash(hash));
         }
         if let Some(existing_hash) = self.by_short_id.get(&short_id) {
-            return Err(PrePoolError::ShortIdCollision {
+            return Err(PrePoolError::ShortIdCollision(
                 short_id,
-                existing_hash: existing_hash.clone(),
-            });
+                existing_hash.clone(),
+            ));
         }
         let dependencies = dependencies
             .into_iter()
             .map(DependencyKey::into_compact)
             .collect::<BTreeSet<_>>();
-        let version = self.allocate_version();
-        let arrival = self.allocate_arrival();
-        let mut entry = Entry {
-            short_id,
+        let mut version_cursor = self.next_version;
+        let version = EntryVersion::take(&mut version_cursor)?;
+        let mut arrival_cursor = self.next_arrival;
+        let arrival = Arrival::take(&mut arrival_cursor)?;
+        let payload_charge_bytes = raw.charge_bytes();
+        let entry = Entry {
             raw: Arc::new(raw),
             source,
             state: EntryState::ResolveQueued { lane },
             version,
             arrival,
             expires_at,
-            payload_charge_bytes: raw_bytes,
-            charge_bytes: 0,
+            payload_charge_bytes,
             dependencies,
         };
-        entry.charge_bytes = self.entry_charge(&entry)?;
+        let entry = StoredEntry::prepare(entry, self.limits)?;
         self.validate_entry_shape(&hash, &entry)?;
         let usage_plan = self.plan_usage_delta(None, Some(&entry))?;
+        let mut queue_lengths = self.queues.map(FairQueue::len);
+        self.apply_queue_transition(&mut queue_lengths, None, Some(&entry))?;
         self.apply_usage_plan(usage_plan);
         self.attach_indexes(&hash, &entry);
-        let previous = self.entries.insert(hash, entry);
-        assert!(previous.is_none(), "admission hash was prevalidated vacant");
+        self.entries.insert(entry.hash().clone(), entry);
+        for (lane, len) in queue_lengths.into_entries() {
+            self.queues.get_mut(lane).set_len(len);
+        }
+        self.next_version = version_cursor;
+        self.next_arrival = arrival_cursor;
         Ok(version)
     }
 
@@ -946,28 +1174,33 @@ impl PrePoolKernel {
             .entries
             .get(hash)
             .cloned()
-            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
+            .into_draft();
         if next.source == PrePoolSource::Proposal {
             return Ok(next.version);
         }
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
+        let mut version_cursor = self.next_version;
         if let EntryState::Wait(wait) = &next.state
             && wait.reason == WaitReason::Missing
         {
-            next.version = self.allocate_version();
+            next.version = EntryVersion::take(&mut version_cursor)?;
             next.state = EntryState::ResolveQueued {
                 lane: ResolveLane::Ordered,
             };
         }
-        if let EntryState::Ready { rank, .. } = &mut next.state {
-            next.version = self.allocate_version();
-            rank.source_class = PrePoolSource::Proposal.priority();
-            rank.version = next.version;
+        if let EntryState::Ready { .. } = &mut next.state {
+            next.version = EntryVersion::take(&mut version_cursor)?;
         }
-        next.charge_bytes = self.entry_charge(&next)?;
         let version = next.version;
-        self.replace_entry(hash, next)?;
+        self.replace_entry(
+            hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            ReplacementMode::Ordinary,
+        )?;
         Ok(version)
     }
 
@@ -982,16 +1215,23 @@ impl PrePoolKernel {
             .entries
             .get(hash)
             .cloned()
-            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
+            .into_draft();
         next.raw = Arc::new(raw);
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
-        next.version = self.allocate_version();
+        let mut version_cursor = self.next_version;
+        next.version = EntryVersion::take(&mut version_cursor)?;
         next.payload_charge_bytes = raw_bytes;
         next.state = EntryState::ResolveQueued { lane };
-        next.charge_bytes = self.entry_charge(&next)?;
         let version = next.version;
-        self.replace_entry(hash, next)?;
+        self.replace_entry(
+            hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            ReplacementMode::Ordinary,
+        )?;
         Ok(version)
     }
 
@@ -1000,33 +1240,30 @@ impl PrePoolKernel {
         lane: ResolveLane,
     ) -> Result<Option<ResolveLease>, PrePoolError> {
         let work_lane = Self::lane_for_resolve(lane);
-        let Some(key) = self.queues[work_lane.index()]
+        let Some(key) = self
+            .queues
+            .get(work_lane)
             .peek(WorkCapability::Any)
             .cloned()
         else {
             return Ok(None);
         };
-        self.validate_location(&key.hash, key.version, PrePoolLocation::ResolveQueued)?;
-        let version = self.allocate_version();
         let mut next = self
-            .entries
-            .get(&key.hash)
-            .cloned()
-            .expect("validated resolve queue head remains present");
+            .validate_location(&key.hash, key.version, PrePoolLocation::ResolveQueued)?
+            .clone()
+            .into_draft();
+        let mut version_cursor = self.next_version;
+        let version = EntryVersion::take(&mut version_cursor)?;
         next.version = version;
         next.state = EntryState::ResolveLeased;
-        next.charge_bytes = self.entry_charge(&next)?;
-        let (usage_plan, active_plan) = self.plan_entry_replacement(&key.hash, &next)?;
-        let popped = self.queues[work_lane.index()].pop(WorkCapability::Any)?;
-        assert_eq!(
-            popped.as_ref(),
-            Some(&key),
-            "resolve queue head cannot change inside the kernel lock"
-        );
         let payload = Arc::clone(&next.raw);
-        // The queue key was removed directly by pop. Replace only the primary
-        // and non-queue indexes to avoid attempting a second exact removal.
-        self.replace_after_queue_pop(&key.hash, next, usage_plan, active_plan);
+        self.replace_entry(
+            &key.hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            ReplacementMode::Checkout(WorkCapability::Any),
+        )?;
         Ok(Some(ResolveLease {
             hash: key.hash,
             lane,
@@ -1061,21 +1298,28 @@ impl PrePoolKernel {
     ) -> Result<EntryVersion, PrePoolError> {
         let mut next = self
             .validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?
-            .clone();
+            .clone()
+            .into_draft();
         next.dependencies.extend(
             discovered_dependencies
                 .into_iter()
                 .map(DependencyKey::into_compact),
         );
-        next.version = self.allocate_version();
+        let mut version_cursor = self.next_version;
+        next.version = EntryVersion::take(&mut version_cursor)?;
         next.payload_charge_bytes = charge_bytes;
         next.state = EntryState::VerifyQueued {
             payload: Arc::new(resolved),
             schedule,
         };
-        next.charge_bytes = self.entry_charge(&next)?;
         let version = next.version;
-        self.replace_entry(&lease.hash, next)?;
+        self.replace_entry(
+            &lease.hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            ReplacementMode::Ordinary,
+        )?;
         Ok(version)
     }
 
@@ -1084,33 +1328,34 @@ impl PrePoolKernel {
         capability: WorkCapability,
     ) -> Result<Option<VerifyLease>, PrePoolError> {
         let lane = WorkLane::Verify;
-        let Some(key) = self.queues[lane.index()].peek(capability).cloned() else {
+        let Some(key) = self.queues.get(lane).peek(capability).cloned() else {
             return Ok(None);
         };
-        self.validate_location(&key.hash, key.version, PrePoolLocation::VerifyQueued)?;
-        let version = self.allocate_version();
         let mut next = self
-            .entries
-            .get(&key.hash)
-            .cloned()
-            .expect("validated verify queue head remains present");
+            .validate_location(&key.hash, key.version, PrePoolLocation::VerifyQueued)?
+            .clone()
+            .into_draft();
         let payload = match &next.state {
             EntryState::VerifyQueued { payload, .. } => Arc::clone(payload),
-            _ => unreachable!(),
+            _ => {
+                return Err(PrePoolError::ProjectionInconsistent(
+                    "VerifyQueued location contains a non-VerifyQueued state",
+                ));
+            }
         };
+        let mut version_cursor = self.next_version;
+        let version = EntryVersion::take(&mut version_cursor)?;
         next.version = version;
         next.state = EntryState::VerifyLeased {
             payload: Arc::clone(&payload),
         };
-        next.charge_bytes = self.entry_charge(&next)?;
-        let (usage_plan, active_plan) = self.plan_entry_replacement(&key.hash, &next)?;
-        let popped = self.queues[lane.index()].pop(capability)?;
-        assert_eq!(
-            popped.as_ref(),
-            Some(&key),
-            "verify queue head cannot change inside the kernel lock"
-        );
-        self.replace_after_queue_pop(&key.hash, next, usage_plan, active_plan);
+        self.replace_entry(
+            &key.hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            ReplacementMode::Checkout(capability),
+        )?;
         Ok(Some(VerifyLease {
             hash: key.hash,
             version,
@@ -1127,51 +1372,25 @@ impl PrePoolKernel {
     ) -> Result<EntryVersion, PrePoolError> {
         let mut next = self
             .validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?
-            .clone();
-        if candidate.inputs.len() > self.limits.max_inputs_per_ready {
-            return Err(PrePoolError::ConflictInputLimitExceeded);
-        }
-        let version = self.allocate_version();
-        let rank = ReadyKey {
-            source_class: next.source.priority(),
-            fee: candidate.fee,
-            tx_size: candidate.tx_size,
-            arrival: next.arrival,
-            hash: lease.hash.clone(),
-            version,
-        };
+            .clone()
+            .into_draft();
+        let inputs = ReadyInputs::new(candidate.inputs, self.limits.max_inputs_per_ready)?;
+        let mut version_cursor = self.next_version;
+        let version = EntryVersion::take(&mut version_cursor)?;
         next.version = version;
         next.payload_charge_bytes = charge_bytes;
         next.state = EntryState::Ready {
             payload: Arc::new(verified),
-            inputs: candidate.inputs,
-            rank,
+            inputs,
         };
-        next.charge_bytes = self.entry_charge(&next)?;
-        self.replace_entry(&lease.hash, next)?;
+        self.replace_entry(
+            &lease.hash,
+            next,
+            version_cursor,
+            self.next_arrival,
+            ReplacementMode::Ordinary,
+        )?;
         Ok(version)
-    }
-
-    fn replace_after_queue_pop(
-        &mut self,
-        hash: &Byte32,
-        next: Entry,
-        usage_plan: UsagePlan,
-        active_plan: ActivePlan,
-    ) {
-        let old = self
-            .entries
-            .remove(hash)
-            .expect("queue head primary was prevalidated");
-        self.detach_common_indexes(hash, &old);
-        self.apply_usage_plan(usage_plan);
-        self.attach_common_indexes(hash, &next);
-        let previous = self.entries.insert(hash.clone(), next);
-        assert!(
-            previous.is_none(),
-            "queue head primary was detached before attach"
-        );
-        self.apply_active_plan(active_plan);
     }
 
     pub(crate) fn force_terminalize(
@@ -1224,7 +1443,7 @@ impl PrePoolKernel {
     pub(crate) fn work_is_ready(&self, lane: WorkLane, capability: WorkCapability) -> bool {
         match lane {
             WorkLane::Commit => !self.ready.is_empty(),
-            _ => self.queues[lane.index()].peek(capability).is_some(),
+            _ => self.queues.get(lane).peek(capability).is_some(),
         }
     }
 }

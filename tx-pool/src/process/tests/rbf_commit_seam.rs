@@ -1,5 +1,10 @@
 use super::*;
 
+pub(crate) struct TestAdmissionOutcome {
+    pub(crate) result: Result<(), Reject>,
+    pub(crate) assembler_statuses: HashSet<Status>,
+}
+
 impl TxPoolService {
     pub(crate) fn try_submit_entry(
         &self,
@@ -9,18 +14,48 @@ impl TxPoolService {
         entry: TxEntry,
         _status: Status,
         _entry_id: ProposalShortId,
-    ) -> SubmitEntryOutcome {
-        self.pipeline
-            .kernel
-            .mutate(|kernel| {
-                self.try_submit_entry_with_handoff(
-                    tx_pool,
-                    snapshot,
-                    pre_resolve_tip,
-                    entry.clone(),
-                    |tx_pool, plan| self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan),
-                )
-            })
-            .0
+    ) -> TestAdmissionOutcome {
+        self.pipeline.kernel.mutate_authoritative(|kernel| {
+            match self.plan_external_admission(
+                tx_pool,
+                kernel,
+                snapshot,
+                pre_resolve_tip,
+                entry,
+                TxSource::Local,
+                None,
+            ) {
+                Err(AdmissionPlanningError::Policy(reject)) => TestAdmissionOutcome {
+                    result: Err(reject),
+                    assembler_statuses: HashSet::new(),
+                },
+                Err(AdmissionPlanningError::Kernel(error)) => TestAdmissionOutcome {
+                    result: Err(crate::component::pre_pool::pre_pool_reject(error)),
+                    assembler_statuses: HashSet::new(),
+                },
+                Err(AdmissionPlanningError::Pool(error)) => TestAdmissionOutcome {
+                    result: Err(Reject::Internal(format!(
+                        "accepted-pool planning fault: {error:?}"
+                    ))),
+                    assembler_statuses: HashSet::new(),
+                },
+                Err(AdmissionPlanningError::Effect(error)) => TestAdmissionOutcome {
+                    result: Err(Reject::Internal(format!(
+                        "effect batch planning fault: {error:?}"
+                    ))),
+                    assembler_statuses: HashSet::new(),
+                },
+                Ok(plan) => {
+                    let assembler_statuses = plan.block_assembler_statuses.clone();
+                    self.apply_admission_plan(plan).unwrap_or_else(|error| {
+                        panic!("test admission journal unexpectedly unavailable: {error:?}")
+                    });
+                    TestAdmissionOutcome {
+                        result: Ok(()),
+                        assembler_statuses,
+                    }
+                }
+            }
+        })
     }
 }

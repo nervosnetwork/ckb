@@ -1,5 +1,5 @@
 use crate::component::entry::TxEntry;
-use crate::component::pool_map::{ConflictClosure, RemovedPoolEntry, Status};
+use crate::component::pool_map::{ConflictClosure, PoolMutationFault, PreparedPoolRemoval, Status};
 use crate::error::Reject;
 use crate::pool::TxPool;
 use ckb_logger::debug;
@@ -52,26 +52,24 @@ pub(crate) struct ReorgOutcome {
 /// The removal order is child-first, matching `PoolMap`'s total removal
 /// primitive. Recovery payloads are exposed in the reverse (parent-first)
 /// order so ordinary admission never needs a special late-parent mutation.
-pub(crate) enum AcceptedRecoveryPlan {
-    Bounded { removals: Vec<PlannedRecoveryEntry> },
+pub(crate) enum AcceptedRecoveryPlan<'pool> {
+    Bounded {
+        prepared: Option<PreparedPoolRemoval<'pool>>,
+    },
     OverBound,
 }
 
-pub(crate) struct PlannedRecoveryEntry {
-    id: ProposalShortId,
-    hash: Byte32,
-    status: Status,
-    entry: TxEntry,
-}
-
-impl AcceptedRecoveryPlan {
+impl AcceptedRecoveryPlan<'_> {
     pub(crate) fn transactions_parent_first(&self) -> Vec<TransactionView> {
         match self {
-            Self::Bounded { removals } => removals
-                .iter()
+            Self::Bounded {
+                prepared: Some(prepared),
+            } => prepared
+                .entries()
                 .rev()
-                .map(|planned| planned.entry.transaction().clone())
+                .map(|entry| entry.transaction().clone())
                 .collect(),
+            Self::Bounded { prepared: None } => Vec::new(),
             Self::OverBound => Vec::new(),
         }
     }
@@ -85,11 +83,11 @@ impl AcceptedRecoveryPlan {
 /// late-parent graph mutation (and would expose an unresolvable accepted
 /// entry during replay). Instead, move the complete bounded closure back to
 /// trusted `ResolveQueued` ownership and replay the ordinary parent-first path.
-pub(crate) fn plan_accepted_recovery(
-    tx_pool: &TxPool,
+pub(crate) fn plan_accepted_recovery<'pool>(
+    tx_pool: &'pool mut TxPool,
     detached: &[TransactionView],
     limit: usize,
-) -> AcceptedRecoveryPlan {
+) -> Result<AcceptedRecoveryPlan<'pool>, PoolMutationFault> {
     let mut roots = HashSet::new();
     for tx in detached {
         for output in tx.output_pts() {
@@ -105,49 +103,21 @@ pub(crate) fn plan_accepted_recovery(
     let ConflictClosure::Complete { removal, .. } =
         tx_pool.pool_map.conflict_closure(&roots, limit)
     else {
-        return AcceptedRecoveryPlan::OverBound;
+        return Ok(AcceptedRecoveryPlan::OverBound);
     };
-    let removals = removal
-        .into_iter()
-        .filter_map(|id| {
-            tx_pool
-                .pool_map
-                .get_by_id(&id)
-                .map(|current| PlannedRecoveryEntry {
-                    id,
-                    hash: current.hash.clone(),
-                    status: current.status,
-                    entry: current.inner.clone(),
-                })
-        })
-        .collect();
-    AcceptedRecoveryPlan::Bounded { removals }
+    let prepared = tx_pool.pool_map.prepare_removals(&removal)?;
+    Ok(AcceptedRecoveryPlan::Bounded { prepared })
 }
 
 /// Total Apply for a previously validated accepted-recovery plan. The caller
 /// holds the pool write guard continuously between Plan and Apply.
-pub(crate) fn apply_accepted_recovery(
-    tx_pool: &mut TxPool,
-    plan: AcceptedRecoveryPlan,
-) -> Vec<RemovedPoolEntry> {
-    let AcceptedRecoveryPlan::Bounded { removals } = plan else {
-        unreachable!("an over-bound accepted recovery uses generation reset")
-    };
-    removals
-        .into_iter()
-        .map(|planned| {
-            let current = tx_pool
-                .pool_map
-                .get_by_id(&planned.id)
-                .expect("planned reorg recovery entry remains accepted");
-            assert_eq!(current.hash, planned.hash);
-            assert_eq!(current.status, planned.status);
-            tx_pool
-                .pool_map
-                .remove_entry_with_status(&planned.id)
-                .expect("planned reorg recovery removal is total")
-        })
-        .collect()
+pub(crate) fn apply_accepted_recovery(plan: AcceptedRecoveryPlan<'_>) -> Option<Vec<TxEntry>> {
+    match plan {
+        AcceptedRecoveryPlan::Bounded { prepared } => {
+            Some(prepared.map_or_else(Vec::new, PreparedPoolRemoval::apply))
+        }
+        AcceptedRecoveryPlan::OverBound => None,
+    }
 }
 
 /// Begin the accepted-pool half of one reorg transaction. Startup zombie
@@ -162,7 +132,7 @@ pub(crate) fn begin_tx_pool_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     mine_mode: bool,
-) -> ReorgOutcome {
+) -> Result<ReorgOutcome, PoolMutationFault> {
     let mut reject_events = Vec::new();
     // Proposed/pending notifications are *collected* and dispatched by the
     // caller outside the write lock: running user callbacks while holding
@@ -176,8 +146,8 @@ pub(crate) fn begin_tx_pool_reorg(
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(attached.iter(), detached_headers, &mut reject_events);
-    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter(), &mut notify_events);
+    tx_pool.remove_committed_txs(attached.iter(), detached_headers, &mut reject_events)?;
+    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter(), &mut notify_events)?;
 
     // Re-evaluate Gap/Pending against the new tip's proposal windows.
     //
@@ -220,40 +190,57 @@ pub(crate) fn begin_tx_pool_reorg(
         }
     }
 
+    let transitions = to_proposed
+        .iter()
+        .map(|(id, _)| (id.clone(), Status::Proposed))
+        .chain(to_gap.iter().map(|(id, _)| (id.clone(), Status::Gap)))
+        .chain(
+            to_pending
+                .iter()
+                .map(|(id, _)| (id.clone(), Status::Pending)),
+        )
+        .collect::<Vec<_>>();
+    if !transitions.is_empty() {
+        tx_pool
+            .pool_map
+            .prepare_status_changes(transitions)?
+            .apply();
+    }
+
     for (id, entry) in to_proposed {
         debug!("begin to proposed: {:x}", id);
-        tx_pool.transition_to_status_required(&id, Status::Proposed);
         notify_events.push((entry, Status::Proposed));
     }
 
     for (id, _) in to_gap {
         debug!("begin to gap: {:x}", id);
-        tx_pool.transition_to_status_required(&id, Status::Gap);
     }
 
     for (id, entry) in to_pending {
         debug!("begin to demote gap to pending: {:x}", id);
-        tx_pool.transition_to_status_required(&id, Status::Pending);
         // Re-pending: block assembler must re-select this short id for
         // proposals (Gap is invisible to `get_proposals`).
         notify_events.push((entry, Status::Pending));
     }
 
     // Remove expired transaction from pending
-    tx_pool.remove_expired(&mut reject_events);
+    tx_pool.remove_expired(&mut reject_events)?;
 
-    ReorgOutcome {
+    Ok(ReorgOutcome {
         reject_events,
         silently_removed: Vec::new(),
         recovery_removed: Vec::new(),
         notify_events,
-    }
+    })
 }
 
 /// Complete the accepted reorg transaction after the bounded recovery
 /// ownership transfer. This tail is total and runs under the same pool write
 /// guard as [`begin_tx_pool_reorg`].
-pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutcome) {
+pub(crate) fn finish_tx_pool_reorg(
+    tx_pool: &mut TxPool,
+    outcome: &mut ReorgOutcome,
+) -> Result<(), PoolMutationFault> {
     // One-shot post-startup reconcile for entries committed (or zombied)
     // while their reorg notifications were skipped during the startup
     // reload. This runs against the fresh snapshot swapped in above, so the
@@ -264,8 +251,8 @@ pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutc
     // cleanup that runs for the reject events must also run for them
     // (otherwise ghost registrations block future replacements forever).
     if !tx_pool.onchain_reconcile_done {
+        outcome.silently_removed = tx_pool.remove_onchain_entries()?;
         tx_pool.onchain_reconcile_done = true;
-        outcome.silently_removed = tx_pool.remove_onchain_entries();
         if !outcome.silently_removed.is_empty() {
             debug!(
                 "reconcile dropped {} on-chain pool entries",
@@ -275,11 +262,14 @@ pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutc
     }
 
     // Remove transactions from the pool until its size <= size_limit.
-    let current_reject = tx_pool.limit_size(None, &mut outcome.reject_events);
-    debug_assert!(
-        current_reject.is_none(),
-        "reorg size reconciliation has no distinguished incoming entry"
-    );
+    if tx_pool
+        .limit_size(None, &mut outcome.reject_events)?
+        .is_some()
+    {
+        return Err(PoolMutationFault::ProjectionMismatch(
+            "reorg size reconciliation returned an incoming-entry reject",
+        ));
+    }
 
     // Notifications are published only after this whole pool mutation. Do
     // not export intermediate Pending -> Proposed steps, or a Pending event
@@ -303,7 +293,11 @@ pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutc
         };
         let final_event = (current.inner.clone(), current.status);
         if let Some(index) = positions.get(&hash).copied() {
-            stable_notify_events[index] = final_event;
+            *stable_notify_events
+                .get_mut(index)
+                .ok_or(PoolMutationFault::ProjectionMismatch(
+                    "reorg notification position lost its planned event",
+                ))? = final_event;
         } else {
             positions.insert(hash, stable_notify_events.len());
             stable_notify_events.push(final_event);
@@ -311,6 +305,7 @@ pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutc
     }
 
     outcome.notify_events = stable_notify_events;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -7,7 +7,6 @@ use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerRunner};
 use ckb_async_runtime::Handle;
-use ckb_logger::error;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use std::collections::HashSet;
@@ -106,32 +105,23 @@ impl TxPoolService {
             }) {
                 Ok(_) => {}
                 Err(error) if error.is_stale_lease() => {}
-                Err(error) => panic!("stale verify requeue invariant failed: {error:?}"),
+                Err(error) => self
+                    .pipeline
+                    .kernel
+                    .report_fault("stale verify requeue invariant failed", &error),
             }
             return;
         }
 
         let mut resolved = (*lease.payload).clone();
         resolved.source = source;
-        let first = match crate::worker::catch_job_panic(self.verify_pipeline_resolved(
-            resolved.clone(),
-            Arc::clone(&verification_snapshot),
-            Some(&mut *command_rx),
-        ))
-        .await
-        {
-            Ok(result) => result,
-            Err(message) => {
-                error!("tx-pool verifier panicked on {}: {}", lease.hash, message);
-                self.settle_pipeline_verify_failure(
-                    &lease,
-                    crate::error::Reject::Internal(message),
-                    true,
-                )
-                .await;
-                return;
-            }
-        };
+        let first = self
+            .verify_pipeline_resolved(
+                resolved.clone(),
+                Arc::clone(&verification_snapshot),
+                Some(&mut *command_rx),
+            )
+            .await;
 
         // A remote admission is verified against its declared cycle cap.
         // If the same full hash is promoted to Local/Proposal while that
@@ -158,29 +148,13 @@ impl TxPoolService {
                 match promoted {
                     Some(trusted_source) => {
                         resolved.source = trusted_source;
-                        let promoted_result =
-                            match crate::worker::catch_job_panic(self.verify_pipeline_resolved(
+                        let promoted_result = self
+                            .verify_pipeline_resolved(
                                 resolved.clone(),
                                 Arc::clone(&verification_snapshot),
                                 Some(&mut *command_rx),
-                            ))
-                            .await
-                            {
-                                Ok(result) => result,
-                                Err(message) => {
-                                    error!(
-                                        "tx-pool verifier panicked on promoted {}: {}",
-                                        lease.hash, message
-                                    );
-                                    self.settle_pipeline_verify_failure(
-                                        &lease,
-                                        crate::error::Reject::Internal(message),
-                                        true,
-                                    )
-                                    .await;
-                                    return;
-                                }
-                            };
+                            )
+                            .await;
                         match promoted_result {
                             Ok(verified) => verified,
                             Err(reject) => {
@@ -220,24 +194,35 @@ impl TxPoolService {
             verified.candidate.tx_size,
             verified.candidate.resident_size,
         );
-        let rbf_precheck = {
-            let pool = self.pool.tx_pool.read().await;
-            if let Some(outpoint) = pool.pool_map.find_conflict_outpoint(entry.transaction()) {
-                if pool.enable_rbf() {
-                    pool.check_rbf(&pool.cloned_snapshot(), &entry).map(|_| ())
+        let rbf_precheck =
+            {
+                let pool = self.pool.tx_pool.read().await;
+                if let Some(outpoint) = pool.pool_map.find_conflict_outpoint(entry.transaction()) {
+                    if pool.enable_rbf() {
+                        pool.check_rbf(&pool.cloned_snapshot(), &entry).map(|_| ())
+                    } else {
+                        Err(crate::error::Reject::Resolve(
+                            ckb_types::core::error::OutPointError::Dead(outpoint),
+                        )
+                        .into())
+                    }
                 } else {
-                    Err(crate::error::Reject::Resolve(
-                        ckb_types::core::error::OutPointError::Dead(outpoint),
-                    ))
+                    Ok(())
                 }
-            } else {
-                Ok(())
+            };
+        match rbf_precheck {
+            Ok(()) => {}
+            Err(crate::component::pool_map::PoolMutationPlanningError::Policy(reject)) => {
+                self.settle_pipeline_verify_failure(&lease, reject, false)
+                    .await;
+                return;
             }
-        };
-        if let Err(reject) = rbf_precheck {
-            self.settle_pipeline_verify_failure(&lease, reject, false)
-                .await;
-            return;
+            Err(crate::component::pool_map::PoolMutationPlanningError::Fault(error)) => {
+                self.pipeline
+                    .kernel
+                    .report_fault("RBF verification precheck projection failed", &error);
+                return;
+            }
         }
 
         let inputs: HashSet<_> = verified.candidate.tx.input_pts_iter().collect();
@@ -276,14 +261,18 @@ impl TxPoolService {
             // Eagerly drain the candidate produced by this verify task.
             // The dedicated commit consumer is still the level-triggered
             // liveness path for eligibility created by every other
-            // transition; both paths share the same serial driver.
+            // transition. Competing drivers are ordered by the accepted-pool
+            // write boundary and select their ticket inside the kernel Apply.
             Ok(_version) => {
                 self.drive_pipeline_commits().await;
             }
             Err(error) if error.is_stale_lease() => {}
             Err(error) => {
                 if !error.is_transaction_rejection() {
-                    panic!("verification completion invariant failed: {error:?}")
+                    self.pipeline
+                        .kernel
+                        .report_fault("verification completion invariant failed", &error);
+                    return;
                 }
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
                 let internal = matches!(reject, crate::error::Reject::Full(_));
@@ -312,7 +301,7 @@ impl JobHandler for VerifyHandler {
         self.service
             .pipeline
             .kernel
-            .subscribe(WorkLane::Verify, self.capability)
+            .subscribe_verify(self.capability)
     }
 
     async fn pop_one(&mut self) -> Option<VerifyLease> {
@@ -323,7 +312,13 @@ impl JobHandler for VerifyHandler {
             .mutate_authoritative(|coordinator| coordinator.checkout_verify(self.capability))
         {
             Ok(lease) => lease,
-            Err(error) => panic!("verify checkout invariant failed: {error:?}"),
+            Err(error) => {
+                self.service
+                    .pipeline
+                    .kernel
+                    .report_fault("verify checkout invariant failed", &error);
+                None
+            }
         }
     }
 

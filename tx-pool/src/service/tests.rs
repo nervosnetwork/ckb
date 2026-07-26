@@ -16,7 +16,7 @@ impl PipelineEpoch {
 
 impl BannedPeerSet {
     pub(crate) fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
+        self.entries.lock().len()
     }
 }
 
@@ -137,10 +137,18 @@ fn remote_submit_awaits_without_blocking_a_current_thread_runtime() {
 #[test]
 fn block_assembler_dirty_journal_is_level_triggered_and_coalesced() {
     let relay = relay_state();
-    relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Pending);
-    relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Pending);
-    relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Proposed);
-    relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Uncle);
+    relay
+        .mark_block_assembler_dirty(&BlockAssemblerMessage::Pending)
+        .unwrap();
+    relay
+        .mark_block_assembler_dirty(&BlockAssemblerMessage::Pending)
+        .unwrap();
+    relay
+        .mark_block_assembler_dirty(&BlockAssemblerMessage::Proposed)
+        .unwrap();
+    relay
+        .mark_block_assembler_dirty(&BlockAssemblerMessage::Uncle)
+        .unwrap();
 
     let loaded = relay.load_block_assembler_dirty();
     assert_eq!(
@@ -158,7 +166,9 @@ fn block_assembler_dirty_journal_is_level_triggered_and_coalesced() {
     // Loading does not consume authority, and a producer racing with an old
     // completion installs a generation that the stale acknowledgement cannot
     // clear.
-    relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Pending);
+    relay
+        .mark_block_assembler_dirty(&BlockAssemblerMessage::Pending)
+        .unwrap();
     for (message, generation) in loaded {
         relay.complete_block_assembler_dirty(&message, generation);
     }
@@ -170,9 +180,11 @@ fn block_assembler_dirty_journal_is_level_triggered_and_coalesced() {
 }
 
 #[test]
-fn full_rebuild_reissues_both_optimistic_delta_generations() {
+fn full_rebuild_reissues_every_optimistic_delta_generation() {
     let relay = relay_state();
-    relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Pending);
+    relay
+        .mark_block_assembler_dirty(&BlockAssemblerMessage::Pending)
+        .unwrap();
     let stale = relay
         .load_block_assembler_dirty()
         .into_iter()
@@ -184,7 +196,7 @@ fn full_rebuild_reissues_both_optimistic_delta_generations() {
     relay.complete_block_assembler_dirty(&stale.0, stale.1);
     assert!(relay.load_block_assembler_dirty().is_empty());
 
-    relay.mark_block_assembler_full_reconcile();
+    relay.mark_block_assembler_full_reconcile().unwrap();
     let messages = relay
         .load_block_assembler_dirty()
         .into_iter()
@@ -194,7 +206,8 @@ fn full_rebuild_reissues_both_optimistic_delta_generations() {
         messages,
         vec![
             BlockAssemblerMessage::Pending,
-            BlockAssemblerMessage::Proposed
+            BlockAssemblerMessage::Proposed,
+            BlockAssemblerMessage::Uncle,
         ]
     );
 }

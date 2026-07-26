@@ -274,6 +274,191 @@ async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
     h.cancel.cancel();
 }
 
+/// The commit journal region is part of the Ready owner's authority, not a
+/// property of the shared driver. A full Remote region must therefore leave a
+/// Proposal candidate able to consume the separately provisioned trusted
+/// headroom. The old worst-case driver wait always used `Remote` before it had
+/// selected a ticket and stranded this candidate indefinitely.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposal_ready_commit_uses_trusted_effect_headroom() {
+    use crate::component::pre_pool::{ResolveLane, WorkCapability};
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+    use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use ckb_types::packed::Byte32;
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let effects = Arc::new(EffectJournal::new_partitioned(1, 128, 1, 256, 1, 128).unwrap());
+    let remote = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+        tx_hash: Byte32::new([0x9a; 32]),
+    })])
+    .unwrap();
+    effects
+        .try_apply(Some(remote), EffectClass::Remote, || ())
+        .unwrap();
+    h.service.relay.effects = effects;
+
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    assert!(h.service.notify_tx(tx.clone()).await.unwrap());
+    let raw = h
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    h.service.process_pipeline_raw_lease(raw).await;
+    let verify = h
+        .service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.checkout_verify(WorkCapability::Any))
+        .unwrap()
+        .unwrap();
+    let mut chunk_rx = h.chunk_rx.clone();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        h.service
+            .process_pipeline_verify_lease(verify, &mut chunk_rx),
+    )
+    .await
+    .expect("trusted Ready admission must not wait on the full Remote region");
+
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_some()
+    );
+    assert!(
+        !h.service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.contains_hash(&hash))
+    );
+    h.cancel.cancel();
+}
+
+/// Promotion changes the authoritative owner but deliberately reuses valid
+/// verification output. The journal class must follow that owner rather than
+/// the stale source embedded in the verified payload.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promoted_remote_ready_commit_uses_trusted_effect_headroom() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+    use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use ckb_types::packed::Byte32;
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let effects = Arc::new(EffectJournal::new_partitioned(1, 128, 1, 256, 1, 128).unwrap());
+    let remote = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+        tx_hash: Byte32::new([0x9b; 32]),
+    })])
+    .unwrap();
+    effects
+        .try_apply(Some(remote), EffectClass::Remote, || ())
+        .unwrap();
+    h.service.relay.effects = effects;
+
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    stage_verified_remote_candidate(&h.service, tx.clone(), 23.into()).await;
+    assert!(!h.service.notify_tx(tx).await.unwrap());
+
+    tokio::time::timeout(Duration::from_secs(2), h.service.drive_pipeline_commits())
+        .await
+        .expect("promoted owner must use trusted publication headroom");
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_some()
+    );
+    h.cancel.cancel();
+}
+
+/// Backpressure belongs to one publication class, not to accepted-pool or
+/// kernel authority. A Remote head waiting for journal capacity must release
+/// both state guards so a later Proposal can be reselected and committed
+/// through trusted headroom.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_effect_backpressure_does_not_block_later_proposal() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+    use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use ckb_types::packed::Byte32;
+
+    let mut h = harness(2).workers(WorkerSet::None).build();
+    let effects = Arc::new(EffectJournal::new_partitioned(1, 128, 1, 256, 1, 128).unwrap());
+    let remote = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+        tx_hash: Byte32::new([0x9c; 32]),
+    })])
+    .unwrap();
+    effects
+        .try_apply(Some(remote), EffectClass::Remote, || ())
+        .unwrap();
+    h.service.relay.effects = effects;
+
+    let remote_tx = build_tx(&h.out_points[0], 4_000);
+    stage_verified_remote_candidate(&h.service, remote_tx.clone(), 24.into()).await;
+
+    // Queue the first driver behind the accepted-pool writer. Tokio's fair
+    // write lock lets the queued driver run before our second acquisition;
+    // reacquiring therefore proves its exact journal predicate returned Full
+    // and it released all state authority before waiting for capacity.
+    let pool_guard = h.service.pool.tx_pool.write().await;
+    let remote_service = h.service.clone();
+    let remote_driver = tokio::spawn(async move { remote_service.drive_pipeline_commits().await });
+    tokio::task::yield_now().await;
+    drop(pool_guard);
+    let released = tokio::time::timeout(Duration::from_secs(1), h.service.pool.tx_pool.write())
+        .await
+        .expect("Remote capacity wait must release accepted-pool authority");
+    drop(released);
+
+    let proposal = build_tx(&h.out_points[1], 4_000);
+    let proposal_hash = proposal.hash();
+    stage_verified_candidate(&h.service, proposal, TxSource::Proposal).await;
+    let trusted_service = h.service.clone();
+    let trusted_driver =
+        tokio::spawn(async move { trusted_service.drive_pipeline_commits().await });
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if h.service
+                .pool
+                .tx_pool
+                .read()
+                .await
+                .get_tx_from_pool_by_hash(&proposal_hash)
+                .is_some()
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("Proposal must commit while the Remote owner stays backpressured");
+    assert!(
+        h.service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.contains_hash(&remote_tx.hash()))
+    );
+
+    remote_driver.abort();
+    trusted_driver.abort();
+    h.cancel.cancel();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
     use crate::component::tests::harness::{WorkerSet, harness};
@@ -504,9 +689,8 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
         .service
         .pipeline
         .kernel
-        .mutate_required("test verify checkout", |coordinator| {
-            coordinator.checkout_verify(WorkCapability::Any)
-        })
+        .mutate_authoritative(|coordinator| coordinator.checkout_verify(WorkCapability::Any))
+        .unwrap()
         .unwrap();
 
     let old_snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
@@ -760,6 +944,77 @@ async fn proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress
     h.cancel.cancel();
 }
 
+/// An accepted-duplicate acknowledgement is authority-dependent output, not
+/// a free-standing notification. If clear has already queued for the pool
+/// write guard, the later duplicate observer must see absence instead of
+/// appending `Ok(old tx)` after clear's `GenerationReset`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn accepted_duplicate_relay_cannot_overtake_a_waiting_clear_reset() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    h.service
+        .process_tx(tx, TxSource::Local)
+        .await
+        .expect("local transaction commits synchronously");
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if matches!(
+                h.relay_rx.try_recv(),
+                Ok(TxVerificationResult::Ok { tx_hash, .. }) if tx_hash == hash
+            ) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("initial commit publishes its atomic relay result");
+
+    let pool_guard = h.service.pool.tx_pool.read().await;
+    let snapshot = pool_guard.cloned_snapshot();
+    let old_epoch = h.service.current_pipeline_epoch().unwrap();
+    let mut clear_service = h.service.clone();
+    let clear = tokio::spawn(async move { clear_service.clear_pool(snapshot).await });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while h.service.current_pipeline_epoch().unwrap() == old_epoch {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("clear publishes its epoch barrier before waiting for the pool");
+
+    let duplicate_service = h.service.clone();
+    let duplicate_hash = hash.clone();
+    let duplicate = tokio::spawn(async move {
+        duplicate_service
+            .publish_accepted_relay_result(duplicate_hash, Some(9.into()))
+            .await
+    });
+    tokio::task::yield_now().await;
+    drop(pool_guard);
+
+    clear.await.unwrap();
+    assert!(
+        !duplicate.await.unwrap().unwrap(),
+        "the writer queued before this read owns the reset ordering"
+    );
+    h.service.relay.effects.wait_idle().await;
+    assert!(matches!(
+        h.relay_rx.try_recv().unwrap(),
+        TxVerificationResult::GenerationReset
+    ));
+    assert!(
+        h.relay_rx.try_recv().is_err(),
+        "no stale accepted Ok may be published after the reset"
+    );
+
+    h.cancel.cancel();
+}
+
 fn hold_coordinator_read(
     runtime: Arc<crate::component::pre_pool::PrePool>,
 ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
@@ -816,7 +1071,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
             .kernel
             .admit_transaction(
                 tx,
-                TxSource::Proposal,
+                crate::component::pre_pool::PipelineAdmissionSource::Proposal,
                 h.service.current_pipeline_epoch().unwrap(),
                 ResolveLane::Ingress,
             )
@@ -870,7 +1125,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
             .kernel
             .admit_transaction(
                 tx.clone(),
-                TxSource::Proposal,
+                crate::component::pre_pool::PipelineAdmissionSource::Proposal,
                 h.service.current_pipeline_epoch().unwrap(),
                 ResolveLane::Ingress,
             )
@@ -936,10 +1191,9 @@ async fn chain_generation_reset_retires_old_generation_outside_the_lock() {
         .kernel
         .admit_transaction(
             remote,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 12.into(),
-            },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(12.into(), 0),
+            ),
             epoch,
             ResolveLane::Ingress,
         )
@@ -979,10 +1233,9 @@ async fn authoritative_generation_swap_preserves_aba_clocks() {
         .kernel
         .admit_transaction(
             old_tx.clone(),
-            TxSource::Remote {
-                cycles: 0,
-                peer: 11.into(),
-            },
+            crate::component::pre_pool::PipelineAdmissionSource::Remote(
+                crate::component::pre_pool::RemoteSource::new(11.into(), 0),
+            ),
             old_epoch,
             ResolveLane::Ingress,
         )
@@ -1007,7 +1260,7 @@ async fn authoritative_generation_swap_preserves_aba_clocks() {
         .kernel
         .admit_transaction(
             old_tx.clone(),
-            TxSource::Proposal,
+            crate::component::pre_pool::PipelineAdmissionSource::Proposal,
             old_epoch,
             ResolveLane::Ingress,
         )

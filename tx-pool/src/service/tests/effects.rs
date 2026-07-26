@@ -1,8 +1,18 @@
 use super::*;
 
+impl EffectRegions {
+    fn for_class_mut(&mut self, class: EffectClass) -> &mut EffectUsage {
+        match class {
+            EffectClass::Remote => &mut self.remote,
+            EffectClass::Trusted => &mut self.ordinary,
+            EffectClass::Critical => &mut self.total,
+        }
+    }
+}
+
 impl EffectJournal {
     pub(crate) fn usage(&self) -> EffectUsage {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).usage[EffectClass::Critical.region()]
+        self.state.lock().usage.limit_for(EffectClass::Critical)
     }
 }
 use crate::callback::Callbacks;
@@ -34,7 +44,7 @@ impl EffectJournal {
             tokio::pin!(space);
             space.as_mut().enable();
             let idle = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock();
                 state.active.is_none()
                     && state.queued.is_empty()
                     && state.latest_generation_reset.is_none()
@@ -211,7 +221,7 @@ fn oversized_recent_reject_diagnostic_is_bounded_without_changing_original() {
     let reject = Reject::Full("界".repeat(2_000));
     let bounded = bounded_recent_reject(&reject);
     assert!(bounded.to_string().len() <= MAX_RECENT_REJECT_BYTES);
-    assert!(serialized_recent_reject(&reject).len() <= MAX_RECENT_REJECT_BYTES);
+    assert!(serialized_recent_reject(&reject).unwrap().len() <= MAX_RECENT_REJECT_BYTES);
     assert!(reject.to_string().len() > MAX_RECENT_REJECT_BYTES);
 }
 
@@ -224,7 +234,7 @@ async fn recent_reject_database_write_runs_as_a_journaled_effect() {
     let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
     let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
     let tx_hash = Byte32::new([0x42; 32]);
-    let serialized = serialized_recent_reject(&Reject::Expiry(42));
+    let serialized = serialized_recent_reject(&Reject::Expiry(42)).unwrap();
     queue
         .enqueue(
             EffectBatch::new(vec![TxPoolEffect::RecentReject {
@@ -379,7 +389,7 @@ async fn authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full() {
         .try_apply_authoritative(EFFECT_ENVELOPE_BYTES, |publish_detail| {
             assert!(!publish_detail, "the detailed critical FIFO is saturated");
             applied.fetch_add(1, Ordering::SeqCst);
-            ((), None)
+            ((), AuthoritativePublication::Detail(None))
         })
         .expect("chain authority does not backpressure behind publication");
     assert_eq!(applied.load(Ordering::SeqCst), 1);
@@ -403,6 +413,50 @@ async fn authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full() {
         published[2],
         TxVerificationResult::GenerationReset
     ));
+}
+
+#[tokio::test]
+async fn authoritative_generation_reset_is_explicit_even_with_fifo_capacity() {
+    let queue = Arc::new(EffectJournal::new_partitioned(1, 128, 0, 0, 1, 128).unwrap());
+    let applied = AtomicUsize::new(0);
+    queue
+        .apply_generation_reset(|| {
+            applied.fetch_add(1, Ordering::SeqCst);
+        })
+        .expect("an explicit generation reset must linearize with the authority change");
+    assert_eq!(applied.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        queue.usage().batches,
+        0,
+        "the replaceable reset register is independent of FIFO capacity"
+    );
+
+    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+    queue.close();
+    run_effect_publisher(Arc::clone(&queue), endpoints(relay_tx)).await;
+    assert!(matches!(
+        relay_rx.try_recv().unwrap(),
+        TxVerificationResult::GenerationReset
+    ));
+    assert!(relay_rx.try_recv().is_err());
+}
+
+#[test]
+fn closed_journal_rejects_generation_reset_before_authority_apply() {
+    let queue = EffectJournal::new_partitioned(1, 128, 0, 0, 1, 128).unwrap();
+    queue.close();
+    let applied = AtomicUsize::new(0);
+
+    let result = queue.apply_generation_reset(|| {
+        applied.fetch_add(1, Ordering::SeqCst);
+    });
+
+    assert!(matches!(result, Err(EffectJournalError::Closed)));
+    assert_eq!(
+        applied.load(Ordering::SeqCst),
+        0,
+        "a failed reset publication must retain the complete old authority generation"
+    );
 }
 
 #[tokio::test]
@@ -462,6 +516,71 @@ async fn panicking_endpoint_is_quarantined_once_without_blocking_fifo() {
 }
 
 #[tokio::test]
+async fn hung_network_endpoint_opens_one_stable_circuit_and_does_not_pin_relay() {
+    struct SlowNetwork {
+        attempts: Arc<AtomicUsize>,
+    }
+
+    impl TxPoolNetwork for SlowNetwork {
+        fn ban_peer(&self, _peer: PeerIndex, _duration: Duration, _reason: String) {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(EXTERNAL_EFFECT_TIMEOUT + Duration::from_millis(200));
+        }
+    }
+
+    let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
+    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let expected = Byte32::new([0x67; 32]);
+    queue
+        .enqueue(
+            EffectBatch::new(vec![
+                TxPoolEffect::BanPeer {
+                    peer: 1.into(),
+                    duration: Duration::from_secs(1),
+                    reason: "slow endpoint".to_owned(),
+                },
+                TxPoolEffect::BanPeer {
+                    peer: 2.into(),
+                    duration: Duration::from_secs(1),
+                    reason: "circuit must suppress this call".to_owned(),
+                },
+                TxPoolEffect::Relay(TxVerificationResult::Reject {
+                    tx_hash: expected.clone(),
+                }),
+            ])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let publisher = tokio::spawn(run_effect_publisher(
+        Arc::clone(&queue),
+        EffectEndpoints {
+            network: Arc::new(SlowNetwork {
+                attempts: Arc::clone(&attempts),
+            }),
+            tx_relay_sender: relay_tx,
+        },
+    ));
+    tokio::time::timeout(
+        EXTERNAL_EFFECT_TIMEOUT + Duration::from_secs(1),
+        queue.wait_idle(),
+    )
+    .await
+    .expect("a hung network endpoint must not retain the FIFO head");
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert!(queue.network_circuit_open.load(Ordering::Acquire));
+    assert!(matches!(
+        relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == expected
+    ));
+
+    queue.close();
+    publisher.await.unwrap();
+}
+
+#[tokio::test]
 async fn hung_callback_opens_one_stable_circuit_and_does_not_pin_relay() {
     let queue = Arc::new(EffectJournal::new(2, 1_000_000).unwrap());
     let (relay_tx, relay_rx) = ckb_channel::bounded(1);
@@ -473,7 +592,7 @@ async fn hung_callback_opens_one_stable_circuit_and_does_not_pin_relay() {
         // Exercise the exact production circuit-breaker duration. Keeping a
         // shorter cfg(test) constant previously left the deployed path
         // untested and allowed silent policy drift.
-        std::thread::sleep(CALLBACK_TIMEOUT + Duration::from_millis(200));
+        std::thread::sleep(EXTERNAL_EFFECT_TIMEOUT + Duration::from_millis(200));
     }));
     let callbacks = Arc::new(callbacks);
     let expected = Byte32::new([0x66; 32]);
@@ -494,9 +613,12 @@ async fn hung_callback_opens_one_stable_circuit_and_does_not_pin_relay() {
         Arc::clone(&queue),
         endpoints(relay_tx),
     ));
-    tokio::time::timeout(CALLBACK_TIMEOUT + Duration::from_secs(1), queue.wait_idle())
-        .await
-        .expect("hung callback must not pin the journal");
+    tokio::time::timeout(
+        EXTERNAL_EFFECT_TIMEOUT + Duration::from_secs(1),
+        queue.wait_idle(),
+    )
+    .await
+    .expect("hung callback must not pin the journal");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(queue.callback_circuit_open.load(Ordering::Acquire));
     assert!(matches!(
@@ -549,14 +671,13 @@ async fn capacity_wait_is_not_a_reservation_or_resident_owner() {
 async fn close_wakes_every_blocked_capacity_waiter() {
     let queue = Arc::new(EffectJournal::new(1, 256).unwrap());
     queue
-        .try_apply_bounded(EFFECT_ENVELOPE_BYTES, EffectClass::Trusted, || {
-            (
-                (),
-                EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
-                    tx_hash: Byte32::zero(),
-                })]),
-            )
-        })
+        .try_apply(
+            EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: Byte32::zero(),
+            })]),
+            EffectClass::Trusted,
+            || (),
+        )
         .unwrap();
     let first_queue = Arc::clone(&queue);
     let second_queue = Arc::clone(&queue);
@@ -650,7 +771,7 @@ fn journal_usage_charges_queued_and_active_batches_exactly() {
             bytes: 256
         }
     );
-    let (sequence, _) = journal.checkout().unwrap();
+    let checked_out = journal.checkout().unwrap();
     assert_eq!(
         journal.usage(),
         EffectUsage {
@@ -658,7 +779,7 @@ fn journal_usage_charges_queued_and_active_batches_exactly() {
             bytes: 256
         }
     );
-    journal.complete(sequence);
+    journal.complete(checked_out).unwrap();
     assert_eq!(
         journal.usage(),
         EffectUsage {
@@ -680,7 +801,7 @@ fn journal_sequence_is_total_apply_order() {
             .try_apply(Some(batch), EffectClass::Trusted, || ())
             .unwrap();
     }
-    let state = journal.state.lock().unwrap();
+    let state = journal.state.lock();
     assert_eq!(
         state
             .queued
@@ -692,18 +813,30 @@ fn journal_sequence_is_total_apply_order() {
 }
 
 #[test]
-fn journal_accounting_drift_fails_fast_instead_of_repairing() {
+fn journal_accounting_drift_returns_typed_fault_without_partial_completion() {
     let journal = EffectJournal::new(1, 1_000).unwrap();
     journal
         .try_apply(Some(reject_batch(0)), EffectClass::Trusted, || ())
         .unwrap();
-    let (sequence, _) = journal.checkout().expect("batch becomes active");
-    journal.state.lock().unwrap().usage[EffectClass::Trusted.region()].batches = 0;
+    let checked_out = journal.checkout().expect("batch becomes active");
+    journal
+        .state
+        .lock()
+        .usage
+        .for_class_mut(EffectClass::Trusted)
+        .batches = 0;
 
+    assert_eq!(
+        journal.complete(checked_out),
+        Err(EffectJournalError::Projection(
+            "active batch exceeds journal accounting"
+        )),
+        "an accounting contradiction is explicit and is not repaired"
+    );
+    let state = journal.state.lock();
     assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| journal.complete(sequence)))
-            .is_err(),
-        "an internal accounting contradiction must not be hidden by recomputation"
+        state.active.is_some(),
+        "the active envelope remains authoritative"
     );
 }
 
@@ -821,35 +954,37 @@ fn oversized_batch_never_executes_total_apply() {
 }
 
 #[test]
-fn bounded_apply_charges_actual_not_conservative_ceiling() {
+fn exact_apply_charges_actual_batch() {
     let journal = EffectJournal::new(1, 1_000).unwrap();
     journal
-        .try_apply_bounded(1_000, EffectClass::Trusted, || {
-            (
-                (),
-                EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
-                    tx_hash: Byte32::zero(),
-                })]),
-            )
-        })
+        .try_apply(
+            EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+                tx_hash: Byte32::zero(),
+            })]),
+            EffectClass::Trusted,
+            || (),
+        )
         .unwrap();
     assert_eq!(journal.usage().bytes, EFFECT_ENVELOPE_BYTES);
 }
 
 #[test]
-fn post_apply_bound_violation_uses_reset_without_overcharging_fifo() {
-    let journal = EffectJournal::new(1, 1_000).unwrap();
-    let applied = AtomicUsize::new(0);
+fn ordinary_full_is_mutation_free_and_does_not_install_reset() {
+    let journal = EffectJournal::new(1, EFFECT_ENVELOPE_BYTES).unwrap();
     journal
-        .try_apply_bounded(1, EffectClass::Trusted, || {
-            applied.fetch_add(1, Ordering::SeqCst);
-            ((), Some(reject_batch(1)))
-        })
+        .try_apply(Some(reject_batch(0)), EffectClass::Trusted, || ())
         .unwrap();
+    let applied = AtomicUsize::new(0);
+    assert_eq!(
+        journal.try_apply(Some(reject_batch(1)), EffectClass::Trusted, || {
+            applied.fetch_add(1, Ordering::SeqCst);
+        }),
+        Err(EffectJournalError::Full)
+    );
 
-    assert_eq!(applied.load(Ordering::SeqCst), 1, "Apply remains total");
-    assert_eq!(journal.usage(), EffectUsage::default());
-    let state = journal.state.lock().unwrap();
-    assert!(state.queued.is_empty());
-    assert!(state.latest_generation_reset.is_some());
+    assert_eq!(applied.load(Ordering::SeqCst), 0);
+    assert_eq!(journal.usage().batches, 1);
+    let state = journal.state.lock();
+    assert_eq!(state.queued.len(), 1);
+    assert!(state.latest_generation_reset.is_none());
 }

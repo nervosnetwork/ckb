@@ -7,8 +7,8 @@ use ckb_types::{
     packed::{Byte32, OutPoint},
     prelude::Entity,
 };
+use ckb_util::Mutex as StdMutex;
 use std::collections::HashMap;
-use std::sync::Mutex as StdMutex;
 
 use crate::util::compact_packed;
 
@@ -92,7 +92,7 @@ impl CellChecker for MemoizedChecker<'_> {
         if let Some(live) = self.transactions_checker.is_live(out_point) {
             return Some(live);
         }
-        let mut memo = self.memo.lock().expect("cell liveness memo poisoned");
+        let mut memo = self.memo.lock();
         memo.get_or_load(self.snapshot, out_point)
     }
 }

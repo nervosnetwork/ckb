@@ -8,7 +8,6 @@ impl CandidateUncles {
     /// Remove every candidate in the test-sized container.
     pub(in crate::block_assembler) fn clear(&mut self) {
         self.map.clear();
-        self.count = 0;
     }
 }
 

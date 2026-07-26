@@ -528,7 +528,6 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
     assert!(full_resident_size > tx_size + 2_000_000);
     let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
     let candidate = ResolvedTx {
-        tx: transaction,
         rtx: resolved,
         status: Status::Pending,
         fee: Capacity::shannons(1000),
@@ -587,7 +586,7 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
     assert_eq!(pool.pool_map.stats.total_tx_resident_size, resident_size);
 
     let mut rejects = Vec::new();
-    let reject = pool.limit_size(Some(&id), &mut rejects);
+    let reject = pool.limit_size(Some(&id), &mut rejects).unwrap();
     assert!(matches!(reject, Some(crate::error::Reject::Full(_))));
     assert!(pool.get_pool_entry(&id).is_none());
     assert_eq!(pool.pool_map.stats.total_tx_size, 0);
@@ -599,7 +598,7 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn limit_size_fails_fast_instead_of_masking_counter_drift() {
+async fn limit_size_returns_typed_fault_without_mutating_counter_drift() {
     use crate::component::tests::harness::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
@@ -610,10 +609,13 @@ async fn limit_size_fails_fast_instead_of_masking_counter_drift() {
     pool.pool_map.stats.total_tx_resident_size = resident_drift;
 
     let mut rejects = Vec::new();
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pool.limit_size(None, &mut rejects)
-    }));
-    assert!(panicked.is_err());
+    let fault = pool.limit_size(None, &mut rejects).unwrap_err();
+    assert_eq!(
+        fault,
+        crate::component::pool_map::PoolMutationFault::ProjectionMismatch(
+            "accepted totals exceed capacity without an eviction candidate"
+        )
+    );
     assert!(rejects.is_empty());
     assert_eq!(pool.pool_map.stats.total_tx_size, serialized_drift);
     assert_eq!(pool.pool_map.stats.total_tx_resident_size, resident_drift);

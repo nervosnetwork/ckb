@@ -1,8 +1,11 @@
-use crate::component::pool_map::Status;
+use crate::component::pool_map::{PoolMap, Status};
+use crate::component::pre_pool::{PrePoolError, PrePoolGeneration, PrePoolKernel};
 use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
 use crate::error::Reject;
 use crate::pool::TxPool;
-use crate::service::effects::{EffectBatch, TxPoolEffect};
+use crate::service::effects::{
+    AuthoritativePublication, EffectBatch, EffectBuildError, EffectJournalError, TxPoolEffect,
+};
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
 use crate::util::non_contextual_verify;
@@ -39,9 +42,145 @@ pub enum PlugTarget {
     Proposed,
 }
 
-enum ReorgMutation {
+enum ReorgDraft {
     Queued,
     Reset(Vec<TransactionView>),
+    Fault(ReorgMutationFault),
+}
+
+struct RetiredReorgGeneration {
+    accepted: PoolMap,
+    kernel: PrePoolGeneration,
+}
+
+impl RetiredReorgGeneration {
+    fn dispose(self) {
+        drop((self.accepted, self.kernel));
+    }
+}
+
+enum ReorgMutation {
+    Queued,
+    Reset(RetiredReorgGeneration),
+    Fault {
+        error: ReorgMutationFault,
+        retired: RetiredReorgGeneration,
+    },
+}
+
+enum ReorgFallback {
+    Retain(Vec<TransactionView>),
+    Empty,
+}
+
+enum ReorgMutationFault {
+    Sort(DependencySortError),
+    Effect(EffectBuildError),
+    Kernel(PrePoolError),
+}
+
+impl From<DependencySortError> for ReorgMutationFault {
+    fn from(error: DependencySortError) -> Self {
+        Self::Sort(error)
+    }
+}
+
+impl From<EffectBuildError> for ReorgMutationFault {
+    fn from(error: EffectBuildError) -> Self {
+        Self::Effect(error)
+    }
+}
+
+impl From<PrePoolError> for ReorgMutationFault {
+    fn from(error: PrePoolError) -> Self {
+        Self::Kernel(error)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DependencySortError {
+    Arithmetic(&'static str),
+    Projection(&'static str),
+}
+
+impl std::fmt::Display for DependencySortError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Arithmetic(context) => {
+                write!(formatter, "dependency-sort arithmetic overflow: {context}")
+            }
+            Self::Projection(context) => {
+                write!(formatter, "dependency-sort projection drift: {context}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for DependencySortError {}
+
+#[derive(Debug)]
+pub(crate) enum ReorgUpdateError {
+    Effect(EffectJournalError),
+    Epoch(Reject),
+    Sort(DependencySortError),
+    Kernel(PrePoolError),
+    EffectBuild(EffectBuildError),
+}
+
+impl std::fmt::Display for ReorgUpdateError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Effect(error) => write!(formatter, "reorg effect journal failed: {error:?}"),
+            Self::Epoch(error) => write!(formatter, "reorg epoch unavailable: {error}"),
+            Self::Sort(error) => write!(formatter, "reorg dependency sorting failed: {error}"),
+            Self::Kernel(error) => write!(formatter, "reorg kernel reset failed: {error:?}"),
+            Self::EffectBuild(error) => {
+                write!(formatter, "reorg effect construction failed: {error:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ReorgUpdateError {}
+
+impl From<EffectJournalError> for ReorgUpdateError {
+    fn from(error: EffectJournalError) -> Self {
+        Self::Effect(error)
+    }
+}
+
+impl From<Reject> for ReorgUpdateError {
+    fn from(error: Reject) -> Self {
+        Self::Epoch(error)
+    }
+}
+
+impl From<DependencySortError> for ReorgUpdateError {
+    fn from(error: DependencySortError) -> Self {
+        Self::Sort(error)
+    }
+}
+
+impl From<PrePoolError> for ReorgUpdateError {
+    fn from(error: PrePoolError) -> Self {
+        Self::Kernel(error)
+    }
+}
+
+impl From<EffectBuildError> for ReorgUpdateError {
+    fn from(error: EffectBuildError) -> Self {
+        Self::EffectBuild(error)
+    }
+}
+
+impl From<ReorgMutationFault> for ReorgUpdateError {
+    fn from(error: ReorgMutationFault) -> Self {
+        match error {
+            ReorgMutationFault::Sort(error) => Self::Sort(error),
+            ReorgMutationFault::Effect(error) => Self::EffectBuild(error),
+            ReorgMutationFault::Kernel(error) => Self::Kernel(error),
+        }
+    }
 }
 
 /// Map a pool status to the verification environment used for contextual checks.
@@ -108,7 +247,12 @@ impl TxPoolService {
         if !self.should_notify_block_assembler() {
             return;
         }
-        self.relay.mark_block_assembler_dirty(&message);
+        if let Err(error) = self.relay.mark_block_assembler_dirty(&message) {
+            self.pipeline
+                .kernel
+                .report_fault("block-assembler dirty generation exhausted", &error);
+            return;
+        }
         self.wake_block_assembler(
             message,
             "block_assembler channel full; dirty update retained",
@@ -123,7 +267,12 @@ impl TxPoolService {
         if !self.should_notify_block_assembler() {
             return;
         }
-        self.relay.mark_block_assembler_full_reconcile();
+        if let Err(error) = self.relay.mark_block_assembler_full_reconcile() {
+            self.pipeline
+                .kernel
+                .report_fault("block-assembler reconcile generation exhausted", &error);
+            return;
+        }
         for message in [
             BlockAssemblerMessage::Pending,
             BlockAssemblerMessage::Proposed,
@@ -142,7 +291,12 @@ impl TxPoolService {
         if !self.should_notify_block_assembler() {
             return;
         }
-        self.relay.mark_block_assembler_reset(snapshot);
+        if let Err(error) = self.relay.mark_block_assembler_reset(snapshot) {
+            self.pipeline
+                .kernel
+                .report_fault("block-assembler reset generation exhausted", &error);
+            return;
+        }
         self.wake_block_assembler(
             BlockAssemblerMessage::Reset,
             "block_assembler channel full; reset retained",
@@ -211,24 +365,25 @@ impl TxPoolService {
             // unverified coordinator owner. Only the former is a definitive
             // success; acknowledging the latter before verification would let
             // an invalid first witness make another peer accept the raw hash.
-            let accepted_duplicate = if matches!(reject, Reject::Duplicated(_)) {
-                self.pool
-                    .tx_pool
-                    .read()
+            if matches!(reject, Reject::Duplicated(_))
+                && let Some(peer) = source.peer()
+            {
+                match self
+                    .publish_accepted_relay_result(tx.hash(), Some(peer))
                     .await
-                    .get_tx_from_pool_by_hash(&tx.hash())
-                    .is_some()
-            } else {
-                false
-            };
-            if accepted_duplicate {
-                if let (Some(peer), Ok(epoch)) = (source.peer(), self.current_pipeline_epoch()) {
-                    self.handle_verify_success(&tx, Some(peer), epoch).await;
+                {
+                    Ok(true) => return Err(reject),
+                    Ok(false) => {}
+                    Err(error) => {
+                        ckb_logger::error!(
+                            "accepted duplicate relay publication failed: {error:?}"
+                        );
+                        return Err(reject);
+                    }
                 }
-            } else {
-                self.reject_with_after_process(tx, source, reject.clone())
-                    .await;
             }
+            self.reject_with_after_process(tx, source, reject.clone())
+                .await;
             return Err(reject);
         }
         self.classify_and_enqueue_tx_spawn(tx, source).await
@@ -271,8 +426,8 @@ impl TxPoolService {
         // A fresh commit journals its Ok relay result inside the authoritative
         // pool transaction. Only pre-commit failures (including a Local
         // duplicate, which intentionally re-broadcasts Ok) remain here.
-        if ret.is_err() {
-            self.after_process(tx, source, &ret).await;
+        if let Err(reject) = &ret {
+            self.after_process(tx, source, reject).await;
         }
         ret
     }
@@ -280,8 +435,10 @@ impl TxPoolService {
     pub(crate) async fn send_result_to_relayer(&self, result: TxVerificationResult) {
         self.publish_relay_result(result).await;
     }
-    pub(crate) fn sort_txs_by_dependencies(txs: &mut Vec<TransactionView>) {
-        Self::sort_by_dependencies(txs, |tx| tx);
+    pub(crate) fn sort_txs_by_dependencies(
+        txs: &mut Vec<TransactionView>,
+    ) -> Result<(), DependencySortError> {
+        Self::sort_by_dependencies(txs, |tx| tx)
     }
 
     /// Topologically sort a list of items that wrap transactions so that
@@ -290,9 +447,9 @@ impl TxPoolService {
     pub(crate) fn sort_by_dependencies<T>(
         items: &mut Vec<T>,
         tx_of: impl Fn(&T) -> &TransactionView,
-    ) {
+    ) -> Result<(), DependencySortError> {
         if items.len() <= 1 {
-            return;
+            return Ok(());
         }
 
         let mut output_to_index: HashMap<OutPoint, usize> =
@@ -300,7 +457,9 @@ impl TxPoolService {
         for (i, item) in items.iter().enumerate() {
             let tx_hash = tx_of(item).hash();
             for idx in 0..tx_of(item).outputs().len() {
-                output_to_index.insert(OutPoint::new(tx_hash.clone(), idx as u32), i);
+                let output_index = u32::try_from(idx)
+                    .map_err(|_| DependencySortError::Arithmetic("transaction output index"))?;
+                output_to_index.insert(OutPoint::new(tx_hash.clone(), output_index), i);
             }
         }
 
@@ -312,8 +471,16 @@ impl TxPoolService {
                 if let Some(&parent) = output_to_index.get(&input)
                     && parent != i
                 {
-                    in_degree[i] += 1;
-                    children[parent].push(i);
+                    let degree = in_degree
+                        .get_mut(i)
+                        .ok_or(DependencySortError::Projection("child indegree index"))?;
+                    *degree = degree
+                        .checked_add(1)
+                        .ok_or(DependencySortError::Arithmetic("child indegree"))?;
+                    children
+                        .get_mut(parent)
+                        .ok_or(DependencySortError::Projection("parent child-list index"))?
+                        .push(i);
                 }
             }
             for dep in tx.cell_deps_iter() {
@@ -321,19 +488,43 @@ impl TxPoolService {
                 if let Some(&parent) = output_to_index.get(&out_point)
                     && parent != i
                 {
-                    in_degree[i] += 1;
-                    children[parent].push(i);
+                    let degree = in_degree
+                        .get_mut(i)
+                        .ok_or(DependencySortError::Projection("dep child indegree index"))?;
+                    *degree = degree
+                        .checked_add(1)
+                        .ok_or(DependencySortError::Arithmetic("dep child indegree"))?;
+                    children
+                        .get_mut(parent)
+                        .ok_or(DependencySortError::Projection(
+                            "dep parent child-list index",
+                        ))?
+                        .push(i);
                 }
             }
         }
 
-        let mut ready: VecDeque<usize> = (0..items.len()).filter(|&i| in_degree[i] == 0).collect();
+        let mut ready: VecDeque<usize> = (0..items.len())
+            .filter(|&index| in_degree.get(index).is_some_and(|degree| *degree == 0))
+            .collect();
         let mut sorted = Vec::with_capacity(items.len());
         while let Some(i) = ready.pop_front() {
             sorted.push(i);
-            for &child in &children[i] {
-                in_degree[child] -= 1;
-                if in_degree[child] == 0 {
+            let planned_children = children
+                .get(i)
+                .ok_or(DependencySortError::Projection("ready child-list index"))?;
+            for &child in planned_children {
+                let degree = in_degree
+                    .get_mut(child)
+                    .ok_or(DependencySortError::Projection(
+                        "ready child indegree index",
+                    ))?;
+                *degree = degree
+                    .checked_sub(1)
+                    .ok_or(DependencySortError::Projection(
+                        "dependency indegree underflow",
+                    ))?;
+                if *degree == 0 {
                     ready.push_back(child);
                 }
             }
@@ -342,15 +533,58 @@ impl TxPoolService {
         if sorted.len() != items.len() {
             // A cycle should never happen in valid detached blocks, but if it
             // does we keep the original order rather than losing transactions.
-            return;
+            return Ok(());
         }
 
         let mut remaining: Vec<Option<T>> = items.drain(..).map(Some).collect();
-        items.extend(
-            sorted
-                .into_iter()
-                .map(|i| remaining[i].take().expect("index valid")),
-        );
+        let mut reordered = Vec::with_capacity(remaining.len());
+        for index in sorted {
+            let Some(item) = remaining.get_mut(index).and_then(Option::take) else {
+                reordered.extend(
+                    remaining
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(index, item)| item.map(|item| (index, item))),
+                );
+                reordered.sort_unstable_by_key(|(index, _)| *index);
+                items.extend(reordered.into_iter().map(|(_, item)| item));
+                return Err(DependencySortError::Projection(
+                    "topological permutation index",
+                ));
+            };
+            reordered.push((index, item));
+        }
+        items.extend(reordered.into_iter().map(|(_, item)| item));
+        Ok(())
+    }
+
+    /// Converge both executable authorities while their universal lock order
+    /// is still held. This is the only failure exit for an in-progress reorg
+    /// draft: no worker can observe a partially reconciled kernel generation,
+    /// and retired payload graphs are returned for destruction after both
+    /// authority guards open.
+    fn converge_reorg_fallback(
+        &self,
+        tx_pool: &mut TxPool,
+        kernel: &mut PrePoolKernel,
+        fallback: ReorgFallback,
+        recovery_epoch: u64,
+        snapshot: Arc<Snapshot>,
+    ) -> (RetiredReorgGeneration, Option<PrePoolError>) {
+        let (kernel, error) = match fallback {
+            ReorgFallback::Retain(txs) => {
+                match kernel.replace_generation_for_chain(|fresh| {
+                    fresh.retain_recovery_prefix_after_clear(txs, recovery_epoch)
+                }) {
+                    Ok((_retained, retired)) => (retired, None),
+                    Err(error) => (kernel.replace_empty_generation(), Some(error)),
+                }
+            }
+            ReorgFallback::Empty => (kernel.replace_empty_generation(), None),
+        };
+        let accepted = tx_pool.reset_generation(Arc::clone(&snapshot));
+        self.journal_block_assembler_reset(snapshot);
+        (RetiredReorgGeneration { accepted, kernel }, error)
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
@@ -359,12 +593,9 @@ impl TxPoolService {
         attached_blocks: VecDeque<BlockView>,
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
-    ) -> Result<(Vec<UncleBlockView>, Arc<Snapshot>), crate::service::effects::EffectJournalError>
-    {
+    ) -> Result<(Vec<UncleBlockView>, Arc<Snapshot>), ReorgUpdateError> {
         let effect_bound = self.max_reorg_effect_bytes();
-        let recovery_epoch = self
-            .current_pipeline_epoch()
-            .expect("pipeline generation remains available during reorg");
+        let recovery_epoch = self.current_pipeline_epoch()?;
 
         let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
@@ -401,7 +632,7 @@ impl TxPoolService {
             attached.extend(blk.transactions().into_iter().skip(1));
         }
         let mut retain = reorg::detached_not_attached(&detached, &attached);
-        Self::sort_txs_by_dependencies(&mut retain);
+        Self::sort_txs_by_dependencies(&mut retain)?;
         let mut retained_hashes = HashSet::new();
         retain.retain(|tx| retained_hashes.insert(tx.hash()));
 
@@ -418,28 +649,43 @@ impl TxPoolService {
                 self.relay
                     .effects
                     .try_apply_authoritative(effect_bound, |publish_detail| {
-                        let mut outcome = reorg::begin_tx_pool_reorg(
+                        let (draft, detail) = (|| {
+                        let mut outcome = match reorg::begin_tx_pool_reorg(
                             &mut tx_pool,
                             &attached,
                             &detached_headers,
                             detached_proposal_id.clone(),
                             Arc::clone(&snapshot),
                             mine_mode,
-                        );
-                        let accepted_plan = reorg::plan_accepted_recovery(
-                            &tx_pool,
+                        ) {
+                            Ok(outcome) => outcome,
+                            Err(error) => {
+                                error!("reorg accepted-pool preparation failed; resetting generation: {error:?}");
+                                return (ReorgDraft::Reset(retain.clone()), None);
+                            }
+                        };
+                        let accepted_plan = match reorg::plan_accepted_recovery(
+                            &mut tx_pool,
                             &retain,
                             crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-                        );
+                        ) {
+                            Ok(plan) => plan,
+                            Err(error) => {
+                                error!("reorg accepted recovery planning failed; resetting generation: {error:?}");
+                                return (ReorgDraft::Reset(retain.clone()), None);
+                            }
+                        };
                         let accepted = match &accepted_plan {
                             reorg::AcceptedRecoveryPlan::OverBound => {
-                                return (ReorgMutation::Reset(retain.clone()), None);
+                                return (ReorgDraft::Reset(retain.clone()), None);
                             }
                             plan => plan.transactions_parent_first(),
                         };
                         let mut combined = retain.clone();
                         combined.extend(accepted);
-                        Self::sort_txs_by_dependencies(&mut combined);
+                        if let Err(error) = Self::sort_txs_by_dependencies(&mut combined) {
+                            return (ReorgDraft::Fault(error.into()), None);
+                        }
                         let mut hashes = HashSet::new();
                         combined.retain(|tx| hashes.insert(tx.hash()));
                         match kernel.retain_recovery_batch(combined.clone(), recovery_epoch) {
@@ -448,22 +694,28 @@ impl TxPoolService {
                                 if error.is_capacity_rejection()
                                     || error.is_transaction_rejection() =>
                             {
-                                return (ReorgMutation::Reset(combined), None);
+                                return (ReorgDraft::Reset(combined), None);
                             }
-                            Err(error) => panic!(
-                                "reorg recovery retention violated kernel invariants: {error:?}"
-                            ),
+                            Err(error) => {
+                                error!("reorg recovery retention failed; resetting generation: {error:?}");
+                                return (ReorgDraft::Reset(combined), None);
+                            }
                         };
-                        let moved = reorg::apply_accepted_recovery(&mut tx_pool, accepted_plan);
-                        outcome
-                            .recovery_removed
-                            .extend(moved.into_iter().map(|removed| removed.entry));
-                        reorg::finish_tx_pool_reorg(&mut tx_pool, &mut outcome);
+                        let Some(moved) = reorg::apply_accepted_recovery(accepted_plan) else {
+                            return (ReorgDraft::Reset(combined), None);
+                        };
+                        outcome.recovery_removed.extend(moved);
+                        if let Err(error) =
+                            reorg::finish_tx_pool_reorg(&mut tx_pool, &mut outcome)
+                        {
+                            error!("reorg accepted-pool finalization failed; resetting generation: {error:?}");
+                            return (ReorgDraft::Reset(combined), None);
+                        }
                         // Apply the complete membership delta under the same pool write
                         // guard. Attached/on-chain parents remain available; every other
                         // physical removal demotes its already-resolved coordinator
                         // consumers. An impossible projection defect unwinds to the
-                        // internal invariant boundary before either guard opens.
+                        // typed internal defect boundary before either guard opens.
                         let mut committed: HashSet<_> =
                             attached.iter().map(TransactionView::hash).collect();
                         let mut unavailable = HashSet::new();
@@ -509,15 +761,29 @@ impl TxPoolService {
                             crate::service::pipeline_ops::dependency_is_available(&tx_pool, &key)
                                 .then_some(key)
                         }));
-                        let externally_committed = kernel
-                            .external_commits_with_unavailable_parents(&committed, &unavailable)
-                            .expect("planned reorg pre-pool membership update");
-                        kernel.note_available(available_dependencies);
+                        let external_plan = match kernel.plan_external_commit(
+                                &committed,
+                                &unavailable,
+                                available_dependencies,
+                                Vec::new(),
+                            ) {
+                                Ok(plan) => plan,
+                                Err(error) => {
+                                    error!("reorg pre-pool membership planning failed; resetting generation: {error:?}");
+                                    return (ReorgDraft::Reset(combined), None);
+                                }
+                            };
+                        let externally_committed = external_plan.records().to_vec();
+                        external_plan.apply();
                         let mut effects = Vec::new();
                         if publish_detail {
                             for (entry, reject) in &outcome.reject_events {
-                                effects
-                                    .extend(self.rejected_effects(entry.clone(), reject.clone()));
+                                match self.rejected_effects(entry.clone(), reject.clone()) {
+                                    Ok(rejected) => effects.extend(rejected),
+                                    Err(error) => {
+                                        return (ReorgDraft::Fault(error.into()), None);
+                                    }
+                                }
                             }
                             for (entry, status) in &outcome.notify_events {
                                 if let Some(effect) = self.accepted_effect(entry.clone(), *status) {
@@ -540,31 +806,60 @@ impl TxPoolService {
                         // and retained ownership. Full publication
                         // remains the second retained reorg phase.
                         self.journal_block_assembler_reset(Arc::clone(&snapshot));
-                        (ReorgMutation::Queued, EffectBatch::new(effects))
+                        (ReorgDraft::Queued, EffectBatch::new(effects))
+                        })();
+
+                        match draft {
+                            ReorgDraft::Queued => (
+                                ReorgMutation::Queued,
+                                AuthoritativePublication::Detail(detail),
+                            ),
+                            ReorgDraft::Reset(txs) => {
+                                let (retired, error) = self.converge_reorg_fallback(
+                                    &mut tx_pool,
+                                    kernel,
+                                    ReorgFallback::Retain(txs),
+                                    recovery_epoch,
+                                    Arc::clone(&snapshot),
+                                );
+                                let mutation = match error {
+                                    None => ReorgMutation::Reset(retired),
+                                    Some(error) => ReorgMutation::Fault {
+                                        error: error.into(),
+                                        retired,
+                                    },
+                                };
+                                (mutation, AuthoritativePublication::GenerationReset)
+                            }
+                            ReorgDraft::Fault(error) => {
+                                let (retired, convergence_error) = self.converge_reorg_fallback(
+                                    &mut tx_pool,
+                                    kernel,
+                                    ReorgFallback::Empty,
+                                    recovery_epoch,
+                                    Arc::clone(&snapshot),
+                                );
+                                let error = convergence_error.map_or(error, Into::into);
+                                (
+                                    ReorgMutation::Fault { error, retired },
+                                    AuthoritativePublication::GenerationReset,
+                                )
+                            }
+                        }
                     })
             });
             match transition {
                 Ok(ReorgMutation::Queued) => {}
-                Ok(ReorgMutation::Reset(txs)) => {
-                    let reset = self.pipeline.kernel.reset_for_chain(|fresh| {
-                        fresh.retain_recovery_prefix_after_clear(txs, recovery_epoch)
-                    });
-                    let (recovery, kernel) = match reset {
-                        Ok(reset) => reset,
-                        Err(error) => panic!(
-                            "reorg recovery generation preparation violated kernel invariants: {error:?}"
-                        ),
-                    };
-                    let accepted = tx_pool.reset_generation(Arc::clone(&snapshot));
-                    self.journal_block_assembler_reset(Arc::clone(&snapshot));
-                    if let Err(error) = self.relay.effects.install_generation_reset() {
-                        error!("reorg generation reset journal is unavailable: {error:?}");
-                    }
+                Ok(ReorgMutation::Reset(retired)) => {
                     drop(tx_pool);
-                    drop((accepted, kernel));
-                    let _ = recovery;
+                    retired.dispose();
                 }
-                Err(error) => return Err(error),
+                Ok(ReorgMutation::Fault { error, retired }) => {
+                    drop(tx_pool);
+                    retired.dispose();
+                    return Err(error.into());
+                }
+                Err(error) => return Err(error.into()),
             }
         }
         Ok((candidate_uncles, snapshot))
@@ -573,22 +868,30 @@ impl TxPoolService {
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
         self.advance_pipeline_epoch();
         let mut tx_pool = self.pool.tx_pool.write().await;
-        let (_, kernel) = self
-            .pipeline
-            .kernel
-            .reset_for_chain(|_| Ok(()))
-            .expect("empty clear generation preparation is total");
-        let accepted = tx_pool.reset_generation(Arc::clone(&new_snapshot));
-        self.journal_block_assembler_reset(new_snapshot);
-        if let Err(error) = self.relay.effects.install_generation_reset() {
-            error!("clear-pool generation reset journal is unavailable: {error:?}");
-        }
+        let transition = self.pipeline.kernel.mutate_authoritative(|kernel| {
+            self.relay.effects.apply_generation_reset(|| {
+                let kernel = kernel.replace_empty_generation();
+                let accepted = tx_pool.reset_generation(Arc::clone(&new_snapshot));
+                self.journal_block_assembler_reset(new_snapshot);
+                (accepted, kernel)
+            })
+        });
         drop(tx_pool);
-        drop((accepted, kernel));
+        match transition {
+            Ok(retired) => drop(retired),
+            Err(error) => self
+                .pipeline
+                .kernel
+                .report_fault("clear-pool generation reset journal failed", &error),
+        }
     }
 
     pub(crate) async fn save_pool(&self) {
-        let _writer = self.persistence_lock.lock().await;
+        // Wait before copying either bounded authority. The unique lease is
+        // then moved into the blocking closure, so this async task never owns
+        // a lock/permit across its join await and concurrent save requests do
+        // not accumulate full transaction snapshots.
+        let writer = self.persistence_writer.acquire().await;
         let (base, accepted, recovery) = {
             // Universal cross-authority order. Copying compact transaction
             // views is bounded by the accepted + pre-pool residency limits;
@@ -600,9 +903,7 @@ impl TxPoolService {
             (base, accepted, recovery)
         };
         let snapshot = crate::persisted::PersistenceSnapshot { accepted, recovery };
-        let result =
-            tokio::task::spawn_blocking(move || crate::persisted::write_snapshot(&base, snapshot))
-                .await;
+        let result = tokio::task::spawn_blocking(move || writer.write(&base, snapshot)).await;
         match result {
             Ok(Ok(())) => info!("TxPool saved successfully"),
             Ok(Err(err)) => error!("failed to save pool, error: {:?}", err),

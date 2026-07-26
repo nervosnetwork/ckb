@@ -8,26 +8,9 @@
 use ckb_logger::{debug, error};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
-use futures_util::FutureExt;
 use std::future::Future;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::{Notify, watch};
-
-use crate::util::panic_payload_to_string;
-
-/// Run one untrusted computation boundary, catching any panic it raises.
-///
-/// This guard is deliberately generic over the output so callers can wrap
-/// only resolver/verifier execution. Coordinator reads and transitions must
-/// remain outside it: an internal invariant failure is a process defect, not
-/// a transaction outcome that can safely be converted into a rejection.
-pub(crate) async fn catch_job_panic<F: Future>(fut: F) -> Result<F::Output, String> {
-    match AssertUnwindSafe(fut).catch_unwind().await {
-        Ok(output) => Ok(output),
-        Err(payload) => Err(panic_payload_to_string(payload.as_ref())),
-    }
-}
 
 /// Stage-specific callbacks used by [`WorkerRunner`].
 ///

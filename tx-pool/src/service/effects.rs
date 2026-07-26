@@ -18,11 +18,10 @@ use ckb_network::PeerIndex;
 use ckb_types::core::TransactionBuilder;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::Byte32;
-use futures_util::FutureExt;
+use ckb_util::{Mutex, MutexGuard};
 use std::collections::{HashMap, VecDeque};
-use std::panic::AssertUnwindSafe;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::sync::Notify;
 
@@ -94,10 +93,7 @@ pub(crate) fn max_submit_effect_bytes(max_pool_bytes: usize, max_block_bytes: us
 pub(crate) fn bounded_commit_ban_reason(reject: &Reject) -> String {
     let mut reason = format!("reject {reject}");
     if reason.len() > MAX_COMMIT_BAN_REASON_BYTES {
-        let mut boundary = MAX_COMMIT_BAN_REASON_BYTES;
-        while !reason.is_char_boundary(boundary) {
-            boundary -= 1;
-        }
+        let boundary = reason.floor_char_boundary(MAX_COMMIT_BAN_REASON_BYTES);
         reason.truncate(boundary);
     }
     reason
@@ -120,26 +116,41 @@ fn bounded_recent_reject(reject: &Reject) -> Reject {
 /// Convert a rich rejection into the exact bounded payload persisted by the
 /// recent-reject database. Doing this before enqueue detaches every packed or
 /// verifier-owned allocation and makes the journal byte charge exact.
-fn serialized_recent_reject(reject: &Reject) -> String {
-    fn serialize(reject: Reject) -> String {
+#[derive(Debug)]
+enum RecentRejectEncodingError {
+    Json(serde_json::Error),
+    FixedFallbackExceedsBound,
+}
+
+impl std::fmt::Display for RecentRejectEncodingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => write!(formatter, "recent-reject JSON encoding failed: {error}"),
+            Self::FixedFallbackExceedsBound => {
+                write!(formatter, "fixed recent-reject fallback exceeds its bound")
+            }
+        }
+    }
+}
+
+fn serialized_recent_reject(reject: &Reject) -> Result<String, RecentRejectEncodingError> {
+    fn serialize(reject: Reject) -> Result<String, RecentRejectEncodingError> {
         let public: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
-        serde_json::to_string(&public)
-            .expect("serializing a string-only pool rejection cannot fail")
+        serde_json::to_string(&public).map_err(RecentRejectEncodingError::Json)
     }
 
-    let serialized = serialize(bounded_recent_reject(reject));
+    let serialized = serialize(bounded_recent_reject(reject))?;
     if serialized.len() <= MAX_RECENT_REJECT_BYTES {
-        return serialized;
+        return Ok(serialized);
     }
     let fallback = serialize(Reject::Malformed(
         "tx-pool rejection diagnostic omitted".to_string(),
         String::new(),
-    ));
-    assert!(
-        fallback.len() <= MAX_RECENT_REJECT_BYTES,
-        "fixed recent-reject fallback exceeds its serialized bound"
-    );
-    fallback
+    ))?;
+    if fallback.len() > MAX_RECENT_REJECT_BYTES {
+        return Err(RecentRejectEncodingError::FixedFallbackExceedsBound);
+    }
+    Ok(fallback)
 }
 
 fn bounded_pool_mutation_reject(reject: &Reject) -> bool {
@@ -160,10 +171,16 @@ pub(crate) enum EffectJournalError {
     Full,
     BatchTooLarge { bytes: usize, max_bytes: usize },
     AllocationFailed,
+    SequenceExhausted,
+    Projection(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(usize)]
+pub(crate) enum EffectBuildError {
+    UnboundedPoolMutationReject,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EffectClass {
     /// Peer-originated work may use only the untrusted portion of the journal.
     Remote,
@@ -173,14 +190,6 @@ pub(crate) enum EffectClass {
     /// Chain/admin headroom. When this detailed region is saturated, chain
     /// Apply uses the capacity-independent latest-generation reset register.
     Critical,
-}
-
-impl EffectClass {
-    const REGION_COUNT: usize = 3;
-
-    fn region(self) -> usize {
-        self as usize
-    }
 }
 
 #[derive(Clone)]
@@ -279,7 +288,7 @@ impl TxPoolEffect {
 
 pub(crate) struct EffectBatch {
     effects: Vec<TxPoolEffect>,
-    recent_reject_indices: Box<[usize]>,
+    recent_rejects: Box<[(Byte32, usize)]>,
     next: AtomicUsize,
     charge_bytes: usize,
 }
@@ -296,17 +305,21 @@ impl EffectBatch {
         let charge_bytes = effects.iter().fold(0usize, |total, effect| {
             total.saturating_add(effect.charge_bytes())
         });
-        let recent_reject_indices = effects
+        let recent_rejects = effects
             .iter()
             .enumerate()
             .filter_map(|(index, effect)| {
-                matches!(effect, TxPoolEffect::RecentReject { .. }).then_some(index)
+                if let TxPoolEffect::RecentReject { tx_hash, .. } = effect {
+                    Some((tx_hash.clone(), index))
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Some(Self {
             effects,
-            recent_reject_indices,
+            recent_rejects,
             next: AtomicUsize::new(0),
             charge_bytes,
         })
@@ -315,7 +328,7 @@ impl EffectBatch {
     fn reset_record() -> Self {
         Self {
             effects: vec![TxPoolEffect::Relay(TxVerificationResult::GenerationReset)],
-            recent_reject_indices: Box::new([]),
+            recent_rejects: Box::new([]),
             next: AtomicUsize::new(0),
             charge_bytes: 0,
         }
@@ -329,8 +342,13 @@ impl EffectBatch {
         self.effects.get(self.next.load(Ordering::Acquire))
     }
 
-    fn advance(&self) {
-        self.next.fetch_add(1, Ordering::AcqRel);
+    fn advance(&self) -> Result<(), EffectJournalError> {
+        self.next
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                (current < self.effects.len()).then(|| current.saturating_add(1))
+            })
+            .map(|_| ())
+            .map_err(|_| EffectJournalError::Projection("effect cursor advance"))
     }
 
     fn is_complete(&self) -> bool {
@@ -359,9 +377,11 @@ impl EffectUsage {
                 .is_some_and(|value| value <= limit.bytes)
     }
 
-    fn charge(&mut self, bytes: usize) {
-        self.batches += 1;
-        self.bytes += bytes;
+    fn checked_charge(self, bytes: usize) -> Option<Self> {
+        Some(Self {
+            batches: self.batches.checked_add(1)?,
+            bytes: self.bytes.checked_add(bytes)?,
+        })
     }
 
     fn checked_release(self, bytes: usize) -> Option<Self> {
@@ -385,6 +405,94 @@ struct PendingReject {
     effect_index: usize,
 }
 
+struct EffectAppendPlan {
+    sequence: u128,
+    usage: EffectRegions,
+}
+
+/// Cumulative capacity lattice for the three ingress trust classes.
+///
+/// Named fields encode the containment relation directly and avoid using a
+/// trust-class discriminant as an unchecked slice boundary.
+#[derive(Clone, Copy, Debug, Default)]
+struct EffectRegions {
+    remote: EffectUsage,
+    ordinary: EffectUsage,
+    total: EffectUsage,
+}
+
+impl EffectRegions {
+    fn new(remote: EffectUsage, ordinary: EffectUsage, total: EffectUsage) -> Self {
+        Self {
+            remote,
+            ordinary,
+            total,
+        }
+    }
+
+    fn checked_charge(self, class: EffectClass, bytes: usize) -> Option<Self> {
+        match class {
+            EffectClass::Remote => Some(Self {
+                remote: self.remote.checked_charge(bytes)?,
+                ordinary: self.ordinary.checked_charge(bytes)?,
+                total: self.total.checked_charge(bytes)?,
+            }),
+            EffectClass::Trusted => Some(Self {
+                remote: self.remote,
+                ordinary: self.ordinary.checked_charge(bytes)?,
+                total: self.total.checked_charge(bytes)?,
+            }),
+            EffectClass::Critical => Some(Self {
+                remote: self.remote,
+                ordinary: self.ordinary,
+                total: self.total.checked_charge(bytes)?,
+            }),
+        }
+    }
+
+    fn checked_release(self, class: EffectClass, bytes: usize) -> Option<Self> {
+        match class {
+            EffectClass::Remote => Some(Self {
+                remote: self.remote.checked_release(bytes)?,
+                ordinary: self.ordinary.checked_release(bytes)?,
+                total: self.total.checked_release(bytes)?,
+            }),
+            EffectClass::Trusted => Some(Self {
+                remote: self.remote,
+                ordinary: self.ordinary.checked_release(bytes)?,
+                total: self.total.checked_release(bytes)?,
+            }),
+            EffectClass::Critical => Some(Self {
+                remote: self.remote,
+                ordinary: self.ordinary,
+                total: self.total.checked_release(bytes)?,
+            }),
+        }
+    }
+
+    fn limit_for(self, class: EffectClass) -> EffectUsage {
+        match class {
+            EffectClass::Remote => self.remote,
+            EffectClass::Trusted => self.ordinary,
+            EffectClass::Critical => self.total,
+        }
+    }
+
+    fn fits(self, limits: Self, class: EffectClass, bytes: usize) -> bool {
+        match class {
+            EffectClass::Remote => {
+                self.remote.fits(bytes, limits.remote)
+                    && self.ordinary.fits(bytes, limits.ordinary)
+                    && self.total.fits(bytes, limits.total)
+            }
+            EffectClass::Trusted => {
+                self.ordinary.fits(bytes, limits.ordinary) && self.total.fits(bytes, limits.total)
+            }
+            EffectClass::Critical => self.total.fits(bytes, limits.total),
+        }
+    }
+}
+
 struct JournalState {
     queued: VecDeque<EffectEnvelope>,
     active: Option<EffectEnvelope>,
@@ -395,39 +503,32 @@ struct JournalState {
     pending_recent_rejects: HashMap<Byte32, PendingReject>,
     /// Cumulative region lattice: Remote batches charge all three slots,
     /// Trusted batches charge ordinary+total, and Critical charges total.
-    usage: [EffectUsage; EffectClass::REGION_COUNT],
+    usage: EffectRegions,
     next_sequence: u128,
     closed: bool,
 }
 
 impl JournalState {
-    fn charge(&mut self, class: EffectClass, bytes: usize) {
-        for usage in &mut self.usage[class.region()..] {
-            usage.charge(bytes);
-        }
+    fn release(&mut self, class: EffectClass, bytes: usize) -> Result<(), EffectJournalError> {
+        self.usage =
+            self.usage
+                .checked_release(class, bytes)
+                .ok_or(EffectJournalError::Projection(
+                    "active batch exceeds journal accounting",
+                ))?;
+        Ok(())
     }
 
-    fn release(&mut self, class: EffectClass, bytes: usize) {
-        let mut planned = self.usage;
-        for usage in &mut planned[class.region()..] {
-            *usage = usage
-                .checked_release(bytes)
-                .expect("effect journal accounting covers its active batch");
-        }
-        self.usage = planned;
-    }
-
-    fn allocate_sequence(&mut self) -> u128 {
+    fn reserve_sequence(&mut self) -> Result<u128, EffectJournalError> {
         let sequence = self.next_sequence;
         self.next_sequence = self
             .next_sequence
             .checked_add(1)
-            .expect("u128 effect sequence exhausted");
-        sequence
+            .ok_or(EffectJournalError::SequenceExhausted)?;
+        Ok(sequence)
     }
 
-    fn push_generation_reset(&mut self, reset_batch: &Arc<EffectBatch>) {
-        let sequence = self.allocate_sequence();
+    fn apply_generation_reset(&mut self, sequence: u128, reset_batch: &Arc<EffectBatch>) {
         self.latest_generation_reset = Some(EffectEnvelope {
             sequence,
             class: None,
@@ -435,24 +536,45 @@ impl JournalState {
         });
     }
 
-    fn push(&mut self, class: EffectClass, batch: EffectBatch) {
-        let sequence = self.allocate_sequence();
-        self.charge(class, batch.charge_bytes);
+    fn plan_append(
+        &mut self,
+        class: EffectClass,
+        bytes: usize,
+    ) -> Result<EffectAppendPlan, EffectJournalError> {
+        let sequence = self.reserve_sequence()?;
+        self.plan_append_with_sequence(class, bytes, sequence)
+    }
+
+    fn plan_append_with_sequence(
+        &self,
+        class: EffectClass,
+        bytes: usize,
+        sequence: u128,
+    ) -> Result<EffectAppendPlan, EffectJournalError> {
+        let usage =
+            self.usage
+                .checked_charge(class, bytes)
+                .ok_or(EffectJournalError::Projection(
+                    "effect append accounting overflow",
+                ))?;
+        Ok(EffectAppendPlan { sequence, usage })
+    }
+
+    fn apply_append(&mut self, plan: EffectAppendPlan, class: EffectClass, batch: EffectBatch) {
+        self.usage = plan.usage;
         let batch = Arc::new(batch);
-        for &effect_index in batch.recent_reject_indices.iter() {
-            if let TxPoolEffect::RecentReject { tx_hash, .. } = &batch.effects[effect_index] {
-                self.pending_recent_rejects.insert(
-                    tx_hash.clone(),
-                    PendingReject {
-                        sequence,
-                        batch: Arc::clone(&batch),
-                        effect_index,
-                    },
-                );
-            }
+        for (tx_hash, effect_index) in batch.recent_rejects.iter() {
+            self.pending_recent_rejects.insert(
+                tx_hash.clone(),
+                PendingReject {
+                    sequence: plan.sequence,
+                    batch: Arc::clone(&batch),
+                    effect_index: *effect_index,
+                },
+            );
         }
         self.queued.push_back(EffectEnvelope {
-            sequence,
+            sequence: plan.sequence,
             class: Some(class),
             batch,
         });
@@ -474,9 +596,11 @@ pub(crate) struct EffectJournal {
     state: Mutex<JournalState>,
     ready: Notify,
     space: Notify,
-    limits: [EffectUsage; EffectClass::REGION_COUNT],
+    limits: EffectRegions,
     publisher_running: AtomicBool,
     callback_circuit_open: AtomicBool,
+    network_circuit_open: AtomicBool,
+    recent_reject_circuit_open: AtomicBool,
     callback_sender: std::sync::mpsc::SyncSender<CallbackJob>,
     /// Prebuilt, allocation-free emergency authority record. Installing a
     /// reset under a chain/defect lock only clones this Arc into the one
@@ -484,11 +608,17 @@ pub(crate) struct EffectJournal {
     generation_reset_batch: Arc<EffectBatch>,
 }
 
+/// Publication paired with one chain-authoritative state transition.
+/// Generation reset is an explicit committed outcome, not an out-of-band
+/// repair attempted after authority locks have opened.
+pub(crate) enum AuthoritativePublication {
+    Detail(Option<EffectBatch>),
+    GenerationReset,
+}
+
 impl EffectJournal {
     fn lock_state(&self) -> MutexGuard<'_, JournalState> {
-        self.state
-            .lock()
-            .expect("effect journal mutex poisoned by an invariant failure")
+        self.state.lock()
     }
 
     pub(crate) fn new_partitioned(
@@ -526,6 +656,7 @@ impl EffectJournal {
         std::thread::Builder::new()
             .name("tx-pool-callback".to_owned())
             .spawn(move || {
+                crate::callback::mark_callback_thread();
                 while let Ok(job) = callback_receiver.recv() {
                     job.callbacks.publish(&job.event);
                     let _ = job.done.send(());
@@ -538,33 +669,32 @@ impl EffectJournal {
                 active: None,
                 latest_generation_reset: None,
                 pending_recent_rejects: HashMap::new(),
-                usage: [EffectUsage::default(); EffectClass::REGION_COUNT],
+                usage: EffectRegions::default(),
                 next_sequence: 1,
                 closed: false,
             }),
             ready: Notify::new(),
             space: Notify::new(),
-            limits: [
+            limits: EffectRegions::new(
                 EffectUsage::new(remote_max_batches, remote_max_bytes),
                 EffectUsage::new(ordinary_batches, ordinary_bytes),
                 EffectUsage::new(total_batches, total_bytes),
-            ],
+            ),
             publisher_running: AtomicBool::new(false),
             callback_circuit_open: AtomicBool::new(false),
+            network_circuit_open: AtomicBool::new(false),
+            recent_reject_circuit_open: AtomicBool::new(false),
             callback_sender,
             generation_reset_batch: Arc::new(EffectBatch::reset_record()),
         })
     }
 
     fn class_limit(&self, class: EffectClass) -> EffectUsage {
-        self.limits[class.region()]
+        self.limits.limit_for(class)
     }
 
     fn fits(&self, state: &JournalState, class: EffectClass, bytes: usize) -> bool {
-        state.usage[class.region()..]
-            .iter()
-            .zip(&self.limits[class.region()..])
-            .all(|(usage, limit)| usage.fits(bytes, *limit))
+        state.usage.fits(self.limits, class, bytes)
     }
 
     /// Install a post-Apply batch only when it honors the bound checked before
@@ -576,16 +706,25 @@ impl EffectJournal {
         state: &mut JournalState,
         class: EffectClass,
         proven_bytes: usize,
+        sequence: u128,
         batch: EffectBatch,
     ) {
         let actual = batch.charge_bytes;
         if actual <= proven_bytes && self.fits(state, class, actual) {
-            state.push(class, batch);
+            match state.plan_append_with_sequence(class, actual, sequence) {
+                Ok(plan) => state.apply_append(plan, class, batch),
+                Err(error) => {
+                    error!(
+                        "tx-pool effect append plan failed after authoritative Apply: {error:?}; publishing generation reset"
+                    );
+                    state.apply_generation_reset(sequence, &self.generation_reset_batch);
+                }
+            }
         } else {
             error!(
                 "tx-pool effect plan violated its bound: actual {actual}, proven {proven_bytes}; publishing generation reset"
             );
-            state.push_generation_reset(&self.generation_reset_batch);
+            state.apply_generation_reset(sequence, &self.generation_reset_batch);
         }
     }
 
@@ -642,42 +781,48 @@ impl EffectJournal {
         if !self.fits(&state, class, bytes) {
             return Err(EffectJournalError::Full);
         }
+        let plan = state.plan_append(class, bytes)?;
         let result = apply();
-        state.push(class, batch);
+        state.apply_append(plan, class, batch);
         drop(state);
         self.ready.notify_one();
         Ok(result)
     }
 
-    /// Transitional form for effects materialized from an immutable pool plan
-    /// during total Apply; its static upper bound is checked before Apply.
-    pub(crate) fn try_apply_bounded<T>(
+    /// Variant for an exclusive prepared mutation whose sole fallible step is
+    /// guaranteed to precede every physical state change. A failed preflight
+    /// leaves authority unchanged and therefore must not publish its effects.
+    pub(crate) fn try_apply_checked<T, E>(
         &self,
-        max_bytes: usize,
+        batch: Option<EffectBatch>,
         class: EffectClass,
-        apply: impl FnOnce() -> (T, Option<EffectBatch>),
-    ) -> Result<T, EffectJournalError> {
-        let class_max = self.class_limit(class).bytes;
-        if max_bytes > class_max {
-            return Err(EffectJournalError::BatchTooLarge {
-                bytes: max_bytes,
-                max_bytes: class_max,
-            });
+        apply: impl FnOnce() -> Result<T, E>,
+    ) -> Result<Result<T, E>, EffectJournalError> {
+        let Some(batch) = batch else {
+            return Ok(apply());
+        };
+        let bytes = batch.charge_bytes;
+        let max_bytes = self.class_limit(class).bytes;
+        if bytes > max_bytes {
+            return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
         let mut state = self.lock_state();
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
-        if !self.fits(&state, class, max_bytes) {
+        if !self.fits(&state, class, bytes) {
             return Err(EffectJournalError::Full);
         }
-        let (result, batch) = apply();
-        if let Some(batch) = batch {
-            self.push_bounded_or_reset(&mut state, class, max_bytes, batch);
+        let plan = state.plan_append(class, bytes)?;
+        match apply() {
+            Ok(result) => {
+                state.apply_append(plan, class, batch);
+                drop(state);
+                self.ready.notify_one();
+                Ok(Ok(result))
+            }
+            Err(error) => Ok(Err(error)),
         }
-        drop(state);
-        self.ready.notify_one();
-        Ok(result)
     }
 
     /// Apply a chain-authoritative transition without waiting behind detailed
@@ -686,13 +831,13 @@ impl EffectJournal {
     /// receives `false`, the state transition still linearizes, and one
     /// prebuilt replaceable GenerationReset is installed instead.
     ///
-    /// This is intentionally narrower than `try_apply_bounded`: ordinary
-    /// admission may backpressure, while chain convergence may discard
-    /// observational detail but cannot wait behind callbacks or relay retry.
+    /// Ordinary admission uses exact prebuilt batches and may backpressure;
+    /// only chain convergence may discard observational detail rather than
+    /// wait behind callbacks or relay retry.
     pub(crate) fn try_apply_authoritative<T>(
         &self,
         max_detail_bytes: usize,
-        apply: impl FnOnce(bool) -> (T, Option<EffectBatch>),
+        apply: impl FnOnce(bool) -> (T, AuthoritativePublication),
     ) -> Result<T, EffectJournalError> {
         let class = EffectClass::Critical;
         let class_max = self.class_limit(class).bytes;
@@ -706,19 +851,45 @@ impl EffectJournal {
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
+        let sequence = state.reserve_sequence()?;
         let publish_detail = self.fits(&state, class, max_detail_bytes);
-        let (result, batch) = apply(publish_detail);
-        if publish_detail {
-            if let Some(batch) = batch {
-                self.push_bounded_or_reset(&mut state, class, max_detail_bytes, batch);
+        let (result, publication) = apply(publish_detail);
+        match publication {
+            AuthoritativePublication::GenerationReset => {
+                state.apply_generation_reset(sequence, &self.generation_reset_batch);
             }
-        } else {
-            debug_assert!(batch.is_none(), "reset fallback must not retain detail");
-            state.push_generation_reset(&self.generation_reset_batch);
+            AuthoritativePublication::Detail(batch) if publish_detail => {
+                if let Some(batch) = batch {
+                    self.push_bounded_or_reset(
+                        &mut state,
+                        class,
+                        max_detail_bytes,
+                        sequence,
+                        batch,
+                    );
+                }
+            }
+            AuthoritativePublication::Detail(batch) => {
+                if batch.is_some() {
+                    error!("authoritative reset fallback returned unused detail");
+                }
+                state.apply_generation_reset(sequence, &self.generation_reset_batch);
+            }
         }
         drop(state);
         self.ready.notify_one();
         Ok(result)
+    }
+
+    /// Linearize an authority generation swap with its replaceable reset
+    /// publication. The state closure never runs when the journal is closed
+    /// or its sequence is exhausted, so callers retain the complete old
+    /// generation instead of committing an externally invisible reset.
+    pub(crate) fn apply_generation_reset<T>(
+        &self,
+        apply: impl FnOnce() -> T,
+    ) -> Result<T, EffectJournalError> {
+        self.try_apply_authoritative(0, |_| (apply(), AuthoritativePublication::GenerationReset))
     }
 
     pub(crate) async fn append(
@@ -741,7 +912,13 @@ impl EffectJournal {
             if !self.fits(&state, class, bytes) {
                 continue;
             }
-            state.push(class, batch.take().expect("batch appended once"));
+            let plan = state.plan_append(class, bytes)?;
+            let Some(batch) = batch.take() else {
+                return Err(EffectJournalError::Projection(
+                    "effect batch appended twice",
+                ));
+            };
+            state.apply_append(plan, class, batch);
             drop(state);
             self.ready.notify_one();
             return Ok(());
@@ -756,7 +933,8 @@ impl EffectJournal {
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
-        state.push_generation_reset(&self.generation_reset_batch);
+        let sequence = state.reserve_sequence()?;
+        state.apply_generation_reset(sequence, &self.generation_reset_batch);
         drop(state);
         self.ready.notify_one();
         Ok(())
@@ -779,16 +957,13 @@ impl EffectJournal {
     pub(crate) fn pending_recent_reject(&self, hash: &Byte32) -> Option<String> {
         let state = self.lock_state();
         let pending = state.pending_recent_rejects.get(hash)?;
-        match &pending.batch.effects[pending.effect_index] {
+        match pending.batch.effects.get(pending.effect_index)? {
             TxPoolEffect::RecentReject {
                 tx_hash,
                 serialized,
                 ..
-            } => {
-                assert_eq!(tx_hash, hash, "pending-reject index must match its effect");
-                Some(serialized.clone())
-            }
-            _ => unreachable!("pending-reject index must reference a rejection effect"),
+            } if tx_hash == hash => Some(serialized.clone()),
+            _ => None,
         }
     }
 }
@@ -801,6 +976,11 @@ pub(crate) struct EffectEndpoints {
 
 struct PublisherClaim<'a>(&'a AtomicBool);
 
+struct CheckedOutBatch {
+    sequence: u128,
+    batch: Arc<EffectBatch>,
+}
+
 impl Drop for PublisherClaim<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
@@ -808,7 +988,7 @@ impl Drop for PublisherClaim<'_> {
 }
 
 impl EffectJournal {
-    fn checkout(&self) -> Option<(u128, Arc<EffectBatch>)> {
+    fn checkout(&self) -> Option<CheckedOutBatch> {
         let mut state = self.lock_state();
         if state.active.is_none() {
             let queued_sequence = state.queued.front().map(|envelope| envelope.sequence);
@@ -824,41 +1004,46 @@ impl EffectJournal {
                 _ => state.queued.pop_front(),
             };
         }
-        state
-            .active
-            .as_ref()
-            .map(|envelope| (envelope.sequence, Arc::clone(&envelope.batch)))
+        state.active.as_ref().map(|envelope| CheckedOutBatch {
+            sequence: envelope.sequence,
+            batch: Arc::clone(&envelope.batch),
+        })
     }
 
-    fn complete(&self, sequence: u128) {
+    fn complete(&self, checked_out: CheckedOutBatch) -> Result<(), EffectJournalError> {
         let mut state = self.lock_state();
-        let active = state
-            .active
-            .as_ref()
-            .expect("effect publisher completes one checked-out batch");
-        assert_eq!(
-            active.sequence, sequence,
-            "effect publisher completion must match the active batch"
-        );
+        let active = state.active.as_ref().ok_or(EffectJournalError::Projection(
+            "effect completion lacks active batch",
+        ))?;
+        if active.sequence != checked_out.sequence
+            || !Arc::ptr_eq(&active.batch, &checked_out.batch)
+        {
+            return Err(EffectJournalError::Projection(
+                "effect completion capability does not match active batch",
+            ));
+        }
         let bytes = active.batch.charge_bytes;
         let class = active.class;
         let batch = Arc::clone(&active.batch);
-        for &effect_index in batch.recent_reject_indices.iter() {
-            if let TxPoolEffect::RecentReject { tx_hash, .. } = &batch.effects[effect_index]
-                && state
-                    .pending_recent_rejects
-                    .get(tx_hash)
-                    .is_some_and(|pending| pending.sequence == sequence)
+        // Accounting is the only fallible completion step. Settle it before
+        // deleting any read projection so an error leaves the active envelope
+        // and all observer-visible metadata intact.
+        if let Some(class) = class {
+            state.release(class, bytes)?;
+        }
+        for (tx_hash, _) in batch.recent_rejects.iter() {
+            if state
+                .pending_recent_rejects
+                .get(tx_hash)
+                .is_some_and(|pending| pending.sequence == checked_out.sequence)
             {
                 state.pending_recent_rejects.remove(tx_hash);
             }
         }
-        if let Some(class) = class {
-            state.release(class, bytes);
-        }
         state.active.take();
         drop(state);
         self.space.notify_waiters();
+        Ok(())
     }
 
     fn closed_and_empty(&self) -> bool {
@@ -874,8 +1059,48 @@ impl EffectJournal {
     }
 }
 
-const CALLBACK_TIMEOUT: Duration = Duration::from_secs(1);
+/// Maximum time the ordered publisher grants one foreign endpoint.
+///
+/// Authority has already committed before these calls run. A callback,
+/// injected network handle or auxiliary database must therefore be allowed
+/// to lose only its own observational detail, never retain the journal head
+/// indefinitely and turn a foreign stall into admission backpressure.
+const EXTERNAL_EFFECT_TIMEOUT: Duration = Duration::from_secs(1);
 const RELAY_RETRY_TIMEOUT: Duration = Duration::from_millis(250);
+
+#[derive(Debug)]
+enum BlockingEffectFailure {
+    TimedOut,
+    Task(tokio::task::JoinError),
+}
+
+impl std::fmt::Display for BlockingEffectFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TimedOut => formatter.write_str("timed out"),
+            Self::Task(error) => write!(formatter, "task failed: {error}"),
+        }
+    }
+}
+
+/// Execute one potentially blocking foreign endpoint behind the common
+/// publication deadline. Tokio cannot cancel a blocking closure that has
+/// started, but the caller opens the endpoint's circuit on error, so at most
+/// one detached invocation per endpoint kind can remain stuck.
+async fn run_blocking_effect<T: Send + 'static>(
+    operation: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, BlockingEffectFailure> {
+    match tokio::time::timeout(
+        EXTERNAL_EFFECT_TIMEOUT,
+        tokio::task::spawn_blocking(operation),
+    )
+    .await
+    {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(BlockingEffectFailure::Task(error)),
+        Err(_) => Err(BlockingEffectFailure::TimedOut),
+    }
+}
 
 async fn publish_callback(
     queue: &EffectJournal,
@@ -897,11 +1122,63 @@ async fn publish_callback(
         return;
     }
     if !matches!(
-        tokio::time::timeout(CALLBACK_TIMEOUT, done_rx).await,
+        tokio::time::timeout(EXTERNAL_EFFECT_TIMEOUT, done_rx).await,
         Ok(Ok(()))
     ) {
         queue.callback_circuit_open.store(true, Ordering::Release);
         error!("tx-pool callback timed out; callback circuit opened");
+    }
+}
+
+async fn publish_ban_peer(
+    queue: &EffectJournal,
+    network: TxPoolNetworkHandle,
+    peer: PeerIndex,
+    duration: Duration,
+    reason: String,
+) {
+    if queue.network_circuit_open.load(Ordering::Acquire) {
+        error!("tx-pool network effect circuit is open; dropping peer ban");
+        return;
+    }
+    // TxPoolNetwork is an injected, potentially foreign endpoint. A Tokio
+    // task boundary turns its unwind into a typed JoinError without making
+    // catch_unwind part of journal or authority control flow.
+    if let Err(error) = run_blocking_effect(move || {
+        network.ban_peer(peer, duration, reason);
+    })
+    .await
+    {
+        queue.network_circuit_open.store(true, Ordering::Release);
+        error!("tx-pool network effect task failed; circuit opened: {error}");
+    }
+}
+
+async fn publish_recent_reject(
+    queue: &EffectJournal,
+    store: Arc<crate::component::recent_reject::RecentReject>,
+    tx_hash: Byte32,
+    serialized: String,
+) {
+    if queue.recent_reject_circuit_open.load(Ordering::Acquire) {
+        error!("tx-pool recent-reject circuit is open; dropping persistence effect");
+        return;
+    }
+    let published = run_blocking_effect(move || {
+        store
+            .put_serialized(&tx_hash, &serialized)
+            .map_err(|error| format!("failed to record recent reject {tx_hash}: {error}"))
+    })
+    .await;
+    match published {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => error!("{error}"),
+        Err(error) => {
+            queue
+                .recent_reject_circuit_open
+                .store(true, Ordering::Release);
+            error!("tx-pool recent-reject effect task failed; circuit opened: {error}");
+        }
     }
 }
 
@@ -930,7 +1207,8 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
                             if let Err(error) = queue.install_generation_reset()
                                 && error != EffectJournalError::Closed
                             {
-                                panic!("relayer reconciliation install failed: {error:?}");
+                                error!("relayer reconciliation install failed: {error:?}");
+                                queue.close();
                             }
                             error!(
                                 "tx-pool relayer endpoint remained full; coalescing to GenerationReset"
@@ -951,61 +1229,63 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
             peer,
             duration,
             reason,
-        } => endpoints.network.ban_peer(peer, duration, reason),
+        } => {
+            publish_ban_peer(
+                queue,
+                Arc::clone(&endpoints.network),
+                peer,
+                duration,
+                reason,
+            )
+            .await;
+        }
         TxPoolEffect::RecentReject {
             store,
             tx_hash,
             serialized,
-        } => {
-            if let Err(error) = store.put_serialized(&tx_hash, &serialized) {
-                error!("failed to record recent reject {}: {}", tx_hash, error);
-            }
-        }
+        } => publish_recent_reject(queue, store, tx_hash, serialized).await,
     }
 }
 
-async fn run_effect_publisher_once(queue: Arc<EffectJournal>, endpoints: EffectEndpoints) {
+async fn run_effect_publisher_once(
+    queue: Arc<EffectJournal>,
+    endpoints: EffectEndpoints,
+) -> Result<(), EffectJournalError> {
     if queue
         .publisher_running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
         error!("refusing concurrent tx-pool effect publisher");
-        return;
+        return Err(EffectJournalError::Projection(
+            "concurrent effect publisher",
+        ));
     }
     let _claim = PublisherClaim(&queue.publisher_running);
     loop {
         let ready = queue.ready.notified();
-        let Some((sequence, batch)) = queue.checkout() else {
+        let Some(checked_out) = queue.checkout() else {
             if queue.closed_and_empty() {
-                return;
+                return Ok(());
             }
             ready.await;
             continue;
         };
-        while let Some(effect) = batch.current().cloned() {
-            match AssertUnwindSafe(publish_one(&queue, &endpoints, effect))
-                .catch_unwind()
-                .await
-            {
-                Ok(()) => batch.advance(),
-                Err(payload) => {
-                    error!(
-                        "tx-pool effect endpoint panicked and was quarantined: {}",
-                        crate::util::panic_payload_to_string(payload.as_ref())
-                    );
-                    batch.advance();
-                }
-            }
+        while let Some(effect) = checked_out.batch.current().cloned() {
+            publish_one(&queue, &endpoints, effect).await;
+            checked_out.batch.advance()?;
         }
-        if batch.is_complete() {
-            queue.complete(sequence);
+        if checked_out.batch.is_complete() {
+            queue.complete(checked_out)?;
         }
     }
 }
 
 pub(crate) async fn run_effect_publisher(queue: Arc<EffectJournal>, endpoints: EffectEndpoints) {
-    run_effect_publisher_once(queue, endpoints).await;
+    if let Err(error) = run_effect_publisher_once(Arc::clone(&queue), endpoints).await {
+        error!("tx-pool effect publisher stopped on journal fault: {error:?}");
+        queue.close();
+    }
     info!("tx-pool effect publisher drained and exited");
 }
 
@@ -1035,13 +1315,6 @@ pub(crate) fn callback_reject(
 impl TxPoolService {
     pub(crate) fn unknown_parents_effect_bytes(parent_count: usize) -> usize {
         EFFECT_ENVELOPE_BYTES.saturating_add(parent_count.saturating_mul(UNKNOWN_PARENT_HASH_BYTES))
-    }
-
-    pub(crate) fn max_submit_effect_bytes(&self) -> usize {
-        max_submit_effect_bytes(
-            self.pool.tx_pool_config.max_tx_pool_size,
-            self.pool.consensus.max_block_bytes() as usize,
-        )
     }
 
     pub(crate) fn max_reorg_effect_bytes(&self) -> usize {
@@ -1084,11 +1357,14 @@ impl TxPoolService {
     /// Complete terminal pool-removal publication. Keep relayer and recent
     /// reject semantics in the tx-pool core instead of hiding them inside a
     /// user callback, so every deployment observes the same outcome.
-    pub(crate) fn rejected_effects(&self, entry: TxEntry, reject: Reject) -> Vec<TxPoolEffect> {
-        assert!(
-            bounded_pool_mutation_reject(&reject),
-            "unbounded reject escaped a submit/reorg pool mutation: {reject}"
-        );
+    pub(crate) fn rejected_effects(
+        &self,
+        entry: TxEntry,
+        reject: Reject,
+    ) -> Result<Vec<TxPoolEffect>, EffectBuildError> {
+        if !bounded_pool_mutation_reject(&reject) {
+            return Err(EffectBuildError::UnboundedPoolMutationReject);
+        }
         let mut effects = Vec::new();
         if let Some(effect) = self.recent_reject_effect(entry.transaction().hash(), &reject) {
             effects.push(effect);
@@ -1105,7 +1381,7 @@ impl TxPoolService {
                 tx_hash: entry.transaction().hash(),
             }));
         }
-        effects
+        Ok(effects)
     }
 
     pub(crate) fn recent_reject_effect(
@@ -1116,19 +1392,63 @@ impl TxPoolService {
         if !reject.should_recorded() {
             return None;
         }
-        self.aux
-            .recent_reject
-            .as_ref()
-            .map(|store| TxPoolEffect::RecentReject {
-                store: Arc::clone(store),
-                tx_hash,
-                serialized: serialized_recent_reject(reject),
-            })
+        let store = self.aux.recent_reject.as_ref()?;
+        let serialized = match serialized_recent_reject(reject) {
+            Ok(serialized) => serialized,
+            Err(error) => {
+                error!("failed to encode bounded recent reject: {error}");
+                return None;
+            }
+        };
+        Some(TxPoolEffect::RecentReject {
+            store: Arc::clone(store),
+            tx_hash,
+            serialized,
+        })
     }
 
     pub(crate) async fn publish_relay_result(&self, result: TxVerificationResult) {
         self.publish_effects(vec![TxPoolEffect::Relay(result)])
             .await;
+    }
+
+    /// Publish duplicate acceptance only while the accepted authority still
+    /// proves membership. Holding the pool read guard through journal append
+    /// orders this observation against reorg/clear: either `Ok` precedes the
+    /// later removal/reset, or the transaction is absent and no stale success
+    /// can be published after that reset.
+    pub(crate) async fn publish_accepted_relay_result(
+        &self,
+        tx_hash: Byte32,
+        original_peer: Option<PeerIndex>,
+    ) -> Result<bool, EffectJournalError> {
+        let class = if original_peer.is_some() {
+            EffectClass::Remote
+        } else {
+            EffectClass::Trusted
+        };
+        loop {
+            self.relay
+                .effects
+                .wait_capacity(EFFECT_ENVELOPE_BYTES, class)
+                .await?;
+            let tx_pool = self.pool.tx_pool.read().await;
+            if tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_none() {
+                return Ok(false);
+            }
+            let batch = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Ok {
+                original_peer,
+                tx_hash: tx_hash.clone(),
+            })])
+            .ok_or(EffectJournalError::Projection(
+                "accepted relay effect is empty",
+            ))?;
+            match self.relay.effects.try_apply(Some(batch), class, || ()) {
+                Ok(()) => return Ok(true),
+                Err(EffectJournalError::Full) => continue,
+                Err(error) => return Err(error),
+            }
+        }
     }
 }
 

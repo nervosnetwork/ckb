@@ -6,6 +6,7 @@
 //! pool guard is released. Lookup, removal, parent waiting, and clearing live
 //! here so call sites cannot invent a partial structure list or lock order.
 
+use crate::component::pool_map::PoolMutationFault;
 use crate::component::pre_pool::PrePoolKernel;
 use crate::component::pre_pool::{
     DependencyKey, PrePoolError, PrePoolSource, ResolveLease, TerminalRecord, VerifyLease,
@@ -18,6 +19,24 @@ use ckb_types::core::TransactionView;
 use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_types::prelude::Unpack;
 use std::collections::{BTreeSet, HashSet};
+
+#[derive(Debug)]
+enum AdministrativeRemovalError {
+    Accepted(PoolMutationFault),
+    PrePool(PrePoolError),
+}
+
+impl From<PoolMutationFault> for AdministrativeRemovalError {
+    fn from(error: PoolMutationFault) -> Self {
+        Self::Accepted(error)
+    }
+}
+
+impl From<PrePoolError> for AdministrativeRemovalError {
+    fn from(error: PrePoolError) -> Self {
+        Self::PrePool(error)
+    }
+}
 
 /// Result of registering a resolver/verification miss under the one
 /// TxPool -> coordinator ownership boundary.
@@ -140,12 +159,12 @@ impl TxPoolService {
                 {
                     return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
                 }
-                let batch = if let PrePoolSource::Remote(peer) = source
+                let batch = if let PrePoolSource::Remote(remote) = source
                     && !unavailable.is_empty()
                 {
                     EffectBatch::new(vec![TxPoolEffect::Relay(
                         crate::service::TxVerificationResult::UnknownParents {
-                            peer,
+                            peer: remote.peer,
                             parents: parents.clone(),
                         },
                     )])
@@ -177,7 +196,10 @@ impl TxPoolService {
                             crate::component::pre_pool::pre_pool_reject(error),
                         ));
                     }
-                    panic!("parent-wait settlement invariant failed: {error:?}");
+                    self.pipeline
+                        .kernel
+                        .report_fault("parent-wait settlement invariant failed", &error);
+                    return None;
                 }
                 Ok(Err(EffectJournalError::Full)) => {
                     if self
@@ -288,7 +310,8 @@ impl TxPoolService {
                 }
                 Ok(Err(error)) if error.is_stale_lease() => return,
                 Ok(Err(error)) => {
-                    panic!("{mutation_context}: pre-pool invariant failed: {error:?}")
+                    self.pipeline.kernel.report_fault(mutation_context, &error);
+                    return;
                 }
                 Err(EffectJournalError::Full) => continue,
                 Err(error) => {
@@ -356,48 +379,66 @@ impl TxPoolService {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            (|| -> Result<_, PrePoolError> {
+            (|| -> Result<_, AdministrativeRemovalError> {
                 let pool_target = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
                 let (record, removed_entries) = if pool_target {
-                    // Compute the exact accepted closure before any mutation.
-                    // Every hash can have already-resolved coordinator consumers,
-                    // not only the requested root.
-                    let mut removal_ids = tx_pool.pool_map.calc_descendants(&id);
-                    removal_ids.insert(id.clone());
-                    let removal_hashes: HashSet<_> = removal_ids
-                        .iter()
-                        .filter_map(|removed_id| {
-                            tx_pool
-                                .pool_map
-                                .get_by_id(removed_id)
-                                .map(|entry| entry.inner.transaction().hash())
-                        })
-                        .filter(|hash| !tx_pool.snapshot().transaction_exists(hash))
-                        .collect();
-                    let removal_statuses: HashSet<_> = removal_ids
-                        .iter()
-                        .filter_map(|removed_id| {
-                            tx_pool
-                                .pool_map
-                                .get_by_id(removed_id)
-                                .map(|entry| entry.status)
-                        })
-                        .collect();
+                    let snapshot = tx_pool.cloned_snapshot();
+                    let roots = HashSet::from([id.clone()]);
+                    let removal = match tx_pool
+                        .pool_map
+                        .conflict_closure(&roots, tx_pool.pool_map.len())
+                    {
+                        crate::component::pool_map::ConflictClosure::Complete {
+                            removal, ..
+                        } => removal,
+                        crate::component::pool_map::ConflictClosure::Exceeded { .. } => {
+                            return Err(PoolMutationFault::ProjectionMismatch(
+                                "administrative descendant closure exceeds membership",
+                            )
+                            .into());
+                        }
+                    };
+                    let prepared = tx_pool.pool_map.prepare_removals(&removal)?.ok_or(
+                        PoolMutationFault::MissingEntry("administrative removal root"),
+                    )?;
 
-                    // Pre-pool consumers are demoted in one kernel transition
-                    // while the pool membership write lock prevents a handoff.
-                    // Only then is the physical pool closure removed.
-                    self.pipeline.kernel.mutate_required(
-                        "administrative removal could not demote coordinator consumers",
-                        |coordinator| coordinator.parents_unavailable(&removal_hashes),
-                    );
-                    let removed = tx_pool.remove_tx(&id);
-                    let released_inputs = tx_pool.released_inputs_from_removed_entries(&removed);
+                    let removal_hashes = prepared
+                        .entries()
+                        .map(|entry| entry.transaction().hash())
+                        .filter(|hash| !snapshot.transaction_exists(hash))
+                        .collect();
+                    let removal_statuses = prepared
+                        .records()
+                        .map(|(status, _)| status)
+                        .collect::<HashSet<_>>();
+                    let released_inputs = prepared
+                        .entries()
+                        .filter(|entry| !snapshot.transaction_exists(&entry.transaction().hash()))
+                        .flat_map(|entry| entry.transaction().input_pts_iter())
+                        .collect::<Vec<_>>();
                     let available_dependencies =
-                        available_cell_dependencies(&tx_pool, released_inputs);
-                    self.pipeline.kernel.mutate_authoritative(|kernel| {
-                        kernel.note_available(available_dependencies)
-                    });
+                        crate::component::pre_pool::available_cell_keys(released_inputs)
+                            .filter(|key| match key {
+                                DependencyKey::Cell(out_point) => {
+                                    prepared.contains_output_after_apply(out_point)
+                                        || snapshot.get_cell(out_point).is_some()
+                                }
+                                DependencyKey::Header(hash) => snapshot.is_main_chain(hash),
+                            })
+                            .collect::<BTreeSet<_>>();
+
+                    // Both authorities are now exclusively borrowed by
+                    // validated capabilities. Neither Apply can fail, and no
+                    // observer can acquire either authority between them.
+                    let removed = self.pipeline.kernel.mutate_authoritative(|kernel| {
+                        let prepared_kernel = kernel.prepare_dependency_reconciliation(
+                            &removal_hashes,
+                            available_dependencies,
+                        )?;
+                        let removed = prepared.apply();
+                        prepared_kernel.apply();
+                        Ok::<_, PrePoolError>(removed)
+                    })?;
                     for status in removal_statuses {
                         self.journal_block_assembler_update(status);
                     }
@@ -415,7 +456,7 @@ impl TxPoolService {
                             })
                     }) {
                         Ok(Ok(record)) => record,
-                        Ok(Err(error)) => return Err(error),
+                        Ok(Err(error)) => return Err(error.into()),
                         Err(error) => {
                             ckb_logger::error!(
                                 "administrative removal journal unavailable: {error:?}"
@@ -431,8 +472,19 @@ impl TxPoolService {
         };
         let mutation = match mutation {
             Ok(mutation) => mutation,
-            Err(error) => {
-                panic!("administrative removal pre-pool invariant failed: {error:?}");
+            Err(AdministrativeRemovalError::Accepted(error)) => {
+                self.pipeline.kernel.report_fault(
+                    "administrative accepted-pool removal planning failed",
+                    &error,
+                );
+                return RemoveTxOutcome::InProgress;
+            }
+            Err(AdministrativeRemovalError::PrePool(error)) => {
+                self.pipeline.kernel.report_fault(
+                    "administrative pre-pool reconciliation planning failed",
+                    &error,
+                );
+                return RemoveTxOutcome::InProgress;
             }
         };
         let Some((record, removed_entries, conflict_removed)) = mutation else {
@@ -453,16 +505,19 @@ impl TxPoolService {
         // This write guard is the clear/commit ordering barrier. The kernel
         // swap is O(1); its retired population is destroyed after the guard.
         let tx_pool = self.pool.tx_pool.write().await;
-        let (_, disposal) = self
-            .pipeline
-            .kernel
-            .reset_for_chain(|_| Ok(()))
-            .expect("empty clear generation preparation is total");
-        if let Err(error) = self.relay.effects.install_generation_reset() {
-            ckb_logger::error!("clear-pipeline generation reset journal unavailable: {error:?}");
-        }
+        let transition = self.pipeline.kernel.mutate_authoritative(|kernel| {
+            self.relay
+                .effects
+                .apply_generation_reset(|| kernel.replace_empty_generation())
+        });
         drop(tx_pool);
-        drop(disposal);
+        match transition {
+            Ok(retired) => drop(retired),
+            Err(error) => self
+                .pipeline
+                .kernel
+                .report_fault("clear-pipeline generation reset journal failed", &error),
+        }
     }
 
     pub(crate) fn find_tx_in_coordinator_hash(&self, hash: &Byte32) -> Option<PipelineTxLocation> {

@@ -8,14 +8,21 @@
 
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::{
-    AppliedPoolMutation, PoolMutationPlan, RemovalCause, RemovedPoolEntry, Status,
+    PoolMap, PoolMutationFault, PoolMutationPlan, PoolMutationPlanningError, PreparedPoolMutation,
+    RemovalCause, Status,
 };
-use crate::component::pre_pool::{DependencyKey, PipelineRawTx, PrePoolKernel, PrePoolSource};
+use crate::component::pre_pool::{
+    CommitTicket, ConflictRetention, DependencyKey, ExternalCommitPlan, PipelineRawTx,
+    PrePoolError, PrePoolKernel, PrePoolSource, ReadyCommitPlan,
+};
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::pool::rbf::RbfCheck;
 use crate::service::TxPoolService;
-use crate::service::effects::{EffectBatch, TxPoolEffect};
+use crate::service::effects::{
+    EffectBatch, EffectBuildError, EffectClass, EffectJournalError, TxPoolEffect,
+};
+use crate::tx_source::TxSource;
 use crate::util::time_relative_verify;
 use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
@@ -32,33 +39,94 @@ use crate::process::{get_tx_status, status_to_verify_env};
 #[path = "../tests/rbf_commit_seam.rs"]
 mod test_seam;
 
-/// Outcome of `try_submit_entry`, carried as one side-effect envelope across
-/// the tx-pool write-lock boundary.
-pub(crate) struct SubmitEntryOutcome {
-    pub(crate) result: Result<(), Reject>,
-    /// Terminal removals whose reject callbacks run outside the lock.
-    pub(crate) reject_events: Vec<(TxEntry, Reject)>,
-    /// Successful accepted callback, also dispatched outside the lock.
-    pub(crate) accept_event: Option<(TxEntry, Status)>,
-    /// Exact accepted entries moved by the immutable plan.
-    removals: Vec<RemovedPoolEntry>,
+enum AdmissionHandoff<'authority> {
+    Ready(ReadyCommitPlan<'authority>),
+    External(ExternalCommitPlan<'authority>),
 }
 
-impl SubmitEntryOutcome {
-    /// Minimal assembler refresh set for this committed pool transaction.
-    /// A replacement can remove a Proposed entry while inserting a Pending
-    /// one, so the new entry alone is not a complete template delta.
-    pub(crate) fn block_assembler_statuses(&self) -> HashSet<Status> {
-        if self.result.is_err() {
-            return HashSet::new();
+/// Read-only admission planning has exactly two failure domains. Transaction
+/// policy rejects are public outcomes; kernel errors describe an invalidated
+/// or inconsistent authority proof and must never be returned as policy.
+pub(crate) enum AdmissionPlanningError {
+    Policy(Reject),
+    Kernel(PrePoolError),
+    Pool(PoolMutationFault),
+    Effect(EffectBuildError),
+}
+
+impl From<Reject> for AdmissionPlanningError {
+    fn from(reject: Reject) -> Self {
+        Self::Policy(reject)
+    }
+}
+
+impl From<PrePoolError> for AdmissionPlanningError {
+    fn from(error: PrePoolError) -> Self {
+        Self::Kernel(error)
+    }
+}
+
+impl From<PoolMutationPlanningError> for AdmissionPlanningError {
+    fn from(error: PoolMutationPlanningError) -> Self {
+        match error {
+            PoolMutationPlanningError::Policy(reject) => Self::Policy(reject),
+            PoolMutationPlanningError::Fault(fault) => Self::Pool(fault),
         }
-        let mut statuses = self
-            .accept_event
-            .iter()
-            .map(|(_, status)| *status)
-            .collect::<HashSet<_>>();
-        statuses.extend(self.removals.iter().map(|item| item.status));
-        statuses
+    }
+}
+
+impl From<EffectBuildError> for AdmissionPlanningError {
+    fn from(error: EffectBuildError) -> Self {
+        Self::Effect(error)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum AdmissionApplyError {
+    Journal(EffectJournalError),
+    Pool(PoolMutationFault),
+}
+
+/// One complete ordinary transition from the logical PrePool/Absent arm to
+/// Accepted.  Every transaction-shaped, capacity, identity and publication
+/// decision is finished before this value exists.  `apply_admission_plan` is
+/// its only consumer.
+pub(crate) struct AdmissionPlan<'authority, 'pool> {
+    pool: PreparedPoolMutation<'pool>,
+    handoff: AdmissionHandoff<'authority>,
+    effects: Option<EffectBatch>,
+    effect_class: EffectClass,
+    block_assembler_statuses: HashSet<Status>,
+}
+
+/// Complete kernel-only settlement when final accepted planning rejects a
+/// Ready owner.  The terminal record and every effect are fixed before the
+/// journal predicate; Apply cannot call `park_*`/`fail_*` or return a policy
+/// error.
+pub(crate) struct FailedAdmissionPlan<'authority> {
+    terminal: crate::component::pre_pool::FailedCommitPlan<'authority>,
+    effects: Option<EffectBatch>,
+    effect_class: EffectClass,
+    peer_ban: Option<(ckb_network::PeerIndex, std::time::Duration)>,
+}
+
+impl FailedAdmissionPlan<'_> {
+    pub(crate) fn effect_bytes(&self) -> usize {
+        self.effects.as_ref().map_or(0, EffectBatch::charge_bytes)
+    }
+
+    pub(crate) fn effect_class(&self) -> EffectClass {
+        self.effect_class
+    }
+}
+
+impl AdmissionPlan<'_, '_> {
+    pub(crate) fn effect_bytes(&self) -> usize {
+        self.effects.as_ref().map_or(0, EffectBatch::charge_bytes)
+    }
+
+    pub(crate) fn effect_class(&self) -> EffectClass {
+        self.effect_class
     }
 }
 
@@ -74,18 +142,19 @@ impl TxPoolService {
         keys: std::collections::BTreeSet<DependencyKey>,
         expires_at: Option<u64>,
         context: &'static str,
-    ) {
+    ) -> Result<(), PrePoolError> {
         let hash = raw.tx.hash();
         match kernel.retain_conflict(raw, owner, keys, expires_at) {
-            Ok(_) => {}
-            Err(error) if error.is_capacity_rejection() || error.is_transaction_rejection() => {
+            Ok(_) => Ok(()),
+            Err(error) if error.is_optional_retention_rejection() => {
                 debug!("dropping optional conflict history for {hash} in {context}: {error:?}");
+                Ok(())
             }
-            Err(error) => panic!("{context}: {error:?}"),
+            Err(error) => Err(error),
         }
     }
 
-    pub(crate) fn planned_unavailable_parent_hashes(
+    fn planned_unavailable_parent_hashes(
         &self,
         plan: &PoolMutationPlan,
         snapshot: &Snapshot,
@@ -97,16 +166,13 @@ impl TxPoolService {
             .collect()
     }
 
-    /// Apply the pre-pool side of an accepted-pool plan while the caller owns
-    /// `TxPool -> PrePoolKernel`. This completes before total PoolMap Apply,
-    /// so no fallible coordinator operation follows an accepted mutation.
-    pub(crate) fn settle_kernel_for_pool_plan(
+    fn planned_available_dependencies(
         &self,
-        kernel: &mut crate::component::pre_pool::PrePoolKernel,
-        tx_pool: &TxPool,
+        pool_map: &PoolMap,
+        snapshot: &Snapshot,
         entry: &TxEntry,
         plan: &PoolMutationPlan,
-    ) {
+    ) -> HashSet<DependencyKey> {
         let removed_ids = plan
             .removals
             .iter()
@@ -117,19 +183,16 @@ impl TxPoolService {
             .input_pts_iter()
             .map(|out_point| crate::util::compact_packed(&out_point))
             .collect::<HashSet<_>>();
-        let released = plan
-            .removals
+        plan.removals
             .iter()
-            .filter_map(|removal| tx_pool.pool_map.get_by_id(&removal.id))
-            .flat_map(|removed| removed.inner.transaction().input_pts_iter())
+            .flat_map(|removal| removal.entry.transaction().input_pts_iter())
             .chain(entry.transaction().output_pts())
             .map(|out_point| crate::util::compact_packed(&out_point))
             .filter(|out_point| {
                 if candidate_inputs.contains(out_point) {
                     return false;
                 }
-                if tx_pool
-                    .pool_map
+                if pool_map
                     .out_point_index
                     .get_input_ref(out_point)
                     .is_some_and(|owner| !removed_ids.contains(owner))
@@ -142,62 +205,54 @@ impl TxPoolService {
                         .output(out_point.index().into())
                         .is_some();
                 }
-                tx_pool
-                    .pool_map
+                pool_map
                     .get_by_hash(&out_point.tx_hash())
                     .is_some_and(|producer| !removed_ids.contains(&producer.id))
-                    || tx_pool.snapshot().get_cell(out_point).is_some()
+                    || snapshot.get_cell(out_point).is_some()
             })
             .map(crate::component::pre_pool::DependencyKey::Cell)
-            .collect::<HashSet<_>>();
+            .collect()
+    }
 
-        kernel
-            .remove_conflict_hash(&entry.transaction().hash())
-            .unwrap_or_else(|error| panic!("planned conflict removal failed: {error:?}"));
-        kernel.note_available(released);
+    fn planned_replacement_history(&self, plan: &PoolMutationPlan) -> Vec<ConflictRetention> {
         let epoch = self.pipeline.epoch.current().unwrap_or(0);
-        for victim in plan
-            .removals
+        plan.removals
             .iter()
             .filter(|removal| removal.cause == RemovalCause::Replacement)
-        {
-            let victim = tx_pool
-                .pool_map
-                .get_by_id(&victim.id)
-                .expect("planned replacement victim remains present");
-            let tx = victim.inner.transaction().clone();
-            let keys = crate::component::pre_pool::conflict_dependency_keys(
-                &tx,
-                victim.inner.related_dep_out_points().cloned(),
-            );
-            let raw = crate::component::pre_pool::PipelineRawTx::new(
-                tx,
-                crate::tx_source::TxSource::Local,
-                epoch,
-            );
-            let owner =
-                crate::component::pre_pool::historical_source(crate::tx_source::TxSource::Local);
-            self.retain_optional_conflict(
-                kernel,
-                raw,
-                owner,
-                keys,
-                crate::component::pre_pool::historical_deadline(owner),
-                "planned RBF history transition failed",
-            );
-        }
+            .map(|removal| {
+                let tx = removal.entry.transaction().clone();
+                let keys = crate::component::pre_pool::conflict_dependency_keys(
+                    &tx,
+                    removal.entry.related_dep_out_points().cloned(),
+                );
+                let raw = crate::component::pre_pool::PipelineRawTx::new(
+                    tx,
+                    crate::tx_source::TxSource::Local,
+                    epoch,
+                );
+                let owner = crate::component::pre_pool::historical_source(
+                    crate::tx_source::TxSource::Local,
+                );
+                ConflictRetention::new(
+                    raw,
+                    owner,
+                    keys,
+                    crate::component::pre_pool::historical_deadline(owner),
+                )
+            })
+            .collect()
     }
 
     /// Build the complete read-only accepted-pool decision. RBF, final
     /// role-aware liveness, causal ancestry and both capacity budgets are
     /// decided before the first physical removal.
-    pub(crate) fn plan_pool_mutation(
+    pub(crate) fn prepare_pool_mutation<'pool>(
         &self,
-        tx_pool: &TxPool,
+        tx_pool: &'pool mut TxPool,
         snapshot: &Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: &TxEntry,
-    ) -> Result<PoolMutationPlan, Reject> {
+    ) -> Result<PreparedPoolMutation<'pool>, AdmissionPlanningError> {
         // check_rbf must be invoked in `write` lock to avoid concurrent issues.
         // It returns the direct conflicts plus their shared conflict closure
         // (post-ordered removal plan + membership set), computed in one
@@ -212,7 +267,7 @@ impl TxPoolService {
             // after_process will put this tx into conflicts_pool
             let conflicted_outpoint = tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
             if let Some(outpoint) = conflicted_outpoint {
-                return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
+                return Err(Reject::Resolve(OutPointError::Dead(outpoint)).into());
             }
             RbfCheck {
                 removal: Vec::new(),
@@ -238,96 +293,254 @@ impl TxPoolService {
             time_relative_verify(Arc::clone(snapshot), Arc::clone(&entry.rtx), tx_env)?;
         }
 
-        tx_pool.pool_map.plan_mutation(
+        let max_tx_pool_size = tx_pool.config.max_tx_pool_size;
+        let max_resident_size = tx_pool.config.tx_pool_resident_size_budget();
+        Ok(tx_pool.pool_map.prepare_mutation(
             entry.clone(),
             status,
             &removal,
-            tx_pool.config.max_tx_pool_size,
-            tx_pool.config.tx_pool_resident_size_budget(),
-        )
+            max_tx_pool_size,
+            max_resident_size,
+        )?)
     }
 
-    /// Total application of one immutable pool plan. Effect payloads are
-    /// derived from the applied plan, never progressively while deciding.
-    pub(crate) fn apply_pool_mutation(
+    /// Build one exact immutable effect/template receipt from the same stable
+    /// accepted generation as `plan`.  The accepted callback uses the final
+    /// candidate stored in `PoolMutationPlan`, not the pre-ancestry input
+    /// entry; removed callbacks observe the one pre-Apply pool generation
+    /// rather than order-dependent intermediate removal statistics.
+    fn planned_publication(
         &self,
-        tx_pool: &mut TxPool,
-        entry: &TxEntry,
-        plan: PoolMutationPlan,
-    ) -> (Vec<(TxEntry, Reject)>, Vec<RemovedPoolEntry>) {
-        let AppliedPoolMutation { removals } = tx_pool.pool_map.apply_mutation(plan);
-        let mut reject_events = Vec::with_capacity(removals.len());
-        let mut removed_entries = Vec::with_capacity(removals.len());
-        for applied in removals {
-            let reject = match applied.cause {
-                RemovalCause::Replacement => {
-                    Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()))
-                }
+        plan: &PoolMutationPlan,
+        mut extra_effects: Vec<TxPoolEffect>,
+    ) -> Result<(Option<EffectBatch>, HashSet<Status>), EffectBuildError> {
+        let mut effects = Vec::new();
+        if let Some(effect) = self.accepted_effect(plan.candidate.clone(), plan.status) {
+            effects.push(effect);
+        }
+        let mut statuses = HashSet::from([plan.status]);
+        for planned in &plan.removals {
+            let reject = match planned.cause {
+                RemovalCause::Replacement => Reject::RBFRejected(format!(
+                    "replaced by tx {}",
+                    plan.candidate.transaction().hash()
+                )),
                 RemovalCause::SizeLimit => crate::error::Reject::Full(format!(
                     "the fee_rate for this transaction is: {}",
-                    applied.removed.entry.fee_rate()
+                    planned.entry.fee_rate()
                 )),
             };
-            reject_events.push((applied.removed.entry.clone(), reject));
-            removed_entries.push(applied.removed);
+            effects.extend(self.rejected_effects(planned.entry.clone(), reject)?);
+            statuses.insert(planned.status);
         }
-        (reject_events, removed_entries)
+        effects.append(&mut extra_effects);
+        Ok((EffectBatch::new(effects), statuses))
     }
-    pub(crate) fn try_submit_entry_with_handoff<T>(
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn plan_external_admission<'authority, 'pool>(
         &self,
-        tx_pool: &mut TxPool,
+        tx_pool: &'pool mut TxPool,
+        kernel: &'authority mut PrePoolKernel,
         snapshot: Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        before_apply: impl FnOnce(&TxPool, &PoolMutationPlan) -> T,
-    ) -> (SubmitEntryOutcome, Option<T>) {
-        match self.plan_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry) {
-            Err(reject) => (
-                SubmitEntryOutcome {
-                    result: Err(reject),
-                    reject_events: Vec::new(),
-                    accept_event: None,
-                    removals: Vec::new(),
-                },
-                None,
-            ),
-            Ok(plan) => {
-                let value = before_apply(tx_pool, &plan);
-                let final_status = plan.status;
-                let (reject_events, removals) = self.apply_pool_mutation(tx_pool, &entry, plan);
-                (
-                    SubmitEntryOutcome {
-                        result: Ok(()),
-                        reject_events,
-                        accept_event: Some((entry, final_status)),
-                        removals,
-                    },
-                    Some(value),
-                )
-            }
-        }
+        source: TxSource,
+        original_peer: Option<ckb_network::PeerIndex>,
+    ) -> Result<AdmissionPlan<'authority, 'pool>, AdmissionPlanningError> {
+        let pool = self.prepare_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry)?;
+        let plan = pool.decision();
+        let unavailable = self.planned_unavailable_parent_hashes(plan, &snapshot);
+        let available = self.planned_available_dependencies(pool.pool(), &snapshot, &entry, plan);
+        let history = self.planned_replacement_history(plan);
+        let committed = HashSet::from([entry.transaction().hash()]);
+        let handoff = kernel.plan_external_commit(&committed, &unavailable, available, history)?;
+        let committed_ingress_peer = handoff
+            .records()
+            .first()
+            .and_then(|record| record.raw.ingress_peer())
+            .or(original_peer);
+        let extra_effects = vec![TxPoolEffect::Relay(
+            crate::service::TxVerificationResult::Ok {
+                original_peer: committed_ingress_peer,
+                tx_hash: entry.transaction().hash(),
+            },
+        )];
+        let (effects, block_assembler_statuses) = self.planned_publication(plan, extra_effects)?;
+        Ok(AdmissionPlan {
+            pool,
+            handoff: AdmissionHandoff::External(handoff),
+            effects,
+            effect_class: if matches!(source, TxSource::Remote { .. }) {
+                EffectClass::Remote
+            } else {
+                EffectClass::Trusted
+            },
+            block_assembler_statuses,
+        })
     }
 
-    /// Materialize the complete stable-state publication batch from the
-    /// already validated/applied plan. The caller runs this inside the
-    /// journal's bounded `try_apply_bounded` closure so state Apply and append
-    /// remain one critical section without a carried reservation.
-    pub(crate) fn prepare_submit_effects(
+    pub(crate) fn plan_ready_admission<'authority, 'pool>(
         &self,
-        outcome: &mut SubmitEntryOutcome,
-        mut extra_effects: Vec<TxPoolEffect>,
-    ) -> Option<EffectBatch> {
+        tx_pool: &'pool mut TxPool,
+        kernel: &'authority mut PrePoolKernel,
+        snapshot: Arc<Snapshot>,
+        pre_resolve_tip: Byte32,
+        entry: TxEntry,
+        ticket: &CommitTicket,
+    ) -> Result<AdmissionPlan<'authority, 'pool>, AdmissionPlanningError> {
+        let pool = self.prepare_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry)?;
+        let plan = pool.decision();
+        let unavailable = self.planned_unavailable_parent_hashes(plan, &snapshot);
+        let available = self.planned_available_dependencies(pool.pool(), &snapshot, &entry, plan);
+        let history = self.planned_replacement_history(plan);
+        let handoff = kernel.plan_ready_commit(ticket, &unavailable, available, history)?;
+        let settlement = handoff.settlement();
+        // Source promotion changes the authoritative pre-pool owner without
+        // rewriting the already verified payload. Publication capacity must
+        // therefore follow the handoff owner, never the stale payload source.
+        let effect_class = if matches!(settlement.winner.source, PrePoolSource::Remote(_)) {
+            EffectClass::Remote
+        } else {
+            EffectClass::Trusted
+        };
+        let mut extra_effects = vec![TxPoolEffect::Relay(
+            crate::service::TxVerificationResult::Ok {
+                original_peer: settlement.winner.raw.ingress_peer(),
+                tx_hash: entry.transaction().hash(),
+            },
+        )];
+        let superseded_reject =
+            Reject::RBFRejected(Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string());
+        for record in &settlement.superseded {
+            if let Some(effect) = self.recent_reject_effect(record.hash.clone(), &superseded_reject)
+            {
+                extra_effects.push(effect);
+            }
+            if record.raw.ingress_peer().is_some() && superseded_reject.is_allowed_relay() {
+                extra_effects.push(TxPoolEffect::Relay(
+                    crate::service::TxVerificationResult::Reject {
+                        tx_hash: record.hash.clone(),
+                    },
+                ));
+            }
+        }
+        let (effects, block_assembler_statuses) = self.planned_publication(plan, extra_effects)?;
+        Ok(AdmissionPlan {
+            pool,
+            handoff: AdmissionHandoff::Ready(handoff),
+            effects,
+            effect_class,
+            block_assembler_statuses,
+        })
+    }
+
+    /// The sole ordinary cross-partition Apply.  Journal capacity is checked
+    /// against the already materialized exact batch before either owner moves.
+    pub(crate) fn apply_admission_plan(
+        &self,
+        plan: AdmissionPlan<'_, '_>,
+    ) -> Result<(), AdmissionApplyError> {
+        let AdmissionPlan {
+            pool,
+            handoff,
+            effects,
+            effect_class,
+            block_assembler_statuses,
+        } = plan;
+        let applied = self
+            .relay
+            .effects
+            .try_apply_checked(effects, effect_class, || {
+                pool.apply()?;
+                match handoff {
+                    AdmissionHandoff::Ready(plan) => plan.apply(),
+                    AdmissionHandoff::External(plan) => plan.apply(),
+                }
+                for status in block_assembler_statuses {
+                    self.journal_block_assembler_update(status);
+                }
+                Ok(())
+            })
+            .map_err(AdmissionApplyError::Journal)?;
+        applied.map_err(AdmissionApplyError::Pool)
+    }
+
+    pub(crate) fn plan_failed_admission<'authority>(
+        &self,
+        tx_pool: &TxPool,
+        kernel: &'authority mut PrePoolKernel,
+        ticket: &CommitTicket,
+        entry: &TxEntry,
+        reject: &Reject,
+    ) -> Result<FailedAdmissionPlan<'authority>, PrePoolError> {
+        let retain_conflict = matches!(
+            reject,
+            Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_))
+        ) && tx_pool
+            .pool_map
+            .find_conflict_outpoint(entry.transaction())
+            .is_some();
+        let terminal = kernel.plan_failed_commit(ticket, retain_conflict)?;
+        let record = terminal.record();
         let mut effects = Vec::new();
-        if let Some((entry, status)) = outcome.accept_event.take()
-            && let Some(effect) = self.accepted_effect(entry, status)
-        {
+        if let Some(effect) = self.recent_reject_effect(record.hash.clone(), reject) {
             effects.push(effect);
         }
-        for (entry, reject) in std::mem::take(&mut outcome.reject_events) {
-            effects.extend(self.rejected_effects(entry, reject));
+        let peer_ban = if reject.is_malformed_tx() {
+            record.raw.blame_peer().map(|peer| {
+                let duration =
+                    std::time::Duration::from_secs(crate::constants::MALFORMED_TX_BAN_SECONDS);
+                effects.push(TxPoolEffect::BanPeer {
+                    peer,
+                    duration,
+                    reason: crate::service::effects::bounded_commit_ban_reason(reject),
+                });
+                (peer, duration)
+            })
+        } else {
+            None
+        };
+        if record.raw.ingress_peer().is_some()
+            && reject.is_allowed_relay()
+            && !matches!(reject, Reject::Duplicated(_))
+        {
+            effects.push(TxPoolEffect::Relay(
+                crate::service::TxVerificationResult::Reject {
+                    tx_hash: record.hash.clone(),
+                },
+            ));
         }
-        effects.append(&mut extra_effects);
-        EffectBatch::new(effects)
+        let effect_class = if matches!(record.source, PrePoolSource::Remote(_)) {
+            EffectClass::Remote
+        } else {
+            EffectClass::Trusted
+        };
+        Ok(FailedAdmissionPlan {
+            terminal,
+            effects: EffectBatch::new(effects),
+            effect_class,
+            peer_ban,
+        })
+    }
+
+    pub(crate) fn apply_failed_admission(
+        &self,
+        plan: FailedAdmissionPlan<'_>,
+    ) -> Result<Option<ckb_network::PeerIndex>, EffectJournalError> {
+        let FailedAdmissionPlan {
+            terminal,
+            effects,
+            effect_class,
+            peer_ban,
+        } = plan;
+        self.relay.effects.try_apply(effects, effect_class, || {
+            terminal.apply();
+            if let Some((peer, duration)) = peer_ban {
+                self.record_peer_ban(peer, duration);
+            }
+            peer_ban.map(|(peer, _)| peer)
+        })
     }
 }
 

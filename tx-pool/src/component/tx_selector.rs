@@ -1,13 +1,50 @@
 extern crate slab;
 use crate::component::pool_map::PoolMap;
 use crate::component::{
-    entry::{TxEntry, WeightDelta},
+    entry::{TxEntry, WeightDelta, WeightError},
     sort_key::AncestorsScoreSortKey,
 };
 use ckb_logger::debug;
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use multi_index_map::MultiIndexMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TxSelectionError {
+    Projection(&'static str),
+    Arithmetic(&'static str),
+    Weight(WeightError),
+}
+
+impl From<WeightError> for TxSelectionError {
+    fn from(error: WeightError) -> Self {
+        Self::Weight(error)
+    }
+}
+
+impl std::fmt::Display for TxSelectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Projection(context) => {
+                write!(
+                    formatter,
+                    "transaction-selection projection drift: {context}"
+                )
+            }
+            Self::Arithmetic(context) => {
+                write!(
+                    formatter,
+                    "transaction-selection arithmetic overflow: {context}"
+                )
+            }
+            Self::Weight(error) => {
+                write!(formatter, "transaction-selection weight error: {error:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TxSelectionError {}
 
 // A template data struct used to store modified entries when package txs
 #[derive(MultiIndexMap, Clone)]
@@ -34,13 +71,15 @@ impl MultiIndexModifiedTxMap {
         self.get_by_id(id).is_some()
     }
 
-    pub fn insert_entry(&mut self, entry: TxEntry) {
+    pub fn insert_entry(&mut self, entry: TxEntry) -> Result<(), TxSelectionError> {
         let score = AncestorsScoreSortKey::from(&entry);
-        self.insert(ModifiedTx {
+        self.try_insert(ModifiedTx {
             id: entry.proposal_short_id(),
             score,
             inner: entry,
-        });
+        })
+        .map_err(|_| TxSelectionError::Projection("duplicate modified entry"))?;
+        Ok(())
     }
 
     pub fn remove(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -106,7 +145,7 @@ const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 fn strongly_connected_components(
     nodes: &HashSet<ProposalShortId>,
     children: &HashMap<ProposalShortId, HashSet<ProposalShortId>>,
-) -> Vec<Vec<ProposalShortId>> {
+) -> Result<Vec<Vec<ProposalShortId>>, TxSelectionError> {
     let mut visited = HashSet::with_capacity(nodes.len());
     let mut finish = Vec::with_capacity(nodes.len());
     for start in nodes {
@@ -146,7 +185,9 @@ fn strongly_connected_components(
             if nodes.contains(child) {
                 parents
                     .get_mut(child)
-                    .expect("selected child has a reverse edge bucket")
+                    .ok_or(TxSelectionError::Projection(
+                        "selected child lacks reverse edge bucket",
+                    ))?
                     .push(parent.clone());
             }
         }
@@ -162,7 +203,10 @@ fn strongly_connected_components(
         let mut stack = vec![start];
         while let Some(id) = stack.pop() {
             component.push(id.clone());
-            for parent in &parents[&id] {
+            let reverse = parents.get(&id).ok_or(TxSelectionError::Projection(
+                "SCC work item lacks reverse edge bucket",
+            ))?;
+            for parent in reverse {
                 if visited.insert(parent.clone()) {
                     stack.push(parent.clone());
                 }
@@ -170,7 +214,7 @@ fn strongly_connected_components(
         }
         components.push(component);
     }
-    components
+    Ok(components)
 }
 
 pub struct TxSelector<'a> {
@@ -217,10 +261,10 @@ impl<'a> TxSelector<'a> {
         mut self,
         size_limit: usize,
         cycles_limit: Cycle,
-    ) -> (Vec<TxEntry>, usize, Cycle) {
+    ) -> Result<(Vec<TxEntry>, usize, Cycle), TxSelectionError> {
         let mut size: usize = 0;
         let mut cycles: Cycle = 0;
-        let mut consecutive_failed = 0;
+        let mut consecutive_failed: usize = 0;
 
         let mut iter = self
             .pool_map
@@ -247,12 +291,16 @@ impl<'a> TxSelector<'a> {
                         best_modified.clone()
                     } else {
                         // worse than `proposed_pool`
-                        iter.next().cloned().expect("peek guard")
+                        iter.next().cloned().ok_or(TxSelectionError::Projection(
+                            "peeked proposed entry disappeared",
+                        ))?
                     }
                 }
                 (Some(_), None) => {
                     // Either no entry in `modified_entries`
-                    iter.next().cloned().expect("peek guarded")
+                    iter.next().cloned().ok_or(TxSelectionError::Projection(
+                        "peeked proposed entry disappeared",
+                    ))?
                 }
                 (None, Some(best_modified)) => {
                     // We're out of entries in `proposed`; use the entry from `modified_entries`
@@ -265,11 +313,15 @@ impl<'a> TxSelector<'a> {
             };
 
             let short_id = tx_entry.proposal_short_id();
-            let next_size = size.saturating_add(tx_entry.ancestors_size);
-            let next_cycles = cycles.saturating_add(tx_entry.ancestors_cycles);
+            let next_size = size
+                .checked_add(tx_entry.ancestors_size)
+                .ok_or(TxSelectionError::Arithmetic("candidate package size"))?;
+            let next_cycles = cycles
+                .checked_add(tx_entry.ancestors_cycles)
+                .ok_or(TxSelectionError::Arithmetic("candidate package cycles"))?;
 
             if next_cycles > cycles_limit || next_size > size_limit {
-                consecutive_failed += 1;
+                consecutive_failed = consecutive_failed.saturating_add(1);
                 if using_modified {
                     self.modified_entries.remove(&short_id);
                 }
@@ -279,16 +331,6 @@ impl<'a> TxSelector<'a> {
                 }
                 continue;
             }
-
-            let only_unconfirmed = |short_id| {
-                if self.fetched_txs.contains(short_id) {
-                    None
-                } else {
-                    let entry = self.retrieve_entry(short_id);
-                    debug_assert!(entry.is_some(), "pool should be consistent");
-                    entry
-                }
-            };
 
             // prepare to package tx with ancestors
             let ancestors_ids = self.pool_map.calc_ancestors(&short_id);
@@ -308,18 +350,25 @@ impl<'a> TxSelector<'a> {
                     self.modified_entries.remove(&short_id);
                 }
                 self.failed_txs.insert(short_id);
-                consecutive_failed += 1;
+                consecutive_failed = consecutive_failed.saturating_add(1);
                 if consecutive_failed > MAX_CONSECUTIVE_FAILURES {
                     break;
                 }
                 continue;
             }
 
-            let mut ancestors: Vec<(ProposalShortId, TxEntry)> = ancestors_ids
-                .iter()
-                .filter_map(only_unconfirmed)
-                .map(|entry| (entry.proposal_short_id(), entry.clone()))
-                .collect();
+            let mut ancestors = Vec::with_capacity(ancestors_ids.len().saturating_add(1));
+            for ancestor_id in &ancestors_ids {
+                if self.fetched_txs.contains(ancestor_id) {
+                    continue;
+                }
+                let entry =
+                    self.retrieve_entry(ancestor_id)
+                        .ok_or(TxSelectionError::Projection(
+                            "proposed ancestor lacks an accepted entry",
+                        ))?;
+                ancestors.push((entry.proposal_short_id(), entry.clone()));
+            }
 
             // sort ancestors by ancestors_count,
             // if A is an ancestor of B, B.ancestors_count must large than A
@@ -330,7 +379,7 @@ impl<'a> TxSelector<'a> {
             let committed_ids: HashSet<ProposalShortId> =
                 ancestors.iter().map(|(id, _)| id.clone()).collect();
 
-            self.update_modified_entries(&ancestors, &committed_ids);
+            self.update_modified_entries(&ancestors, &committed_ids)?;
 
             for (short_id, entry) in ancestors {
                 let is_new = self.fetched_txs.insert(short_id.clone());
@@ -338,8 +387,12 @@ impl<'a> TxSelector<'a> {
                     debug!("package duplicate txs {}", short_id);
                     continue;
                 }
-                cycles = cycles.saturating_add(entry.cycles);
-                size = size.saturating_add(entry.size);
+                cycles = cycles
+                    .checked_add(entry.cycles)
+                    .ok_or(TxSelectionError::Arithmetic("selected cycles"))?;
+                size = size
+                    .checked_add(entry.size)
+                    .ok_or(TxSelectionError::Arithmetic("selected size"))?;
                 self.entries.push(entry);
                 // try remove from modified
                 self.modified_entries.remove(&short_id);
@@ -347,14 +400,18 @@ impl<'a> TxSelector<'a> {
 
             consecutive_failed = 0;
         }
-        let entries = self.order_selected_entries();
-        size = entries
-            .iter()
-            .fold(0usize, |total, entry| total.saturating_add(entry.size));
-        cycles = entries
-            .iter()
-            .fold(0u64, |total, entry| total.saturating_add(entry.cycles));
-        (entries, size, cycles)
+        let entries = self.order_selected_entries()?;
+        size = entries.iter().try_fold(0usize, |total, entry| {
+            total
+                .checked_add(entry.size)
+                .ok_or(TxSelectionError::Arithmetic("ordered selected size"))
+        })?;
+        cycles = entries.iter().try_fold(0u64, |total, entry| {
+            total
+                .checked_add(entry.cycles)
+                .ok_or(TxSelectionError::Arithmetic("ordered selected cycles"))
+        })?;
+        Ok((entries, size, cycles))
     }
 
     /// Add conditional `dep reader -> spender` edges only to the bounded set
@@ -362,15 +419,16 @@ impl<'a> TxSelector<'a> {
     /// deterministic topological order. Conditional cycles are not accepted
     /// state corruption: drop the weakest cycle member and its selected
     /// causal descendants, then retry.
-    fn order_selected_entries(&mut self) -> Vec<TxEntry> {
+    fn order_selected_entries(&mut self) -> Result<Vec<TxEntry>, TxSelectionError> {
         let selected = std::mem::take(&mut self.entries);
         if selected.len() < 2 {
-            return selected;
+            return Ok(selected);
         }
 
-        let selected = self.retain_selected_with_dep_budget(selected, SELECTED_DEP_ORDERING_BUDGET);
+        let selected =
+            self.retain_selected_with_dep_budget(selected, SELECTED_DEP_ORDERING_BUDGET)?;
         if selected.len() < 2 {
-            return selected;
+            return Ok(selected);
         }
         let mut selected = selected
             .into_iter()
@@ -396,22 +454,30 @@ impl<'a> TxSelector<'a> {
                 .map(|id| (id, 0usize))
                 .collect::<HashMap<_, _>>();
 
-            let mut add_edge = |parent: &ProposalShortId, child: &ProposalShortId| {
+            let mut add_edge = |parent: &ProposalShortId,
+                                child: &ProposalShortId|
+             -> Result<(), TxSelectionError> {
                 if parent == child
                     || !selected.contains_key(parent)
                     || !selected.contains_key(child)
                 {
-                    return;
+                    return Ok(());
                 }
                 if children
                     .get_mut(parent)
-                    .expect("selected parent has an edge bucket")
+                    .ok_or(TxSelectionError::Projection(
+                        "selected parent lacks an edge bucket",
+                    ))?
                     .insert(child.clone())
                 {
-                    *indegree
-                        .get_mut(child)
-                        .expect("selected child has an indegree") += 1;
+                    let degree = indegree.get_mut(child).ok_or(TxSelectionError::Projection(
+                        "selected child lacks an indegree",
+                    ))?;
+                    *degree = degree
+                        .checked_add(1)
+                        .ok_or(TxSelectionError::Arithmetic("selected indegree"))?;
                 }
+                Ok(())
             };
 
             // Persistent links contain causal producer edges only.
@@ -421,10 +487,12 @@ impl<'a> TxSelector<'a> {
                         if selected.contains_key(parent) {
                             causal_children
                                 .get_mut(parent)
-                                .expect("selected causal parent has an edge bucket")
+                                .ok_or(TxSelectionError::Projection(
+                                    "selected causal parent lacks an edge bucket",
+                                ))?
                                 .insert(id.clone());
                         }
-                        add_edge(parent, id);
+                        add_edge(parent, id)?;
                     }
                 }
             }
@@ -446,39 +514,57 @@ impl<'a> TxSelector<'a> {
                     if seen.insert(dep.clone())
                         && let Some(spender) = spenders.get(&dep)
                     {
-                        add_edge(reader, spender);
+                        add_edge(reader, spender)?;
                     }
                 }
             }
 
-            let mut ready = indegree
-                .iter()
-                .filter(|(_, degree)| **degree == 0)
-                .map(|(id, _)| {
-                    let rank = selected.get(id).expect("selected rank exists").0;
-                    (rank, id.clone())
-                })
-                .collect::<BTreeSet<_>>();
+            let mut ready = BTreeSet::new();
+            for (id, degree) in &indegree {
+                if *degree == 0 {
+                    let rank = selected
+                        .get(id)
+                        .ok_or(TxSelectionError::Projection(
+                            "indegree entry lacks selected payload",
+                        ))?
+                        .0;
+                    ready.insert((rank, id.clone()));
+                }
+            }
             let mut order = Vec::with_capacity(selected.len());
-            while let Some((rank, id)) = ready.pop_first() {
+            while let Some((_rank, id)) = ready.pop_first() {
                 order.push(id.clone());
-                for child in &children[&id] {
-                    let degree = indegree
-                        .get_mut(child)
-                        .expect("conditional child remains selected");
-                    *degree -= 1;
+                let ordered_children = children.get(&id).ok_or(TxSelectionError::Projection(
+                    "ready entry lacks an edge bucket",
+                ))?;
+                for child in ordered_children {
+                    let degree = indegree.get_mut(child).ok_or(TxSelectionError::Projection(
+                        "conditional child lacks an indegree",
+                    ))?;
+                    *degree = degree.checked_sub(1).ok_or(TxSelectionError::Projection(
+                        "conditional indegree underflow",
+                    ))?;
                     if *degree == 0 {
-                        ready.insert((selected[child].0, child.clone()));
+                        let child_rank = selected
+                            .get(child)
+                            .ok_or(TxSelectionError::Projection(
+                                "conditional child lacks selected payload",
+                            ))?
+                            .0;
+                        ready.insert((child_rank, child.clone()));
                     }
                 }
-                debug_assert_eq!(selected[&id].0, rank);
             }
 
             if order.len() == selected.len() {
-                return order
-                    .into_iter()
-                    .map(|id| selected.remove(&id).expect("ordered entry exists").1)
-                    .collect();
+                let mut entries = Vec::with_capacity(order.len());
+                for id in order {
+                    let (_, entry) = selected.remove(&id).ok_or(TxSelectionError::Projection(
+                        "ordered entry lacks selected payload",
+                    ))?;
+                    entries.push(entry);
+                }
+                return Ok(entries);
             }
 
             // Kahn's residual also contains acyclic nodes downstream of a
@@ -486,47 +572,48 @@ impl<'a> TxSelector<'a> {
             // discard unrelated low-fee transactions before touching the
             // actual cycle. Exact SCCs isolate only cycle participants.
             let nodes = selected.keys().cloned().collect::<HashSet<_>>();
-            let cyclic_components = strongly_connected_components(&nodes, &children)
+            let cyclic_components = strongly_connected_components(&nodes, &children)?
                 .into_iter()
                 .filter(|component| component.len() > 1)
                 .collect::<Vec<_>>();
-            assert!(
-                !cyclic_components.is_empty(),
-                "incomplete topological order must contain a cyclic component"
-            );
-            cycle_round += 1;
+            if cyclic_components.is_empty() {
+                return Err(TxSelectionError::Projection(
+                    "incomplete topological order has no cyclic component",
+                ));
+            }
+            cycle_round = cycle_round.saturating_add(1);
             let bounded_fallback = cycle_round > MAX_CONDITIONAL_CYCLE_ROUNDS;
             let mut roots = HashSet::new();
             for component in cyclic_components {
-                let by_strength = |left: &&ProposalShortId, right: &&ProposalShortId| {
-                    let left_entry = self
-                        .pool_map
-                        .get_by_id(left)
-                        .expect("selected entry remains accepted");
-                    let right_entry = self
-                        .pool_map
-                        .get_by_id(right)
-                        .expect("selected entry remains accepted");
-                    left_entry
-                        .evict_key
-                        .cmp(&right_entry.evict_key)
-                        .then_with(|| left.cmp(right))
-                };
+                let mut chosen = component
+                    .first()
+                    .cloned()
+                    .ok_or(TxSelectionError::Projection("cyclic component is empty"))?;
+                for candidate in component.iter().skip(1) {
+                    let chosen_entry = selected.get(&chosen).ok_or(
+                        TxSelectionError::Projection("cyclic member lacks selected payload"),
+                    )?;
+                    let candidate_entry = selected.get(candidate).ok_or(
+                        TxSelectionError::Projection("cyclic member lacks selected payload"),
+                    )?;
+                    let ordering = candidate_entry
+                        .1
+                        .as_evict_key()
+                        .cmp(&chosen_entry.1.as_evict_key())
+                        .then_with(|| candidate.cmp(&chosen));
+                    let replace = if bounded_fallback {
+                        ordering.is_gt()
+                    } else {
+                        ordering.is_lt()
+                    };
+                    if replace {
+                        chosen = candidate.clone();
+                    }
+                }
                 if bounded_fallback {
-                    let strongest = component
-                        .iter()
-                        .max_by(by_strength)
-                        .expect("cyclic component is non-empty")
-                        .clone();
-                    roots.extend(component.into_iter().filter(|id| id != &strongest));
+                    roots.extend(component.into_iter().filter(|id| id != &chosen));
                 } else {
-                    roots.insert(
-                        component
-                            .iter()
-                            .min_by(by_strength)
-                            .expect("cyclic component is non-empty")
-                            .clone(),
-                    );
+                    roots.insert(chosen);
                 }
             }
 
@@ -536,7 +623,12 @@ impl<'a> TxSelector<'a> {
             let mut dropped = roots.clone();
             let mut stack = roots.into_iter().collect::<Vec<_>>();
             while let Some(id) = stack.pop() {
-                for child in &causal_children[&id] {
+                let descendants = causal_children
+                    .get(&id)
+                    .ok_or(TxSelectionError::Projection(
+                        "cycle root lacks causal edge bucket",
+                    ))?;
+                for child in descendants {
                     if dropped.insert(child.clone()) {
                         stack.push(child.clone());
                     }
@@ -544,7 +636,7 @@ impl<'a> TxSelector<'a> {
             }
             selected.retain(|id, _| !dropped.contains(id));
             if selected.len() < 2 {
-                return selected.into_values().map(|(_, entry)| entry).collect();
+                return Ok(selected.into_values().map(|(_, entry)| entry).collect());
             }
         }
     }
@@ -562,7 +654,7 @@ impl<'a> TxSelector<'a> {
         &self,
         selected: Vec<TxEntry>,
         budget: usize,
-    ) -> Vec<TxEntry> {
+    ) -> Result<Vec<TxEntry>, TxSelectionError> {
         let mut remaining = budget;
         let mut dropped = HashSet::new();
         let mut retained = Vec::with_capacity(selected.len());
@@ -594,11 +686,16 @@ impl<'a> TxSelector<'a> {
                 remaining = 0;
                 dropped.insert(id);
             } else {
-                remaining -= inspected;
+                remaining =
+                    remaining
+                        .checked_sub(inspected)
+                        .ok_or(TxSelectionError::Projection(
+                            "dependency ordering budget underflow",
+                        ))?;
                 retained.push(entry);
             }
         }
-        retained
+        Ok(retained)
     }
 
     fn retrieve_entry(&self, short_id: &ProposalShortId) -> Option<&TxEntry> {
@@ -624,19 +721,27 @@ impl<'a> TxSelector<'a> {
     fn descendants_of(
         &mut self,
         id: &ProposalShortId,
-    ) -> std::borrow::Cow<'_, HashSet<ProposalShortId>> {
+    ) -> Result<std::borrow::Cow<'_, HashSet<ProposalShortId>>, TxSelectionError> {
         if self.descendants_cache.contains_key(id) {
-            return std::borrow::Cow::Borrowed(&self.descendants_cache[id]);
+            let cached = self
+                .descendants_cache
+                .get(id)
+                .ok_or(TxSelectionError::Projection(
+                    "descendant cache membership drift",
+                ))?;
+            return Ok(std::borrow::Cow::Borrowed(cached));
         }
         let desc = self.pool_map.calc_descendants(id);
-        if self.descendants_cache_members.saturating_add(desc.len())
-            <= self.descendants_cache_budget
-        {
-            self.descendants_cache_members += desc.len();
+        let projected_members = self
+            .descendants_cache_members
+            .checked_add(desc.len())
+            .ok_or(TxSelectionError::Arithmetic("descendant cache membership"))?;
+        if projected_members <= self.descendants_cache_budget {
+            self.descendants_cache_members = projected_members;
             let set = self.descendants_cache.entry(id.clone()).or_insert(desc);
-            return std::borrow::Cow::Borrowed(set);
+            return Ok(std::borrow::Cow::Borrowed(set));
         }
-        std::borrow::Cow::Owned(desc)
+        Ok(std::borrow::Cow::Owned(desc))
     }
 
     /// Add descendants of given transactions to `modified_entries` with ancestor
@@ -655,7 +760,7 @@ impl<'a> TxSelector<'a> {
         &mut self,
         committed: &[(ProposalShortId, TxEntry)],
         committed_ids: &HashSet<ProposalShortId>,
-    ) {
+    ) -> Result<(), TxSelectionError> {
         use std::collections::HashMap;
 
         // Phase 1: collect all (descendant_id → aggregate ancestor weight to
@@ -663,7 +768,7 @@ impl<'a> TxSelector<'a> {
         let pool_map = self.pool_map;
         let mut adjustments: HashMap<ProposalShortId, WeightDelta> = HashMap::new();
         for (id, entry) in committed {
-            let descendants = self.descendants_of(id);
+            let descendants = self.descendants_of(id)?;
             for desc_id in descendants
                 .iter()
                 .filter(|id| !committed_ids.contains(*id) && pool_map.has_proposed(id))
@@ -671,11 +776,11 @@ impl<'a> TxSelector<'a> {
                 adjustments
                     .entry(desc_id.clone())
                     .or_default()
-                    .add_entry(entry);
+                    .add_entry(entry)?;
             }
         }
         if adjustments.is_empty() {
-            return;
+            return Ok(());
         }
 
         // Phase 2: apply all adjustments in a single remove → batch-sub → insert
@@ -688,10 +793,11 @@ impl<'a> TxSelector<'a> {
                 .remove(&desc_id)
                 .or_else(|| self.pool_map.get(&desc_id).cloned())
             {
-                desc.sub_ancestors_weight(delta);
-                self.modified_entries.insert_entry(desc);
+                desc.sub_ancestors_weight(delta)?;
+                self.modified_entries.insert_entry(desc)?;
             }
         }
+        Ok(())
     }
 }
 

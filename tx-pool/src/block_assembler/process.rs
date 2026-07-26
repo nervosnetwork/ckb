@@ -43,6 +43,11 @@ pub(crate) async fn process_reset(service: TxPoolService, notify: bool) -> Reset
         // template or unblock ordinary deltas.
         return ResetApply::Superseded;
     }
+    // reset_template is an unconditional high-priority replacement. Any
+    // optimistic partial update which completed against the old template is
+    // therefore reissued level-wise, including an uncle update that raced
+    // without taking the full/reset serialization lock.
+    service.journal_block_assembler_full_reconcile();
     if notify {
         block_assembler.notify().await;
     }

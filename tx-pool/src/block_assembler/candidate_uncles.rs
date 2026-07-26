@@ -10,7 +10,6 @@ pub(crate) const MAX_PER_HEIGHT: usize = 10;
 /// Candidate uncles container
 pub struct CandidateUncles {
     pub(crate) map: BTreeMap<BlockNumber, HashSet<UncleBlockView>>,
-    count: usize,
 }
 
 impl CandidateUncles {
@@ -18,7 +17,6 @@ impl CandidateUncles {
     pub fn new() -> CandidateUncles {
         CandidateUncles {
             map: BTreeMap::new(),
-            count: 0,
         }
     }
 
@@ -39,12 +37,14 @@ impl CandidateUncles {
         {
             return false;
         }
-        if self.count >= MAX_CANDIDATE_UNCLES {
-            let first_key = *self.map.keys().next().expect("length checked");
+        if self.len() >= MAX_CANDIDATE_UNCLES {
+            let Some(first_key) = self.map.keys().next().copied() else {
+                // `len` is derived from `map`, so this branch is
+                // unconstructible through the type's private mutation API.
+                return false;
+            };
             if number > first_key {
-                if let Some(set) = self.map.remove(&first_key) {
-                    self.count -= set.len();
-                }
+                self.map.remove(&first_key);
             } else if number < first_key {
                 return false;
             }
@@ -59,11 +59,7 @@ impl CandidateUncles {
             // `BlockView::uncles()` yields a slice into the complete block.
             // Copy only after all rejection checks so retained uncle bytes
             // are charged independently without taxing duplicate floods.
-            let ret = set.insert(uncle.into_compact());
-            if ret {
-                self.count += 1;
-            }
-            ret
+            set.insert(uncle.into_compact())
         } else {
             false
         }
@@ -71,7 +67,9 @@ impl CandidateUncles {
 
     /// Returns the number of elements in the container.
     pub fn len(&self) -> usize {
-        self.count
+        self.map
+            .values()
+            .fold(0usize, |count, set| count.saturating_add(set.len()))
     }
 
     /// Returns true if the container contains no elements.
@@ -107,7 +105,6 @@ impl CandidateUncles {
         if let Entry::Occupied(mut entry) = self.map.entry(number) {
             let set = entry.get_mut();
             if set.remove(uncle) {
-                self.count -= 1;
                 if set.is_empty() {
                     entry.remove();
                 }
@@ -128,7 +125,9 @@ impl CandidateUncles {
         snapshot: &Snapshot,
         current_epoch_ext: &EpochExt,
     ) -> Vec<UncleBlockView> {
-        let candidate_number = snapshot.tip_number() + 1;
+        let Some(candidate_number) = snapshot.tip_number().checked_add(1) else {
+            return Vec::new();
+        };
         let epoch_number = current_epoch_ext.number();
         let max_uncles_num = snapshot.consensus().max_uncles_num();
         let mut uncles: Vec<UncleBlockView> = Vec::with_capacity(max_uncles_num);

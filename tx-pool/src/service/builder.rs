@@ -17,8 +17,8 @@ use crate::service::effects::{
 use crate::service::workers;
 use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE, REORG_CHANNEL_SIZE};
 use crate::service::{
-    BlockAssemblerMessage, ChainReorgArgs, Message, Notify, TxPoolController, TxPoolService,
-    TxVerificationResult, VerifyCacheUpdate, process,
+    BlockAssemblerMessage, ChainReorgArgs, DispatcherCapacity, Message, Notify, TxPoolController,
+    TxPoolService, TxVerificationResult, VerifyCacheUpdate, process,
 };
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
@@ -75,12 +75,18 @@ pub(crate) fn assemble_service(
     block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     verify_cache_sender: mpsc::Sender<VerifyCacheUpdate>,
     pipeline_shutdown: CancellationToken,
-) -> TxPoolService {
-    let kernel = Arc::new(crate::component::pre_pool::PrePool::new(
-        &tx_pool.config,
-        &consensus,
-        pipeline_shutdown,
-    ));
+) -> Result<TxPoolService, String> {
+    let max_workers = tx_pool.config.max_tx_verify_workers.max(1);
+    let dispatcher_capacity = max_workers
+        .checked_mul(MESSAGE_CONCURRENCY_MULTIPLIER)
+        .and_then(DispatcherCapacity::new)
+        .ok_or_else(|| {
+            "tx_pool.max_tx_verify_workers exceeds dispatcher permit capacity".to_owned()
+        })?;
+    let kernel = Arc::new(
+        crate::component::pre_pool::PrePool::new(&tx_pool.config, &consensus, pipeline_shutdown)
+            .map_err(|error| format!("invalid tx-pool pipeline configuration: {error:?}"))?,
+    );
     let tx_pool_config = tx_pool.config.clone();
     let banned_peer_capacity = kernel
         .max_entries()
@@ -115,13 +121,14 @@ pub(crate) fn assemble_service(
             1,
             reorg_effect_bytes,
         )
-        .unwrap_or_else(|error| panic!("failed to allocate tx-pool effect journal: {error:?}")),
+        .map_err(|error| format!("invalid tx-pool effect journal configuration: {error:?}"))?,
     );
-    TxPoolService {
+    Ok(TxPoolService {
         pool: crate::service::PoolCore {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             consensus,
             tx_pool_config: Arc::new(tx_pool_config),
+            dispatcher_capacity,
         },
         pipeline: crate::service::PipelineState {
             kernel,
@@ -144,8 +151,8 @@ pub(crate) fn assemble_service(
             fee_estimator,
         },
         block_assembler,
-        persistence_lock: Arc::new(tokio::sync::Mutex::new(())),
-    }
+        persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
+    })
 }
 
 impl TxPoolServiceBuilder {
@@ -376,8 +383,8 @@ impl TxPoolServiceBuilder {
 
     pub(crate) fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
         if !config.recent_reject.as_os_str().is_empty() {
-            let recent_reject_ttl =
-                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * SECONDS_PER_DAY;
+            let recent_reject_ttl = i32::from(u8::max(1, config.keep_rejected_tx_hashes_days))
+                .saturating_mul(SECONDS_PER_DAY);
             match RecentReject::new(
                 &config.recent_reject,
                 config.keep_rejected_tx_hashes_count,
@@ -472,7 +479,7 @@ impl TxPoolServiceBuilder {
         let (verify_cache_sender, verify_cache_receiver) =
             mpsc::channel::<VerifyCacheUpdate>(VERIFY_CACHE_CHANNEL_SIZE);
 
-        let service = assemble_service(
+        let service = match assemble_service(
             tx_pool,
             consensus,
             block_assembler,
@@ -485,7 +492,14 @@ impl TxPoolServiceBuilder {
             block_assembler_sender,
             verify_cache_sender,
             signal_receiver.clone(),
-        );
+        ) {
+            Ok(service) => service,
+            Err(error) => {
+                error!("tx-pool service startup failed: {error}");
+                drop(tx_pool_controller);
+                return handle.spawn(async {});
+            }
+        };
 
         let verify_cache_handle = workers::spawn_verify_cache_worker(
             &handle,
@@ -583,19 +597,16 @@ impl TxPoolServiceBuilder {
         worker_handles: BackgroundWorkerHandles,
     ) -> tokio::task::JoinHandle<()> {
         let runtime_handle = handle.clone();
-        let max_workers = service.pool.tx_pool_config.max_tx_verify_workers.max(1);
-        let message_concurrency = max_workers
-            .checked_mul(MESSAGE_CONCURRENCY_MULTIPLIER)
-            .and_then(|permits| u32::try_from(permits).ok())
-            .expect("tx_pool.max_tx_verify_workers exceeds dispatcher permit capacity");
-        let semaphore = Arc::new(Semaphore::new(message_concurrency as usize));
+        let dispatcher_capacity = service.pool.dispatcher_capacity;
+        let semaphore = Arc::new(Semaphore::new(dispatcher_capacity.permits()));
         handle.spawn(async move {
             let handler_failed = Arc::new(AtomicBool::new(false));
             let mut worker_failed = false;
-            let mut supervisor = tokio::time::interval_at(
-                tokio::time::Instant::now() + Duration::from_millis(100),
-                Duration::from_millis(100),
-            );
+            let supervisor_period = Duration::from_millis(100);
+            let now = tokio::time::Instant::now();
+            let supervisor_start = now.checked_add(supervisor_period).unwrap_or(now);
+            let mut supervisor =
+                tokio::time::interval_at(supervisor_start, supervisor_period);
             supervisor.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
@@ -662,7 +673,7 @@ impl TxPoolServiceBuilder {
             // The semaphore bounds concurrent handlers, so acquiring every
             // permit proves all dispatched messages reached a stable outcome.
             let _ = semaphore
-                .acquire_many(message_concurrency)
+                .acquire_many(dispatcher_capacity.acquire_many())
                 .await;
 
             info!("TxPool is quiescing background workers...");
@@ -674,7 +685,8 @@ impl TxPoolServiceBuilder {
                 .await;
             let clean_shutdown = workers_clean
                 && !worker_failed
-                && !handler_failed.load(Ordering::Acquire);
+                && !handler_failed.load(Ordering::Acquire)
+                && !service.pipeline.kernel.has_failed();
 
             if clean_shutdown {
                 info!("TxPool is saving, please wait...");
@@ -749,7 +761,8 @@ impl TxPoolServiceBuilder {
                 interval
             };
             let first_tick = if eager_updates {
-                tokio::time::Instant::now() + tick_period
+                let now = tokio::time::Instant::now();
+                now.checked_add(tick_period).unwrap_or(now)
             } else {
                 tokio::time::Instant::now()
             };

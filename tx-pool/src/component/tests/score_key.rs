@@ -156,7 +156,7 @@ fn test_remove_entry() {
     let tx3_entry = tx3_entry.unwrap();
     assert_eq!(tx3_entry.ancestors_count, 3);
 
-    map.remove_entry(&tx1_id);
+    map.remove_entry(&tx1_id).unwrap();
     map.audit().unwrap();
     assert!(!map.contains_key(&tx1_id));
     assert!(map.contains_key(&tx2_id));
@@ -256,7 +256,7 @@ fn test_remove_entry_and_descendants() {
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));
-    map.remove_entry_and_descendants(&tx2_id);
+    map.remove_entry_and_descendants(&tx2_id).unwrap();
     map.audit().unwrap();
     assert!(!map.contains_key(&tx2_id));
     assert!(!map.contains_key(&tx3_id));
@@ -559,7 +559,7 @@ fn parent_added_after_child_gets_descendant_weight() {
     assert_eq!(grandparent_entry.descendants_size, 350);
 
     // When the child leaves, both ancestors must subtract it exactly.
-    map.remove_entry(&child_id);
+    map.remove_entry(&child_id).unwrap();
     map.audit().unwrap();
     let parent_entry = map.get(&parent_id).unwrap();
     assert_eq!(parent_entry.descendants_count, 1);

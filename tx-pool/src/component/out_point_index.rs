@@ -1,9 +1,5 @@
 use crate::util::compact_packed;
-use ckb_logger::debug;
-use ckb_types::{
-    core::{error::OutPointError, tx_pool::Reject},
-    packed::{Byte32, OutPoint, ProposalShortId},
-};
+use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 /// Index that maps consumed or referenced out-points to the in-pool transactions
@@ -25,33 +21,6 @@ pub(crate) struct OutPointIndex {
 }
 
 impl OutPointIndex {
-    pub(crate) fn insert_input(
-        &mut self,
-        out_point: OutPoint,
-        txid: ProposalShortId,
-    ) -> Result<(), Reject> {
-        // The accessor may be a slice of the complete transaction. This key
-        // can outlive that transaction when another indexed owner shares the
-        // same outpoint, so make it independently owned before insertion.
-        let out_point = compact_packed(&out_point);
-        // inputs is occupied means double spending happened here
-        match self.inputs.entry(out_point.clone()) {
-            Entry::Occupied(occupied) => {
-                debug!(
-                    "txpool unexpected double-spending out_point: {:?} old_tx: {:?} new_tx: {:?}",
-                    out_point,
-                    occupied.get(),
-                    txid
-                );
-                Err(Reject::Resolve(OutPointError::Dead(out_point)))
-            }
-            Entry::Vacant(vacant) => {
-                vacant.insert(txid);
-                Ok(())
-            }
-        }
-    }
-
     pub(crate) fn remove_input(&mut self, out_point: &OutPoint) -> Option<ProposalShortId> {
         self.inputs.remove(out_point)
     }

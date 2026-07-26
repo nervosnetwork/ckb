@@ -17,8 +17,10 @@ impl AncestorsScoreSortKey {
     /// compare tx fee rate with ancestors fee rate and return the min one
     pub(crate) fn min_fee_and_weight(&self) -> (Capacity, u64) {
         // avoid division a_fee/a_weight > b_fee/b_weight
-        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_weight);
-        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.weight);
+        let tx_weight =
+            u128::from(self.fee.as_u64()).saturating_mul(u128::from(self.ancestors_weight));
+        let ancestors_weight =
+            u128::from(self.ancestors_fee.as_u64()).saturating_mul(u128::from(self.weight));
 
         if tx_weight < ancestors_weight {
             (self.fee, self.weight)
@@ -39,8 +41,8 @@ impl Ord for AncestorsScoreSortKey {
         // avoid division a_fee/a_weight > b_fee/b_weight
         let (fee, weight) = self.min_fee_and_weight();
         let (other_fee, other_weight) = other.min_fee_and_weight();
-        let self_weight = u128::from(fee.as_u64()) * u128::from(other_weight);
-        let other_weight = u128::from(other_fee.as_u64()) * u128::from(weight);
+        let self_weight = u128::from(fee.as_u64()).saturating_mul(u128::from(other_weight));
+        let other_weight = u128::from(other_fee.as_u64()).saturating_mul(u128::from(weight));
         if self_weight == other_weight {
             // if fee rate weight is same, then compare with ancestor weight
             self.ancestors_weight.cmp(&other.ancestors_weight)

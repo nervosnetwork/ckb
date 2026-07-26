@@ -6,6 +6,7 @@
 //! and shutdown orchestration; worker lifecycle lives in this module.
 
 use crate::component::pre_pool::WorkLane;
+use crate::process::ReorgUpdateError;
 use crate::service::effects::{EffectClass, EffectJournalError};
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
 use ckb_async_runtime::Handle;
@@ -28,7 +29,13 @@ pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
         {
             Ok(Some(lease)) => service.process_pipeline_raw_lease(lease).await,
             Ok(None) => break,
-            Err(error) => panic!("pre-check checkout invariant failed: {error:?}"),
+            Err(error) => {
+                service
+                    .pipeline
+                    .kernel
+                    .report_fault("pre-check checkout invariant failed", &error);
+                break;
+            }
         }
     }
 }
@@ -56,10 +63,7 @@ pub(crate) fn spawn_pre_check_workers(
 /// dependency failure, administrative removal, or a failed commit; tying the
 /// consumer to verify completion would therefore lose wake paths.
 pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: CancellationToken) {
-    let ready = service.pipeline.kernel.subscribe(
-        WorkLane::Commit,
-        crate::component::pre_pool::WorkCapability::Any,
-    );
+    let ready = service.pipeline.kernel.subscribe_commit();
     loop {
         // Notify is only a hint; read the authoritative level before sleeping
         // so a permit consumed before this iteration cannot lose Ready work.
@@ -74,7 +78,9 @@ pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: C
         if cancel.is_cancelled() {
             break;
         }
-        service.drive_pipeline_commits().await;
+        if !service.drive_pipeline_commits().await {
+            break;
+        }
     }
     info!("TxPool pipeline commit worker exited");
 }
@@ -128,15 +134,11 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 {
                     break;
                 }
-                // Ready has no transient commit state. Serializing expiry
-                // with the commit driver is therefore the proof that a
-                // read-only commit ticket remains owned until its paired
-                // pool/kernel settlement finishes.
-                let commit_guard = (!preview.is_empty())
-                    .then(|| service.pipeline.kernel.try_lock_commit_driver())
-                    .flatten();
-                let expiry_deferred = !preview.is_empty() && commit_guard.is_none();
-                let expired = if let Some(commit_guard) = commit_guard {
+                // Commit ticket selection and Apply now share one kernel
+                // critical section. Expiry can execute directly: whichever
+                // transition acquires the authority first owns the entry, and
+                // no read-only ticket survives between mutex acquisitions.
+                let expired = if !preview.is_empty() {
                     let result = service.pipeline.kernel.mutate_authoritative(|coordinator| {
                         let records = coordinator.due_terminal_records(now, SLICE);
                         let batch = service.pipeline_terminal_effects(&records);
@@ -147,11 +149,14 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                                 coordinator.expire_due(now, SLICE)
                             })
                     });
-                    drop(commit_guard);
                     match result {
                         Ok(Ok(records)) => records,
                         Ok(Err(error)) => {
-                            panic!("pipeline expiry invariant failed: {error:?}")
+                            service
+                                .pipeline
+                                .kernel
+                                .report_fault("pipeline expiry invariant failed", &error);
+                            break;
                         }
                         Err(EffectJournalError::Full) => continue,
                         Err(error) => {
@@ -168,16 +173,15 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                     .mutate_authoritative(|kernel| kernel.drain_wait_wakes(SLICE))
                 {
                     Ok(woke) => woke,
-                    Err(error) => panic!("wait maintenance invariant failed: {error:?}"),
+                    Err(error) => {
+                        service
+                            .pipeline
+                            .kernel
+                            .report_fault("wait maintenance invariant failed", &error);
+                        break;
+                    }
                 };
                 let saturated = expired.len() == SLICE || woke == SLICE;
-                // Never scan through a due Ready prefix while another commit
-                // owns the serialization guard. Expiry is level-triggered by
-                // the next coarse tick; dependency wakes may still make one
-                // useful bounded slice of progress now.
-                if expiry_deferred && woke < SLICE {
-                    break;
-                }
                 if !saturated && !service.pipeline.kernel.maintenance_pending() {
                     break;
                 }
@@ -225,8 +229,14 @@ pub(crate) fn spawn_reorg_handler(
                 .await
             {
                 Ok(output) => output,
-                Err(EffectJournalError::Closed) => break,
-                Err(error) => panic!("reorg authoritative apply failed: {error:?}"),
+                Err(ReorgUpdateError::Effect(EffectJournalError::Closed)) => break,
+                Err(error) => {
+                    service
+                        .pipeline
+                        .kernel
+                        .report_fault("reorg authoritative update failed", &error);
+                    break;
+                }
             };
             service
                 .refresh_block_assembler_after_tx_pool_reorg(phase_two.0, phase_two.1)

@@ -38,6 +38,17 @@ fn limits() -> PrePoolLimits {
     }
 }
 
+fn reconcile_dependencies(
+    kernel: &mut PrePoolKernel,
+    unavailable_parents: HashSet<Byte32>,
+    available: impl IntoIterator<Item = DependencyKey>,
+) -> Result<(), PrePoolError> {
+    kernel
+        .prepare_dependency_reconciliation(&unavailable_parents, available)?
+        .apply();
+    Ok(())
+}
+
 fn transaction(tag: u8) -> TransactionView {
     let parent = Byte32::new([tag; 32]);
     build_tx(vec![(&parent, 0)], 1)
@@ -54,7 +65,7 @@ fn with_cached_hash(tx: TransactionView, hash: Byte32) -> TransactionView {
 
 fn source_peer(source: PrePoolSource) -> PeerIndex {
     match source {
-        PrePoolSource::Remote(peer) => peer,
+        PrePoolSource::Remote(remote) => remote.peer,
         PrePoolSource::Proposal | PrePoolSource::Recovery => {
             panic!("expected a remote owner")
         }
@@ -68,16 +79,17 @@ fn admit(
     lane: ResolveLane,
     expires_at: Option<u64>,
 ) -> Result<EntryVersion, PrePoolError> {
-    let owner = pre_pool_source(source);
+    let owner = match source {
+        TxSource::Remote { cycles, peer } => PrePoolSource::Remote(RemoteSource::new(peer, cycles)),
+        TxSource::Proposal => PrePoolSource::Proposal,
+        TxSource::Local => panic!("test admission source is non-local"),
+    };
     let raw = PipelineRawTx::new(tx.clone(), source, 1);
     kernel.admit(
-        tx.hash(),
-        tx.proposal_short_id(),
-        raw.clone(),
+        raw,
         lane,
         owner,
         expires_at,
-        raw.charge_bytes(),
         conflict_dependency_keys(&tx, std::iter::empty()),
     )
 }
@@ -87,7 +99,6 @@ fn resolved(tx: TransactionView, source: TxSource, fee: u64) -> ResolvedTx {
     let tx_size = tx.data().serialized_size_in_block();
     let resident_size = resolved_transaction_charge_bytes(tx_size, &rtx);
     ResolvedTx {
-        tx,
         rtx,
         status: Status::Pending,
         fee: Capacity::shannons(fee),
@@ -144,6 +155,20 @@ fn stage_ready(
         )
         .unwrap();
     kernel.begin_next_commit().unwrap().unwrap()
+}
+
+fn commit_ready(kernel: &mut PrePoolKernel, ticket: &CommitTicket) -> CommitSettlement {
+    let plan = kernel
+        .plan_ready_commit(
+            ticket,
+            &HashSet::new(),
+            Vec::<DependencyKey>::new(),
+            Vec::new(),
+        )
+        .unwrap();
+    let settlement = plan.settlement().clone();
+    plan.apply();
+    settlement
 }
 
 #[test]
@@ -213,7 +238,8 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
         .unwrap();
     kernel.audit().unwrap();
     let ticket = kernel.begin_next_commit().unwrap().unwrap();
-    kernel.fail_commit(&ticket).unwrap();
+    let plan = kernel.plan_failed_commit(&ticket, false).unwrap();
+    plan.apply();
     assert_eq!(kernel.len(), 0);
     assert_eq!(kernel.total_usage(), Residency::default());
     kernel.audit().unwrap();
@@ -288,9 +314,11 @@ fn admission_budget_failure_leaves_primary_and_views_unchanged() {
             ResolveLane::Ingress,
             Some(100)
         ),
-        Err(PrePoolError::TotalBudgetExceeded
-            | PrePoolError::RemoteBudgetExceeded
-            | PrePoolError::PeerBudgetExceeded(_))
+        Err(PrePoolError::Backpressure(
+            PrePoolBackpressure::TotalBudgetExceeded
+                | PrePoolBackpressure::RemoteBudgetExceeded
+                | PrePoolBackpressure::PeerBudgetExceeded(_)
+        ))
     ));
     assert_eq!(kernel.len(), 1);
     assert_eq!(kernel.total_usage(), usage);
@@ -324,7 +352,9 @@ fn short_id_collision_is_backpressure_not_aliasing() {
             ResolveLane::Ingress,
             None
         ),
-        Err(PrePoolError::ShortIdCollision { .. })
+        Err(PrePoolError::Backpressure(
+            PrePoolBackpressure::ShortIdCollision { .. }
+        ))
     ));
     assert_eq!(
         kernel.hash_by_short_id(&left.proposal_short_id()),
@@ -390,8 +420,8 @@ fn repeated_dependency_epochs_are_level_triggered_and_bounded() {
     kernel
         .wait_resolve(&lease, BTreeSet::from([key.clone()]))
         .unwrap();
-    kernel.note_available([key.clone()]);
-    kernel.note_available([key]);
+    reconcile_dependencies(&mut kernel, HashSet::new(), [key.clone()]).unwrap();
+    reconcile_dependencies(&mut kernel, HashSet::new(), [key]).unwrap();
     for _ in 0..8 {
         if !kernel.wait_wake_pending() {
             break;
@@ -411,11 +441,16 @@ fn repeated_dependency_epochs_are_level_triggered_and_bounded() {
 #[test]
 fn availability_without_a_wait_owner_retains_no_epoch_history() {
     let mut kernel = PrePoolKernel::new(limits());
-    kernel.note_available((0u16..10_000).map(|tag| {
-        let mut bytes = [0u8; 32];
-        bytes[..2].copy_from_slice(&tag.to_le_bytes());
-        DependencyKey::Cell(OutPoint::new(Byte32::new(bytes), 0))
-    }));
+    reconcile_dependencies(
+        &mut kernel,
+        HashSet::new(),
+        (0u16..10_000).map(|tag| {
+            let mut bytes = [0u8; 32];
+            bytes[..2].copy_from_slice(&tag.to_le_bytes());
+            DependencyKey::Cell(OutPoint::new(Byte32::new(bytes), 0))
+        }),
+    )
+    .unwrap();
     assert_eq!(kernel.dependency_epoch_len(), 0);
     assert!(!kernel.wait_wake_pending());
     kernel.audit().unwrap();
@@ -441,9 +476,7 @@ fn parent_loss_invalidates_an_active_lease_into_exact_wait() {
         .checkout_resolve(ResolveLane::Ingress)
         .unwrap()
         .unwrap();
-    kernel
-        .parents_unavailable(&HashSet::from([parent]))
-        .unwrap();
+    reconcile_dependencies(&mut kernel, HashSet::from([parent]), []).unwrap();
     assert_eq!(kernel.active_work(), 0);
     assert_eq!(
         kernel.view(&tx.hash()).unwrap().location,
@@ -475,9 +508,7 @@ fn parent_loss_also_invalidates_recovery_after_it_has_resolved() {
         .complete_raw(&lease, value, charge, VerifySchedule::default())
         .unwrap();
 
-    kernel
-        .parents_unavailable(&HashSet::from([parent]))
-        .unwrap();
+    reconcile_dependencies(&mut kernel, HashSet::from([parent]), []).unwrap();
 
     assert_eq!(
         kernel.view(&tx.hash()).unwrap().location,
@@ -561,9 +592,7 @@ fn parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget() {
         .unwrap()
         .unwrap();
     assert_eq!(kernel.total_usage().bytes, exact_bytes);
-    kernel
-        .parents_unavailable(&HashSet::from([parent]))
-        .unwrap();
+    reconcile_dependencies(&mut kernel, HashSet::from([parent]), []).unwrap();
     assert_eq!(
         kernel.view(&tx.hash()).unwrap().location,
         PrePoolLocation::Wait(WaitReason::Missing)
@@ -613,12 +642,8 @@ fn successive_expanded_parent_losses_keep_exact_causal_keys_in_wait() {
         )
         .unwrap();
 
-    kernel
-        .parents_unavailable(&HashSet::from([expanded_a.tx_hash()]))
-        .unwrap();
-    kernel
-        .parents_unavailable(&HashSet::from([expanded_b.tx_hash()]))
-        .unwrap();
+    reconcile_dependencies(&mut kernel, HashSet::from([expanded_a.tx_hash()]), []).unwrap();
+    reconcile_dependencies(&mut kernel, HashSet::from([expanded_b.tx_hash()]), []).unwrap();
     let view = kernel.view(&tx.hash()).unwrap();
     assert_eq!(view.location, PrePoolLocation::Wait(WaitReason::Missing));
     assert!(view.dependencies.contains(&expanded_a.tx_hash()));
@@ -650,7 +675,9 @@ fn oversized_missing_dependency_set_is_rejected_without_mutating_the_lease() {
 
     assert!(matches!(
         kernel.wait_resolve(&lease, dependencies),
-        Err(PrePoolError::DependencyLimitExceeded)
+        Err(PrePoolError::Backpressure(
+            PrePoolBackpressure::DependencyLimitExceeded
+        ))
     ));
     assert_eq!(
         kernel.view(&tx.hash()).unwrap().location,
@@ -714,7 +741,7 @@ fn remote_peer_order_cannot_hijack_an_existing_conflict_owner() {
                 },
                 1,
             ),
-            PrePoolSource::Remote(1.into()),
+            PrePoolSource::Remote(RemoteSource::new(1.into(), 0)),
             BTreeSet::from([key.clone()]),
             Some(100),
         )
@@ -729,14 +756,14 @@ fn remote_peer_order_cannot_hijack_an_existing_conflict_owner() {
                 },
                 1,
             ),
-            PrePoolSource::Remote(99.into()),
+            PrePoolSource::Remote(RemoteSource::new(99.into(), 0)),
             BTreeSet::from([key]),
             Some(100),
         )
         .unwrap();
     assert_eq!(
         kernel.view(&tx.hash()).unwrap().source,
-        PrePoolSource::Remote(1.into())
+        PrePoolSource::Remote(RemoteSource::new(1.into(), 0))
     );
     assert_eq!(
         kernel.raw_by_hash(&tx.hash()).unwrap().tx.witness_hash(),
@@ -840,9 +867,7 @@ fn multi_input_conflict_union_uses_the_product_bound() {
         100_000,
     );
 
-    let settlement = kernel
-        .commit_any_handoff_with_unavailable_parents(&ticket, &HashSet::new())
-        .unwrap();
+    let settlement = commit_ready(&mut kernel, &ticket);
 
     assert_eq!(settlement.winner.hash, winner.hash());
     assert_eq!(settlement.superseded.len(), 3);
@@ -880,9 +905,7 @@ fn commit_ticket_remains_valid_when_a_higher_rank_arrives() {
         "the later candidate becomes the next scheduling head"
     );
 
-    let settlement = kernel
-        .commit_any_handoff_with_unavailable_parents(&ticket, &HashSet::new())
-        .expect("the already selected exact owner remains a valid ticket");
+    let settlement = commit_ready(&mut kernel, &ticket);
     assert_eq!(settlement.winner.hash, selected.hash());
     assert_eq!(
         kernel.view(&later.hash()).unwrap().location,
@@ -930,9 +953,7 @@ fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
         100_000,
     );
 
-    let settlement = kernel
-        .commit_any_handoff_with_unavailable_parents(&ticket, &HashSet::new())
-        .unwrap();
+    let settlement = commit_ready(&mut kernel, &ticket);
 
     assert_eq!(settlement.winner.hash, winner.hash());
     assert_eq!(settlement.superseded.len(), 1);
@@ -940,6 +961,98 @@ fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
     assert!(!kernel.contains_hash(&winner.hash()));
     assert!(!kernel.contains_hash(&loser.hash()));
     assert_eq!(kernel.conflict_usage(), Residency::default());
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn terminalized_superseded_parent_wakes_its_trusted_child() {
+    let mut constrained = limits();
+    constrained.conflict_history = Residency::default();
+    let mut kernel = PrePoolKernel::new(constrained);
+    let shared_input = Byte32::new([0xe7; 32]);
+    let loser = build_tx(vec![(&shared_input, 0)], 1);
+    stage_ready(&mut kernel, loser.clone(), TxSource::Proposal, None, 1_000);
+
+    let child = build_tx(vec![(&loser.hash(), 0)], 2);
+    admit(
+        &mut kernel,
+        child.clone(),
+        TxSource::Proposal,
+        ResolveLane::Ingress,
+        None,
+    )
+    .unwrap();
+    let child_lease = kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    let lost_output = DependencyKey::Cell(child.input_pts_iter().next().unwrap());
+    kernel
+        .wait_resolve(&child_lease, BTreeSet::from([lost_output]))
+        .unwrap();
+
+    let winner = build_tx(vec![(&shared_input, 0)], 3);
+    let ticket = stage_ready(&mut kernel, winner, TxSource::Proposal, None, 100_000);
+    commit_ready(&mut kernel, &ticket);
+
+    assert!(!kernel.contains_hash(&loser.hash()));
+    assert!(
+        kernel.wait_wake_pending(),
+        "definitive loser death publishes its exact output-level change"
+    );
+    kernel.drain_wait_wakes(1).unwrap();
+    assert_eq!(
+        kernel.view(&child.hash()).unwrap().location,
+        PrePoolLocation::ResolveQueued,
+        "the trusted child must re-resolve and reach terminal policy instead of stranding"
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn optional_commit_history_cannot_veto_the_ready_winner() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let existing = transaction(0xe5);
+    kernel
+        .retain_conflict(
+            PipelineRawTx::new(existing.clone(), TxSource::Proposal, 1),
+            PrePoolSource::Proposal,
+            BTreeSet::from([DependencyKey::Cell(
+                existing.input_pts_iter().next().unwrap(),
+            )]),
+            None,
+        )
+        .unwrap();
+
+    let winner = transaction(0xe6);
+    let ticket = stage_ready(
+        &mut kernel,
+        winner.clone(),
+        TxSource::Proposal,
+        None,
+        100_000,
+    );
+    let history = ConflictRetention::new(
+        PipelineRawTx::new(existing.clone(), TxSource::Proposal, 1),
+        PrePoolSource::Proposal,
+        BTreeSet::from([DependencyKey::Cell(
+            existing.input_pts_iter().next().unwrap(),
+        )]),
+        None,
+    );
+
+    let plan = kernel
+        .plan_ready_commit(
+            &ticket,
+            &HashSet::new(),
+            Vec::<DependencyKey>::new(),
+            vec![history],
+        )
+        .expect("duplicate optional history must fall back to the winner-only cohort");
+    plan.apply();
+
+    assert!(!kernel.contains_hash(&winner.hash()));
+    assert!(kernel.contains_hash(&existing.hash()));
     kernel.audit().unwrap();
 }
 
@@ -956,7 +1069,7 @@ fn remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry() {
     kernel
         .retain_conflict(
             PipelineRawTx::new(tx.clone(), source, 1),
-            PrePoolSource::Remote(peer),
+            PrePoolSource::Remote(RemoteSource::new(peer, 0)),
             BTreeSet::from([key.clone()]),
             Some(100),
         )
@@ -977,10 +1090,12 @@ fn remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry() {
             ResolveLane::Ingress,
             Some(100),
         ),
-        Err(PrePoolError::RemoteBudgetExceeded)
+        Err(PrePoolError::Backpressure(
+            PrePoolBackpressure::RemoteBudgetExceeded
+        ))
     ));
 
-    kernel.note_available([key]);
+    reconcile_dependencies(&mut kernel, HashSet::new(), [key]).unwrap();
     assert_eq!(kernel.drain_wait_wakes(8).unwrap(), 1);
     assert!(!kernel.wait_wake_pending());
     assert_eq!(
@@ -1002,7 +1117,7 @@ fn remote_conflict_history_keeps_its_bounded_residency_deadline() {
     kernel
         .retain_conflict(
             PipelineRawTx::new(tx.clone(), source, 1),
-            PrePoolSource::Remote(peer),
+            PrePoolSource::Remote(RemoteSource::new(peer, 0)),
             BTreeSet::from([key]),
             Some(5),
         )
@@ -1133,7 +1248,9 @@ fn over_budget_recovery_plan_is_mutation_free() {
     let second = transaction(203);
     assert_eq!(
         kernel.retain_recovery_batch(vec![first.clone(), second], 9),
-        Err(PrePoolError::TotalBudgetExceeded)
+        Err(PrePoolError::Backpressure(
+            PrePoolBackpressure::TotalBudgetExceeded
+        ))
     );
     assert!(!kernel.contains_hash(&first.hash()));
     assert_eq!(kernel.len(), 0);
@@ -1175,9 +1292,10 @@ fn randomized_public_transitions_always_match_full_rebuild() {
     let mut kernel = PrePoolKernel::new(limits());
     let mut rng = StdRng::seed_from_u64(0x0050_5245_504f_4f4c);
     let txs = (32u8..64).map(transaction).collect::<Vec<_>>();
-    for _ in 0..1_000 {
+    for step in 0..1_000 {
         let tx = txs[rng.gen_range(0..txs.len())].clone();
-        match rng.gen_range(0..6) {
+        let action = rng.gen_range(0..6);
+        match action {
             0 => {
                 let peer = PeerIndex::from(rng.gen_range(1usize..=8));
                 let _ = admit(
@@ -1201,7 +1319,7 @@ fn randomized_public_transitions_always_match_full_rebuild() {
             }
             4 => {
                 let key = DependencyKey::Cell(OutPoint::new(tx.hash(), 0));
-                kernel.note_available([key]);
+                reconcile_dependencies(&mut kernel, HashSet::new(), [key]).unwrap();
                 let _ = kernel.drain_wait_wakes(4);
             }
             _ => {
@@ -1211,6 +1329,8 @@ fn randomized_public_transitions_always_match_full_rebuild() {
                 }
             }
         }
-        kernel.audit().unwrap();
+        if let Err(error) = kernel.audit() {
+            panic!("random transition step {step}, action {action}: {error}");
+        }
     }
 }

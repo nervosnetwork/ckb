@@ -150,11 +150,10 @@ impl HarnessBuilder {
         let (verify_cache_sender, mut verify_cache_receiver) = mpsc::channel(1024);
         let (chunk_tx, verify_chunk_rx) = watch::channel(ChunkCommand::Resume);
         let test_chunk_rx = verify_chunk_rx.clone();
-        let kernel = Arc::new(crate::component::pre_pool::PrePool::new(
-            &config,
-            &consensus,
-            signal.clone(),
-        ));
+        let kernel = Arc::new(
+            crate::component::pre_pool::PrePool::new(&config, &consensus, signal.clone())
+                .expect("test pipeline configuration is valid"),
+        );
         let critical_effect_bytes =
             crate::service::effects::max_pool_mutation_effect_bytes(config.max_tx_pool_size)
                 .max(4096);
@@ -180,6 +179,8 @@ impl HarnessBuilder {
                 tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
                 consensus: Arc::clone(&consensus),
                 tx_pool_config: Arc::new(config),
+                dispatcher_capacity: crate::service::DispatcherCapacity::new(1)
+                    .expect("test dispatcher capacity is valid"),
             },
             pipeline: crate::service::PipelineState {
                 kernel,
@@ -202,7 +203,7 @@ impl HarnessBuilder {
                 fee_estimator: FeeEstimator::new_dummy(),
             },
             block_assembler: None,
-            persistence_lock: Arc::new(tokio::sync::Mutex::new(())),
+            persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
         };
 
         // The effect publisher is deliberately independent from pipeline

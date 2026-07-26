@@ -10,20 +10,22 @@ mod lifecycle;
 mod queue;
 mod recovery;
 mod runtime;
+mod stored_entry;
 mod wait;
+
+pub(crate) use commit::{ConflictRetention, ExternalCommitPlan, FailedCommitPlan, ReadyCommitPlan};
 
 #[cfg(test)]
 #[path = "../tests/pre_pool_seam.rs"]
 mod test_seam;
 
-#[cfg(test)]
-pub(crate) use runtime::pre_pool_source;
 pub(crate) use runtime::{
-    PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline, historical_source,
-    pre_pool_reject,
+    PipelineAdmissionSource, PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline,
+    historical_source, pre_pool_reject,
 };
 
 use self::queue::{FairQueue, WorkKey, WorkOwner};
+use self::stored_entry::StoredEntry;
 use crate::resolved_tx::ResolvedTx;
 use ckb_network::PeerIndex;
 use ckb_types::prelude::Entity;
@@ -35,11 +37,68 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-pub(crate) type EntryVersion = u128;
+/// Process-global, non-reused identity for one exact retained ownership
+/// incarnation. Keeping this distinct from arrival and dependency clocks
+/// prevents an otherwise type-correct cursor from entering an ABA check.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct EntryVersion(u128);
+
+impl EntryVersion {
+    const FIRST: Self = Self(1);
+
+    fn take(cursor: &mut Self) -> Result<Self, PrePoolError> {
+        let current = *cursor;
+        cursor.0 = cursor
+            .0
+            .checked_add(1)
+            .ok_or(PrePoolError::CounterExhausted)?;
+        Ok(current)
+    }
+}
+
+/// Stable admission order. This is deliberately a different domain from an
+/// ownership version even though both compile to one `u128`.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct Arrival(u128);
+
+impl Arrival {
+    const FIRST: Self = Self(0);
+
+    fn take(cursor: &mut Self) -> Result<Self, PrePoolError> {
+        let current = *cursor;
+        cursor.0 = cursor
+            .0
+            .checked_add(1)
+            .ok_or(PrePoolError::CounterExhausted)?;
+        Ok(current)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RemoteSource {
+    pub(crate) peer: PeerIndex,
+    pub(crate) declared_cycles: Cycle,
+}
+
+impl RemoteSource {
+    pub(crate) const fn new(peer: PeerIndex, declared_cycles: Cycle) -> Self {
+        Self {
+            peer,
+            declared_cycles,
+        }
+    }
+
+    pub(crate) const fn tx_source(self) -> crate::tx_source::TxSource {
+        crate::tx_source::TxSource::Remote {
+            cycles: self.declared_cycles,
+            peer: self.peer,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum PrePoolSource {
-    Remote(PeerIndex),
+    Remote(RemoteSource),
     Proposal,
     /// Trusted transaction retained by an authoritative detached-chain
     /// transition. This is deliberately not `TxSource::Local`: local RPC
@@ -50,7 +109,7 @@ pub(crate) enum PrePoolSource {
 impl PrePoolSource {
     fn peer(self) -> Option<PeerIndex> {
         match self {
-            Self::Remote(peer) => Some(peer),
+            Self::Remote(remote) => Some(remote.peer),
             Self::Proposal | Self::Recovery => None,
         }
     }
@@ -78,11 +137,65 @@ pub(crate) enum WorkLane {
     Commit,
 }
 
-impl WorkLane {
-    const ALL: [Self; 4] = [Self::Ingress, Self::Resolve, Self::Verify, Self::Commit];
+/// Exhaustive storage for one value per work lane.
+///
+/// A raw array turns the enum discriminant into an unchecked runtime index.
+/// Named fields plus exhaustive matches make both lane coverage and lookup a
+/// compile-time property; adding a lane cannot silently alias or overrun a
+/// slot.
+#[derive(Debug)]
+struct WorkLaneSlots<T> {
+    ingress: T,
+    resolve: T,
+    verify: T,
+    commit: T,
+}
 
-    const fn index(self) -> usize {
-        self as usize
+impl<T> WorkLaneSlots<T> {
+    fn from_fn(mut make: impl FnMut(WorkLane) -> T) -> Self {
+        Self {
+            ingress: make(WorkLane::Ingress),
+            resolve: make(WorkLane::Resolve),
+            verify: make(WorkLane::Verify),
+            commit: make(WorkLane::Commit),
+        }
+    }
+
+    fn get(&self, lane: WorkLane) -> &T {
+        match lane {
+            WorkLane::Ingress => &self.ingress,
+            WorkLane::Resolve => &self.resolve,
+            WorkLane::Verify => &self.verify,
+            WorkLane::Commit => &self.commit,
+        }
+    }
+
+    fn get_mut(&mut self, lane: WorkLane) -> &mut T {
+        match lane {
+            WorkLane::Ingress => &mut self.ingress,
+            WorkLane::Resolve => &mut self.resolve,
+            WorkLane::Verify => &mut self.verify,
+            WorkLane::Commit => &mut self.commit,
+        }
+    }
+
+    fn map<U>(&self, mut transform: impl FnMut(&T) -> U) -> WorkLaneSlots<U> {
+        WorkLaneSlots {
+            ingress: transform(&self.ingress),
+            resolve: transform(&self.resolve),
+            verify: transform(&self.verify),
+            commit: transform(&self.commit),
+        }
+    }
+
+    fn into_entries(self) -> impl Iterator<Item = (WorkLane, T)> {
+        [
+            (WorkLane::Ingress, self.ingress),
+            (WorkLane::Resolve, self.resolve),
+            (WorkLane::Verify, self.verify),
+            (WorkLane::Commit, self.commit),
+        ]
+        .into_iter()
     }
 }
 
@@ -253,16 +366,16 @@ pub(crate) struct PrePoolLimits {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PrePoolError {
-    DuplicateHash(Byte32),
-    ShortIdCollision {
-        short_id: ProposalShortId,
-        existing_hash: Byte32,
-    },
+    Rejected(PrePoolRejection),
+    Backpressure(PrePoolBackpressure),
+    Stale(PrePoolStale),
+    Fault(PrePoolFault),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolRejection {
     SelfDependency(Byte32),
-    DependencyLimitExceeded,
-    ParentFanoutLimitExceeded(Byte32),
-    ConflictInputLimitExceeded,
-    ConflictCandidateLimitExceeded(OutPoint),
+    EmptyWaitDependencies,
     ZeroTransactionSize(Byte32),
     UnderReplacementFee {
         hash: Byte32,
@@ -275,12 +388,29 @@ pub(crate) enum PrePoolError {
     },
     FeeRateOverflow,
     ResidencyChargeOverflow,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolBackpressure {
+    DuplicateHash(Byte32),
+    ShortIdCollision {
+        short_id: ProposalShortId,
+        existing_hash: Byte32,
+    },
+    DependencyLimitExceeded,
+    ParentFanoutLimitExceeded(Byte32),
+    ConflictInputLimitExceeded,
+    ConflictCandidateLimitExceeded(OutPoint),
     TotalBudgetExceeded,
     RemoteBudgetExceeded,
     PeerBudgetExceeded(PeerIndex),
     ConflictHistoryBudgetExceeded,
     ActiveWorkLimitExceeded,
     PeerActiveWorkLimitExceeded(PeerIndex),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolStale {
     Missing(Byte32),
     Stale {
         hash: Byte32,
@@ -294,70 +424,162 @@ pub(crate) enum PrePoolError {
     },
 }
 
-#[derive(Clone, Copy)]
-enum ErrorClass {
-    Transaction,
-    Capacity,
-    RetryableCapacity,
-    Stale,
-    Duplicate,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolFault {
+    CounterExhausted,
+    PrimaryKeyMismatch { expected: Byte32, actual: Byte32 },
+    ProjectionInconsistent(&'static str),
+    InvalidConfiguration(&'static str),
 }
 
+#[allow(non_snake_case, non_upper_case_globals)]
 impl PrePoolError {
-    fn class(&self) -> ErrorClass {
-        match self {
-            Self::SelfDependency(_)
-            | Self::ZeroTransactionSize(_)
-            | Self::UnderReplacementFee { .. }
-            | Self::UnderFeeRate { .. }
-            | Self::FeeRateOverflow
-            | Self::ResidencyChargeOverflow => ErrorClass::Transaction,
-            Self::DependencyLimitExceeded
-            | Self::ParentFanoutLimitExceeded(_)
-            | Self::ConflictInputLimitExceeded
-            | Self::ConflictCandidateLimitExceeded(_) => ErrorClass::Capacity,
-            Self::ShortIdCollision { .. }
-            | Self::TotalBudgetExceeded
-            | Self::RemoteBudgetExceeded
-            | Self::PeerBudgetExceeded(_)
-            | Self::ConflictHistoryBudgetExceeded
-            | Self::ActiveWorkLimitExceeded
-            | Self::PeerActiveWorkLimitExceeded(_) => ErrorClass::RetryableCapacity,
-            Self::Missing(_) | Self::Stale { .. } | Self::LocationMismatch { .. } => {
-                ErrorClass::Stale
-            }
-            Self::DuplicateHash(_) => ErrorClass::Duplicate,
-        }
+    fn DuplicateHash(hash: Byte32) -> Self {
+        Self::Backpressure(PrePoolBackpressure::DuplicateHash(hash))
+    }
+
+    fn ShortIdCollision(short_id: ProposalShortId, existing_hash: Byte32) -> Self {
+        Self::Backpressure(PrePoolBackpressure::ShortIdCollision {
+            short_id,
+            existing_hash,
+        })
+    }
+
+    fn SelfDependency(hash: Byte32) -> Self {
+        Self::Rejected(PrePoolRejection::SelfDependency(hash))
+    }
+
+    const EmptyWaitDependencies: Self = Self::Rejected(PrePoolRejection::EmptyWaitDependencies);
+    const DependencyLimitExceeded: Self =
+        Self::Backpressure(PrePoolBackpressure::DependencyLimitExceeded);
+
+    fn ParentFanoutLimitExceeded(hash: Byte32) -> Self {
+        Self::Backpressure(PrePoolBackpressure::ParentFanoutLimitExceeded(hash))
+    }
+
+    const ConflictInputLimitExceeded: Self =
+        Self::Backpressure(PrePoolBackpressure::ConflictInputLimitExceeded);
+
+    fn ConflictCandidateLimitExceeded(input: OutPoint) -> Self {
+        Self::Backpressure(PrePoolBackpressure::ConflictCandidateLimitExceeded(input))
+    }
+
+    fn ZeroTransactionSize(hash: Byte32) -> Self {
+        Self::Rejected(PrePoolRejection::ZeroTransactionSize(hash))
+    }
+
+    fn UnderReplacementFee(hash: Byte32, required: u64, actual: u64) -> Self {
+        Self::Rejected(PrePoolRejection::UnderReplacementFee {
+            hash,
+            required,
+            actual,
+        })
+    }
+
+    fn UnderFeeRate(hash: Byte32, required_per_kb: u64) -> Self {
+        Self::Rejected(PrePoolRejection::UnderFeeRate {
+            hash,
+            required_per_kb,
+        })
+    }
+
+    const FeeRateOverflow: Self = Self::Rejected(PrePoolRejection::FeeRateOverflow);
+    pub(crate) const ResidencyChargeOverflow: Self =
+        Self::Rejected(PrePoolRejection::ResidencyChargeOverflow);
+    const TotalBudgetExceeded: Self = Self::Backpressure(PrePoolBackpressure::TotalBudgetExceeded);
+    const RemoteBudgetExceeded: Self =
+        Self::Backpressure(PrePoolBackpressure::RemoteBudgetExceeded);
+
+    fn PeerBudgetExceeded(peer: PeerIndex) -> Self {
+        Self::Backpressure(PrePoolBackpressure::PeerBudgetExceeded(peer))
+    }
+
+    const ConflictHistoryBudgetExceeded: Self =
+        Self::Backpressure(PrePoolBackpressure::ConflictHistoryBudgetExceeded);
+    const ActiveWorkLimitExceeded: Self =
+        Self::Backpressure(PrePoolBackpressure::ActiveWorkLimitExceeded);
+
+    fn PeerActiveWorkLimitExceeded(peer: PeerIndex) -> Self {
+        Self::Backpressure(PrePoolBackpressure::PeerActiveWorkLimitExceeded(peer))
+    }
+
+    pub(crate) fn Missing(hash: Byte32) -> Self {
+        Self::Stale(PrePoolStale::Missing(hash))
+    }
+
+    fn stale(hash: Byte32, expected: EntryVersion, actual: EntryVersion) -> Self {
+        Self::Stale(PrePoolStale::Stale {
+            hash,
+            expected,
+            actual,
+        })
+    }
+
+    fn location_mismatch(hash: Byte32, expected: PrePoolLocation, actual: PrePoolLocation) -> Self {
+        Self::Stale(PrePoolStale::LocationMismatch {
+            hash,
+            expected,
+            actual,
+        })
+    }
+
+    const CounterExhausted: Self = Self::Fault(PrePoolFault::CounterExhausted);
+
+    fn primary_key_mismatch(expected: Byte32, actual: Byte32) -> Self {
+        Self::Fault(PrePoolFault::PrimaryKeyMismatch { expected, actual })
+    }
+
+    pub(crate) fn ProjectionInconsistent(message: &'static str) -> Self {
+        Self::Fault(PrePoolFault::ProjectionInconsistent(message))
+    }
+
+    fn InvalidConfiguration(message: &'static str) -> Self {
+        Self::Fault(PrePoolFault::InvalidConfiguration(message))
     }
 
     pub(crate) fn is_transaction_rejection(&self) -> bool {
-        matches!(
-            self.class(),
-            ErrorClass::Transaction | ErrorClass::Capacity | ErrorClass::RetryableCapacity
-        )
+        match self {
+            Self::Rejected(_) => true,
+            Self::Backpressure(reason) => !matches!(reason, PrePoolBackpressure::DuplicateHash(_)),
+            Self::Stale(_) | Self::Fault(_) => false,
+        }
     }
 
     pub(crate) fn is_capacity_rejection(&self) -> bool {
-        matches!(
-            self.class(),
-            ErrorClass::Capacity | ErrorClass::RetryableCapacity
-        )
+        matches!(self, Self::Backpressure(reason) if !matches!(reason, PrePoolBackpressure::DuplicateHash(_)))
+    }
+
+    /// An optional conflict-history projection may be omitted when its own
+    /// transaction shape, bounded capacity or duplicate identity cannot be
+    /// represented. None of these outcomes may veto the authoritative winner
+    /// whose commit caused the history record to be considered.
+    pub(crate) fn is_optional_retention_rejection(&self) -> bool {
+        matches!(self, Self::Rejected(_) | Self::Backpressure(_))
     }
 
     pub(crate) fn is_retryable_capacity_rejection(&self) -> bool {
-        matches!(self.class(), ErrorClass::RetryableCapacity)
+        matches!(
+            self,
+            Self::Backpressure(
+                PrePoolBackpressure::ShortIdCollision { .. }
+                    | PrePoolBackpressure::TotalBudgetExceeded
+                    | PrePoolBackpressure::RemoteBudgetExceeded
+                    | PrePoolBackpressure::PeerBudgetExceeded(_)
+                    | PrePoolBackpressure::ConflictHistoryBudgetExceeded
+                    | PrePoolBackpressure::ActiveWorkLimitExceeded
+                    | PrePoolBackpressure::PeerActiveWorkLimitExceeded(_)
+            )
+        )
     }
 
     pub(crate) fn is_stale_lease(&self) -> bool {
-        matches!(self.class(), ErrorClass::Stale)
+        matches!(self, Self::Stale(_))
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct VerifiedCandidate {
     inputs: BTreeSet<OutPoint>,
-    fee: u64,
-    tx_size: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -385,29 +607,24 @@ impl FeeGate {
             return Err(PrePoolError::ZeroTransactionSize(hash));
         }
         if fee < self.required_replacement_fee {
-            return Err(PrePoolError::UnderReplacementFee {
+            return Err(PrePoolError::UnderReplacementFee(
                 hash,
-                required: self.required_replacement_fee,
-                actual: fee,
-            });
+                self.required_replacement_fee,
+                fee,
+            ));
         }
         let actual = u128::from(fee) * 1_000;
         let required = u128::from(self.min_fee_rate_per_kb)
             .checked_mul(u128::try_from(tx_size).map_err(|_| PrePoolError::FeeRateOverflow)?)
             .ok_or(PrePoolError::FeeRateOverflow)?;
         if actual < required {
-            return Err(PrePoolError::UnderFeeRate {
-                hash,
-                required_per_kb: self.min_fee_rate_per_kb,
-            });
+            return Err(PrePoolError::UnderFeeRate(hash, self.min_fee_rate_per_kb));
         }
         Ok(VerifiedCandidate {
             inputs: inputs
                 .into_iter()
                 .map(|input| crate::util::compact_packed(&input))
                 .collect(),
-            fee,
-            tx_size,
         })
     }
 }
@@ -457,15 +674,19 @@ pub(crate) struct ReadyKey {
     source_class: u8,
     fee: u64,
     tx_size: usize,
-    arrival: u128,
+    arrival: Arrival,
     hash: Byte32,
     version: EntryVersion,
 }
 
 impl Ord for ReadyKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        let left_rate = u128::from(self.fee) * other.tx_size as u128;
-        let right_rate = u128::from(other.fee) * self.tx_size as u128;
+        let other_size = u64::try_from(other.tx_size).unwrap_or(u64::MAX);
+        let self_size = u64::try_from(self.tx_size).unwrap_or(u64::MAX);
+        // Both operands are at most u64::MAX, so saturation is unreachable;
+        // the method form makes the exact finite arithmetic domain explicit.
+        let left_rate = u128::from(self.fee).saturating_mul(u128::from(other_size));
+        let right_rate = u128::from(other.fee).saturating_mul(u128::from(self_size));
         self.source_class
             .cmp(&other.source_class)
             .then_with(|| left_rate.cmp(&right_rate))
@@ -486,9 +707,60 @@ impl PartialOrd for ReadyKey {
 }
 
 #[derive(Clone, Debug)]
+struct ObservedDependencies(BTreeMap<DependencyKey, u128>);
+
+impl ObservedDependencies {
+    fn new(values: BTreeMap<DependencyKey, u128>) -> Result<Self, PrePoolError> {
+        if values.is_empty() {
+            Err(PrePoolError::EmptyWaitDependencies)
+        } else {
+            Ok(Self(values))
+        }
+    }
+}
+
+impl std::ops::Deref for ObservedDependencies {
+    type Target = BTreeMap<DependencyKey, u128>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ReadyInputs(BTreeSet<OutPoint>);
+
+impl ReadyInputs {
+    fn new(inputs: BTreeSet<OutPoint>, max: usize) -> Result<Self, PrePoolError> {
+        if inputs.is_empty() || inputs.len() > max {
+            Err(PrePoolError::ConflictInputLimitExceeded)
+        } else {
+            Ok(Self(inputs))
+        }
+    }
+}
+
+impl std::ops::Deref for ReadyInputs {
+    type Target = BTreeSet<OutPoint>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a ReadyInputs {
+    type Item = &'a OutPoint;
+    type IntoIter = std::collections::btree_set::Iter<'a, OutPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+#[derive(Clone, Debug)]
 struct WaitState {
     reason: WaitReason,
-    observed: BTreeMap<DependencyKey, u128>,
+    observed: ObservedDependencies,
 }
 
 #[derive(Clone, Debug)]
@@ -507,8 +779,7 @@ enum EntryState {
     },
     Ready {
         payload: Arc<PipelineVerifiedTx>,
-        inputs: BTreeSet<OutPoint>,
-        rank: ReadyKey,
+        inputs: ReadyInputs,
     },
 }
 
@@ -527,34 +798,66 @@ impl EntryState {
 
 #[derive(Clone, Debug)]
 pub(in crate::component::pre_pool) struct Entry {
-    short_id: ProposalShortId,
     raw: Arc<PipelineRawTx>,
     source: PrePoolSource,
     state: EntryState,
     version: EntryVersion,
-    arrival: u128,
+    arrival: Arrival,
     expires_at: Option<u64>,
     payload_charge_bytes: usize,
-    charge_bytes: usize,
     dependencies: BTreeSet<DependencyKey>,
 }
 
 impl Entry {
-    fn work_key(&self, hash: &Byte32, verify_fee_rate_ordering: bool) -> Option<WorkKey> {
-        let schedule = match &self.state {
-            EntryState::VerifyQueued { schedule, .. } => *schedule,
-            EntryState::ResolveQueued { .. } => VerifySchedule::default(),
+    fn short_id(&self) -> ProposalShortId {
+        self.raw.tx.proposal_short_id()
+    }
+
+    fn queued_work(
+        &self,
+        hash: &Byte32,
+        verify_fee_rate_ordering: bool,
+    ) -> Option<(WorkLane, WorkKey)> {
+        let (lane, schedule) = match &self.state {
+            EntryState::VerifyQueued { schedule, .. } => (WorkLane::Verify, *schedule),
+            EntryState::ResolveQueued { lane } => (
+                match lane {
+                    ResolveLane::Ingress => WorkLane::Ingress,
+                    ResolveLane::Ordered => WorkLane::Resolve,
+                },
+                VerifySchedule::default(),
+            ),
             _ => return None,
         };
-        Some(WorkKey {
+        Some((
+            lane,
+            WorkKey {
+                hash: hash.clone(),
+                version: self.version,
+                source: self.source,
+                arrival: self.arrival,
+                schedule,
+                fee_ordered: lane == WorkLane::Verify && verify_fee_rate_ordering,
+            },
+        ))
+    }
+
+    fn ready_key(&self, hash: &Byte32) -> Option<ReadyKey> {
+        let EntryState::Ready { payload, .. } = &self.state else {
+            return None;
+        };
+        Some(self.ready_key_for(hash, payload))
+    }
+
+    fn ready_key_for(&self, hash: &Byte32, payload: &PipelineVerifiedTx) -> ReadyKey {
+        ReadyKey {
+            source_class: self.source.priority(),
+            fee: payload.candidate.fee.as_u64(),
+            tx_size: payload.candidate.tx_size,
+            arrival: self.arrival,
             hash: hash.clone(),
             version: self.version,
-            source: self.source,
-            arrival: self.arrival,
-            schedule,
-            fee_ordered: matches!(&self.state, EntryState::VerifyQueued { .. })
-                && verify_fee_rate_ordering,
-        })
+        }
     }
 }
 
@@ -571,6 +874,12 @@ struct DirtyDependency {
     pending_epoch: Option<u128>,
 }
 
+/// Exact dependency-level publications compiled before a primary mutation.
+/// Applying this value is total: every epoch increment and projected waiter
+/// predicate has already been checked against the same exclusive authority.
+#[derive(Default)]
+struct DependencyChangePlan(Vec<(DependencyKey, u128)>);
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct DeadlineKey {
     expires_at: u64,
@@ -583,7 +892,7 @@ struct DeadlineKey {
 /// reuse an ABA token or replace scheduler/effect authority.
 #[derive(Debug)]
 pub(crate) struct PrePoolGeneration {
-    entries: HashMap<Byte32, Entry>,
+    entries: HashMap<Byte32, StoredEntry>,
     by_short_id: HashMap<ProposalShortId, Byte32>,
     by_peer: HashMap<PeerIndex, BTreeSet<Byte32>>,
     by_parent: HashMap<Byte32, BTreeSet<Byte32>>,
@@ -591,7 +900,7 @@ pub(crate) struct PrePoolGeneration {
     availability_epoch: HashMap<DependencyKey, u128>,
     dirty: BTreeMap<DependencyKey, DirtyDependency>,
     dirty_order: VecDeque<DependencyKey>,
-    queues: [FairQueue; 4],
+    queues: WorkLaneSlots<FairQueue>,
     ready: BTreeSet<ReadyKey>,
     ready_by_input: HashMap<OutPoint, BTreeSet<ReadyKey>>,
     deadlines: BTreeSet<DeadlineKey>,
@@ -614,7 +923,7 @@ impl PrePoolGeneration {
             availability_epoch: HashMap::new(),
             dirty: BTreeMap::new(),
             dirty_order: VecDeque::new(),
-            queues: WorkLane::ALL.map(FairQueue::new),
+            queues: WorkLaneSlots::from_fn(FairQueue::new),
             ready: BTreeSet::new(),
             ready_by_input: HashMap::new(),
             deadlines: BTreeSet::new(),
@@ -636,7 +945,7 @@ pub(crate) struct PrePoolKernel {
     generation: PrePoolGeneration,
     limits: PrePoolLimits,
     next_version: EntryVersion,
-    next_arrival: u128,
+    next_arrival: Arrival,
 }
 
 impl std::ops::Deref for PrePoolKernel {
@@ -658,27 +967,9 @@ impl PrePoolKernel {
         Self {
             generation: PrePoolGeneration::new(),
             limits,
-            next_version: 1,
-            next_arrival: 0,
+            next_version: EntryVersion::FIRST,
+            next_arrival: Arrival::FIRST,
         }
-    }
-
-    fn allocate_version(&mut self) -> EntryVersion {
-        let version = self.next_version;
-        self.next_version = self
-            .next_version
-            .checked_add(1)
-            .expect("u128 entry version must not exhaust during process lifetime");
-        version
-    }
-
-    fn allocate_arrival(&mut self) -> u128 {
-        let arrival = self.next_arrival;
-        self.next_arrival = self
-            .next_arrival
-            .checked_add(1)
-            .expect("u128 arrival clock must not exhaust during process lifetime");
-        arrival
     }
 
     fn lane_for_resolve(lane: ResolveLane) -> WorkLane {
@@ -686,75 +977,6 @@ impl PrePoolKernel {
             ResolveLane::Ingress => WorkLane::Ingress,
             ResolveLane::Ordered => WorkLane::Resolve,
         }
-    }
-
-    fn index_memberships(entry: &Entry) -> Result<usize, PrePoolError> {
-        // Count a conservative bucket/member pair for every hash projection.
-        // State-local ordered-set keys are counted separately. This is a
-        // closed function of the primary entry, so moving between states
-        // cannot silently add uncharged derived storage.
-        let mut memberships = 2usize; // full-hash owner -> short-ID projection
-        if entry.source.peer().is_some() {
-            memberships = memberships
-                .checked_add(2)
-                .ok_or(PrePoolError::ResidencyChargeOverflow)?;
-        }
-        let parent_count = entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-            .len();
-        memberships = memberships
-            .checked_add(entry.dependencies.len())
-            .and_then(|value| value.checked_add(parent_count.checked_mul(2)?))
-            .and_then(|value| value.checked_add(usize::from(entry.expires_at.is_some())))
-            .ok_or(PrePoolError::ResidencyChargeOverflow)?;
-        let current_state_memberships = match &entry.state {
-            EntryState::ResolveLeased | EntryState::VerifyLeased { .. } => 0,
-            // Work key, owner bucket and runnable head in the worst case.
-            EntryState::ResolveQueued { .. } => 3,
-            // Verify additionally projects the best small-cycle key so a
-            // large-cycle owner head cannot hide eligible reserved work.
-            EntryState::VerifyQueued { .. } => 4,
-            // Exact waiter edge, dependency bucket, availability epoch and
-            // dirty cursor/order reservation. The latter two are transient
-            // but may appear without another entry transition.
-            EntryState::Wait(wait) => wait
-                .observed
-                .len()
-                .checked_mul(4)
-                .map(|memberships| memberships.max(3))
-                .ok_or(PrePoolError::ResidencyChargeOverflow)?,
-            // One global Ready rank plus a bucket/rank pair per input.
-            EntryState::Ready { inputs, .. } => inputs
-                .len()
-                .checked_mul(2)
-                .and_then(|value| value.checked_add(1))
-                .ok_or(PrePoolError::ResidencyChargeOverflow)?,
-        };
-        // Every live owner reserves the exact dependency-wait projection it
-        // can reach from its currently retained payload. Parent invalidation
-        // is therefore a non-growing transition even when every other byte of
-        // the partition is occupied; it cannot turn a legal chain/pool event
-        // into a capacity-triggered structural failure.
-        let wait_reservation = Self::causal_keys(entry)
-            .len()
-            .checked_mul(4)
-            .map(|memberships| memberships.max(3))
-            .ok_or(PrePoolError::ResidencyChargeOverflow)?;
-        let state_memberships = current_state_memberships.max(wait_reservation);
-        memberships
-            .checked_add(state_memberships)
-            .ok_or(PrePoolError::ResidencyChargeOverflow)
-    }
-
-    fn entry_charge(&self, entry: &Entry) -> Result<usize, PrePoolError> {
-        Self::index_memberships(entry)?
-            .checked_mul(self.limits.dependency_overhead)
-            .and_then(|metadata| metadata.checked_add(self.limits.entry_overhead))
-            .and_then(|metadata| metadata.checked_add(entry.payload_charge_bytes))
-            .ok_or(PrePoolError::ResidencyChargeOverflow)
     }
 
     fn is_conflict(entry: &Entry) -> bool {
@@ -769,20 +991,22 @@ impl PrePoolKernel {
 
     fn plan_usage_delta(
         &self,
-        old: Option<&Entry>,
-        new: Option<&Entry>,
+        old: Option<&StoredEntry>,
+        new: Option<&StoredEntry>,
     ) -> Result<UsagePlan, PrePoolError> {
         let old_charge = old.map_or(Residency::default(), |entry| {
-            Residency::new(1, entry.charge_bytes)
+            Residency::new(1, entry.charge_bytes())
         });
         let new_charge = new.map_or(Residency::default(), |entry| {
-            Residency::new(1, entry.charge_bytes)
+            Residency::new(1, entry.charge_bytes())
         });
         let total = self
             .total_usage
             .checked_sub(old_charge)
             .and_then(|usage| usage.checked_add(new_charge))
-            .expect("total usage is derived from the primary map");
+            .ok_or(PrePoolError::ProjectionInconsistent(
+                "total usage does not match primary ownership",
+            ))?;
         if !total.fits(self.limits.total) {
             return Err(PrePoolError::TotalBudgetExceeded);
         }
@@ -793,7 +1017,9 @@ impl PrePoolKernel {
         if old_peer.is_some() {
             remote = remote
                 .checked_sub(old_charge)
-                .expect("remote usage is derived from the primary map");
+                .ok_or(PrePoolError::ProjectionInconsistent(
+                    "remote usage does not match primary ownership",
+                ))?;
         }
         if new_peer.is_some() {
             remote = remote
@@ -805,12 +1031,15 @@ impl PrePoolKernel {
         }
 
         let mut conflict = self.conflict_usage;
-        if old.is_some_and(Self::is_conflict) {
-            conflict = conflict
-                .checked_sub(old_charge)
-                .expect("conflict usage is derived from the primary map");
+        if old.is_some_and(|entry| Self::is_conflict(entry)) {
+            conflict =
+                conflict
+                    .checked_sub(old_charge)
+                    .ok_or(PrePoolError::ProjectionInconsistent(
+                        "conflict usage does not match primary ownership",
+                    ))?;
         }
-        if new.is_some_and(Self::is_conflict) {
+        if new.is_some_and(|entry| Self::is_conflict(entry)) {
             conflict = conflict
                 .checked_add(new_charge)
                 .ok_or(PrePoolError::ConflictHistoryBudgetExceeded)?;
@@ -822,9 +1051,12 @@ impl PrePoolKernel {
         let project_peer = |peer| {
             let mut usage = self.peer_usage.get(&peer).copied().unwrap_or_default();
             if old_peer == Some(peer) {
-                usage = usage
-                    .checked_sub(old_charge)
-                    .expect("peer usage is derived from the primary map");
+                usage =
+                    usage
+                        .checked_sub(old_charge)
+                        .ok_or(PrePoolError::ProjectionInconsistent(
+                            "peer usage does not match primary ownership",
+                        ))?;
             }
             if new_peer == Some(peer) {
                 usage = usage
@@ -953,7 +1185,7 @@ impl PrePoolKernel {
     pub(crate) fn queue_len(&self, lane: WorkLane) -> usize {
         match lane {
             WorkLane::Commit => self.ready.len(),
-            _ => self.queues[lane.index()].len(),
+            _ => self.queues.get(lane).len(),
         }
     }
 

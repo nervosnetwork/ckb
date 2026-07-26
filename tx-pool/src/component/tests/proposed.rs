@@ -1,4 +1,4 @@
-use crate::component::pool_map::Status;
+use crate::component::pool_map::{PoolMutationFault, Status};
 use crate::component::tests::util::{
     DEFAULT_MAX_ANCESTORS_COUNT, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, build_tx, build_tx_with_dep,
     build_tx_with_header_dep,
@@ -84,7 +84,7 @@ fn test_add_entry() {
     assert_eq!(pool.size(), 2);
     assert_eq!(pool.out_point_index.inputs_len(), 3);
 
-    pool.remove_entry(&tx1.proposal_short_id());
+    pool.remove_entry(&tx1.proposal_short_id()).unwrap();
     assert_eq!(pool.out_point_index.inputs_len(), 1);
 }
 
@@ -149,7 +149,7 @@ fn test_add_entry_from_detached() {
         assert!(pool.links.get_children(&id3).unwrap().is_empty());
     }
 
-    pool.remove_entry(&tx1.proposal_short_id());
+    pool.remove_entry(&tx1.proposal_short_id()).unwrap();
     assert_eq!(pool.out_point_index.inputs_len(), 2);
     assert_eq!(pool.entries.len(), 2);
 
@@ -218,7 +218,7 @@ fn test_add_roots() {
 
     assert_eq!(pool.out_point_index.inputs_len(), 4);
 
-    pool.remove_entry(&tx1.proposal_short_id());
+    pool.remove_entry(&tx1.proposal_short_id()).unwrap();
 
     assert_eq!(pool.out_point_index.inputs_len(), 2);
 }
@@ -247,7 +247,7 @@ fn test_add_no_roots() {
 
     assert_eq!(pool.out_point_index.inputs_len(), 7);
 
-    pool.remove_entry(&tx1.proposal_short_id());
+    pool.remove_entry(&tx1.proposal_short_id()).unwrap();
 
     assert_eq!(pool.out_point_index.inputs_len(), 6);
 }
@@ -549,7 +549,9 @@ fn test_dep_group() {
     );
     pool.audit().unwrap();
 
-    let removed = pool.remove_entry_and_descendants(&tx1.proposal_short_id());
+    let removed = pool
+        .remove_entry_and_descendants(&tx1.proposal_short_id())
+        .unwrap();
     assert_eq!(
         removed
             .iter()
@@ -584,7 +586,7 @@ fn test_resolve_conflict_header_dep() {
     let mut headers = HashSet::new();
     headers.insert(header);
 
-    let conflicts = pool.resolve_conflict_header_dep(&headers);
+    let conflicts = pool.resolve_conflict_header_dep(&headers).unwrap();
     assert_eq!(
         conflicts.into_iter().map(|i| i.0).collect::<HashSet<_>>(),
         HashSet::from_iter(vec![entry])
@@ -617,8 +619,8 @@ fn test_disordered_remove_committed_tx() {
 
     assert_eq!(pool.out_point_index.inputs_len(), 2);
 
-    pool.remove_entry(&tx2.proposal_short_id());
-    pool.remove_entry(&tx1.proposal_short_id());
+    pool.remove_entry(&tx2.proposal_short_id()).unwrap();
+    pool.remove_entry(&tx1.proposal_short_id()).unwrap();
 
     assert_eq!(pool.out_point_index.inputs_len(), 0);
 }
@@ -706,7 +708,7 @@ fn coexisting_dep_reader_and_spender_update_total_stats() {
 }
 
 #[test]
-fn status_counter_underflow_fails_fast_instead_of_masking_corruption() {
+fn status_counter_underflow_returns_typed_fault_without_partial_removal() {
     let mut pool = PoolMap::new(10);
     let tx = TransactionBuilder::default().build();
     let id = tx.proposal_short_id();
@@ -717,9 +719,14 @@ fn status_counter_underflow_fails_fast_instead_of_masking_corruption() {
     // state, so removal must stop at the invariant boundary rather than start
     // a partial cache-repair protocol.
     pool.stats.proposed_count = 0;
-    let panicked =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pool.remove_entry(&id)));
-    assert!(panicked.is_err());
+    let fault = pool.remove_entry(&id).unwrap_err();
+    assert_eq!(
+        fault,
+        PoolMutationFault::ProjectionMismatch("removal status count")
+    );
+    assert!(pool.contains_key(&id));
+    assert_eq!(pool.entries.len(), 1);
+    assert_eq!(pool.stats.proposed_count, 0);
 }
 
 #[test]

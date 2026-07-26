@@ -158,7 +158,7 @@ impl PrePoolKernel {
         let mut by_peer = HashMap::<_, BTreeSet<_>>::new();
         let mut by_parent = HashMap::<_, BTreeSet<_>>::new();
         let mut waiters = HashMap::<_, BTreeSet<_>>::new();
-        let mut queues: [BTreeSet<WorkKey>; 4] = std::array::from_fn(|_| BTreeSet::new());
+        let mut queues = WorkLaneSlots::from_fn(|_| BTreeSet::<WorkKey>::new());
         let mut ready = BTreeSet::new();
         let mut ready_by_input = HashMap::<_, BTreeSet<_>>::new();
         let mut deadlines = BTreeSet::new();
@@ -169,8 +169,8 @@ impl PrePoolKernel {
         let mut active_work = 0usize;
         let mut active_by_owner = HashMap::<WorkOwner, usize>::new();
         let mut versions = HashSet::new();
-        let mut max_version = 0u128;
-        let mut max_arrival = None::<u128>;
+        let mut max_version = None::<EntryVersion>;
+        let mut max_arrival = None::<Arrival>;
 
         for (hash, entry) in &self.entries {
             self.validate_entry_shape(hash, entry)
@@ -178,24 +178,21 @@ impl PrePoolKernel {
             if entry.raw.tx.hash() != *hash {
                 return Err("primary hash does not match retained transaction".to_string());
             }
-            if entry.short_id != entry.raw.tx.proposal_short_id() {
+            if entry.short_id() != entry.raw.tx.proposal_short_id() {
                 return Err("short id does not match retained transaction".to_string());
             }
             if !Self::independently_retained_wait_keys(entry).is_subset(&entry.dependencies) {
                 return Err("canonical causal keys omit retained payload dependencies".to_string());
             }
-            if entry.charge_bytes != self.independently_expected_charge(entry)? {
+            if entry.charge_bytes() != self.independently_expected_charge(entry)? {
                 return Err("entry charge is not a closed projection of primary state".to_string());
             }
             if !versions.insert(entry.version) {
                 return Err("live entries share a global version".to_string());
             }
-            max_version = max_version.max(entry.version);
+            max_version = Some(max_version.map_or(entry.version, |value| value.max(entry.version)));
             max_arrival = Some(max_arrival.map_or(entry.arrival, |value| value.max(entry.arrival)));
-            if by_short_id
-                .insert(entry.short_id.clone(), hash.clone())
-                .is_some()
-            {
+            if by_short_id.insert(entry.short_id(), hash.clone()).is_some() {
                 return Err("two full hashes occupy one short-id slot".to_string());
             }
             if let Some(peer) = entry.source.peer() {
@@ -209,13 +206,13 @@ impl PrePoolKernel {
             {
                 by_parent.entry(parent).or_default().insert(hash.clone());
             }
-            if let Some(key) = entry.work_key(hash, self.limits.verify_fee_rate_ordering) {
+            if let Some((_, key)) = entry.queued_work(hash, self.limits.verify_fee_rate_ordering) {
                 let lane = match entry.state {
                     EntryState::ResolveQueued { lane } => Self::lane_for_resolve(lane),
                     EntryState::VerifyQueued { .. } => WorkLane::Verify,
                     _ => return Err("non-queued entry produced a work key".to_string()),
                 };
-                queues[lane.index()].insert(key);
+                queues.get_mut(lane).insert(key);
             }
             if let EntryState::Wait(wait) = &entry.state {
                 let edge = WaitEdge {
@@ -226,7 +223,8 @@ impl PrePoolKernel {
                     waiters.entry(key.clone()).or_default().insert(edge.clone());
                 }
             }
-            if let EntryState::Ready { inputs, rank, .. } = &entry.state {
+            if let EntryState::Ready { payload, inputs } = &entry.state {
+                let rank = entry.ready_key_for(hash, payload);
                 if rank.hash != *hash || rank.version != entry.version {
                     return Err("ready rank does not identify its primary owner".to_string());
                 }
@@ -241,7 +239,7 @@ impl PrePoolKernel {
             if let Some(deadline) = Self::deadline_key(hash, entry) {
                 deadlines.insert(deadline);
             }
-            let charge = Residency::new(1, entry.charge_bytes);
+            let charge = Residency::new(1, entry.charge_bytes());
             total_usage = total_usage
                 .checked_add(charge)
                 .ok_or_else(|| "total audit charge overflow".to_string())?;
@@ -289,9 +287,15 @@ impl PrePoolKernel {
         {
             return Err("pre-pool derived projection or accounting drift".to_string());
         }
-        for (index, queue) in self.queues.iter().enumerate() {
+        for lane in [
+            WorkLane::Ingress,
+            WorkLane::Resolve,
+            WorkLane::Verify,
+            WorkLane::Commit,
+        ] {
+            let queue = self.queues.get(lane);
             queue.audit()?;
-            if queue.work_keys() != queues[index] {
+            if queue.work_keys() != *queues.get(lane) {
                 return Err("pre-pool work queue projection drift".to_string());
             }
         }
@@ -320,7 +324,7 @@ impl PrePoolKernel {
         }) {
             return Err("availability epoch outlives every waiter and dirty cursor".to_string());
         }
-        if !self.entries.is_empty() && self.next_version <= max_version {
+        if max_version.is_some_and(|version| self.next_version <= version) {
             return Err("next version can alias a live entry".to_string());
         }
         if max_arrival.is_some_and(|arrival| self.next_arrival <= arrival) {

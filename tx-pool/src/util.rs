@@ -27,7 +27,11 @@ use tokio::{runtime::Handle, sync::watch, task::block_in_place};
 /// payload has gone away. Persistent indexes must compact packed keys at
 /// their ownership boundary so their resident charge matches what they keep.
 pub(crate) fn compact_packed<T: Entity>(value: &T) -> T {
-    T::from_slice(value.as_slice()).expect("an existing packed entity always parses from itself")
+    // `value` is already a verified `T`, and copying its complete byte slice
+    // preserves that representation exactly. Molecule's constructor is named
+    // `new_unchecked` because it also accepts arbitrary bytes; this wrapper's
+    // typed input makes arbitrary bytes unrepresentable at every call site.
+    T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
 }
 
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
@@ -211,17 +215,6 @@ pub(crate) fn time_relative_verify(
     )
     .verify()
     .map_err(Reject::Verification)
-}
-
-/// Convert a panic payload to a human-readable string for logging.
-pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> String {
-    if let Some(message) = payload.downcast_ref::<&str>() {
-        (*message).to_owned()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "non-string panic payload".to_owned()
-    }
 }
 
 #[cfg(test)]

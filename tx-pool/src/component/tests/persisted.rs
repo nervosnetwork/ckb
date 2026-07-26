@@ -61,7 +61,10 @@ async fn persisted_file_is_topologically_ordered() {
         chains.push(insert_chain(&mut tx_pool, seed, 6));
     }
     for chain in &chains {
-        tx_pool.pool_map.remove_entry(&chain[1].proposal_short_id());
+        tx_pool
+            .pool_map
+            .remove_entry(&chain[1].proposal_short_id())
+            .unwrap();
     }
     chains.push(insert_chain(&mut tx_pool, 250, 4));
 
@@ -253,7 +256,7 @@ async fn child_first_persisted_vector_is_replayed_in_dependency_order() {
     // The load path: sort, then replay serially (exactly what
     // `load_persisted_data` does before `submit_local_tx`).
     let mut persisted = vec![child.clone(), parent.clone()];
-    crate::service::TxPoolService::sort_txs_by_dependencies(&mut persisted);
+    crate::service::TxPoolService::sort_txs_by_dependencies(&mut persisted).unwrap();
     for tx in persisted {
         service
             .process_tx(tx, TxSource::local())
@@ -314,7 +317,7 @@ async fn dependent_chain_survives_save_and_restart() {
     };
 
     // Replay through the same path `load_persisted_data` uses.
-    crate::service::TxPoolService::sort_txs_by_dependencies(&mut loaded);
+    crate::service::TxPoolService::sort_txs_by_dependencies(&mut loaded).unwrap();
     for tx in loaded {
         service
             .process_tx(tx, TxSource::local())

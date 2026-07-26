@@ -69,7 +69,7 @@ pub(crate) enum Message {
 
     // test
     #[cfg(feature = "internal")]
-    PlugEntry(SyncRequest<(Vec<TxEntry>, PlugTarget), ()>),
+    PlugEntry(SyncRequest<(Vec<TxEntry>, PlugTarget), Result<(), Reject>>),
     #[cfg(feature = "internal")]
     PackageTxs(SyncRequest<Option<u64>, Vec<TxEntry>>),
     SubmitLocalTestTx(SyncRequest<TransactionView, SubmitTxResult>),

@@ -370,11 +370,11 @@ impl TxPoolController {
     ) -> Result<(), AnyError> {
         if !txs.is_empty() {
             info!("Loading persistent tx-pool data, total {} txs", txs.len());
-            TxPoolService::sort_txs_by_dependencies(&mut txs);
-            let mut failed_txs = 0;
+            TxPoolService::sort_txs_by_dependencies(&mut txs)?;
+            let mut failed_txs = 0usize;
             for tx in txs {
                 if self.submit_local_tx(tx)?.is_err() {
-                    failed_txs += 1;
+                    failed_txs = failed_txs.saturating_add(1);
                 }
             }
             if failed_txs == 0 {
@@ -393,7 +393,9 @@ impl TxPoolController {
     #[cfg(feature = "internal")]
     pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
         reject_callback_mutation!("plug_entry");
-        send_message!(self, PlugEntry, (entries, target))
+        let response: Result<Result<(), crate::error::Reject>, AnyError> =
+            send_message!(self, PlugEntry, (entries, target));
+        response?.map_err(AnyError::from)
     }
 
     /// Package txs with specified bytes_limit. for test

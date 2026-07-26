@@ -16,6 +16,9 @@ pub enum BlockAssemblerError {
     /// BlockAssembler calculate overflow
     #[error("Overflow")]
     Overflow,
+    /// The chain snapshot has no epoch extension for its tip.
+    #[error("Missing tip epoch")]
+    MissingTipEpoch,
 }
 
 impl_error_conversion_with_kind!(

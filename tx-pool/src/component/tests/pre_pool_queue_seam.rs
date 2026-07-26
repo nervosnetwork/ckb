@@ -1,6 +1,37 @@
 use super::*;
 
 impl FairQueue {
+    fn insert(&mut self, key: WorkKey) -> Result<(), PrePoolError> {
+        let next_len = self
+            .len
+            .checked_add(1)
+            .ok_or(PrePoolError::CounterExhausted)?;
+        if self.contains(&key) {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "queue already contains the inserted work key",
+            ));
+        }
+        self.apply_insert(key);
+        self.len = next_len;
+        Ok(())
+    }
+
+    fn pop(&mut self, capability: WorkCapability) -> Result<Option<WorkKey>, PrePoolError> {
+        let Some(key) = self.peek(capability).cloned() else {
+            return Ok(None);
+        };
+        let next_turn = self.plan_checkout(&key, capability)?;
+        let next_len = self
+            .len
+            .checked_sub(1)
+            .ok_or(PrePoolError::ProjectionInconsistent(
+                "queue length omits its runnable head",
+            ))?;
+        self.apply_checkout(&key, next_turn);
+        self.len = next_len;
+        Ok(Some(key))
+    }
+
     pub(in crate::component::pre_pool) fn audit(&self) -> Result<(), String> {
         let mut expected_heads = BTreeSet::new();
         let mut expected_small_cycle_heads = BTreeSet::new();
@@ -29,7 +60,10 @@ impl FairQueue {
             }
         }
         if count != self.len {
-            return Err("fair queue cached length drift".to_string());
+            return Err(format!(
+                "fair queue {:?} cached length drift: actual_members={count}, cached={}",
+                self.lane, self.len
+            ));
         }
         if expected_heads != self.heads {
             return Err("fair queue runnable-head projection drift".to_string());
@@ -53,9 +87,12 @@ fn large_owner_head_does_not_hide_its_small_cycle_work() {
     fn key(hash: u8, fee: u64, is_large_cycle: bool) -> WorkKey {
         WorkKey {
             hash: Byte32::new([hash; 32]),
-            version: u128::from(hash),
-            source: PrePoolSource::Remote(PeerIndex::from(1)),
-            arrival: u128::from(hash),
+            version: EntryVersion(u128::from(hash)),
+            source: PrePoolSource::Remote(crate::component::pre_pool::RemoteSource::new(
+                PeerIndex::from(1),
+                0,
+            )),
+            arrival: Arrival(u128::from(hash)),
             schedule: VerifySchedule::new(fee, is_large_cycle),
             fee_ordered: true,
         }

@@ -5,12 +5,11 @@ use crate::service::effects::{
 };
 use crate::service::{TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
-use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
+use ckb_logger::debug;
 use ckb_network::PeerIndex;
+use ckb_types::core::TransactionView;
 use ckb_types::core::error::OutPointError;
-use ckb_types::core::{Cycle, TransactionView};
 use ckb_types::packed::Byte32;
-use ckb_verification::cache::Completed;
 use std::time::Duration;
 
 #[cfg(test)]
@@ -22,20 +21,20 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         source: TxSource,
-        ret: &Result<Completed, Reject>,
+        reject: &Reject,
     ) {
         let Ok(epoch) = self.current_pipeline_epoch() else {
             self.terminal_internal(tx, source).await;
             return;
         };
-        self.after_process_at(tx, source, ret, epoch).await;
+        self.after_process_at(tx, source, reject, epoch).await;
     }
 
     pub(crate) async fn after_process_at(
         &self,
         tx: TransactionView,
         source: TxSource,
-        ret: &Result<Completed, Reject>,
+        reject: &Reject,
         epoch: u64,
     ) {
         if !self.is_pipeline_epoch_current(epoch) {
@@ -44,21 +43,9 @@ impl TxPoolService {
         }
         let tx_hash = tx.hash();
 
-        // log tx verification result for monitor node
-        if log_enabled_target!("ckb_tx_monitor", Trace)
-            && let Ok(c) = ret
-        {
-            trace_target!(
-                "ckb_tx_monitor",
-                r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
-                tx_hash,
-                c.cycles
-            );
-        }
-
         if matches!(
-            ret,
-            Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
+            reject,
+            Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_))
         ) {
             let tx_pool = self.pool.tx_pool.write().await;
             if self.is_pipeline_epoch_current(epoch)
@@ -69,7 +56,7 @@ impl TxPoolService {
                     crate::component::pre_pool::conflict_dependency_keys(&tx, std::iter::empty());
                 let owner = crate::component::pre_pool::historical_source(source);
                 let expires_at = crate::component::pre_pool::historical_deadline(owner);
-                self.pipeline.kernel.mutate_authoritative(|kernel| {
+                let retention_error = self.pipeline.kernel.mutate_authoritative(|kernel| {
                     self.retain_optional_conflict(
                         kernel,
                         raw,
@@ -79,24 +66,34 @@ impl TxPoolService {
                         "post-process conflict retention failed",
                     )
                 });
+                if let Err(error) = retention_error {
+                    self.pipeline
+                        .kernel
+                        .report_fault("post-process conflict retention failed", &error);
+                }
             }
             drop(tx_pool);
         }
 
         match source {
-            TxSource::Remote { cycles, peer } => {
-                self.after_process_remote(tx, peer, cycles, ret, epoch)
-                    .await;
+            TxSource::Remote { peer, .. } => {
+                debug!(
+                    "after_process {} {} remote reject: {} ",
+                    tx_hash, peer, reject
+                );
+                self.handle_remote_reject(&tx_hash, reject, peer).await;
             }
-            TxSource::Proposal => {
-                // Proposal txs are a distinct source variant. For relay
-                // purposes they are handled like local submissions, while the
-                // verify queue uses `is_proposal_tx` to grant them priority.
-                // They have no declared cycles or peer.
-                self.after_process_local(tx, tx_hash, ret, epoch).await;
-            }
-            TxSource::Local => {
-                self.after_process_local(tx, tx_hash, ret, epoch).await;
+            TxSource::Local | TxSource::Proposal => {
+                debug!("after_process {} reject: {} ", tx_hash, reject);
+                if matches!(reject, Reject::Duplicated(_)) {
+                    if let Err(error) = self.publish_accepted_relay_result(tx_hash, None).await {
+                        ckb_logger::error!(
+                            "accepted duplicate relay publication failed: {error:?}"
+                        );
+                    }
+                } else if let Some(effect) = self.recent_reject_effect(tx_hash, reject) {
+                    self.publish_effects(vec![effect]).await;
+                }
             }
         }
     }
@@ -109,12 +106,11 @@ impl TxPoolService {
         source: TxSource,
         reject: Reject,
     ) {
-        self.after_process(tx, source, &Err(reject)).await;
+        self.after_process(tx, source, &reject).await;
     }
 
-    /// Terminal routing for a transaction whose processing failed
-    /// *internally* — a panic caught by the per-job guard, or a bounded
-    /// recovery that gave up. The transaction itself is not at fault, so
+    /// Terminal routing for a transaction whose processing was cancelled or
+    /// failed at an internal typed boundary. The transaction itself is not at fault, so
     /// nothing is recorded in recent_reject and no peer is banned; but the
     /// relayer must still hear a definitive answer, otherwise the peer's
     /// filter entry waits forever.
@@ -135,85 +131,6 @@ impl TxPoolService {
             return false;
         };
         self.relay.banned_peers.contains(peer)
-    }
-    /// Post-process a remote transaction result.
-    ///
-    /// `peer` and `cycles` are passed explicitly rather than inside `TxSource`
-    /// so the remote-only preconditions are visible in the signature. The
-    /// `TxSource::Remote` is reconstructed only at the terminal policy
-    /// boundary; the pre-pool retains immutable ingress attribution.
-    pub(crate) async fn after_process_remote(
-        &self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        _cycles: Cycle,
-        ret: &Result<Completed, Reject>,
-        epoch: u64,
-    ) {
-        let tx_hash = tx.hash();
-        match ret {
-            Ok(_) => {
-                debug!(
-                    "after_process remote send_result_to_relayer {} {}",
-                    tx_hash, peer
-                );
-                self.handle_verify_success(&tx, Some(peer), epoch).await;
-            }
-            Err(reject) => {
-                debug!(
-                    "after_process {} {} remote reject: {} ",
-                    tx_hash, peer, reject
-                );
-                self.handle_remote_reject(&tx_hash, reject, peer).await;
-            }
-        }
-    }
-    pub(crate) async fn after_process_local(
-        &self,
-        tx: TransactionView,
-        tx_hash: Byte32,
-        ret: &Result<Completed, Reject>,
-        epoch: u64,
-    ) {
-        match ret {
-            Ok(_) | Err(Reject::Duplicated(_)) => {
-                if matches!(ret, Err(Reject::Duplicated(_))) {
-                    debug!("after_process {} duplicated", tx_hash);
-                } else {
-                    debug!("after_process local send_result_to_relayer {}", tx_hash);
-                }
-                // Re-broadcast tx when it's duplicated and submitted
-                // through local rpc, or notify on fresh success.
-                self.handle_verify_success(&tx, None, epoch).await;
-            }
-            Err(reject) => {
-                debug!("after_process {} reject: {} ", tx_hash, reject);
-                if let Some(effect) = self.recent_reject_effect(tx_hash, reject) {
-                    self.publish_effects(vec![effect]).await;
-                }
-            }
-        }
-    }
-    /// Common success handler for relaying an accepted transaction.
-    pub(crate) async fn handle_verify_success(
-        &self,
-        tx: &TransactionView,
-        original_peer: Option<PeerIndex>,
-        epoch: u64,
-    ) {
-        if !self.is_pipeline_epoch_current(epoch) {
-            self.terminal_internal(
-                tx.clone(),
-                original_peer.map_or(TxSource::Local, |peer| TxSource::Remote { cycles: 0, peer }),
-            )
-            .await;
-            return;
-        }
-        self.send_result_to_relayer(TxVerificationResult::Ok {
-            original_peer,
-            tx_hash: tx.hash(),
-        })
-        .await;
     }
     /// Post-processing for a rejected remote transaction: ban the peer if the
     /// tx is malformed, relay the rejection if allowed, and record it in the
@@ -334,7 +251,10 @@ impl TxPoolService {
             }) {
                 Ok(Ok(records)) => records,
                 Ok(Err(error)) => {
-                    panic!("banned-peer owner cohort invariant failed: {error:?}")
+                    self.pipeline
+                        .kernel
+                        .report_fault("banned-peer owner cohort transition failed", &error);
+                    break;
                 }
                 Err(EffectJournalError::Full) => continue,
                 Err(error) => {

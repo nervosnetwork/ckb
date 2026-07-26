@@ -16,9 +16,9 @@ use ckb_types::{
     core::{Capacity, EpochExt, TransactionView, cell::TransactionsChecker},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use ckb_util::Mutex as StdMutex;
 use std::collections::HashSet;
 use std::iter;
-use std::sync::Mutex as StdMutex;
 
 /// A candidate transaction that failed the block-template resolve check,
 /// with the offending out point when available.

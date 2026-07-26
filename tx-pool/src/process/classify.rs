@@ -6,7 +6,7 @@ use crate::component::pre_pool::{ResolveLane, TerminalRecord};
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::service::TxVerificationResult;
-use crate::service::effects::{EffectBatch, EffectClass, TxPoolEffect, bounded_commit_ban_reason};
+use crate::service::effects::{EffectBatch, TxPoolEffect, bounded_commit_ban_reason};
 use crate::tx_source::TxSource;
 use crate::util::{check_tx_fee, check_tx_fee_with_min_fee_rate, check_txid_collision};
 use ckb_logger::error;
@@ -140,7 +140,6 @@ impl super::TxPoolService {
 
         self.verify_and_submit_core(
             crate::resolved_tx::ResolvedTx {
-                tx,
                 rtx,
                 status,
                 fee,
@@ -212,54 +211,72 @@ impl super::TxPoolService {
         epoch: u64,
         stage: ResolveLane,
     ) -> Result<bool, Reject> {
-        self.ensure_current(epoch)?;
+        let admission_source =
+            crate::component::pre_pool::PipelineAdmissionSource::from_tx_source(source)
+                .ok_or_else(|| {
+                    Reject::Internal(
+                        "local submissions cannot enter the asynchronous pipeline".to_string(),
+                    )
+                })?;
         let tx_hash = tx.hash();
         let proposal_id = tx.proposal_short_id();
         // The early duplicate check is only a cheap filter. Admission itself
         // must share the universal TxPool -> coordinator boundary with commit:
         // otherwise a commit between the early check and this mutation leaves
         // the same transaction owned by both authorities.
-        let tx_pool = self.pool.tx_pool.read().await;
-        if tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some() {
-            let effects = source
-                .peer()
-                .map(|peer| {
-                    vec![TxPoolEffect::Relay(TxVerificationResult::Ok {
-                        original_peer: Some(peer),
-                        tx_hash,
-                    })]
-                })
-                .unwrap_or_default();
-            drop(tx_pool);
-            self.publish_effects_class(effects, EffectClass::Remote)
-                .await;
-            return Ok(false);
-        }
-        if tx_pool.contains_proposal_id(&proposal_id) {
-            // A short-id collision is not the same transaction and therefore
-            // must never receive a successful duplicate settlement. The
-            // proposal namespace is temporarily occupied, so expose retryable
-            // backpressure instead of poisoning recent-reject state.
-            return Err(Reject::Full(format!(
-                "proposal short-id collision while admitting {tx_hash}"
-            )));
-        }
-        let admitted = self
-            .pipeline
-            .kernel
-            .admit_transaction(tx.clone(), source, epoch, stage);
-        drop(tx_pool);
-        match admitted {
-            Ok(added) => Ok(added),
-            Err(error) => {
-                if !self.is_pipeline_epoch_current(epoch) {
-                    Err(Self::stale_pipeline_reject())
-                } else if error.is_transaction_rejection() {
-                    Err(crate::component::pre_pool::pre_pool_reject(error))
-                } else {
-                    panic!("pipeline admission invariant failed: {error:?}")
+        loop {
+            self.ensure_current(epoch)?;
+            let tx_pool = self.pool.tx_pool.read().await;
+            if tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some() {
+                let Some(peer) = source.peer() else {
+                    return Ok(false);
+                };
+                drop(tx_pool);
+                match self
+                    .publish_accepted_relay_result(tx_hash.clone(), Some(peer))
+                    .await
+                {
+                    Ok(true) => return Ok(false),
+                    // The accepted owner disappeared before the capability
+                    // was acquired. Re-enter the complete ownership decision
+                    // instead of acknowledging stale membership.
+                    Ok(false) => continue,
+                    Err(error) => {
+                        return Err(Reject::Full(format!(
+                            "accepted duplicate relay unavailable: {error:?}"
+                        )));
+                    }
                 }
             }
+            if tx_pool.contains_proposal_id(&proposal_id) {
+                // A short-id collision is not the same transaction and therefore
+                // must never receive a successful duplicate settlement. The
+                // proposal namespace is temporarily occupied, so expose retryable
+                // backpressure instead of poisoning recent-reject state.
+                return Err(Reject::Full(format!(
+                    "proposal short-id collision while admitting {tx_hash}"
+                )));
+            }
+            let admitted =
+                self.pipeline
+                    .kernel
+                    .admit_transaction(tx.clone(), admission_source, epoch, stage);
+            drop(tx_pool);
+            return match admitted {
+                Ok(added) => Ok(added),
+                Err(error) => {
+                    if !self.is_pipeline_epoch_current(epoch) {
+                        Err(Self::stale_pipeline_reject())
+                    } else if error.is_transaction_rejection() {
+                        Err(crate::component::pre_pool::pre_pool_reject(error))
+                    } else {
+                        self.pipeline
+                            .kernel
+                            .report_fault("pipeline admission invariant failed", &error);
+                        Err(crate::component::pre_pool::pre_pool_reject(error))
+                    }
+                }
+            };
         }
     }
 

@@ -79,10 +79,11 @@ async fn accepted_reorg_recovery_plan_is_parent_first_and_total() {
     }
 
     let plan = crate::process::reorg::plan_accepted_recovery(
-        &tx_pool,
+        &mut tx_pool,
         std::slice::from_ref(&detached_parent),
         2,
-    );
+    )
+    .unwrap();
     assert_eq!(
         plan.transactions_parent_first()
             .into_iter()
@@ -90,11 +91,11 @@ async fn accepted_reorg_recovery_plan_is_parent_first_and_total() {
             .collect::<Vec<_>>(),
         vec![child.hash(), grandchild.hash()]
     );
-    let removed = crate::process::reorg::apply_accepted_recovery(&mut tx_pool, plan);
+    let removed = crate::process::reorg::apply_accepted_recovery(plan).unwrap();
     assert_eq!(
         removed
             .iter()
-            .map(|removed| removed.entry.transaction().hash())
+            .map(|removed| removed.transaction().hash())
             .collect::<Vec<_>>(),
         vec![grandchild.hash(), child.hash()],
         "total Apply removes children before parents"
@@ -121,11 +122,11 @@ async fn accepted_reorg_recovery_plan_reports_over_bound_fanout() {
 
     assert!(matches!(
         crate::process::reorg::plan_accepted_recovery(
-            &tx_pool,
+            &mut tx_pool,
             std::slice::from_ref(&detached_parent),
             2,
         ),
-        crate::process::reorg::AcceptedRecoveryPlan::OverBound
+        Ok(crate::process::reorg::AcceptedRecoveryPlan::OverBound)
     ));
 }
 
@@ -159,7 +160,9 @@ async fn overlapping_detached_proposals_requeue_each_descendant_once() {
     // replay must still publish exactly one transition per entry.
     let detached = [ids[1].clone(), ids[0].clone()];
     let mut notify_events = Vec::new();
-    tx_pool.remove_by_detached_proposal(detached.iter(), &mut notify_events);
+    tx_pool
+        .remove_by_detached_proposal(detached.iter(), &mut notify_events)
+        .unwrap();
     let notified: HashSet<_> = notify_events
         .iter()
         .map(|(entry, status)| {

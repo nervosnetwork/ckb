@@ -66,7 +66,8 @@ fn mutable_reference(
 ) -> Result<PoolMap, Reject> {
     let mut pool = copy_pool(pool);
     for id in mandatory {
-        pool.remove_entry_with_status(id)
+        pool.remove_entry(id)
+            .expect("reference removal projection is valid")
             .expect("reference mandatory victim exists");
     }
     let candidate_id = candidate.proposal_short_id();
@@ -80,10 +81,12 @@ fn mutable_reference(
             .or_else(|| pool.next_evict_entry(Status::Gap))
             .or_else(|| pool.next_evict_entry(Status::Proposed))
             .expect("over-budget reference has an eviction candidate");
-        let removed = pool.remove_entry_and_descendants_with_status(&root);
+        let removed = pool
+            .remove_entry_and_descendants(&root)
+            .expect("reference removal projection is valid");
         if removed
             .iter()
-            .any(|removed| removed.entry.proposal_short_id() == candidate_id)
+            .any(|removed| removed.proposal_short_id() == candidate_id)
         {
             return Err(Reject::Full(format!(
                 "the fee_rate for this transaction is: {}",
@@ -165,10 +168,13 @@ fn sparse_plan_matches_stepwise_reference_across_small_graphs() {
             size_limit,
             resident_limit,
         );
-        let planned = base.plan_mutation(candidate, status, &mandatory, size_limit, resident_limit);
+        let mut actual = copy_pool(&base);
+        let planned =
+            actual.prepare_mutation(candidate, status, &mandatory, size_limit, resident_limit);
         match (reference, planned) {
-            (Ok(reference), Ok(plan)) => {
-                let causes = plan
+            (Ok(reference), Ok(prepared)) => {
+                let causes = prepared
+                    .decision()
                     .removals
                     .iter()
                     .map(|removal| removal.cause)
@@ -180,13 +186,12 @@ fn sparse_plan_matches_stepwise_reference_across_small_graphs() {
                         .count(),
                     mandatory.len()
                 );
-                let mut actual = copy_pool(&base);
-                actual.apply_mutation(plan);
+                prepared.apply().unwrap();
                 assert_eq!(state(&actual), state(&reference), "seed {seed}");
                 actual.audit().unwrap();
             }
             (Err(_), Err(_)) => {
-                assert_eq!(state(&base), before, "rejected seed {seed} mutated base");
+                assert_eq!(state(&actual), before, "rejected seed {seed} mutated base");
                 base.audit().unwrap();
             }
             (reference, planned) => panic!(

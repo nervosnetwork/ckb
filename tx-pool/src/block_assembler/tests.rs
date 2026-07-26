@@ -177,7 +177,7 @@ fn uncle_size_matches_basic_block_size_basis() {
         .build()
         .as_uncle();
     assert_eq!(
-        super::BlockAssembler::uncle_size(&bare),
+        super::BlockAssembler::uncle_size(&bare).unwrap(),
         ckb_types::core::UncleBlockView::serialized_size_in_block()
     );
 
@@ -194,13 +194,13 @@ fn uncle_size_matches_basic_block_size_basis() {
     let expected = ckb_types::core::UncleBlockView::serialized_size_in_block()
         - proposals.len() * ProposalShortId::serialized_size();
     assert_eq!(
-        super::BlockAssembler::uncle_size(&with_proposals),
+        super::BlockAssembler::uncle_size(&with_proposals).unwrap(),
         expected,
         "uncle_size must subtract proposal ids from the in-block size"
     );
     assert!(
-        super::BlockAssembler::uncle_size(&with_proposals)
-            < super::BlockAssembler::uncle_size(&bare),
+        super::BlockAssembler::uncle_size(&with_proposals).unwrap()
+            < super::BlockAssembler::uncle_size(&bare).unwrap(),
         "an uncle with proposals must account for fewer bytes than a bare one"
     );
 }
@@ -332,7 +332,7 @@ fn uncle_update_keeps_ordered_fitting_prefix_with_checked_accounting() {
                 .as_uncle()
         })
         .collect();
-    let one_uncle = super::BlockAssembler::uncle_size(&uncles[0]);
+    let one_uncle = super::BlockAssembler::uncle_size(&uncles[0]).unwrap();
     let base = 1_000;
     let size = super::TemplateSize {
         txs: 0,
@@ -375,11 +375,10 @@ fn uncle_update_keeps_ordered_fitting_prefix_with_checked_accounting() {
     );
 }
 
-/// Bug #37: full rebuilds and uncle-only refreshes participate in the same
-/// serialization domain because a full rebuild carries its uncle state
-/// forward. Proposal/transaction updates deliberately remain optimistic.
+/// Full/reset retain their high-priority serialization domain, while uncle
+/// refresh remains optimistic just like proposal/transaction updates.
 #[tokio::test]
-async fn full_and_uncle_updates_share_template_serialization_lock() {
+async fn uncle_update_remains_optimistic_while_full_waits_for_priority_lock() {
     use crate::pool::TxPool;
     use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
     use ckb_jsonrpc_types::ScriptHashType;
@@ -401,21 +400,16 @@ async fn full_and_uncle_updates_share_template_serialization_lock() {
         notify_timeout_millis: 800,
         notify_auth_token: None,
     };
-    // Construct only the state needed to reach `template_lock`. The spawned
-    // updates are cancelled while blocked, before they can consume this dummy
-    // template; this keeps the test independent from chain-root MMR setup.
+    // Construct only the state needed to exercise the two concurrency paths.
+    // Full is cancelled while blocked, before it can consume this dummy
+    // template; the empty uncle update is valid without chain-root MMR setup.
     let epoch = snapshot.consensus().genesis_epoch_ext().clone();
     let cellbase = ckb_types::core::TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(1))
         .build();
-    let mut template_builder = super::BlockTemplateBuilder::new(&snapshot, &epoch).unwrap();
-    template_builder
-        .cellbase(cellbase)
-        .work_id(0)
-        .dao(Byte32::zero())
-        .current_time(1);
+    let template_draft = super::BlockTemplateDraft::new(&snapshot, &epoch).unwrap();
     let current = super::CurrentTemplate {
-        template: template_builder.build(),
+        template: template_draft.build(cellbase, 0, Byte32::zero(), 1),
         size: super::TemplateSize {
             txs: 0,
             proposals: 0,
@@ -432,7 +426,7 @@ async fn full_and_uncle_updates_share_template_serialization_lock() {
         current: Arc::new(RwLock::new(Arc::new(current))),
         version: Arc::new(AtomicU64::new(0)),
         template_lock: Arc::new(Mutex::new(())),
-        cell_liveness_memo: Arc::new(std::sync::Mutex::new(CellLivenessMemo::default())),
+        cell_liveness_memo: Arc::new(ckb_util::Mutex::new(CellLivenessMemo::default())),
         poster: Arc::new(
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
                 .build::<_, http_body_util::Full<ckb_types::bytes::Bytes>>(
@@ -470,22 +464,15 @@ async fn full_and_uncle_updates_share_template_serialization_lock() {
         !full.is_finished(),
         "full update must wait for template_lock"
     );
-    assert!(
-        !uncle.is_finished(),
-        "uncle update must wait for the same template_lock"
-    );
+    tokio::time::timeout(std::time::Duration::from_secs(1), uncle)
+        .await
+        .expect("uncle update must not wait for the full/reset lock")
+        .expect("uncle update task completes");
     full.abort();
-    uncle.abort();
     drop(guard);
     assert!(
         full.await
             .expect_err("full update was cancelled")
-            .is_cancelled()
-    );
-    assert!(
-        uncle
-            .await
-            .expect_err("uncle update was cancelled")
             .is_cancelled()
     );
 }

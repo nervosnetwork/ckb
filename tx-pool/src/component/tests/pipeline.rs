@@ -241,22 +241,26 @@ async fn wait_for_pending(
     .await
 }
 
-/// Drive one remote transaction to the coordinator's verified boundary
+/// Drive one pipeline transaction to the coordinator's verified boundary
 /// without spawning workers. Tests can then exercise the production commit
 /// sequencer deterministically.
-async fn stage_verified_remote_candidate(
-    service: &TxPoolService,
-    tx: TransactionView,
-    peer: ckb_network::PeerIndex,
-) {
+async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, source: TxSource) {
     use crate::component::pre_pool::{FeeGate, ResolveLane, WorkCapability};
     use std::collections::HashSet;
 
     let tx_hash = tx.hash();
-    let cycles = measured_cycles(service, tx.clone()).await;
-    submit_remote(service, tx.clone(), cycles, peer)
-        .await
-        .unwrap();
+    match source {
+        TxSource::Remote { peer, .. } => {
+            let cycles = measured_cycles(service, tx.clone()).await;
+            submit_remote(service, tx.clone(), cycles, peer)
+                .await
+                .unwrap();
+        }
+        TxSource::Proposal => {
+            service.notify_tx(tx.clone()).await.unwrap();
+        }
+        TxSource::Local => panic!("Local submissions bypass the pre-pool"),
+    }
     let raw = service
         .pipeline
         .kernel
@@ -295,6 +299,14 @@ async fn stage_verified_remote_candidate(
         .kernel
         .mutate(|coordinator| coordinator.complete_verify(&verify, verified, charge, candidate))
         .unwrap();
+}
+
+async fn stage_verified_remote_candidate(
+    service: &TxPoolService,
+    tx: TransactionView,
+    peer: ckb_network::PeerIndex,
+) {
+    stage_verified_candidate(service, tx, TxSource::Remote { cycles: 0, peer }).await;
 }
 
 fn with_cached_hash(tx: TransactionView, hash: ckb_types::packed::Byte32) -> TransactionView {

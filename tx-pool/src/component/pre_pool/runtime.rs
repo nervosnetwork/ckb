@@ -6,8 +6,10 @@ use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
+use ckb_util::{Mutex, MutexGuard};
 use ckb_verification::cache::Completed;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -17,6 +19,41 @@ const DEPENDENCY_EDGE_BYTES: usize = 160;
 const CONFLICT_HISTORY_MAX_ENTRIES: usize = 10_000;
 const CONFLICT_HISTORY_MAX_BYTES: usize = 50_000_000;
 const REMOTE_RESIDENCY_BLOCKS: u64 = 100;
+
+/// The only origins permitted to acquire pre-pool ownership. Local RPC
+/// submissions are absent from this type and therefore cannot accidentally
+/// enter the asynchronous pipeline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PipelineAdmissionSource {
+    Remote(RemoteSource),
+    Proposal,
+}
+
+impl PipelineAdmissionSource {
+    pub(crate) fn from_tx_source(source: TxSource) -> Option<Self> {
+        match source {
+            TxSource::Remote { cycles, peer } => {
+                Some(Self::Remote(RemoteSource::new(peer, cycles)))
+            }
+            TxSource::Proposal => Some(Self::Proposal),
+            TxSource::Local => None,
+        }
+    }
+
+    fn owner(self) -> PrePoolSource {
+        match self {
+            Self::Remote(remote) => PrePoolSource::Remote(remote),
+            Self::Proposal => PrePoolSource::Proposal,
+        }
+    }
+
+    fn tx_source(self) -> TxSource {
+        match self {
+            Self::Remote(remote) => remote.tx_source(),
+            Self::Proposal => TxSource::Proposal,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct PipelineRawTx {
@@ -64,18 +101,7 @@ impl PipelineRawTx {
             // the direct trusted validation policy. Public Local admission is
             // still rejected by `admit_transaction`.
             PrePoolSource::Recovery => TxSource::Local,
-            PrePoolSource::Remote(peer) => {
-                assert!(
-                    self.ingress_peer == Some(peer) && self.payload_peer == Some(peer),
-                    "remote source attribution must match its immutable ingress payload"
-                );
-                TxSource::Remote {
-                    cycles: self
-                        .declared_cycles
-                        .expect("remote ingress must retain its declared cycles"),
-                    peer,
-                }
-            }
+            PrePoolSource::Remote(remote) => remote.tx_source(),
         }
     }
 
@@ -102,25 +128,22 @@ pub(crate) struct PipelineVerifiedTx {
     pub(crate) started_at: Instant,
 }
 
-const WORKER_CLASSES: [(WorkLane, WorkCapability); 5] = [
-    (WorkLane::Ingress, WorkCapability::Any),
-    (WorkLane::Resolve, WorkCapability::Any),
-    (WorkLane::Verify, WorkCapability::Any),
-    (WorkLane::Verify, WorkCapability::SmallCycleOnly),
-    (WorkLane::Commit, WorkCapability::Any),
-];
-
 /// Stable asynchronous shell around [`PrePoolKernel`]. Notifications are hints;
 /// exact queue membership remains under the kernel mutex. The only service-wide
-/// failure latch retained at P1 is for a panic that crossed an already-mutating
-/// TxPool boundary; P2/P4 replace that legacy pool path with total Apply.
+/// failure latch records typed structural contradictions or unexpected worker
+/// termination. It is not a rollback/retry protocol and legal transaction
+/// outcomes never reach it.
 pub(crate) struct PrePool {
     state: Mutex<PrePoolKernel>,
-    ready: [Arc<Notify>; WORKER_CLASSES.len()],
+    ingress_ready: Arc<Notify>,
+    resolve_ready: Arc<Notify>,
+    verify_ready: Arc<Notify>,
+    small_cycle_ready: Arc<Notify>,
+    commit_ready: Arc<Notify>,
     maintenance_ready: Arc<Notify>,
     shutdown: CancellationToken,
-    commit_serial: tokio::sync::Mutex<()>,
     max_entries: usize,
+    failed: AtomicBool,
 }
 
 impl PrePool {
@@ -128,12 +151,13 @@ impl PrePool {
         config: &TxPoolConfig,
         consensus: &Consensus,
         shutdown: CancellationToken,
-    ) -> Self {
+    ) -> Result<Self, PrePoolError> {
         let total_bytes = config.tx_pipeline_resident_size_budget();
-        assert!(
-            total_bytes >= ENTRY_INDEX_BYTES,
-            "tx_pool.max_tx_pipeline_resident_size must hold one pre-pool entry"
-        );
+        if total_bytes < ENTRY_INDEX_BYTES {
+            return Err(PrePoolError::InvalidConfiguration(
+                "tx_pool.max_tx_pipeline_resident_size must hold one pre-pool entry",
+            ));
+        }
         let total_entries = total_bytes / ENTRY_INDEX_BYTES;
         let remote_bytes = total_bytes.saturating_mul(7) / 8;
         let remote_entries = total_entries.saturating_mul(7) / 8;
@@ -168,20 +192,22 @@ impl PrePool {
             dependency_overhead: DEPENDENCY_EDGE_BYTES,
             verify_fee_rate_ordering: matches!(config.verify_ordering, VerifyOrdering::FeeRate),
         };
-        Self {
+        Ok(Self {
             state: Mutex::new(PrePoolKernel::new(limits)),
-            ready: WORKER_CLASSES.map(|_| Arc::new(Notify::new())),
+            ingress_ready: Arc::new(Notify::new()),
+            resolve_ready: Arc::new(Notify::new()),
+            verify_ready: Arc::new(Notify::new()),
+            small_cycle_ready: Arc::new(Notify::new()),
+            commit_ready: Arc::new(Notify::new()),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
-            commit_serial: tokio::sync::Mutex::new(()),
             max_entries: total_entries,
-        }
+            failed: AtomicBool::new(false),
+        })
     }
 
     fn lock(&self) -> MutexGuard<'_, PrePoolKernel> {
-        self.state
-            .lock()
-            .expect("pre-pool kernel mutex poisoned by an invariant failure")
+        self.state.lock()
     }
 
     pub(crate) fn read<T>(&self, inspect: impl FnOnce(&PrePoolKernel) -> T) -> T {
@@ -195,14 +221,30 @@ impl PrePool {
         let (result, ready, maintenance) = {
             let mut state = self.lock();
             let result = apply(&mut state);
-            let ready =
-                WORKER_CLASSES.map(|(lane, capability)| state.work_is_ready(lane, capability));
+            let ready = (
+                state.work_is_ready(WorkLane::Ingress, WorkCapability::Any),
+                state.work_is_ready(WorkLane::Resolve, WorkCapability::Any),
+                state.work_is_ready(WorkLane::Verify, WorkCapability::Any),
+                state.work_is_ready(WorkLane::Verify, WorkCapability::SmallCycleOnly),
+                state.work_is_ready(WorkLane::Commit, WorkCapability::Any),
+            );
             (result, ready, state.wait_wake_pending())
         };
-        for (notify, executable) in self.ready.iter().zip(ready) {
-            if executable {
-                notify.notify_one();
-            }
+        let (ingress, resolve, verify, small_cycle, commit) = ready;
+        if ingress {
+            self.ingress_ready.notify_one();
+        }
+        if resolve {
+            self.resolve_ready.notify_one();
+        }
+        if verify {
+            self.verify_ready.notify_one();
+        }
+        if small_cycle {
+            self.small_cycle_ready.notify_one();
+        }
+        if commit {
+            self.commit_ready.notify_one();
         }
         if maintenance {
             self.maintenance_ready.notify_one();
@@ -210,51 +252,45 @@ impl PrePool {
         result
     }
 
-    pub(crate) fn mutate_required<T>(
+    fn subscribe_named(
         &self,
-        context: &'static str,
-        apply: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> T {
-        match self.mutate_authoritative(apply) {
-            Ok(value) => value,
-            Err(error) => panic!("{context}: {error:?}"),
-        }
-    }
-
-    /// Prepare an explicit clear/chain replacement off the live generation,
-    /// then move it into place in one critical section.  Preparation failure
-    /// leaves the live state unchanged; the retired population is returned so
-    /// callers can destroy it after opening the TxPool guard.
-    pub(crate) fn reset_for_chain<T>(
-        &self,
-        prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> Result<(T, PrePoolGeneration), PrePoolError> {
-        let mut state = self.lock();
-        let mut prepared = PrePoolKernel {
-            generation: PrePoolGeneration::new(),
-            limits: state.limits,
-            next_version: state.next_version,
-            next_arrival: state.next_arrival,
-        };
-        let value = prepare(&mut prepared)?;
-        let retired = std::mem::replace(&mut state.generation, prepared.generation);
-        state.next_version = prepared.next_version;
-        state.next_arrival = prepared.next_arrival;
-        drop(state);
-        self.mutate_authoritative(|_| ());
-        Ok((value, retired))
-    }
-
-    pub(crate) fn subscribe(&self, lane: WorkLane, capability: WorkCapability) -> Arc<Notify> {
-        let index = WORKER_CLASSES
-            .iter()
-            .position(|class| *class == (lane, capability))
-            .expect("worker class belongs to the closed registry");
-        let notify = Arc::clone(&self.ready[index]);
+        notify: &Arc<Notify>,
+        lane: WorkLane,
+        capability: WorkCapability,
+    ) -> Arc<Notify> {
+        let notify = Arc::clone(notify);
         if self.read(|state| state.work_is_ready(lane, capability)) {
             notify.notify_one();
         }
         notify
+    }
+
+    pub(crate) fn subscribe_resolve(&self, lane: ResolveLane) -> Arc<Notify> {
+        match lane {
+            ResolveLane::Ingress => {
+                self.subscribe_named(&self.ingress_ready, WorkLane::Ingress, WorkCapability::Any)
+            }
+            ResolveLane::Ordered => {
+                self.subscribe_named(&self.resolve_ready, WorkLane::Resolve, WorkCapability::Any)
+            }
+        }
+    }
+
+    pub(crate) fn subscribe_verify(&self, capability: WorkCapability) -> Arc<Notify> {
+        match capability {
+            WorkCapability::Any => {
+                self.subscribe_named(&self.verify_ready, WorkLane::Verify, WorkCapability::Any)
+            }
+            WorkCapability::SmallCycleOnly => self.subscribe_named(
+                &self.small_cycle_ready,
+                WorkLane::Verify,
+                WorkCapability::SmallCycleOnly,
+            ),
+        }
+    }
+
+    pub(crate) fn subscribe_commit(&self) -> Arc<Notify> {
+        self.subscribe_named(&self.commit_ready, WorkLane::Commit, WorkCapability::Any)
     }
 
     pub(crate) fn subscribe_maintenance(&self) -> Arc<Notify> {
@@ -273,6 +309,19 @@ impl PrePool {
         self.max_entries
     }
 
+    /// Contain a typed kernel defect without unwinding through an authority
+    /// lock. Legal transaction outcomes inhabit other error variants; this
+    /// marks the generation ineligible for persistence before quiescence.
+    pub(crate) fn report_fault(&self, context: &'static str, error: &impl std::fmt::Debug) {
+        ckb_logger::error!("{context}: {error:?}");
+        self.failed.store(true, Ordering::Release);
+        self.shutdown.cancel();
+    }
+
+    pub(crate) fn has_failed(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
+    }
+
     pub(crate) fn queue_is_empty(&self, lane: WorkLane) -> bool {
         self.read(|state| state.queue_len(lane) == 0)
     }
@@ -280,27 +329,22 @@ impl PrePool {
     pub(crate) fn admit_transaction(
         &self,
         tx: TransactionView,
-        source: TxSource,
+        source: PipelineAdmissionSource,
         epoch: u64,
         lane: ResolveLane,
     ) -> Result<bool, PrePoolError> {
         let hash = tx.hash();
-        let short_id = tx.proposal_short_id();
         self.mutate_authoritative(|kernel| {
-            assert!(
-                !matches!(source, TxSource::Local),
-                "Local submissions must use the direct validation path"
-            );
             if kernel.entries.contains_key(&hash) {
                 return match source {
-                    TxSource::Local => unreachable!("Local source was rejected above"),
-                    TxSource::Remote { .. } => Ok(false),
-                    TxSource::Proposal => {
+                    PipelineAdmissionSource::Remote(_) => Ok(false),
+                    PipelineAdmissionSource::Proposal => {
                         let trusted_variant = {
-                            let existing = kernel
-                                .entries
-                                .get(&hash)
-                                .expect("entry existence was established above");
+                            let existing = kernel.entries.get(&hash).ok_or_else(|| {
+                                PrePoolError::ProjectionInconsistent(
+                                    "observed admission owner lost its primary",
+                                )
+                            })?;
                             (existing.raw.tx.witness_hash() != tx.witness_hash())
                                 .then(|| existing.raw.trusted_variant(tx, epoch))
                         };
@@ -314,21 +358,11 @@ impl PrePool {
                     }
                 };
             }
-            let owner = pre_pool_source(source);
-            let raw = PipelineRawTx::new(tx, source, epoch);
-            let raw_bytes = raw.charge_bytes();
+            let owner = source.owner();
+            let raw = PipelineRawTx::new(tx, source.tx_source(), epoch);
             let dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty());
             let expires_at = historical_deadline(owner);
-            kernel.admit(
-                hash,
-                short_id,
-                raw,
-                lane,
-                owner,
-                expires_at,
-                raw_bytes,
-                dependencies,
-            )?;
+            kernel.admit(raw, lane, owner, expires_at, dependencies)?;
             Ok(true)
         })
     }
@@ -348,8 +382,7 @@ impl PrePool {
         &self,
         lane: ResolveLane,
     ) -> Result<Option<ResolveLease>, PrePoolError> {
-        let work_lane = PrePoolKernel::lane_for_resolve(lane);
-        let ready = self.subscribe(work_lane, WorkCapability::Any);
+        let ready = self.subscribe_resolve(lane);
         loop {
             if self.shutdown.is_cancelled() {
                 return Ok(None);
@@ -363,27 +396,40 @@ impl PrePool {
             }
         }
     }
-
-    pub(crate) async fn lock_commit_driver(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.commit_serial.lock().await
-    }
-
-    pub(crate) fn try_lock_commit_driver(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
-        self.commit_serial.try_lock().ok()
-    }
 }
 
-pub(crate) fn pre_pool_source(source: TxSource) -> PrePoolSource {
-    match source {
-        TxSource::Remote { peer, .. } => PrePoolSource::Remote(peer),
-        TxSource::Proposal => PrePoolSource::Proposal,
-        TxSource::Local => panic!("Local submissions must use the direct validation path"),
+impl PrePoolKernel {
+    /// Prepare a fresh chain generation off-authority and swap it in with one
+    /// move. The same primitive is usable while the caller already owns the
+    /// kernel mutex, so a failed reorg can converge before any worker observes
+    /// its discarded in-place draft.
+    pub(crate) fn replace_generation_for_chain<T>(
+        &mut self,
+        prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
+    ) -> Result<(T, PrePoolGeneration), PrePoolError> {
+        let mut prepared = PrePoolKernel {
+            generation: PrePoolGeneration::new(),
+            limits: self.limits,
+            next_version: self.next_version,
+            next_arrival: self.next_arrival,
+        };
+        let value = prepare(&mut prepared)?;
+        let retired = std::mem::replace(&mut self.generation, prepared.generation);
+        self.next_version = prepared.next_version;
+        self.next_arrival = prepared.next_arrival;
+        Ok((value, retired))
+    }
+
+    /// Install the unique valid empty generation without allocation-sized
+    /// traversal. Process-global ABA clocks deliberately remain monotonic.
+    pub(crate) fn replace_empty_generation(&mut self) -> PrePoolGeneration {
+        std::mem::replace(&mut self.generation, PrePoolGeneration::new())
     }
 }
 
 pub(crate) fn historical_source(source: TxSource) -> PrePoolSource {
     match source {
-        TxSource::Remote { peer, .. } => PrePoolSource::Remote(peer),
+        TxSource::Remote { cycles, peer } => PrePoolSource::Remote(RemoteSource::new(peer, cycles)),
         TxSource::Local | TxSource::Proposal => PrePoolSource::Proposal,
     }
 }
@@ -401,20 +447,17 @@ pub(crate) fn historical_deadline(source: PrePoolSource) -> Option<u64> {
 mod test_seam;
 
 pub(crate) fn pre_pool_reject(error: PrePoolError) -> Reject {
-    assert!(
-        error.is_transaction_rejection(),
-        "a structural pre-pool defect must be contained, not converted into a transaction rejection: {error:?}"
-    );
-    match error {
-        PrePoolError::UnderReplacementFee { .. }
-        | PrePoolError::UnderFeeRate { .. }
-        | PrePoolError::FeeRateOverflow
-        | PrePoolError::ResidencyChargeOverflow
-        | PrePoolError::ZeroTransactionSize(_)
-        | PrePoolError::SelfDependency(_) => Reject::Malformed(
+    match &error {
+        PrePoolError::Rejected(_) => Reject::Malformed(
             "transaction".to_string(),
             format!("pre-pool policy rejection: {error:?}"),
         ),
-        _ => Reject::Full(format!("pre-pool backpressure: {error:?}")),
+        PrePoolError::Backpressure(PrePoolBackpressure::DuplicateHash(_)) => {
+            Reject::Internal(format!("pre-pool duplicate transition: {error:?}"))
+        }
+        PrePoolError::Backpressure(_) => Reject::Full(format!("pre-pool backpressure: {error:?}")),
+        PrePoolError::Stale(_) | PrePoolError::Fault(_) => {
+            Reject::Internal(format!("pre-pool internal transition failure: {error:?}"))
+        }
     }
 }

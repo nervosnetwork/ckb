@@ -1,4 +1,4 @@
-use super::{EntryOp, EntryOutPointEdges, PoolEntry, PoolMap, Relation, Status};
+use super::{EntryOutPointEdges, PoolEntry, PoolMap, Relation, Status, TxLinks};
 use crate::component::entry::TxEntry;
 use crate::error::Reject;
 use ckb_types::core::Cycle;
@@ -322,20 +322,110 @@ impl PoolMap {
         }
 
         let edges = EntryOutPointEdges::from_entry(&entry);
-        self.pre_validate_entry_inputs(&edges)?;
+        self.fixture_pre_validate_entry_inputs(&edges)?;
         self.prevalidate_add_totals(&entry)?;
         let parents = self.prepare_ancestors_for_test(&mut entry)?;
-        self.commit_ancestor_links(id.clone(), parents);
-        self.record_entry_edges(&entry, &edges);
+        self.fixture_commit_ancestor_links(id.clone(), parents);
+        self.fixture_record_entry_edges(&entry, &edges);
         let descendants = self.link_existing_children_for_test(&mut entry, &id);
-        self.insert_entry(&entry, status);
-        self.update_descendants_index_key_for(&entry, EntryOp::Add, &descendants);
-        self.update_ancestors_index_key(&entry, EntryOp::Add);
-        self.track_entry_statistics(None, Some(status));
+        self.fixture_insert_entry(&entry, status);
+        self.fixture_add_to_descendants(&entry, &descendants);
+        self.fixture_add_to_ancestors(&entry);
+        match status {
+            Status::Pending => self.stats.pending_count += 1,
+            Status::Gap => self.stats.gap_count += 1,
+            Status::Proposed => self.stats.proposed_count += 1,
+        }
+        self.publish_stats_metrics();
         self.stats.total_tx_size += entry.size;
         self.stats.total_tx_resident_size += entry.resident_size();
         self.stats.total_tx_cycles += entry.cycles;
         Ok(true)
+    }
+
+    fn fixture_pre_validate_entry_inputs(&self, edges: &EntryOutPointEdges) -> Result<(), Reject> {
+        for input in &edges.inputs {
+            if self.out_point_index.get_input_ref(input).is_some() {
+                return Err(Reject::Resolve(
+                    ckb_types::core::error::OutPointError::Dead(input.clone()),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn fixture_commit_ancestor_links(
+        &mut self,
+        short_id: ProposalShortId,
+        parents: HashSet<ProposalShortId>,
+    ) {
+        for parent in &parents {
+            assert_eq!(self.links.add_child(parent, short_id.clone()), Some(true));
+        }
+        self.links.add_link(
+            short_id,
+            TxLinks {
+                parents,
+                children: HashSet::new(),
+            },
+        );
+    }
+
+    fn fixture_record_entry_edges(&mut self, entry: &TxEntry, edges: &EntryOutPointEdges) {
+        let id = entry.proposal_short_id();
+        for input in &edges.inputs {
+            self.out_point_index
+                .insert_input(input.clone(), id.clone())
+                .unwrap();
+        }
+        for dep in &edges.deps {
+            self.out_point_index.insert_deps(dep.clone(), id.clone());
+        }
+        let headers = entry.transaction().header_deps();
+        if !headers.is_empty() {
+            self.out_point_index
+                .header_deps
+                .insert(id, headers.into_iter().collect());
+        }
+    }
+
+    fn fixture_insert_entry(&mut self, entry: &TxEntry, status: Status) {
+        self.entries
+            .try_insert(PoolEntry {
+                hash: entry.transaction().hash(),
+                id: entry.proposal_short_id(),
+                score: entry.as_score_key(),
+                status,
+                evict_key: entry.as_evict_key(),
+                inner: entry.clone(),
+            })
+            .unwrap();
+    }
+
+    fn fixture_add_to_descendants(
+        &mut self,
+        parent: &TxEntry,
+        descendants: &HashSet<ProposalShortId>,
+    ) {
+        for id in descendants {
+            self.entries
+                .modify_by_id(id, |entry| {
+                    entry.inner.add_ancestor_weight(parent).unwrap();
+                    entry.score = entry.inner.as_score_key();
+                })
+                .unwrap();
+        }
+    }
+
+    fn fixture_add_to_ancestors(&mut self, child: &TxEntry) {
+        for id in self.links.calc_ancestors(&child.proposal_short_id()) {
+            self.entries
+                .modify_by_id(&id, |entry| {
+                    entry.inner.add_descendant_weight(child).unwrap();
+                    entry.evict_key = entry.inner.as_evict_key();
+                })
+                .unwrap();
+        }
     }
 
     fn prepare_ancestors_for_test(
@@ -351,7 +441,8 @@ impl PoolMap {
         if ancestors.len() >= self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
-        self.apply_ancestor_weights(entry, &ancestors);
+        self.apply_ancestor_weights(entry, &ancestors)
+            .map_err(|fault| Reject::Internal(format!("fixture ancestor fault: {fault:?}")))?;
         Ok(parents)
     }
 
@@ -379,7 +470,9 @@ impl PoolMap {
             .extend(children);
         let descendants = self.links.calc_descendants(id);
         for descendant in &descendants {
-            entry.add_descendant_weight(&self.get_by_id(descendant).unwrap().inner);
+            entry
+                .add_descendant_weight(&self.get_by_id(descendant).unwrap().inner)
+                .unwrap();
         }
         descendants
     }

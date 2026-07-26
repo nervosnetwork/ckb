@@ -1,4 +1,6 @@
-use super::{EntryVersion, PrePoolError, PrePoolSource, VerifySchedule, WorkCapability, WorkLane};
+use super::{
+    Arrival, EntryVersion, PrePoolError, PrePoolSource, VerifySchedule, WorkCapability, WorkLane,
+};
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::Entity;
@@ -14,7 +16,7 @@ pub(super) enum WorkOwner {
 impl From<PrePoolSource> for WorkOwner {
     fn from(source: PrePoolSource) -> Self {
         match source {
-            PrePoolSource::Remote(peer) => Self::Remote(peer),
+            PrePoolSource::Remote(remote) => Self::Remote(remote.peer),
             PrePoolSource::Proposal | PrePoolSource::Recovery => Self::Trusted,
         }
     }
@@ -25,7 +27,7 @@ pub(super) struct WorkKey {
     pub(super) hash: Byte32,
     pub(super) version: EntryVersion,
     pub(super) source: PrePoolSource,
-    pub(super) arrival: u128,
+    pub(super) arrival: Arrival,
     pub(super) schedule: VerifySchedule,
     pub(super) fee_ordered: bool,
 }
@@ -149,18 +151,12 @@ impl FairQueue {
     fn remove_head(&mut self, owner: WorkOwner) {
         if let Some(queue) = self.owners.get(&owner) {
             if let Some(head) = Self::head_for(owner, queue, WorkCapability::Any) {
-                assert!(
-                    self.heads.remove(&head),
-                    "runnable head is an exact owner-queue projection"
-                );
+                self.heads.remove(&head);
             }
             if self.lane == WorkLane::Verify
                 && let Some(head) = Self::head_for(owner, queue, WorkCapability::SmallCycleOnly)
             {
-                assert!(
-                    self.small_cycle_heads.remove(&head),
-                    "small-cycle head is an exact owner-queue projection"
-                );
+                self.small_cycle_heads.remove(&head);
             }
         }
     }
@@ -168,78 +164,100 @@ impl FairQueue {
     fn insert_head(&mut self, owner: WorkOwner) {
         if let Some(queue) = self.owners.get(&owner) {
             if let Some(head) = Self::head_for(owner, queue, WorkCapability::Any) {
-                assert!(
-                    self.heads.insert(head),
-                    "runnable head is uniquely derived from its owner queue"
-                );
+                self.heads.insert(head);
             }
             if self.lane == WorkLane::Verify
                 && let Some(head) = Self::head_for(owner, queue, WorkCapability::SmallCycleOnly)
             {
-                assert!(
-                    self.small_cycle_heads.insert(head),
-                    "small-cycle head is uniquely derived from its owner queue"
-                );
+                self.small_cycle_heads.insert(head);
             }
         }
     }
 
-    pub(super) fn insert(&mut self, key: WorkKey) -> Result<(), PrePoolError> {
-        let next_len = self
-            .len
-            .checked_add(1)
-            .expect("queue length must fit usize under the residency budget");
-        let owner = WorkOwner::from(key.source);
-        assert!(
-            !self
-                .owners
-                .get(&owner)
-                .is_some_and(|queue| queue.work.contains(&key)),
-            "an exact work key may have only one queue owner"
-        );
-        self.remove_head(owner);
-        let queue = self.owners.entry(owner).or_insert_with(|| OwnerQueue {
-            runnable: true,
-            ..OwnerQueue::default()
-        });
-        let inserted = queue.work.insert(key);
-        debug_assert!(inserted, "work-key presence was prevalidated");
-        self.len = next_len;
-        self.insert_head(owner);
-        Ok(())
+    pub(super) fn contains(&self, key: &WorkKey) -> bool {
+        self.owners
+            .get(&WorkOwner::from(key.source))
+            .is_some_and(|queue| queue.work.contains(key))
     }
 
-    pub(super) fn remove(&mut self, key: &WorkKey) -> Result<(), PrePoolError> {
-        let next_len = self
-            .len
-            .checked_sub(1)
-            .expect("work count must cover every queue key");
+    pub(super) fn apply_insert(&mut self, key: WorkKey) {
         let owner = WorkOwner::from(key.source);
-        let queue = self
-            .owners
-            .get(&owner)
-            .expect("every work key must have an owner queue");
-        assert!(
-            queue.work.contains(key),
-            "the work owner queue must contain its exact key"
-        );
         self.remove_head(owner);
-        let empty = {
-            let queue = self
-                .owners
-                .get_mut(&owner)
-                .expect("work owner presence was prevalidated");
-            let removed = queue.work.remove(key);
-            debug_assert!(removed, "work-key presence was prevalidated");
+        self.owners
+            .entry(owner)
+            .or_insert_with(|| OwnerQueue {
+                runnable: true,
+                ..OwnerQueue::default()
+            })
+            .work
+            .insert(key);
+        self.insert_head(owner);
+    }
+
+    pub(super) fn apply_remove(&mut self, key: &WorkKey) {
+        self.apply_remove_with_turn(key, None);
+    }
+
+    fn apply_remove_with_turn(&mut self, key: &WorkKey, turn: Option<u128>) {
+        let owner = WorkOwner::from(key.source);
+        self.remove_head(owner);
+        let empty = self.owners.get_mut(&owner).is_none_or(|queue| {
+            queue.work.remove(key);
+            if let Some(turn) = turn {
+                queue.turn = turn;
+            }
             queue.work.is_empty()
-        };
-        self.len = next_len;
+        });
+        if let Some(turn) = turn {
+            self.next_turn = turn;
+        }
         if empty {
             self.owners.remove(&owner);
         } else {
             self.insert_head(owner);
         }
-        Ok(())
+    }
+
+    pub(super) fn plan_checkout(
+        &self,
+        key: &WorkKey,
+        capability: WorkCapability,
+    ) -> Result<u128, PrePoolError> {
+        let heads = match (self.lane, capability) {
+            (WorkLane::Verify, WorkCapability::SmallCycleOnly) => &self.small_cycle_heads,
+            _ => &self.heads,
+        };
+        let Some(head) = heads.last() else {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "checkout queue has no runnable head",
+            ));
+        };
+        if &head.work != key {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "checkout ticket is not the selected runnable head",
+            ));
+        }
+        let Some(owner) = self.owners.get(&head.owner) else {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "runnable head has no owner queue",
+            ));
+        };
+        if Self::head_for(head.owner, owner, capability).as_ref() != Some(head) {
+            return Err(PrePoolError::ProjectionInconsistent(
+                "runnable head does not match its owner queue",
+            ));
+        }
+        self.next_turn
+            .checked_add(1)
+            .ok_or(PrePoolError::CounterExhausted)
+    }
+
+    pub(super) fn apply_checkout(&mut self, key: &WorkKey, next_turn: u128) {
+        self.apply_remove_with_turn(key, Some(next_turn));
+    }
+
+    pub(super) fn set_len(&mut self, len: usize) {
+        self.len = len;
     }
 
     pub(super) fn set_runnable(&mut self, owner: WorkOwner, runnable: bool) {
@@ -256,55 +274,6 @@ impl FairQueue {
             _ => self.heads.last(),
         }
         .map(|head| &head.work)
-    }
-
-    pub(super) fn pop(
-        &mut self,
-        capability: WorkCapability,
-    ) -> Result<Option<WorkKey>, PrePoolError> {
-        let heads = match (self.lane, capability) {
-            (WorkLane::Verify, WorkCapability::SmallCycleOnly) => &self.small_cycle_heads,
-            _ => &self.heads,
-        };
-        let Some(head) = heads.last().cloned() else {
-            return Ok(None);
-        };
-        let next_turn = self
-            .next_turn
-            .checked_add(1)
-            .expect("u128 queue turn must not exhaust during process lifetime");
-        let next_len = self
-            .len
-            .checked_sub(1)
-            .expect("work count must cover every runnable head");
-        let queue = self
-            .owners
-            .get(&head.owner)
-            .expect("every runnable head must have an owner queue");
-        assert_eq!(
-            Self::head_for(head.owner, queue, capability).as_ref(),
-            Some(&head),
-            "runnable head must be derived from its owner queue"
-        );
-        self.remove_head(head.owner);
-        let empty = {
-            let queue = self
-                .owners
-                .get_mut(&head.owner)
-                .expect("runnable owner presence was prevalidated");
-            let removed = queue.work.remove(&head.work);
-            debug_assert!(removed, "runnable head presence was prevalidated");
-            queue.turn = next_turn;
-            queue.work.is_empty()
-        };
-        self.next_turn = next_turn;
-        self.len = next_len;
-        if empty {
-            self.owners.remove(&head.owner);
-        } else {
-            self.insert_head(head.owner);
-        }
-        Ok(Some(head.work))
     }
 }
 

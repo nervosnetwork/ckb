@@ -10,11 +10,10 @@
 pub(crate) mod rbf_commit;
 
 use crate::component::entry::TxEntry;
+use crate::component::pre_pool::{PipelineVerifiedTx, PrePoolError};
 use crate::error::Reject;
 use crate::service::TxPoolService;
-use crate::service::effects::{
-    EffectClass, EffectJournalError, TxPoolEffect, bounded_commit_ban_reason,
-};
+use crate::service::effects::{EffectClass, EffectJournalError};
 use crate::util::verify_rtx;
 use ckb_logger::{info, warn};
 use ckb_script::ChunkCommand;
@@ -46,6 +45,35 @@ pub(crate) enum VerifySubmitOutcome {
     Cleared,
 }
 
+/// Result of one read-only Plan plus atomic Apply attempt for the current
+/// highest-ranked Ready owner. No ticket or authority lock survives this
+/// value: a backpressured driver waits and then replans from current state.
+enum PipelineCommitStep {
+    Progress,
+    Idle,
+    Backpressured { bytes: usize, class: EffectClass },
+    Closed,
+    Fault(PipelineCommitFault),
+}
+
+enum PipelineCommitFault {
+    Kernel(PrePoolError),
+    Pool(crate::component::pool_map::PoolMutationFault),
+    Effect(EffectJournalError),
+    EffectBuild(crate::service::effects::EffectBuildError),
+}
+
+impl std::fmt::Debug for PipelineCommitFault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Kernel(error) => formatter.debug_tuple("Kernel").field(error).finish(),
+            Self::Pool(error) => formatter.debug_tuple("Pool").field(error).finish(),
+            Self::Effect(error) => formatter.debug_tuple("Effect").field(error).finish(),
+            Self::EffectBuild(error) => formatter.debug_tuple("EffectBuild").field(error).finish(),
+        }
+    }
+}
+
 impl TxPoolService {
     pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
         let key = TxVerificationCacheKey::from_transaction(tx);
@@ -69,74 +97,46 @@ impl TxPoolService {
             candidate.tx_size,
             candidate.resident_size,
         );
-        let tx_hash = entry.transaction().hash();
-
-        let effect_bound = self.max_submit_effect_bytes();
-        let effect_class = if matches!(source, crate::tx_source::TxSource::Remote { .. }) {
-            EffectClass::Remote
-        } else {
-            EffectClass::Trusted
-        };
         // Synchronous local/reorg submissions do not participate in a second
         // speculative RBF owner. All remote/proposal pipeline competition is
         // verified-only in the coordinator, while the authoritative complete
         // replacement closure is recalculated here under the pool write lock.
-        let outcome = loop {
+        loop {
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
-            }
-            if let Err(error) = self
-                .relay
-                .effects
-                .wait_capacity(effect_bound, effect_class)
-                .await
-            {
-                return Err(Reject::Full(format!(
-                    "tx-pool effect journal unavailable: {error:?}"
-                )));
             }
             let mut tx_pool = self.pool.tx_pool.write().await;
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
             }
-            let applied = {
+            enum Attempt {
+                Rejected(Reject),
+                Applied(
+                    Result<(), rbf_commit::AdmissionApplyError>,
+                    usize,
+                    EffectClass,
+                ),
+                Fault(PipelineCommitFault),
+            }
+            let attempt = {
                 let snapshot = tx_pool.cloned_snapshot();
                 self.pipeline.kernel.mutate_authoritative(|kernel| {
-                    self.relay
-                        .effects
-                        .try_apply_bounded(effect_bound, effect_class, || {
-                            let mut committed_ingress_peer = original_peer;
-                            let (mut outcome, record) = self.try_submit_entry_with_handoff(
-                                &mut tx_pool,
-                                snapshot,
-                                pre_resolve_tip.clone(),
-                                entry.clone(),
-                                |tx_pool, plan| {
-                                    let unavailable = self.planned_unavailable_parent_hashes(
-                                        plan,
-                                        tx_pool.snapshot(),
-                                    );
-                                    let record = kernel
-                                        .external_commit_with_unavailable_parents(
-                                            &tx_hash,
-                                            &unavailable,
-                                        )
-                                        .unwrap_or_else(|error| {
-                                            panic!("planned direct handoff failed: {error:?}")
-                                        });
-                                    self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan);
-                                    record
-                                },
-                            );
-                            if let Some(Some(record)) = record {
-                                committed_ingress_peer =
-                                    record.raw.ingress_peer().or(committed_ingress_peer);
-                            }
+                    let plan = match self.plan_external_admission(
+                        &mut tx_pool,
+                        kernel,
+                        snapshot,
+                        pre_resolve_tip.clone(),
+                        entry.clone(),
+                        source,
+                        original_peer,
+                    ) {
+                        Ok(plan) => plan,
+                        Err(rbf_commit::AdmissionPlanningError::Policy(reject)) => {
                             if matches!(
-                                outcome.result.as_ref(),
-                                Err(Reject::RBFRejected(..)
-                                    | Reject::Resolve(
-                                        ckb_types::core::error::OutPointError::Dead(_)
+                                &reject,
+                                Reject::RBFRejected(..)
+                                    | Reject::Resolve(ckb_types::core::error::OutPointError::Dead(
+                                        _
                                     ))
                             ) && tx_pool
                                 .pool_map
@@ -154,46 +154,67 @@ impl TxPoolService {
                                 let owner = crate::component::pre_pool::historical_source(source);
                                 let expires_at =
                                     crate::component::pre_pool::historical_deadline(owner);
-                                self.retain_optional_conflict(
+                                if let Err(error) = self.retain_optional_conflict(
                                     kernel,
                                     raw,
                                     owner,
                                     keys,
                                     expires_at,
                                     "direct-submit conflict retention failed",
-                                );
+                                ) {
+                                    return Attempt::Fault(PipelineCommitFault::Kernel(error));
+                                }
                             }
-                            let extra_effects = outcome
-                                .result
-                                .is_ok()
-                                .then(|| {
-                                    TxPoolEffect::Relay(crate::service::TxVerificationResult::Ok {
-                                        original_peer: committed_ingress_peer,
-                                        tx_hash: tx_hash.clone(),
-                                    })
-                                })
-                                .into_iter()
-                                .collect();
-                            for status in outcome.block_assembler_statuses() {
-                                self.journal_block_assembler_update(status);
-                            }
-                            let batch = self.prepare_submit_effects(&mut outcome, extra_effects);
-                            (outcome, batch)
-                        })
+                            return Attempt::Rejected(reject);
+                        }
+                        Err(rbf_commit::AdmissionPlanningError::Kernel(error)) => {
+                            return Attempt::Fault(PipelineCommitFault::Kernel(error));
+                        }
+                        Err(rbf_commit::AdmissionPlanningError::Pool(error)) => {
+                            return Attempt::Fault(PipelineCommitFault::Pool(error));
+                        }
+                        Err(rbf_commit::AdmissionPlanningError::Effect(error)) => {
+                            return Attempt::Fault(PipelineCommitFault::EffectBuild(error));
+                        }
+                    };
+                    let effect_bytes = plan.effect_bytes();
+                    let effect_class = plan.effect_class();
+                    Attempt::Applied(self.apply_admission_plan(plan), effect_bytes, effect_class)
                 })
             };
-            match applied {
-                Ok(outcome) => break outcome,
-                Err(EffectJournalError::Full) => continue,
-                Err(error) => {
-                    return Err(Reject::Full(format!(
-                        "tx-pool effect journal unavailable: {error:?}"
+            match attempt {
+                Attempt::Rejected(reject) => return Err(reject),
+                Attempt::Fault(error) => {
+                    self.pipeline
+                        .kernel
+                        .report_fault("direct-submit admission planning failed", &error);
+                    return Err(Reject::Internal(format!(
+                        "direct-submit admission fault: {error:?}"
+                    )));
+                }
+                Attempt::Applied(Ok(()), _, _) => return Ok(SubmitEntryResult::Committed),
+                Attempt::Applied(
+                    Err(rbf_commit::AdmissionApplyError::Journal(EffectJournalError::Full)),
+                    bytes,
+                    class,
+                ) => {
+                    drop(tx_pool);
+                    if let Err(error) = self.relay.effects.wait_capacity(bytes, class).await {
+                        return Err(Reject::Full(format!(
+                            "tx-pool effect journal unavailable: {error:?}"
+                        )));
+                    }
+                }
+                Attempt::Applied(Err(error), _, _) => {
+                    self.pipeline
+                        .kernel
+                        .report_fault("direct-submit effect batch violated its bound", &error);
+                    return Err(Reject::Internal(format!(
+                        "tx-pool effect journal fault: {error:?}"
                     )));
                 }
             }
-        };
-        outcome.result?;
-        Ok(SubmitEntryResult::Committed)
+        }
     }
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         self.check_tx_basic_validity(&tx).await?;
@@ -210,7 +231,7 @@ impl TxPoolService {
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Result<crate::component::pre_pool::PipelineVerifiedTx, Reject> {
         let declared_cycles = resolved.source.cycles();
-        let verify_cache = self.fetch_tx_verify_cache(&resolved.tx).await;
+        let verify_cache = self.fetch_tx_verify_cache(resolved.transaction()).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status_to_verify_env(resolved.status, tip_header));
@@ -232,7 +253,7 @@ impl TxPoolService {
                 "declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
                 declared,
                 verified.cycles,
-                resolved.tx.hash()
+                resolved.transaction().hash()
             );
             return Err(Reject::DeclaredWrongCycles(declared, verified.cycles));
         }
@@ -303,12 +324,12 @@ impl TxPoolService {
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
         // plan_pool_mutation re-runs check_rtx + time_relative_verify against
         // the current snapshot to catch any state-dependent invalidation.
-        let tx_hash = resolved.tx.hash();
-        let verify_cache_key = TxVerificationCacheKey::from_transaction(&resolved.tx);
+        let tx_hash = resolved.transaction().hash();
+        let verify_cache_key = TxVerificationCacheKey::from_transaction(resolved.transaction());
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
 
-        let verify_cache = self.fetch_tx_verify_cache(&resolved.tx).await;
+        let verify_cache = self.fetch_tx_verify_cache(resolved.transaction()).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status_to_verify_env(resolved.status, tip_header));
@@ -340,7 +361,7 @@ impl TxPoolService {
                 "declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
                 declared,
                 verified.cycles,
-                resolved.tx.hash()
+                resolved.transaction().hash()
             );
             if !self.is_pipeline_epoch_current(resolved.epoch) {
                 return Ok(VerifySubmitOutcome::Cleared);
@@ -370,201 +391,140 @@ impl TxPoolService {
         }
     }
 
-    /// Drain a bounded ordered slice of verified pre-pool work. The
-    /// serial guard is acquired before any lease is checked out, so two
-    /// verify workers cannot invert commit order while awaiting `TxPool`.
-    pub(crate) async fn drive_pipeline_commits(&self) {
+    /// Drain a bounded ordered slice of verified pre-pool work. Every step
+    /// selects its Ready ticket inside the same `TxPool -> PrePoolKernel`
+    /// critical section that validates and applies it. Multiple eager drivers
+    /// may therefore race safely without a separate cross-await serial guard;
+    /// the accepted-pool write boundary orders them, while journal
+    /// backpressure holds no state authority. Returns false only after journal
+    /// shutdown or a structural fault.
+    pub(crate) async fn drive_pipeline_commits(&self) -> bool {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
-        let _driver = self.pipeline.kernel.lock_commit_driver().await;
-        for _ in 0..MAX_COMMITS_PER_DRIVE {
-            let bound = self.max_submit_effect_bytes();
-            if self
-                .relay
-                .effects
-                .wait_capacity(bound, EffectClass::Remote)
-                .await
-                .is_err()
-            {
-                break;
-            }
-            if !self.commit_next_pipeline_entry(bound).await {
-                break;
+        let mut committed = 0;
+        while committed < MAX_COMMITS_PER_DRIVE {
+            match self.commit_next_pipeline_entry().await {
+                PipelineCommitStep::Progress => committed = committed.saturating_add(1),
+                PipelineCommitStep::Idle => return true,
+                PipelineCommitStep::Closed => return false,
+                PipelineCommitStep::Fault(error) => {
+                    self.pipeline
+                        .kernel
+                        .report_fault("pipeline commit fault", &error);
+                    return false;
+                }
+                PipelineCommitStep::Backpressured { bytes, class } => {
+                    match self.relay.effects.wait_capacity(bytes, class).await {
+                        Ok(()) => {}
+                        Err(EffectJournalError::Closed) => return false,
+                        Err(error) => {
+                            self.pipeline.kernel.report_fault(
+                                "a previously bounded pipeline effect batch became invalid",
+                                &error,
+                            );
+                            return false;
+                        }
+                    }
+                }
             }
         }
+        true
     }
 
     /// Select and commit one Ready candidate under the same TxPool write
     /// guard. The pool guard is the authoritative membership sequencer, so a
     /// Local/clear/reorg handoff cannot consume the Ready owner between ticket
-    /// validation and pool insertion. The kernel mutex is held only for the
-    /// constant-time ticket transition; no transient commit location exists.
-    async fn commit_next_pipeline_entry(&self, effect_bound: usize) -> bool {
-        let transaction = {
-            let mut tx_pool = self.pool.tx_pool.write().await;
-            let prepared = (|| {
-                // Checkout must be inside the TxPool write boundary. Every
-                // operation allowed to consume coordinator ownership from
-                // outside this driver takes the same guard first.
-                let lease = self
-                    .pipeline
-                    .kernel
-                    .mutate_required("pipeline commit checkout failed", |coordinator| {
-                        coordinator.begin_next_commit()
-                    })?;
-                let verified = Arc::clone(&lease.payload);
-                let entry = TxEntry::new_with_resident_size(
-                    Arc::clone(&verified.candidate.rtx),
-                    verified.completed.cycles,
-                    verified.candidate.fee,
-                    verified.candidate.tx_size,
-                    verified.candidate.resident_size,
-                );
-                let entry_id = entry.proposal_short_id();
-                let snapshot = tx_pool.cloned_snapshot();
-                Some(self.pipeline.kernel.mutate_authoritative(|kernel| {
-                    self.relay
-                        .effects
-                        .try_apply_bounded(effect_bound, EffectClass::Remote, || {
-                            let (mut outcome, settlement) = self.try_submit_entry_with_handoff(
-                                &mut tx_pool,
-                                snapshot,
-                                verified.candidate.pre_resolve_tip.clone(),
-                                entry.clone(),
-                                |tx_pool, plan| {
-                                    let unavailable = self.planned_unavailable_parent_hashes(
-                                        plan,
-                                        tx_pool.snapshot(),
-                                    );
-                                    let handoff = kernel
-                                        .commit_any_handoff_with_unavailable_parents(
-                                            &lease,
-                                            &unavailable,
-                                        )
-                                        .unwrap_or_else(|error| {
-                                            panic!("planned pipeline handoff failed: {error:?}")
-                                        });
-                                    self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan);
-                                    handoff
-                                },
-                            );
-                            let failed_terminal = if outcome.result.is_err() && settlement.is_none()
-                            {
-                                let retain_conflict = matches!(
-                                    outcome.result.as_ref(),
-                                    Err(Reject::RBFRejected(..)
-                                        | Reject::Resolve(
-                                            ckb_types::core::error::OutPointError::Dead(_)
-                                        ))
-                                ) && tx_pool
-                                    .pool_map
-                                    .find_conflict_outpoint(entry.transaction())
-                                    .is_some();
-                                Some(if retain_conflict {
-                                    kernel
-                                        .park_failed_commit(&lease)
-                                        .expect("validated Ready lease must park")
-                                } else {
-                                    kernel
-                                        .fail_commit(&lease)
-                                        .expect("validated Ready lease must terminalize")
-                                })
-                            } else {
-                                None
-                            };
-                            let mut failed_banned_peer = None;
-                            let mut extra_effects = Vec::new();
-                            if let Some(handoff) = &settlement {
-                                extra_effects.push(TxPoolEffect::Relay(
-                                    crate::service::TxVerificationResult::Ok {
-                                        original_peer: handoff.winner.raw.ingress_peer(),
-                                        tx_hash: verified.candidate.tx.hash(),
-                                    },
-                                ));
-                                let reject = Reject::RBFRejected(
-                                    Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
-                                );
-                                for record in &handoff.superseded {
-                                    record.raw.authoritative_source(record.source);
-                                    if let Some(effect) =
-                                        self.recent_reject_effect(record.hash.clone(), &reject)
-                                    {
-                                        extra_effects.push(effect);
-                                    }
-                                    if record.raw.ingress_peer().is_some()
-                                        && reject.is_allowed_relay()
-                                    {
-                                        extra_effects.push(TxPoolEffect::Relay(
-                                            crate::service::TxVerificationResult::Reject {
-                                                tx_hash: record.hash.clone(),
-                                            },
-                                        ));
-                                    }
-                                }
-                            } else if let Some(record) = &failed_terminal
-                                && let Some(reject) = outcome.result.as_ref().err()
-                            {
-                                if let Some(effect) =
-                                    self.recent_reject_effect(record.hash.clone(), reject)
-                                {
-                                    extra_effects.push(effect);
-                                }
-                                if reject.is_malformed_tx()
-                                    && let Some(peer) = record.raw.blame_peer()
-                                {
-                                    let duration = std::time::Duration::from_secs(
-                                        crate::constants::MALFORMED_TX_BAN_SECONDS,
-                                    );
-                                    self.record_peer_ban(peer, duration);
-                                    extra_effects.push(TxPoolEffect::BanPeer {
-                                        peer,
-                                        duration,
-                                        reason: bounded_commit_ban_reason(reject),
-                                    });
-                                    failed_banned_peer = Some(peer);
-                                }
-                                if record.raw.ingress_peer().is_some()
-                                    && reject.is_allowed_relay()
-                                    && !matches!(reject, Reject::Duplicated(_))
-                                {
-                                    extra_effects.push(TxPoolEffect::Relay(
-                                        crate::service::TxVerificationResult::Reject {
-                                            tx_hash: record.hash.clone(),
-                                        },
-                                    ));
-                                }
-                            }
-                            for status in outcome.block_assembler_statuses() {
-                                self.journal_block_assembler_update(status);
-                            }
-                            let batch = self.prepare_submit_effects(&mut outcome, extra_effects);
-                            (
-                                (outcome, settlement, failed_banned_peer, verified, entry_id),
-                                batch,
-                            )
-                        })
-                }))
-            })();
-            match prepared {
-                None => None,
-                Some(Ok(value)) => Some(value),
-                Some(Err(EffectJournalError::Full)) => return true,
-                Some(Err(error)) => {
-                    ckb_logger::error!("pipeline commit effect journal unavailable: {error:?}");
-                    return true;
+    /// validation and pool insertion. The bounded Plan/Apply runs under the
+    /// same kernel borrow; no transient commit location or stale ticket
+    /// exists.
+    async fn commit_next_pipeline_entry(&self) -> PipelineCommitStep {
+        let mut tx_pool = self.pool.tx_pool.write().await;
+        let snapshot = tx_pool.cloned_snapshot();
+
+        enum Applied {
+            Committed(Result<(), rbf_commit::AdmissionApplyError>),
+            Rejected(Result<Option<ckb_network::PeerIndex>, EffectJournalError>),
+        }
+        struct Attempt {
+            applied: Applied,
+            effect_bytes: usize,
+            effect_class: EffectClass,
+            verified: Arc<PipelineVerifiedTx>,
+        }
+
+        let attempt = self.pipeline.kernel.mutate_authoritative(|kernel| {
+            // Selecting and consuming the ticket under one kernel borrow is
+            // the complete proof that expiry or another eager driver cannot
+            // invalidate it between observation and Apply.
+            let Some(lease) = kernel
+                .begin_next_commit()
+                .map_err(PipelineCommitFault::Kernel)?
+            else {
+                return Ok(None);
+            };
+            let verified = Arc::clone(&lease.payload);
+            let entry = TxEntry::new_with_resident_size(
+                Arc::clone(&verified.candidate.rtx),
+                verified.completed.cycles,
+                verified.candidate.fee,
+                verified.candidate.tx_size,
+                verified.candidate.resident_size,
+            );
+            match self.plan_ready_admission(
+                &mut tx_pool,
+                kernel,
+                snapshot,
+                verified.candidate.pre_resolve_tip.clone(),
+                entry.clone(),
+                &lease,
+            ) {
+                Ok(plan) => {
+                    let effect_bytes = plan.effect_bytes();
+                    let effect_class = plan.effect_class();
+                    Ok(Some(Attempt {
+                        applied: Applied::Committed(self.apply_admission_plan(plan)),
+                        effect_bytes,
+                        effect_class,
+                        verified,
+                    }))
+                }
+                Err(rbf_commit::AdmissionPlanningError::Policy(reject)) => {
+                    let plan = match self
+                        .plan_failed_admission(&tx_pool, kernel, &lease, &entry, &reject)
+                    {
+                        Ok(plan) => plan,
+                        Err(error) => return Err(PipelineCommitFault::Kernel(error)),
+                    };
+                    let effect_bytes = plan.effect_bytes();
+                    let effect_class = plan.effect_class();
+                    Ok(Some(Attempt {
+                        applied: Applied::Rejected(self.apply_failed_admission(plan)),
+                        effect_bytes,
+                        effect_class,
+                        verified,
+                    }))
+                }
+                Err(rbf_commit::AdmissionPlanningError::Kernel(error)) => {
+                    Err(PipelineCommitFault::Kernel(error))
+                }
+                Err(rbf_commit::AdmissionPlanningError::Pool(error)) => {
+                    Err(PipelineCommitFault::Pool(error))
+                }
+                Err(rbf_commit::AdmissionPlanningError::Effect(error)) => {
+                    Err(PipelineCommitFault::EffectBuild(error))
                 }
             }
-        };
-        let Some((outcome, settlement, failed_banned_peer, verified, entry_id)) = transaction
-        else {
-            return false;
-        };
+        });
 
-        let dispatch_result = outcome.result;
-        if let Some(peer) = failed_banned_peer {
-            self.remove_banned_peer_entries(peer).await;
-        }
-        match (dispatch_result, settlement) {
-            (Ok(()), Some(settlement)) => {
+        let attempt = match attempt {
+            Ok(Some(attempt)) => attempt,
+            Ok(None) => return PipelineCommitStep::Idle,
+            Err(error) => return PipelineCommitStep::Fault(error),
+        };
+        let verified = attempt.verified;
+
+        match attempt.applied {
+            Applied::Committed(Ok(())) => {
+                drop(tx_pool);
                 self.post_submit_side_effects(
                     verified.completed,
                     verified.verify_cache_hit,
@@ -574,14 +534,37 @@ impl TxPoolService {
                     verified.started_at,
                 )
                 .await;
-                drop(settlement);
+                PipelineCommitStep::Progress
             }
-            (Err(_reject), _) => {}
-            (Ok(()), None) => unreachable!(
-                "successful pipeline submit {entry_id} escaped without coordinator settlement"
-            ),
+            Applied::Rejected(Ok(banned_peer)) => {
+                drop(tx_pool);
+                if let Some(peer) = banned_peer {
+                    self.remove_banned_peer_entries(peer).await;
+                }
+                PipelineCommitStep::Progress
+            }
+            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                EffectJournalError::Full,
+            )))
+            | Applied::Rejected(Err(EffectJournalError::Full)) => {
+                drop(tx_pool);
+                PipelineCommitStep::Backpressured {
+                    bytes: attempt.effect_bytes,
+                    class: attempt.effect_class,
+                }
+            }
+            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                EffectJournalError::Closed,
+            )))
+            | Applied::Rejected(Err(EffectJournalError::Closed)) => PipelineCommitStep::Closed,
+            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Pool(error))) => {
+                PipelineCommitStep::Fault(PipelineCommitFault::Pool(error))
+            }
+            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(error)))
+            | Applied::Rejected(Err(error)) => {
+                PipelineCommitStep::Fault(PipelineCommitFault::Effect(error))
+            }
         }
-        true
     }
     pub(crate) async fn test_accept_tx_core(
         &self,

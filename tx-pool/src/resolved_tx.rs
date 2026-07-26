@@ -18,8 +18,6 @@ use std::sync::Arc;
 /// A transaction that has been resolved and is ready for verification.
 #[derive(Debug, Clone)]
 pub struct ResolvedTx {
-    /// The raw transaction.
-    pub tx: TransactionView,
     /// The resolved transaction.
     pub rtx: Arc<ResolvedTransaction>,
     /// Pool status derived at resolve time.
@@ -40,8 +38,7 @@ pub struct ResolvedTx {
 
 impl PartialEq for ResolvedTx {
     fn eq(&self, other: &Self) -> bool {
-        self.tx == other.tx
-            && self.rtx == other.rtx
+        self.rtx == other.rtx
             && self.status == other.status
             && self.fee == other.fee
             && self.tx_size == other.tx_size
@@ -74,6 +71,15 @@ pub(crate) struct PoolCandidate {
 }
 
 impl ResolvedTx {
+    /// Return the sole transaction view owned by this resolved bundle.
+    ///
+    /// Keeping the raw transaction inside `ResolvedTransaction` avoids two
+    /// independently constructible identities and makes a hash/witness-hash
+    /// mismatch unrepresentable.
+    pub(crate) fn transaction(&self) -> &TransactionView {
+        &self.rtx.transaction
+    }
+
     pub(crate) fn into_pool_candidate(self) -> PoolCandidate {
         // Script verification is the last consumer of dep outputs and dep
         // data. A tiny dep-group reference can otherwise pin the expanded
@@ -87,8 +93,6 @@ impl ResolvedTx {
         // dependency graph that will be allocated during insertion, so the
         // coordinator cannot hand an already-undercharged object to the pool.
         let resident_size = accepted_transaction_charge_bytes(self.tx_size, &rtx);
-        debug_assert_eq!(self.tx.hash(), rtx.transaction.hash());
-        debug_assert_eq!(self.tx.witness_hash(), rtx.transaction.witness_hash());
         // Resolution starts from the compact raw owner, so both views can
         // share that exact tx-sized allocation instead of retaining two
         // independently copied transactions in the verified phase bundle.

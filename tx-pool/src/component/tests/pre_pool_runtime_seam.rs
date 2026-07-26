@@ -16,4 +16,11 @@ impl PrePool {
             Err(error) => panic!("{context}: {error:?}"),
         }
     }
+
+    pub(crate) fn reset_for_chain<T>(
+        &self,
+        prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
+    ) -> Result<(T, PrePoolGeneration), PrePoolError> {
+        self.mutate_authoritative(|state| state.replace_generation_for_chain(prepare))
+    }
 }

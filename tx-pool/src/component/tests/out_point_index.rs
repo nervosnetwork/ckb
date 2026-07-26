@@ -1,7 +1,37 @@
 use super::OutPointIndex;
-use ckb_types::{bytes::Bytes, packed::OutPoint, prelude::Entity};
+use ckb_logger::debug;
+use ckb_types::{
+    bytes::Bytes,
+    core::{error::OutPointError, tx_pool::Reject},
+    packed::{OutPoint, ProposalShortId},
+    prelude::Entity,
+};
+use std::collections::hash_map::Entry;
 
 impl OutPointIndex {
+    pub(crate) fn insert_input(
+        &mut self,
+        out_point: OutPoint,
+        txid: ProposalShortId,
+    ) -> Result<(), Reject> {
+        let out_point = crate::util::compact_packed(&out_point);
+        match self.inputs.entry(out_point.clone()) {
+            Entry::Occupied(occupied) => {
+                debug!(
+                    "txpool unexpected double-spending out_point: {:?} old_tx: {:?} new_tx: {:?}",
+                    out_point,
+                    occupied.get(),
+                    txid
+                );
+                Err(Reject::Resolve(OutPointError::Dead(out_point)))
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(txid);
+                Ok(())
+            }
+        }
+    }
+
     pub(crate) fn inputs_len(&self) -> usize {
         self.inputs.len()
     }

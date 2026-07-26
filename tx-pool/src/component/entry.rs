@@ -22,6 +22,18 @@ pub(crate) struct WeightDelta {
     fee: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WeightError {
+    Overflow(&'static str),
+    Underflow(&'static str),
+}
+
+#[derive(Clone, Copy)]
+enum WeightOperation {
+    Add,
+    Subtract,
+}
+
 impl WeightDelta {
     fn from_entry(entry: &TxEntry) -> Self {
         Self {
@@ -39,23 +51,24 @@ impl WeightDelta {
     /// arithmetic is nevertheless deliberate: a future bound regression or
     /// duplicate graph edge must fail at the invariant boundary rather than
     /// silently changing package/eviction order.
-    pub(crate) fn add_entry(&mut self, entry: &TxEntry) {
+    pub(crate) fn add_entry(&mut self, entry: &TxEntry) -> Result<(), WeightError> {
         self.count = self
             .count
             .checked_add(1)
-            .expect("tx-pool weight count cannot overflow");
+            .ok_or(WeightError::Overflow("weight count"))?;
         self.size = self
             .size
             .checked_add(entry.size)
-            .expect("tx-pool weight size cannot overflow");
+            .ok_or(WeightError::Overflow("weight size"))?;
         self.cycles = self
             .cycles
             .checked_add(entry.cycles)
-            .expect("tx-pool weight cycles cannot overflow");
+            .ok_or(WeightError::Overflow("weight cycles"))?;
         self.fee = self
             .fee
             .checked_add(entry.fee.as_u64())
-            .expect("tx-pool weight fee cannot overflow");
+            .ok_or(WeightError::Overflow("weight fee"))?;
+        Ok(())
     }
 }
 
@@ -380,23 +393,23 @@ impl TxEntry {
     }
 
     /// Update ancestor state for add an entry
-    pub fn add_descendant_weight(&mut self, entry: &TxEntry) {
-        self.apply_descendant_delta(WeightDelta::from_entry(entry), true);
+    pub(crate) fn add_descendant_weight(&mut self, entry: &TxEntry) -> Result<(), WeightError> {
+        self.apply_descendant_delta(WeightDelta::from_entry(entry), WeightOperation::Add)
     }
 
     /// Update ancestor state for remove an entry
-    pub fn sub_descendant_weight(&mut self, entry: &TxEntry) {
-        self.apply_descendant_delta(WeightDelta::from_entry(entry), false);
+    pub(crate) fn sub_descendant_weight(&mut self, entry: &TxEntry) -> Result<(), WeightError> {
+        self.apply_descendant_delta(WeightDelta::from_entry(entry), WeightOperation::Subtract)
     }
 
     /// Update ancestor state for add an entry
-    pub fn add_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.apply_ancestor_delta(WeightDelta::from_entry(entry), true);
+    pub(crate) fn add_ancestor_weight(&mut self, entry: &TxEntry) -> Result<(), WeightError> {
+        self.apply_ancestor_delta(WeightDelta::from_entry(entry), WeightOperation::Add)
     }
 
     /// Update ancestor state for remove an entry
-    pub fn sub_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.apply_ancestor_delta(WeightDelta::from_entry(entry), false);
+    pub(crate) fn sub_ancestor_weight(&mut self, entry: &TxEntry) -> Result<(), WeightError> {
+        self.apply_ancestor_delta(WeightDelta::from_entry(entry), WeightOperation::Subtract)
     }
 
     /// Update ancestor state for removing several entries at once.
@@ -405,92 +418,96 @@ impl TxEntry {
     /// [`WeightDelta::add_entry`]); used by the block-template selector to
     /// adjust shared descendants with one aggregate subtraction instead of
     /// one subtraction per committed ancestor.
-    pub(crate) fn sub_ancestors_weight(&mut self, delta: WeightDelta) {
-        self.apply_ancestor_delta(delta, false);
+    pub(crate) fn sub_ancestors_weight(&mut self, delta: WeightDelta) -> Result<(), WeightError> {
+        self.apply_ancestor_delta(delta, WeightOperation::Subtract)
     }
 
-    fn apply_ancestor_delta(&mut self, delta: WeightDelta, add: bool) {
-        if add {
-            self.ancestors_count = self
-                .ancestors_count
-                .checked_add(delta.count)
-                .expect("ancestor count cannot overflow");
-            self.ancestors_size = self
-                .ancestors_size
-                .checked_add(delta.size)
-                .expect("ancestor size cannot overflow");
-            self.ancestors_cycles = self
-                .ancestors_cycles
-                .checked_add(delta.cycles)
-                .expect("ancestor cycles cannot overflow");
-            self.ancestors_fee = Capacity::shannons(
+    fn apply_ancestor_delta(
+        &mut self,
+        delta: WeightDelta,
+        operation: WeightOperation,
+    ) -> Result<(), WeightError> {
+        let (count, size, cycles, fee) = match operation {
+            WeightOperation::Add => (
+                self.ancestors_count
+                    .checked_add(delta.count)
+                    .ok_or(WeightError::Overflow("ancestor count"))?,
+                self.ancestors_size
+                    .checked_add(delta.size)
+                    .ok_or(WeightError::Overflow("ancestor size"))?,
+                self.ancestors_cycles
+                    .checked_add(delta.cycles)
+                    .ok_or(WeightError::Overflow("ancestor cycles"))?,
                 self.ancestors_fee
                     .as_u64()
                     .checked_add(delta.fee)
-                    .expect("ancestor fee cannot overflow"),
-            );
-        } else {
-            self.ancestors_count = self
-                .ancestors_count
-                .checked_sub(delta.count)
-                .expect("ancestor count cannot underflow");
-            self.ancestors_size = self
-                .ancestors_size
-                .checked_sub(delta.size)
-                .expect("ancestor size cannot underflow");
-            self.ancestors_cycles = self
-                .ancestors_cycles
-                .checked_sub(delta.cycles)
-                .expect("ancestor cycles cannot underflow");
-            self.ancestors_fee = Capacity::shannons(
+                    .ok_or(WeightError::Overflow("ancestor fee"))?,
+            ),
+            WeightOperation::Subtract => (
+                self.ancestors_count
+                    .checked_sub(delta.count)
+                    .ok_or(WeightError::Underflow("ancestor count"))?,
+                self.ancestors_size
+                    .checked_sub(delta.size)
+                    .ok_or(WeightError::Underflow("ancestor size"))?,
+                self.ancestors_cycles
+                    .checked_sub(delta.cycles)
+                    .ok_or(WeightError::Underflow("ancestor cycles"))?,
                 self.ancestors_fee
                     .as_u64()
                     .checked_sub(delta.fee)
-                    .expect("ancestor fee cannot underflow"),
-            );
-        }
+                    .ok_or(WeightError::Underflow("ancestor fee"))?,
+            ),
+        };
+        self.ancestors_count = count;
+        self.ancestors_size = size;
+        self.ancestors_cycles = cycles;
+        self.ancestors_fee = Capacity::shannons(fee);
+        Ok(())
     }
 
-    fn apply_descendant_delta(&mut self, delta: WeightDelta, add: bool) {
-        if add {
-            self.descendants_count = self
-                .descendants_count
-                .checked_add(delta.count)
-                .expect("descendant count cannot overflow");
-            self.descendants_size = self
-                .descendants_size
-                .checked_add(delta.size)
-                .expect("descendant size cannot overflow");
-            self.descendants_cycles = self
-                .descendants_cycles
-                .checked_add(delta.cycles)
-                .expect("descendant cycles cannot overflow");
-            self.descendants_fee = Capacity::shannons(
+    fn apply_descendant_delta(
+        &mut self,
+        delta: WeightDelta,
+        operation: WeightOperation,
+    ) -> Result<(), WeightError> {
+        let (count, size, cycles, fee) = match operation {
+            WeightOperation::Add => (
+                self.descendants_count
+                    .checked_add(delta.count)
+                    .ok_or(WeightError::Overflow("descendant count"))?,
+                self.descendants_size
+                    .checked_add(delta.size)
+                    .ok_or(WeightError::Overflow("descendant size"))?,
+                self.descendants_cycles
+                    .checked_add(delta.cycles)
+                    .ok_or(WeightError::Overflow("descendant cycles"))?,
                 self.descendants_fee
                     .as_u64()
                     .checked_add(delta.fee)
-                    .expect("descendant fee cannot overflow"),
-            );
-        } else {
-            self.descendants_count = self
-                .descendants_count
-                .checked_sub(delta.count)
-                .expect("descendant count cannot underflow");
-            self.descendants_size = self
-                .descendants_size
-                .checked_sub(delta.size)
-                .expect("descendant size cannot underflow");
-            self.descendants_cycles = self
-                .descendants_cycles
-                .checked_sub(delta.cycles)
-                .expect("descendant cycles cannot underflow");
-            self.descendants_fee = Capacity::shannons(
+                    .ok_or(WeightError::Overflow("descendant fee"))?,
+            ),
+            WeightOperation::Subtract => (
+                self.descendants_count
+                    .checked_sub(delta.count)
+                    .ok_or(WeightError::Underflow("descendant count"))?,
+                self.descendants_size
+                    .checked_sub(delta.size)
+                    .ok_or(WeightError::Underflow("descendant size"))?,
+                self.descendants_cycles
+                    .checked_sub(delta.cycles)
+                    .ok_or(WeightError::Underflow("descendant cycles"))?,
                 self.descendants_fee
                     .as_u64()
                     .checked_sub(delta.fee)
-                    .expect("descendant fee cannot underflow"),
-            );
-        }
+                    .ok_or(WeightError::Underflow("descendant fee"))?,
+            ),
+        };
+        self.descendants_count = count;
+        self.descendants_size = size;
+        self.descendants_cycles = cycles;
+        self.descendants_fee = Capacity::shannons(fee);
+        Ok(())
     }
 
     /// Reset ancestor state by remove

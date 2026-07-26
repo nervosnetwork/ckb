@@ -407,13 +407,16 @@ impl TxPoolService {
     }
 
     #[cfg(feature = "internal")]
-    async fn handle_plug_entry(&self, req: SyncRequest<(Vec<TxEntry>, PlugTarget), ()>) {
+    async fn handle_plug_entry(
+        &self,
+        req: SyncRequest<(Vec<TxEntry>, PlugTarget), Result<(), crate::error::Reject>>,
+    ) {
         let SyncRequest {
             responder,
             arguments: (entries, target),
         } = req;
-        self.plug_entry(entries, target).await;
-        respond(responder, (), "plug_entry");
+        let result = self.plug_entry(entries, target).await;
+        respond(responder, result, "plug_entry");
     }
 
     #[cfg(feature = "internal")]
@@ -425,10 +428,18 @@ impl TxPoolService {
         let max_block_cycles = self.pool.consensus.max_block_cycles();
         let max_block_bytes = self.pool.consensus.max_block_bytes();
         let tx_pool = self.pool.tx_pool.read().await;
-        let (txs, _size, _cycles) = tx_pool.package_txs(
+        let txs = match tx_pool.package_txs(
             max_block_cycles,
             bytes_limit.unwrap_or(max_block_bytes) as usize,
-        );
+        ) {
+            Ok((txs, _size, _cycles)) => txs,
+            Err(error) => {
+                self.pipeline
+                    .kernel
+                    .report_fault("internal package transaction selection failed", &error);
+                Vec::new()
+            }
+        };
         respond(responder, txs, "package_txs");
     }
 

@@ -1,7 +1,7 @@
 //! Ordered resolution worker backed exclusively by the pre-pool kernel.
 
 use crate::component::pre_pool::{
-    DependencyKey, ResolveLane, ResolveLease, VerifySchedule, WorkCapability, WorkLane,
+    DependencyKey, ResolveLane, ResolveLease, VerifySchedule, WorkLane,
 };
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
@@ -10,7 +10,7 @@ use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerRunner};
 use ckb_async_runtime::Handle;
-use ckb_logger::{debug, error};
+use ckb_logger::debug;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::core::FeeRate;
@@ -44,7 +44,6 @@ pub(crate) async fn resolve_job(
         }) => {
             debug!("resolve stage resolved tx {}", tx.proposal_short_id());
             ResolveStageResult::Ready(ResolvedTx {
-                tx,
                 rtx,
                 status,
                 fee,
@@ -102,21 +101,7 @@ impl TxPoolService {
             return;
         }
 
-        let resolved = match crate::worker::catch_job_panic(resolve_job(
-            self,
-            tx.clone(),
-            source,
-            epoch,
-        ))
-        .await
-        {
-            Ok(resolved) => resolved,
-            Err(message) => {
-                error!("tx-pool resolver panicked on {}: {}", lease.hash, message);
-                self.settle_pipeline_raw_lease(&lease, None).await;
-                return;
-            }
-        };
+        let resolved = resolve_job(self, tx.clone(), source, epoch).await;
 
         match resolved {
             ResolveStageResult::Ready(resolved) => {
@@ -156,7 +141,10 @@ impl TxPoolService {
                     Err(error) if error.is_stale_lease() => {}
                     Err(error) => {
                         if !error.is_transaction_rejection() {
-                            panic!("raw completion invariant failed: {error:?}")
+                            self.pipeline
+                                .kernel
+                                .report_fault("raw completion invariant failed", &error);
+                            return;
                         }
                         let reject = crate::component::pre_pool::pre_pool_reject(error);
                         let public_reject = (!matches!(reject, Reject::Full(_))).then_some(reject);
@@ -208,7 +196,7 @@ impl JobHandler for ResolveHandler {
         self.service
             .pipeline
             .kernel
-            .subscribe(WorkLane::Resolve, WorkCapability::Any)
+            .subscribe_resolve(ResolveLane::Ordered)
     }
 
     async fn pop_one(&mut self) -> Option<ResolveLease> {
@@ -219,7 +207,13 @@ impl JobHandler for ResolveHandler {
             .checkout_resolve(ResolveLane::Ordered)
         {
             Ok(lease) => lease,
-            Err(error) => panic!("ordered resolve checkout invariant failed: {error:?}"),
+            Err(error) => {
+                self.service
+                    .pipeline
+                    .kernel
+                    .report_fault("ordered resolve checkout invariant failed", &error);
+                None
+            }
         }
     }
 

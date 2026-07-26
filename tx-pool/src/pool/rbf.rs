@@ -6,7 +6,9 @@
 
 use super::TxPool;
 use crate::component::TxEntry;
-use crate::component::pool_map::{ConflictClosure, PoolEntry};
+use crate::component::pool_map::{
+    ConflictClosure, PoolEntry, PoolMutationFault, PoolMutationPlanningError,
+};
 use crate::constants::MAX_POOL_MUTATION_CANDIDATES;
 use crate::error::Reject;
 use ckb_logger::error;
@@ -78,8 +80,10 @@ impl TxPool {
         &self,
         snapshot: &Snapshot,
         entry: &TxEntry,
-    ) -> Result<RbfCheck, Reject> {
-        assert!(self.enable_rbf());
+    ) -> Result<RbfCheck, PoolMutationPlanningError> {
+        if !self.enable_rbf() {
+            return Err(Reject::RBFRejected("RBF is disabled".to_string()).into());
+        }
         let tx_inputs: Vec<OutPoint> = entry.transaction().input_pts_iter().collect();
         let conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
 
@@ -91,11 +95,13 @@ impl TxPool {
         }
 
         // Rule #1, the node has enabled RBF, which is checked by caller
-        let conflicts = conflict_ids
-            .iter()
-            .filter_map(|id| self.get_pool_entry(id))
-            .collect::<Vec<_>>();
-        assert!(conflicts.len() == conflict_ids.len());
+        let mut conflicts = Vec::with_capacity(conflict_ids.len());
+        for id in &conflict_ids {
+            conflicts.push(
+                self.get_pool_entry(id)
+                    .ok_or(PoolMutationFault::MissingEntry("RBF conflict index"))?,
+            );
+        }
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
         self.check_rbf_no_new_unconfirmed_inputs(&conflicts, &tx_inputs, snapshot)?;
@@ -113,7 +119,8 @@ impl TxPool {
                 return Err(Reject::RBFRejected(format!(
                     "Tx conflict with too many txs, conflict txs count: >= {}, expect <= {}",
                     count_lower_bound, MAX_POOL_MUTATION_CANDIDATES,
-                )));
+                ))
+                .into());
             }
             ConflictClosure::Complete {
                 removal,
@@ -189,7 +196,8 @@ impl TxPool {
         let mut all_conflicted = conflicts.to_vec();
         let mut seen_ids: HashSet<ProposalShortId> =
             conflicts.iter().map(|c| c.id.clone()).collect();
-        let mut ancestors: HashSet<ProposalShortId> = HashSet::with_capacity(tx_inputs.len() * 2);
+        let mut ancestors: HashSet<ProposalShortId> =
+            HashSet::with_capacity(tx_inputs.len().saturating_mul(2));
         // Include inputs in ancestor set. Kept separate from
         // `PoolMap::get_tx_ancestors`: that one also walks cell-dep parents,
         // which would broaden the disjointness check below and reject

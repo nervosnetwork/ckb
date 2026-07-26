@@ -12,7 +12,7 @@ pub(crate) fn update_tx_pool_for_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     mine_mode: bool,
-) -> Result<ReorgOutcome, Reject> {
+) -> Result<ReorgOutcome, PoolMutationFault> {
     let mut outcome = begin_tx_pool_reorg(
         tx_pool,
         attached,
@@ -20,8 +20,8 @@ pub(crate) fn update_tx_pool_for_reorg(
         detached_proposal_id,
         snapshot,
         mine_mode,
-    );
-    finish_tx_pool_reorg(tx_pool, &mut outcome);
+    )?;
+    finish_tx_pool_reorg(tx_pool, &mut outcome)?;
     Ok(outcome)
 }
 

@@ -1,7 +1,7 @@
 use ckb_types::packed::ProposalShortId;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct TxLinks {
     pub parents: HashSet<ProposalShortId>,
     pub children: HashSet<ProposalShortId>,
@@ -85,6 +85,10 @@ impl TxLinksMap {
 
     pub fn get_children(&self, short_id: &ProposalShortId) -> Option<&HashSet<ProposalShortId>> {
         self.inner.get(short_id).map(|link| &link.children)
+    }
+
+    pub(crate) fn get(&self, short_id: &ProposalShortId) -> Option<&TxLinks> {
+        self.inner.get(short_id)
     }
 
     pub fn get_parents(&self, short_id: &ProposalShortId) -> Option<&HashSet<ProposalShortId>> {

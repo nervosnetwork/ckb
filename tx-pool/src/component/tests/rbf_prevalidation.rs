@@ -142,34 +142,22 @@ async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
     let tx = TransactionBuilder::default().build();
     let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE);
     let id = entry.proposal_short_id();
-    let effect_bound = service.max_submit_effect_bytes();
     let outcome = {
         let mut guard = service.pool.tx_pool.write().await;
         let snapshot = guard.cloned_snapshot();
-        service
-            .relay
-            .effects
-            .try_apply_bounded(
-                effect_bound,
-                crate::service::effects::EffectClass::Trusted,
-                || {
-                    let mut outcome = service.try_submit_entry(
-                        &mut guard,
-                        Arc::clone(&snapshot),
-                        snapshot.tip_hash(),
-                        entry,
-                        Status::Pending,
-                        id.clone(),
-                    );
-                    assert!(
-                        !callback_ran.load(Ordering::SeqCst),
-                        "try_submit_entry must only collect callback side effects"
-                    );
-                    let batch = service.prepare_submit_effects(&mut outcome, Vec::new());
-                    (outcome, batch)
-                },
-            )
-            .unwrap()
+        let outcome = service.try_submit_entry(
+            &mut guard,
+            Arc::clone(&snapshot),
+            snapshot.tip_hash(),
+            entry,
+            Status::Pending,
+            id,
+        );
+        assert!(
+            !callback_ran.load(Ordering::SeqCst),
+            "admission Apply must only journal callback side effects"
+        );
+        outcome
     };
     outcome.result.unwrap();
     service.relay.effects.wait_idle().await;
@@ -221,12 +209,7 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     );
     let attack_id = attack_entry.proposal_short_id();
 
-    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
-        result,
-        reject_events,
-        accept_event: _,
-        ..
-    } = {
+    let outcome = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -243,8 +226,10 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
     // The replacement is rejected *before* any removal: nothing was
     // evicted, nothing needs recovering, and the victim cluster never left
     // the pool.
-    assert!(result.is_err(), "the invalid replacement must be rejected");
-    assert!(reject_events.is_empty());
+    assert!(
+        outcome.result.is_err(),
+        "the invalid replacement must be rejected"
+    );
     let tx_pool = service.pool.tx_pool.read().await;
     let resident = |tx: &ckb_types::core::TransactionView| {
         tx_pool
@@ -343,12 +328,7 @@ async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
     let n_id = n.proposal_short_id();
     let n_entry = TxEntry::dummy_resolve(n.clone(), MOCK_CYCLES, Capacity::zero(), 100);
 
-    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
-        result,
-        reject_events,
-        accept_event: _,
-        ..
-    } = {
+    let outcome = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
@@ -364,7 +344,7 @@ async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
 
     // Plan sees N lose the capacity policy and rejects before Apply.
     assert!(
-        result.is_err(),
+        outcome.result.is_err(),
         "the zero-fee entry must self-evict under the pool limit"
     );
     assert!(
@@ -378,10 +358,8 @@ async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
         "the reader never leaves the accepted pool"
     );
     assert!(
-        !reject_events
-            .iter()
-            .any(|(entry, _)| entry.transaction().hash() == e.hash()),
-        "E's Invalidated reject event must be suppressed once it is recovered"
+        outcome.assembler_statuses.is_empty(),
+        "a mutation-free rejection cannot publish a removal for E"
     );
 }
 
@@ -466,7 +444,7 @@ async fn failed_size_plan_is_mutation_free_with_original_statuses() {
         outcome
     };
 
-    assert!(outcome.reject_events.is_empty());
+    assert!(outcome.assembler_statuses.is_empty());
 }
 
 /// A successful replacement must not re-enqueue the descendants it
@@ -521,37 +499,30 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
         Capacity::shannons(1_000_000_000),
         MOCK_SIZE,
     );
-    let (outcome, assembler_statuses) = {
+    let outcome = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
-        let (outcome, _) = service.pipeline.kernel.mutate(|kernel| {
-            service.try_submit_entry_with_handoff(
-                &mut tx_pool,
-                snapshot,
-                pre_resolve_tip,
-                replacement_entry.clone(),
-                |tx_pool, plan| {
-                    service.settle_kernel_for_pool_plan(kernel, tx_pool, &replacement_entry, plan)
-                },
-            )
-        });
-        let statuses = outcome.block_assembler_statuses();
-        (outcome, statuses)
+        let replacement_id = replacement_entry.proposal_short_id();
+        service.try_submit_entry(
+            &mut tx_pool,
+            snapshot,
+            pre_resolve_tip,
+            replacement_entry,
+            Status::Pending,
+            replacement_id,
+        )
     };
     assert_eq!(
-        assembler_statuses,
+        outcome.assembler_statuses,
         std::collections::HashSet::from([Status::Pending, Status::Proposed]),
         "template refresh must include both the new Pending entry and the removed Proposed root"
     );
-    let crate::process::submit::rbf_commit::SubmitEntryOutcome {
-        result,
-        reject_events: _events,
-        accept_event: _,
-        ..
-    } = outcome;
-
-    assert!(result.is_ok(), "replacement must commit: {:?}", result);
+    assert!(
+        outcome.result.is_ok(),
+        "replacement must commit: {:?}",
+        outcome.result
+    );
     // The whole removed cluster stays in the conflict cache as rejected
     // candidates (the audit/RPC view, see `RbfReplaceProposedSuccess`).
     let _tx_pool = service.pool.tx_pool.read().await;

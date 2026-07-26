@@ -57,6 +57,22 @@ async fn clear_pool_resets_template_and_notifies_miner_immediately() {
 
     // The production consumer drains Reset before every received wake.
     crate::block_assembler::process(h.service.clone(), &BlockAssemblerMessage::Reset).await;
+    let reconciled = h
+        .service
+        .relay
+        .load_block_assembler_dirty()
+        .into_iter()
+        .map(|(message, _)| message)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reconciled,
+        vec![
+            BlockAssemblerMessage::Pending,
+            BlockAssemblerMessage::Proposed,
+            BlockAssemblerMessage::Uncle,
+        ],
+        "an unconditional reset reissues every optimistic partial generation"
+    );
     let current = h
         .service
         .block_assembler
@@ -83,7 +99,8 @@ async fn stale_block_assembler_reset_ack_preserves_newer_generation() {
 
     h.service
         .relay
-        .mark_block_assembler_reset(Arc::clone(&snapshot));
+        .mark_block_assembler_reset(Arc::clone(&snapshot))
+        .unwrap();
     let (loaded_generation, loaded_snapshot) = h
         .service
         .relay
@@ -92,7 +109,8 @@ async fn stale_block_assembler_reset_ack_preserves_newer_generation() {
     assert!(Arc::ptr_eq(&loaded_snapshot, &snapshot));
     h.service
         .relay
-        .mark_block_assembler_reset(Arc::clone(&snapshot));
+        .mark_block_assembler_reset(Arc::clone(&snapshot))
+        .unwrap();
 
     h.service
         .relay
@@ -325,7 +343,7 @@ async fn sort_txs_by_dependencies_orders_parents_before_children() {
 
     // Shuffle: child first, then grandchild, then parent.
     let mut txs = vec![tx_c.clone(), tx_b.clone(), tx_a.clone()];
-    TxPoolService::sort_txs_by_dependencies(&mut txs);
+    TxPoolService::sort_txs_by_dependencies(&mut txs).unwrap();
 
     assert_eq!(txs[0], tx_a);
     assert_eq!(txs[1], tx_b);
@@ -347,7 +365,7 @@ async fn sort_txs_by_dependencies_keeps_original_order_on_cycle() {
         .map(|out_point| build_tx(&out_point, 4_000))
         .collect::<Vec<_>>();
     let original = txs.clone();
-    TxPoolService::sort_txs_by_dependencies(&mut txs);
+    TxPoolService::sort_txs_by_dependencies(&mut txs).unwrap();
     assert_eq!(txs, original);
 
     signal.cancel();

@@ -1,25 +1,5 @@
 use super::*;
 
-#[tokio::test]
-async fn catch_job_panic_captures_panic_and_lets_work_continue() {
-    let mut completed = Vec::new();
-
-    let panicked = catch_job_panic(async {
-        panic!("deterministic test panic");
-    })
-    .await;
-    assert!(panicked.is_err());
-    assert!(panicked.unwrap_err().contains("deterministic test panic"));
-
-    // The worker can keep processing subsequent jobs after a panic.
-    let ok = catch_job_panic(async {
-        completed.push(1);
-    })
-    .await;
-    assert!(ok.is_ok());
-    assert_eq!(completed, vec![1]);
-}
-
 #[derive(Clone)]
 struct NoopHandler;
 

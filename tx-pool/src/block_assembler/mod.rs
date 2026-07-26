@@ -35,18 +35,19 @@ use ckb_types::{
     },
     prelude::*,
 };
+use ckb_util::Mutex as StdMutex;
 use http_body_util::Full;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use std::collections::HashSet;
 use std::sync::{
-    Arc, Mutex as StdMutex,
+    Arc,
     atomic::{AtomicU64, Ordering},
 };
 use std::{cmp, iter};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::TxPool;
-pub(crate) use builder::BlockTemplateBuilder;
+pub(crate) use builder::{BlockTemplateBuilder, BlockTemplateDraft};
 pub(crate) use process::{ResetApply, process, process_reset};
 pub(crate) use state::{CurrentTemplate, TemplateSize};
 
@@ -83,15 +84,12 @@ pub struct BlockAssembler {
 
 impl BlockAssembler {
     /// Construct new block generator
-    pub fn new(
-        config: BlockAssemblerConfig,
-        snapshot: Arc<Snapshot>,
-    ) -> Result<Self, BlockAssemblerError> {
+    pub fn new(config: BlockAssemblerConfig, snapshot: Arc<Snapshot>) -> Result<Self, AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let current_epoch = consensus
             .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
-            .expect("tip header's epoch should be stored")
+            .ok_or(BlockAssemblerError::MissingTipEpoch)?
             .epoch();
 
         let work_id = AtomicU64::new(0);
@@ -105,8 +103,7 @@ impl BlockAssembler {
             &current_epoch,
             vec![],
             &cell_liveness_memo,
-        )
-        .expect("build initial blank template for BlockAssembler");
+        )?;
 
         Ok(Self {
             config: Arc::new(config),
@@ -141,35 +138,33 @@ impl BlockAssembler {
         memo: &StdMutex<CellLivenessMemo>,
     ) -> Result<CurrentTemplate, AnyError> {
         let tip_header = snapshot.tip_header();
-        let mut builder = BlockTemplateBuilder::new(&snapshot, current_epoch)?;
+        let mut draft = BlockTemplateDraft::new(&snapshot, current_epoch)?;
 
         let cellbase = Self::build_cellbase(config, &snapshot)?;
         let extension = Self::build_extension(&snapshot)?;
         let basic_block_size =
             Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
-        let uncles_size = Self::uncles_size(&uncles);
+        let uncles_size = Self::uncles_size(&uncles)?;
 
         let (dao, _checked_txs, _failed_txs) =
             Self::calc_dao(&snapshot, current_epoch, cellbase.clone(), vec![], memo)?;
 
-        builder
-            .transactions(vec![])
-            .proposals(vec![])
-            .cellbase(cellbase)
-            .uncles(uncles)
-            .work_id(work_id.fetch_add(1, Ordering::SeqCst))
-            .current_time(cmp::max(
+        draft.uncles(uncles);
+        if let Some(data) = extension {
+            draft.extension(data);
+        }
+        let template = draft.build(
+            cellbase,
+            work_id.fetch_add(1, Ordering::SeqCst),
+            dao,
+            cmp::max(
                 unix_time_as_millis(),
                 tip_header
                     .timestamp()
                     .checked_add(1)
                     .ok_or(BlockAssemblerError::Overflow)?,
-            ))
-            .dao(dao);
-        if let Some(data) = extension {
-            builder.extension(data);
-        }
-        let template = builder.build();
+            ),
+        );
 
         let size = TemplateSize {
             txs: 0,
@@ -228,12 +223,15 @@ impl BlockAssembler {
 
             let max_block_cycles = consensus.max_block_cycles();
             let (txs, _txs_size, _cycles) =
-                tx_pool_reader.package_txs(max_block_cycles, txs_size_limit);
+                tx_pool_reader.package_txs(max_block_cycles, txs_size_limit)?;
             (proposals, uncles, txs, basic_size)
         };
 
-        let proposals_size = proposals.len() * ProposalShortId::serialized_size();
-        let uncles_size = Self::uncles_size(&uncles);
+        let proposals_size = proposals
+            .len()
+            .checked_mul(ProposalShortId::serialized_size())
+            .ok_or(BlockAssemblerError::Overflow)?;
+        let uncles_size = Self::uncles_size(&uncles)?;
         let (dao, checked_txs, failed_txs) = Self::calc_dao(
             &current.snapshot,
             &current.epoch,
@@ -316,9 +314,9 @@ impl BlockAssembler {
 
     pub(crate) async fn reset_template(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         // Serialize with `update_full` so that a reorg finalization and an
-        // explicit reset never interleave with each other. Uncle updates also
-        // take this lock because full rebuilds carry their state forward;
-        // proposal/transaction updates remain concurrent and version-guarded.
+        // explicit reset never interleave with each other. Every partial
+        // update remains concurrent and version-guarded; the caller reissues
+        // all level-triggered delta generations after this unconditional swap.
         //
         // The swap is always unconditional (`expected_version = None`): both
         // callers (reorg finalization and the management `Reset` message,
@@ -329,7 +327,7 @@ impl BlockAssembler {
         let consensus = snapshot.consensus();
         let current_epoch = consensus
             .next_epoch_ext(snapshot.tip_header(), &snapshot.borrow_as_data_loader())
-            .expect("tip header's epoch should be stored")
+            .ok_or(BlockAssemblerError::MissingTipEpoch)?
             .epoch();
 
         let uncles = self.prepare_uncles(&snapshot, &current_epoch).await;
@@ -400,13 +398,10 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn update_uncles(&self) -> bool {
-        // Serialize with `update_full`/`reset_template`: `update_full`
-        // carries the uncle set forward from the template it read, so an
-        // uncles update landing between its read and its (unconditional)
-        // swap would be silently reverted. The other partial updates are
-        // rebuilt from the pool on every `update_full`, so they do not
-        // need this lock.
-        let _template_guard = self.template_lock.lock().await;
+        // Uncle work follows the same optimistic protocol as proposals and
+        // transactions. A racing full/reset swap invalidates this version;
+        // if this update lands first, that high-priority writer reissues the
+        // Uncle generation after its unconditional replacement.
         let (current, version) = {
             let guard = self.current.read().await;
             (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
@@ -476,7 +471,9 @@ impl BlockAssembler {
             &proposal_set,
         );
 
-        let new_uncles_size = Self::uncles_size(&uncles);
+        let Ok(new_uncles_size) = Self::uncles_size(&uncles) else {
+            return false;
+        };
         let Some(base_total_size) = current
             .size
             .calc_total_by_uncles_and_proposals(new_uncles_size, 0)
@@ -510,10 +507,10 @@ impl BlockAssembler {
     ) -> Option<(usize, usize)> {
         let available = max_block_bytes.checked_sub(base_total_size)?;
         let id_size = ProposalShortId::serialized_size();
-        let fit_count = (available / id_size).min(proposals.len());
+        let fit_count = available.checked_div(id_size)?.min(proposals.len());
         proposals.truncate(fit_count);
-        let proposals_size = fit_count * id_size;
-        Some((proposals_size, base_total_size + proposals_size))
+        let proposals_size = fit_count.checked_mul(id_size)?;
+        Some((proposals_size, base_total_size.checked_add(proposals_size)?))
     }
 
     /// Keep the prepared uncle prefix that fits after removing the current
@@ -527,15 +524,15 @@ impl BlockAssembler {
     ) -> Option<(usize, usize)> {
         let base_total_size = current_size.total.checked_sub(current_size.uncles)?;
         let available = max_block_bytes.checked_sub(base_total_size)?;
-        let mut fit_count = 0;
+        let mut fit_count = 0usize;
         let mut uncles_size = 0usize;
         for uncle in uncles.iter() {
-            let next_size = uncles_size.checked_add(Self::uncle_size(uncle))?;
+            let next_size = uncles_size.checked_add(Self::uncle_size(uncle).ok()?)?;
             if next_size > available {
                 break;
             }
             uncles_size = next_size;
-            fit_count += 1;
+            fit_count = fit_count.checked_add(1)?;
         }
         uncles.truncate(fit_count);
         Some((uncles_size, base_total_size.checked_add(uncles_size)?))
@@ -574,15 +571,13 @@ impl BlockAssembler {
                 current_template.extension.clone(),
             );
 
-            let txs_size_limit = max_block_bytes.checked_sub(basic_block_size);
-
-            if txs_size_limit.is_none() {
+            let Some(txs_size_limit) = max_block_bytes.checked_sub(basic_block_size) else {
                 return Ok(false);
-            }
+            };
 
             let max_block_cycles = consensus.max_block_cycles();
-            let (txs, _txs_size, _cycles) = tx_pool_reader
-                .package_txs(max_block_cycles, txs_size_limit.expect("overflow checked"));
+            let (txs, _txs_size, _cycles) =
+                tx_pool_reader.package_txs(max_block_cycles, txs_size_limit)?;
             txs
         };
 
@@ -781,20 +776,24 @@ impl BlockAssembler {
     /// basis (`serialized_size_without_uncle_proposals`, the same basis as
     /// `basic_block_size` and the consensus block-bytes limit): the packed
     /// in-block size minus its proposal ids.
-    fn uncle_size(uncle: &UncleBlockView) -> usize {
+    fn uncle_size(uncle: &UncleBlockView) -> Result<usize, BlockAssemblerError> {
         let proposal_bytes = uncle
             .data()
             .proposals()
             .len()
             .checked_mul(ProposalShortId::serialized_size())
-            .expect("uncle proposal byte count cannot overflow");
+            .ok_or(BlockAssemblerError::Overflow)?;
         UncleBlockView::serialized_size_in_block()
             .checked_sub(proposal_bytes)
-            .expect("uncle serialization includes its proposal bytes")
+            .ok_or(BlockAssemblerError::Overflow)
     }
 
-    fn uncles_size(uncles: &[UncleBlockView]) -> usize {
-        uncles.iter().map(Self::uncle_size).sum()
+    fn uncles_size(uncles: &[UncleBlockView]) -> Result<usize, BlockAssemblerError> {
+        uncles.iter().try_fold(0usize, |total, uncle| {
+            total
+                .checked_add(Self::uncle_size(uncle)?)
+                .ok_or(BlockAssemblerError::Overflow)
+        })
     }
 
     pub(crate) fn basic_block_size<'a>(

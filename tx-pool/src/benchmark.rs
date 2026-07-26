@@ -219,7 +219,8 @@ fn build_bench_service(
         block_assembler_sender,
         verify_cache_sender,
         signal.clone(),
-    );
+    )
+    .expect("benchmark pipeline configuration is valid");
     let effect_publisher = builder.handle.spawn(run_effect_publisher(
         Arc::clone(&service.relay.effects),
         EffectEndpoints {
