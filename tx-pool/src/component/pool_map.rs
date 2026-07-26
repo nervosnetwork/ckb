@@ -600,31 +600,37 @@ impl PoolMap {
             return Ok(evicted);
         }
 
-        if ancestors_count.saturating_sub(cell_ref_parents.len()) <= self.max_ancestors_count {
-            // if ancestors count exceed limitation,
-            // try to evict some conflicted transactions due to ref cells
-
-            // sort them to find out the transactions with lowest fees
-            let evict_candidates: Vec<ProposalShortId> = self
-                .entries
-                .iter_by_evict_key()
-                .filter(move |entry| cell_ref_parents.contains(&entry.id))
-                .map(|x| x.id.clone())
-                .collect();
-
-            let mut iter = evict_candidates.iter();
-            while ancestors_count > self.max_ancestors_count {
-                if let Some(next_id) = iter.next() {
-                    let removed = self.remove_entry_and_descendants(next_id);
-                    ancestors_count = ancestors_count.saturating_sub(1);
-                    parents.remove(next_id);
-                    evicted.extend(removed);
-                } else {
-                    break;
-                }
-            }
-        } else {
+        if ancestors_count.saturating_sub(cell_ref_parents.len()) > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+
+        // if ancestors count exceed limitation,
+        // try to evict some conflicted transactions due to ref cells
+
+        // sort them to find out the transactions with lowest fees
+        let evict_candidates: Vec<ProposalShortId> = self
+            .entries
+            .iter_by_evict_key()
+            .filter(move |entry| cell_ref_parents.contains(&entry.id))
+            .map(|x| x.id.clone())
+            .collect();
+
+        let mut iter = evict_candidates.iter();
+        while ancestors_count > self.max_ancestors_count {
+            if let Some(next_id) = iter.next() {
+                let removed = self.remove_entry_and_descendants(next_id);
+                for removed_id in removed.iter().map(|entry| entry.proposal_short_id()) {
+                    parents.remove(&removed_id);
+                }
+                ancestors_count = self
+                    .links
+                    .calc_relation_ids(parents.clone(), Relation::Parents)
+                    .len()
+                    + 1;
+                evicted.extend(removed);
+            } else {
+                break;
+            }
         }
 
         // some txs in `parents` are removed, now `ancestors` need to re-caculate,

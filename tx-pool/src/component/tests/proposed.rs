@@ -696,6 +696,58 @@ fn test_max_ancestors_with_dep() {
 }
 
 #[test]
+fn test_max_ancestors_evicts_stale_parent_descendant() {
+    let mut pool = PoolMap::new(2);
+    let dep_hash: Byte32 = h256!("0x1").into();
+
+    let tx1 = build_tx_with_dep(vec![(&Byte32::zero(), 0)], vec![(&dep_hash, 0)], 1);
+    let tx1_id = tx1.proposal_short_id();
+    let tx1_hash = tx1.hash();
+
+    let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+    let tx2_id = tx2.proposal_short_id();
+    let tx2_hash = tx2.hash();
+
+    let tx3 = build_tx(vec![(&dep_hash, 0), (&tx2_hash, 0)], 1);
+    let tx3_id = tx3.proposal_short_id();
+
+    pool.add_proposed(TxEntry::new(
+        dummy_resolve(tx1, |_| None),
+        MOCK_CYCLES,
+        MOCK_FEE,
+        MOCK_SIZE,
+    ))
+    .unwrap();
+    pool.add_proposed(TxEntry::dummy_resolve(
+        tx2,
+        MOCK_CYCLES,
+        MOCK_FEE,
+        MOCK_SIZE,
+    ))
+    .unwrap();
+
+    let (inserted, evicted) = pool
+        .add_entry(
+            TxEntry::dummy_resolve(tx3, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE),
+            Status::Proposed,
+        )
+        .unwrap();
+    assert!(inserted);
+
+    let evicted_ids: HashSet<_> = evicted
+        .iter()
+        .map(|entry| entry.proposal_short_id())
+        .collect();
+    assert_eq!(evicted_ids.len(), 2);
+    assert!(evicted_ids.contains(&tx1_id));
+    assert!(evicted_ids.contains(&tx2_id));
+    assert!(pool.get(&tx1_id).is_none());
+    assert!(pool.get(&tx2_id).is_none());
+    assert!(pool.get(&tx3_id).is_some());
+    assert!(pool.calc_ancestors(&tx3_id).is_empty());
+}
+
+#[test]
 fn test_container_bench_add_limits() {
     use rand::Rng;
     let mut rng = rand::thread_rng();
