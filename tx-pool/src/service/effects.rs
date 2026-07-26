@@ -274,40 +274,24 @@ impl TxPoolEffect {
 
 pub(crate) struct EffectBatch {
     effects: Vec<TxPoolEffect>,
-    /// A generation reset is a replaceable authority record, not an ordinary
-    /// FIFO resident. Keeping the marker separate lets a saturated journal
-    /// linearize it without borrowing or waiting for any batch capacity.
-    generation_reset: bool,
     next: AtomicUsize,
     charge_bytes: usize,
 }
 
 impl EffectBatch {
     pub(crate) fn new(effects: Vec<TxPoolEffect>) -> Option<Self> {
-        let mut generation_reset = false;
-        let effects: Vec<_> = effects
-            .into_iter()
-            .filter_map(|effect| {
-                if matches!(
-                    effect,
-                    TxPoolEffect::Relay(TxVerificationResult::GenerationReset)
-                ) {
-                    generation_reset = true;
-                    None
-                } else {
-                    Some(effect.into_compact())
-                }
-            })
-            .collect();
-        if effects.is_empty() && !generation_reset {
+        if effects.is_empty() {
             return None;
         }
+        let effects: Vec<_> = effects
+            .into_iter()
+            .map(TxPoolEffect::into_compact)
+            .collect();
         let charge_bytes = effects.iter().fold(0usize, |total, effect| {
             total.saturating_add(effect.charge_bytes())
         });
         Some(Self {
             effects,
-            generation_reset,
             next: AtomicUsize::new(0),
             charge_bytes,
         })
@@ -316,14 +300,9 @@ impl EffectBatch {
     fn reset_record() -> Self {
         Self {
             effects: vec![TxPoolEffect::Relay(TxVerificationResult::GenerationReset)],
-            generation_reset: false,
             next: AtomicUsize::new(0),
             charge_bytes: 0,
         }
-    }
-
-    fn has_ordinary_effects(&self) -> bool {
-        !self.effects.is_empty()
     }
 
     pub(crate) fn charge_bytes(&self) -> usize {
@@ -431,14 +410,7 @@ impl JournalState {
         });
     }
 
-    fn push(&mut self, class: EffectClass, mut batch: EffectBatch, reset_batch: &Arc<EffectBatch>) {
-        if batch.generation_reset {
-            self.push_generation_reset(reset_batch);
-            batch.generation_reset = false;
-        }
-        if !batch.has_ordinary_effects() {
-            return;
-        }
+    fn push(&mut self, class: EffectClass, batch: EffectBatch) {
         let sequence = self.allocate_sequence();
         self.charge(class, batch.charge_bytes);
         self.queued.push_back(EffectEnvelope {
@@ -603,18 +575,18 @@ impl EffectJournal {
         };
         let bytes = batch.charge_bytes;
         let max_bytes = self.class_limit(class).bytes;
-        if batch.has_ordinary_effects() && bytes > max_bytes {
+        if bytes > max_bytes {
             return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
-        if batch.has_ordinary_effects() && !self.fits(&state, class, bytes) {
+        if !self.fits(&state, class, bytes) {
             return Err(EffectJournalError::Full);
         }
         let result = apply();
-        state.push(class, batch, &self.generation_reset_batch);
+        state.push(class, batch);
         drop(state);
         self.ready.notify_one();
         Ok(result)
@@ -653,7 +625,7 @@ impl EffectJournal {
             );
             debug_assert!(bytes <= max_bytes);
         }
-        state.push(class, batch, &self.generation_reset_batch);
+        state.push(class, batch);
         drop(state);
         self.ready.notify_one();
         Ok(result)
@@ -696,7 +668,7 @@ impl EffectJournal {
                     );
                     debug_assert!(bytes <= max_detail_bytes);
                 }
-                state.push(class, batch, &self.generation_reset_batch);
+                state.push(class, batch);
             }
         } else {
             debug_assert!(batch.is_none(), "reset fallback must not retain detail");
@@ -714,33 +686,20 @@ impl EffectJournal {
     ) -> Result<(), EffectJournalError> {
         let bytes = batch.charge_bytes;
         let max_bytes = self.class_limit(class).bytes;
-        if batch.has_ordinary_effects() && bytes > max_bytes {
+        if bytes > max_bytes {
             return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
         let mut batch = Some(batch);
         loop {
-            if batch
-                .as_ref()
-                .is_some_and(EffectBatch::has_ordinary_effects)
-            {
-                self.wait_capacity(bytes, class).await?;
-            }
+            self.wait_capacity(bytes, class).await?;
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.closed {
                 return Err(EffectJournalError::Closed);
             }
-            if batch
-                .as_ref()
-                .is_some_and(EffectBatch::has_ordinary_effects)
-                && !self.fits(&state, class, bytes)
-            {
+            if !self.fits(&state, class, bytes) {
                 continue;
             }
-            state.push(
-                class,
-                batch.take().expect("batch appended once"),
-                &self.generation_reset_batch,
-            );
+            state.push(class, batch.take().expect("batch appended once"));
             drop(state);
             self.ready.notify_one();
             return Ok(());

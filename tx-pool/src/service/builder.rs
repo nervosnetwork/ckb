@@ -222,7 +222,7 @@ struct BackgroundWorkerHandles {
     maintenance: tokio::task::JoinHandle<()>,
     commit: tokio::task::JoinHandle<()>,
     pre_check: Vec<tokio::task::JoinHandle<()>>,
-    verify_mgr: tokio::task::JoinHandle<()>,
+    verify: Vec<tokio::task::JoinHandle<()>>,
     resolver: tokio::task::JoinHandle<()>,
     block_assembler: Option<tokio::task::JoinHandle<()>>,
     reorg: Option<tokio::task::JoinHandle<()>>,
@@ -243,7 +243,9 @@ impl BackgroundWorkerHandles {
         for (i, handle) in self.pre_check.into_iter().enumerate() {
             tasks.push((format!("pre-check worker {i}"), handle));
         }
-        tasks.push(("verify manager".to_owned(), self.verify_mgr));
+        for (i, handle) in self.verify.into_iter().enumerate() {
+            tasks.push((format!("verify worker {i}"), handle));
+        }
         tasks.push(("ordered resolver".to_owned(), self.resolver));
         if let Some(handle) = self.block_assembler {
             tasks.push(("block assembler loop".to_owned(), handle));
@@ -474,13 +476,13 @@ impl TxPoolServiceBuilder {
             pre_check_cancel,
             pre_check_workers,
         );
-        let verify_mgr_handle = workers::spawn_verify_mgr_monitor(
+        let verify_handles = crate::verify_mgr::spawn_verify_workers(
             &handle,
             service.clone(),
             chunk_rx.clone(),
-            signal_receiver.clone(),
+            signal_receiver.child_token(),
         );
-        let resolver_handle = workers::spawn_resolver_monitor(
+        let resolver_handle = crate::resolve_mgr::spawn_ordered_resolver(
             &handle,
             service.clone(),
             chunk_rx,
@@ -513,7 +515,7 @@ impl TxPoolServiceBuilder {
                 maintenance: maintenance_handle,
                 commit: commit_handle,
                 pre_check: pre_check_handles,
-                verify_mgr: verify_mgr_handle,
+                verify: verify_handles,
                 resolver: resolver_handle,
                 block_assembler: block_assembler_handle,
                 reorg: Some(reorg_handle),
@@ -783,8 +785,7 @@ impl TxPoolServiceBuilder {
     }
 
     /// Build a bare [`TxPoolService`] and its supporting queues **without**
-    /// spawning any background workers (pre-check pool, [`VerifyMgr`],
-    /// [`OrderedResolver`]).
+    /// spawning any background stage workers.
     ///
     /// Shares the exact same construction as [`Self::start`] via
     /// `assemble_service`; the caller is responsible for spawning the
@@ -833,8 +834,8 @@ impl TxPoolServiceBuilder {
 
 /// Components returned by [`TxPoolServiceBuilder::build_bench_service`].
 ///
-/// The caller must spawn the pre-check workers, [`VerifyMgr`], and
-/// [`OrderedResolver`] using these components.
+/// The caller must spawn the pre-check, verify and ordered-resolve workers
+/// using these components.
 #[cfg(feature = "internal")]
 pub(crate) struct BenchServiceParts {
     pub service: TxPoolService,

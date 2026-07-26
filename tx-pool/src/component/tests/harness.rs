@@ -12,9 +12,7 @@
 
 use crate::callback::Callbacks;
 use crate::pool::TxPool;
-use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::{TxPoolService, TxVerificationResult};
-use crate::verify_mgr::VerifyMgr;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
@@ -245,6 +243,8 @@ impl HarnessBuilder {
         match self.workers {
             WorkerSet::None => {}
             WorkerSet::All => {
+                let runtime =
+                    ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
                 let max_workers = service.pool.tx_pool_config.max_tx_verify_workers.max(1);
                 let pre_check_workers =
                     max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
@@ -252,33 +252,24 @@ impl HarnessBuilder {
                     let svc = service.clone();
                     tokio::spawn(crate::service::workers::run_pre_check_worker_loop(svc));
                 }
-                let mut verify_mgr =
-                    VerifyMgr::new(service.clone(), verify_chunk_rx, signal.child_token());
-                tokio::spawn(async move { verify_mgr.run().await });
-
-                let ordered_resolver = OrderedResolver::new(
+                drop(crate::verify_mgr::spawn_verify_workers(
+                    &runtime,
+                    service.clone(),
+                    verify_chunk_rx,
+                    signal.child_token(),
+                ));
+                drop(crate::resolve_mgr::spawn_ordered_resolver(
+                    &runtime,
                     service.clone(),
                     chunk_tx.subscribe(),
                     signal.child_token(),
-                );
-                let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-                let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-                tokio::spawn(async move {
-                    if let Some((_, ResolveExit::Panicked { message })) =
-                        resolve_exit_rx.recv().await
-                    {
-                        panic!("tx-pool ordered resolver panicked: {message}");
-                    }
-                    let _ = resolver_handle.await;
-                });
+                ));
 
                 // Conflict-cache discovery and dependency/expiry cascades are
                 // part of the production pipeline, not test-only follow-up.
                 // Keeping this worker in the full harness is essential for
                 // end-to-end liveness regressions: manually calling one slice
                 // would bypass notification, saturation, and cascade wiring.
-                let runtime =
-                    ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
                 crate::service::workers::spawn_pipeline_maintenance_worker(
                     &runtime,
                     service.clone(),

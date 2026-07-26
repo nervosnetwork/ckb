@@ -7,8 +7,8 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "P5 generation-disposal convergence",
-    "unit_test_count": 225,
+    "checkpoint": "P5 worker-supervision convergence",
+    "unit_test_count": 226,
     "integration_spec_count": 149
   },
   "baseline": {
@@ -18,7 +18,7 @@
   "release_blockers": [
     {
       "id": "P5-PRODUCTION-SIZE",
-      "reason": "P5 generation/disposal convergence has 19,944 production Rust lines, +1,193 from C5 and above the frozen 14k review envelope; P5 must continue architecture-level deletion before release acceptance"
+      "reason": "P5 worker-supervision convergence has 19,597 production Rust lines, +846 from C5 and above the frozen 14k review envelope; P5 must continue architecture-level deletion before release acceptance"
     }
   ]
 }

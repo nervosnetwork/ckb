@@ -434,18 +434,8 @@ pub(crate) struct TerminalRecord {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct CommitHandoff {
-    pub(crate) raw: Arc<PipelineRawTx>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ExternalCommitRecord {
-    pub(crate) raw: Arc<PipelineRawTx>,
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct CommitSettlement {
-    pub(crate) winner: CommitHandoff,
+    pub(crate) winner: TerminalRecord,
     /// Conflict owners moved to Wait. These records describe the public
     /// superseded outcome; they do not transfer payload ownership.
     pub(crate) retained_conflicts: Vec<TerminalRecord>,

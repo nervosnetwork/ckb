@@ -12,11 +12,34 @@ use futures_util::FutureExt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use tokio::sync::Notify;
-use tokio::sync::{mpsc, watch};
-use tokio::task::JoinHandle;
+use std::time::Duration;
+use tokio::sync::{Notify, watch};
 
 use crate::util::panic_payload_to_string;
+
+/// Bounded exponential delay shared by every retained worker restart loop.
+pub(crate) struct RespawnBackoff {
+    failures: u32,
+}
+
+impl RespawnBackoff {
+    const BASE: Duration = Duration::from_millis(100);
+    const MAX: Duration = Duration::from_secs(30);
+    const HEALTHY_RUN: Duration = Duration::from_secs(60);
+
+    pub(crate) const fn new() -> Self {
+        Self { failures: 0 }
+    }
+
+    pub(crate) fn delay_for(&mut self, ran_for: Duration) -> Duration {
+        if ran_for >= Self::HEALTHY_RUN {
+            self.failures = 0;
+        }
+        let delay = Self::BASE.saturating_mul(2u32.saturating_pow(self.failures.min(10)));
+        self.failures = self.failures.saturating_add(1);
+        delay.min(Self::MAX)
+    }
+}
 
 /// Run a single job's future, catching any panic it raises.
 ///
@@ -33,15 +56,6 @@ pub(crate) async fn catch_job_panic<F: Future<Output = ()>>(fut: F) -> Result<()
     }
 }
 
-/// Outcome of a worker run loop.
-pub(crate) enum WorkerOutcome {
-    /// The worker exited cleanly because the cancellation token fired or the
-    /// command channel was dropped.
-    Stopped,
-    /// The worker panicked while processing a job.
-    Panicked(String),
-}
-
 /// Stage-specific callbacks used by [`WorkerRunner`].
 ///
 /// All methods return `impl Future + Send` explicitly so the runner can be
@@ -50,9 +64,6 @@ pub(crate) enum WorkerOutcome {
 pub(crate) trait JobHandler: Clone + Send + Sync + 'static {
     /// A single item popped from the queue.
     type Job: Send;
-
-    /// Payload sent back to the monitor loop when the worker exits.
-    type Exit: Send + std::fmt::Debug;
 
     /// Human-readable name used only for debug logging.
     fn worker_name(&self) -> &'static str;
@@ -77,9 +88,6 @@ pub(crate) trait JobHandler: Clone + Send + Sync + 'static {
     fn next_deadline(&self) -> impl Future<Output = Option<tokio::time::Instant>> + Send {
         std::future::ready(None)
     }
-
-    /// Build the exit payload reported to the monitor loop.
-    fn make_exit(&self, outcome: WorkerOutcome) -> Self::Exit;
 }
 
 /// Shared worker scheduling skeleton.
@@ -115,23 +123,40 @@ impl<H: JobHandler> WorkerRunner<H> {
         }
     }
 
-    /// Spawn the worker and report its exit via `exit_tx`.
-    pub(crate) fn start(
-        self,
-        worker_id: usize,
-        exit_tx: mpsc::UnboundedSender<(usize, H::Exit)>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut runner = self;
-            let outcome = match AssertUnwindSafe(runner.run()).catch_unwind().await {
-                Ok(()) => WorkerOutcome::Stopped,
-                Err(payload) => WorkerOutcome::Panicked(panic_payload_to_string(payload.as_ref())),
-            };
-            let exit = runner.handler.make_exit(outcome);
-            if let Err(err) = exit_tx.send((worker_id, exit)) {
-                error!("failed to notify tx-pool worker exit: {:?}", err.0);
+    /// Run one supervised worker generation. Queue/handler panics restart with
+    /// bounded backoff; cancellation and command-channel closure are terminal.
+    pub(crate) async fn supervise(self, worker_id: usize) {
+        let mut backoff = RespawnBackoff::new();
+        loop {
+            let mut runner = self.clone();
+            let started = std::time::Instant::now();
+            match AssertUnwindSafe(runner.run()).catch_unwind().await {
+                Ok(()) => {
+                    if !self.exit_signal.is_cancelled() {
+                        error!(
+                            "tx-pool {} {worker_id} stopped because its command channel closed",
+                            self.handler.worker_name()
+                        );
+                    }
+                    break;
+                }
+                Err(payload) => {
+                    if self.exit_signal.is_cancelled() {
+                        break;
+                    }
+                    let delay = backoff.delay_for(started.elapsed());
+                    error!(
+                        "tx-pool {} {worker_id} panicked; respawning in {delay:?}: {}",
+                        self.handler.worker_name(),
+                        panic_payload_to_string(payload.as_ref())
+                    );
+                    tokio::select! {
+                        _ = tokio::time::sleep(delay) => {}
+                        _ = self.exit_signal.cancelled() => break,
+                    }
+                }
             }
-        })
+        }
     }
 
     async fn run(&mut self) {
@@ -155,7 +180,7 @@ impl<H: JobHandler> WorkerRunner<H> {
                         // commands can arrive, and `changed()` would
                         // resolve immediately forever, spinning the loop
                         // at 100% CPU. Channel drop means a clean stop
-                        // (see `WorkerOutcome::Stopped`).
+                        // rather than turning the select loop into a hot spin.
                         break;
                     }
                     self.status = self.command_rx.borrow_and_update().to_owned();

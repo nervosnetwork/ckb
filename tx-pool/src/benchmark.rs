@@ -10,7 +10,6 @@
 //! ```
 
 use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
-use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
@@ -532,28 +531,23 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         }
     }
 
-    // Create a fresh chunk channel shared by VerifyMgr, OrderedResolver and the
-    // service itself (the reorg recovery path needs to observe pause/resume).
+    // Create a fresh command channel shared by stage workers and direct reorg
+    // recovery so both observe pause/resume.
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
     parts.service.pipeline.chunk_rx = chunk_rx.clone();
 
-    let mut verify_mgr =
-        crate::verify_mgr::VerifyMgr::new(parts.service.clone(), chunk_rx, signal.child_token());
-    worker_handles.push(tokio::spawn(async move { verify_mgr.run().await }));
-
-    let ordered_resolver = OrderedResolver::new(
+    worker_handles.extend(crate::verify_mgr::spawn_verify_workers(
+        &shared.ckb_handle,
+        parts.service.clone(),
+        chunk_rx,
+        signal.child_token(),
+    ));
+    worker_handles.push(crate::resolve_mgr::spawn_ordered_resolver(
+        &shared.ckb_handle,
         parts.service.clone(),
         chunk_tx.subscribe(),
         signal.child_token(),
-    );
-    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
-    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
-    worker_handles.push(tokio::spawn(async move {
-        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
-            panic!("tx-pool ordered resolver panicked: {message}");
-        }
-        let _ = resolver_handle.await;
-    }));
+    ));
 
     BenchServiceHandle {
         service: Some(parts.service),

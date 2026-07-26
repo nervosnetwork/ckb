@@ -1,61 +1,22 @@
 //! Background worker spawning for the tx-pool pipeline.
 //!
 //! Every long-running pipeline task is spawned here: the pre-check worker
-//! pool, the verify-manager and ordered-resolver monitors (with
-//! panic-respawn backoff), the reorg handler, and the verify-cache worker.
+//! pool, commit/maintenance, the reorg handler, and the verify-cache worker.
 //! The service builder (`service::builder`) keeps only assembly, startup
 //! and shutdown orchestration; worker lifecycle lives in this module.
 
 use crate::component::pre_pool::WorkLane;
 use crate::service::effects::{EffectClass, EffectJournalError};
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
-use crate::verify_mgr::VerifyMgr;
+use crate::worker::RespawnBackoff;
 use ckb_async_runtime::Handle;
 use ckb_logger::{error, info};
-use ckb_script::ChunkCommand;
 use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-
-/// Backoff between respawns of a crashed worker monitor.
-///
-/// Respawning immediately is right for a worker that died after a long
-/// healthy run (a rare panic), while a persistent start-time failure (a
-/// panic that fires immediately on every run) must not become a hot spin
-/// with log spam. The delay therefore doubles per consecutive failure
-/// (100ms → 25.6s, capped at 30s) and resets to the base after any run
-/// that stayed up for at least `HEALTHY_RUN`.
-struct RespawnBackoff {
-    failures: u32,
-}
-
-impl RespawnBackoff {
-    /// First retry delay after a failure.
-    const BASE: Duration = Duration::from_millis(100);
-    /// Maximum delay between respawns.
-    const MAX: Duration = Duration::from_secs(30);
-    /// A run lasting at least this long counts as healthy and resets the
-    /// backoff to `BASE`.
-    const HEALTHY_RUN: Duration = Duration::from_secs(60);
-
-    fn new() -> Self {
-        Self { failures: 0 }
-    }
-
-    /// Delay before the next respawn, given how long the previous run
-    /// lasted.
-    fn delay_for(&mut self, ran_for: Duration) -> Duration {
-        if ran_for >= Self::HEALTHY_RUN {
-            self.failures = 0;
-        }
-        let delay = Self::BASE.saturating_mul(2u32.saturating_pow(self.failures.min(10)));
-        self.failures = self.failures.saturating_add(1);
-        delay.min(Self::MAX)
-    }
-}
 
 /// Retain one ordered state-transition message until it completes or the
 /// service is shutting down. A deterministic panic is backoff-limited but can
@@ -191,21 +152,14 @@ pub(crate) fn spawn_pre_check_workers(
                 let svc = svc.clone();
                 let started = std::time::Instant::now();
                 let worker = run_pre_check_worker_loop(svc);
-                let exit = match AssertUnwindSafe(worker).catch_unwind().await {
-                    Ok(()) => crate::resolve_mgr::ResolveExit::Stopped,
-                    Err(payload) => crate::resolve_mgr::ResolveExit::Panicked {
-                        message: crate::util::panic_payload_to_string(payload.as_ref()),
-                    },
-                };
+                let exit = AssertUnwindSafe(worker).catch_unwind().await;
                 if cancel.is_cancelled() {
                     break;
                 }
                 match exit {
-                    crate::resolve_mgr::ResolveExit::Stopped => {
-                        // Normal exit because the queue was cancelled.
-                        break;
-                    }
-                    crate::resolve_mgr::ResolveExit::Panicked { message } => {
+                    Ok(()) => break,
+                    Err(payload) => {
+                        let message = crate::util::panic_payload_to_string(payload.as_ref());
                         error!("tx-pool pre-check worker panicked: {}; respawning", message);
                         tokio::select! {
                             _ = tokio::time::sleep(backoff.delay_for(started.elapsed())) => {}
@@ -360,99 +314,6 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
             }
         }
         info!("TxPool pipeline maintenance worker exited");
-    })
-}
-
-/// Spawn the verification manager monitor with panic-respawn protection,
-/// mirroring [`spawn_resolver_monitor`]. The manager supervises its verify
-/// workers internally, but nothing watched the manager task itself:
-/// without this loop, a manager-level exit (panic or unexpected stop)
-/// would silently stall the whole verification stage — the verify queue
-/// would fill up and every new transaction would eventually be rejected as
-/// `Reject::Full`, with no log at all. Returns the spawned task handle so
-/// the shutdown path can quiesce it before persisting.
-pub(crate) fn spawn_verify_mgr_monitor(
-    handle: &Handle,
-    service: TxPoolService,
-    chunk_rx: watch::Receiver<ChunkCommand>,
-    signal: CancellationToken,
-) -> tokio::task::JoinHandle<()> {
-    handle.spawn(async move {
-        let mut backoff = RespawnBackoff::new();
-        loop {
-            let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx.clone(), signal.clone());
-            let started = std::time::Instant::now();
-            let outcome = AssertUnwindSafe(verify_mgr.run()).catch_unwind().await;
-            match outcome {
-                Ok(()) => {
-                    if signal.is_cancelled() {
-                        break;
-                    }
-                    error!("tx-pool verify manager stopped unexpectedly, respawning");
-                }
-                Err(payload) => {
-                    error!(
-                        "tx-pool verify manager panicked: {}; respawning",
-                        crate::util::panic_payload_to_string(payload.as_ref())
-                    );
-                }
-            }
-            tokio::select! {
-                _ = tokio::time::sleep(backoff.delay_for(started.elapsed())) => {}
-                _ = signal.cancelled() => break,
-            }
-        }
-        info!("TxPool verify manager monitor exited");
-    })
-}
-
-/// Spawn the ordered resolver monitor with panic-respawn protection.
-/// Returns the spawned task handle so the shutdown path can quiesce it
-/// before persisting.
-pub(crate) fn spawn_resolver_monitor(
-    handle: &Handle,
-    service: TxPoolService,
-    chunk_rx: watch::Receiver<ChunkCommand>,
-    resolver_exit_signal: CancellationToken,
-) -> tokio::task::JoinHandle<()> {
-    handle.spawn(async move {
-        let mut backoff = RespawnBackoff::new();
-        loop {
-            let resolver = crate::resolve_mgr::OrderedResolver::new(
-                service.clone(),
-                chunk_rx.clone(),
-                resolver_exit_signal.clone(),
-            );
-            let (exit_tx, mut exit_rx) = tokio::sync::mpsc::unbounded_channel();
-            let handle = resolver.start(exit_tx);
-            let started = std::time::Instant::now();
-
-            tokio::select! {
-                _ = resolver_exit_signal.cancelled() => {
-                    let _ = handle.await;
-                    break;
-                }
-                Some((_worker_id, exit)) = exit_rx.recv() => {
-                    let _ = handle.await;
-                    match exit {
-                        crate::resolve_mgr::ResolveExit::Stopped => {
-                            if resolver_exit_signal.is_cancelled() {
-                                break;
-                            }
-                            error!("tx-pool ordered resolver stopped unexpectedly, respawning");
-                        }
-                        crate::resolve_mgr::ResolveExit::Panicked { message } => {
-                            error!("tx-pool ordered resolver panicked: {}; respawning", message);
-                        }
-                    }
-                    tokio::select! {
-                        _ = tokio::time::sleep(backoff.delay_for(started.elapsed())) => {}
-                        _ = resolver_exit_signal.cancelled() => break,
-                    }
-                }
-            }
-        }
-        info!("TxPool ordered resolver monitor exited");
     })
 }
 

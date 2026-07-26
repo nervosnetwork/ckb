@@ -223,6 +223,7 @@ util::block_offload_tests::compact_packed_detaches_a_small_view_from_large_backi
 util::block_offload_tests::compact_transaction_view_detaches_from_block_backing_without_rehashing
 util::block_offload_tests::current_thread_runtime_executes_inline_without_panicking
 worker::tests::catch_job_panic_captures_panic_and_lets_work_continue
+worker::tests::supervisor_does_not_respawn_after_command_channel_dropped
 worker::tests::worker_exits_when_command_channel_dropped
 
 [integration]

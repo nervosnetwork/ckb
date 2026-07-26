@@ -109,9 +109,7 @@ impl PrePoolKernel {
 
         let winner_record = self.remove_entry(&ticket.hash)?;
         Ok(CommitSettlement {
-            winner: CommitHandoff {
-                raw: winner_record.raw,
-            },
+            winner: winner_record,
             retained_conflicts,
         })
     }
@@ -120,28 +118,26 @@ impl PrePoolKernel {
         &mut self,
         hash: &Byte32,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<Option<ExternalCommitRecord>, PrePoolError> {
+    ) -> Result<Option<TerminalRecord>, PrePoolError> {
         self.parents_unavailable(unavailable_parents)?;
         if !self.entries.contains_key(hash) {
             return Ok(None);
         }
-        let record = self.remove_entry(hash)?;
-        Ok(Some(ExternalCommitRecord { raw: record.raw }))
+        self.remove_entry(hash).map(Some)
     }
 
     pub(crate) fn external_commits_with_unavailable_parents(
         &mut self,
         committed: &HashSet<Byte32>,
         unavailable_parents: &HashSet<Byte32>,
-    ) -> Result<Vec<ExternalCommitRecord>, PrePoolError> {
+    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
         self.parents_unavailable(unavailable_parents)?;
         let mut hashes = committed.iter().cloned().collect::<Vec<_>>();
         hashes.sort_unstable();
         let mut records = Vec::new();
         for hash in hashes {
             if self.entries.contains_key(&hash) {
-                let record = self.remove_entry(&hash)?;
-                records.push(ExternalCommitRecord { raw: record.raw });
+                records.push(self.remove_entry(&hash)?);
             }
         }
         Ok(records)

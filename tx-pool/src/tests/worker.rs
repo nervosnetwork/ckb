@@ -25,7 +25,6 @@ struct NoopHandler;
 
 impl JobHandler for NoopHandler {
     type Job = ();
-    type Exit = ();
 
     fn worker_name(&self) -> &'static str {
         "noop"
@@ -46,8 +45,6 @@ impl JobHandler for NoopHandler {
     fn process_one(&mut self, _job: Self::Job) -> impl Future<Output = ()> + Send {
         std::future::ready(())
     }
-
-    fn make_exit(&self, _outcome: WorkerOutcome) -> Self::Exit {}
 }
 
 /// A dropped command channel must stop the worker: `changed()` resolves
@@ -56,15 +53,27 @@ impl JobHandler for NoopHandler {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_exits_when_command_channel_dropped() {
     let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let runner = WorkerRunner::new(NoopHandler, command_rx, CancellationToken::new());
-    let (exit_tx, mut exit_rx) = mpsc::unbounded_channel();
-    let handle = runner.start(0, exit_tx);
+    let mut runner = WorkerRunner::new(NoopHandler, command_rx, CancellationToken::new());
+    let handle = tokio::spawn(async move { runner.run().await });
 
     drop(command_tx);
     tokio::time::timeout(std::time::Duration::from_secs(5), handle)
         .await
         .expect("worker must stop when the command channel is dropped")
         .expect("worker task joins");
-    let (worker_id, ()) = exit_rx.recv().await.expect("exit is reported");
-    assert_eq!(worker_id, 0);
+}
+
+/// The supervisor must treat command authority loss as terminal. Respawning
+/// against a permanently closed watch channel would be an unbounded hot loop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn supervisor_does_not_respawn_after_command_channel_dropped() {
+    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let runner = WorkerRunner::new(NoopHandler, command_rx, CancellationToken::new());
+    let handle = tokio::spawn(runner.supervise(0));
+
+    drop(command_tx);
+    tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+        .await
+        .expect("supervisor must stop when command authority is gone")
+        .expect("supervisor task joins");
 }

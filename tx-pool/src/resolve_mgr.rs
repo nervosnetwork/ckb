@@ -8,15 +8,15 @@ use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
-use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
+use crate::worker::{JobHandler, WorkerRunner};
+use ckb_async_runtime::Handle;
 use ckb_logger::{debug, error};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::core::FeeRate;
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
-use tokio::task::JoinHandle;
+use tokio::sync::watch;
 
 #[derive(Debug)]
 pub(crate) enum ResolveStageResult {
@@ -184,7 +184,6 @@ struct ResolveHandler {
 
 impl JobHandler for ResolveHandler {
     type Job = ResolveLease;
-    type Exit = ResolveExit;
 
     fn worker_name(&self) -> &'static str {
         "ordered resolver"
@@ -218,39 +217,15 @@ impl JobHandler for ResolveHandler {
     async fn process_one(&mut self, work: ResolveLease) {
         self.service.process_pipeline_raw_lease(work).await;
     }
-
-    fn make_exit(&self, outcome: WorkerOutcome) -> ResolveExit {
-        match outcome {
-            WorkerOutcome::Stopped => ResolveExit::Stopped,
-            WorkerOutcome::Panicked(message) => ResolveExit::Panicked { message },
-        }
-    }
 }
 
-pub(crate) struct OrderedResolver {
-    runner: WorkerRunner<ResolveHandler>,
-}
-
-impl OrderedResolver {
-    pub fn new(
-        service: TxPoolService,
-        command_rx: watch::Receiver<ChunkCommand>,
-        exit_signal: CancellationToken,
-    ) -> Self {
-        Self {
-            runner: WorkerRunner::new(ResolveHandler { service }, command_rx, exit_signal),
-        }
-    }
-
-    pub fn start(self, exit_tx: mpsc::UnboundedSender<(usize, ResolveExit)>) -> JoinHandle<()> {
-        self.runner.start(0, exit_tx)
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ResolveExit {
-    Stopped,
-    Panicked { message: String },
+pub(crate) fn spawn_ordered_resolver(
+    handle: &Handle,
+    service: TxPoolService,
+    command_rx: watch::Receiver<ChunkCommand>,
+    signal: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    handle.spawn(WorkerRunner::new(ResolveHandler { service }, command_rx, signal).supervise(0))
 }
 
 fn first_unknown_input_reject(tx: &ckb_types::core::TransactionView) -> Reject {

@@ -19,7 +19,7 @@ fn handles(
         maintenance: finished(),
         commit: finished(),
         pre_check: vec![finished()],
-        verify_mgr: finished(),
+        verify: vec![finished()],
         resolver: finished(),
         block_assembler: Some(finished()),
         reorg: Some(finished()),

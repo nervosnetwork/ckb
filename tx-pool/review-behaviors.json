@@ -127,17 +127,18 @@
         "tx-pool/src/component/pre_pool/queue.rs",
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/workers.rs",
-        "tx-pool/src/service/builder.rs"
+        "tx-pool/src/service/builder.rs",
+        "tx-pool/src/worker.rs"
       ],
-      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent and subscription/respawn re-arms executable work.",
-      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify before panic or respawn must not strand executable work.",
+      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; failed ineligible checkout is silent and one supervisor per worker re-arms executable work after a panic with shared bounded backoff. Cancellation and loss of command authority are terminal.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify before panic or a permanently closed command channel must neither strand executable work nor create an immediate respawn loop.",
       "reviewer_questions": [
         "Does notification mean at least one worker of this capability can execute now?",
         "Can a consumed permit be reconstructed from authoritative state after subscribe or respawn?",
         "Does cancellation stop checkout before another self-sustaining wake loop begins?"
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|ready_expiry_filter|worker_|zero_verify_worker)/)'",
-      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; no polling loop, per-item task or queue-wide scan."
+      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; worker count is configuration-bounded and each worker has exactly one supervisor with bounded restart rate; no manager task, exit channel, polling loop, per-item task or queue-wide scan."
     },
     {
       "id": "TP-ADMIN-001",
@@ -358,6 +359,8 @@
 
     {"test": "ready_expiry_filter_does_not_starve_later_non_ready_deadlines", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "cancel_during_backoff_exits_immediately", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "worker_exits_when_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
+    {"test": "supervisor_does_not_respawn_after_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
 
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
