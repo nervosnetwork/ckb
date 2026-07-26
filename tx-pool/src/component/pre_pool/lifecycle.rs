@@ -24,7 +24,7 @@ pub(super) struct CohortPlan {
 
 struct EntryChange {
     hash: Byte32,
-    old: Option<Entry>,
+    had_old: bool,
     next: Option<Entry>,
 }
 
@@ -152,11 +152,15 @@ impl PrePoolKernel {
             if let Some(next) = &next {
                 self.validate_entry_intrinsic(&hash, next)?;
             }
-            let old = self.entries.get(&hash).cloned();
-            if old.is_none() && next.is_none() {
+            let had_old = self.entries.contains_key(&hash);
+            if !had_old && next.is_none() {
                 continue;
             }
-            changes.push(EntryChange { hash, old, next });
+            changes.push(EntryChange {
+                hash,
+                had_old,
+                next,
+            });
         }
 
         let changed_hashes = changes
@@ -166,7 +170,7 @@ impl PrePoolKernel {
         let mut final_short_ids = HashMap::<ProposalShortId, Byte32>::new();
         for change in &changes {
             assert!(
-                change.old.as_ref().is_none_or(|old| {
+                self.entries.get(&change.hash).is_none_or(|old| {
                     self.by_short_id.get(&old.short_id) == Some(&change.hash)
                 }),
                 "short-id projection must match its primary owner"
@@ -197,30 +201,29 @@ impl PrePoolKernel {
         let mut parent_counts = HashMap::<Byte32, usize>::new();
         let mut input_counts = HashMap::<OutPoint, usize>::new();
         for change in &changes {
-            for parent in change
-                .old
-                .iter()
-                .flat_map(|entry| entry.dependencies.iter())
-                .map(DependencyKey::parent_hash)
-                .collect::<BTreeSet<_>>()
-            {
-                let count = parent_counts
-                    .entry(parent.clone())
-                    .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
-                *count = count
-                    .checked_sub(1)
-                    .expect("parent projection must cover every primary edge");
-            }
-            if let Some(EntryState::Ready { inputs, .. }) =
-                change.old.as_ref().map(|entry| &entry.state)
-            {
-                for input in inputs {
-                    let count = input_counts
-                        .entry(input.clone())
-                        .or_insert_with(|| self.ready_by_input.get(input).map_or(0, BTreeSet::len));
+            if let Some(old) = self.entries.get(&change.hash) {
+                for parent in old
+                    .dependencies
+                    .iter()
+                    .map(DependencyKey::parent_hash)
+                    .collect::<BTreeSet<_>>()
+                {
+                    let count = parent_counts
+                        .entry(parent.clone())
+                        .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
                     *count = count
                         .checked_sub(1)
-                        .expect("ready-input projection must cover every primary edge");
+                        .expect("parent projection must cover every primary edge");
+                }
+                if let EntryState::Ready { inputs, .. } = &old.state {
+                    for input in inputs {
+                        let count = input_counts.entry(input.clone()).or_insert_with(|| {
+                            self.ready_by_input.get(input).map_or(0, BTreeSet::len)
+                        });
+                        *count = count
+                            .checked_sub(1)
+                            .expect("ready-input projection must cover every primary edge");
+                    }
                 }
             }
         }
@@ -267,7 +270,7 @@ impl PrePoolKernel {
         let mut affected_owners = BTreeSet::new();
         let mut active_work = self.active_work;
         for change in &changes {
-            if let Some(old) = &change.old {
+            if let Some(old) = self.entries.get(&change.hash) {
                 let charge = Residency::new(1, old.charge_bytes);
                 total_usage = total_usage
                     .checked_sub(charge)
@@ -383,19 +386,33 @@ impl PrePoolKernel {
     /// Total half of [`Self::plan_cohort`]. Any failure here is an internal
     /// invariant violation; no transaction-shaped input is interpreted after
     /// the first projection mutation.
-    pub(super) fn apply_cohort(&mut self, plan: CohortPlan) {
-        self.total_usage = plan.total_usage;
-        self.remote_usage = plan.remote_usage;
-        self.conflict_usage = plan.conflict_usage;
-        self.active_work = plan.active_work;
-        for (peer, usage) in plan.peer_updates {
+    pub(super) fn apply_cohort(
+        &mut self,
+        CohortPlan {
+            changes,
+            total_usage,
+            remote_usage,
+            conflict_usage,
+            peer_updates,
+            active_work,
+            owner_updates,
+            affected_owners,
+            next_version,
+            next_arrival,
+        }: CohortPlan,
+    ) {
+        self.total_usage = total_usage;
+        self.remote_usage = remote_usage;
+        self.conflict_usage = conflict_usage;
+        self.active_work = active_work;
+        for (peer, usage) in peer_updates {
             if usage == Residency::default() {
                 self.peer_usage.remove(&peer);
             } else {
                 self.peer_usage.insert(peer, usage);
             }
         }
-        for (owner, active) in plan.owner_updates {
+        for (owner, active) in owner_updates {
             if active == 0 {
                 self.active_by_owner.remove(&owner);
             } else {
@@ -403,23 +420,25 @@ impl PrePoolKernel {
             }
         }
 
-        for change in &plan.changes {
-            if let Some(old) = &change.old {
-                self.detach_indexes(&change.hash, old);
-                let removed = self.entries.remove(&change.hash);
-                assert!(removed.is_some(), "cohort old primary was prevalidated");
+        for change in &changes {
+            if change.had_old {
+                let old = self
+                    .entries
+                    .remove(&change.hash)
+                    .expect("cohort old primary was prevalidated");
+                self.detach_indexes(&change.hash, &old);
             }
         }
-        for change in &plan.changes {
-            if let Some(next) = &change.next {
-                let previous = self.entries.insert(change.hash.clone(), next.clone());
+        for change in changes {
+            if let Some(next) = change.next {
+                self.attach_indexes(&change.hash, &next);
+                let previous = self.entries.insert(change.hash, next);
                 assert!(previous.is_none(), "cohort hash was detached before attach");
-                self.attach_indexes(&change.hash, next);
             }
         }
-        self.next_version = plan.next_version;
-        self.next_arrival = plan.next_arrival;
-        for owner in plan.affected_owners {
+        self.next_version = next_version;
+        self.next_arrival = next_arrival;
+        for owner in affected_owners {
             self.refresh_owner_runnable(owner);
         }
     }
@@ -608,45 +627,68 @@ impl PrePoolKernel {
         }
     }
 
-    pub(super) fn replace_entry(&mut self, hash: &Byte32, next: Entry) -> Result<(), PrePoolError> {
-        self.validate_entry_shape(hash, &next)?;
+    fn plan_entry_replacement(
+        &self,
+        hash: &Byte32,
+        next: &Entry,
+    ) -> Result<(UsagePlan, ActivePlan), PrePoolError> {
+        self.validate_entry_shape(hash, next)?;
         let old = self
             .entries
             .get(hash)
-            .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        let usage_plan = self.plan_usage_delta(Some(&old), Some(&next))?;
-        let old_active = Self::active_owner(old.source, &old.state);
-        let next_active = Self::active_owner(next.source, &next.state);
-        let active_plan = self.plan_active_transition(old_active, next_active)?;
         if old.short_id != next.short_id
             && let Some(existing_hash) = self.by_short_id.get(&next.short_id)
         {
             return Err(PrePoolError::ShortIdCollision {
-                short_id: next.short_id,
+                short_id: next.short_id.clone(),
                 existing_hash: existing_hash.clone(),
             });
         }
+        let usage = self.plan_usage_delta(Some(old), Some(next))?;
+        let active = self.plan_active_transition(
+            Self::active_owner(old.source, &old.state),
+            Self::active_owner(next.source, &next.state),
+        )?;
+        Ok((usage, active))
+    }
+
+    pub(super) fn replace_entry(&mut self, hash: &Byte32, next: Entry) -> Result<(), PrePoolError> {
+        let (usage_plan, active_plan) = self.plan_entry_replacement(hash, &next)?;
+        let old = self
+            .entries
+            .remove(hash)
+            .expect("replacement primary was prevalidated");
+        let old_source = old.source;
         self.detach_indexes(hash, &old);
         self.apply_usage_plan(usage_plan);
-        self.entries.insert(hash.clone(), next.clone());
         self.attach_indexes(hash, &next);
+        let next_source = next.source;
+        let previous = self.entries.insert(hash.clone(), next);
+        assert!(
+            previous.is_none(),
+            "replacement primary was detached before attach"
+        );
         self.apply_active_plan(active_plan);
-        self.refresh_owner_runnable(old.source.into());
-        self.refresh_owner_runnable(next.source.into());
+        self.refresh_owner_runnable(old_source.into());
+        self.refresh_owner_runnable(next_source.into());
         Ok(())
     }
 
     pub(super) fn remove_entry(&mut self, hash: &Byte32) -> Result<TerminalRecord, PrePoolError> {
+        let (active_plan, usage_plan) = {
+            let entry = self
+                .entries
+                .get(hash)
+                .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+            let old_active = Self::active_owner(entry.source, &entry.state);
+            (
+                self.plan_active_transition(old_active, None)?,
+                self.plan_usage_delta(Some(entry), None)?,
+            )
+        };
         let entry = self
             .entries
-            .get(hash)
-            .cloned()
-            .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        let old_active = Self::active_owner(entry.source, &entry.state);
-        let active_plan = self.plan_active_transition(old_active, None)?;
-        let usage_plan = self.plan_usage_delta(Some(&entry), None)?;
-        self.entries
             .remove(hash)
             .expect("remove prevalidated primary entry");
         self.detach_indexes(hash, &entry);
@@ -823,21 +865,21 @@ impl PrePoolKernel {
         self.validate_entry_shape(&hash, &entry)?;
         let usage_plan = self.plan_usage_delta(None, Some(&entry))?;
         self.apply_usage_plan(usage_plan);
-        self.entries.insert(hash.clone(), entry.clone());
         self.attach_indexes(&hash, &entry);
+        let previous = self.entries.insert(hash, entry);
+        assert!(previous.is_none(), "admission hash was prevalidated vacant");
         Ok(version)
     }
 
     pub(crate) fn promote_source(&mut self, hash: &Byte32) -> Result<EntryVersion, PrePoolError> {
-        let old = self
+        let mut next = self
             .entries
             .get(hash)
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        if old.source == PrePoolSource::Proposal {
-            return Ok(old.version);
+        if next.source == PrePoolSource::Proposal {
+            return Ok(next.version);
         }
-        let mut next = old.clone();
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
         if let EntryState::Wait(wait) = &next.state
@@ -854,8 +896,9 @@ impl PrePoolKernel {
             rank.version = next.version;
         }
         next.charge_bytes = self.entry_charge(&next)?;
-        self.replace_entry(hash, next.clone())?;
-        Ok(next.version)
+        let version = next.version;
+        self.replace_entry(hash, next)?;
+        Ok(version)
     }
 
     pub(crate) fn replace_raw_payload(
@@ -865,12 +908,11 @@ impl PrePoolKernel {
         raw_bytes: usize,
         lane: ResolveLane,
     ) -> Result<EntryVersion, PrePoolError> {
-        let old = self
+        let mut next = self
             .entries
             .get(hash)
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        let mut next = old.clone();
         next.raw = Arc::new(raw);
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
@@ -878,8 +920,9 @@ impl PrePoolKernel {
         next.payload_charge_bytes = raw_bytes;
         next.state = EntryState::ResolveQueued { lane };
         next.charge_bytes = self.entry_charge(&next)?;
-        self.replace_entry(hash, next.clone())?;
-        Ok(next.version)
+        let version = next.version;
+        self.replace_entry(hash, next)?;
+        Ok(version)
     }
 
     pub(crate) fn checkout_resolve(
@@ -893,35 +936,32 @@ impl PrePoolKernel {
         else {
             return Ok(None);
         };
-        let entry = self
+        self.validate_location(&key.hash, key.version, PrePoolLocation::ResolveQueued)?;
+        let version = self.allocate_version();
+        let mut next = self
             .entries
             .get(&key.hash)
             .cloned()
-            .ok_or_else(|| PrePoolError::Missing(key.hash.clone()))?;
-        self.validate_location(&key.hash, key.version, PrePoolLocation::ResolveQueued)?;
-        let version = self.allocate_version();
-        let mut next = entry.clone();
+            .expect("validated resolve queue head remains present");
         next.version = version;
         next.state = EntryState::ResolveLeased;
         next.charge_bytes = self.entry_charge(&next)?;
-        let usage_plan = self.plan_usage_delta(Some(&entry), Some(&next))?;
-        let old_active = Self::active_owner(entry.source, &entry.state);
-        let next_active = Self::active_owner(next.source, &next.state);
-        let active_plan = self.plan_active_transition(old_active, next_active)?;
+        let (usage_plan, active_plan) = self.plan_entry_replacement(&key.hash, &next)?;
         let popped = self.queues[work_lane.index()].pop(WorkCapability::Any)?;
         assert_eq!(
             popped.as_ref(),
             Some(&key),
             "resolve queue head cannot change inside the kernel lock"
         );
+        let payload = Arc::clone(&next.raw);
         // The queue key was removed directly by pop. Replace only the primary
         // and non-queue indexes to avoid attempting a second exact removal.
-        self.replace_after_queue_pop(&key.hash, &entry, &next, usage_plan, active_plan);
+        self.replace_after_queue_pop(&key.hash, next, usage_plan, active_plan);
         Ok(Some(ResolveLease {
             hash: key.hash,
             lane,
             version,
-            payload: Arc::clone(&next.raw),
+            payload,
         }))
     }
 
@@ -949,10 +989,9 @@ impl PrePoolKernel {
         schedule: VerifySchedule,
         discovered_dependencies: BTreeSet<DependencyKey>,
     ) -> Result<EntryVersion, PrePoolError> {
-        let old = self
+        let mut next = self
             .validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?
             .clone();
-        let mut next = old.clone();
         next.dependencies.extend(
             discovered_dependencies
                 .into_iter()
@@ -965,8 +1004,9 @@ impl PrePoolKernel {
             schedule,
         };
         next.charge_bytes = self.entry_charge(&next)?;
-        self.replace_entry(&lease.hash, next.clone())?;
-        Ok(next.version)
+        let version = next.version;
+        self.replace_entry(&lease.hash, next)?;
+        Ok(version)
     }
 
     pub(crate) fn checkout_verify(
@@ -977,34 +1017,30 @@ impl PrePoolKernel {
         let Some(key) = self.queues[lane.index()].peek(capability).cloned() else {
             return Ok(None);
         };
-        let entry = self
+        self.validate_location(&key.hash, key.version, PrePoolLocation::VerifyQueued)?;
+        let version = self.allocate_version();
+        let mut next = self
             .entries
             .get(&key.hash)
             .cloned()
-            .ok_or_else(|| PrePoolError::Missing(key.hash.clone()))?;
-        self.validate_location(&key.hash, key.version, PrePoolLocation::VerifyQueued)?;
-        let version = self.allocate_version();
-        let payload = match &entry.state {
+            .expect("validated verify queue head remains present");
+        let payload = match &next.state {
             EntryState::VerifyQueued { payload, .. } => Arc::clone(payload),
             _ => unreachable!(),
         };
-        let mut next = entry.clone();
         next.version = version;
         next.state = EntryState::VerifyLeased {
             payload: Arc::clone(&payload),
         };
         next.charge_bytes = self.entry_charge(&next)?;
-        let usage_plan = self.plan_usage_delta(Some(&entry), Some(&next))?;
-        let old_active = Self::active_owner(entry.source, &entry.state);
-        let next_active = Self::active_owner(next.source, &next.state);
-        let active_plan = self.plan_active_transition(old_active, next_active)?;
+        let (usage_plan, active_plan) = self.plan_entry_replacement(&key.hash, &next)?;
         let popped = self.queues[lane.index()].pop(capability)?;
         assert_eq!(
             popped.as_ref(),
             Some(&key),
             "verify queue head cannot change inside the kernel lock"
         );
-        self.replace_after_queue_pop(&key.hash, &entry, &next, usage_plan, active_plan);
+        self.replace_after_queue_pop(&key.hash, next, usage_plan, active_plan);
         Ok(Some(VerifyLease {
             hash: key.hash,
             version,
@@ -1019,7 +1055,7 @@ impl PrePoolKernel {
         charge_bytes: usize,
         candidate: VerifiedCandidate,
     ) -> Result<EntryVersion, PrePoolError> {
-        let old = self
+        let mut next = self
             .validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?
             .clone();
         if candidate.inputs.len() > self.limits.max_inputs_per_ready {
@@ -1027,14 +1063,13 @@ impl PrePoolKernel {
         }
         let version = self.allocate_version();
         let rank = ReadyKey {
-            source_class: old.source.priority(),
+            source_class: next.source.priority(),
             fee: candidate.fee,
             tx_size: candidate.tx_size,
-            arrival: old.arrival,
+            arrival: next.arrival,
             hash: lease.hash.clone(),
             version,
         };
-        let mut next = old.clone();
         next.version = version;
         next.payload_charge_bytes = charge_bytes;
         next.state = EntryState::Ready {
@@ -1050,15 +1085,22 @@ impl PrePoolKernel {
     fn replace_after_queue_pop(
         &mut self,
         hash: &Byte32,
-        old: &Entry,
-        next: &Entry,
+        next: Entry,
         usage_plan: UsagePlan,
         active_plan: ActivePlan,
     ) {
-        self.detach_common_indexes(hash, old);
+        let old = self
+            .entries
+            .remove(hash)
+            .expect("queue head primary was prevalidated");
+        self.detach_common_indexes(hash, &old);
         self.apply_usage_plan(usage_plan);
-        self.entries.insert(hash.clone(), next.clone());
-        self.attach_common_indexes(hash, next);
+        self.attach_common_indexes(hash, &next);
+        let previous = self.entries.insert(hash.clone(), next);
+        assert!(
+            previous.is_none(),
+            "queue head primary was detached before attach"
+        );
         self.apply_active_plan(active_plan);
     }
 

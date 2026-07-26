@@ -4,15 +4,8 @@ use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 
-#[cfg(not(test))]
-const MAX_CANDIDATE_UNCLES: usize = 128;
-#[cfg(test)]
-pub(crate) const MAX_CANDIDATE_UNCLES: usize = 4;
-
-#[cfg(not(test))]
-const MAX_PER_HEIGHT: usize = 10;
-#[cfg(test)]
-pub(crate) const MAX_PER_HEIGHT: usize = 2;
+pub(crate) const MAX_CANDIDATE_UNCLES: usize = 128;
+pub(crate) const MAX_PER_HEIGHT: usize = 10;
 
 /// Candidate uncles container
 pub struct CandidateUncles {

@@ -14,12 +14,16 @@ impl PrePoolKernel {
         version: EntryVersion,
         expected: PrePoolLocation,
     ) -> Result<TerminalRecord, PrePoolError> {
-        let old = self.validate_location(hash, version, expected)?.clone();
-        let keys = Self::causal_keys(&old);
-        let record = TerminalRecord {
-            hash: hash.clone(),
-            raw: Arc::clone(&old.raw),
-            source: old.source,
+        let (keys, record) = {
+            let old = self.validate_location(hash, version, expected)?;
+            (
+                Self::causal_keys(old),
+                TerminalRecord {
+                    hash: hash.clone(),
+                    raw: Arc::clone(&old.raw),
+                    source: old.source,
+                },
+            )
         };
         self.move_to_wait(hash, WaitReason::Conflict, keys, None)?;
         Ok(record)
@@ -68,12 +72,11 @@ impl PrePoolKernel {
             .into_iter()
             .map(DependencyKey::into_compact)
             .collect::<BTreeSet<_>>();
-        let old = self
+        let mut next = self
             .entries
             .get(hash)
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        let mut next = old.clone();
         next.version = self.allocate_version();
         next.dependencies.extend(keys.iter().cloned());
         if let Some(charge_bytes) = charge_bytes {
@@ -84,8 +87,9 @@ impl PrePoolKernel {
             observed: self.observed_dependencies(keys),
         });
         next.charge_bytes = self.entry_charge(&next)?;
-        self.replace_entry(hash, next.clone())?;
-        Ok(next.version)
+        let version = next.version;
+        self.replace_entry(hash, next)?;
+        Ok(version)
     }
 
     pub(super) fn move_to_resolve(
@@ -93,17 +97,17 @@ impl PrePoolKernel {
         hash: &Byte32,
         lane: ResolveLane,
     ) -> Result<EntryVersion, PrePoolError> {
-        let old = self
+        let mut next = self
             .entries
             .get(hash)
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        let mut next = old.clone();
         next.version = self.allocate_version();
         next.state = EntryState::ResolveQueued { lane };
         next.charge_bytes = self.entry_charge(&next)?;
-        self.replace_entry(hash, next.clone())?;
-        Ok(next.version)
+        let version = next.version;
+        self.replace_entry(hash, next)?;
+        Ok(version)
     }
 
     pub(crate) fn requeue_resolve(
@@ -365,8 +369,11 @@ impl PrePoolKernel {
             .map(DependencyKey::into_compact)
             .collect::<BTreeSet<_>>();
         if self.entries.contains_key(&hash) {
-            let old = self.entries.get(&hash).cloned().unwrap();
-            let mut next = old.clone();
+            let mut next = self
+                .entries
+                .get(&hash)
+                .cloned()
+                .expect("existing conflict owner was just observed");
             let trusted_refresh = source == PrePoolSource::Proposal
                 && (next.source != PrePoolSource::Proposal
                     || next.raw.tx.witness_hash() != raw.tx.witness_hash());
@@ -418,8 +425,9 @@ impl PrePoolKernel {
         self.validate_entry_shape(&hash, &entry)?;
         let usage_plan = self.plan_usage_delta(None, Some(&entry))?;
         self.apply_usage_plan(usage_plan);
-        self.entries.insert(hash.clone(), entry.clone());
         self.attach_indexes(&hash, &entry);
+        let previous = self.entries.insert(hash, entry);
+        assert!(previous.is_none(), "conflict hash was prevalidated vacant");
         Ok((true, Vec::new()))
     }
 

@@ -115,9 +115,13 @@ impl PrePoolKernel {
         ticket: &CommitTicket,
         unavailable_parents: &HashSet<Byte32>,
     ) -> Result<CommitSettlement, PrePoolError> {
-        let winner = self.validate_commit(ticket)?.clone();
-        let winner_inputs = match &winner.state {
-            EntryState::Ready { inputs, .. } => inputs.clone(),
+        let (winner_inputs, winner_raw, winner_source) = match self.validate_commit(ticket)? {
+            Entry {
+                state: EntryState::Ready { inputs, .. },
+                raw,
+                source,
+                ..
+            } => (inputs.clone(), Arc::clone(raw), *source),
             _ => unreachable!(),
         };
         let max_losers = self
@@ -164,8 +168,8 @@ impl PrePoolKernel {
         self.apply_cohort(plan);
         let winner_record = TerminalRecord {
             hash: ticket.hash.clone(),
-            raw: Arc::clone(&winner.raw),
-            source: winner.source,
+            raw: winner_raw,
+            source: winner_source,
         };
         Ok(CommitSettlement {
             winner: winner_record,

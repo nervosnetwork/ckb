@@ -225,6 +225,7 @@ async fn rbf_replacement_certain_to_fail_commit_cannot_churn_pool() {
         result,
         reject_events,
         accept_event: _,
+        ..
     } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
@@ -346,6 +347,7 @@ async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
         result,
         reject_events,
         accept_event: _,
+        ..
     } = {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
@@ -523,7 +525,7 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
         let mut tx_pool = service.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
         let pre_resolve_tip = snapshot.tip_hash();
-        let (coordinated, _) = service.pipeline.kernel.mutate(|kernel| {
+        let (outcome, _) = service.pipeline.kernel.mutate(|kernel| {
             service.try_submit_entry_with_handoff(
                 &mut tx_pool,
                 snapshot,
@@ -534,8 +536,8 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
                 },
             )
         });
-        let statuses = coordinated.block_assembler_statuses();
-        (coordinated.outcome, statuses)
+        let statuses = outcome.block_assembler_statuses();
+        (outcome, statuses)
     };
     assert_eq!(
         assembler_statuses,
@@ -546,6 +548,7 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
         result,
         reject_events: _events,
         accept_event: _,
+        ..
     } = outcome;
 
     assert!(result.is_ok(), "replacement must commit: {:?}", result);

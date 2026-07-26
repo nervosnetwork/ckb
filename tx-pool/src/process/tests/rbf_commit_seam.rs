@@ -22,6 +22,5 @@ impl TxPoolService {
                 )
             })
             .0
-            .outcome
     }
 }

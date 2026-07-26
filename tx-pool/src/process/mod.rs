@@ -39,23 +39,9 @@ pub enum PlugTarget {
     Proposed,
 }
 
-/// Accepted and pre-pool generations moved out by an explicit clear or chain
-/// fallback.  Destruction happens after authority guards open.
-#[must_use = "retired generations must be dropped after authority guards are released"]
-pub(crate) struct AuthoritativeDisposal {
-    accepted: Option<crate::component::pool_map::PoolMap>,
-    _kernel: crate::component::pre_pool::KernelDisposal,
-}
-
 enum ReorgMutation {
     Queued,
     Reset(Vec<TransactionView>),
-}
-
-impl Drop for AuthoritativeDisposal {
-    fn drop(&mut self) {
-        drop(self.accepted.take());
-    }
 }
 
 /// Map a pool status to the verification environment used for contextual checks.
@@ -184,9 +170,8 @@ impl TxPoolService {
 
     /// Common pre-flight checks shared by all transaction submission paths.
     ///
-    /// Runs non-contextual verification and rejects duplicates that are
-    /// already in any pipeline queue (ordered resolve, pre-check, verify)
-    /// or the orphan pool.
+    /// Runs non-contextual verification and rejects duplicates already owned
+    /// by either the accepted pool or any pre-pool location.
     pub(crate) async fn check_tx_basic_validity(&self, tx: &TransactionView) -> Result<(), Reject> {
         self.non_contextual_verify(tx).await?;
 
@@ -433,23 +418,25 @@ impl TxPoolService {
                 self.relay
                     .effects
                     .try_apply_authoritative(effect_bound, |publish_detail| {
-                        // Decide the generation-reset fallback before either
-                        // authority mutates. The attached branch can only
-                        // remove entries from this closure, so a bounded
-                        // pre-plan remains a safe over-approximation after
-                        // accepted-pool reconciliation.
-                        let pre_plan = reorg::plan_accepted_recovery(
+                        let mut outcome = reorg::begin_tx_pool_reorg(
+                            &mut tx_pool,
+                            &attached,
+                            &detached_headers,
+                            detached_proposal_id.clone(),
+                            Arc::clone(&snapshot),
+                            mine_mode,
+                        );
+                        let accepted_plan = reorg::plan_accepted_recovery(
                             &tx_pool,
                             &retain,
                             crate::constants::MAX_POOL_MUTATION_CANDIDATES,
                         );
-                        let accepted = match pre_plan {
+                        let accepted = match &accepted_plan {
                             reorg::AcceptedRecoveryPlan::OverBound => {
                                 return (ReorgMutation::Reset(retain.clone()), None);
                             }
                             plan => plan.transactions_parent_first(),
                         };
-
                         let mut combined = retain.clone();
                         combined.extend(accepted);
                         Self::sort_txs_by_dependencies(&mut combined);
@@ -467,20 +454,6 @@ impl TxPoolService {
                                 "reorg recovery retention violated kernel invariants: {error:?}"
                             ),
                         };
-
-                        let mut outcome = reorg::begin_tx_pool_reorg(
-                            &mut tx_pool,
-                            &attached,
-                            &detached_headers,
-                            detached_proposal_id.clone(),
-                            Arc::clone(&snapshot),
-                            mine_mode,
-                        );
-                        let accepted_plan = reorg::plan_accepted_recovery(
-                            &tx_pool,
-                            &retain,
-                            crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-                        );
                         let moved = reorg::apply_accepted_recovery(&mut tx_pool, accepted_plan);
                         outcome
                             .recovery_removed
@@ -587,12 +560,8 @@ impl TxPoolService {
                     if let Err(error) = self.relay.effects.install_generation_reset() {
                         error!("reorg generation reset journal is unavailable: {error:?}");
                     }
-                    let disposal = AuthoritativeDisposal {
-                        accepted: Some(accepted),
-                        _kernel: kernel,
-                    };
                     drop(tx_pool);
-                    drop(disposal);
+                    drop((accepted, kernel));
                     let _ = recovery;
                 }
                 Err(error) => return Err(error),
@@ -614,12 +583,8 @@ impl TxPoolService {
         if let Err(error) = self.relay.effects.install_generation_reset() {
             error!("clear-pool generation reset journal is unavailable: {error:?}");
         }
-        let disposal = AuthoritativeDisposal {
-            accepted: Some(accepted),
-            _kernel: kernel,
-        };
         drop(tx_pool);
-        drop(disposal);
+        drop((accepted, kernel));
     }
 
     pub(crate) async fn save_pool(&self) {

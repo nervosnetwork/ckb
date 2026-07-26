@@ -5,8 +5,8 @@ Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
 Status date: 2026-07-26
-Current stable checkpoint: `77dcbb0c1`
-Current phase: P4, Rust-native failure semantics and cross-authority acceptance
+Current stable checkpoint: `015d88be2`
+Current phase: P5, global simplification and documentation acceptance
 
 This file is the live execution ledger. It is updated at every checkpoint so a
 compaction or restart can resume from the actual code rather than an obsolete
@@ -78,6 +78,7 @@ states do not travel through the same recoverable error channel as input.
 | C9 | `693413cf6` | simplified recovery/failure boundaries |
 | C10 | `1e0d0098d` | total bounded cohort transitions |
 | C11 | `77dcbb0c1` | relay saturation coalesces to durable reconciliation |
+| C12 | `015d88be2` | Rust-native invariants and level-triggered derived recovery |
 
 No checkpoint before P7 is a performance verdict.
 
@@ -128,9 +129,9 @@ No checkpoint before P7 is a performance verdict.
   template boundary, update_full has priority, and optimistic proposal/
   transaction deltas remain level-triggered.
 
-## 5. P4 — Current: failure semantics and authority acceptance
+## 5. P4 — Complete: failure semantics and authority acceptance
 
-### Completed in the working tree
+### Completed
 
 - Removed `PrePoolError::Repair` and the generic Defect error class.
 - Converted primary/index/accounting contradictions to assertions inside the
@@ -171,7 +172,8 @@ No checkpoint before P7 is a performance verdict.
       outcomes. Final documentation must keep them visible as residual risk.
 - [x] Re-run full clippy/nextest after deleting the retained reorg retry
       protocol: clippy is clean and nextest passes 227/227.
-- [ ] Commit the passing P4 checkpoint and freeze the state/failure model.
+- [x] Commit the passing P4 checkpoint and freeze the state/failure model as
+      `015d88be2`.
 
 ### P4 exit gate
 
@@ -185,11 +187,38 @@ No checkpoint before P7 is a performance verdict.
 
 ## 6. P5 — Global simplification and documentation acceptance
 
+### Completed code convergence
+
+- Cohort Apply now moves old/new primary entries and records only prior
+  existence; immutable planning no longer clones every old primary into the
+  plan. Single-entry transitions remain stack-sized and do not pass through
+  the cohort planner.
+- Resolve/verify, wait/promotion, commit metadata and trusted proposal
+  promotion no longer make redundant full-entry clones. The remaining cohort
+  clones create independently mutated proposed primaries and are required by
+  read-only Plan semantics.
+- Removed `KernelDisposal` and `AuthoritativeDisposal`: a sealed retired
+  generation is the disposal capability and is destroyed only after releasing
+  the accepted-pool guard.
+- Collapsed `AppliedRemovalBatch`, `SubmitSideEffects` and
+  `CoordinatedSubmitOutcome` into one `SubmitEntryOutcome` crossing the lock
+  boundary. This removes transport envelopes without weakening effect order.
+- Reorg recovery now compiles one parent-first accepted/detached recovery plan
+  after the chain mutation and applies that exact plan; it no longer traverses
+  and clones the accepted recovery set twice.
+- Unified the zero/nonzero block-assembler loops while preserving Reset as a
+  hard full-template barrier and ordinary proposal/transaction updates as
+  level-triggered optimistic deltas. Update queues move rather than clone.
+- Removed production `PipelineState::chunk_rx`; worker receivers belong to the
+  worker runtime and direct white-box observation belongs to the test harness.
+- Candidate-uncle tests now exercise production limits (128 candidates/10
+  selected) instead of changing scheduling behavior under `cfg(test)`.
+- Deleted stale multi-queue/orphan terminology at production boundaries.
+
+### Remaining P5 work
+
 - Recount production/test/benchmark lines separately and compare every new
-  production structure with develop.
-- Delete only encoding duplication with a proven owner: redundant result
-  plumbing, stale adapters, duplicate projections, and obsolete test seams.
-- Do not force bounded single-entry hot paths through the general cohort plan.
+  production structure with develop using a cfg-aware method.
 - Re-audit state count, lock hold time, allocations, retained snapshots and
   graph bounds at the whole-architecture level.
 - Rewrite `ARCHITECTURE.md`, `ARCHITECTURE_AUDIT.md`, `pipeline.md`,

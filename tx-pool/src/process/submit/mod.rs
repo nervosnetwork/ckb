@@ -106,7 +106,7 @@ impl TxPoolService {
                         .effects
                         .try_apply_bounded(effect_bound, effect_class, || {
                             let mut committed_ingress_peer = original_peer;
-                            let (mut coordinated, record) = self.try_submit_entry_with_handoff(
+                            let (mut outcome, record) = self.try_submit_entry_with_handoff(
                                 &mut tx_pool,
                                 snapshot,
                                 pre_resolve_tip.clone(),
@@ -133,7 +133,7 @@ impl TxPoolService {
                                     record.raw.ingress_peer().or(committed_ingress_peer);
                             }
                             if matches!(
-                                coordinated.outcome.result.as_ref(),
+                                outcome.result.as_ref(),
                                 Err(Reject::RBFRejected(..)
                                     | Reject::Resolve(
                                         ckb_types::core::error::OutPointError::Dead(_)
@@ -163,8 +163,7 @@ impl TxPoolService {
                                     "direct-submit conflict retention failed",
                                 );
                             }
-                            let extra_effects = coordinated
-                                .outcome
+                            let extra_effects = outcome
                                 .result
                                 .is_ok()
                                 .then(|| {
@@ -175,12 +174,11 @@ impl TxPoolService {
                                 })
                                 .into_iter()
                                 .collect();
-                            for status in coordinated.block_assembler_statuses() {
+                            for status in outcome.block_assembler_statuses() {
                                 self.journal_block_assembler_update(status);
                             }
-                            let batch = self
-                                .prepare_submit_effects(&mut coordinated.outcome, extra_effects);
-                            (coordinated.outcome, batch)
+                            let batch = self.prepare_submit_effects(&mut outcome, extra_effects);
+                            (outcome, batch)
                         })
                 })
             };
@@ -427,7 +425,7 @@ impl TxPoolService {
                     self.relay
                         .effects
                         .try_apply_bounded(effect_bound, EffectClass::Remote, || {
-                            let (mut coordinated, settlement) = self.try_submit_entry_with_handoff(
+                            let (mut outcome, settlement) = self.try_submit_entry_with_handoff(
                                 &mut tx_pool,
                                 snapshot,
                                 verified.candidate.pre_resolve_tip.clone(),
@@ -449,30 +447,30 @@ impl TxPoolService {
                                     handoff
                                 },
                             );
-                            let failed_terminal =
-                                if coordinated.outcome.result.is_err() && settlement.is_none() {
-                                    let retain_conflict = matches!(
-                                        coordinated.outcome.result.as_ref(),
-                                        Err(Reject::RBFRejected(..)
-                                            | Reject::Resolve(
-                                                ckb_types::core::error::OutPointError::Dead(_)
-                                            ))
-                                    ) && tx_pool
-                                        .pool_map
-                                        .find_conflict_outpoint(entry.transaction())
-                                        .is_some();
-                                    Some(if retain_conflict {
-                                        kernel
-                                            .park_failed_commit(&lease)
-                                            .expect("validated Ready lease must park")
-                                    } else {
-                                        kernel
-                                            .fail_commit(&lease)
-                                            .expect("validated Ready lease must terminalize")
-                                    })
+                            let failed_terminal = if outcome.result.is_err() && settlement.is_none()
+                            {
+                                let retain_conflict = matches!(
+                                    outcome.result.as_ref(),
+                                    Err(Reject::RBFRejected(..)
+                                        | Reject::Resolve(
+                                            ckb_types::core::error::OutPointError::Dead(_)
+                                        ))
+                                ) && tx_pool
+                                    .pool_map
+                                    .find_conflict_outpoint(entry.transaction())
+                                    .is_some();
+                                Some(if retain_conflict {
+                                    kernel
+                                        .park_failed_commit(&lease)
+                                        .expect("validated Ready lease must park")
                                 } else {
-                                    None
-                                };
+                                    kernel
+                                        .fail_commit(&lease)
+                                        .expect("validated Ready lease must terminalize")
+                                })
+                            } else {
+                                None
+                            };
                             let mut failed_banned_peer = None;
                             let mut extra_effects = Vec::new();
                             if let Some(handoff) = &settlement {
@@ -503,7 +501,7 @@ impl TxPoolService {
                                     }
                                 }
                             } else if let Some(record) = &failed_terminal
-                                && let Some(reject) = coordinated.outcome.result.as_ref().err()
+                                && let Some(reject) = outcome.result.as_ref().err()
                             {
                                 if let Some(effect) =
                                     self.recent_reject_effect(record.hash.clone(), reject)
@@ -535,19 +533,12 @@ impl TxPoolService {
                                     ));
                                 }
                             }
-                            for status in coordinated.block_assembler_statuses() {
+                            for status in outcome.block_assembler_statuses() {
                                 self.journal_block_assembler_update(status);
                             }
-                            let batch = self
-                                .prepare_submit_effects(&mut coordinated.outcome, extra_effects);
+                            let batch = self.prepare_submit_effects(&mut outcome, extra_effects);
                             (
-                                (
-                                    coordinated,
-                                    settlement,
-                                    failed_banned_peer,
-                                    verified,
-                                    entry_id,
-                                ),
+                                (outcome, settlement, failed_banned_peer, verified, entry_id),
                                 batch,
                             )
                         })
@@ -563,12 +554,12 @@ impl TxPoolService {
                 }
             }
         };
-        let Some((coordinated, settlement, failed_banned_peer, verified, entry_id)) = transaction
+        let Some((outcome, settlement, failed_banned_peer, verified, entry_id)) = transaction
         else {
             return false;
         };
 
-        let dispatch_result = coordinated.outcome.result;
+        let dispatch_result = outcome.result;
         if let Some(peer) = failed_banned_peer {
             self.remove_banned_peer_entries(peer).await;
         }

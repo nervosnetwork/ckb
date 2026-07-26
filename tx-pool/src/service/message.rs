@@ -52,11 +52,11 @@ pub(crate) enum Message {
     GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
-    /// Replace the tx-pool snapshot, clear **all** in-pool entries, and drain
-    /// all pipeline queues (ordered resolve, verification, orphan and pre-check).
+    /// Replace the tx-pool snapshot, clear **all** accepted entries, and retire
+    /// every pre-pool location as one generation.
     ClearPool(SyncRequest<Arc<Snapshot>, ()>),
-    /// Clear only the pipeline queues (ordered resolve, verification, orphan
-    /// and pre-check) without touching the already-accepted pool.
+    /// Retire every pre-pool location as one generation without touching the
+    /// accepted pool.
     ClearPipeline(SyncRequest<(), ()>),
     GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
     GetAllIds(SyncRequest<(), TxPoolIds>),

@@ -123,20 +123,6 @@ pub(crate) struct PrePool {
     max_entries: usize,
 }
 
-/// Sealed state moved out by an explicit clear or chain fallback.  Moving the
-/// generation is an ownership optimization: its population is destroyed after
-/// authority locks open.  It is deliberately not a panic-recovery protocol.
-#[must_use = "retired generation must be dropped after authority guards are released"]
-pub(crate) struct KernelDisposal {
-    retired: Option<PrePoolGeneration>,
-}
-
-impl Drop for KernelDisposal {
-    fn drop(&mut self) {
-        drop(self.retired.take());
-    }
-}
-
 impl PrePool {
     pub(crate) fn new(
         config: &TxPoolConfig,
@@ -242,7 +228,7 @@ impl PrePool {
     pub(crate) fn reset_for_chain<T>(
         &self,
         prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> Result<(T, KernelDisposal), PrePoolError> {
+    ) -> Result<(T, PrePoolGeneration), PrePoolError> {
         let mut state = self.lock();
         let mut prepared = PrePoolKernel {
             generation: PrePoolGeneration::new(),
@@ -256,12 +242,7 @@ impl PrePool {
         state.next_arrival = prepared.next_arrival;
         drop(state);
         self.mutate_authoritative(|_| ());
-        Ok((
-            value,
-            KernelDisposal {
-                retired: Some(retired),
-            },
-        ))
+        Ok((value, retired))
     }
 
     pub(crate) fn subscribe(&self, lane: WorkLane, capability: WorkCapability) -> Arc<Notify> {
@@ -310,13 +291,20 @@ impl PrePool {
                 !matches!(source, TxSource::Local),
                 "Local submissions must use the direct validation path"
             );
-            if let Some(existing) = kernel.entries.get(&hash).cloned() {
+            if kernel.entries.contains_key(&hash) {
                 return match source {
                     TxSource::Local => unreachable!("Local source was rejected above"),
                     TxSource::Remote { .. } => Ok(false),
                     TxSource::Proposal => {
-                        if existing.raw.tx.witness_hash() != tx.witness_hash() {
-                            let raw = existing.raw.trusted_variant(tx, epoch);
+                        let trusted_variant = {
+                            let existing = kernel
+                                .entries
+                                .get(&hash)
+                                .expect("entry existence was established above");
+                            (existing.raw.tx.witness_hash() != tx.witness_hash())
+                                .then(|| existing.raw.trusted_variant(tx, epoch))
+                        };
+                        if let Some(raw) = trusted_variant {
                             let raw_bytes = raw.charge_bytes();
                             kernel.replace_raw_payload(&hash, raw, raw_bytes, lane)?;
                         } else {

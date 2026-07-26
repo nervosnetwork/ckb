@@ -19,8 +19,8 @@ mod test_seam;
 #[cfg(test)]
 pub(crate) use runtime::pre_pool_source;
 pub(crate) use runtime::{
-    KernelDisposal, PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline,
-    historical_source, pre_pool_reject,
+    PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline, historical_source,
+    pre_pool_reject,
 };
 
 use self::queue::{FairQueue, WorkKey, WorkOwner};

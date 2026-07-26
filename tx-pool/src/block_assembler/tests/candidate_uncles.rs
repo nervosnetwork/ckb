@@ -21,6 +21,28 @@ fn uncle(number: BlockNumber, seed: u8) -> UncleBlockView {
         .as_uncle()
 }
 
+fn fill_to_capacity(container: &mut CandidateUncles, lowest_has_room: bool) {
+    let mut seed = 1u8;
+    let lowest_count = if lowest_has_room {
+        MAX_PER_HEIGHT - 1
+    } else {
+        MAX_PER_HEIGHT
+    };
+    for _ in 0..lowest_count {
+        assert!(container.insert(uncle(1, seed)));
+        seed = seed.checked_add(1).expect("test seed fits u8");
+    }
+    let mut height = 2;
+    while container.len() < MAX_CANDIDATE_UNCLES {
+        let count = MAX_PER_HEIGHT.min(MAX_CANDIDATE_UNCLES - container.len());
+        for _ in 0..count {
+            assert!(container.insert(uncle(height, seed)));
+            seed = seed.checked_add(1).expect("test seed fits u8");
+        }
+        height += 1;
+    }
+}
+
 /// A full container must still accept an uncle at the *boundary*
 /// height (equal to the lowest stored height) into that height's
 /// existing set when it has room — instead of rejecting it while
@@ -30,11 +52,8 @@ fn full_container_accepts_uncle_at_lowest_existing_height() {
     let mut container = CandidateUncles::new();
 
     // Fill to capacity: height 1 has room left in its set, the others
-    // are full. (Test constants: MAX_CANDIDATE_UNCLES=4, MAX_PER_HEIGHT=2.)
-    assert!(container.insert(uncle(1, 100)));
-    assert!(container.insert(uncle(2, 101)));
-    assert!(container.insert(uncle(2, 102)));
-    assert!(container.insert(uncle(3, 103)));
+    // are full, using the exact production bounds.
+    fill_to_capacity(&mut container, true);
     assert_eq!(container.len(), MAX_CANDIDATE_UNCLES);
 
     // Boundary height with room: accepted into the existing set (the
@@ -52,7 +71,14 @@ fn full_container_accepts_uncle_at_lowest_existing_height() {
     assert!(!container.insert(uncle(0, 202)));
 
     // A higher height evicts the whole lowest set to make room.
-    assert!(container.insert(uncle(4, 203)));
+    let higher = container
+        .map
+        .keys()
+        .next_back()
+        .copied()
+        .expect("full container has a highest bucket")
+        + 1;
+    assert!(container.insert(uncle(higher, 203)));
     assert!(
         !container.values().any(|u| u.header().number() == 1),
         "the lowest height set must be evicted for the higher uncle"
@@ -62,11 +88,12 @@ fn full_container_accepts_uncle_at_lowest_existing_height() {
 #[test]
 fn rejected_high_candidate_cannot_evict_lowest_height() {
     let mut duplicate_container = CandidateUncles::new();
-    let high = uncle(3, 103);
-    assert!(duplicate_container.insert(uncle(1, 100)));
-    assert!(duplicate_container.insert(uncle(2, 101)));
-    assert!(duplicate_container.insert(uncle(2, 102)));
-    assert!(duplicate_container.insert(high.clone()));
+    fill_to_capacity(&mut duplicate_container, true);
+    let high = duplicate_container
+        .values()
+        .find(|candidate| candidate.number() > 1)
+        .cloned()
+        .expect("full container has a higher-height candidate");
     assert_eq!(duplicate_container.len(), MAX_CANDIDATE_UNCLES);
     assert!(!duplicate_container.insert(high));
     assert_eq!(duplicate_container.len(), MAX_CANDIDATE_UNCLES);
@@ -78,12 +105,14 @@ fn rejected_high_candidate_cannot_evict_lowest_height() {
     );
 
     let mut full_bucket_container = CandidateUncles::new();
-    assert!(full_bucket_container.insert(uncle(1, 110)));
-    assert!(full_bucket_container.insert(uncle(2, 111)));
-    assert!(full_bucket_container.insert(uncle(3, 112)));
-    assert!(full_bucket_container.insert(uncle(3, 113)));
+    fill_to_capacity(&mut full_bucket_container, true);
+    let full_height = full_bucket_container
+        .map
+        .iter()
+        .find_map(|(height, candidates)| (candidates.len() == MAX_PER_HEIGHT).then_some(*height))
+        .expect("full container has a saturated height bucket");
     assert_eq!(full_bucket_container.len(), MAX_CANDIDATE_UNCLES);
-    assert!(!full_bucket_container.insert(uncle(3, 114)));
+    assert!(!full_bucket_container.insert(uncle(full_height, 250)));
     assert_eq!(full_bucket_container.len(), MAX_CANDIDATE_UNCLES);
     assert!(
         full_bucket_container

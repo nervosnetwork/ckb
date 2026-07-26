@@ -60,7 +60,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) recent_reject: Option<Arc<RecentReject>>,
 }
 
-/// Shared construction of the pipeline queues and a bare [`TxPoolService`].
+/// Shared construction of the pre-pool runtime and a bare [`TxPoolService`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_service(
     tx_pool: TxPool,
@@ -74,7 +74,6 @@ pub(crate) fn assemble_service(
     tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     verify_cache_sender: mpsc::Sender<VerifyCacheUpdate>,
-    chunk_rx: watch::Receiver<ChunkCommand>,
     pipeline_shutdown: CancellationToken,
 ) -> TxPoolService {
     let kernel = Arc::new(crate::component::pre_pool::PrePool::new(
@@ -127,7 +126,6 @@ pub(crate) fn assemble_service(
         pipeline: crate::service::PipelineState {
             kernel,
             epoch: Arc::new(crate::service::PipelineEpoch::default()),
-            chunk_rx,
             verify_cache_sender,
         },
         relay: crate::service::RelayState {
@@ -486,7 +484,6 @@ impl TxPoolServiceBuilder {
             tx_relay_sender,
             block_assembler_sender,
             verify_cache_sender,
-            chunk_rx.clone(),
             signal_receiver.clone(),
         );
 
@@ -704,7 +701,7 @@ impl TxPoolServiceBuilder {
             queue.insert(message.clone());
         }
 
-        let attempted = queue.iter().cloned().collect::<Vec<_>>();
+        let attempted = std::mem::take(queue);
         let mut retry = LinkedHashSet::new();
         let mut made_progress = false;
         for message in attempted {
@@ -735,111 +732,72 @@ impl TxPoolServiceBuilder {
         signal_receiver: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
         let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
-        if interval.is_zero() {
-            // block_assembler.update_interval_millis set zero interval should only be used for tests,
-            // external notification will be disabled.
+        let eager_updates = interval.is_zero();
+        if eager_updates {
             ckb_logger::warn!(
                 "block_assembler.update_interval_millis set to zero interval. \
                 This should only be used for tests, as external notification will be disabled."
             );
-            handle.spawn(async move {
-                // Even interval-zero configurations need a bounded retry for
-                // authoritative management resets. Otherwise one transient
-                // cellbase/template error consumes the only wake edge and
-                // leaves the old template live forever.
-                let reset_retry_period = Duration::from_secs(1);
-                let mut reset_retry = tokio::time::interval_at(
-                    tokio::time::Instant::now() + reset_retry_period,
-                    reset_retry_period,
-                );
-                let mut queue = LinkedHashSet::new();
-                loop {
-                    tokio::select! {
-                        Some(message) = block_assembler_receiver.recv() => {
-                            if !matches!(message, BlockAssemblerMessage::Reset) {
-                                queue.insert(message);
-                            }
-                            // A reset may have shared a saturated channel with
-                            // this wake. Always drain the authoritative reset
-                            // journal first; stale Reset tokens become no-ops.
-                            block_assembler::process(
-                                service.clone(),
-                                &BlockAssemblerMessage::Reset,
-                            )
-                            .await;
-                            // A failed or superseded reset is a hard template
-                            // barrier. Retain every ordinary update until the
-                            // latest authoritative snapshot rebuild succeeds.
-                            if service.relay.block_assembler_reset_pending() {
-                                continue;
-                            }
-                            Self::apply_block_assembler_updates(&service, &mut queue).await;
-                        },
-                        _ = reset_retry.tick() => {
-                            if !service.relay.block_assembler_reset_pending() {
-                                continue;
-                            }
-                            block_assembler::process(
-                                service.clone(),
-                                &BlockAssemblerMessage::Reset,
-                            )
-                            .await;
-                            if service.relay.block_assembler_reset_pending() {
-                                continue;
-                            }
-                            Self::apply_block_assembler_updates(&service, &mut queue).await;
-                        },
-                        _ = signal_receiver.cancelled() => {
-                            info!("TxPool block_assembler process service received exit signal, exit now");
-                            break
-                        },
-                        else => break,
-                    }
-                }
-            })
-        } else {
-            handle.spawn(async move {
-                let mut interval = tokio::time::interval(interval);
-                let mut queue = LinkedHashSet::new();
-                loop {
-                    tokio::select! {
-                        Some(message) = block_assembler_receiver.recv() => {
-                            if !matches!(message, BlockAssemblerMessage::Reset) {
-                                queue.insert(message);
-                            }
-                            // Reset state is level-triggered and may have been
-                            // coalesced behind any channel token.
-                            block_assembler::process(
-                                service.clone(),
-                                &BlockAssemblerMessage::Reset,
-                            )
-                            .await;
-                        },
-                        _ = interval.tick() => {
-                            block_assembler::process(
-                                service.clone(),
-                                &BlockAssemblerMessage::Reset,
-                            )
-                            .await;
-                            if service.relay.block_assembler_reset_pending() {
-                                continue;
-                            }
-                            let made_progress =
-                                Self::apply_block_assembler_updates(&service, &mut queue).await;
-                            if made_progress
-                                && let Some(ref block_assembler) = service.block_assembler {
-                                    block_assembler.notify().await;
-                                }
-                        }
-                        _ = signal_receiver.cancelled() => {
-                            info!("TxPool block_assembler process service received exit signal, exit now");
-                            break
-                        },
-                        else => break,
-                    }
-                }
-            })
         }
+        handle.spawn(async move {
+            // Interval-zero mode still retries authoritative resets, but it
+            // applies ordinary updates eagerly and deliberately emits no
+            // external miner notification.
+            let tick_period = if eager_updates {
+                Duration::from_secs(1)
+            } else {
+                interval
+            };
+            let first_tick = if eager_updates {
+                tokio::time::Instant::now() + tick_period
+            } else {
+                tokio::time::Instant::now()
+            };
+            let mut ticker = tokio::time::interval_at(first_tick, tick_period);
+            let mut queue = LinkedHashSet::new();
+            loop {
+                tokio::select! {
+                    Some(message) = block_assembler_receiver.recv() => {
+                        if !matches!(message, BlockAssemblerMessage::Reset) {
+                            queue.insert(message);
+                        }
+                        // Reset is the hard template barrier and may have
+                        // shared a saturated channel with any wake token.
+                        block_assembler::process(
+                            service.clone(),
+                            &BlockAssemblerMessage::Reset,
+                        )
+                        .await;
+                        if eager_updates && !service.relay.block_assembler_reset_pending() {
+                            Self::apply_block_assembler_updates(&service, &mut queue).await;
+                        }
+                    },
+                    _ = ticker.tick() => {
+                        if eager_updates && !service.relay.block_assembler_reset_pending() {
+                            continue;
+                        }
+                        block_assembler::process(
+                            service.clone(),
+                            &BlockAssemblerMessage::Reset,
+                        )
+                        .await;
+                        if service.relay.block_assembler_reset_pending() {
+                            continue;
+                        }
+                        let made_progress =
+                            Self::apply_block_assembler_updates(&service, &mut queue).await;
+                        if !eager_updates && made_progress {
+                            block_assembler.notify().await;
+                        }
+                    },
+                    _ = signal_receiver.cancelled() => {
+                        info!("TxPool block_assembler process service received exit signal, exit now");
+                        break
+                    },
+                    else => break,
+                }
+            }
+        })
     }
 }
 

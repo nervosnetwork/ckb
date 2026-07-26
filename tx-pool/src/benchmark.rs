@@ -218,7 +218,6 @@ fn build_bench_service(
         builder.tx_relay_sender,
         block_assembler_sender,
         verify_cache_sender,
-        builder.chunk_rx,
         signal.clone(),
     );
     let effect_publisher = builder.handle.spawn(run_effect_publisher(
@@ -581,10 +580,8 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         }
     }
 
-    // Create a fresh command channel shared by stage workers and direct reorg
-    // recovery so both observe pause/resume.
+    // Create a fresh command channel shared by stage workers.
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-    parts.service.pipeline.chunk_rx = chunk_rx.clone();
 
     worker_handles.extend(crate::verify_mgr::spawn_verify_workers(
         &shared.ckb_handle,

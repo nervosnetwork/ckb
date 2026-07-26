@@ -140,8 +140,8 @@ impl TxPoolService {
     ///
     /// `peer` and `cycles` are passed explicitly rather than inside `TxSource`
     /// so the remote-only preconditions are visible in the signature. The
-    /// `TxSource::Remote` variant is reconstructed only when the tx needs to be
-    /// stored in the orphan pool.
+    /// `TxSource::Remote` is reconstructed only at the terminal policy
+    /// boundary; the pre-pool retains immutable ingress attribution.
     pub(crate) async fn after_process_remote(
         &self,
         tx: TransactionView,
@@ -194,11 +194,7 @@ impl TxPoolService {
             }
         }
     }
-    /// Common success handler: relay the result and trigger orphan processing.
-    ///
-    /// Box::pin is required because after_process and process_orphan_tx are
-    /// mutually recursive async fns; without boxing the compiler cannot prove
-    /// the resulting future has a finite size.
+    /// Common success handler for relaying an accepted transaction.
     pub(crate) async fn handle_verify_success(
         &self,
         tx: &TransactionView,
@@ -223,8 +219,7 @@ impl TxPoolService {
     /// tx is malformed, relay the rejection if allowed, and record it in the
     /// recent-reject database if applicable.
     ///
-    /// This is the single source of truth for remote terminal policy used by
-    /// both [`Self::after_process`] and [`Self::process_orphan_tx`].
+    /// This is the single source of truth for remote terminal policy.
     pub(crate) async fn handle_remote_reject(
         &self,
         tx_hash: &Byte32,

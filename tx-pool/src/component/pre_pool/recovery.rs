@@ -65,13 +65,13 @@ impl PrePoolKernel {
                 continue;
             }
             let short_id = crate::util::compact_packed(&tx.proposal_short_id());
-            let old = self.entries.get(&hash).cloned();
+            let old_arrival = self.entries.get(&hash).map(|old| old.arrival);
             let version = version_cursor;
             version_cursor = version_cursor
                 .checked_add(1)
                 .expect("u128 entry version must not exhaust during process lifetime");
-            let arrival = if let Some(old) = &old {
-                old.arrival
+            let arrival = if let Some(arrival) = old_arrival {
+                arrival
             } else {
                 let arrival = arrival_cursor;
                 arrival_cursor = arrival_cursor

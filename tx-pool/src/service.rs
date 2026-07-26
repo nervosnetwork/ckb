@@ -38,7 +38,6 @@ use ckb_channel::oneshot;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_logger::error;
 use ckb_network::PeerIndex;
-use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{BlockView, Capacity, UncleBlockView, tx_pool::TxStatus},
@@ -51,7 +50,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc};
 
 /// Default bounded channel capacity for internal tx-pool message queues.
 ///
@@ -229,10 +228,6 @@ pub(crate) struct PipelineState {
     pub(crate) kernel: Arc<crate::component::pre_pool::PrePool>,
     /// Administrative generation shared by every pipeline stage.
     pub(crate) epoch: Arc<PipelineEpoch>,
-    /// Chunk command receiver used by the synchronous reorg recovery path so
-    /// that detached transactions are not verified while the pipeline is
-    /// suspended.
-    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     /// Bounded best-effort verification-cache update channel. Executable
     /// transaction lifecycle and conflict recovery never use this channel.
     pub(crate) verify_cache_sender: mpsc::Sender<VerifyCacheUpdate>,
@@ -497,7 +492,7 @@ pub(crate) enum RemoveTxOutcome {
     NotFound,
 }
 
-/// Result of looking up a transaction in the tx-pool or pipeline queues.
+/// Result of looking up a transaction in the accepted pool or pre-pool.
 pub(crate) enum ResolvedTxLocation {
     /// Accepted in the main pool.
     Pool {
@@ -507,7 +502,7 @@ pub(crate) enum ResolvedTxLocation {
         /// one RPC response never combines metadata from different mutations.
         min_replace_fee: Option<Capacity>,
     },
-    /// In one of the pipeline queues.
+    /// In one of the pre-pool locations.
     Pipeline(PipelineTxLocation),
     /// Not found in either place; the caller should check recent rejects.
     NotFound,

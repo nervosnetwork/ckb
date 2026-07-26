@@ -380,7 +380,7 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         })
         .unwrap()
         .unwrap();
-    let mut chunk_rx = h.service.pipeline.chunk_rx.clone();
+    let mut chunk_rx = h.chunk_rx.clone();
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
@@ -531,7 +531,7 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
         "queued/active verification payload must not retain the old database snapshot"
     );
 
-    let mut chunk_rx = h.service.pipeline.chunk_rx.clone();
+    let mut chunk_rx = h.chunk_rx.clone();
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
@@ -685,7 +685,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         })
         .unwrap()
         .unwrap();
-    let mut chunk_rx = h.service.pipeline.chunk_rx.clone();
+    let mut chunk_rx = h.chunk_rx.clone();
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;

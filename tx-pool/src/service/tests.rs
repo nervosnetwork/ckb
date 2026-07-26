@@ -1,10 +1,12 @@
 use super::*;
 use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
+use ckb_script::ChunkCommand;
 use ckb_stop_handler::new_tokio_exit_rx;
 use std::future::Future;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
+use tokio::sync::watch;
 
 impl PipelineEpoch {
     pub(crate) fn set_for_test(&self, value: u64) {

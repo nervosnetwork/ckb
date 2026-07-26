@@ -48,6 +48,7 @@ pub(crate) enum WorkerSet {
 /// that adding a field stops changing every wrapper's return type.
 pub(crate) struct Harness {
     pub(crate) service: TxPoolService,
+    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) relay_rx: ckb_channel::Receiver<TxVerificationResult>,
     pub(crate) block_assembler_rx: mpsc::Receiver<crate::service::BlockAssemblerMessage>,
     pub(crate) cancel: CancellationToken,
@@ -147,12 +148,8 @@ impl HarnessBuilder {
         let (block_assembler_sender, block_assembler_rx) = mpsc::channel(1);
         let signal = CancellationToken::new();
         let (verify_cache_sender, mut verify_cache_receiver) = mpsc::channel(1024);
-        // Two command channels, mirroring the previous inline harnesses: the
-        // service keeps its own receiver (for direct per-tx verification),
-        // while the verify manager and ordered resolver share a second one
-        // whose sender may be handed to the test.
-        let (service_chunk_tx, service_chunk_rx) = watch::channel(ChunkCommand::Resume);
         let (chunk_tx, verify_chunk_rx) = watch::channel(ChunkCommand::Resume);
+        let test_chunk_rx = verify_chunk_rx.clone();
         let kernel = Arc::new(crate::component::pre_pool::PrePool::new(
             &config,
             &consensus,
@@ -187,7 +184,6 @@ impl HarnessBuilder {
             pipeline: crate::service::PipelineState {
                 kernel,
                 epoch: Arc::new(crate::service::PipelineEpoch::default()),
-                chunk_rx: service_chunk_rx,
                 verify_cache_sender,
             },
             relay: crate::service::RelayState {
@@ -291,16 +287,16 @@ impl HarnessBuilder {
         // fields immediately.
         {
             let keepalive_cancel = signal.clone();
-            let keep_service_tx = service_chunk_tx;
             let keep_verify_tx = chunk_tx.clone();
             tokio::spawn(async move {
-                let _keep = (keep_service_tx, keep_verify_tx);
+                let _keep = keep_verify_tx;
                 keepalive_cancel.cancelled().await;
             });
         }
 
         Harness {
             service,
+            chunk_rx: test_chunk_rx,
             relay_rx,
             block_assembler_rx,
             cancel: signal,

@@ -356,9 +356,8 @@ impl TxPoolService {
         .await
     }
 
-    /// Remove a transaction by hash from every pipeline structure it may
-    /// occupy (pre-check, ordered resolve, verify, RBF registrations,
-    /// orphan and the main pool).
+    /// Remove a transaction by hash from both ownership authorities: every
+    /// pre-pool location and the accepted pool.
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> RemoveTxOutcome {
         let preview = self
             .pipeline
@@ -495,8 +494,7 @@ impl TxPoolService {
     }
 
     /// Filter proposals down to those that are **completely new** to this
-    /// node: not in any pipeline queue (or active), not RBF-held, not in
-    /// the orphan pool, and not in the main pool.
+    /// node: owned by neither the pre-pool nor the accepted pool.
     ///
     /// These locations are exactly the same stages searched by
     /// [`Self::get_tx_for_compact_block`], so filtering them out here is safe:

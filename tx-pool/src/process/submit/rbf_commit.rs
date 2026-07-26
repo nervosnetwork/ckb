@@ -32,19 +32,6 @@ use crate::process::{get_tx_status, status_to_verify_env};
 #[path = "../tests/rbf_commit_seam.rs"]
 mod test_seam;
 
-/// One authoritative record of every removal already selected by immutable
-/// Plan and moved by total Apply.
-#[derive(Debug, Default)]
-struct AppliedRemovalBatch {
-    removals: Vec<RemovedPoolEntry>,
-}
-
-impl AppliedRemovalBatch {
-    fn record(&mut self, removed: impl IntoIterator<Item = RemovedPoolEntry>) {
-        self.removals.extend(removed);
-    }
-}
-
 /// Outcome of `try_submit_entry`, carried as one side-effect envelope across
 /// the tx-pool write-lock boundary.
 pub(crate) struct SubmitEntryOutcome {
@@ -53,47 +40,26 @@ pub(crate) struct SubmitEntryOutcome {
     pub(crate) reject_events: Vec<(TxEntry, Reject)>,
     /// Successful accepted callback, also dispatched outside the lock.
     pub(crate) accept_event: Option<(TxEntry, Status)>,
+    /// Exact accepted entries moved by the immutable plan.
+    removals: Vec<RemovedPoolEntry>,
 }
 
-/// Submit result retaining the exact applied removal batch for stable effects.
-pub(crate) struct CoordinatedSubmitOutcome {
-    pub(crate) outcome: SubmitEntryOutcome,
-    removals: AppliedRemovalBatch,
-}
-
-impl CoordinatedSubmitOutcome {
+impl SubmitEntryOutcome {
     /// Minimal assembler refresh set for this committed pool transaction.
     /// A replacement can remove a Proposed entry while inserting a Pending
     /// one, so the new entry alone is not a complete template delta.
     pub(crate) fn block_assembler_statuses(&self) -> HashSet<Status> {
-        if self.outcome.result.is_err() {
+        if self.result.is_err() {
             return HashSet::new();
         }
         let mut statuses = self
-            .outcome
             .accept_event
             .iter()
             .map(|(_, status)| *status)
             .collect::<HashSet<_>>();
-        statuses.extend(self.removals.removals.iter().map(|item| item.status));
+        statuses.extend(self.removals.iter().map(|item| item.status));
         statuses
     }
-}
-
-/// The side effects accumulated by one submit attempt.
-///
-/// Everything here is materialized from an already validated plan.
-#[derive(Default)]
-pub(crate) struct SubmitSideEffects {
-    /// Reject events to dispatch outside the write lock.
-    reject_events: Vec<(TxEntry, Reject)>,
-    /// Every physical pool removal made by this submit, classified by cause.
-    removals: AppliedRemovalBatch,
-    /// Successful pool insertion notification, dispatched only after the
-    /// write lock is released. It is intentionally installed after all pool
-    /// limits pass so a transaction rejected by the same submit never emits
-    /// a spurious pending/proposed callback first.
-    accept_event: Option<(TxEntry, Status)>,
 }
 
 impl TxPoolService {
@@ -288,9 +254,10 @@ impl TxPoolService {
         tx_pool: &mut TxPool,
         entry: &TxEntry,
         plan: PoolMutationPlan,
-        fx: &mut SubmitSideEffects,
-    ) {
+    ) -> (Vec<(TxEntry, Reject)>, Vec<RemovedPoolEntry>) {
         let AppliedPoolMutation { removals } = tx_pool.pool_map.apply_mutation(plan);
+        let mut reject_events = Vec::with_capacity(removals.len());
+        let mut removed_entries = Vec::with_capacity(removals.len());
         for applied in removals {
             let reject = match applied.cause {
                 RemovalCause::Replacement => {
@@ -301,10 +268,10 @@ impl TxPoolService {
                     applied.removed.entry.fee_rate()
                 )),
             };
-            fx.reject_events
-                .push((applied.removed.entry.clone(), reject));
-            fx.removals.record(std::iter::once(applied.removed));
+            reject_events.push((applied.removed.entry.clone(), reject));
+            removed_entries.push(applied.removed);
         }
+        (reject_events, removed_entries)
     }
     pub(crate) fn try_submit_entry_with_handoff<T>(
         &self,
@@ -313,37 +280,32 @@ impl TxPoolService {
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         before_apply: impl FnOnce(&TxPool, &PoolMutationPlan) -> T,
-    ) -> (CoordinatedSubmitOutcome, Option<T>) {
-        let mut fx = SubmitSideEffects::default();
-        let mut handoff = None;
-        let result = match self.plan_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry) {
-            Err(reject) => Err(reject),
+    ) -> (SubmitEntryOutcome, Option<T>) {
+        match self.plan_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry) {
+            Err(reject) => (
+                SubmitEntryOutcome {
+                    result: Err(reject),
+                    reject_events: Vec::new(),
+                    accept_event: None,
+                    removals: Vec::new(),
+                },
+                None,
+            ),
             Ok(plan) => {
                 let value = before_apply(tx_pool, &plan);
                 let final_status = plan.status;
-                self.apply_pool_mutation(tx_pool, &entry, plan, &mut fx);
-                fx.accept_event = Some((entry.clone(), final_status));
-                handoff = Some(value);
-                Ok(())
+                let (reject_events, removals) = self.apply_pool_mutation(tx_pool, &entry, plan);
+                (
+                    SubmitEntryOutcome {
+                        result: Ok(()),
+                        reject_events,
+                        accept_event: Some((entry, final_status)),
+                        removals,
+                    },
+                    Some(value),
+                )
             }
-        };
-
-        debug_assert!(
-            result.is_ok() || fx.removals.removals.is_empty(),
-            "immutable Plan rejects before any accepted-pool removal"
-        );
-
-        (
-            CoordinatedSubmitOutcome {
-                outcome: SubmitEntryOutcome {
-                    result,
-                    reject_events: fx.reject_events,
-                    accept_event: fx.accept_event,
-                },
-                removals: fx.removals,
-            },
-            handoff,
-        )
+        }
     }
 
     /// Materialize the complete stable-state publication batch from the
