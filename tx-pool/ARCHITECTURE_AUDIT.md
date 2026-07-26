@@ -6,7 +6,9 @@ Execution ledger: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Code checkpoint: `64ecdd0eb`
+Stable code checkpoint: `9e559a482`.
+Audited candidate: P6.5 code checkpoint `9e559a482`; preceding evidence
+checkpoint `eb26bd272`
 
 ## 1. Verdict
 
@@ -18,10 +20,12 @@ kernel, accepted immutable Plan/total Apply, bounded stable-effect journal and
 level-triggered progress rules form one compatible model rather than a set of
 local patches.
 
-The design and correctness acceptance are complete: documentation/evidence is
-aligned and the complete managed process-integration universe passes. Full
-production readiness is not yet claimed because the controlled performance A/B
-remains open. Performance is a hard gate, not a deferred nice-to-have.
+The P6.5 implementation and correctness acceptance are complete. The candidate
+passed unit/model, all-target clippy, static/document validation and the same
+complete unfiltered 150-spec managed process-integration universe as C15. Full
+production readiness is not yet claimed because the separately authorized
+controlled performance A/B remains open. Performance is a hard gate, not a
+deferred nice-to-have.
 
 ## 2. Audit method
 
@@ -83,12 +87,15 @@ victim and effect transition. A rollback failure needs its own state and tests.
 Read-only Plan leaves the old state untouched on every expected failure and
 has only one Apply implementation.
 
-### Defect-domain restart / “panic-free” service
+### Defect-domain restart / panic-and-catch control flow
 
-Rejected. Rust unwind boundaries are useful for untrusted resolver/verifier and
-effect endpoints. Restarting or repairing a kernel after an invariant panic
-requires choosing truth from contradictory state and deciding which effects to
-replay. That is a larger, less auditable protocol and can persist corruption.
+Rejected. Internal resolver, verifier, scheduler, publisher and authority
+paths use typed outcomes; private constructors and exclusive prepared plans
+make invalid transitions unrepresentable. Genuinely foreign callbacks and
+endpoints are isolated through thread/task/channel boundaries outside
+authority locks. Restarting or repairing a kernel after an unwind requires
+choosing truth from contradictory state and deciding which effects to replay;
+catching that unwind does not make the choice sound.
 
 ## 5. Whole-architecture results
 
@@ -99,35 +106,38 @@ replay. That is a larger, less auditable protocol and can persist corruption.
 | ABA/identity | pass | exact full hash/version/location leases; witness-hash cache key; short ID is collision-aware index only |
 | RBF/capacity atomicity | pass | complete policy and sparse capacity simulation in immutable Plan; Apply has no legal error path |
 | dependency liveness | pass | exact reverse keys, bounded dirty levels, parent-loss demotion and final accepted revalidation |
-| effects | pass | state Apply and bounded stable append share innermost journal lock; endpoint work occurs after locks |
+| effects | pass in unit/model evidence | state Apply and bounded stable append share the innermost journal lock; foreign callback/network/database work occurs after locks behind timeout/circuits; accepted-duplicate success retains membership capability through append |
 | reorg/admin | pass in unit/model evidence | chain mutation/recovery plan is one authoritative phase; clear uses generation swap; old generic replay retry removed |
-| template liveness | pass in unit evidence | Gap reevaluation and uncle/proposal conflict filter; Reset/full priority preserved; deltas level-triggered |
+| template liveness | pass in unit evidence | Gap reevaluation and uncle/proposal conflict filter; Reset/full priority preserved; uncle/proposal/transaction deltas remain concurrent versioned OCC and are all re-dirtied by replacement |
 | hostile input bounds | pass with one residual | entry/byte/peer/work/graph/effect/uncle bounds precede retention; trusted `NotifyTxs` vector length needs upstream proof |
-| failure semantics | pass | legal hostile input typed; worker/endpoint unwind isolated; impossible internal contradiction fail-fast/skips persistence |
+| failure semantics | pass in static/unit evidence | legal hostile input is typed; production authority/worker code contains no explicit panic surface or unwind-driven control flow; foreign endpoints are isolated outside authority locks |
 | test/production parity | pass after correction | candidate-uncle test-only limits and callback-timeout divergence removed; remaining `cfg(test)` sites are wiring/observation/fault seams tracked by manifest |
 | simplification | pass for P5 code slice | redundant entry clones, disposal wrappers, submit envelopes, duplicate reorg plan and assembler loop removed without new state |
-| integration | pass | the current release binary passed the complete managed 150-spec universe through `make integration` in 896.49 seconds with no failure |
+| integration | pass | P6.5 passed the complete unfiltered managed 150-spec universe through `make integration` with `-c 1 --no-fail-fast` in 884.185 seconds; the ordinary-template dependent-reorg regression passed in the same run |
 | performance | open/blocking | no superiority claim before controlled checkpoint A/B and lock/allocation/tail-latency analysis |
 
-## 6. Panic audit
+## 6. Static Rust proof audit
 
-The audit rejects both extremes: “panic on any inconvenience” and “recover from
-every panic.” Each current panic site must be classified by construction:
+The final ordering is mandatory:
 
-- assertions after Plan prove primary/index/accounting facts and are legitimate
-  fail-fast boundaries;
-- `Mutex` poison after such a failure is not repaired and reused;
-- startup allocation/config assumptions fail startup, not transaction service;
-- resolver/verifier jobs are borrowed untrusted computation and have an unwind
-  boundary that settles the job;
-- callbacks and external endpoints are isolated outside authority locks;
-- legal stale, duplicate, capacity, malformed, RBF, clear and shutdown outcomes
-  remain typed.
+```text
+private type/ownership proof > typed pre-mutation result > foreign-code isolation
+```
 
-No architecture permission exists to add a catch-all `catch_unwind`, spare
-kernel, cooling state or retry loop. If a remotely constructible legal input can
-reach an assertion, the fix is to move that case into Plan/validation, not to
-recover after corruption.
+Production transaction, authority, worker and publisher paths may not use
+`assert*`, `expect`, `unwrap`, `panic!`, `unreachable!`, unchecked indexing or
+unchecked arithmetic as correctness mechanisms. They may not use
+`panic + catch_unwind` to choose settlement, retry, rollback, shutdown or
+generation state. Startup/configuration failures return startup errors;
+malformed, stale, duplicate, capacity, RBF, clear and shutdown outcomes remain
+typed. Genuinely foreign callbacks/endpoints are isolated outside authority
+locks and report channel/timeout failure.
+
+This does not promise recovery from OOM, abort, FFI corruption or arbitrary
+memory corruption. It does require legal inputs and internal protocol outcomes
+to stay within statically or explicitly typed control flow. A structural fault
+that cannot yet be made unrepresentable must be detected before mutation as a
+typed system fault, never asserted during Apply or caught afterward.
 
 ## 7. Attack review
 
@@ -149,12 +159,21 @@ recover after corruption.
 
 1. `NotifyTxs(Vec<_>)` relies on a trusted upstream controller for batch-size
    admission; each element is bounded, the outer allocation is not proven here.
-2. Genuine internal assertion failure stops tx-pool and skips persistence. This
-   is safer than repair but amplifies any still-misclassified legal path.
+2. A genuine typed pre-Apply primary/projection contradiction still requests a
+   controlled stop and skips persistence. The static/type boundary prevents a
+   legal peer outcome from selecting it; it is not a repair/restart protocol.
 3. Effect delivery is bounded/reconcilable, not exactly-once; an unavailable
-   endpoint can lose detail after generation coalescing.
-4. Process OOM/abort and crash-durable persistence are outside the model.
-5. CPU/RSS/tail-latency resistance under realistic multi-peer stress awaits P7.
+   endpoint can lose detail after generation coalescing. A timed-out blocking
+   endpoint can leave one detached foreign call until that call returns, after
+   which its stable circuit suppresses further calls of that kind.
+4. A shutdown persistence filesystem call can still block its save task; it
+   does not hold live tx authority but remains an operational timeout concern.
+5. Process OOM/abort and crash-durable persistence are outside the model.
+6. CPU/RSS/tail-latency resistance under realistic multi-peer stress awaits P7.
+7. Block-template HTTP notification futures are timeout-bounded, but an
+   operator-configured non-terminating notify script has no explicit
+   child-process kill-on-drop proof. This inherited configuration boundary is
+   tracked as O14 and does not hold transaction authority.
 
 None warrants a new owner or recovery protocol now. They remain explicit gates
 or documented operational limits.
@@ -174,16 +193,19 @@ separately (production files contain no inline test body), the current result is
 |---|---:|---:|---:|
 | `develop` | 7,297 / 23 files | 2,434 / 13 files | 0 |
 | C1 `02e648255` | 24,236 / 60 files | 20,808 / 55 files | 1,422 / 1 file |
-| C13 `6d0577ad4` | 18,532 / 53 files | 13,602 / 44 files | 1,469 / 1 file |
+| C13 `6d0577ad4` | 18,532 / 53 files | 13,602 / 44 files | 1,463 / 1 file |
+| P6.5 candidate | 20,935 / 54 files | 14,429 / 44 files | 1,470 / 1 file |
 
-C13 removes 5,704 production and 7,206 test lines from the audited C1
-intermediate architecture, but remains 11,235 production lines above
-`develop`. That growth is material and must be reviewed family-by-family:
-pre-pool authority/leases/projections, accepted Plan/Apply, bounded effects,
-reorg/admin convergence and supervision. It is not excused by test growth.
-Further deletion is welcome only when it removes encoding duplication;
-collapsing typed phase payloads, Plan/Apply, exact wait keys or effect coupling
-would make the proof weaker.
+The P6.5 candidate remains 3,301 production lines smaller than the audited C1
+intermediate architecture, but adds 2,403 lines over C13 and remains 13,638
+above `develop`. That growth is material. The new C13→P6.5 cost is concentrated
+in proof-carrying stored entries/prepared projection changes, exact accepted
+plans, typed administrative generation boundaries and stable-effect coupling;
+it replaces the 278-site runtime-panic proof surface rather than adding a new
+owner, state, rollback or restart protocol. Test growth is reported separately
+and does not excuse production growth. Further deletion is required wherever
+it removes duplicate orchestration, but collapsing typed phase payloads,
+Plan/Apply, exact wait keys or effect coupling would weaken the proof.
 
 Extension is intentionally constrained. A seventh payload state, third owner,
 rollback journal, broad retry, reverse lock acquisition, unbounded graph or
@@ -218,8 +240,8 @@ P7:
 
 The architecture is preferable to `develop` and its additional mechanisms are
 necessary at the root boundaries they protect. It is also substantially
-simpler than the intermediate coordinator/undo/defect-restart designs. The
-correct next step is evidence/document convergence and production acceptance,
-not another redesign. Any new problem must first be mapped to an existing
-authority/invariant; only a contradiction in those frozen rules justifies
-changing the model.
+simpler than the intermediate coordinator/undo/defect-restart designs. P6.5
+static and process correctness acceptance is complete; the correct next step
+is the separately authorized performance verdict, not another redesign. Any
+new problem must first be mapped to an existing authority/invariant; only a
+contradiction in those frozen rules justifies changing the model.

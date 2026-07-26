@@ -7,8 +7,8 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "C15 production correctness acceptance",
-    "unit_test_count": 230,
+    "checkpoint": "P6.5 exact-admission and typed-authority convergence",
+    "unit_test_count": 238,
     "integration_spec_count": 150
   },
   "baseline": {

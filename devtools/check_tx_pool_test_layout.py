@@ -31,6 +31,26 @@ TEST_MODULE_WIRING = re.compile(
     r"(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;"
 )
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
+FORBIDDEN_PRODUCTION = (
+    (
+        re.compile(
+            r"\b(?:assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|"
+            r"debug_assert_ne|panic|unreachable|todo|unimplemented)\s*!"
+        ),
+        "panic-capable macro",
+    ),
+    (re.compile(r"\.(?:unwrap|expect)\s*\("), "panic-capable result extraction"),
+    (re.compile(r"\bcatch_unwind\s*\("), "unwind-based control flow"),
+    (re.compile(r"\.get_unchecked(?:_mut)?\s*\("), "unchecked indexing"),
+)
+REQUIRED_STATIC_LINTS = {
+    "clippy::arithmetic_side_effects",
+    "clippy::expect_used",
+    "clippy::indexing_slicing",
+    "clippy::panic",
+    "clippy::unreachable",
+    "clippy::unwrap_used",
+}
 
 
 def repo_path(path: str) -> Path:
@@ -101,6 +121,37 @@ def validate() -> list[str]:
             errors.append(f"test function remains in production source: {name}")
         if INLINE_TEST_MODULE.search(text):
             errors.append(f"inline test module remains in production source: {name}")
+
+    # Production uses compiler lints for expression-aware indexing/arithmetic
+    # and a conservative source gate for macros/APIs Clippy cannot forbid as a
+    # family (notably assert and catch_unwind). The benchmark module is an
+    # explicitly test-only fixture and owns its narrowly scoped lint allowance
+    # at the module declaration in lib.rs; no runtime module may inherit it.
+    runtime_sources = {
+        name: text
+        for name, text in production_sources.items()
+        if name != "tx-pool/src/benchmark.rs"
+    }
+    for name, text in runtime_sources.items():
+        for pattern, description in FORBIDDEN_PRODUCTION:
+            for match in pattern.finditer(text):
+                line = text.count("\n", 0, match.start()) + 1
+                errors.append(
+                    f"{description} remains in production source: {name}:{line}"
+                )
+
+    crate_root = runtime_sources.get("tx-pool/src/lib.rs", "")
+    missing_lints = sorted(
+        lint for lint in REQUIRED_STATIC_LINTS if lint not in crate_root
+    )
+    if missing_lints:
+        errors.append(f"tx-pool production static lint gate is incomplete: {missing_lints}")
+    for name, text in runtime_sources.items():
+        for lint in REQUIRED_STATIC_LINTS:
+            if re.search(
+                rf"#!\s*\[allow\([^]]*{re.escape(lint)}", text, re.DOTALL
+            ):
+                errors.append(f"production source weakens static lint {lint}: {name}")
 
     expected_wiring: set[tuple[str, str, str | None]] = set()
     for entry in manifest.get("module_wiring", []):
@@ -221,7 +272,7 @@ def main() -> int:
         return 1
     manifest = load_manifest()
     print(
-        "validated tx-pool test isolation: "
+        "validated tx-pool test isolation and production static safety: "
         f"{len(manifest['module_wiring'])} module wires, "
         f"{sum(manifest['cfg_test_occurrences'].values())} cfg(test) sites, "
         f"{sum(len(entry['symbols']) for entry in manifest['seams'])} named seams"

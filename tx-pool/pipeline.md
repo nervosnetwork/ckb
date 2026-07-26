@@ -102,9 +102,11 @@ cohort snapshot.
 ### Cohort transitions
 
 Commit settlement, parent loss, bounded recovery and wait cascades can update
-multiple primaries. `plan_cohort` validates one final primary per hash, short-ID
-uniqueness, fan-out and exact final counters. `apply_cohort` moves entries and
-projections; it does not clone old entries or roll back.
+multiple primaries. A private bounded `MutationSet` derives one exclusive
+`PreparedKernelMutation<'_>` that validates one final primary per hash,
+short-ID uniqueness, fan-out and exact final counters. Only consuming
+`commit(self)` moves entries and projections; callers cannot mutate the kernel
+between Plan and Apply, clone old entries for undo, or roll back.
 
 ### Leases
 
@@ -134,10 +136,12 @@ the exact snapshot generation. The cache key is
 payload is compacted so a small retained transaction cannot pin large block or
 cell backing allocations outside its charge.
 
-Worker panic boundaries surround untrusted job computation. They settle the
-owned job instead of unwinding authority state. A manager/guard panic that
-means authority supervision itself failed requests service shutdown and makes
-persistence ineligible; it is not repaired by spawning a new model generation.
+Resolver and verifier jobs return typed computation outcomes. Internal worker
+logic does not use `panic + catch_unwind` to select settlement, retry or
+shutdown behavior. Genuinely foreign callbacks/endpoints execute outside
+authority locks behind a thread/task/channel boundary, so their failure or
+hang becomes a typed channel/timeout outcome rather than an unwind-driven
+state transition.
 
 ## 6. Ready and commit
 
@@ -161,8 +165,10 @@ Under the accepted write guard, submission:
 4. calls `PoolMap::apply_mutation`, which only moves prevalidated entries;
 5. appends the stable effect batch in the journal's innermost section.
 
-Every legal rejection occurs in steps 1–2. Steps 3–5 contain only continuity
-and construction assertions. There is no nested undo or failed-winner restore.
+Every legal rejection and every detectable structural fault occurs in steps
+1–2. Private constructors and the exclusive prepared transaction make the
+remaining state unrepresentable; steps 3–5 are total and contain no assertion
+or unwind boundary. There is no nested undo or failed-winner restore.
 
 ## 7. RBF and conflict history
 
@@ -185,14 +191,19 @@ Capacity is partitioned Remote/Trusted/Critical. Remote cannot consume trusted
 or chain-critical headroom.
 
 `wait_capacity` is only a level-triggered hint and holds no reservation. Under
-state locks, `try_apply`/`try_apply_bounded` checks exact/static capacity,
-executes total Apply and appends one sequence. Callbacks, network sends and
-database writes execute later outside state locks.
+state locks, ordinary `try_apply` checks one exact prebuilt batch, executes
+total Apply and appends one sequence. Callbacks, network sends and database
+writes execute later outside state locks.
 
-If detailed state-coupled publication cannot fit a proven bound, a prebuilt
-replaceable `GenerationReset` record converges the relayer without an unbounded
-emergency queue. A full relay endpoint retains/coalesces authority rather than
-dropping the only wake.
+Only chain/admin authority may replace saturated detail with a prebuilt,
+replaceable `GenerationReset` record; ordinary admission stays mutation-free
+on `Full` and replans after an exact-capacity hint. A full relay endpoint
+retains/coalesces authority rather than dropping the only wake.
+
+Callback, network-ban and recent-reject database endpoints share a production
+timeout and stable circuit per endpoint kind. Accepted-duplicate success holds
+an accepted-membership read capability through append, preventing a stale
+`Ok` from overtaking clear/reorg's removal and `GenerationReset`.
 
 ## 9. Reorg and administrative flow
 
@@ -224,9 +235,11 @@ Implementation: `src/block_assembler/` and the assembler loop in
 `src/service/builder.rs`.
 
 Reset/`update_full` are the full-template authority and serialize together.
-`update_full` has priority. Proposal and transaction changes are optimistic
-level-triggered generations; losing an individual channel edge does not lose
-the dirty level.
+`update_full` has priority. Uncle, proposal and transaction changes remain
+concurrent optimistic versioned OCC generations; losing an individual channel
+edge does not lose the dirty level. Every successful full/reset replacement
+reissues all three partial generations so a racing stale acknowledgement
+cannot erase work hidden by the replacement.
 
 After reorg, accepted Gap status is reevaluated against the new proposal
 window. Candidate uncles that would suppress proposal IDs needed by recovered
@@ -281,11 +294,16 @@ behavior to unit/model and process regressions. The generated section of
 
 The required sequence is:
 
-1. `cargo clippy -p ckb-tx-pool --all-targets -- -D warnings`
-2. `cargo nextest run -p ckb-tx-pool --lib`
+1. `cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D warnings`
+2. `cargo nextest run -p ckb-tx-pool --features internal`
 3. document/test/security validators
 4. complete managed process suite via `make integration`
 5. checkpoint A/B benchmark only after correctness and harness-noise review
+
+The P6.5 candidate completed steps 1–4: 238/238 `nextest` tests passed,
+all-target clippy and static/document validators passed, and the complete
+unfiltered 150-spec managed process universe passed in 884.185 seconds.
+Step 5 remains frozen pending explicit benchmark authorization.
 
 ## 14. Implementation checkpoints
 
@@ -305,6 +323,10 @@ The required sequence is:
 | C11 `77dcbb0c1` | durable relay reconciliation |
 | C12 `015d88be2` | Rust-native invariant outcomes |
 | C13 `6d0577ad4` | move-only Apply and redundant-envelope removal |
+| C14 `288031ebc` | six-state production contract and evidence acceptance |
+| C15 `64ecdd0eb` | complete correctness/liveness and 150-spec integration acceptance |
+| C16 `eb26bd272` | evidence checkpoint before exact-admission/static-authority convergence |
+| C17 `9e559a482` | P6.5 exact admission, typed authority and full correctness acceptance |
 
 Checkpoint history is evidence for recovery and A/B, not a list of mechanisms
 that remain in the final architecture.

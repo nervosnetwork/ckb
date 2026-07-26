@@ -1,7 +1,9 @@
 # Tx-Pool Architecture: Two-Authority Plan/Apply Kernel
 
-Status: implementation authority for the pipeline refactor at checkpoint
-`6d0577ad4`. Execution status is tracked in
+Status: implementation authority for the accepted P6.5 candidate at stable
+code checkpoint `9e559a482`; `eb26bd272` is the preceding evidence checkpoint
+and the current acceptance evidence is recorded below.
+Execution status is tracked in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), independent conclusions in
 [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), and executable review evidence
 in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
@@ -21,9 +23,10 @@ observable effects are appended in the same innermost critical section as
 state Apply.
 
 This is deliberately not a universal actor, an undo/rollback engine, a
-panic-restart system, or a generic workflow framework. It is the smallest model
-found that closes the concrete `develop` ownership, RBF atomicity, liveness and
-resource-bound failures without serializing read-heavy accepted-pool work.
+restart-on-panic system, or a generic workflow framework. It is the smallest
+model found that closes the concrete `develop` ownership, RBF atomicity,
+liveness and resource-bound failures without serializing read-heavy accepted-
+pool or optimistic block-template work.
 
 ## 2. Goals and non-goals
 
@@ -35,8 +38,12 @@ The architecture must:
 - preserve exact RBF, dependency, reorg, proposal and template liveness;
 - bound bytes, entries, active work and graph fan-out before retention/work;
 - publish callbacks, relay decisions and diagnostics without state/effect gaps;
-- isolate untrusted computation and endpoints using Rust-native unwind
-  boundaries while failing fast on impossible authority corruption;
+- isolate untrusted computation and endpoints using Rust-native boundaries;
+- make transaction and authority code panic-free by construction: typed
+  outcomes before mutation and a single-consumption total Apply;
+- prefer static unrepresentability over runtime validation, and typed results
+  over unwind isolation; never use `panic!` plus `catch_unwind` as transaction,
+  worker, retry, rollback or authority-control flow;
 - retain Local RPC's direct synchronous validation path by design;
 - preserve or improve pipeline throughput, subject to final checkpoint A/B.
 
@@ -77,7 +84,19 @@ concurrency.
 
 ### 4.1 Partition
 
-For each full transaction hash `h`:
+The single logical ownership state for each full transaction hash `h` is the
+closed sum:
+
+```text
+Owner(h) = Absent
+         | PrePool(location, version, payload)
+         | Accepted(status, entry)
+```
+
+It is represented by two physical partitions only to preserve useful
+concurrency: the accepted `TxPool` remains read-optimized for RPC/template
+consumers, while `PrePoolKernel` serializes short lifecycle transitions.  The
+representation invariant is:
 
 ```text
 owners(h) = accepted(h) + prepool(h)
@@ -85,9 +104,13 @@ owners(h) is 0 or 1
 ```
 
 `accepted(h)` is membership in `TxPool`. `prepool(h)` is membership in the
-kernel primary map. The commit, clear, remove and reorg paths hold the accepted
-pool guard while performing the matching kernel handoff, so no observer can
-see an ownership gap between those two authorities.
+kernel primary map. Physical separation is not permission for two independent
+commit authorities. `AdmissionPlan` is the only ordinary cross-partition
+transition: it is planned while both generations are stable and applies the
+kernel handoff plus accepted insertion as one total operation under the fixed
+lock order. Clear/reorg use the separately documented chain-authoritative
+generation transition. No other caller may remove one owner and later repair
+the other.
 
 ### 4.2 Six pre-pool locations
 
@@ -173,9 +196,11 @@ The public transition family is closed:
 
 Every single-entry transition validates its next entry, exact usage delta,
 active-work delta and index constraints before detaching the old projections.
-Bounded multi-entry transitions compile a `CohortPlan` containing final
-primaries and exact final counters, then move those primaries during total
-Apply. There is no rollback path.
+Bounded multi-entry transitions use a private `MutationSet` to derive one
+exclusive `PreparedKernelMutation<'_>` containing final primaries, exact
+projection changes and reserved monotonic counters. Consuming `commit(self)`
+performs the total move. There is no public mutation between Plan and Apply and
+no rollback path.
 
 Legal outcomes are typed:
 
@@ -185,7 +210,10 @@ Legal outcomes are typed:
 - duplicate/idempotent arrival;
 - Apply.
 
-Primary/index/accounting contradictions are assertions, not another outcome.
+Primary/index/accounting contradictions are not transaction outcomes. Private
+state constructors and a prepared authority transaction prevent them on legal
+paths; a pre-Apply consistency failure is a typed system fault, never an
+assertion inside Apply and never a peer/RPC rejection.
 
 ## 7. Scheduling and progress
 
@@ -264,22 +292,30 @@ a documented integration-boundary risk rather than a hidden invariant claim.
 
 ## 9. Accepted Plan/Apply
 
-Ordinary admission, RBF and capacity eviction use the same transaction:
+Ordinary admission, RBF and capacity eviction use one concrete
+`AdmissionPlan` transaction:
 
 1. Under the accepted pool write guard, calculate RBF conflict closure,
    ancestry, status, candidate parents, capacity evictions and post-state
    totals without mutation.
 2. Return every ordinary `Reject` from Plan.
-3. While accepted membership is unchanged, settle matching/preempted
-   `PrePoolKernel` ownership and parent availability.
-4. In the innermost effect-journal critical section, execute total accepted
-   Apply and append the stable effect batch.
+3. While accepted membership is unchanged, build the matching total kernel
+   handoff, exact dependency/template receipt and immutable exact-sized effect
+   batch. Planning may return a typed stale/capacity result but changes no
+   owner, clock, index or budget.
+4. The innermost effect-journal predicate first accepts that exact batch, then
+   one total Apply consumes the kernel owner, installs accepted membership and
+   records the level-triggered template delta before appending the effect.
 5. Release locks, then run callbacks/network/database endpoints.
 
 `PoolMutationPlan` contains the candidate, final status, exact removals and
-post totals. `apply_mutation` performs only checked moves and assertions that
-the planned generation remains present. It cannot discover fee, RBF, ancestry,
-identity or capacity policy after removing a victim.
+post totals. The enclosing `AdmissionPlan` contains the only matching kernel
+handoff and publication receipt. Exclusive prepared borrows prevent the
+planned generations from changing; its Apply performs total prevalidated
+moves and no assertion or fallible lookup. It cannot discover fee, RBF,
+ancestry, identity, effect capacity or resource policy after removing a victim.
+Pipeline rejection has its own read-only terminal plan; it likewise cannot
+call a fallible park/remove transition after the journal predicate.
 
 This removes the need for nested undo. Rollback is the wrong abstraction here:
 it duplicates ownership, index and accounting semantics, and its own failure
@@ -292,7 +328,7 @@ The nesting order is:
 
 ```text
 optional serial/work permit
-  -> EffectJournal capacity hint (released before state locks)
+  -> optional EffectJournal capacity wait (no state guard is held)
   -> TxPool read/write
     -> PrePoolKernel mutex
       -> EffectJournal mutex for capacity + total Apply + append
@@ -303,9 +339,11 @@ while the accepted pool/kernel/journal nesting is held. Kernel-only worker
 transitions use only the shorter kernel→journal suffix. Code must not acquire
 `TxPool` from an effect callback or while already holding the kernel.
 
-The journal capacity wait is a hint, not a reservation. A racing append can
-make the innermost attempt return `Full`; the caller releases state locks,
-waits/replans and retries. No authoritative mutation is replayed.
+The first attempt plans optimistically without a worst-case capacity wait. If
+the exact batch is `Full`, the caller releases every state lock, waits on that
+exact charge as a level-triggered hint, then replans against the new
+generations. No reservation crosses an await and no authoritative mutation is
+replayed.
 
 ## 11. Stable effects
 
@@ -315,17 +353,31 @@ The effect journal has statically partitioned trust ceilings:
 - Trusted may use ordinary capacity plus trusted headroom;
 - Critical chain/admin work has independent headroom.
 
-For a precomputed exact batch, `try_apply` checks capacity, executes total state
-Apply and appends one sequence while holding the journal mutex. For effects
-materialized during accepted Apply, `try_apply_bounded` checks a proven static
-upper bound first and appends the exact batch afterward. A violated bound does
-not overcharge the FIFO; observers converge through a prebuilt constant-size
-`GenerationReset` register.
+Ordinary admission always precomputes one exact immutable batch. `try_apply`
+checks its actual charge, executes total state Apply and appends one sequence
+while holding the journal mutex. Expensive RBF/capacity/kernel planning never
+runs under the journal mutex, and ordinary admission never commits first and
+falls back to `GenerationReset` because a post-Apply bound was wrong.
+
+`GenerationReset` remains a deliberately narrower chain/admin mechanism.
+Authoritative reorg/clear cannot wait behind callback or relay detail; when its
+bounded detail region is saturated, the state transition commits and the
+constant-size latest-generation record subsumes that observational detail.
+This exception must not be reused by ordinary transaction admission.
 
 The publisher drains FIFO order. Full relayer capacity retains the active head;
 individual relay detail may coalesce to `GenerationReset`, which stays pending
-until accepted. Callback execution is isolated on a bounded endpoint thread
-with timeout/circuit behavior; endpoint panic cannot unwind state Apply.
+until accepted. Callback execution is isolated on a bounded endpoint thread.
+Callback, network-ban and recent-reject database calls share a production
+timeout and stable per-kind circuit, so one stuck foreign call cannot retain
+the sole journal head; endpoint panic cannot unwind state Apply. At most one
+timed-out detached call exists per opened blocking endpoint circuit.
+
+An accepted-duplicate `Ok` is also authority-dependent output. Its publisher
+holds an accepted-membership read capability through journal append, so clear
+or reorg either observes the `Ok` before its reset/removal or wins first and
+suppresses the stale acknowledgement. Fresh admission success remains part of
+the immutable `AdmissionPlan` batch and has no manual publication gap.
 
 Exactly-once delivery is not claimed. The invariant is: after state Apply, a
 bounded stable record exists until detailed publication succeeds or a newer
@@ -384,8 +436,11 @@ Block assembler authority is intentionally asymmetric:
 
 - Reset and `update_full` serialize on the complete-template boundary;
 - `update_full` has highest priority;
-- proposal/transaction updates are optimistic, level-triggered deltas and may
-  be skipped transiently;
+- uncle/proposal/transaction updates remain concurrent, optimistic versioned
+  OCC deltas and may be skipped transiently;
+- every successful reset/full replacement re-dirties all three partial
+  generations, so an acknowledgement racing the replacement cannot erase a
+  newer or overwritten level;
 - a failed reset remains pending and blocks ordinary deltas until a matching
   full rebuild succeeds;
 - zero update interval applies deltas eagerly, retries resets periodically and
@@ -405,8 +460,20 @@ persistence ineligible so a corrupt derived state is not written as truth.
 
 ## 14. Rust-native failure model
 
-The design does not pursue “panic-free Rust” or emulate Erlang supervision.
-It separates expected results from programming contradictions:
+The design does not emulate Erlang supervision or promise recovery from OOM,
+abort, FFI faults or memory corruption. It does require panic-free transaction
+and authority paths, using Rust ownership and private constructors to separate
+expected results from programming contradictions:
+
+```text
+type/ownership proof  >  typed pre-mutation Result  >  foreign-code isolation
+```
+
+`catch_unwind` is not a correctness mechanism. Internal resolver, verifier,
+scheduler, publisher and authority code propagates typed outcomes. Code
+supplied by callers is kept outside authority locks and isolated behind a
+thread/task/channel boundary; its failure cannot select a transaction state,
+rollback, retry or generation transition.
 
 | Class | Rust encoding | Boundary |
 |---|---|---|
@@ -414,21 +481,22 @@ It separates expected results from programming contradictions:
 | capacity/backpressure | typed error | no mutation; wait/retry or bounded degradation |
 | stale/duplicate race | typed stale/duplicate | discard, preserve current owner or retry level |
 | shutdown/config/resource | typed external result or startup failure | controlled stop/fail startup |
-| resolver/verifier panic | `catch_unwind` around the borrowed job | terminalize/quarantine that job; worker continues where safe |
-| callback/endpoint panic or hang | endpoint boundary, timeout/circuit | state remains committed; publisher progresses/coalesces |
-| primary/index/accounting contradiction | assertion/`expect` inside authority | fail fast, cancel service, skip persistence |
+| resolver/verifier failure | typed job result before settlement | terminalize/quarantine that exact lease; worker continues where safe |
+| foreign callback/endpoint failure or hang | thread/task/channel isolation plus timeout/circuit | state remains committed; publisher progresses/coalesces without unwind-driven control flow |
+| primary/index/accounting contradiction | typed pre-Apply system fault | controlled stop, skip persistence; never blame input |
 
-Legal hostile input must not reach the last row. Assertions are justified only
-where Plan or the primary entry construction statically established the fact.
-Adding a recover-and-repair path for an impossible Apply contradiction would
-expand the state machine, risk persisting corruption and turn every assertion
-into a poorly specified operational branch.
+Legal hostile input must not reach the last row or unwind the service. The
+prepared transaction owns an exclusive authority borrow until `commit(self)`,
+and state-specific constructors carry the facts needed by total Apply. Adding
+a recover-and-repair path after partial Apply would still expand the state
+machine and risk persisting corruption, so contradictions are detected before
+the first mutation rather than asserted or repaired afterward.
 
-The remaining operational consequence is intentional but explicit: a genuine
-internal invariant defect stops the tx-pool service. The defense against a
-repeatable peer DoS is to ensure all peer-selectable parsing, policy, capacity,
-stale and endpoint outcomes are typed or isolated before the assertion
-boundary—not to restart an unknown authority generation.
+The remaining operational consequence is explicit: a pre-Apply system fault
+stops the tx-pool without persisting the generation. The defense against a
+repeatable peer DoS is structural—peer-selectable parsing, policy, capacity,
+stale and endpoint outcomes are typed, while total Apply has no assertion
+boundary—not a restart of unknown authority state.
 
 ## 15. Block-template authority
 
@@ -440,7 +508,8 @@ iterates true Pending; transaction selection commits true Proposed.
 Template state has two forms:
 
 - a full authoritative snapshot generation, updated by Reset/`update_full`;
-- coalesced proposal/transaction dirty generations applied optimistically.
+- coalesced uncle/proposal/transaction dirty generations applied concurrently
+  and optimistically through version checks.
 
 Candidate uncles are bounded at production limits (128 total, 10 per height)
 in both production and tests. An uncle is removed/rejected when it is on the
@@ -525,15 +594,26 @@ locations.
 
 Repairing an authority after a contradiction requires trusting projections
 already proven inconsistent and choosing which externally visible effects to
-replay. Rust unwind isolation is appropriate at untrusted computation and
-endpoint boundaries; assertions plus fail-stop are appropriate for impossible
-primary/projection contradictions. This is simpler and more honest, provided
-hostile legal outcomes are fully classified before Apply.
+replay. Rust isolation remains appropriate at genuinely foreign computation
+and endpoint boundaries. Authority transitions instead use proof-carrying
+state and typed pre-Apply faults; no assertion or unwind is part of the
+transaction protocol. This is simpler than repair because hostile legal
+outcomes are fully classified before Apply and partial mutation is
+unrepresentable.
 
 ## 19. Proof obligations
 
 The machine contract is [`architecture-contract.json`](architecture-contract.json).
-The human proof obligations are:
+The human proof obligations are the stable, independently reviewable leaves
+below.  For reasoning they form eight broader theorem families: partition
+(T1), lease causality (T2), budget conservation (T3), derived views (T4--T5),
+linearization (T6--T7 and T9), bounded hostility (T8), progress (T10--T11),
+and accepted/template consistency (T12--T13).  The leaf IDs are deliberately
+not merged or renumbered: grouping
+shortens the proof narrative, while keeping the leaves preserves precise test
+anchors and prevents a passing sibling clause from hiding a zero-match one.
+
+The leaves are:
 
 - T1 Partition: accepted and pre-pool ownership are disjoint and unique.
 - T2 Lease: only exact full-hash/version/location work mutates a primary.
@@ -550,7 +630,7 @@ The human proof obligations are:
 - T13 TemplateAuthority: reset/full/deltas cannot publish an old-parent or
   proposal-stranding template.
 
-The 155 historical findings remain mapped to I1–I12 in
+The historical findings remain mapped to I1–I12 in
 [`security-regression-ledger.md`](security-regression-ledger.md). The mapping is
 evidence history, not permission to retain obsolete mechanisms.
 
@@ -564,9 +644,16 @@ evidence history, not permission to retain obsolete mechanisms.
 - R4: explicit pool persistence is not a crash-durable transaction log.
 - R5: trusted controller batch length needs an upstream bound audit.
 - R6: final performance superiority is unproven until P7 checkpoint A/B.
-- R7: complete process-level integration acceptance remains P6 work.
+- R7: the P6.5 candidate passed the same complete unfiltered 150-spec
+  process-level integration universe in 884.185 seconds.
+- R8: an operator-configured non-terminating block-template notify script has
+  a timeout-bounded Rust task, but its child-process termination is not
+  explicitly proven by the current command setup. This inherited operational
+  boundary is outside transaction authority and remains O14 rather than a new
+  scheduler/effect owner.
 
-No release claim is valid until document validators, all `ckb-tx-pool`
-`nextest`, the complete 150-spec integration impact universe and final
+The document validators, all `ckb-tx-pool` `nextest` tests and the complete
+150-spec integration impact universe pass for P6.5. No production release or
+performance-superiority claim is valid until the separately authorized P7
 performance gates pass. Findings that are low-value, incompatible or unproven
 must be recorded as residuals rather than hidden by another mechanism.

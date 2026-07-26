@@ -46,7 +46,7 @@
     "tx-pool/src/component/mod.rs": 1,
     "tx-pool/src/component/out_point_index.rs": 1,
     "tx-pool/src/component/pool_map.rs": 1,
-    "tx-pool/src/component/pre_pool/mod.rs": 2,
+    "tx-pool/src/component/pre_pool/mod.rs": 1,
     "tx-pool/src/component/pre_pool/queue.rs": 1,
     "tx-pool/src/component/pre_pool/runtime.rs": 1,
     "tx-pool/src/component/recent_reject.rs": 1,

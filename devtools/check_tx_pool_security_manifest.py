@@ -180,9 +180,9 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
                 )
             )
     row_ids = [row_id for row_id, _ in rows]
-    if row_ids != list(range(1, 165)):
+    if row_ids != list(range(1, 168)):
         errors.append(
-            "historical ledger must contain exactly ordered finding IDs 1-164 with I1-I12 mappings"
+            "historical ledger must contain exactly ordered finding IDs 1-167 with I1-I12 mappings"
         )
     for row_id, invariants in rows:
         if not invariants or not invariants <= set(bridge):
