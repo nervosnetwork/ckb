@@ -22,7 +22,7 @@ use futures_util::FutureExt;
 use std::collections::VecDeque;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::sync::Notify;
 
@@ -348,16 +348,11 @@ impl EffectUsage {
         self.bytes += bytes;
     }
 
-    fn release(&mut self, bytes: usize) -> bool {
-        let Some(batches) = self.batches.checked_sub(1) else {
-            return false;
-        };
-        let Some(total_bytes) = self.bytes.checked_sub(bytes) else {
-            return false;
-        };
-        self.batches = batches;
-        self.bytes = total_bytes;
-        true
+    fn checked_release(self, bytes: usize) -> Option<Self> {
+        Some(Self {
+            batches: self.batches.checked_sub(1)?,
+            bytes: self.bytes.checked_sub(bytes)?,
+        })
     }
 }
 
@@ -386,10 +381,14 @@ impl JournalState {
         }
     }
 
-    fn release(&mut self, class: EffectClass, bytes: usize) -> bool {
-        self.usage[class.region()..]
-            .iter_mut()
-            .all(|usage| usage.release(bytes))
+    fn release(&mut self, class: EffectClass, bytes: usize) {
+        let mut planned = self.usage;
+        for usage in &mut planned[class.region()..] {
+            *usage = usage
+                .checked_release(bytes)
+                .expect("effect journal accounting covers its active batch");
+        }
+        self.usage = planned;
     }
 
     fn allocate_sequence(&mut self) -> u128 {
@@ -419,20 +418,6 @@ impl JournalState {
             batch: Arc::new(batch),
         });
     }
-
-    /// Rebuild accounting from the two authoritative resident containers.
-    /// This is cold defect recovery only; normal publication is O(1).
-    fn recompute_usage(&mut self) {
-        let mut usage = [EffectUsage::default(); EffectClass::REGION_COUNT];
-        for envelope in self.active.iter().chain(self.queued.iter()) {
-            if let Some(class) = envelope.class {
-                for region in &mut usage[class.region()..] {
-                    region.charge(envelope.batch.charge_bytes);
-                }
-            }
-        }
-        self.usage = usage;
-    }
 }
 
 struct CallbackJob {
@@ -461,6 +446,12 @@ pub(crate) struct EffectJournal {
 }
 
 impl EffectJournal {
+    fn lock_state(&self) -> MutexGuard<'_, JournalState> {
+        self.state
+            .lock()
+            .expect("effect journal mutex poisoned by an invariant failure")
+    }
+
     pub(crate) fn new_partitioned(
         remote_max_batches: usize,
         remote_max_bytes: usize,
@@ -571,7 +562,7 @@ impl EffectJournal {
             tokio::pin!(space);
             space.as_mut().enable();
             {
-                let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                let state = self.lock_state();
                 if state.closed {
                     return Err(EffectJournalError::Closed);
                 }
@@ -600,7 +591,7 @@ impl EffectJournal {
         if bytes > max_bytes {
             return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
         }
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.lock_state();
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
@@ -629,7 +620,7 @@ impl EffectJournal {
                 max_bytes: class_max,
             });
         }
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.lock_state();
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
@@ -667,7 +658,7 @@ impl EffectJournal {
                 max_bytes: class_max,
             });
         }
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.lock_state();
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
@@ -699,7 +690,7 @@ impl EffectJournal {
         let mut batch = Some(batch);
         loop {
             self.wait_capacity(bytes, class).await?;
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.lock_state();
             if state.closed {
                 return Err(EffectJournalError::Closed);
             }
@@ -717,7 +708,7 @@ impl EffectJournal {
     /// It participates in the journal sequence but never waits for or borrows
     /// FIFO capacity. Repeated resets coalesce to the latest authority.
     pub(crate) fn install_generation_reset(&self) -> Result<(), EffectJournalError> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.lock_state();
         if state.closed {
             return Err(EffectJournalError::Closed);
         }
@@ -729,7 +720,7 @@ impl EffectJournal {
 
     pub(crate) fn close(&self) {
         {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.lock_state();
             state.closed = true;
         }
         // There is exactly one publisher. `notify_one` stores a permit when
@@ -755,7 +746,7 @@ impl Drop for PublisherClaim<'_> {
 
 impl EffectJournal {
     fn checkout(&self) -> Option<(u128, Arc<EffectBatch>)> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.lock_state();
         if state.active.is_none() {
             let queued_sequence = state.queued.front().map(|envelope| envelope.sequence);
             let reset_sequence = state
@@ -777,40 +768,35 @@ impl EffectJournal {
     }
 
     fn complete(&self, sequence: u128) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(active) = state.active.as_ref() else {
-            error!("effect publisher completion had no active batch");
-            return;
-        };
-        if active.sequence != sequence {
-            error!(
-                "effect publisher completion sequence mismatch: expected {}, got {}",
-                active.sequence, sequence
-            );
-            return;
-        }
+        let mut state = self.lock_state();
+        let active = state
+            .active
+            .as_ref()
+            .expect("effect publisher completes one checked-out batch");
+        assert_eq!(
+            active.sequence, sequence,
+            "effect publisher completion must match the active batch"
+        );
         let bytes = active.batch.charge_bytes;
         let class = active.class;
-        state.active.take();
-        if let Some(class) = class
-            && !state.release(class, bytes)
-        {
-            error!("effect journal accounting drift detected; rebuilding from resident batches");
-            state.recompute_usage();
-            drop(state);
-            self.space.notify_waiters();
-            return;
+        if let Some(class) = class {
+            state.release(class, bytes);
         }
+        state.active.take();
         drop(state);
         self.space.notify_waiters();
     }
 
     fn closed_and_empty(&self) -> bool {
-        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.lock_state();
         state.closed
             && state.active.is_none()
             && state.queued.is_empty()
             && state.latest_generation_reset.is_none()
+    }
+
+    fn is_closed(&self) -> bool {
+        self.lock_state().closed
     }
 }
 
@@ -854,20 +840,34 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
             publish_callback(queue, callbacks, event).await;
         }
         TxPoolEffect::Relay(result) => {
+            let is_reset = matches!(result, TxVerificationResult::GenerationReset);
             let started = tokio::time::Instant::now();
             let mut pending = result;
             loop {
                 match endpoints.tx_relay_sender.try_send(pending) {
                     Ok(()) => break,
-                    Err(TrySendError::Full(returned))
-                        if started.elapsed() < RELAY_RETRY_TIMEOUT =>
-                    {
+                    Err(TrySendError::Full(returned)) => {
+                        if queue.is_closed() {
+                            break;
+                        }
+                        if !is_reset && started.elapsed() >= RELAY_RETRY_TIMEOUT {
+                            // Individual results are no longer reliable once
+                            // the internal sink has stayed saturated. Replace
+                            // them with the existing constant-size authority:
+                            // clearing the relayer's known set is conservative
+                            // and makes every dropped terminal edge recoverable.
+                            if let Err(error) = queue.install_generation_reset()
+                                && error != EffectJournalError::Closed
+                            {
+                                panic!("relayer reconciliation install failed: {error:?}");
+                            }
+                            error!(
+                                "tx-pool relayer endpoint remained full; coalescing to GenerationReset"
+                            );
+                            break;
+                        }
                         pending = returned;
                         tokio::time::sleep(Duration::from_millis(1)).await;
-                    }
-                    Err(TrySendError::Full(_)) => {
-                        error!("tx-pool relayer endpoint remained full; dropping bounded effect");
-                        break;
                     }
                     Err(TrySendError::Disconnected(_)) => {
                         error!("tx-pool relayer result receiver dropped");

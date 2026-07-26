@@ -681,6 +681,22 @@ fn journal_sequence_is_total_apply_order() {
 }
 
 #[test]
+fn journal_accounting_drift_fails_fast_instead_of_repairing() {
+    let journal = EffectJournal::new(1, 1_000).unwrap();
+    journal
+        .try_apply(Some(reject_batch(0)), EffectClass::Trusted, || ())
+        .unwrap();
+    let (sequence, _) = journal.checkout().expect("batch becomes active");
+    journal.state.lock().unwrap().usage[EffectClass::Trusted.region()].batches = 0;
+
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| journal.complete(sequence)))
+            .is_err(),
+        "an internal accounting contradiction must not be hidden by recomputation"
+    );
+}
+
+#[test]
 fn remote_byte_ceiling_cannot_borrow_trusted_headroom() {
     let journal = EffectJournal::new_partitioned(2, 128, 1, 128, 1, 128).unwrap();
     journal
@@ -725,9 +741,9 @@ fn active_critical_batch_does_not_consume_ordinary_headroom() {
 }
 
 #[tokio::test]
-async fn permanently_full_relayer_has_bounded_fifo_residency() {
+async fn full_relayer_coalesces_to_bounded_reconciliation() {
     let journal = Arc::new(EffectJournal::new(1, 1_000).unwrap());
-    let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
+    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
     relay_tx
         .send(TxVerificationResult::Reject {
             tx_hash: Byte32::zero(),
@@ -746,9 +762,32 @@ async fn permanently_full_relayer_has_bounded_fifo_residency() {
         Arc::clone(&journal),
         endpoints(relay_tx),
     ));
+
+    tokio::time::sleep(RELAY_RETRY_TIMEOUT + Duration::from_millis(50)).await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), journal.wait_idle())
+            .await
+            .is_err(),
+        "the coalesced reset remains authoritative while its sink is full"
+    );
+    assert!(matches!(
+        relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == Byte32::zero()
+    ));
+    let reconciled = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reconciliation must publish after capacity returns");
+    assert!(matches!(reconciled, TxVerificationResult::GenerationReset));
     tokio::time::timeout(Duration::from_secs(1), journal.wait_idle())
         .await
-        .expect("relay retry timeout must release journal capacity");
+        .expect("successful reconciliation releases the bounded journal");
     journal.close();
     publisher.await.unwrap();
 }
