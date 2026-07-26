@@ -213,9 +213,7 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
         .unwrap();
     kernel.audit().unwrap();
     let ticket = kernel.begin_next_commit().unwrap().unwrap();
-    kernel
-        .fail_commit(&ticket, TerminalDisposition::Rejected)
-        .unwrap();
+    kernel.fail_commit(&ticket).unwrap();
     assert_eq!(kernel.len(), 0);
     assert_eq!(kernel.total_usage(), Residency::default());
     kernel.audit().unwrap();
@@ -241,9 +239,7 @@ fn stale_lease_cannot_mutate_a_removed_and_readmitted_hash() {
         .checkout_resolve(ResolveLane::Ingress)
         .unwrap()
         .unwrap();
-    kernel
-        .force_terminalize(&tx.hash(), TerminalDisposition::Removed)
-        .unwrap();
+    kernel.force_terminalize(&tx.hash()).unwrap();
     admit(
         &mut kernel,
         tx.clone(),
@@ -861,14 +857,10 @@ fn recovery_batch_is_atomic_parent_first_and_persistable_while_leased() {
             .any(|item| item.tx.hash() == parent.hash()),
         "an active borrower must not create a persistence gap"
     );
-    kernel
-        .terminalize_resolve(&parent_lease, TerminalDisposition::Removed)
-        .unwrap();
+    kernel.terminalize_resolve(&parent_lease).unwrap();
     let child_lease = kernel.checkout_recovery(batch.session).unwrap().unwrap();
     assert_eq!(child_lease.hash, child.hash());
-    kernel
-        .terminalize_resolve(&child_lease, TerminalDisposition::Removed)
-        .unwrap();
+    kernel.terminalize_resolve(&child_lease).unwrap();
     assert!(!kernel.recovery_session_pending(batch.session));
     kernel.audit().unwrap();
 }
@@ -945,7 +937,7 @@ fn randomized_public_transitions_always_match_full_rebuild() {
                 let _ = kernel.promote_source(&tx.hash());
             }
             3 => {
-                let _ = kernel.force_terminalize(&tx.hash(), TerminalDisposition::Removed);
+                let _ = kernel.force_terminalize(&tx.hash());
             }
             4 => {
                 let key = DependencyKey::Cell(OutPoint::new(tx.hash(), 0));

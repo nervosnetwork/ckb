@@ -723,13 +723,12 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn proposal_promoted_remote_terminal_still_releases_ingress_filter() {
+async fn proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter() {
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
-    let hash = tx.hash();
     let peer = ckb_network::PeerIndex::from(8);
     h.service
         .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer })
@@ -747,11 +746,11 @@ async fn proposal_promoted_remote_terminal_still_releases_ingress_filter() {
         }
     })
     .await
-    .expect("promoted remote ingress receives one terminal settlement");
-    assert!(matches!(
-        relayed,
-        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
-    ));
+    .expect("promoted remote ingress generation receives one terminal settlement");
+    assert!(
+        matches!(relayed, TxVerificationResult::GenerationReset),
+        "clear deliberately discards the complete pre-pool generation, so its constant-size reset releases every relayer filter without a population-sized hash batch"
+    );
 
     h.cancel.cancel();
 }
@@ -1047,12 +1046,49 @@ async fn authoritative_defect_is_generation_local_not_service_fail_stop() {
     h.cancel.cancel();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chain_generation_reset_reuses_lock_outside_disposal_without_remote_cooling() {
+    use crate::component::pre_pool::ResolveLane;
+    use crate::component::tests::harness::{WorkerSet, harness};
+
+    let h = harness(2).workers(WorkerSet::None).build();
+    let remote = build_tx(&h.out_points[0], 4_000);
+    let recovery = build_tx(&h.out_points[1], 4_000);
+    let epoch = h.service.current_pipeline_epoch().unwrap();
+    h.service
+        .pipeline
+        .kernel
+        .admit_transaction(
+            remote,
+            TxSource::Remote {
+                cycles: 0,
+                peer: 12.into(),
+            },
+            epoch,
+            ResolveLane::Ingress,
+        )
+        .unwrap();
+
+    let (batch, disposal) = h
+        .service
+        .pipeline
+        .kernel
+        .reset_for_chain(|fresh| fresh.retain_recovery_batch(vec![recovery], epoch))
+        .unwrap();
+    assert_eq!(batch.retained, 1);
+    assert!(h.service.pipeline.kernel.remote_admission_open());
+    assert!(!h.service.pipeline.kernel.emergency_spare_available());
+    drop(disposal);
+    assert!(h.service.pipeline.kernel.emergency_spare_available());
+    h.cancel.cancel();
+}
+
 /// Entry versions and recovery sessions are stable-shell clocks. Resetting
 /// them with an entry generation lets an old worker or reorg handler match a
 /// newly admitted owner with the same hash/location (ABA).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authoritative_generation_swap_preserves_aba_clocks() {
-    use crate::component::pre_pool::{ResolveLane, TerminalDisposition};
+    use crate::component::pre_pool::ResolveLane;
     use crate::component::tests::harness::{WorkerSet, harness};
 
     let h = harness(3).workers(WorkerSet::None).build();
@@ -1136,7 +1172,7 @@ async fn authoritative_generation_swap_preserves_aba_clocks() {
             .kernel
             .mutate_lease(
                 "stale lease must not match the replacement generation",
-                |kernel| { kernel.terminalize_resolve(&stale_lease, TerminalDisposition::Removed) }
+                |kernel| kernel.terminalize_resolve(&stale_lease)
             )
             .is_none()
     );

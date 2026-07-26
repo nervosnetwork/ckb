@@ -42,7 +42,7 @@ fn test_basic() {
     assert_eq!(pool.get_tx(&tx2.proposal_short_id()).unwrap(), &tx2);
     assert_eq!(pool.out_point_index.deps.len(), 0);
 
-    pool.clear();
+    pool = PoolMap::new(100);
     assert!(pool.entries.is_empty());
     assert!(pool.out_point_index.deps.is_empty());
     assert!(pool.out_point_index.inputs.is_empty());

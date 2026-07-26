@@ -446,10 +446,7 @@ impl TxPoolService {
                             self.relay
                                 .effects
                                 .try_apply(batch, EffectClass::Trusted, || {
-                                    coordinator.force_terminalize(
-                                        &tx_hash,
-                                        crate::component::pre_pool::TerminalDisposition::Removed,
-                                    )
+                                    coordinator.force_terminalize(&tx_hash)
                                 })
                         }) {
                             Ok(Ok(record)) => record,
@@ -502,63 +499,19 @@ impl TxPoolService {
     /// transactions that already committed to the main pool.
     pub(crate) async fn clear_pipeline(&self) {
         self.advance_pipeline_epoch();
-        // A submit that acquired the pool write lock and validated its epoch
-        // before the generation advance is allowed to finish. Waiting on the
-        // same lock makes that ordering explicit before this method returns;
-        // later submitters observe the stale generation and cannot commit.
-        loop {
-            let preview = self
-                .pipeline
-                .kernel
-                .read(PrePoolKernel::clear_terminal_records);
-            if let Some(batch) = self.pipeline_terminal_effects(&preview)
-                && self
-                    .relay
-                    .effects
-                    .wait_capacity(batch.charge_bytes(), EffectClass::Critical)
-                    .await
-                    .is_err()
-            {
-                return;
-            }
-            let mut tx_pool = self.pool.tx_pool.write().await;
-            let defect_snapshot = tx_pool.cloned_snapshot();
-            let result = self.pipeline.kernel.guard_authoritative_mutation(
-                "clear-pipeline authoritative mutation panicked",
-                || {
-                    self.pipeline.kernel.mutate(|coordinator| {
-                        let records = coordinator.clear_terminal_records();
-                        let batch = self.pipeline_terminal_effects(&records);
-                        self.relay
-                            .effects
-                            .try_apply(batch, EffectClass::Critical, || coordinator.clear())
-                    })
-                },
-            );
-            match result {
-                Ok(Ok(Ok(_))) => break,
-                Ok(Err(EffectJournalError::Full)) => continue,
-                Ok(Ok(Err(error))) => {
-                    ckb_logger::error!("clear pipeline failed: {error:?}");
-                    break;
-                }
-                Ok(Err(error)) => {
-                    ckb_logger::error!("clear pipeline journal unavailable: {error:?}");
-                    break;
-                }
-                Err(defect) => {
-                    let disposal = self.recover_authoritative_defect(
-                        &mut tx_pool,
-                        defect_snapshot,
-                        "clear-pipeline authoritative mutation",
-                        defect,
-                    );
-                    drop(tx_pool);
-                    drop(disposal);
-                    break;
-                }
-            }
+        // This write guard is the clear/commit ordering barrier. The kernel
+        // swap is O(1); its retired population is destroyed after the guard.
+        let tx_pool = self.pool.tx_pool.write().await;
+        let (_, disposal) = self
+            .pipeline
+            .kernel
+            .reset_for_chain(|_| Ok(()))
+            .expect("empty clear generation preparation is total");
+        if let Err(error) = self.relay.effects.install_generation_reset() {
+            ckb_logger::error!("clear-pipeline generation reset journal unavailable: {error:?}");
         }
+        drop(tx_pool);
+        drop(disposal);
     }
 
     pub(crate) fn find_tx_in_coordinator_hash(&self, hash: &Byte32) -> Option<PipelineTxLocation> {

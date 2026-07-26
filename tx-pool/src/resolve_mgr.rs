@@ -1,8 +1,7 @@
 //! Ordered resolution worker backed exclusively by the pre-pool kernel.
 
 use crate::component::pre_pool::{
-    DependencyKey, ResolveLane, ResolveLease, TerminalDisposition, VerifySchedule, WorkCapability,
-    WorkLane,
+    DependencyKey, ResolveLane, ResolveLease, VerifySchedule, WorkCapability, WorkLane,
 };
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
@@ -61,12 +60,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
 }
 
 impl TxPoolService {
-    async fn settle_pipeline_raw_lease(
-        &self,
-        lease: &ResolveLease,
-        disposition: TerminalDisposition,
-        reject: Option<Reject>,
-    ) {
+    async fn settle_pipeline_raw_lease(&self, lease: &ResolveLease, reject: Option<Reject>) {
         self.settle_pipeline_terminal(
             &lease.hash,
             reject,
@@ -79,7 +73,7 @@ impl TxPoolService {
                         crate::component::pre_pool::PrePoolLocation::ResolveLeased,
                     )
                 } else {
-                    coordinator.terminalize_resolve(lease, disposition)
+                    coordinator.terminalize_resolve(lease)
                 }
             },
         )
@@ -102,8 +96,7 @@ impl TxPoolService {
             .require_authoritative_source(&lease.payload, current_source);
 
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
-            self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
-                .await;
+            self.settle_pipeline_raw_lease(&lease, None).await;
             return;
         }
 
@@ -152,12 +145,7 @@ impl TxPoolService {
                             );
                             let public_reject =
                                 (!matches!(reject, Reject::Full(_))).then_some(reject);
-                            self.settle_pipeline_raw_lease(
-                                &lease,
-                                TerminalDisposition::Rejected,
-                                public_reject,
-                            )
-                            .await;
+                            self.settle_pipeline_raw_lease(&lease, public_reject).await;
                         }
                     }
                 }
@@ -167,31 +155,16 @@ impl TxPoolService {
                         Some(ParentWaitOutcome::Requeued) => {}
                         Some(ParentWaitOutcome::Unavailable) => {
                             let reject = first_unknown_input_reject(&tx);
-                            self.settle_pipeline_raw_lease(
-                                &lease,
-                                TerminalDisposition::Rejected,
-                                Some(reject),
-                            )
-                            .await;
+                            self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
                         }
                         Some(ParentWaitOutcome::Rejected(reject)) => {
-                            self.settle_pipeline_raw_lease(
-                                &lease,
-                                TerminalDisposition::Rejected,
-                                Some(reject),
-                            )
-                            .await;
+                            self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
                         }
                         None => {}
                     }
                 }
                 ResolveStageResult::Reject(reject) => {
-                    self.settle_pipeline_raw_lease(
-                        &lease,
-                        TerminalDisposition::Rejected,
-                        Some(reject),
-                    )
-                    .await;
+                    self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
                 }
             }
         })
@@ -199,8 +172,7 @@ impl TxPoolService {
 
         if let Err(message) = outcome {
             error!("tx-pool raw worker panicked on {}: {}", lease.hash, message);
-            self.settle_pipeline_raw_lease(&lease, TerminalDisposition::Internal, None)
-                .await;
+            self.settle_pipeline_raw_lease(&lease, None).await;
         }
     }
 }

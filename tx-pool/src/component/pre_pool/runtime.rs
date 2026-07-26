@@ -119,7 +119,6 @@ const WORKER_CLASSES: [(WorkLane, WorkCapability); 5] = [
 /// TxPool boundary; P2/P4 replace that legacy pool path with total Apply.
 pub(crate) struct PrePool {
     state: Mutex<PrePoolKernel>,
-    limits: PrePoolLimits,
     defect: DefectDomain,
     ready: [Arc<Notify>; WORKER_CLASSES.len()],
     maintenance_ready: Arc<Notify>,
@@ -134,12 +133,17 @@ pub(crate) struct PrePool {
 /// authority locks. Remote cooling prevents a reproducible hostile witness
 /// from creating a reset loop while trusted and chain work remain live.
 struct DefectDomain {
-    spare: Mutex<Option<PrePoolKernel>>,
+    spare: Mutex<Option<PrePoolGeneration>>,
     reset_count: AtomicU64,
     consecutive_resets: AtomicU64,
     last_reset_at: AtomicU64,
     remote_cooling_until: AtomicU64,
     fingerprints: Mutex<lru::LruCache<ckb_types::packed::Byte32, ()>>,
+}
+
+enum GenerationResetCause {
+    Chain,
+    Defect(Option<ckb_types::packed::Byte32>),
 }
 
 /// Sealed retired pre-pool generation. Holding the spare guard is the single
@@ -148,22 +152,21 @@ struct DefectDomain {
 /// releasing `TxPool` and the live kernel mutex.
 #[must_use = "retired generation must be dropped after authority guards are released"]
 pub(crate) struct KernelDisposal<'a> {
-    retired: Option<PrePoolKernel>,
-    spare: MutexGuard<'a, Option<PrePoolKernel>>,
-    limits: PrePoolLimits,
+    retired: Option<PrePoolGeneration>,
+    spare: MutexGuard<'a, Option<PrePoolGeneration>>,
 }
 
 impl Drop for KernelDisposal<'_> {
     fn drop(&mut self) {
         drop(self.retired.take());
-        *self.spare = Some(PrePoolKernel::new(self.limits));
+        *self.spare = Some(PrePoolGeneration::new());
     }
 }
 
 impl DefectDomain {
-    fn new(limits: PrePoolLimits) -> Self {
+    fn new() -> Self {
         Self {
-            spare: Mutex::new(Some(PrePoolKernel::new(limits))),
+            spare: Mutex::new(Some(PrePoolGeneration::new())),
             reset_count: AtomicU64::new(0),
             consecutive_resets: AtomicU64::new(0),
             last_reset_at: AtomicU64::new(0),
@@ -275,8 +278,7 @@ impl PrePool {
         };
         Self {
             state: Mutex::new(PrePoolKernel::new(limits)),
-            limits,
-            defect: DefectDomain::new(limits),
+            defect: DefectDomain::new(),
             ready: WORKER_CLASSES.map(|_| Arc::new(Notify::new())),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
@@ -388,6 +390,32 @@ impl PrePool {
         &self,
         fingerprint: Option<ckb_types::packed::Byte32>,
     ) -> (u64, KernelDisposal<'_>) {
+        let (generation, (), disposal) = self
+            .replace_generation(GenerationResetCause::Defect(fingerprint), |_| Ok(()))
+            .unwrap_or_else(|error| {
+                panic!("empty defect generation preparation failed: {error:?}")
+            });
+        (generation, disposal)
+    }
+
+    /// Prepare and exchange a fresh entry/index generation while preserving
+    /// the stable shell and every process-global ABA clock. `prepare` mutates
+    /// only the prebuilt spare; an error cannot affect the live generation.
+    /// The retired population remains sealed by the returned disposal permit
+    /// until its caller releases all authority guards.
+    pub(crate) fn reset_for_chain<T>(
+        &self,
+        prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
+    ) -> Result<(T, KernelDisposal<'_>), PrePoolError> {
+        self.replace_generation(GenerationResetCause::Chain, prepare)
+            .map(|(_, value, disposal)| (value, disposal))
+    }
+
+    fn replace_generation<T>(
+        &self,
+        cause: GenerationResetCause,
+        prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
+    ) -> Result<(u64, T, KernelDisposal<'_>), PrePoolError> {
         let mut spare = self
             .defect
             .spare
@@ -396,33 +424,64 @@ impl PrePool {
         let fresh = spare
             .take()
             .expect("the one disposal permit replenishes the emergency generation");
-        let (retired, generation) = {
-            let mut state = self.lock();
-            let mut fresh = fresh;
-            // Versions and recovery sessions are process-global ABA tokens,
-            // not entry-generation data. An old worker/reorg handler may
-            // still hold either token after this swap, so a fresh generation
-            // must continue every monotonic clock rather than restart at one.
-            fresh.next_version = state.next_version;
-            fresh.next_arrival = state.next_arrival;
-            fresh.next_recovery_session = state.next_recovery_session;
-            let retired = std::mem::replace(&mut *state, fresh);
-            self.state.clear_poison();
-            // Close Remote ingress before opening the state mutex. A remote
-            // request that passed the optimistic outer gate must recheck it
-            // after acquiring this same mutex and therefore cannot enter the
-            // replacement generation in the reset/cooling race window.
-            let generation = self.defect.record_reset(fingerprint);
-            (retired, generation)
+        let mut state = self.lock();
+        let mut prepared = PrePoolKernel {
+            generation: fresh,
+            limits: state.limits,
+            next_version: state.next_version,
+            next_arrival: state.next_arrival,
+            next_recovery_session: state.next_recovery_session,
         };
-        (
+        let prepared_result = catch_unwind(AssertUnwindSafe(|| prepare(&mut prepared)));
+        let value = match prepared_result {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
+                let rejected =
+                    std::mem::replace(&mut prepared.generation, PrePoolGeneration::new());
+                *spare = Some(PrePoolGeneration::new());
+                drop(state);
+                drop(spare);
+                drop(rejected);
+                return Err(error);
+            }
+            Err(payload) => {
+                let rejected =
+                    std::mem::replace(&mut prepared.generation, PrePoolGeneration::new());
+                *spare = Some(PrePoolGeneration::new());
+                drop(state);
+                drop(spare);
+                drop(rejected);
+                ckb_logger::error!(
+                    "pre-pool generation preparation panicked: {}",
+                    crate::util::panic_payload_to_string(payload.as_ref())
+                );
+                return Err(PrePoolError::Repair("generation preparation panicked"));
+            }
+        };
+        let retired = std::mem::replace(&mut state.generation, prepared.generation);
+        state.next_version = prepared.next_version;
+        state.next_arrival = prepared.next_arrival;
+        state.next_recovery_session = prepared.next_recovery_session;
+        self.state.clear_poison();
+        let generation = match cause {
+            GenerationResetCause::Chain => self.defect.reset_count.load(Ordering::Acquire),
+            GenerationResetCause::Defect(fingerprint) => {
+                // Close Remote ingress before opening the state mutex. A
+                // request that passed the optimistic outer gate rechecks after
+                // acquiring this mutex and cannot enter the new generation.
+                self.defect.record_reset(fingerprint)
+            }
+        };
+        drop(state);
+        self.mutate(|_| ());
+        Ok((
             generation,
+            value,
             KernelDisposal {
                 retired: Some(retired),
                 spare,
-                limits: self.limits,
             },
-        )
+        ))
     }
 
     pub(crate) fn require_authoritative_source(

@@ -356,10 +356,7 @@ impl TxPoolService {
                 self.relay
                     .effects
                     .try_apply(batch, EffectClass::Remote, || {
-                        coordinator.force_terminalize_many(
-                            &hashes,
-                            crate::component::pre_pool::TerminalDisposition::Removed,
-                        )
+                        coordinator.force_terminalize_many(&hashes)
                     })
             }) {
                 Ok(Ok(records)) => records,

@@ -284,11 +284,7 @@ impl PrePoolKernel {
         Ok(())
     }
 
-    pub(super) fn remove_entry(
-        &mut self,
-        hash: &Byte32,
-        _disposition: TerminalDisposition,
-    ) -> Result<TerminalRecord, PrePoolError> {
+    pub(super) fn remove_entry(&mut self, hash: &Byte32) -> Result<TerminalRecord, PrePoolError> {
         let entry = self
             .entries
             .get(hash)
@@ -610,19 +606,17 @@ impl PrePoolKernel {
     pub(crate) fn terminalize_resolve(
         &mut self,
         lease: &ResolveLease,
-        disposition: TerminalDisposition,
     ) -> Result<TerminalRecord, PrePoolError> {
         self.validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?;
-        self.remove_entry(&lease.hash, disposition)
+        self.remove_entry(&lease.hash)
     }
 
     pub(crate) fn terminalize_verify(
         &mut self,
         lease: &VerifyLease,
-        disposition: TerminalDisposition,
     ) -> Result<TerminalRecord, PrePoolError> {
         self.validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?;
-        self.remove_entry(&lease.hash, disposition)
+        self.remove_entry(&lease.hash)
     }
 
     pub(crate) fn complete_resolve(
@@ -789,18 +783,16 @@ impl PrePoolKernel {
     pub(crate) fn force_terminalize(
         &mut self,
         hash: &Byte32,
-        disposition: TerminalDisposition,
     ) -> Result<Option<TerminalRecord>, PrePoolError> {
         if !self.entries.contains_key(hash) {
             return Ok(None);
         }
-        self.remove_entry(hash, disposition).map(Some)
+        self.remove_entry(hash).map(Some)
     }
 
     pub(crate) fn force_terminalize_many(
         &mut self,
         hashes: &[Byte32],
-        disposition: TerminalDisposition,
     ) -> Result<Vec<TerminalRecord>, PrePoolError> {
         let mut unique = hashes.to_vec();
         unique.sort_unstable();
@@ -811,7 +803,7 @@ impl PrePoolKernel {
             .collect::<Vec<_>>();
         present
             .into_iter()
-            .map(|hash| self.remove_entry(&hash, disposition))
+            .map(|hash| self.remove_entry(&hash))
             .collect()
     }
 
@@ -850,22 +842,7 @@ impl PrePoolKernel {
     ) -> Result<Vec<TerminalRecord>, PrePoolError> {
         self.due_hashes(now, limit, include_ready)
             .into_iter()
-            .map(|hash| self.remove_entry(&hash, TerminalDisposition::Expired))
-            .collect()
-    }
-
-    pub(crate) fn clear_terminal_records(&self) -> Vec<TerminalRecord> {
-        self.entries
-            .keys()
-            .filter_map(|hash| self.terminal_record(hash))
-            .collect()
-    }
-
-    pub(crate) fn clear(&mut self) -> Result<Vec<TerminalRecord>, PrePoolError> {
-        let hashes = self.entries.keys().cloned().collect::<Vec<_>>();
-        hashes
-            .into_iter()
-            .map(|hash| self.remove_entry(&hash, TerminalDisposition::Cleared))
+            .map(|hash| self.remove_entry(&hash))
             .collect()
     }
 

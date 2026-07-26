@@ -431,8 +431,6 @@ impl TxPoolService {
     /// validation and pool insertion. The kernel mutex is held only for the
     /// constant-time ticket transition; no transient commit location exists.
     async fn commit_next_pipeline_entry(&self, effect_bound: usize) -> bool {
-        use crate::component::pre_pool::TerminalDisposition;
-
         let transaction = {
             let mut tx_pool = self.pool.tx_pool.write().await;
             let defect_snapshot = tx_pool.cloned_snapshot();
@@ -509,7 +507,7 @@ impl TxPoolService {
                                             .expect("validated Ready lease must park")
                                     } else {
                                         kernel
-                                            .fail_commit(&lease, TerminalDisposition::Rejected)
+                                            .fail_commit(&lease)
                                             .expect("validated Ready lease must terminalize")
                                     })
                                 } else {

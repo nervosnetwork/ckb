@@ -578,12 +578,6 @@ impl TxPool {
             .collect()
     }
 
-    pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>) {
-        self.pool_map.clear();
-        self.snapshot = snapshot;
-        self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
-    }
-
     /// Exchange the accepted entry/index generation without destroying the
     /// retired payload graph under the pool write guard. The returned sealed
     /// map has no authority API at the call site and is dropped together with

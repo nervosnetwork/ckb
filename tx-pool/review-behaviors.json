@@ -147,14 +147,14 @@
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/component/recent_reject.rs"
       ],
-      "required_behavior": "Ban, expiry, clear and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects.",
+      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
       "hostile_case": "An already active malicious peer must not pin an active slot, resurrect through a late lease or turn a typed malformed input into fail-stop or an ineligible relay reject.",
       "reviewer_questions": [
         "Does administrative removal make every outstanding lease stale atomically?",
         "Are trusted promotion and immutable ingress attribution preserved deliberately?",
         "Are ban/reject history and relay policy separate explicit decisions?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_revokes|malformed_remote_preflight)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_revokes|malformed_remote_preflight|proposal_promoted_remote_clear)/)'",
       "performance_bound": "Administrative removal uses indexed owners and bounded batches; peer fences/history remain bounded and expiring."
     },
     {
@@ -232,7 +232,7 @@
         "Does the one disposal permit keep retired residency bounded and force destruction/spare replenishment outside both authority locks?",
         "Is exact wtx quarantine/cooling absent from the healthy hot-path lock set, bounded in memory, and fail-closed only for Remote after repeated resets?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(authoritative_defect|authoritative_generation_swap)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(authoritative_defect|authoritative_generation_swap|chain_generation_reset)/)'",
       "performance_bound": "Healthy admission adds no new mutex acquisition; one prebuilt spare, one prebuilt reset record and one serialized disposal permit make the impossible swap bounded without destroying population-sized graphs under authority locks."
     },
     {
@@ -362,6 +362,7 @@
 
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
     {"test": "malformed_remote_preflight_is_banned_recorded_and_not_relayed", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I8"]},
+    {"test": "proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5", "I8", "I12"]},
 
     {"test": "full_journal_does_not_run_the_state_apply_closure", "behavior_id": "TP-EFFECT-001", "invariants": ["I5", "I8"]},
     {"test": "journal_sequence_is_total_apply_order", "behavior_id": "TP-EFFECT-001", "invariants": ["I8"]},
@@ -397,6 +398,7 @@
 
     {"test": "authoritative_defect_is_generation_local_not_service_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8", "I12"]},
     {"test": "authoritative_generation_swap_preserves_aba_clocks", "behavior_id": "TP-DEFECT-001", "invariants": ["I1", "I4", "I7"]},
+    {"test": "chain_generation_reset_reuses_lock_outside_disposal_without_remote_cooling", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I7", "I8"]},
     {"test": "generation_reset_register_bypasses_full_fifo_and_coalesces", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8"]},
     {"test": "structural_recovery_defect_advances_reorg_without_service_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
 

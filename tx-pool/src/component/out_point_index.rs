@@ -85,12 +85,6 @@ impl OutPointIndex {
             false
         }
     }
-
-    pub(crate) fn clear(&mut self) {
-        self.inputs.clear();
-        self.deps.clear();
-        self.header_deps.clear();
-    }
 }
 
 #[cfg(test)]

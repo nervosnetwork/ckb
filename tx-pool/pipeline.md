@@ -6,8 +6,8 @@ review is [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), staged gates are in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), and executable review
 evidence is generated in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
 
-Status: **P4 chain-correctness checkpoint ready for C6; architecture acceptance
-is intentionally withheld**. The old
+Status: **P4/C6 is committed and P5 architecture convergence is in progress;
+production acceptance is intentionally withheld**. The old
 `PipelineCoordinator`, `PipelineRuntime` and `ConflictCache` have been deleted.
 PoolCommitJournal, nested restoration and persistent cell-ref ancestry are now
 also deleted. P3-P4 migration debt is named explicitly below; it must be removed by the
@@ -323,7 +323,7 @@ DAO and hardfork ingress outside `test/src/specs/tx_pool`.
 | P2 / C4 | Complete | immutable accepted `PoolMutationPlan`, full-hash primary index, causal-only graph, role-aware resolution and selected-set SCC ordering cut over; nested undo/journal rollback/cell-ref escape deleted; internal instrumentation also uses Plan/Apply while permissive child-first construction is test-only; tx-pool production Rust is 18,757 lines (−200 from C3), test Rust is separately 13,051 and benchmark remains 1,422; 209/209 internal-feature nextest, production/internal clippy, all document gates and 16 targeted process integrations pass |
 | P3 / C5 | Complete | concrete static `EffectJournal`; generic outbox/reservation IDs and credit-across-lock paths deleted; Remote/ordinary/critical region lattice, exact queued+active charge, total Apply+append, publisher cursor restart, one bounded callback circuit and allocation-free relay retry/timeout isolation; tx-pool production Rust is 18,751 raw lines (−6 from C4), tests are separately 12,885 and benchmark remains 1,422; 210/210 internal-feature nextest, two clippy profiles, all document gates and 12 targeted process integrations pass |
 | P4 / C6 | Correctness checkpoint; not phase-complete | charged parent-first `RecoveryRetained`, including bounded accepted descendants of detached producers; immutable bounded v2 accepted+recovery persistence; immediate reset/final full assembler sequencing with stale-uncle cleanup; `recovery_lock`, handler payload ownership, recovery cascade and service fail-stop deleted; 224/224 internal-feature nextest, zero-warning tx-pool/sync clippy, document gates and the 13-spec P4 integration batch pass. Whole-architecture review found two explicit blockers: production Rust is 20,129 lines (+1,378 from C5; tests 13,608 and benchmark 1,422 are separate), and expected over-bound/capacity reorg fallback still destroys population under authority locks instead of using the DefectDomain's sealed lock-outside disposal primitive. C6 is a recoverable correctness checkpoint only; P5 must remove both blockers before release acceptance. |
-| P5 / C7 | Pending | final correctness, static, source-size and review acceptance |
+| P5 / C7 | In progress | stable-shell entry generations now make normal reorg fallback, clear and defects share one bounded swap plus lock-outside disposal primitive; process-global ABA/effect clocks survive the swap and only defects cool Remote. `TerminalDisposition` and population-sized clear protocols are deleted. Current production Rust is 19,944 raw lines (+1,193 from C5; tests are 13,636 and benchmark 1,422 separately); the remaining explicit blocker is the frozen 14k production review envelope. Full P5 acceptance gates are not yet claimed. |
 | P6 / C8 | Pending | complete 149-spec process acceptance and classification |
 | P7 / C9 | Deferred | controlled C1/develop/final A/B performance acceptance |
 

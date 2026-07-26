@@ -426,15 +426,6 @@ pub(crate) struct CommitTicket {
     pub(crate) payload: Arc<PipelineVerifiedTx>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TerminalDisposition {
-    Rejected,
-    Removed,
-    Cleared,
-    Expired,
-    Internal,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct TerminalRecord {
     pub(crate) hash: Byte32,
@@ -638,11 +629,11 @@ struct RecoveryKey {
     version: EntryVersion,
 }
 
-/// Concrete primary owner and exact derived projections. No method awaits or
-/// acquires `TxPool`; callers establish the universal `TxPool -> kernel`
-/// order around cross-authority commands.
+/// Swappable entry/index generation. Process-global clocks, limits and the
+/// runtime shell deliberately live outside this value, so a reset cannot
+/// reuse an ABA token or replace scheduler/effect authority.
 #[derive(Debug)]
-pub(crate) struct PrePoolKernel {
+pub(crate) struct PrePoolGeneration {
     entries: HashMap<Byte32, Entry>,
     by_short_id: HashMap<ProposalShortId, Byte32>,
     by_peer: HashMap<PeerIndex, BTreeSet<Byte32>>,
@@ -662,14 +653,10 @@ pub(crate) struct PrePoolKernel {
     peer_usage: HashMap<PeerIndex, Residency>,
     active_work: usize,
     active_by_owner: HashMap<WorkOwner, usize>,
-    limits: PrePoolLimits,
-    next_version: EntryVersion,
-    next_arrival: u128,
-    next_recovery_session: u128,
 }
 
-impl PrePoolKernel {
-    pub(crate) fn new(limits: PrePoolLimits) -> Self {
+impl PrePoolGeneration {
+    fn new() -> Self {
         Self {
             entries: HashMap::new(),
             by_short_id: HashMap::new(),
@@ -690,6 +677,40 @@ impl PrePoolKernel {
             peer_usage: HashMap::new(),
             active_work: 0,
             active_by_owner: HashMap::new(),
+        }
+    }
+}
+
+/// Concrete primary owner and exact derived projections. No method awaits or
+/// acquires `TxPool`; callers establish the universal `TxPool -> kernel`
+/// order around cross-authority commands.
+#[derive(Debug)]
+pub(crate) struct PrePoolKernel {
+    generation: PrePoolGeneration,
+    limits: PrePoolLimits,
+    next_version: EntryVersion,
+    next_arrival: u128,
+    next_recovery_session: u128,
+}
+
+impl std::ops::Deref for PrePoolKernel {
+    type Target = PrePoolGeneration;
+
+    fn deref(&self) -> &Self::Target {
+        &self.generation
+    }
+}
+
+impl std::ops::DerefMut for PrePoolKernel {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.generation
+    }
+}
+
+impl PrePoolKernel {
+    pub(crate) fn new(limits: PrePoolLimits) -> Self {
+        Self {
+            generation: PrePoolGeneration::new(),
             limits,
             next_version: 1,
             next_arrival: 0,

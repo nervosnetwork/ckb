@@ -49,10 +49,9 @@ impl PrePoolKernel {
     pub(crate) fn fail_commit(
         &mut self,
         ticket: &CommitTicket,
-        disposition: TerminalDisposition,
     ) -> Result<TerminalRecord, PrePoolError> {
         self.validate_commit(ticket)?;
-        self.remove_entry(&ticket.hash, disposition)
+        self.remove_entry(&ticket.hash)
     }
 
     pub(crate) fn park_failed_commit(
@@ -102,13 +101,13 @@ impl PrePoolKernel {
             match self.move_to_wait(&hash, WaitReason::Conflict, keys, None) {
                 Ok(_) => {}
                 Err(error) if error.is_capacity_rejection() => {
-                    self.remove_entry(&hash, TerminalDisposition::Rejected)?;
+                    self.remove_entry(&hash)?;
                 }
                 Err(error) => return Err(error),
             }
         }
 
-        let winner_record = self.remove_entry(&ticket.hash, TerminalDisposition::Internal)?;
+        let winner_record = self.remove_entry(&ticket.hash)?;
         Ok(CommitSettlement {
             winner: CommitHandoff {
                 raw: winner_record.raw,
@@ -126,7 +125,7 @@ impl PrePoolKernel {
         if !self.entries.contains_key(hash) {
             return Ok(None);
         }
-        let record = self.remove_entry(hash, TerminalDisposition::Internal)?;
+        let record = self.remove_entry(hash)?;
         Ok(Some(ExternalCommitRecord { raw: record.raw }))
     }
 
@@ -141,7 +140,7 @@ impl PrePoolKernel {
         let mut records = Vec::new();
         for hash in hashes {
             if self.entries.contains_key(&hash) {
-                let record = self.remove_entry(&hash, TerminalDisposition::Internal)?;
+                let record = self.remove_entry(&hash)?;
                 records.push(ExternalCommitRecord { raw: record.raw });
             }
         }

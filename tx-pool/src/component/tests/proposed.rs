@@ -763,7 +763,7 @@ fn test_container_bench_add_limits() {
     assert_eq!(pool.size(), 1001);
     assert_eq!(pool.proposed_size(), 1001);
     assert_eq!(pool.pending_size(), 0);
-    pool.clear();
+    pool = PoolMap::new(1_000_000);
     assert_eq!(pool.size(), 0);
 }
 

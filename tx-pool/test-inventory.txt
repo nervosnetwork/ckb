@@ -84,6 +84,7 @@ component::tests::pipeline::identity::verified_candidate_compacts_deps_and_pool_
 component::tests::pipeline::lifecycle::authoritative_defect_is_generation_local_not_service_fail_stop
 component::tests::pipeline::lifecycle::authoritative_generation_swap_preserves_aba_clocks
 component::tests::pipeline::lifecycle::banned_peer_revokes_active_remote_lease_and_releases_budget
+component::tests::pipeline::lifecycle::chain_generation_reset_reuses_lock_outside_disposal_without_remote_cooling
 component::tests::pipeline::lifecycle::cross_authority_query_is_serialized_with_clear_and_reorg
 component::tests::pipeline::lifecycle::dependency_availability_uses_the_authoritative_overlay_level
 component::tests::pipeline::lifecycle::duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted
@@ -91,7 +92,7 @@ component::tests::pipeline::lifecycle::local_submit_bypasses_and_settles_matchin
 component::tests::pipeline::lifecycle::malformed_remote_preflight_is_banned_recorded_and_not_relayed
 component::tests::pipeline::lifecycle::pipeline_commit_worker_waits_for_the_pool_sequencer
 component::tests::pipeline::lifecycle::pipeline_processes_independent_remote_txs
-component::tests::pipeline::lifecycle::proposal_promoted_remote_terminal_still_releases_ingress_filter
+component::tests::pipeline::lifecycle::proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter
 component::tests::pipeline::lifecycle::proposal_promotes_active_remote_owner_and_detaches_peer_ban
 component::tests::pipeline::lifecycle::proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff
 component::tests::pipeline::lifecycle::queued_resolved_work_is_snapshot_free_and_stale_tip_requeues

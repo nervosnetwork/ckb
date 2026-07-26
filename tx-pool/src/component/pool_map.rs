@@ -175,15 +175,6 @@ pub struct PoolStats {
 }
 
 impl PoolStats {
-    pub fn clear(&mut self) {
-        self.total_tx_size = 0;
-        self.total_tx_resident_size = 0;
-        self.total_tx_cycles = 0;
-        self.pending_count = 0;
-        self.gap_count = 0;
-        self.proposed_count = 0;
-    }
-
     /// Apply one status transition without hiding an impossible underflow or
     /// overflow. The caller can then rebuild these cached counts from the
     /// authoritative entry set on the cold invariant-recovery path.
@@ -1043,13 +1034,6 @@ impl PoolMap {
             .iter_by_evict_key()
             .find(move |entry| entry.status == status)
             .map(|entry| entry.id.clone())
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.entries = MultiIndexPoolEntryMap::default();
-        self.out_point_index.clear();
-        self.links.clear();
-        self.stats.clear();
     }
 
     pub(crate) fn score_sorted_iter_by_status(

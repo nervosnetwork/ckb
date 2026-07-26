@@ -4,11 +4,12 @@ Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Status: plan frozen; P3/C5 is complete and P4 correctness is ready for a C6
-recovery checkpoint. P4 architecture acceptance is withheld: the phase is not
-net-negative and normal reorg generation fallback has not yet converged on the
-same lock-outside disposal primitive as DefectDomain. P5 begins with that
-architecture re-audit rather than treating C6 as production-ready.
+Status: plan frozen; P4/C6 is a committed correctness checkpoint and P5 is in
+progress. Its first architecture correction converges defect, expected chain
+fallback and clear on the same stable-shell generation swap with sealed
+lock-outside disposal; the remaining explicit blocker is the 14k production
+review envelope. P5 therefore continues deletion-first rather than treating
+C6 or the disposal correction as production-ready.
 Correctness and static safety precede the final separately measured performance
 gate. Each phase is a recoverable commit and ends with a whole-architecture
 review, not only a review of edited files.

@@ -38,7 +38,7 @@ impl PrePoolKernel {
             Ok(record) => Ok(record),
             Err(error) if error.is_capacity_rejection() => {
                 self.validate_location(hash, version, expected)?;
-                self.remove_entry(hash, TerminalDisposition::Rejected)
+                self.remove_entry(hash)
             }
             Err(error) => Err(error),
         }
@@ -388,9 +388,6 @@ impl PrePoolKernel {
                 })
             )
         });
-        conflict
-            && self
-                .remove_entry(hash, TerminalDisposition::Removed)
-                .is_ok()
+        conflict && self.remove_entry(hash).is_ok()
     }
 }

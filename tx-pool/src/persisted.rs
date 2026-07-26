@@ -253,7 +253,7 @@ impl TxPool {
         };
         write_snapshot(&self.config.persisted_data, snapshot)?;
         let chain = self.cloned_snapshot();
-        self.clear(chain);
+        drop(self.reset_generation(chain));
         Ok(())
     }
 }

@@ -1,8 +1,7 @@
 use crate::component::entry::TxEntry;
 use crate::component::pre_pool::PipelineVerifiedTx;
 use crate::component::pre_pool::{
-    DependencyKey, FeeGate, PrePoolError, PrePoolSource, TerminalDisposition, VerifyLease,
-    WorkCapability, WorkLane,
+    DependencyKey, FeeGate, PrePoolError, PrePoolSource, VerifyLease, WorkCapability, WorkLane,
 };
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
@@ -41,7 +40,6 @@ impl TxPoolService {
     async fn settle_pipeline_verify_failure(
         &self,
         lease: &VerifyLease,
-        disposition: TerminalDisposition,
         mut reject: crate::error::Reject,
         internal: bool,
     ) {
@@ -74,7 +72,7 @@ impl TxPoolService {
                         crate::component::pre_pool::PrePoolLocation::VerifyLeased,
                     )
                 } else {
-                    coordinator.terminalize_verify(lease, disposition)
+                    coordinator.terminalize_verify(lease)
                 }
             },
         )
@@ -102,7 +100,6 @@ impl TxPoolService {
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_verify_failure(
                 &lease,
-                TerminalDisposition::Internal,
                 crate::error::Reject::Internal(
                     "pipeline verification invalidated before execution".to_string(),
                 ),
@@ -178,25 +175,15 @@ impl TxPoolService {
                             {
                                 Ok(verified) => verified,
                                 Err(reject) => {
-                                    self.settle_pipeline_verify_failure(
-                                        &lease,
-                                        TerminalDisposition::Rejected,
-                                        reject,
-                                        false,
-                                    )
-                                    .await;
+                                    self.settle_pipeline_verify_failure(&lease, reject, false)
+                                        .await;
                                     return;
                                 }
                             }
                         }
                         None => {
-                            self.settle_pipeline_verify_failure(
-                                &lease,
-                                TerminalDisposition::Rejected,
-                                first_reject,
-                                false,
-                            )
-                            .await;
+                            self.settle_pipeline_verify_failure(&lease, first_reject, false)
+                                .await;
                             return;
                         }
                     }
@@ -242,13 +229,8 @@ impl TxPoolService {
                 }
             };
             if let Err(reject) = rbf_precheck {
-                self.settle_pipeline_verify_failure(
-                    &lease,
-                    TerminalDisposition::Rejected,
-                    reject,
-                    false,
-                )
-                .await;
+                self.settle_pipeline_verify_failure(&lease, reject, false)
+                    .await;
                 return;
             }
 
@@ -265,13 +247,8 @@ impl TxPoolService {
                         "verified candidate fee gate violated coordinator invariants",
                         error,
                     );
-                    self.settle_pipeline_verify_failure(
-                        &lease,
-                        TerminalDisposition::Rejected,
-                        reject,
-                        false,
-                    )
-                    .await;
+                    self.settle_pipeline_verify_failure(&lease, reject, false)
+                        .await;
                     return;
                 }
             };
@@ -287,13 +264,8 @@ impl TxPoolService {
                         "verified payload charge violated coordinator invariants",
                         error,
                     );
-                    self.settle_pipeline_verify_failure(
-                        &lease,
-                        TerminalDisposition::Rejected,
-                        reject,
-                        false,
-                    )
-                    .await;
+                    self.settle_pipeline_verify_failure(&lease, reject, false)
+                        .await;
                     return;
                 }
             };
@@ -315,13 +287,8 @@ impl TxPoolService {
                         error,
                     );
                     let internal = matches!(reject, crate::error::Reject::Full(_));
-                    self.settle_pipeline_verify_failure(
-                        &lease,
-                        TerminalDisposition::Rejected,
-                        reject,
-                        internal,
-                    )
-                    .await;
+                    self.settle_pipeline_verify_failure(&lease, reject, internal)
+                        .await;
                 }
             }
         })
@@ -334,7 +301,6 @@ impl TxPoolService {
             );
             self.settle_pipeline_verify_failure(
                 &lease,
-                TerminalDisposition::Internal,
                 crate::error::Reject::Internal(message),
                 true,
             )

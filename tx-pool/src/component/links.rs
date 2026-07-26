@@ -124,10 +124,6 @@ impl TxLinksMap {
             .get_mut(short_id)
             .map(|links| links.children.insert(child))
     }
-
-    pub fn clear(&mut self) {
-        self.inner.clear();
-    }
 }
 
 #[cfg(test)]
