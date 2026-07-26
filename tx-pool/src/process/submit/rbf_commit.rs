@@ -10,6 +10,7 @@ use crate::component::entry::TxEntry;
 use crate::component::pool_map::{
     AppliedPoolMutation, PoolMutationPlan, RemovalCause, RemovedPoolEntry, Status,
 };
+use crate::component::pre_pool::{DependencyKey, PipelineRawTx, PrePoolKernel, PrePoolSource};
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::pool::rbf::RbfCheck;
@@ -96,6 +97,28 @@ pub(crate) struct SubmitSideEffects {
 }
 
 impl TxPoolService {
+    /// Conflict history is optional under transaction/capacity pressure, but
+    /// a structural transition error belongs to the enclosing authoritative
+    /// defect boundary and must never masquerade as a best-effort drop.
+    pub(crate) fn retain_optional_conflict(
+        &self,
+        kernel: &mut PrePoolKernel,
+        raw: PipelineRawTx,
+        owner: PrePoolSource,
+        keys: std::collections::BTreeSet<DependencyKey>,
+        expires_at: Option<u64>,
+        context: &'static str,
+    ) {
+        let hash = raw.tx.hash();
+        match kernel.retain_conflict(raw, owner, keys, expires_at) {
+            Ok(_) => {}
+            Err(error) if error.is_capacity_rejection() || error.is_transaction_rejection() => {
+                debug!("dropping optional conflict history for {hash} in {context}: {error:?}");
+            }
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+
     pub(crate) fn planned_unavailable_parent_hashes(
         &self,
         plan: &PoolMutationPlan,
@@ -117,7 +140,7 @@ impl TxPoolService {
         tx_pool: &TxPool,
         entry: &TxEntry,
         plan: &PoolMutationPlan,
-    ) -> Result<(), crate::component::pre_pool::PrePoolError> {
+    ) {
         let removed_ids = plan
             .removals
             .iter()
@@ -162,8 +185,12 @@ impl TxPoolService {
             .map(crate::component::pre_pool::DependencyKey::Cell)
             .collect::<HashSet<_>>();
 
-        kernel.remove_conflict_hash(&entry.transaction().hash());
-        kernel.note_available(released)?;
+        kernel
+            .remove_conflict_hash(&entry.transaction().hash())
+            .unwrap_or_else(|error| panic!("planned conflict removal failed: {error:?}"));
+        kernel
+            .note_available(released)
+            .unwrap_or_else(|error| panic!("planned dependency wake failed: {error:?}"));
         let epoch = self.pipeline.epoch.current().unwrap_or(0);
         for victim in plan
             .removals
@@ -186,18 +213,15 @@ impl TxPoolService {
             );
             let owner =
                 crate::component::pre_pool::historical_source(crate::tx_source::TxSource::Local);
-            if let Err(error) = kernel.retain_conflict(
+            self.retain_optional_conflict(
+                kernel,
                 raw,
                 owner,
                 keys,
                 crate::component::pre_pool::historical_deadline(owner),
-            ) {
-                ckb_logger::warn!(
-                    "dropping bounded RBF history after pre-pool backpressure: {error:?}"
-                );
-            }
+                "planned RBF history transition failed",
+            );
         }
-        Ok(())
     }
 
     /// Build the complete read-only accepted-pool decision. RBF, final
@@ -294,25 +318,20 @@ impl TxPoolService {
         snapshot: Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        before_apply: impl FnOnce(
-            &TxPool,
-            &PoolMutationPlan,
-        ) -> Result<T, crate::component::pre_pool::PrePoolError>,
+        before_apply: impl FnOnce(&TxPool, &PoolMutationPlan) -> T,
     ) -> (CoordinatedSubmitOutcome, Option<T>) {
         let mut fx = SubmitSideEffects::default();
         let mut handoff = None;
         let result = match self.plan_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry) {
             Err(reject) => Err(reject),
-            Ok(plan) => match before_apply(tx_pool, &plan) {
-                Err(error) => Err(crate::component::pre_pool::pre_pool_reject(error)),
-                Ok(value) => {
-                    let final_status = plan.status;
-                    self.apply_pool_mutation(tx_pool, &entry, plan, &mut fx);
-                    fx.accept_event = Some((entry.clone(), final_status));
-                    handoff = Some(value);
-                    Ok(())
-                }
-            },
+            Ok(plan) => {
+                let value = before_apply(tx_pool, &plan);
+                let final_status = plan.status;
+                self.apply_pool_mutation(tx_pool, &entry, plan, &mut fx);
+                fx.accept_event = Some((entry.clone(), final_status));
+                handoff = Some(value);
+                Ok(())
+            }
         };
 
         debug_assert!(

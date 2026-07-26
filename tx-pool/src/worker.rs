@@ -41,17 +41,15 @@ impl RespawnBackoff {
     }
 }
 
-/// Run a single job's future, catching any panic it raises.
+/// Run one untrusted computation boundary, catching any panic it raises.
 ///
-/// Returns `Err(payload)` when the job panicked. Pipeline workers wrap every
-/// popped job in this guard so that one bad job can neither kill the whole
-/// worker (losing every cleanup the job still needed) nor strand its
-/// bookkeeping markers (`active` sets, RBF registrations) forever. The
-/// worker-level respawn monitors remain as the backstop for panics
-/// *outside* the per-job guard (queue pop, scheduling).
-pub(crate) async fn catch_job_panic<F: Future<Output = ()>>(fut: F) -> Result<(), String> {
+/// This guard is deliberately generic over the output so callers can wrap
+/// only resolver/verifier execution. Coordinator reads and transitions must
+/// remain outside it: an internal invariant failure is a process defect, not
+/// a transaction outcome that can safely be converted into a rejection.
+pub(crate) async fn catch_job_panic<F: Future>(fut: F) -> Result<F::Output, String> {
     match AssertUnwindSafe(fut).catch_unwind().await {
-        Ok(()) => Ok(()),
+        Ok(output) => Ok(output),
         Err(payload) => Err(panic_payload_to_string(payload.as_ref())),
     }
 }
@@ -98,17 +96,6 @@ pub(crate) struct WorkerRunner<H: JobHandler> {
     status: ChunkCommand,
 }
 
-impl<H: JobHandler> Clone for WorkerRunner<H> {
-    fn clone(&self) -> Self {
-        Self {
-            handler: self.handler.clone(),
-            command_rx: self.command_rx.clone(),
-            exit_signal: self.exit_signal.clone(),
-            status: self.status.clone(),
-        }
-    }
-}
-
 impl<H: JobHandler> WorkerRunner<H> {
     pub(crate) fn new(
         handler: H,
@@ -123,43 +110,20 @@ impl<H: JobHandler> WorkerRunner<H> {
         }
     }
 
-    /// Run one supervised worker generation. Queue/handler panics restart with
-    /// bounded backoff; cancellation and command-channel closure are terminal.
-    pub(crate) async fn supervise(self, worker_id: usize) {
-        let mut backoff = RespawnBackoff::new();
-        loop {
-            let mut runner = self.clone();
-            let started = std::time::Instant::now();
-            match AssertUnwindSafe(runner.run()).catch_unwind().await {
-                Ok(()) => {
-                    if !self.exit_signal.is_cancelled() {
-                        error!(
-                            "tx-pool {} {worker_id} stopped because its command channel closed",
-                            self.handler.worker_name()
-                        );
-                    }
-                    break;
-                }
-                Err(payload) => {
-                    if self.exit_signal.is_cancelled() {
-                        break;
-                    }
-                    let delay = backoff.delay_for(started.elapsed());
-                    error!(
-                        "tx-pool {} {worker_id} panicked; respawning in {delay:?}: {}",
-                        self.handler.worker_name(),
-                        panic_payload_to_string(payload.as_ref())
-                    );
-                    tokio::select! {
-                        _ = tokio::time::sleep(delay) => {}
-                        _ = self.exit_signal.cancelled() => break,
-                    }
-                }
-            }
+    /// Run one worker until cancellation or command-authority loss.  Panics
+    /// from kernel bookkeeping are invariant failures and are intentionally
+    /// not converted into an in-process restart protocol.
+    pub(crate) async fn run(mut self, worker_id: usize) {
+        self.run_loop().await;
+        if !self.exit_signal.is_cancelled() {
+            error!(
+                "tx-pool {} {worker_id} stopped because its command channel closed",
+                self.handler.worker_name()
+            );
         }
     }
 
-    async fn run(&mut self) {
+    async fn run_loop(&mut self) {
         let queue_ready = self.handler.queue_ready().await;
         self.refresh_status();
         loop {

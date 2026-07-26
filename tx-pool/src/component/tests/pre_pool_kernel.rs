@@ -822,46 +822,51 @@ fn ready_expiry_filter_does_not_starve_later_non_ready_deadlines() {
 }
 
 #[test]
-fn recovery_batch_is_atomic_parent_first_and_persistable_while_leased() {
+fn recovery_batch_is_atomic_parent_first_and_uses_ordered_resolve() {
     let mut kernel = PrePoolKernel::new(limits());
     let parent = transaction(201);
     let child = build_tx(vec![(&parent.hash(), 0)], 1);
-    let batch = kernel
+    let retained = kernel
         .retain_recovery_batch(vec![parent.clone(), child.clone()], 7)
         .unwrap();
-    assert_eq!(batch.retained, 2);
+    assert_eq!(retained, 2);
     assert_eq!(
         kernel.view(&parent.hash()).unwrap().location,
-        PrePoolLocation::RecoveryRetained
+        PrePoolLocation::ResolveQueued
     );
     assert_eq!(
         kernel.view(&child.hash()).unwrap().location,
-        PrePoolLocation::RecoveryRetained
+        PrePoolLocation::ResolveQueued
     );
     assert_eq!(
         kernel
             .recovery_snapshot()
             .into_iter()
-            .map(|item| item.tx.hash())
+            .map(|tx| tx.hash())
             .collect::<Vec<_>>(),
         vec![parent.hash(), child.hash()]
     );
 
-    let parent_lease = kernel.checkout_recovery(batch.session).unwrap().unwrap();
+    let parent_lease = kernel
+        .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
+        .unwrap();
     assert_eq!(parent_lease.hash, parent.hash());
-    assert!(kernel.recovery_session_pending(batch.session));
     assert!(
         kernel
             .recovery_snapshot()
             .iter()
-            .any(|item| item.tx.hash() == parent.hash()),
+            .any(|tx| tx.hash() == parent.hash()),
         "an active borrower must not create a persistence gap"
     );
     kernel.terminalize_resolve(&parent_lease).unwrap();
-    let child_lease = kernel.checkout_recovery(batch.session).unwrap().unwrap();
+    let child_lease = kernel
+        .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
+        .unwrap();
     assert_eq!(child_lease.hash, child.hash());
     kernel.terminalize_resolve(&child_lease).unwrap();
-    assert!(!kernel.recovery_session_pending(batch.session));
+    assert!(kernel.recovery_snapshot().is_empty());
     kernel.audit().unwrap();
 }
 
@@ -890,14 +895,14 @@ fn empty_generation_recovery_retains_closure_safe_prefix() {
     let child = build_tx(vec![(&parent.hash(), 0)], 1);
     let grandchild = build_tx(vec![(&child.hash(), 0)], 2);
 
-    let batch = kernel
+    let retained = kernel
         .retain_recovery_prefix_after_clear(
             vec![parent.clone(), child.clone(), grandchild.clone()],
             10,
         )
         .unwrap();
 
-    assert_eq!(batch.retained, 2);
+    assert_eq!(retained, 2);
     assert!(kernel.contains_hash(&parent.hash()));
     assert!(kernel.contains_hash(&child.hash()));
     assert!(!kernel.contains_hash(&grandchild.hash()));
@@ -905,7 +910,8 @@ fn empty_generation_recovery_retains_closure_safe_prefix() {
         kernel
             .recovery_snapshot()
             .iter()
-            .all(|item| item.meta.session == batch.session)
+            .map(TransactionView::hash)
+            .eq([parent.hash(), child.hash()])
     );
     kernel.audit().unwrap();
 }

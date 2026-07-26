@@ -10,8 +10,9 @@
 //! `.await`. Any operation that needs both takes `tx_pool` first and then the
 //! kernel; kernel-only code must never acquire `tx_pool`.
 //!
-//! Detached-chain replay is ordinary charged `RecoveryRetained` ownership in
-//! `PrePoolKernel`; no lock spans its asynchronous validation. Persistence
+//! Detached-chain replay is ordinary charged `ResolveQueued` ownership with a
+//! trusted Recovery source in `PrePoolKernel`; no lock spans asynchronous
+//! validation. Persistence
 //! takes `tx_pool` read then the kernel, copies one immutable bounded v2
 //! snapshot, releases both and serializes only file writers. A capacity wait
 //! owns no state and occurs before authority locks. The mutation order is
@@ -31,9 +32,11 @@
 //! Combined membership reads take `tx_pool` and then inspect the pre-pool kernel
 //! under its synchronous lock, matching the writer order and preventing a
 //! visible handoff gap.
-//! An impossible authoritative Apply unwind exchanges both ephemeral
-//! generations under the existing write boundary and cools only Remote
-//! ingress; it never cancels the tx-pool service.
+//! Input, policy, capacity, cancellation and stale-lease outcomes are typed
+//! errors. Internal invariant violations remain fail-fast. Unwind guards are
+//! restricted to untrusted resolver/verifier and external callback boundaries;
+//! they never turn a partially-mutated kernel into a transaction rejection or
+//! an implicit state reset.
 
 #[cfg(feature = "internal")]
 pub mod benchmark;

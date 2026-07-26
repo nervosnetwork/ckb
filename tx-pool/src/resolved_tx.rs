@@ -15,24 +15,6 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-/// A job submitted to the resolve queue.
-#[derive(Debug, Clone)]
-pub struct ResolveJob {
-    /// The raw transaction to resolve.
-    pub tx: TransactionView,
-    /// The origin of the transaction (remote, local, or proposal notification).
-    pub source: TxSource,
-    /// Pipeline generation in which this job was admitted.
-    pub epoch: u64,
-}
-
-impl ResolveJob {
-    /// Create a new resolve job in an explicit pipeline generation.
-    pub(crate) fn new_at(tx: TransactionView, source: TxSource, epoch: u64) -> Self {
-        Self { tx, source, epoch }
-    }
-}
-
 /// A transaction that has been resolved and is ready for verification.
 #[derive(Debug, Clone)]
 pub struct ResolvedTx {

@@ -532,6 +532,28 @@ impl EffectJournal {
             .all(|(usage, limit)| usage.fits(bytes, *limit))
     }
 
+    /// Install a post-Apply batch only when it honors the bound checked before
+    /// mutation. A violated proof cannot be returned to the caller after state
+    /// changed, so converge observers through the capacity-independent reset
+    /// register instead of overcharging the FIFO.
+    fn push_bounded_or_reset(
+        &self,
+        state: &mut JournalState,
+        class: EffectClass,
+        proven_bytes: usize,
+        batch: EffectBatch,
+    ) {
+        let actual = batch.charge_bytes;
+        if actual <= proven_bytes && self.fits(state, class, actual) {
+            state.push(class, batch);
+        } else {
+            error!(
+                "tx-pool effect plan violated its bound: actual {actual}, proven {proven_bytes}; publishing generation reset"
+            );
+            state.push_generation_reset(&self.generation_reset_batch);
+        }
+    }
+
     /// Wait only for a level-triggered capacity *hint*. This does not reserve
     /// anything. The caller must re-plan and call `try_apply` under authority
     /// locks; a racing append may legitimately return `Full` again.
@@ -615,17 +637,9 @@ impl EffectJournal {
             return Err(EffectJournalError::Full);
         }
         let (result, batch) = apply();
-        let Some(batch) = batch else {
-            return Ok(result);
-        };
-        let bytes = batch.charge_bytes;
-        if bytes > max_bytes {
-            error!(
-                "tx-pool effect plan exceeded its proven bound: actual {bytes}, bound {max_bytes}"
-            );
-            debug_assert!(bytes <= max_bytes);
+        if let Some(batch) = batch {
+            self.push_bounded_or_reset(&mut state, class, max_bytes, batch);
         }
-        state.push(class, batch);
         drop(state);
         self.ready.notify_one();
         Ok(result)
@@ -661,14 +675,7 @@ impl EffectJournal {
         let (result, batch) = apply(publish_detail);
         if publish_detail {
             if let Some(batch) = batch {
-                let bytes = batch.charge_bytes;
-                if bytes > max_detail_bytes {
-                    error!(
-                        "authoritative effect plan exceeded its proven bound: actual {bytes}, bound {max_detail_bytes}"
-                    );
-                    debug_assert!(bytes <= max_detail_bytes);
-                }
-                state.push(class, batch);
+                self.push_bounded_or_reset(&mut state, class, max_detail_bytes, batch);
             }
         } else {
             debug_assert!(batch.is_none(), "reset fallback must not retain detail");
@@ -718,11 +725,6 @@ impl EffectJournal {
         drop(state);
         self.ready.notify_one();
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn usage(&self) -> EffectUsage {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).usage[EffectClass::Critical.region()]
     }
 
     pub(crate) fn close(&self) {

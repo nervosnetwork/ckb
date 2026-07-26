@@ -37,9 +37,9 @@ pub(crate) struct ReorgOutcome {
     /// Entries removed silently by the post-startup reconcile: they freed
     /// their inputs, so the RBF-registration cleanup must see them too.
     pub(crate) silently_removed: Vec<TxEntry>,
-    /// Accepted entries transferred atomically to `RecoveryRetained`. Their
-    /// causal producers are temporarily unavailable, but their inputs are not
-    /// published as released to conflict history while replay is pending.
+    /// Accepted entries transferred atomically to trusted ordered-resolve
+    /// ownership. Their inputs are not published as released to conflict
+    /// history while replay is pending.
     pub(crate) recovery_removed: Vec<TxEntry>,
     /// Proposed/pending notifications (user callbacks must not run
     /// in-lock).
@@ -84,7 +84,7 @@ impl AcceptedRecoveryPlan {
 /// the consumer resident while replaying the producer would require a second
 /// late-parent graph mutation (and would expose an unresolvable accepted
 /// entry during replay). Instead, move the complete bounded closure back to
-/// `RecoveryRetained` and replay the existing ordinary parent-first path.
+/// trusted `ResolveQueued` ownership and replay the ordinary parent-first path.
 pub(crate) fn plan_accepted_recovery(
     tx_pool: &TxPool,
     detached: &[TransactionView],
@@ -162,7 +162,7 @@ pub(crate) fn begin_tx_pool_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     mine_mode: bool,
-) -> Result<ReorgOutcome, Reject> {
+) -> ReorgOutcome {
     let mut reject_events = Vec::new();
     // Proposed/pending notifications are *collected* and dispatched by the
     // caller outside the write lock: running user callbacks while holding
@@ -170,11 +170,6 @@ pub(crate) fn begin_tx_pool_reorg(
     // re-enter and deadlock) the whole pool.
     let mut notify_events = Vec::new();
 
-    // No error may escape after snapshot, membership, index, or status
-    // mutation begins. Eventual replay convergence is not enough: exposing a
-    // partial slice before the retained reorg retries violates the accepted
-    // pool/coordinator ownership boundary and has no matching effect journal.
-    tx_pool.preflight_reorg_status_transitions()?;
     tx_pool.snapshot = Arc::clone(&snapshot);
 
     // Demote detached proposals and their causal descendants in place. For a transaction
@@ -247,12 +242,12 @@ pub(crate) fn begin_tx_pool_reorg(
     // Remove expired transaction from pending
     tx_pool.remove_expired(&mut reject_events);
 
-    Ok(ReorgOutcome {
+    ReorgOutcome {
         reject_events,
         silently_removed: Vec::new(),
         recovery_removed: Vec::new(),
         notify_events,
-    })
+    }
 }
 
 /// Complete the accepted reorg transaction after the bounded recovery
@@ -318,30 +313,9 @@ pub(crate) fn finish_tx_pool_reorg(tx_pool: &mut TxPool, outcome: &mut ReorgOutc
     outcome.notify_events = stable_notify_events;
 }
 
-/// Standalone compatibility wrapper used by focused pool tests. Production
-/// reorg orchestration calls Begin, performs the cross-authority recovery
-/// transfer, then calls Finish under one uninterrupted write guard.
-#[cfg(test)]
-pub(crate) fn update_tx_pool_for_reorg(
-    tx_pool: &mut TxPool,
-    attached: &LinkedHashSet<TransactionView>,
-    detached_headers: &HashSet<Byte32>,
-    detached_proposal_id: HashSet<ProposalShortId>,
-    snapshot: Arc<Snapshot>,
-    mine_mode: bool,
-) -> Result<ReorgOutcome, Reject> {
-    let mut outcome = begin_tx_pool_reorg(
-        tx_pool,
-        attached,
-        detached_headers,
-        detached_proposal_id,
-        snapshot,
-        mine_mode,
-    )?;
-    finish_tx_pool_reorg(tx_pool, &mut outcome);
-    Ok(outcome)
-}
-
 #[cfg(test)]
 #[path = "tests/reorg.rs"]
-mod tests;
+pub(crate) mod tests;
+
+#[cfg(test)]
+pub(crate) use tests::update_tx_pool_for_reorg;

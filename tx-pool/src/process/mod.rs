@@ -39,21 +39,20 @@ pub enum PlugTarget {
     Proposed,
 }
 
-/// Sealed accepted + pre-pool generations retired by one DefectDomain swap.
-/// It has no lookup or re-entry API; dropping it is the only operation and
-/// must happen after the caller releases every authority guard.
+/// Accepted and pre-pool generations moved out by an explicit clear or chain
+/// fallback.  Destruction happens after authority guards open.
 #[must_use = "retired generations must be dropped after authority guards are released"]
-pub(crate) struct AuthoritativeDisposal<'a> {
+pub(crate) struct AuthoritativeDisposal {
     accepted: Option<crate::component::pool_map::PoolMap>,
-    _kernel: crate::component::pre_pool::KernelDisposal<'a>,
+    _kernel: crate::component::pre_pool::KernelDisposal,
 }
 
 enum ReorgMutation {
-    Retained(crate::component::pre_pool::RecoveryBatch),
+    Queued,
     Reset(Vec<TransactionView>),
 }
 
-impl Drop for AuthoritativeDisposal<'_> {
+impl Drop for AuthoritativeDisposal {
     fn drop(&mut self) {
         drop(self.accepted.take());
     }
@@ -84,58 +83,6 @@ impl TxPoolService {
     /// submit-time paths produce the identical message.
     pub(crate) const SUPERSEDED_BY_HIGHER_FEE_CANDIDATE: &'static str =
         "superseded by higher-fee-rate in-flight candidate";
-
-    /// Contain an impossible Apply unwind below the service boundary. The
-    /// accepted PoolMap and pre-pool entry/index generation are both
-    /// ephemeral and are replaced while the caller still owns the TxPool
-    /// write guard; no partially mutated authority becomes visible.
-    pub(crate) fn recover_authoritative_defect(
-        &self,
-        tx_pool: &mut TxPool,
-        target_snapshot: Arc<Snapshot>,
-        context: &'static str,
-        defect: String,
-    ) -> AuthoritativeDisposal<'_> {
-        self.recover_authoritative_defect_with_fingerprint(
-            tx_pool,
-            target_snapshot,
-            context,
-            defect,
-            None,
-        )
-    }
-
-    pub(crate) fn recover_authoritative_defect_with_fingerprint(
-        &self,
-        tx_pool: &mut TxPool,
-        target_snapshot: Arc<Snapshot>,
-        context: &'static str,
-        defect: String,
-        fingerprint: Option<Byte32>,
-    ) -> AuthoritativeDisposal<'_> {
-        let accepted = tx_pool.reset_generation(Arc::clone(&target_snapshot));
-        let (kernel_generation, kernel) = self.pipeline.kernel.reset_after_defect(fingerprint);
-        self.advance_pipeline_epoch();
-        self.journal_block_assembler_reset(target_snapshot);
-        if let Err(error) = self.relay.effects.install_generation_reset() {
-            error!("authoritative generation reset journal is unavailable: {error:?}");
-        }
-        error!(
-            "{context}: {defect}; replaced accepted/pre-pool generation {kernel_generation}; remote ingress cooling is active"
-        );
-        AuthoritativeDisposal {
-            accepted: Some(accepted),
-            _kernel: kernel,
-        }
-    }
-
-    async fn recover_current_authoritative_defect(&self, context: &'static str, defect: String) {
-        let mut tx_pool = self.pool.tx_pool.write().await;
-        let current = tx_pool.cloned_snapshot();
-        let disposal = self.recover_authoritative_defect(&mut tx_pool, current, context, defect);
-        drop(tx_pool);
-        drop(disposal);
-    }
 
     fn wake_block_assembler(&self, message: BlockAssemblerMessage, saturated: &'static str) {
         if let Err(error) = self.relay.block_assembler_sender.try_send(message) {
@@ -472,7 +419,7 @@ impl TxPoolService {
         let mut retained_hashes = HashSet::new();
         retain.retain(|tx| retained_hashes.insert(tx.hash()));
 
-        let recovery = {
+        loop {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.pool.tx_pool.write().await;
             // A later clear publishes its epoch barrier before waiting for
@@ -481,206 +428,177 @@ impl TxPoolService {
             if !self.is_pipeline_epoch_current(recovery_epoch) {
                 return Ok((Vec::new(), snapshot));
             }
-            let transition = self.pipeline.kernel.guard_authoritative_mutation(
-                "reorg authoritative pool mutation panicked",
-                || {
-                    self.pipeline.kernel.mutate(|kernel| {
-                        self.relay.effects.try_apply_authoritative(
-                            effect_bound,
-                            |publish_detail| {
-                                let applied = (|| -> Result<_, Reject> {
-                                    // Decide the generation-reset fallback
-                                    // before either authority mutates. The
-                                    // attached branch can only remove entries
-                                    // from this closure, so a bounded pre-plan
-                                    // remains a safe over-approximation after
-                                    // accepted-pool reconciliation.
-                                    tx_pool.preflight_reorg_status_transitions()?;
-                                    let pre_plan = reorg::plan_accepted_recovery(
-                                        &tx_pool,
-                                        &retain,
-                                        crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-                                    );
-                                    let accepted = match pre_plan {
-                                        reorg::AcceptedRecoveryPlan::OverBound => {
-                                            return Ok((
-                                                ReorgMutation::Reset(retain.clone()),
-                                                Vec::new(),
-                                            ));
-                                        }
-                                        plan => plan.transactions_parent_first(),
-                                    };
+            let transition = self.pipeline.kernel.mutate_authoritative(|kernel| {
+                self.relay
+                    .effects
+                    .try_apply_authoritative(effect_bound, |publish_detail| {
+                        let applied = (|| -> Result<_, Reject> {
+                            // Decide the generation-reset fallback
+                            // before either authority mutates. The
+                            // attached branch can only remove entries
+                            // from this closure, so a bounded pre-plan
+                            // remains a safe over-approximation after
+                            // accepted-pool reconciliation.
+                            tx_pool.preflight_reorg_status_transitions()?;
+                            let pre_plan = reorg::plan_accepted_recovery(
+                                &tx_pool,
+                                &retain,
+                                crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+                            );
+                            let accepted = match pre_plan {
+                                reorg::AcceptedRecoveryPlan::OverBound => {
+                                    return Ok((ReorgMutation::Reset(retain.clone()), Vec::new()));
+                                }
+                                plan => plan.transactions_parent_first(),
+                            };
 
-                                    let mut combined = retain.clone();
-                                    combined.extend(accepted);
-                                    Self::sort_txs_by_dependencies(&mut combined);
-                                    let mut hashes = HashSet::new();
-                                    combined.retain(|tx| hashes.insert(tx.hash()));
-                                    let recovery = match kernel.retain_recovery_batch(
-                                        combined.clone(),
-                                        recovery_epoch,
-                                    ) {
-                                        Ok(batch) => batch,
-                                        Err(error)
-                                            if error.is_capacity_rejection()
-                                                || error.is_transaction_rejection() =>
-                                        {
-                                            return Ok((ReorgMutation::Reset(combined), Vec::new()));
-                                        }
-                                        Err(error) => panic!(
-                                            "reorg recovery retention violated kernel invariants: {error:?}"
-                                        ),
-                                    };
+                            let mut combined = retain.clone();
+                            combined.extend(accepted);
+                            Self::sort_txs_by_dependencies(&mut combined);
+                            let mut hashes = HashSet::new();
+                            combined.retain(|tx| hashes.insert(tx.hash()));
+                            match kernel.retain_recovery_batch(combined.clone(), recovery_epoch) {
+                                Ok(_) => {}
+                                Err(error)
+                                    if error.is_capacity_rejection()
+                                        || error.is_transaction_rejection() =>
+                                {
+                                    return Ok((ReorgMutation::Reset(combined), Vec::new()));
+                                }
+                                Err(error) => panic!(
+                                    "reorg recovery retention violated kernel invariants: {error:?}"
+                                ),
+                            };
 
-                                    let mut outcome = reorg::begin_tx_pool_reorg(
-                                        &mut tx_pool,
-                                        &attached,
-                                        &detached_headers,
-                                        detached_proposal_id.clone(),
-                                        Arc::clone(&snapshot),
-                                        mine_mode,
-                                    )?;
-                                    let accepted_plan = reorg::plan_accepted_recovery(
-                                        &tx_pool,
-                                        &retain,
-                                        crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-                                    );
-                                    let moved = reorg::apply_accepted_recovery(
-                                        &mut tx_pool,
-                                        accepted_plan,
-                                    );
+                            let mut outcome = reorg::begin_tx_pool_reorg(
+                                &mut tx_pool,
+                                &attached,
+                                &detached_headers,
+                                detached_proposal_id.clone(),
+                                Arc::clone(&snapshot),
+                                mine_mode,
+                            );
+                            let accepted_plan = reorg::plan_accepted_recovery(
+                                &tx_pool,
+                                &retain,
+                                crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+                            );
+                            let moved = reorg::apply_accepted_recovery(&mut tx_pool, accepted_plan);
+                            outcome
+                                .recovery_removed
+                                .extend(moved.into_iter().map(|removed| removed.entry));
+                            reorg::finish_tx_pool_reorg(&mut tx_pool, &mut outcome);
+                            // Apply the complete membership delta under the same pool write
+                            // guard. Attached/on-chain parents remain available; every other
+                            // physical removal demotes its already-resolved coordinator
+                            // consumers. An impossible projection defect unwinds to the
+                            // internal invariant boundary before either guard opens.
+                            let mut committed: HashSet<_> =
+                                attached.iter().map(TransactionView::hash).collect();
+                            let mut unavailable = HashSet::new();
+                            for entry in outcome
+                                .reject_events
+                                .iter()
+                                .map(|(entry, _)| entry)
+                                .chain(outcome.silently_removed.iter())
+                                .chain(outcome.recovery_removed.iter())
+                            {
+                                let hash = entry.transaction().hash();
+                                if tx_pool.snapshot().transaction_exists(&hash) {
+                                    committed.insert(hash);
+                                } else {
+                                    unavailable.insert(hash);
+                                }
+                            }
+                            let mut available_outpoints = tx_pool
+                                .released_inputs_from_removed_entries(
                                     outcome
-                                        .recovery_removed
-                                        .extend(moved.into_iter().map(|removed| removed.entry));
-                                    reorg::finish_tx_pool_reorg(&mut tx_pool, &mut outcome);
-                                    // Apply the complete membership delta under the same pool write
-                                    // guard. Attached/on-chain parents remain available; every other
-                                    // physical removal demotes its already-resolved coordinator
-                                    // consumers. An impossible projection defect unwinds to the
-                                    // generation-local DefectDomain before either guard opens.
-                                    let mut committed: HashSet<_> =
-                                        attached.iter().map(TransactionView::hash).collect();
-                                    let mut unavailable = HashSet::new();
-                                    for entry in outcome
                                         .reject_events
                                         .iter()
                                         .map(|(entry, _)| entry)
-                                        .chain(outcome.silently_removed.iter())
-                                        .chain(outcome.recovery_removed.iter())
-                                    {
-                                        let hash = entry.transaction().hash();
-                                        if tx_pool.snapshot().transaction_exists(&hash) {
-                                            committed.insert(hash);
-                                        } else {
-                                            unavailable.insert(hash);
-                                        }
-                                    }
-                                    let mut available_outpoints = tx_pool
-                                        .released_inputs_from_removed_entries(
-                                            outcome
-                                                .reject_events
-                                                .iter()
-                                                .map(|(entry, _)| entry)
-                                                .chain(outcome.silently_removed.iter()),
-                                        );
-                                    // A historical candidate may have observed its conflicting
-                                    // input release before another required parent was mined.
-                                    // Attached outputs and headers are potential availability
-                                    // edges, but only the post-reorg overlay decides their
-                                    // level: an output created and consumed in the same
-                                    // attached branch is not available and must not wake a
-                                    // rejected conflict into a bogus second rejection.
-                                    available_outpoints.extend(
-                                        attached.iter().flat_map(TransactionView::output_pts),
+                                        .chain(outcome.silently_removed.iter()),
+                                );
+                            // A historical candidate may have observed its conflicting
+                            // input release before another required parent was mined.
+                            // Attached outputs and headers are potential availability
+                            // edges, but only the post-reorg overlay decides their
+                            // level: an output created and consumed in the same
+                            // attached branch is not available and must not wake a
+                            // rejected conflict into a bogus second rejection.
+                            available_outpoints
+                                .extend(attached.iter().flat_map(TransactionView::output_pts));
+                            let mut available_dependencies =
+                                crate::service::pipeline_ops::available_cell_dependencies(
+                                    &tx_pool,
+                                    available_outpoints,
+                                );
+                            available_dependencies.extend(attached_headers.iter().filter_map(
+                                |hash| {
+                                    let key = crate::component::pre_pool::DependencyKey::Header(
+                                        crate::util::compact_packed(hash),
                                     );
-                                    let mut available_dependencies =
-                                        crate::service::pipeline_ops::available_cell_dependencies(
-                                            &tx_pool,
-                                            available_outpoints,
-                                        );
-                                    available_dependencies.extend(
-                                        attached_headers.iter().filter_map(|hash| {
-                                            let key =
-                                                crate::component::pre_pool::DependencyKey::Header(
-                                                    crate::util::compact_packed(hash),
-                                                );
-                                            crate::service::pipeline_ops::dependency_is_available(
-                                                &tx_pool, &key,
-                                            )
-                                            .then_some(key)
-                                        }),
+                                    crate::service::pipeline_ops::dependency_is_available(
+                                        &tx_pool, &key,
+                                    )
+                                    .then_some(key)
+                                },
+                            ));
+                            let externally_committed = kernel
+                                .external_commits_with_unavailable_parents(&committed, &unavailable)
+                                .expect("planned reorg pre-pool membership update");
+                            kernel
+                                .note_available(available_dependencies)
+                                .expect("planned reorg availability update");
+                            let mut effects = Vec::new();
+                            if publish_detail {
+                                for (entry, reject) in &outcome.reject_events {
+                                    effects.extend(
+                                        self.rejected_effects(entry.clone(), reject.clone()),
                                     );
-                                    let externally_committed = kernel
-                                        .external_commits_with_unavailable_parents(
-                                            &committed,
-                                            &unavailable,
-                                        )
-                                        .expect("planned reorg pre-pool membership update");
-                                    kernel
-                                        .note_available(available_dependencies)
-                                        .expect("planned reorg availability update");
-                                    let mut effects = Vec::new();
-                                    if publish_detail {
-                                        for (entry, reject) in &outcome.reject_events {
-                                            effects.extend(self.rejected_effects(
-                                                entry.clone(),
-                                                reject.clone(),
-                                            ));
-                                        }
-                                        for (entry, status) in &outcome.notify_events {
-                                            if let Some(effect) =
-                                                self.accepted_effect(entry.clone(), *status)
-                                            {
-                                                effects.push(effect);
-                                            }
-                                        }
-                                        for record in externally_committed {
-                                            if let Some(peer) = record.raw.ingress_peer() {
-                                                effects.push(TxPoolEffect::Relay(
-                                                    crate::service::TxVerificationResult::Ok {
-                                                        original_peer: Some(peer),
-                                                        tx_hash: record.raw.tx.hash(),
-                                                    },
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    // Invalidate the old template at the same
-                                    // linearization point as the new snapshot
-                                    // and retained ownership. Full publication
-                                    // remains the second retained reorg phase.
-                                    self.journal_block_assembler_reset(Arc::clone(&snapshot));
-                                    Ok((ReorgMutation::Retained(recovery), effects))
-                                })();
-                                match applied {
-                                    Ok((mutation, effects)) => {
-                                        (Ok(mutation), EffectBatch::new(effects))
-                                    }
-                                    Err(reject) => (Err(reject), None),
                                 }
-                            },
-                        )
+                                for (entry, status) in &outcome.notify_events {
+                                    if let Some(effect) =
+                                        self.accepted_effect(entry.clone(), *status)
+                                    {
+                                        effects.push(effect);
+                                    }
+                                }
+                                for record in externally_committed {
+                                    if let Some(peer) = record.raw.ingress_peer() {
+                                        effects.push(TxPoolEffect::Relay(
+                                            crate::service::TxVerificationResult::Ok {
+                                                original_peer: Some(peer),
+                                                tx_hash: record.raw.tx.hash(),
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+                            // Invalidate the old template at the same
+                            // linearization point as the new snapshot
+                            // and retained ownership. Full publication
+                            // remains the second retained reorg phase.
+                            self.journal_block_assembler_reset(Arc::clone(&snapshot));
+                            Ok((ReorgMutation::Queued, effects))
+                        })();
+                        match applied {
+                            Ok((mutation, effects)) => (Ok(mutation), EffectBatch::new(effects)),
+                            Err(reject) => (Err(reject), None),
+                        }
                     })
-                },
-            );
+            });
             match transition {
-                Ok(Ok(Ok(ReorgMutation::Retained(recovery)))) => recovery,
-                Ok(Ok(Ok(ReorgMutation::Reset(txs)))) => {
+                Ok(Ok(ReorgMutation::Queued)) => break,
+                Ok(Ok(ReorgMutation::Reset(txs))) => {
                     let reset = self.pipeline.kernel.reset_for_chain(|fresh| {
                         fresh.retain_recovery_prefix_after_clear(txs, recovery_epoch)
                     });
                     let (recovery, kernel) = match reset {
                         Ok(reset) => reset,
                         Err(error) => {
-                            let disposal = self.recover_authoritative_defect(
-                                &mut tx_pool,
-                                Arc::clone(&snapshot),
-                                "reorg generation preparation",
-                                format!("{error:?}"),
-                            );
-                            drop(tx_pool);
-                            drop(disposal);
-                            return Ok((candidate_uncles, snapshot));
+                            return Err(Reject::Full(format!(
+                                "reorg recovery generation preparation failed: {error:?}"
+                            )));
                         }
                     };
                     let accepted = tx_pool.reset_generation(Arc::clone(&snapshot));
@@ -694,106 +612,16 @@ impl TxPoolService {
                     };
                     drop(tx_pool);
                     drop(disposal);
-                    recovery
+                    let _ = recovery;
+                    break;
                 }
-                Ok(Ok(Err(reject))) => return Err(reject),
-                Ok(Err(error)) => {
+                Ok(Err(reject)) => return Err(reject),
+                Err(error) => {
                     return Err(Reject::Full(format!(
                         "reorg effect journal unavailable: {error:?}"
                     )));
                 }
-                Err(defect) => {
-                    let disposal = self.recover_authoritative_defect(
-                        &mut tx_pool,
-                        Arc::clone(&snapshot),
-                        "reorg authoritative pool mutation",
-                        defect,
-                    );
-                    drop(tx_pool);
-                    drop(disposal);
-                    return Ok((candidate_uncles, snapshot));
-                }
             }
-        };
-
-        // Drain only kernel-owned payloads. The handler carries an identity
-        // session, never a transaction owner; clear makes the lease stale and
-        // explicit save can copy it at any await boundary.
-        let mut chunk_rx = self.pipeline.chunk_rx.clone();
-        loop {
-            // Checkout is itself the completion predicate. Keeping the old
-            // `pending` read separate created a legal clear-between-locks
-            // race that looked like an impossible missing recovery head.
-            let lease = self.pipeline.kernel.guard_authoritative_mutation(
-                "recovery checkout panicked",
-                || {
-                    self.pipeline
-                        .kernel
-                        .checkout_recovery(recovery.session)
-                        .unwrap_or_else(|error| panic!("recovery checkout failed: {error:?}"))
-                },
-            );
-            let lease = match lease {
-                Ok(Some(lease)) => lease,
-                Ok(None) => break,
-                Err(defect) => {
-                    self.recover_current_authoritative_defect("recovery checkout", defect)
-                        .await;
-                    return Ok((candidate_uncles, snapshot));
-                }
-            };
-            let tx = lease.payload.tx.clone();
-            let outcome = self
-                .process_tx_direct_outcome(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
-                .await;
-            let reject = match outcome {
-                Ok(crate::process::submit::VerifySubmitOutcome::Committed(_)) => continue,
-                Err(Reject::Duplicated(_)) => {
-                    let settled = self.pipeline.kernel.guard_authoritative_mutation(
-                        "duplicate recovery lease terminalization panicked",
-                        || {
-                            self.pipeline.kernel.mutate_lease(
-                                "duplicate recovery lease could not terminalize",
-                                |kernel| kernel.terminalize_resolve(&lease),
-                            )
-                        },
-                    );
-                    if let Err(defect) = settled {
-                        self.recover_current_authoritative_defect(
-                            "duplicate recovery terminalization",
-                            defect,
-                        )
-                        .await;
-                        return Ok((candidate_uncles, snapshot));
-                    }
-                    continue;
-                }
-                Ok(crate::process::submit::VerifySubmitOutcome::Cleared) => {
-                    debug!("reorg recovery tx {} invalidated by clear", tx.hash());
-                    continue;
-                }
-                Err(reject) => reject,
-            };
-            let settled = self.pipeline.kernel.guard_authoritative_mutation(
-                "failed recovery lease terminalization panicked",
-                || {
-                    self.pipeline
-                        .kernel
-                        .mutate_lease("failed recovery lease could not terminalize", |kernel| {
-                            kernel.terminalize_resolve(&lease)
-                        })
-                },
-            );
-            if let Err(defect) = settled {
-                self.recover_current_authoritative_defect(
-                    "failed recovery terminalization",
-                    defect,
-                )
-                .await;
-                return Ok((candidate_uncles, snapshot));
-            }
-            debug!("reorg re-add failed: {}", reject);
-            self.after_process(tx, TxSource::Local, &Err(reject)).await;
         }
         Ok((candidate_uncles, snapshot))
     }

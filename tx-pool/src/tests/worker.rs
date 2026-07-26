@@ -53,27 +53,12 @@ impl JobHandler for NoopHandler {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_exits_when_command_channel_dropped() {
     let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let mut runner = WorkerRunner::new(NoopHandler, command_rx, CancellationToken::new());
-    let handle = tokio::spawn(async move { runner.run().await });
+    let runner = WorkerRunner::new(NoopHandler, command_rx, CancellationToken::new());
+    let handle = tokio::spawn(async move { runner.run(0).await });
 
     drop(command_tx);
     tokio::time::timeout(std::time::Duration::from_secs(5), handle)
         .await
         .expect("worker must stop when the command channel is dropped")
         .expect("worker task joins");
-}
-
-/// The supervisor must treat command authority loss as terminal. Respawning
-/// against a permanently closed watch channel would be an unbounded hot loop.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn supervisor_does_not_respawn_after_command_channel_dropped() {
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let runner = WorkerRunner::new(NoopHandler, command_rx, CancellationToken::new());
-    let handle = tokio::spawn(runner.supervise(0));
-
-    drop(command_tx);
-    tokio::time::timeout(std::time::Duration::from_secs(5), handle)
-        .await
-        .expect("supervisor must stop when command authority is gone")
-        .expect("supervisor task joins");
 }

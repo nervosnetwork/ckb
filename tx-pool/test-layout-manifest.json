@@ -21,11 +21,14 @@
     {"file": "tx-pool/src/component/out_point_index.rs", "module": "tests", "path": "tests/out_point_index.rs"},
     {"file": "tx-pool/src/component/pool_map.rs", "module": "audit", "path": "tests/pool_map_audit.rs"},
     {"file": "tx-pool/src/component/pre_pool/mod.rs", "module": "test_seam", "path": "../tests/pre_pool_seam.rs"},
+    {"file": "tx-pool/src/component/pre_pool/queue.rs", "module": "test_seam", "path": "../tests/pre_pool_queue_seam.rs"},
+    {"file": "tx-pool/src/component/pre_pool/runtime.rs", "module": "test_seam", "path": "../tests/pre_pool_runtime_seam.rs"},
     {"file": "tx-pool/src/component/recent_reject.rs", "module": "test_seam", "path": "tests/recent_reject_seam.rs"},
     {"file": "tx-pool/src/component/tx_selector.rs", "module": "tests", "path": "tests/tx_selector.rs"},
     {"file": "tx-pool/src/process/post_process.rs", "module": "test_seam", "path": "tests/post_process_seam.rs"},
     {"file": "tx-pool/src/process/reorg.rs", "module": "tests", "path": "tests/reorg.rs"},
     {"file": "tx-pool/src/process/submit/rbf_commit.rs", "module": "test_seam", "path": "../tests/rbf_commit_seam.rs"},
+    {"file": "tx-pool/src/persisted.rs", "module": "test_seam", "path": "tests/persisted_seam.rs"},
     {"file": "tx-pool/src/resolved_tx.rs", "module": "tests", "path": "tests/resolved_tx.rs"},
     {"file": "tx-pool/src/service.rs", "module": "tests"},
     {"file": "tx-pool/src/service/builder.rs", "module": "shutdown_tests", "path": "tests/builder_shutdown.rs"},
@@ -44,13 +47,12 @@
     "tx-pool/src/component/mod.rs": 1,
     "tx-pool/src/component/out_point_index.rs": 1,
     "tx-pool/src/component/pool_map.rs": 1,
-    "tx-pool/src/component/pre_pool/mod.rs": 9,
-    "tx-pool/src/component/pre_pool/queue.rs": 2,
-    "tx-pool/src/component/pre_pool/recovery.rs": 2,
-    "tx-pool/src/component/pre_pool/runtime.rs": 2,
+    "tx-pool/src/component/pre_pool/mod.rs": 2,
+    "tx-pool/src/component/pre_pool/queue.rs": 1,
+    "tx-pool/src/component/pre_pool/runtime.rs": 1,
     "tx-pool/src/component/recent_reject.rs": 1,
     "tx-pool/src/component/tx_selector.rs": 1,
-    "tx-pool/src/persisted.rs": 2,
+    "tx-pool/src/persisted.rs": 1,
     "tx-pool/src/pool.rs": 6,
     "tx-pool/src/process/post_process.rs": 1,
     "tx-pool/src/process/reorg.rs": 2,
@@ -58,7 +60,7 @@
     "tx-pool/src/resolved_tx.rs": 1,
     "tx-pool/src/service.rs": 1,
     "tx-pool/src/service/builder.rs": 1,
-    "tx-pool/src/service/effects.rs": 3,
+    "tx-pool/src/service/effects.rs": 2,
     "tx-pool/src/service/workers.rs": 1,
     "tx-pool/src/util.rs": 1,
     "tx-pool/src/worker.rs": 1
@@ -83,30 +85,6 @@
       "behavior_ids": ["TP-TEMPLATE-001", "TP-EFFECT-001"]
     },
     {
-      "file": "tx-pool/src/component/pre_pool/queue.rs",
-      "symbols": ["FairQueue::audit", "FairQueue::work_keys"],
-      "kind": "independent derived-queue reconstruction used only by the test kernel audit",
-      "behavior_ids": ["TP-OWN-001", "TP-WORKER-001", "TP-PERF-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pre_pool/recovery.rs",
-      "symbols": ["PrePoolKernel::recovery_session_pending", "PrePoolKernel::exhaust_recovery_sessions_for_test"],
-      "kind": "recovery-session observation and checked-clock exhaustion fault seam",
-      "behavior_ids": ["TP-REORG-001", "TP-OWN-001", "TP-ADMIN-001"]
-    },
-    {
-      "file": "tx-pool/src/component/pre_pool/runtime.rs",
-      "symbols": ["PrePool::remote_admission_open", "PrePool::emergency_spare_available"],
-      "kind": "DefectDomain gate and single-disposal-permit observation seam",
-      "behavior_ids": ["TP-ADMIN-001", "TP-BUDGET-001", "TP-REORG-001"]
-    },
-    {
-      "file": "tx-pool/src/persisted.rs",
-      "symbols": ["TxPool::load_from_file", "TxPool::save_into_file"],
-      "kind": "focused persistence compatibility helpers; production uses immutable service snapshots",
-      "behavior_ids": ["TP-PERSIST-001"]
-    },
-    {
       "file": "tx-pool/src/pool.rs",
       "symbols": ["TxPool::fail_next_status_transition", "TxPool::fail_next_pool_commit_panic"],
       "kind": "authoritative pool fault state and reorg transition fault hook",
@@ -117,12 +95,6 @@
       "symbols": ["TxPool::fail_next_pool_commit_panic"],
       "kind": "authoritative pool commit panic hook",
       "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001"]
-    },
-    {
-      "file": "tx-pool/src/process/reorg.rs",
-      "symbols": ["update_tx_pool_for_reorg"],
-      "kind": "focused accepted-pool reorg wrapper; production composes Begin/Transfer/Finish under one guard",
-      "behavior_ids": ["TP-REORG-001", "TP-TEMPLATE-001"]
     }
   ]
 }

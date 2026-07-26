@@ -1,5 +1,4 @@
 use crate::TxPool;
-use crate::component::pre_pool::{RecoveryMeta, RecoverySnapshotItem};
 use ckb_error::{AnyError, OtherError};
 use ckb_types::{
     core::TransactionView,
@@ -22,7 +21,7 @@ const RECOVERY_META_BYTES: usize = 16 + 4;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PersistenceSnapshot {
     pub(crate) accepted: Vec<TransactionView>,
-    pub(crate) recovery: Vec<RecoverySnapshotItem>,
+    pub(crate) recovery: Vec<TransactionView>,
 }
 
 impl PersistenceSnapshot {
@@ -30,7 +29,6 @@ impl PersistenceSnapshot {
     /// wins a defensive full-hash duplicate; recovery metadata exists to make
     /// a mid-reorg save complete, not to bypass normal admission on restart.
     pub(crate) fn into_transactions(mut self) -> Vec<TransactionView> {
-        self.recovery.sort_unstable_by_key(|item| item.meta);
         let mut seen = self
             .accepted
             .iter()
@@ -39,7 +37,7 @@ impl PersistenceSnapshot {
         self.accepted.extend(
             self.recovery
                 .into_iter()
-                .filter_map(|item| seen.insert(item.tx.hash()).then_some(item.tx)),
+                .filter_map(|tx| seen.insert(tx.hash()).then_some(tx)),
         );
         self.accepted
     }
@@ -138,7 +136,7 @@ fn decode_v2(path: &Path, bytes: &[u8]) -> Result<PersistenceSnapshot, AnyError>
                 .try_into()
                 .map_err(|_| broken(path, "truncated recovery ordinal"))?,
         );
-        metadata.push(RecoveryMeta { session, ordinal });
+        metadata.push((session, ordinal));
     }
     let accepted = decode_transactions(path, &bytes[accepted_start..recovery_start])?;
     let recovery_txs = decode_transactions(path, &bytes[recovery_start..])?;
@@ -148,24 +146,18 @@ fn decode_v2(path: &Path, bytes: &[u8]) -> Result<PersistenceSnapshot, AnyError>
             "recovery metadata and transaction counts differ",
         ));
     }
-    let recovery = recovery_txs
-        .into_iter()
-        .zip(metadata)
-        .map(|(tx, meta)| RecoverySnapshotItem { tx, meta })
-        .collect();
+    let mut recovery = recovery_txs.into_iter().zip(metadata).collect::<Vec<_>>();
+    recovery.sort_unstable_by_key(|(_, meta)| *meta);
+    let recovery = recovery.into_iter().map(|(tx, _)| tx).collect();
     Ok(PersistenceSnapshot { accepted, recovery })
 }
 
-pub(crate) fn write_snapshot(
-    base: &Path,
-    mut snapshot: PersistenceSnapshot,
-) -> Result<(), AnyError> {
-    snapshot.recovery.sort_unstable_by_key(|item| item.meta);
+pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Result<(), AnyError> {
     let accepted = TransactionVec::new_builder()
         .extend(snapshot.accepted.iter().map(|tx| tx.data()))
         .build();
     let recovery = TransactionVec::new_builder()
-        .extend(snapshot.recovery.iter().map(|item| item.tx.data()))
+        .extend(snapshot.recovery.iter().map(|tx| tx.data()))
         .build();
     let recovery_count = u32::try_from(snapshot.recovery.len())
         .map_err(|_| OtherError::new("too many recovery items to persist".to_owned()))?;
@@ -188,9 +180,9 @@ pub(crate) fn write_snapshot(
         file.write_all(MAGIC)?;
         file.write_all(&accepted_len.to_le_bytes())?;
         file.write_all(&recovery_count.to_le_bytes())?;
-        for item in &snapshot.recovery {
-            file.write_all(&item.meta.session.to_le_bytes())?;
-            file.write_all(&item.meta.ordinal.to_le_bytes())?;
+        for (ordinal, _) in snapshot.recovery.iter().enumerate() {
+            file.write_all(&0u128.to_le_bytes())?;
+            file.write_all(&(ordinal as u32).to_le_bytes())?;
         }
         file.write_all(accepted.as_slice())?;
         file.write_all(recovery.as_slice())?;
@@ -236,24 +228,8 @@ impl TxPool {
         }
         Ok(PersistenceSnapshot::default())
     }
-
-    #[cfg(test)]
-    pub(crate) fn load_from_file(&self) -> Result<Vec<TransactionView>, AnyError> {
-        self.load_persistence_snapshot()
-            .map(PersistenceSnapshot::into_transactions)
-    }
-
-    /// Compatibility helper retained for focused persistence unit tests.
-    /// Service persistence uses the non-mutating immutable snapshot path.
-    #[cfg(test)]
-    pub(crate) fn save_into_file(&mut self) -> Result<(), AnyError> {
-        let snapshot = PersistenceSnapshot {
-            accepted: self.get_all_txs(),
-            recovery: Vec::new(),
-        };
-        write_snapshot(&self.config.persisted_data, snapshot)?;
-        let chain = self.cloned_snapshot();
-        drop(self.reset_generation(chain));
-        Ok(())
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/persisted_seam.rs"]
+mod test_seam;

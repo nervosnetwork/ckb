@@ -453,6 +453,9 @@ async fn reorg_recovery_reads_cache_by_exact_witness_hash() {
         )
         .await
         .unwrap();
+    wait_for_pending(&service, 2, Duration::from_secs(10))
+        .await
+        .expect("ordinary workers replay both detached transactions");
 
     let pool = service.pool.tx_pool.read().await;
     let exact_entry = pool

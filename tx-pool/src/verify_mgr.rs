@@ -80,10 +80,10 @@ impl TxPoolService {
         let Some((current_source, raw)) = authority else {
             return;
         };
-        let source = self
-            .pipeline
-            .kernel
-            .require_authoritative_source(&raw, current_source);
+        let source = match raw.authoritative_source(current_source) {
+            Ok(source) => source,
+            Err(error) => panic!("verify lease source attribution invariant failed: {error:?}"),
+        };
         let epoch = raw.admitted_epoch;
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_verify_failure(
@@ -104,195 +104,214 @@ impl TxPoolService {
         // consistent resolved bundle.
         let verification_snapshot = self.pool.tx_pool.read().await.cloned_snapshot();
         if verification_snapshot.tip_hash() != lease.payload.pre_resolve_tip {
-            self.pipeline.kernel.mutate_lease(
-                "stale resolved verification could not return to resolve",
+            match self.pipeline.kernel.transition(
+                "stale verify requeue mutation panicked",
                 |coordinator| {
                     coordinator
                         .verification_retry_resolution(&lease, std::collections::BTreeSet::new())
                 },
-            );
+            ) {
+                Ok(_) => {}
+                Err(error) if error.is_stale_lease() => {}
+                Err(error) => panic!("stale verify requeue invariant failed: {error:?}"),
+            }
             return;
         }
 
         let mut resolved = (*lease.payload).clone();
         resolved.source = source;
-        let outcome = crate::worker::catch_job_panic(async {
-            let first = self
-                .verify_pipeline_resolved(
-                    resolved.clone(),
-                    Arc::clone(&verification_snapshot),
-                    Some(&mut *command_rx),
+        let first = match crate::worker::catch_job_panic(self.verify_pipeline_resolved(
+            resolved.clone(),
+            Arc::clone(&verification_snapshot),
+            Some(&mut *command_rx),
+        ))
+        .await
+        {
+            Ok(result) => result,
+            Err(message) => {
+                error!("tx-pool verifier panicked on {}: {}", lease.hash, message);
+                self.settle_pipeline_verify_failure(
+                    &lease,
+                    crate::error::Reject::Internal(message),
+                    true,
                 )
                 .await;
+                return;
+            }
+        };
 
-            // A remote admission is verified against its declared cycle cap.
-            // If the same full hash is promoted to Local/Proposal while that
-            // work is active, the remote declaration is no longer
-            // authoritative. Re-read ownership only on failure and retry once
-            // with the trusted consensus cap. Without this edge, a bad remote
-            // declaration can make a concurrent local/proposal promotion fail
-            // even though the promoted transaction is valid.
-            let mut verified = match first {
-                Ok(verified) => verified,
-                Err(first_reject) => {
-                    let promoted = if source.peer().is_some() {
-                        let authority = self.pipeline.kernel.read(|coordinator| {
-                            coordinator
-                                .source_by_hash(&lease.hash)
-                                .filter(|source| !matches!(source, PrePoolSource::Remote(_)))
-                                .zip(coordinator.raw_by_hash(&lease.hash))
-                        });
-                        authority.map(|(promoted_source, raw)| {
-                            self.pipeline
-                                .kernel
-                                .require_authoritative_source(&raw, promoted_source)
-                        })
-                    } else {
-                        None
-                    };
-                    match promoted {
-                        Some(trusted_source) => {
-                            resolved.source = trusted_source;
-                            match self
-                                .verify_pipeline_resolved(
-                                    resolved.clone(),
-                                    Arc::clone(&verification_snapshot),
-                                    Some(&mut *command_rx),
-                                )
-                                .await
-                            {
-                                Ok(verified) => verified,
-                                Err(reject) => {
-                                    self.settle_pipeline_verify_failure(&lease, reject, false)
-                                        .await;
-                                    return;
-                                }
+        // A remote admission is verified against its declared cycle cap.
+        // If the same full hash is promoted to Local/Proposal while that
+        // work is active, the remote declaration is no longer authoritative.
+        // Re-read ownership only on failure and retry once with the trusted
+        // consensus cap. Without this edge, a bad remote declaration can make
+        // a concurrent local/proposal promotion fail even though the promoted
+        // transaction is valid.
+        let mut verified = match first {
+            Ok(verified) => verified,
+            Err(first_reject) => {
+                let promoted = if source.peer().is_some() {
+                    let authority = self.pipeline.kernel.read(|coordinator| {
+                        coordinator
+                            .source_by_hash(&lease.hash)
+                            .filter(|source| !matches!(source, PrePoolSource::Remote(_)))
+                            .zip(coordinator.raw_by_hash(&lease.hash))
+                    });
+                    match authority {
+                        Some((promoted_source, raw)) => {
+                            match raw.authoritative_source(promoted_source) {
+                                Ok(source) => Some(source),
+                                Err(error) => panic!(
+                                    "promoted verify source attribution invariant failed: {error:?}"
+                                ),
                             }
                         }
-                        None => {
-                            self.settle_pipeline_verify_failure(&lease, first_reject, false)
-                                .await;
-                            return;
-                        }
-                    }
-                }
-            };
-
-            // Source promotion is allowed while verification is active. Bind
-            // the completed payload to the current coordinator source rather
-            // than the worker's checkout snapshot.
-            let final_authority = self.pipeline.kernel.read(|coordinator| {
-                coordinator
-                    .source_by_hash(&lease.hash)
-                    .zip(coordinator.raw_by_hash(&lease.hash))
-            });
-            let Some((current_source, raw)) = final_authority else {
-                return;
-            };
-            let final_source = self
-                .pipeline
-                .kernel
-                .require_authoritative_source(&raw, current_source);
-            verified.candidate.source = final_source;
-
-            let entry = TxEntry::new_with_resident_size(
-                Arc::clone(&verified.candidate.rtx),
-                verified.completed.cycles,
-                verified.candidate.fee,
-                verified.candidate.tx_size,
-                verified.candidate.resident_size,
-            );
-            let rbf_precheck = {
-                let pool = self.pool.tx_pool.read().await;
-                if let Some(outpoint) = pool.pool_map.find_conflict_outpoint(entry.transaction()) {
-                    if pool.enable_rbf() {
-                        pool.check_rbf(&pool.cloned_snapshot(), &entry).map(|_| ())
-                    } else {
-                        Err(crate::error::Reject::Resolve(
-                            ckb_types::core::error::OutPointError::Dead(outpoint),
-                        ))
+                        None => None,
                     }
                 } else {
-                    Ok(())
+                    None
+                };
+                match promoted {
+                    Some(trusted_source) => {
+                        resolved.source = trusted_source;
+                        let promoted_result =
+                            match crate::worker::catch_job_panic(self.verify_pipeline_resolved(
+                                resolved.clone(),
+                                Arc::clone(&verification_snapshot),
+                                Some(&mut *command_rx),
+                            ))
+                            .await
+                            {
+                                Ok(result) => result,
+                                Err(message) => {
+                                    error!(
+                                        "tx-pool verifier panicked on promoted {}: {}",
+                                        lease.hash, message
+                                    );
+                                    self.settle_pipeline_verify_failure(
+                                        &lease,
+                                        crate::error::Reject::Internal(message),
+                                        true,
+                                    )
+                                    .await;
+                                    return;
+                                }
+                            };
+                        match promoted_result {
+                            Ok(verified) => verified,
+                            Err(reject) => {
+                                self.settle_pipeline_verify_failure(&lease, reject, false)
+                                    .await;
+                                return;
+                            }
+                        }
+                    }
+                    None => {
+                        self.settle_pipeline_verify_failure(&lease, first_reject, false)
+                            .await;
+                        return;
+                    }
                 }
-            };
-            if let Err(reject) = rbf_precheck {
+            }
+        };
+
+        // Source promotion is allowed while verification is active. Bind
+        // the completed payload to the current coordinator source rather
+        // than the worker's checkout snapshot.
+        let final_authority = self.pipeline.kernel.read(|coordinator| {
+            coordinator
+                .source_by_hash(&lease.hash)
+                .zip(coordinator.raw_by_hash(&lease.hash))
+        });
+        let Some((current_source, raw)) = final_authority else {
+            return;
+        };
+        let final_source = match raw.authoritative_source(current_source) {
+            Ok(source) => source,
+            Err(error) => panic!("completed verify source attribution invariant failed: {error:?}"),
+        };
+        verified.candidate.source = final_source;
+
+        let entry = TxEntry::new_with_resident_size(
+            Arc::clone(&verified.candidate.rtx),
+            verified.completed.cycles,
+            verified.candidate.fee,
+            verified.candidate.tx_size,
+            verified.candidate.resident_size,
+        );
+        let rbf_precheck = {
+            let pool = self.pool.tx_pool.read().await;
+            if let Some(outpoint) = pool.pool_map.find_conflict_outpoint(entry.transaction()) {
+                if pool.enable_rbf() {
+                    pool.check_rbf(&pool.cloned_snapshot(), &entry).map(|_| ())
+                } else {
+                    Err(crate::error::Reject::Resolve(
+                        ckb_types::core::error::OutPointError::Dead(outpoint),
+                    ))
+                }
+            } else {
+                Ok(())
+            }
+        };
+        if let Err(reject) = rbf_precheck {
+            self.settle_pipeline_verify_failure(&lease, reject, false)
+                .await;
+            return;
+        }
+
+        let inputs: HashSet<_> = verified.candidate.tx.input_pts_iter().collect();
+        let candidate = match FeeGate::new(0, 0).validate(
+            lease.hash.clone(),
+            inputs,
+            verified.candidate.fee.as_u64(),
+            verified.candidate.tx_size,
+        ) {
+            Ok(candidate) => candidate,
+            Err(error) => {
+                let reject = crate::component::pre_pool::pre_pool_reject(error);
                 self.settle_pipeline_verify_failure(&lease, reject, false)
                     .await;
                 return;
             }
+        };
+        let charge_bytes = match verified
+            .candidate
+            .resident_size
+            .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
+            .ok_or(PrePoolError::ResidencyChargeOverflow)
+        {
+            Ok(charge) => charge,
+            Err(error) => {
+                let reject = crate::component::pre_pool::pre_pool_reject(error);
+                self.settle_pipeline_verify_failure(&lease, reject, false)
+                    .await;
+                return;
+            }
+        };
 
-            let inputs: HashSet<_> = verified.candidate.tx.input_pts_iter().collect();
-            let candidate = match FeeGate::new(0, 0).validate(
-                lease.hash.clone(),
-                inputs,
-                verified.candidate.fee.as_u64(),
-                verified.candidate.tx_size,
-            ) {
-                Ok(candidate) => candidate,
-                Err(error) => {
-                    let reject = self.pipeline.kernel.reject_or_fail(
-                        "verified candidate fee gate violated coordinator invariants",
-                        error,
-                    );
-                    self.settle_pipeline_verify_failure(&lease, reject, false)
-                        .await;
-                    return;
-                }
-            };
-            let charge_bytes = match verified
-                .candidate
-                .resident_size
-                .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
-                .ok_or(PrePoolError::ResidencyChargeOverflow)
-            {
-                Ok(charge) => charge,
-                Err(error) => {
-                    let reject = self.pipeline.kernel.reject_or_fail(
-                        "verified payload charge violated coordinator invariants",
-                        error,
-                    );
-                    self.settle_pipeline_verify_failure(&lease, reject, false)
-                        .await;
-                    return;
-                }
-            };
-
-            match self.pipeline.kernel.mutate(|coordinator| {
+        match self
+            .pipeline
+            .kernel
+            .transition("verification completion mutation panicked", |coordinator| {
                 coordinator.complete_verify(&lease, verified, charge_bytes, candidate)
             }) {
-                // Eagerly drain the candidate produced by this verify task.
-                // The dedicated commit consumer is still the level-triggered
-                // liveness path for eligibility created by every other
-                // transition; both paths share the same serial driver.
-                Ok(_version) => {
-                    self.drive_pipeline_commits().await;
-                }
-                Err(error) if error.is_stale_lease() => {}
-                Err(error) => {
-                    let reject = self.pipeline.kernel.reject_or_fail(
-                        "verification completion violated coordinator invariants",
-                        error,
-                    );
-                    let internal = matches!(reject, crate::error::Reject::Full(_));
-                    self.settle_pipeline_verify_failure(&lease, reject, internal)
-                        .await;
-                }
+            // Eagerly drain the candidate produced by this verify task.
+            // The dedicated commit consumer is still the level-triggered
+            // liveness path for eligibility created by every other
+            // transition; both paths share the same serial driver.
+            Ok(_version) => {
+                self.drive_pipeline_commits().await;
             }
-        })
-        .await;
-
-        if let Err(message) = outcome {
-            error!(
-                "tx-pool verify worker panicked on {}: {}",
-                lease.hash, message
-            );
-            self.settle_pipeline_verify_failure(
-                &lease,
-                crate::error::Reject::Internal(message),
-                true,
-            )
-            .await;
+            Err(error) if error.is_stale_lease() => {}
+            Err(error) => {
+                if !error.is_transaction_rejection() {
+                    panic!("verification completion invariant failed: {error:?}")
+                }
+                let reject = crate::component::pre_pool::pre_pool_reject(error);
+                let internal = matches!(reject, crate::error::Reject::Full(_));
+                self.settle_pipeline_verify_failure(&lease, reject, internal)
+                    .await;
+            }
         }
     }
 }
@@ -319,12 +338,16 @@ impl JobHandler for VerifyHandler {
     }
 
     async fn pop_one(&mut self) -> Option<VerifyLease> {
-        self.service
+        match self
+            .service
             .pipeline
             .kernel
-            .mutate_required("verify checkout failed", |coordinator| {
+            .transition("verify checkout mutation panicked", |coordinator| {
                 coordinator.checkout_verify(self.capability)
-            })
+            }) {
+            Ok(lease) => lease,
+            Err(error) => panic!("verify checkout invariant failed: {error:?}"),
+        }
     }
 
     async fn process_one(&mut self, work: VerifyLease) {
@@ -357,7 +380,7 @@ pub(crate) fn spawn_verify_workers(
                 command_rx.clone(),
                 signal.child_token(),
             );
-            handle.spawn(runner.supervise(worker_id))
+            handle.spawn(runner.run(worker_id))
         })
         .collect()
 }

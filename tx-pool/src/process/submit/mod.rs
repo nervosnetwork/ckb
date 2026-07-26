@@ -99,128 +99,98 @@ impl TxPoolService {
             if !self.is_pipeline_epoch_current(epoch) {
                 return Ok(SubmitEntryResult::Cleared);
             }
-            let defect_snapshot = tx_pool.cloned_snapshot();
-            let applied = self.pipeline.kernel.guard_authoritative_mutation(
-                    "synchronous authoritative pool commit panicked",
-                    || {
-                        let snapshot = tx_pool.cloned_snapshot();
-                        self.pipeline.kernel.mutate(|kernel| {
-                            self.relay.effects.try_apply_bounded(
-                                effect_bound,
-                                effect_class,
-                                || {
-                                    let mut committed_ingress_peer = original_peer;
-                                    let (mut coordinated, record) = self
-                                        .try_submit_entry_with_handoff(
-                                            &mut tx_pool,
-                                            snapshot,
-                                            pre_resolve_tip.clone(),
-                                            entry.clone(),
-                                            |tx_pool, plan| {
-                                                let unavailable = self
-                                                    .planned_unavailable_parent_hashes(
-                                                        plan,
-                                                        tx_pool.snapshot(),
-                                                    );
-                                                let record = kernel
-                                                    .external_commit_with_unavailable_parents(
-                                                        &tx_hash,
-                                                        &unavailable,
-                                                    )?;
-                                                self.settle_kernel_for_pool_plan(
-                                                    kernel, tx_pool, &entry, plan,
-                                                )?;
-                                                Ok(record)
-                                            },
-                                        );
-                                    if let Some(Some(record)) = record {
-                                        committed_ingress_peer = record
-                                            .raw
-                                            .ingress_peer()
-                                            .or(committed_ingress_peer);
-                                    }
-                                    if matches!(
-                                        coordinated.outcome.result.as_ref(),
-                                        Err(Reject::RBFRejected(..)
-                                            | Reject::Resolve(
-                                                ckb_types::core::error::OutPointError::Dead(_)
-                                            ))
-                                    ) && tx_pool
-                                        .pool_map
-                                        .find_conflict_outpoint(entry.transaction())
-                                        .is_some()
-                                    {
-                                        let tx = entry.transaction().clone();
-                                        let keys = crate::component::pre_pool::conflict_dependency_keys(
-                                            &tx,
-                                            entry.related_dep_out_points().cloned(),
-                                        );
-                                        let raw = crate::component::pre_pool::PipelineRawTx::new(
-                                            tx, source, epoch,
-                                        );
-                                        let owner =
-                                            crate::component::pre_pool::historical_source(source);
-                                        let expires_at =
-                                            crate::component::pre_pool::historical_deadline(owner);
-                                        if let Err(error) = kernel.retain_conflict(
-                                            raw, owner, keys, expires_at,
-                                        ) {
-                                            warn!(
-                                                "dropping bounded direct-submit conflict history for {tx_hash}: {error:?}"
-                                            );
-                                        }
-                                    }
-                                    let extra_effects = coordinated
-                                        .outcome
-                                        .result
-                                        .is_ok()
-                                        .then(|| {
-                                            TxPoolEffect::Relay(
-                                                crate::service::TxVerificationResult::Ok {
-                                                    original_peer: committed_ingress_peer,
-                                                    tx_hash: tx_hash.clone(),
-                                                },
-                                            )
-                                        })
-                                        .into_iter()
-                                        .collect();
-                                    for status in coordinated.block_assembler_statuses() {
-                                        self.journal_block_assembler_update(status);
-                                    }
-                                    let batch = self.prepare_submit_effects(
-                                        &mut coordinated.outcome,
-                                        extra_effects,
+            let applied = {
+                let snapshot = tx_pool.cloned_snapshot();
+                self.pipeline.kernel.mutate_authoritative(|kernel| {
+                    self.relay
+                        .effects
+                        .try_apply_bounded(effect_bound, effect_class, || {
+                            let mut committed_ingress_peer = original_peer;
+                            let (mut coordinated, record) = self.try_submit_entry_with_handoff(
+                                &mut tx_pool,
+                                snapshot,
+                                pre_resolve_tip.clone(),
+                                entry.clone(),
+                                |tx_pool, plan| {
+                                    let unavailable = self.planned_unavailable_parent_hashes(
+                                        plan,
+                                        tx_pool.snapshot(),
                                     );
-                                    (coordinated.outcome, batch)
+                                    let record = kernel
+                                        .external_commit_with_unavailable_parents(
+                                            &tx_hash,
+                                            &unavailable,
+                                        )
+                                        .unwrap_or_else(|error| {
+                                            panic!("planned direct handoff failed: {error:?}")
+                                        });
+                                    self.settle_kernel_for_pool_plan(kernel, tx_pool, &entry, plan);
+                                    record
                                 },
-                            )
+                            );
+                            if let Some(Some(record)) = record {
+                                committed_ingress_peer =
+                                    record.raw.ingress_peer().or(committed_ingress_peer);
+                            }
+                            if matches!(
+                                coordinated.outcome.result.as_ref(),
+                                Err(Reject::RBFRejected(..)
+                                    | Reject::Resolve(
+                                        ckb_types::core::error::OutPointError::Dead(_)
+                                    ))
+                            ) && tx_pool
+                                .pool_map
+                                .find_conflict_outpoint(entry.transaction())
+                                .is_some()
+                            {
+                                let tx = entry.transaction().clone();
+                                let keys = crate::component::pre_pool::conflict_dependency_keys(
+                                    &tx,
+                                    entry.related_dep_out_points().cloned(),
+                                );
+                                let raw = crate::component::pre_pool::PipelineRawTx::new(
+                                    tx, source, epoch,
+                                );
+                                let owner = crate::component::pre_pool::historical_source(source);
+                                let expires_at =
+                                    crate::component::pre_pool::historical_deadline(owner);
+                                self.retain_optional_conflict(
+                                    kernel,
+                                    raw,
+                                    owner,
+                                    keys,
+                                    expires_at,
+                                    "direct-submit conflict retention failed",
+                                );
+                            }
+                            let extra_effects = coordinated
+                                .outcome
+                                .result
+                                .is_ok()
+                                .then(|| {
+                                    TxPoolEffect::Relay(crate::service::TxVerificationResult::Ok {
+                                        original_peer: committed_ingress_peer,
+                                        tx_hash: tx_hash.clone(),
+                                    })
+                                })
+                                .into_iter()
+                                .collect();
+                            for status in coordinated.block_assembler_statuses() {
+                                self.journal_block_assembler_update(status);
+                            }
+                            let batch = self
+                                .prepare_submit_effects(&mut coordinated.outcome, extra_effects);
+                            (coordinated.outcome, batch)
                         })
-                    },
-                );
+                })
+            };
             match applied {
-                Ok(Ok(outcome)) => break outcome,
-                Ok(Err(EffectJournalError::Full)) => continue,
-                Ok(Err(error)) => {
+                Ok(outcome) => break outcome,
+                Err(EffectJournalError::Full) => continue,
+                Err(error) => {
                     return Err(Reject::Full(format!(
                         "tx-pool effect journal unavailable: {error:?}"
                     )));
-                }
-                Err(defect) => {
-                    let disposal = self.recover_authoritative_defect_with_fingerprint(
-                        &mut tx_pool,
-                        defect_snapshot,
-                        "synchronous authoritative pool commit",
-                        defect,
-                        source
-                            .peer()
-                            .is_some()
-                            .then(|| entry.transaction().witness_hash()),
-                    );
-                    drop(tx_pool);
-                    drop(disposal);
-                    return Err(Reject::Full(
-                        "tx-pool recovered an internal commit defect".to_owned(),
-                    ));
                 }
             }
         };
@@ -433,34 +403,27 @@ impl TxPoolService {
     async fn commit_next_pipeline_entry(&self, effect_bound: usize) -> bool {
         let transaction = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            let defect_snapshot = tx_pool.cloned_snapshot();
-            let mut defect_fingerprint = None;
-            let prepared = self.pipeline.kernel.guard_authoritative_mutation(
-                "pipeline authoritative pool commit panicked",
-                || {
-                    // Checkout must be inside the TxPool write boundary. Every
-                    // operation allowed to consume coordinator ownership from
-                    // outside this driver takes the same guard first.
-                    let lease = self
-                        .pipeline
-                        .kernel
-                        .mutate_required("pipeline commit checkout failed", |coordinator| {
-                            coordinator.begin_next_commit()
-                        })?;
-                    let verified = Arc::clone(&lease.payload);
-                    if verified.candidate.source.peer().is_some() {
-                        defect_fingerprint = Some(verified.candidate.tx.witness_hash());
-                    }
-                    let entry = TxEntry::new_with_resident_size(
-                        Arc::clone(&verified.candidate.rtx),
-                        verified.completed.cycles,
-                        verified.candidate.fee,
-                        verified.candidate.tx_size,
-                        verified.candidate.resident_size,
-                    );
-                    let entry_id = entry.proposal_short_id();
-                    let snapshot = tx_pool.cloned_snapshot();
-                    Some(self.pipeline.kernel.mutate(|kernel| {
+            let prepared = (|| {
+                // Checkout must be inside the TxPool write boundary. Every
+                // operation allowed to consume coordinator ownership from
+                // outside this driver takes the same guard first.
+                let lease = self
+                    .pipeline
+                    .kernel
+                    .mutate_required("pipeline commit checkout failed", |coordinator| {
+                        coordinator.begin_next_commit()
+                    })?;
+                let verified = Arc::clone(&lease.payload);
+                let entry = TxEntry::new_with_resident_size(
+                    Arc::clone(&verified.candidate.rtx),
+                    verified.completed.cycles,
+                    verified.candidate.fee,
+                    verified.candidate.tx_size,
+                    verified.candidate.resident_size,
+                );
+                let entry_id = entry.proposal_short_id();
+                let snapshot = tx_pool.cloned_snapshot();
+                Some(self.pipeline.kernel.mutate_authoritative(|kernel| {
                         self.relay.effects.try_apply_bounded(
                             effect_bound,
                             EffectClass::Remote,
@@ -481,11 +444,14 @@ impl TxPoolService {
                                                 .commit_any_handoff_with_unavailable_parents(
                                                     &lease,
                                                     &unavailable,
-                                                )?;
+                                                )
+                                                .unwrap_or_else(|error| {
+                                                    panic!("planned pipeline handoff failed: {error:?}")
+                                                });
                                             self.settle_kernel_for_pool_plan(
                                                 kernel, tx_pool, &entry, plan,
-                                            )?;
-                                            Ok(handoff)
+                                            );
+                                            handoff
                                         },
                                     );
                                 let failed_terminal = if coordinated.outcome.result.is_err()
@@ -526,10 +492,14 @@ impl TxPoolService {
                                         Self::SUPERSEDED_BY_HIGHER_FEE_CANDIDATE.to_string(),
                                     );
                                     for record in &handoff.retained_conflicts {
-                                        self.pipeline.kernel.require_authoritative_source(
-                                            &record.raw,
-                                            record.source,
-                                        );
+                                        record
+                                            .raw
+                                            .authoritative_source(record.source)
+                                            .unwrap_or_else(|error| {
+                                                panic!(
+                                                    "planned conflict source attribution failed: {error:?}"
+                                                )
+                                            });
                                         if let Some(effect) =
                                             self.recent_reject_effect(record.hash.clone(), &reject)
                                         {
@@ -598,26 +568,13 @@ impl TxPoolService {
                             },
                         )
                     }))
-                },
-            );
+            })();
             match prepared {
-                Ok(None) => None,
-                Ok(Some(Ok(value))) => Some(value),
-                Ok(Some(Err(EffectJournalError::Full))) => return true,
-                Ok(Some(Err(error))) => {
+                None => None,
+                Some(Ok(value)) => Some(value),
+                Some(Err(EffectJournalError::Full)) => return true,
+                Some(Err(error)) => {
                     ckb_logger::error!("pipeline commit effect journal unavailable: {error:?}");
-                    return true;
-                }
-                Err(defect) => {
-                    let disposal = self.recover_authoritative_defect_with_fingerprint(
-                        &mut tx_pool,
-                        defect_snapshot,
-                        "pipeline authoritative pool commit",
-                        defect,
-                        defect_fingerprint,
-                    );
-                    drop(tx_pool);
-                    drop(disposal);
                     return true;
                 }
             }

@@ -42,7 +42,7 @@ pub(crate) enum Message {
     SubmitLocalTx(SyncRequest<TransactionView, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, bool>),
     TestAcceptTx(SyncRequest<TransactionView, TestAcceptTxResult>),
-    SubmitRemoteTx(SyncRequest<(TransactionView, TxSource), ()>),
+    SubmitRemoteTx(AsyncRequest<(TransactionView, TxSource), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),

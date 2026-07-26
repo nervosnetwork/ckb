@@ -7,11 +7,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
 use ckb_verification::cache::Completed;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{
-    Arc, Mutex, MutexGuard,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -21,9 +17,6 @@ const DEPENDENCY_EDGE_BYTES: usize = 160;
 const CONFLICT_HISTORY_MAX_ENTRIES: usize = 10_000;
 const CONFLICT_HISTORY_MAX_BYTES: usize = 50_000_000;
 const REMOTE_RESIDENCY_BLOCKS: u64 = 100;
-const DEFECT_FINGERPRINTS: usize = 256;
-const DEFECT_RESET_WINDOW_SECS: u64 = 300;
-const DEFECT_RESETS_BEFORE_OPEN: u64 = 8;
 
 #[derive(Clone, Debug)]
 pub(crate) struct PipelineRawTx {
@@ -119,7 +112,6 @@ const WORKER_CLASSES: [(WorkLane, WorkCapability); 5] = [
 /// TxPool boundary; P2/P4 replace that legacy pool path with total Apply.
 pub(crate) struct PrePool {
     state: Mutex<PrePoolKernel>,
-    defect: DefectDomain,
     ready: [Arc<Notify>; WORKER_CLASSES.len()],
     maintenance_ready: Arc<Notify>,
     shutdown: CancellationToken,
@@ -127,107 +119,17 @@ pub(crate) struct PrePool {
     max_entries: usize,
 }
 
-/// One cohesive availability boundary for impossible kernel/apply defects.
-/// The spare is built before it is needed; a reset exchanges only ephemeral
-/// entry/index ownership and drops the retired generation outside both
-/// authority locks. Remote cooling prevents a reproducible hostile witness
-/// from creating a reset loop while trusted and chain work remain live.
-struct DefectDomain {
-    spare: Mutex<Option<PrePoolGeneration>>,
-    reset_count: AtomicU64,
-    consecutive_resets: AtomicU64,
-    last_reset_at: AtomicU64,
-    remote_cooling_until: AtomicU64,
-    fingerprints: Mutex<lru::LruCache<ckb_types::packed::Byte32, ()>>,
-}
-
-enum GenerationResetCause {
-    Chain,
-    Defect(Option<ckb_types::packed::Byte32>),
-}
-
-/// Sealed retired pre-pool generation. Holding the spare guard is the single
-/// disposal permit: a second reset waits until this bundle is destroyed and a
-/// fresh emergency generation is replenished. Callers must drop it only after
-/// releasing `TxPool` and the live kernel mutex.
+/// Sealed state moved out by an explicit clear or chain fallback.  Moving the
+/// generation is an ownership optimization: its population is destroyed after
+/// authority locks open.  It is deliberately not a panic-recovery protocol.
 #[must_use = "retired generation must be dropped after authority guards are released"]
-pub(crate) struct KernelDisposal<'a> {
+pub(crate) struct KernelDisposal {
     retired: Option<PrePoolGeneration>,
-    spare: MutexGuard<'a, Option<PrePoolGeneration>>,
 }
 
-impl Drop for KernelDisposal<'_> {
+impl Drop for KernelDisposal {
     fn drop(&mut self) {
         drop(self.retired.take());
-        *self.spare = Some(PrePoolGeneration::new());
-    }
-}
-
-impl DefectDomain {
-    fn new() -> Self {
-        Self {
-            spare: Mutex::new(Some(PrePoolGeneration::new())),
-            reset_count: AtomicU64::new(0),
-            consecutive_resets: AtomicU64::new(0),
-            last_reset_at: AtomicU64::new(0),
-            remote_cooling_until: AtomicU64::new(0),
-            fingerprints: Mutex::new(lru::LruCache::new(DEFECT_FINGERPRINTS)),
-        }
-    }
-
-    fn remote_open(&self) -> bool {
-        ckb_systemtime::unix_time().as_secs() >= self.remote_cooling_until.load(Ordering::Acquire)
-    }
-
-    fn allows(&self, tx: &TransactionView) -> bool {
-        if !self.remote_open() {
-            return false;
-        }
-        // The healthy hot path never takes the diagnostic fingerprint lock.
-        // It becomes relevant only after this process has contained a defect.
-        self.reset_count.load(Ordering::Acquire) == 0
-            || !self
-                .fingerprints
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .contains(&tx.witness_hash())
-    }
-
-    fn record_reset(&self, fingerprint: Option<ckb_types::packed::Byte32>) -> u64 {
-        let resets = self
-            .reset_count
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
-        if let Some(fingerprint) = fingerprint {
-            self.fingerprints
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .put(crate::util::compact_packed(&fingerprint), ());
-        }
-        let now = ckb_systemtime::unix_time().as_secs();
-        let last = self.last_reset_at.swap(now, Ordering::AcqRel);
-        let consecutive = if now.saturating_sub(last) > DEFECT_RESET_WINDOW_SECS {
-            self.consecutive_resets.store(1, Ordering::Release);
-            1
-        } else {
-            self.consecutive_resets
-                .fetch_add(1, Ordering::AcqRel)
-                .saturating_add(1)
-        };
-        let exponent = u32::try_from(consecutive.saturating_sub(1).min(6)).unwrap_or(6);
-        let cooling = 1u64.checked_shl(exponent).unwrap_or(64).min(60);
-        self.remote_cooling_until.store(
-            if consecutive >= DEFECT_RESETS_BEFORE_OPEN {
-                // Circuit-open is fail-closed only for untrusted ingress.
-                // Restart/operator intervention re-enables it; chain, Local,
-                // Proposal, query and mining authority remain live.
-                u64::MAX
-            } else {
-                now.saturating_add(cooling)
-            },
-            Ordering::Release,
-        );
-        resets
     }
 }
 
@@ -278,7 +180,6 @@ impl PrePool {
         };
         Self {
             state: Mutex::new(PrePoolKernel::new(limits)),
-            defect: DefectDomain::new(),
             ready: WORKER_CLASSES.map(|_| Arc::new(Notify::new())),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
@@ -288,28 +189,24 @@ impl PrePool {
     }
 
     fn lock(&self) -> MutexGuard<'_, PrePoolKernel> {
-        match self.state.lock() {
-            Ok(state) => state,
-            Err(poisoned) => {
-                // A worker panic is contained to its borrowed command. The
-                // primary entry map remains the ownership oracle; exact
-                // projections are rebuilt at P4's DefectDomain boundary.
-                ckb_logger::error!("pre-pool mutex was poisoned; retaining primary state");
-                poisoned.into_inner()
-            }
-        }
+        self.state
+            .lock()
+            .expect("pre-pool kernel mutex poisoned by an invariant failure")
     }
 
     pub(crate) fn read<T>(&self, inspect: impl FnOnce(&PrePoolKernel) -> T) -> T {
         inspect(&self.lock())
     }
 
-    pub(crate) fn mutate<T>(&self, apply: impl FnOnce(&mut PrePoolKernel) -> T) -> T {
+    /// The sole mutation boundary.  Transaction rejection, backpressure and
+    /// stale leases are returned by the transition itself; this shell never
+    /// converts an invariant panic into a second state-management protocol.
+    pub(crate) fn mutate_authoritative<T>(&self, apply: impl FnOnce(&mut PrePoolKernel) -> T) -> T {
         let (result, ready, maintenance) = {
             let mut state = self.lock();
             let result = apply(&mut state);
-            let ready = WORKER_CLASSES
-                .map(|(lane, capability)| state.work_is_ready(lane, capability).unwrap_or(false));
+            let ready =
+                WORKER_CLASSES.map(|(lane, capability)| state.work_is_ready(lane, capability));
             (result, ready, state.wait_wake_pending())
         };
         for (notify, executable) in self.ready.iter().zip(ready) {
@@ -323,174 +220,52 @@ impl PrePool {
         result
     }
 
+    pub(crate) fn transition<T>(
+        &self,
+        _context: &'static str,
+        apply: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
+    ) -> Result<T, PrePoolError> {
+        self.mutate_authoritative(apply)
+    }
+
     pub(crate) fn mutate_required<T>(
         &self,
         context: &'static str,
         apply: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
     ) -> T {
-        match self.mutate(apply) {
+        match self.mutate_authoritative(apply) {
             Ok(value) => value,
             Err(error) => panic!("{context}: {error:?}"),
         }
     }
 
-    pub(crate) fn mutate_lease<T>(
-        &self,
-        context: &'static str,
-        apply: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> Option<T> {
-        match self.mutate(apply) {
-            Ok(value) => Some(value),
-            Err(error) if error.is_stale_lease() => None,
-            Err(error) => panic!("{context}: {error:?}"),
-        }
-    }
-
-    pub(crate) fn reject_or_fail(&self, context: &'static str, error: PrePoolError) -> Reject {
-        if error.is_transaction_rejection() {
-            pre_pool_reject(error)
-        } else {
-            ckb_logger::error!("{context}: {error:?}; rejecting only the affected command");
-            Reject::Full("pre-pool repair required".to_string())
-        }
-    }
-
-    pub(crate) fn guard_authoritative_mutation<T>(
-        &self,
-        context: &'static str,
-        apply: impl FnOnce() -> T,
-    ) -> Result<T, String> {
-        match catch_unwind(AssertUnwindSafe(apply)) {
-            Ok(value) => Ok(value),
-            Err(payload) => {
-                let message = crate::util::panic_payload_to_string(payload.as_ref());
-                Err(format!("{context}: {message}"))
-            }
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn remote_admission_open(&self) -> bool {
-        self.defect.remote_open()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn emergency_spare_available(&self) -> bool {
-        self.defect
-            .spare
-            .try_lock()
-            .is_ok_and(|spare| spare.is_some())
-    }
-
-    fn remote_transaction_allowed(&self, tx: &TransactionView) -> bool {
-        self.defect.allows(tx)
-    }
-
-    pub(crate) fn reset_after_defect(
-        &self,
-        fingerprint: Option<ckb_types::packed::Byte32>,
-    ) -> (u64, KernelDisposal<'_>) {
-        let (generation, (), disposal) = self
-            .replace_generation(GenerationResetCause::Defect(fingerprint), |_| Ok(()))
-            .unwrap_or_else(|error| {
-                panic!("empty defect generation preparation failed: {error:?}")
-            });
-        (generation, disposal)
-    }
-
-    /// Prepare and exchange a fresh entry/index generation while preserving
-    /// the stable shell and every process-global ABA clock. `prepare` mutates
-    /// only the prebuilt spare; an error cannot affect the live generation.
-    /// The retired population remains sealed by the returned disposal permit
-    /// until its caller releases all authority guards.
+    /// Prepare an explicit clear/chain replacement off the live generation,
+    /// then move it into place in one critical section.  Preparation failure
+    /// leaves the live state unchanged; the retired population is returned so
+    /// callers can destroy it after opening the TxPool guard.
     pub(crate) fn reset_for_chain<T>(
         &self,
         prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> Result<(T, KernelDisposal<'_>), PrePoolError> {
-        self.replace_generation(GenerationResetCause::Chain, prepare)
-            .map(|(_, value, disposal)| (value, disposal))
-    }
-
-    fn replace_generation<T>(
-        &self,
-        cause: GenerationResetCause,
-        prepare: impl FnOnce(&mut PrePoolKernel) -> Result<T, PrePoolError>,
-    ) -> Result<(u64, T, KernelDisposal<'_>), PrePoolError> {
-        let mut spare = self
-            .defect
-            .spare
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let fresh = spare
-            .take()
-            .expect("the one disposal permit replenishes the emergency generation");
+    ) -> Result<(T, KernelDisposal), PrePoolError> {
         let mut state = self.lock();
         let mut prepared = PrePoolKernel {
-            generation: fresh,
+            generation: PrePoolGeneration::new(),
             limits: state.limits,
             next_version: state.next_version,
             next_arrival: state.next_arrival,
-            next_recovery_session: state.next_recovery_session,
         };
-        let prepared_result = catch_unwind(AssertUnwindSafe(|| prepare(&mut prepared)));
-        let value = match prepared_result {
-            Ok(Ok(value)) => value,
-            Ok(Err(error)) => {
-                let rejected =
-                    std::mem::replace(&mut prepared.generation, PrePoolGeneration::new());
-                *spare = Some(PrePoolGeneration::new());
-                drop(state);
-                drop(spare);
-                drop(rejected);
-                return Err(error);
-            }
-            Err(payload) => {
-                let rejected =
-                    std::mem::replace(&mut prepared.generation, PrePoolGeneration::new());
-                *spare = Some(PrePoolGeneration::new());
-                drop(state);
-                drop(spare);
-                drop(rejected);
-                ckb_logger::error!(
-                    "pre-pool generation preparation panicked: {}",
-                    crate::util::panic_payload_to_string(payload.as_ref())
-                );
-                return Err(PrePoolError::Repair("generation preparation panicked"));
-            }
-        };
+        let value = prepare(&mut prepared)?;
         let retired = std::mem::replace(&mut state.generation, prepared.generation);
         state.next_version = prepared.next_version;
         state.next_arrival = prepared.next_arrival;
-        state.next_recovery_session = prepared.next_recovery_session;
-        self.state.clear_poison();
-        let generation = match cause {
-            GenerationResetCause::Chain => self.defect.reset_count.load(Ordering::Acquire),
-            GenerationResetCause::Defect(fingerprint) => {
-                // Close Remote ingress before opening the state mutex. A
-                // request that passed the optimistic outer gate rechecks after
-                // acquiring this mutex and cannot enter the new generation.
-                self.defect.record_reset(fingerprint)
-            }
-        };
         drop(state);
-        self.mutate(|_| ());
+        self.mutate_authoritative(|_| ());
         Ok((
-            generation,
             value,
             KernelDisposal {
                 retired: Some(retired),
-                spare,
             },
         ))
-    }
-
-    pub(crate) fn require_authoritative_source(
-        &self,
-        raw: &PipelineRawTx,
-        source: PrePoolSource,
-    ) -> TxSource {
-        raw.authoritative_source(source)
-            .unwrap_or_else(|error| panic!("pre-pool source attribution: {error:?}"))
     }
 
     pub(crate) fn subscribe(&self, lane: WorkLane, capability: WorkCapability) -> Arc<Notify> {
@@ -499,7 +274,7 @@ impl PrePool {
             .position(|class| *class == (lane, capability))
             .expect("worker class belongs to the closed registry");
         let notify = Arc::clone(&self.ready[index]);
-        if self.read(|state| state.work_is_ready(lane, capability).unwrap_or(false)) {
+        if self.read(|state| state.work_is_ready(lane, capability)) {
             notify.notify_one();
         }
         notify
@@ -532,15 +307,9 @@ impl PrePool {
         epoch: u64,
         lane: ResolveLane,
     ) -> Result<bool, PrePoolError> {
-        if matches!(source, TxSource::Remote { .. }) && !self.remote_transaction_allowed(&tx) {
-            return Err(PrePoolError::RemoteDefectGateClosed);
-        }
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
-        self.mutate(|kernel| {
-            if matches!(source, TxSource::Remote { .. }) && !self.remote_transaction_allowed(&tx) {
-                return Err(PrePoolError::RemoteDefectGateClosed);
-            }
+        self.transition("pre-pool admission mutation panicked", |kernel| {
             if let Some(existing) = kernel.entries.get(&hash).cloned() {
                 return match source {
                     TxSource::Local => Err(PrePoolError::LocalMustRunDirect),
@@ -576,36 +345,35 @@ impl PrePool {
         })
     }
 
-    pub(crate) fn checkout_resolve(&self, lane: ResolveLane) -> Option<ResolveLease> {
-        self.mutate_required("resolve checkout failed", |state| {
+    pub(crate) fn checkout_resolve(
+        &self,
+        lane: ResolveLane,
+    ) -> Result<Option<ResolveLease>, PrePoolError> {
+        self.transition("resolve checkout mutation panicked", |state| {
             state.checkout_resolve(lane)
         })
     }
 
-    pub(crate) fn checkout_recovery(
-        &self,
-        session: u128,
-    ) -> Result<Option<ResolveLease>, PrePoolError> {
-        self.mutate(|kernel| kernel.checkout_recovery(session))
-    }
-
-    pub(crate) fn recovery_snapshot(&self) -> Vec<RecoverySnapshotItem> {
+    pub(crate) fn recovery_snapshot(&self) -> Vec<TransactionView> {
         self.read(PrePoolKernel::recovery_snapshot)
     }
 
-    pub(crate) async fn wait_resolve(&self, lane: ResolveLane) -> Option<ResolveLease> {
+    pub(crate) async fn wait_resolve(
+        &self,
+        lane: ResolveLane,
+    ) -> Result<Option<ResolveLease>, PrePoolError> {
         let work_lane = PrePoolKernel::lane_for_resolve(lane);
         let ready = self.subscribe(work_lane, WorkCapability::Any);
         loop {
             if self.shutdown.is_cancelled() {
-                return None;
+                return Ok(None);
             }
-            if let Some(lease) = self.checkout_resolve(lane) {
-                return Some(lease);
+            if let Some(lease) = self.checkout_resolve(lane)? {
+                return Ok(Some(lease));
             }
             tokio::select! {
                 _ = ready.notified() => {}
-                _ = self.shutdown.cancelled() => return None,
+                _ = self.shutdown.cancelled() => return Ok(None),
             }
         }
     }
@@ -642,7 +410,15 @@ pub(crate) fn historical_deadline(source: PrePoolSource) -> Option<u64> {
     })
 }
 
+#[cfg(test)]
+#[path = "../tests/pre_pool_runtime_seam.rs"]
+mod test_seam;
+
 pub(crate) fn pre_pool_reject(error: PrePoolError) -> Reject {
+    assert!(
+        error.is_transaction_rejection(),
+        "a structural pre-pool defect must be contained, not converted into a transaction rejection: {error:?}"
+    );
     match error {
         PrePoolError::UnderReplacementFee { .. }
         | PrePoolError::UnderFeeRate { .. }

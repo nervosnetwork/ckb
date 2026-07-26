@@ -1,4 +1,10 @@
 use super::*;
+
+impl EffectJournal {
+    pub(crate) fn usage(&self) -> EffectUsage {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).usage[EffectClass::Critical.region()]
+    }
+}
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::network::{DummyTxPoolNetwork, TxPoolNetwork};
@@ -778,4 +784,22 @@ fn bounded_apply_charges_actual_not_conservative_ceiling() {
         })
         .unwrap();
     assert_eq!(journal.usage().bytes, EFFECT_ENVELOPE_BYTES);
+}
+
+#[test]
+fn post_apply_bound_violation_uses_reset_without_overcharging_fifo() {
+    let journal = EffectJournal::new(1, 1_000).unwrap();
+    let applied = AtomicUsize::new(0);
+    journal
+        .try_apply_bounded(1, EffectClass::Trusted, || {
+            applied.fetch_add(1, Ordering::SeqCst);
+            ((), Some(reject_batch(1)))
+        })
+        .unwrap();
+
+    assert_eq!(applied.load(Ordering::SeqCst), 1, "Apply remains total");
+    assert_eq!(journal.usage(), EffectUsage::default());
+    let state = journal.state.lock().unwrap();
+    assert!(state.queued.is_empty());
+    assert!(state.latest_generation_reset.is_some());
 }

@@ -145,8 +145,8 @@ impl TxPoolService {
         respond(responder, result.map(|r| r.into()), "test_accept_tx");
     }
 
-    async fn handle_submit_remote_tx(&self, req: SyncRequest<(TransactionView, TxSource), ()>) {
-        let SyncRequest {
+    async fn handle_submit_remote_tx(&self, req: AsyncRequest<(TransactionView, TxSource), ()>) {
+        let AsyncRequest {
             responder,
             arguments: (tx, source),
         } = req;

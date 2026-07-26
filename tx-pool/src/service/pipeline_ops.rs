@@ -121,52 +121,58 @@ impl TxPoolService {
             let outcome: Result<
                 Result<Result<ParentWaitOutcome, PrePoolError>, EffectJournalError>,
                 PrePoolError,
-            > = self.pipeline.kernel.mutate(|coordinator| {
-                let source = coordinator
-                    .source_by_hash(hash)
-                    .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-                if !parents.is_empty()
-                    && !matches!(source, PrePoolSource::Remote(_))
-                    && parents
-                        .iter()
-                        .any(|parent| !coordinator.contains_hash(parent))
-                {
-                    return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
-                }
-                let batch = if let PrePoolSource::Remote(peer) = source
-                    && !dependencies.is_empty()
-                {
-                    EffectBatch::new(vec![TxPoolEffect::Relay(
-                        crate::service::TxVerificationResult::UnknownParents {
-                            peer,
-                            parents: parents.clone(),
-                        },
-                    )])
-                } else {
-                    None
-                };
-                let class = if matches!(source, PrePoolSource::Remote(_)) {
-                    EffectClass::Remote
-                } else {
-                    EffectClass::Trusted
-                };
-                Ok(self.relay.effects.try_apply(batch, class, || {
-                    transition(coordinator, dependencies.clone())?;
-                    Ok(if dependencies.is_empty() {
-                        ParentWaitOutcome::Requeued
+            > = self
+                .pipeline
+                .kernel
+                .transition(error_context, |coordinator| {
+                    let source = coordinator
+                        .source_by_hash(hash)
+                        .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
+                    if !parents.is_empty()
+                        && !matches!(source, PrePoolSource::Remote(_))
+                        && parents
+                            .iter()
+                            .any(|parent| !coordinator.contains_hash(parent))
+                    {
+                        return Ok(Ok(Ok(ParentWaitOutcome::Unavailable)));
+                    }
+                    let batch = if let PrePoolSource::Remote(peer) = source
+                        && !dependencies.is_empty()
+                    {
+                        EffectBatch::new(vec![TxPoolEffect::Relay(
+                            crate::service::TxVerificationResult::UnknownParents {
+                                peer,
+                                parents: parents.clone(),
+                            },
+                        )])
                     } else {
-                        ParentWaitOutcome::Parked
-                    })
-                }))
-            });
+                        None
+                    };
+                    let class = if matches!(source, PrePoolSource::Remote(_)) {
+                        EffectClass::Remote
+                    } else {
+                        EffectClass::Trusted
+                    };
+                    Ok(self.relay.effects.try_apply(batch, class, || {
+                        transition(coordinator, dependencies.clone())?;
+                        Ok(if dependencies.is_empty() {
+                            ParentWaitOutcome::Requeued
+                        } else {
+                            ParentWaitOutcome::Parked
+                        })
+                    }))
+                });
             drop(pool);
             match outcome {
                 Ok(Ok(Ok(outcome))) => return Some(outcome),
                 Ok(Ok(Err(error))) | Err(error) if error.is_stale_lease() => return None,
                 Ok(Ok(Err(error))) | Err(error) => {
-                    return Some(ParentWaitOutcome::Rejected(
-                        self.pipeline.kernel.reject_or_fail(error_context, error),
-                    ));
+                    if error.is_transaction_rejection() {
+                        return Some(ParentWaitOutcome::Rejected(
+                            crate::component::pre_pool::pre_pool_reject(error),
+                        ));
+                    }
+                    panic!("{error_context}: pre-pool invariant failed: {error:?}");
                 }
                 Ok(Err(EffectJournalError::Full)) => {
                     if self
@@ -250,7 +256,7 @@ impl TxPoolService {
                     })
                 })
             });
-            let result = self.pipeline.kernel.mutate(|coordinator| {
+            let result = self.pipeline.kernel.mutate_authoritative(|coordinator| {
                 let Some(record) = coordinator.terminal_record(subject) else {
                     return Ok(Err(PrePoolError::Missing(subject.clone())));
                 };
@@ -278,8 +284,7 @@ impl TxPoolService {
                 }
                 Ok(Err(error)) if error.is_stale_lease() => return,
                 Ok(Err(error)) => {
-                    let _ = self.pipeline.kernel.reject_or_fail(mutation_context, error);
-                    return;
+                    panic!("{mutation_context}: pre-pool invariant failed: {error:?}")
                 }
                 Err(EffectJournalError::Full) => continue,
                 Err(error) => {
@@ -386,102 +391,85 @@ impl TxPoolService {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
             let mut tx_pool = self.pool.tx_pool.write().await;
-            let defect_snapshot = tx_pool.cloned_snapshot();
-            let mutation = self.pipeline.kernel.guard_authoritative_mutation(
-                "administrative removal mutation panicked",
-                || {
-                    let pool_target = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
-                    let (record, removed_entries) = if pool_target {
-                        // Compute the exact accepted closure before any mutation.
-                        // Every hash can have already-resolved coordinator consumers,
-                        // not only the requested root.
-                        let mut removal_ids = tx_pool.pool_map.calc_descendants(&id);
-                        removal_ids.insert(id.clone());
-                        let removal_hashes: HashSet<_> = removal_ids
-                            .iter()
-                            .filter_map(|removed_id| {
-                                tx_pool
-                                    .pool_map
-                                    .get_by_id(removed_id)
-                                    .map(|entry| entry.inner.transaction().hash())
-                            })
-                            .filter(|hash| !tx_pool.snapshot().transaction_exists(hash))
-                            .collect();
-                        let removal_statuses: HashSet<_> = removal_ids
-                            .iter()
-                            .filter_map(|removed_id| {
-                                tx_pool
-                                    .pool_map
-                                    .get_by_id(removed_id)
-                                    .map(|entry| entry.status)
-                            })
-                            .collect();
+            let mutation = (|| -> Result<_, PrePoolError> {
+                let pool_target = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
+                let (record, removed_entries) = if pool_target {
+                    // Compute the exact accepted closure before any mutation.
+                    // Every hash can have already-resolved coordinator consumers,
+                    // not only the requested root.
+                    let mut removal_ids = tx_pool.pool_map.calc_descendants(&id);
+                    removal_ids.insert(id.clone());
+                    let removal_hashes: HashSet<_> = removal_ids
+                        .iter()
+                        .filter_map(|removed_id| {
+                            tx_pool
+                                .pool_map
+                                .get_by_id(removed_id)
+                                .map(|entry| entry.inner.transaction().hash())
+                        })
+                        .filter(|hash| !tx_pool.snapshot().transaction_exists(hash))
+                        .collect();
+                    let removal_statuses: HashSet<_> = removal_ids
+                        .iter()
+                        .filter_map(|removed_id| {
+                            tx_pool
+                                .pool_map
+                                .get_by_id(removed_id)
+                                .map(|entry| entry.status)
+                        })
+                        .collect();
 
-                        // Pre-pool consumers are demoted in one kernel transition
-                        // while the pool membership write lock prevents a handoff.
-                        // Only then is the physical pool closure removed.
-                        self.pipeline.kernel.mutate_required(
-                            "administrative removal could not demote coordinator consumers",
-                            |coordinator| coordinator.parents_unavailable(&removal_hashes),
-                        );
-                        let removed = tx_pool.remove_tx(&id);
-                        let released_inputs =
-                            tx_pool.released_inputs_from_removed_entries(&removed);
-                        let available_dependencies =
-                            available_cell_dependencies(&tx_pool, released_inputs);
-                        self.pipeline.kernel.mutate_required(
-                            "administrative removal availability update failed",
-                            |kernel| kernel.note_available(available_dependencies),
-                        );
-                        for status in removal_statuses {
-                            self.journal_block_assembler_update(status);
-                        }
-                        (None, removed)
-                    } else {
-                        let record = match self.pipeline.kernel.mutate(|coordinator| {
-                            let preview = coordinator.terminal_record(&tx_hash);
-                            let batch = preview.as_ref().and_then(|record| {
-                                self.pipeline_terminal_effects(std::slice::from_ref(record))
-                            });
-                            self.relay
-                                .effects
-                                .try_apply(batch, EffectClass::Trusted, || {
-                                    coordinator.force_terminalize(&tx_hash)
-                                })
-                        }) {
-                            Ok(Ok(record)) => record,
-                            Ok(Err(error)) => {
-                                ckb_logger::error!(
-                                    "administrative pipeline owner could not terminalize: {error:?}"
-                                );
-                                return None;
-                            }
-                            Err(error) => {
-                                ckb_logger::error!(
-                                    "administrative removal journal unavailable: {error:?}"
-                                );
-                                return None;
-                            }
-                        };
-                        (record, Vec::new())
-                    };
-                    let conflict_removed = false;
-                    Some((record, removed_entries, conflict_removed))
-                },
-            );
-            match mutation {
-                Ok(mutation) => mutation,
-                Err(defect) => {
-                    let disposal = self.recover_authoritative_defect(
-                        &mut tx_pool,
-                        defect_snapshot,
-                        "administrative removal mutation",
-                        defect,
+                    // Pre-pool consumers are demoted in one kernel transition
+                    // while the pool membership write lock prevents a handoff.
+                    // Only then is the physical pool closure removed.
+                    self.pipeline.kernel.mutate_required(
+                        "administrative removal could not demote coordinator consumers",
+                        |coordinator| coordinator.parents_unavailable(&removal_hashes),
                     );
-                    drop(tx_pool);
-                    drop(disposal);
-                    return RemoveTxOutcome::InProgress;
-                }
+                    let removed = tx_pool.remove_tx(&id);
+                    let released_inputs = tx_pool.released_inputs_from_removed_entries(&removed);
+                    let available_dependencies =
+                        available_cell_dependencies(&tx_pool, released_inputs);
+                    self.pipeline.kernel.mutate_required(
+                        "administrative removal availability update failed",
+                        |kernel| kernel.note_available(available_dependencies),
+                    );
+                    for status in removal_statuses {
+                        self.journal_block_assembler_update(status);
+                    }
+                    (None, removed)
+                } else {
+                    let record = match self.pipeline.kernel.mutate_authoritative(|coordinator| {
+                        let preview = coordinator.terminal_record(&tx_hash);
+                        let batch = preview.as_ref().and_then(|record| {
+                            self.pipeline_terminal_effects(std::slice::from_ref(record))
+                        });
+                        self.relay
+                            .effects
+                            .try_apply(batch, EffectClass::Trusted, || {
+                                coordinator.force_terminalize(&tx_hash)
+                            })
+                    }) {
+                        Ok(Ok(record)) => record,
+                        Ok(Err(error)) => return Err(error),
+                        Err(error) => {
+                            ckb_logger::error!(
+                                "administrative removal journal unavailable: {error:?}"
+                            );
+                            return Ok(None);
+                        }
+                    };
+                    (record, Vec::new())
+                };
+                let conflict_removed = false;
+                Ok(Some((record, removed_entries, conflict_removed)))
+            })();
+            mutation
+        };
+        let mutation = match mutation {
+            Ok(mutation) => mutation,
+            Err(error) => {
+                panic!("administrative removal pre-pool invariant failed: {error:?}");
             }
         };
         let Some((record, removed_entries, conflict_removed)) = mutation else {
@@ -515,61 +503,9 @@ impl TxPoolService {
     }
 
     pub(crate) fn find_tx_in_coordinator_hash(&self, hash: &Byte32) -> Option<PipelineTxLocation> {
-        self.find_tx_in_coordinator_by(|coordinator| {
-            coordinator.contains_hash(hash).then(|| hash.clone())
-        })
-    }
-
-    fn find_tx_in_coordinator_by(
-        &self,
-        select: impl FnOnce(&crate::component::pre_pool::PrePoolKernel) -> Option<Byte32>,
-    ) -> Option<PipelineTxLocation> {
-        self.pipeline.kernel.read(|coordinator| {
-            let hash = select(coordinator)?;
-            let view = coordinator.view(&hash)?;
-            let raw = coordinator.raw_by_hash(&hash)?;
-            let unverified = coordinator.unverified_by_hash(&hash);
-            let verified = coordinator.verified_by_hash(&hash);
-            use crate::component::pre_pool::PrePoolLocation;
-            Some(match view.location {
-                PrePoolLocation::Wait(crate::component::pre_pool::WaitReason::Missing) => {
-                    PipelineTxLocation::Orphan {
-                        tx: raw.tx.clone(),
-                        cycle: raw.declared_cycles.unwrap_or(0),
-                    }
-                }
-                PrePoolLocation::VerifyQueued | PrePoolLocation::VerifyLeased => {
-                    if let Some(resolved) = unverified {
-                        PipelineTxLocation::Verifying {
-                            tx: raw.tx.clone(),
-                            fee: resolved.fee,
-                            status: resolved.status,
-                        }
-                    } else {
-                        PipelineTxLocation::Ordered { tx: raw.tx.clone() }
-                    }
-                }
-                PrePoolLocation::Ready => {
-                    if let Some(verified) = verified {
-                        PipelineTxLocation::Verifying {
-                            tx: raw.tx.clone(),
-                            fee: verified.candidate.fee,
-                            status: verified.candidate.status,
-                        }
-                    } else {
-                        PipelineTxLocation::Ordered { tx: raw.tx.clone() }
-                    }
-                }
-                PrePoolLocation::RecoveryRetained
-                | PrePoolLocation::ResolveQueued
-                | PrePoolLocation::ResolveLeased => {
-                    PipelineTxLocation::Ordered { tx: raw.tx.clone() }
-                }
-                PrePoolLocation::Wait(crate::component::pre_pool::WaitReason::Conflict) => {
-                    PipelineTxLocation::ConflictHistory
-                }
-            })
-        })
+        self.pipeline
+            .kernel
+            .read(|coordinator| coordinator.tx_location_by_hash(hash))
     }
 
     /// Filter proposals down to those that are **completely new** to this

@@ -20,7 +20,7 @@ impl From<PrePoolSource> for WorkOwner {
     }
 }
 
-#[derive(Clone, Debug, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct WorkKey {
     pub(super) hash: Byte32,
     pub(super) version: EntryVersion,
@@ -28,17 +28,6 @@ pub(super) struct WorkKey {
     pub(super) arrival: u128,
     pub(super) schedule: VerifySchedule,
     pub(super) fee_ordered: bool,
-}
-
-impl PartialEq for WorkKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
-            && self.version == other.version
-            && self.source == other.source
-            && self.arrival == other.arrival
-            && self.schedule == other.schedule
-            && self.fee_ordered == other.fee_ordered
-    }
 }
 
 impl Ord for WorkKey {
@@ -75,7 +64,6 @@ impl PartialOrd for WorkKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RunnableHead {
-    trusted: bool,
     // Smaller turns win; reversed because BTreeSet::last is selected.
     turn: std::cmp::Reverse<u128>,
     work: WorkKey,
@@ -84,8 +72,8 @@ struct RunnableHead {
 
 impl Ord for RunnableHead {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.trusted
-            .cmp(&other.trusted)
+        (self.owner == WorkOwner::Trusted)
+            .cmp(&(other.owner == WorkOwner::Trusted))
             .then_with(|| self.turn.cmp(&other.turn))
             .then_with(|| self.work.cmp(&other.work))
             .then_with(|| self.owner.cmp(&other.owner))
@@ -114,6 +102,7 @@ pub(super) struct FairQueue {
     lane: WorkLane,
     owners: HashMap<WorkOwner, OwnerQueue>,
     heads: BTreeSet<RunnableHead>,
+    small_cycle_heads: BTreeSet<RunnableHead>,
     len: usize,
     next_turn: u128,
 }
@@ -124,6 +113,7 @@ impl FairQueue {
             lane,
             owners: HashMap::new(),
             heads: BTreeSet::new(),
+            small_cycle_heads: BTreeSet::new(),
             len: 0,
             next_turn: 0,
         }
@@ -133,31 +123,52 @@ impl FairQueue {
         self.len
     }
 
-    fn head_for(owner: WorkOwner, queue: &OwnerQueue) -> Option<RunnableHead> {
+    fn head_for(
+        owner: WorkOwner,
+        queue: &OwnerQueue,
+        capability: WorkCapability,
+    ) -> Option<RunnableHead> {
         if !queue.runnable {
             return None;
         }
+        let work = match capability {
+            WorkCapability::Any => queue.work.last(),
+            WorkCapability::SmallCycleOnly => queue
+                .work
+                .iter()
+                .rev()
+                .find(|key| !key.schedule.is_large_cycle),
+        }?;
         Some(RunnableHead {
-            trusted: owner == WorkOwner::Trusted,
             turn: std::cmp::Reverse(queue.turn),
-            work: queue.work.last()?.clone(),
+            work: work.clone(),
             owner,
         })
     }
 
     fn remove_head(&mut self, owner: WorkOwner) {
-        if let Some(queue) = self.owners.get(&owner)
-            && let Some(head) = Self::head_for(owner, queue)
-        {
-            self.heads.remove(&head);
+        if let Some(queue) = self.owners.get(&owner) {
+            if let Some(head) = Self::head_for(owner, queue, WorkCapability::Any) {
+                self.heads.remove(&head);
+            }
+            if self.lane == WorkLane::Verify
+                && let Some(head) = Self::head_for(owner, queue, WorkCapability::SmallCycleOnly)
+            {
+                self.small_cycle_heads.remove(&head);
+            }
         }
     }
 
     fn insert_head(&mut self, owner: WorkOwner) {
-        if let Some(queue) = self.owners.get(&owner)
-            && let Some(head) = Self::head_for(owner, queue)
-        {
-            self.heads.insert(head);
+        if let Some(queue) = self.owners.get(&owner) {
+            if let Some(head) = Self::head_for(owner, queue, WorkCapability::Any) {
+                self.heads.insert(head);
+            }
+            if self.lane == WorkLane::Verify
+                && let Some(head) = Self::head_for(owner, queue, WorkCapability::SmallCycleOnly)
+            {
+                self.small_cycle_heads.insert(head);
+            }
         }
     }
 
@@ -217,33 +228,22 @@ impl FairQueue {
     }
 
     pub(super) fn peek(&self, capability: WorkCapability) -> Option<&WorkKey> {
-        self.heads.iter().rev().find_map(|head| {
-            let eligible = match (self.lane, capability) {
-                (WorkLane::Verify, WorkCapability::SmallCycleOnly) => {
-                    !head.work.schedule.is_large_cycle
-                }
-                _ => true,
-            };
-            eligible.then_some(&head.work)
-        })
+        match (self.lane, capability) {
+            (WorkLane::Verify, WorkCapability::SmallCycleOnly) => self.small_cycle_heads.last(),
+            _ => self.heads.last(),
+        }
+        .map(|head| &head.work)
     }
 
     pub(super) fn pop(
         &mut self,
         capability: WorkCapability,
     ) -> Result<Option<WorkKey>, PrePoolError> {
-        let Some(head) = self
-            .heads
-            .iter()
-            .rev()
-            .find(|head| match (self.lane, capability) {
-                (WorkLane::Verify, WorkCapability::SmallCycleOnly) => {
-                    !head.work.schedule.is_large_cycle
-                }
-                _ => true,
-            })
-            .cloned()
-        else {
+        let heads = match (self.lane, capability) {
+            (WorkLane::Verify, WorkCapability::SmallCycleOnly) => &self.small_cycle_heads,
+            _ => &self.heads,
+        };
+        let Some(head) = heads.last().cloned() else {
             return Ok(None);
         };
         let next_turn = self
@@ -275,43 +275,8 @@ impl FairQueue {
         }
         Ok(Some(head.work))
     }
-
-    #[cfg(test)]
-    pub(super) fn audit(&self) -> Result<(), String> {
-        let mut expected_heads = BTreeSet::new();
-        let mut count = 0usize;
-        for (owner, queue) in &self.owners {
-            if queue.work.is_empty() {
-                return Err("fair queue retains an empty owner".to_string());
-            }
-            if queue
-                .work
-                .iter()
-                .any(|key| WorkOwner::from(key.source) != *owner)
-            {
-                return Err("fair queue owner contains a foreign work key".to_string());
-            }
-            count = count
-                .checked_add(queue.work.len())
-                .ok_or_else(|| "fair queue length overflow".to_string())?;
-            if let Some(head) = Self::head_for(*owner, queue) {
-                expected_heads.insert(head);
-            }
-        }
-        if count != self.len {
-            return Err("fair queue cached length drift".to_string());
-        }
-        if expected_heads != self.heads {
-            return Err("fair queue runnable-head projection drift".to_string());
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(super) fn work_keys(&self) -> BTreeSet<WorkKey> {
-        self.owners
-            .values()
-            .flat_map(|queue| queue.work.iter().cloned())
-            .collect()
-    }
 }
+
+#[cfg(test)]
+#[path = "../tests/pre_pool_queue_seam.rs"]
+mod test_seam;

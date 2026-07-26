@@ -1,5 +1,10 @@
 use super::*;
 
+struct ActivePlan {
+    total: usize,
+    owner_updates: [Option<(WorkOwner, usize)>; 2],
+}
+
 impl PrePoolKernel {
     /// Snapshot terminal publication metadata without changing ownership.
     /// Callers pair this immutable record with an effect-journal capacity
@@ -23,28 +28,6 @@ impl PrePoolKernel {
             .any(|key| key.parent_hash() == *hash)
         {
             return Err(PrePoolError::SelfDependency(hash.clone()));
-        }
-        if (entry.source == PrePoolSource::Recovery) != entry.recovery.is_some() {
-            return Err(PrePoolError::Repair(
-                "recovery source and metadata must be paired",
-            ));
-        }
-        if matches!(entry.state, EntryState::RecoveryRetained)
-            && entry.source != PrePoolSource::Recovery
-        {
-            return Err(PrePoolError::Repair(
-                "only a recovery source may be retained",
-            ));
-        }
-        if entry.source == PrePoolSource::Recovery
-            && !matches!(
-                entry.state,
-                EntryState::RecoveryRetained | EntryState::ResolveLeased
-            )
-        {
-            return Err(PrePoolError::Repair(
-                "recovery source escaped retained/direct-lease states",
-            ));
         }
         if entry.dependencies.len() > self.limits.max_dependencies_per_entry {
             return Err(PrePoolError::DependencyLimitExceeded);
@@ -122,22 +105,7 @@ impl PrePoolKernel {
 
     pub(super) fn attach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
         debug_assert_eq!(self.by_short_id.get(&entry.short_id), None);
-        self.by_short_id
-            .insert(entry.short_id.clone(), hash.clone());
-        if let Some(peer) = entry.source.peer() {
-            self.by_peer.entry(peer).or_default().insert(hash.clone());
-        }
-        for parent in entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-        {
-            self.by_parent
-                .entry(parent)
-                .or_default()
-                .insert(hash.clone());
-        }
+        self.attach_common_indexes(hash, entry);
         if let Some(key) = entry.work_key(hash, self.limits.verify_fee_rate_ordering) {
             let lane = match entry.state {
                 EntryState::ResolveQueued { lane } => Self::lane_for_resolve(lane),
@@ -170,27 +138,13 @@ impl PrePoolKernel {
                     .insert(rank.clone());
             }
         }
-        if let Some(deadline) = Self::deadline_key(hash, entry) {
-            self.deadlines.insert(deadline);
-        }
-        if matches!(entry.state, EntryState::RecoveryRetained) {
-            self.recovery.insert(RecoveryKey {
-                meta: entry.recovery.expect("validated recovery metadata"),
-                hash: hash.clone(),
-                version: entry.version,
-            });
-        }
     }
 
-    pub(super) fn detach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
-        self.by_short_id.remove(&entry.short_id);
-        if let Some(peer) = entry.source.peer()
-            && let Some(hashes) = self.by_peer.get_mut(&peer)
-        {
-            hashes.remove(hash);
-            if hashes.is_empty() {
-                self.by_peer.remove(&peer);
-            }
+    fn attach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.by_short_id
+            .insert(entry.short_id.clone(), hash.clone());
+        if let Some(peer) = entry.source.peer() {
+            self.by_peer.entry(peer).or_default().insert(hash.clone());
         }
         for parent in entry
             .dependencies
@@ -198,13 +152,18 @@ impl PrePoolKernel {
             .map(DependencyKey::parent_hash)
             .collect::<BTreeSet<_>>()
         {
-            if let Some(children) = self.by_parent.get_mut(&parent) {
-                children.remove(hash);
-                if children.is_empty() {
-                    self.by_parent.remove(&parent);
-                }
-            }
+            self.by_parent
+                .entry(parent)
+                .or_default()
+                .insert(hash.clone());
         }
+        if let Some(deadline) = Self::deadline_key(hash, entry) {
+            self.deadlines.insert(deadline);
+        }
+    }
+
+    pub(super) fn detach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.detach_common_indexes(hash, entry);
         if let Some(key) = entry.work_key(hash, self.limits.verify_fee_rate_ordering) {
             let lane = match entry.state {
                 EntryState::ResolveQueued { lane } => Self::lane_for_resolve(lane),
@@ -243,15 +202,33 @@ impl PrePoolKernel {
                 }
             }
         }
+    }
+
+    fn detach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.by_short_id.remove(&entry.short_id);
+        if let Some(peer) = entry.source.peer()
+            && let Some(hashes) = self.by_peer.get_mut(&peer)
+        {
+            hashes.remove(hash);
+            if hashes.is_empty() {
+                self.by_peer.remove(&peer);
+            }
+        }
+        for parent in entry
+            .dependencies
+            .iter()
+            .map(DependencyKey::parent_hash)
+            .collect::<BTreeSet<_>>()
+        {
+            if let Some(children) = self.by_parent.get_mut(&parent) {
+                children.remove(hash);
+                if children.is_empty() {
+                    self.by_parent.remove(&parent);
+                }
+            }
+        }
         if let Some(deadline) = Self::deadline_key(hash, entry) {
             self.deadlines.remove(&deadline);
-        }
-        if matches!(entry.state, EntryState::RecoveryRetained) {
-            self.recovery.remove(&RecoveryKey {
-                meta: entry.recovery.expect("validated recovery metadata"),
-                hash: hash.clone(),
-                version: entry.version,
-            });
         }
     }
 
@@ -262,10 +239,10 @@ impl PrePoolKernel {
             .get(hash)
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        self.check_usage_delta(Some(&old), Some(&next))?;
+        let usage_plan = self.plan_usage_delta(Some(&old), Some(&next))?;
         let old_active = Self::active_owner(old.source, &old.state);
         let next_active = Self::active_owner(next.source, &next.state);
-        self.check_active_transition(old_active, next_active)?;
+        let active_plan = self.plan_active_transition(old_active, next_active)?;
         if old.short_id != next.short_id
             && let Some(existing_hash) = self.by_short_id.get(&next.short_id)
         {
@@ -275,10 +252,10 @@ impl PrePoolKernel {
             });
         }
         self.detach_indexes(hash, &old);
-        self.apply_usage_delta(Some(&old), Some(&next));
+        self.apply_usage_plan(usage_plan);
         self.entries.insert(hash.clone(), next.clone());
         self.attach_indexes(hash, &next);
-        self.apply_active_transition(old_active, next_active);
+        self.apply_active_plan(active_plan);
         self.refresh_owner_runnable(old.source.into());
         self.refresh_owner_runnable(next.source.into());
         Ok(())
@@ -291,13 +268,14 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
         let old_active = Self::active_owner(entry.source, &entry.state);
-        self.check_active_transition(old_active, None)?;
+        let active_plan = self.plan_active_transition(old_active, None)?;
+        let usage_plan = self.plan_usage_delta(Some(&entry), None)?;
         self.entries
             .remove(hash)
             .expect("remove prevalidated primary entry");
         self.detach_indexes(hash, &entry);
-        self.apply_usage_delta(Some(&entry), None);
-        self.apply_active_transition(old_active, None);
+        self.apply_usage_plan(usage_plan);
+        self.apply_active_plan(active_plan);
         self.refresh_owner_runnable(entry.source.into());
         Ok(TerminalRecord {
             hash: hash.clone(),
@@ -361,14 +339,11 @@ impl PrePoolKernel {
         }
     }
 
-    pub(super) fn check_active_transition(
+    fn plan_active_transition(
         &self,
         old: Option<WorkOwner>,
         new: Option<WorkOwner>,
-    ) -> Result<(), PrePoolError> {
-        if old == new {
-            return Ok(());
-        }
+    ) -> Result<ActivePlan, PrePoolError> {
         let active_work = self
             .active_work
             .checked_sub(usize::from(old.is_some()))
@@ -377,8 +352,8 @@ impl PrePoolKernel {
         if active_work > self.limits.max_active_work {
             return Err(PrePoolError::ActiveWorkLimitExceeded);
         }
-        for owner in [old, new].into_iter().flatten() {
-            let projected = self
+        let project_owner = |owner| {
+            let active = self
                 .active_by_owner
                 .get(&owner)
                 .copied()
@@ -386,34 +361,27 @@ impl PrePoolKernel {
                 .checked_sub(usize::from(old == Some(owner)))
                 .and_then(|value| value.checked_add(usize::from(new == Some(owner))))
                 .ok_or(PrePoolError::Repair("active owner projection arithmetic"))?;
-            if projected > self.owner_active_limit(owner) {
+            if active > self.owner_active_limit(owner) {
                 return Err(Self::active_limit_error(owner));
             }
-        }
-        Ok(())
+            Ok(active)
+        };
+        let old_update = old
+            .map(|owner| project_owner(owner).map(|active| (owner, active)))
+            .transpose()?;
+        let new_update = new
+            .filter(|owner| Some(*owner) != old)
+            .map(|owner| project_owner(owner).map(|active| (owner, active)))
+            .transpose()?;
+        Ok(ActivePlan {
+            total: active_work,
+            owner_updates: [old_update, new_update],
+        })
     }
 
-    pub(super) fn apply_active_transition(
-        &mut self,
-        old: Option<WorkOwner>,
-        new: Option<WorkOwner>,
-    ) {
-        if old == new {
-            return;
-        }
-        self.active_work = self
-            .active_work
-            .checked_sub(usize::from(old.is_some()))
-            .and_then(|value| value.checked_add(usize::from(new.is_some())))
-            .expect("prevalidated active work transition");
-        if let Some(owner) = old {
-            let active = self
-                .active_by_owner
-                .get(&owner)
-                .copied()
-                .expect("prevalidated active owner")
-                .checked_sub(1)
-                .expect("prevalidated active owner decrement");
+    fn apply_active_plan(&mut self, plan: ActivePlan) {
+        self.active_work = plan.total;
+        for (owner, active) in plan.owner_updates.into_iter().flatten() {
             if active == 0 {
                 self.active_by_owner.remove(&owner);
             } else {
@@ -421,20 +389,17 @@ impl PrePoolKernel {
             }
             self.refresh_owner_runnable(owner);
         }
-        if let Some(owner) = new {
-            let active = self
-                .active_by_owner
-                .get(&owner)
-                .copied()
-                .unwrap_or_default();
-            self.active_by_owner.insert(
-                owner,
-                active
-                    .checked_add(1)
-                    .expect("prevalidated active owner increment"),
-            );
-            self.refresh_owner_runnable(owner);
-        }
+    }
+
+    pub(super) fn apply_prevalidated_active_transition(
+        &mut self,
+        old: Option<WorkOwner>,
+        new: Option<WorkOwner>,
+    ) {
+        let plan = self
+            .plan_active_transition(old, new)
+            .expect("aggregate plan prevalidated every active-work delta");
+        self.apply_active_plan(plan);
     }
 
     fn refresh_owner_runnable(&mut self, owner: WorkOwner) {
@@ -483,7 +448,6 @@ impl PrePoolKernel {
             short_id,
             raw: Arc::new(raw),
             source,
-            recovery: None,
             state: EntryState::ResolveQueued { lane },
             version,
             arrival,
@@ -494,8 +458,8 @@ impl PrePoolKernel {
         };
         entry.charge_bytes = self.entry_charge(&entry)?;
         self.validate_entry_shape(&hash, &entry)?;
-        self.check_usage_delta(None, Some(&entry))?;
-        self.apply_usage_delta(None, Some(&entry));
+        let usage_plan = self.plan_usage_delta(None, Some(&entry))?;
+        self.apply_usage_plan(usage_plan);
         self.entries.insert(hash.clone(), entry.clone());
         self.attach_indexes(&hash, &entry);
         Ok(version)
@@ -577,10 +541,10 @@ impl PrePoolKernel {
         next.version = version;
         next.state = EntryState::ResolveLeased;
         next.charge_bytes = self.entry_charge(&next)?;
-        self.check_usage_delta(Some(&entry), Some(&next))?;
+        let usage_plan = self.plan_usage_delta(Some(&entry), Some(&next))?;
         let old_active = Self::active_owner(entry.source, &entry.state);
         let next_active = Self::active_owner(next.source, &next.state);
-        self.check_active_transition(old_active, next_active)?;
+        let active_plan = self.plan_active_transition(old_active, next_active)?;
         let popped = self.queues[work_lane.index()].pop(WorkCapability::Any)?;
         if popped.as_ref() != Some(&key) {
             return Err(PrePoolError::Repair(
@@ -589,12 +553,7 @@ impl PrePoolKernel {
         }
         // The queue key was removed directly by pop. Replace only the primary
         // and non-queue indexes to avoid attempting a second exact removal.
-        self.by_short_id.remove(&entry.short_id);
-        self.detach_nonqueue_indexes(&key.hash, &entry);
-        self.apply_usage_delta(Some(&entry), Some(&next));
-        self.entries.insert(key.hash.clone(), next.clone());
-        self.attach_nonqueue_indexes(&key.hash, &next);
-        self.apply_active_transition(old_active, next_active);
+        self.replace_after_queue_pop(&key.hash, &entry, &next, usage_plan, active_plan);
         Ok(Some(ResolveLease {
             hash: key.hash,
             lane,
@@ -672,22 +631,17 @@ impl PrePoolKernel {
             payload: Arc::clone(&payload),
         };
         next.charge_bytes = self.entry_charge(&next)?;
-        self.check_usage_delta(Some(&entry), Some(&next))?;
+        let usage_plan = self.plan_usage_delta(Some(&entry), Some(&next))?;
         let old_active = Self::active_owner(entry.source, &entry.state);
         let next_active = Self::active_owner(next.source, &next.state);
-        self.check_active_transition(old_active, next_active)?;
+        let active_plan = self.plan_active_transition(old_active, next_active)?;
         let popped = self.queues[lane.index()].pop(capability)?;
         if popped.as_ref() != Some(&key) {
             return Err(PrePoolError::Repair(
                 "verify head changed inside kernel lock",
             ));
         }
-        self.by_short_id.remove(&entry.short_id);
-        self.detach_nonqueue_indexes(&key.hash, &entry);
-        self.apply_usage_delta(Some(&entry), Some(&next));
-        self.entries.insert(key.hash.clone(), next.clone());
-        self.attach_nonqueue_indexes(&key.hash, &next);
-        self.apply_active_transition(old_active, next_active);
+        self.replace_after_queue_pop(&key.hash, &entry, &next, usage_plan, active_plan);
         Ok(Some(VerifyLease {
             hash: key.hash,
             version,
@@ -730,54 +684,19 @@ impl PrePoolKernel {
         Ok(version)
     }
 
-    fn detach_nonqueue_indexes(&mut self, hash: &Byte32, entry: &Entry) {
-        self.by_short_id.remove(&entry.short_id);
-        if let Some(peer) = entry.source.peer()
-            && let Some(hashes) = self.by_peer.get_mut(&peer)
-        {
-            hashes.remove(hash);
-            if hashes.is_empty() {
-                self.by_peer.remove(&peer);
-            }
-        }
-        for parent in entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-        {
-            if let Some(children) = self.by_parent.get_mut(&parent) {
-                children.remove(hash);
-                if children.is_empty() {
-                    self.by_parent.remove(&parent);
-                }
-            }
-        }
-        if let Some(deadline) = Self::deadline_key(hash, entry) {
-            self.deadlines.remove(&deadline);
-        }
-    }
-
-    fn attach_nonqueue_indexes(&mut self, hash: &Byte32, entry: &Entry) {
-        self.by_short_id
-            .insert(entry.short_id.clone(), hash.clone());
-        if let Some(peer) = entry.source.peer() {
-            self.by_peer.entry(peer).or_default().insert(hash.clone());
-        }
-        for parent in entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-        {
-            self.by_parent
-                .entry(parent)
-                .or_default()
-                .insert(hash.clone());
-        }
-        if let Some(deadline) = Self::deadline_key(hash, entry) {
-            self.deadlines.insert(deadline);
-        }
+    fn replace_after_queue_pop(
+        &mut self,
+        hash: &Byte32,
+        old: &Entry,
+        next: &Entry,
+        usage_plan: UsagePlan,
+        active_plan: ActivePlan,
+    ) {
+        self.detach_common_indexes(hash, old);
+        self.apply_usage_plan(usage_plan);
+        self.entries.insert(hash.clone(), next.clone());
+        self.attach_common_indexes(hash, next);
+        self.apply_active_plan(active_plan);
     }
 
     pub(crate) fn force_terminalize(
@@ -846,14 +765,10 @@ impl PrePoolKernel {
             .collect()
     }
 
-    pub(crate) fn work_is_ready(
-        &self,
-        lane: WorkLane,
-        capability: WorkCapability,
-    ) -> Result<bool, PrePoolError> {
-        Ok(match lane {
+    pub(crate) fn work_is_ready(&self, lane: WorkLane, capability: WorkCapability) -> bool {
+        match lane {
             WorkLane::Commit => !self.ready.is_empty(),
             _ => self.queues[lane.index()].peek(capability).is_some(),
-        })
+        }
     }
 }

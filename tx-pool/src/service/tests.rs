@@ -3,12 +3,12 @@ use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
 use ckb_stop_handler::new_tokio_exit_rx;
 use std::future::Future;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 impl PipelineEpoch {
     pub(crate) fn set_for_test(&self, value: u64) {
         self.value.store(value, Ordering::Release);
-        self.exhausted.store(false, Ordering::Release);
     }
 }
 
@@ -94,6 +94,45 @@ async fn async_network_controller_calls_fail_fast_when_channel_is_full() {
 }
 
 #[test]
+fn remote_submit_awaits_without_blocking_a_current_thread_runtime() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let (reorg_sender, _reorg_receiver) = mpsc::channel(1);
+        let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+        let controller = TxPoolController {
+            sender,
+            reorg_sender,
+            chunk_tx: Arc::new(chunk_tx),
+            handle: new_background_runtime(),
+            started: Arc::new(AtomicBool::new(true)),
+            signal: new_tokio_exit_rx(),
+        };
+        let responder = tokio::spawn(async move {
+            let Some(Message::SubmitRemoteTx(AsyncRequest { responder, .. })) =
+                receiver.recv().await
+            else {
+                panic!("remote submit message missing");
+            };
+            responder.send(()).unwrap();
+        });
+
+        controller
+            .submit_remote_tx(
+                ckb_types::core::TransactionBuilder::default().build(),
+                0,
+                ckb_network::PeerIndex::from(1),
+            )
+            .await
+            .unwrap();
+        responder.await.unwrap();
+    });
+}
+
+#[test]
 fn block_assembler_dirty_journal_is_level_triggered_and_coalesced() {
     let relay = relay_state();
     relay.mark_block_assembler_dirty(&BlockAssemblerMessage::Pending);
@@ -162,9 +201,8 @@ fn full_rebuild_reissues_both_optimistic_delta_generations() {
 fn pipeline_epoch_exhaustion_is_fail_closed_without_wraparound() {
     let epoch = PipelineEpoch::default();
     epoch.set_for_test(u64::MAX - 1);
-    assert_eq!(epoch.advance(), Some(u64::MAX));
-    assert!(epoch.is_current(u64::MAX));
-
+    // MAX is the atomic exhausted sentinel, so no reader can transiently
+    // observe or admit work in an epoch that another atomic marks exhausted.
     assert_eq!(epoch.advance(), None);
     assert_eq!(epoch.current(), None);
     assert!(!epoch.is_current(u64::MAX));

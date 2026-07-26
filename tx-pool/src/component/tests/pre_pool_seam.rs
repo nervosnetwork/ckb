@@ -3,7 +3,35 @@ use crate::resolved_tx::ResolvedTx;
 use std::collections::BTreeSet;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[derive(Clone, Debug)]
+pub(crate) struct PrePoolView {
+    pub(crate) location: PrePoolLocation,
+    pub(crate) source: PrePoolSource,
+    pub(crate) dependencies: BTreeSet<Byte32>,
+    pub(crate) version: EntryVersion,
+}
+
 impl PrePoolKernel {
+    pub(crate) fn view(&self, hash: &Byte32) -> Option<PrePoolView> {
+        self.entries.get(hash).map(|entry| PrePoolView {
+            location: entry.state.location(),
+            source: entry.source,
+            dependencies: entry
+                .dependencies
+                .iter()
+                .map(DependencyKey::parent_hash)
+                .collect(),
+            version: entry.version,
+        })
+    }
+
+    pub(crate) fn peer_active_work(&self, peer: ckb_network::PeerIndex) -> usize {
+        self.active_by_owner
+            .get(&WorkOwner::Remote(peer))
+            .copied()
+            .unwrap_or_default()
+    }
+
     fn independently_retained_wait_keys(entry: &Entry) -> BTreeSet<DependencyKey> {
         let mut keys = entry
             .raw
@@ -66,9 +94,9 @@ impl PrePoolKernel {
             .and_then(|value| value.checked_add(usize::from(entry.expires_at.is_some())))
             .ok_or_else(|| "common projection charge overflow".to_string())?;
         let current_state_memberships = match &entry.state {
-            EntryState::RecoveryRetained => 1,
             EntryState::ResolveLeased | EntryState::VerifyLeased { .. } => 0,
-            EntryState::ResolveQueued { .. } | EntryState::VerifyQueued { .. } => 3,
+            EntryState::ResolveQueued { .. } => 3,
+            EntryState::VerifyQueued { .. } => 4,
             EntryState::Wait(wait) => wait
                 .observed
                 .len()
@@ -134,7 +162,6 @@ impl PrePoolKernel {
         let mut ready = BTreeSet::new();
         let mut ready_by_input = HashMap::<_, BTreeSet<_>>::new();
         let mut deadlines = BTreeSet::new();
-        let mut recovery = BTreeSet::new();
         let mut total_usage = Residency::default();
         let mut remote_usage = Residency::default();
         let mut conflict_usage = Residency::default();
@@ -214,16 +241,6 @@ impl PrePoolKernel {
             if let Some(deadline) = Self::deadline_key(hash, entry) {
                 deadlines.insert(deadline);
             }
-            if matches!(entry.state, EntryState::RecoveryRetained) {
-                recovery.insert(RecoveryKey {
-                    meta: entry.recovery.ok_or_else(|| {
-                        "recovery owner is missing parent-first metadata".to_string()
-                    })?,
-                    hash: hash.clone(),
-                    version: entry.version,
-                });
-            }
-
             let charge = Residency::new(1, entry.charge_bytes);
             total_usage = total_usage
                 .checked_add(charge)
@@ -265,7 +282,6 @@ impl PrePoolKernel {
             || ready != self.ready
             || ready_by_input != self.ready_by_input
             || deadlines != self.deadlines
-            || recovery != self.recovery
             || total_usage != self.total_usage
             || remote_usage != self.remote_usage
             || conflict_usage != self.conflict_usage

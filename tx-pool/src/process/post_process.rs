@@ -60,49 +60,27 @@ impl TxPoolService {
             ret,
             Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
         ) {
-            let mut tx_pool = self.pool.tx_pool.write().await;
-            let defect_snapshot = tx_pool.cloned_snapshot();
-            let mutation = self.pipeline.kernel.guard_authoritative_mutation(
-                "post-process conflict-history mutation panicked",
-                || {
-                    if self.is_pipeline_epoch_current(epoch)
-                        && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
-                    {
-                        let raw = crate::component::pre_pool::PipelineRawTx::new(
-                            tx.clone(),
-                            source,
-                            epoch,
-                        );
-                        let keys = crate::component::pre_pool::conflict_dependency_keys(
-                            &tx,
-                            std::iter::empty(),
-                        );
-                        let owner = crate::component::pre_pool::historical_source(source);
-                        let expires_at =
-                            crate::component::pre_pool::historical_deadline(owner);
-                        if let Err(error) = self.pipeline.kernel.mutate(|kernel| {
-                            kernel.retain_conflict(raw, owner, keys, expires_at)
-                        }) {
-                            debug!(
-                                "dropping bounded post-process conflict history for {tx_hash}: {error:?}"
-                            );
-                        }
-                    }
-                },
-            );
-            let disposal = if let Err(defect) = mutation {
-                Some(self.recover_authoritative_defect_with_fingerprint(
-                    &mut tx_pool,
-                    defect_snapshot,
-                    "post-process conflict-history mutation",
-                    defect,
-                    source.peer().is_some().then(|| tx.witness_hash()),
-                ))
-            } else {
-                None
-            };
+            let tx_pool = self.pool.tx_pool.write().await;
+            if self.is_pipeline_epoch_current(epoch)
+                && tx_pool.pool_map.find_conflict_outpoint(&tx).is_some()
+            {
+                let raw = crate::component::pre_pool::PipelineRawTx::new(tx.clone(), source, epoch);
+                let keys =
+                    crate::component::pre_pool::conflict_dependency_keys(&tx, std::iter::empty());
+                let owner = crate::component::pre_pool::historical_source(source);
+                let expires_at = crate::component::pre_pool::historical_deadline(owner);
+                self.pipeline.kernel.mutate_authoritative(|kernel| {
+                    self.retain_optional_conflict(
+                        kernel,
+                        raw,
+                        owner,
+                        keys,
+                        expires_at,
+                        "post-process conflict retention failed",
+                    )
+                });
+            }
             drop(tx_pool);
-            drop(disposal);
         }
 
         match source {
@@ -347,7 +325,7 @@ impl TxPoolService {
             {
                 break;
             }
-            let terminal = match self.pipeline.kernel.mutate(|coordinator| {
+            let terminal = match self.pipeline.kernel.mutate_authoritative(|coordinator| {
                 let current = hashes
                     .iter()
                     .filter_map(|hash| coordinator.terminal_record(hash))
@@ -361,8 +339,7 @@ impl TxPoolService {
             }) {
                 Ok(Ok(records)) => records,
                 Ok(Err(error)) => {
-                    ckb_logger::error!("banned-peer owner cohort failed: {error:?}");
-                    break;
+                    panic!("banned-peer owner cohort invariant failed: {error:?}")
                 }
                 Err(EffectJournalError::Full) => continue,
                 Err(error) => {

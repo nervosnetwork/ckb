@@ -477,7 +477,7 @@ async fn zero_verify_worker_config_still_runs_remote_pipeline() {
 
 /// Persistence observes the ownership partition, not a handler-wide lock. A
 /// save racing the reorg switch contains the detached transaction whether it
-/// sees `RecoveryRetained` or its later accepted owner.
+/// sees queued/leased recovery ownership or its later accepted owner.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn save_pool_captures_complete_reorg_ownership() {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -486,18 +486,18 @@ async fn save_pool_captures_complete_reorg_ownership() {
     let tx_id = tx.proposal_short_id();
     h.service.pool.tx_pool.write().await.config.persisted_data = tmp.path().join("tx_pool");
     let epoch = h.service.current_pipeline_epoch().unwrap();
-    let batch = h
+    let retained = h
         .service
         .pipeline
         .kernel
         .mutate(|kernel| kernel.retain_recovery_batch(vec![tx], epoch))
         .expect("recovery ownership installs");
-    assert_eq!(batch.retained, 1);
+    assert_eq!(retained, 1);
     let lease = h
         .service
         .pipeline
         .kernel
-        .checkout_recovery(batch.session)
+        .checkout_resolve(crate::component::pre_pool::ResolveLane::Ordered)
         .unwrap()
         .expect("recovery owner is actively leased");
 
@@ -515,7 +515,7 @@ async fn save_pool_captures_complete_reorg_ownership() {
         loaded
             .recovery
             .iter()
-            .any(|item| item.tx.proposal_short_id() == tx_id && item.meta.session == batch.session),
+            .any(|tx| tx.proposal_short_id() == tx_id),
         "persistence must include the kernel-owned detached transaction while leased"
     );
     assert_eq!(lease.payload.tx.proposal_short_id(), tx_id);

@@ -5,7 +5,7 @@ use crate::component::pre_pool::{
 };
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
-use crate::resolved_tx::{ResolveJob, ResolvedTx};
+use crate::resolved_tx::ResolvedTx;
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use crate::worker::{JobHandler, WorkerRunner};
@@ -25,9 +25,14 @@ pub(crate) enum ResolveStageResult {
     Reject(Reject),
 }
 
-pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> ResolveStageResult {
-    let tx_size = job.tx.data().serialized_size_in_block();
-    let (pre_check_ret, _snapshot) = service.pre_check(&job.tx, tx_size).await;
+pub(crate) async fn resolve_job(
+    service: &TxPoolService,
+    tx: ckb_types::core::TransactionView,
+    source: crate::tx_source::TxSource,
+    epoch: u64,
+) -> ResolveStageResult {
+    let tx_size = tx.data().serialized_size_in_block();
+    let (pre_check_ret, _snapshot) = service.pre_check(&tx, tx_size).await;
     match pre_check_ret {
         Ok(PreCheckedTx {
             pre_resolve_tip,
@@ -37,17 +42,17 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
             tx_size,
             resident_size,
         }) => {
-            debug!("resolve stage resolved tx {}", job.tx.proposal_short_id());
+            debug!("resolve stage resolved tx {}", tx.proposal_short_id());
             ResolveStageResult::Ready(ResolvedTx {
-                tx: job.tx,
+                tx,
                 rtx,
                 status,
                 fee,
                 tx_size,
                 resident_size,
                 pre_resolve_tip,
-                source: job.source,
-                epoch: job.epoch,
+                source,
+                epoch,
             })
         }
         Err(Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(out_point))) => {
@@ -90,44 +95,62 @@ impl TxPoolService {
         else {
             return;
         };
-        let source = self
-            .pipeline
-            .kernel
-            .require_authoritative_source(&lease.payload, current_source);
+        let source = match lease.payload.authoritative_source(current_source) {
+            Ok(source) => source,
+            Err(error) => {
+                panic!("raw lease source attribution invariant failed: {error:?}")
+            }
+        };
 
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_raw_lease(&lease, None).await;
             return;
         }
 
-        let job = ResolveJob::new_at(tx.clone(), source, epoch);
-        let outcome = crate::worker::catch_job_panic(async {
-            match resolve_job(self, job).await {
-                ResolveStageResult::Ready(resolved) => {
-                    // Raw admission can name a dep-group cell but only a
-                    // successful resolver can name every expanded member.
-                    // Publish those producer hashes in the same coordinator
-                    // transition as the resolved payload so later pool
-                    // removal invalidates it causally instead of waiting for
-                    // a stale final-commit failure.
-                    let resolved_dependencies = resolved
-                        .rtx
-                        .related_dep_out_points()
-                        .map(|out_point| {
-                            crate::component::pre_pool::DependencyKey::Cell(
-                                crate::util::compact_packed(out_point),
-                            )
-                        })
-                        .collect::<std::collections::BTreeSet<_>>();
-                    let charge_bytes = resolved.resident_size;
-                    let fee_rate = FeeRate::calculate(resolved.fee, resolved.tx_size as u64);
-                    let schedule = VerifySchedule::new(
-                        fee_rate.as_u64(),
-                        source.cycles().is_some_and(|cycles| {
-                            cycles > self.pool.tx_pool_config.max_tx_verify_cycles
-                        }),
-                    );
-                    match self.pipeline.kernel.mutate(|coordinator| {
+        let resolved = match crate::worker::catch_job_panic(resolve_job(
+            self,
+            tx.clone(),
+            source,
+            epoch,
+        ))
+        .await
+        {
+            Ok(resolved) => resolved,
+            Err(message) => {
+                error!("tx-pool resolver panicked on {}: {}", lease.hash, message);
+                self.settle_pipeline_raw_lease(&lease, None).await;
+                return;
+            }
+        };
+
+        match resolved {
+            ResolveStageResult::Ready(resolved) => {
+                // Raw admission can name a dep-group cell but only a
+                // successful resolver can name every expanded member.
+                // Publish those producer hashes in the same coordinator
+                // transition as the resolved payload so later pool
+                // removal invalidates it causally instead of waiting for
+                // a stale final-commit failure.
+                let resolved_dependencies = resolved
+                    .rtx
+                    .related_dep_out_points()
+                    .map(|out_point| {
+                        crate::component::pre_pool::DependencyKey::Cell(
+                            crate::util::compact_packed(out_point),
+                        )
+                    })
+                    .collect::<std::collections::BTreeSet<_>>();
+                let charge_bytes = resolved.resident_size;
+                let fee_rate = FeeRate::calculate(resolved.fee, resolved.tx_size as u64);
+                let schedule = VerifySchedule::new(
+                    fee_rate.as_u64(),
+                    source.cycles().is_some_and(|cycles| {
+                        cycles > self.pool.tx_pool_config.max_tx_verify_cycles
+                    }),
+                );
+                match self.pipeline.kernel.transition(
+                    "raw completion mutation panicked",
+                    |coordinator| {
                         coordinator.complete_resolve(
                             &lease,
                             resolved,
@@ -135,44 +158,37 @@ impl TxPoolService {
                             schedule,
                             resolved_dependencies,
                         )
-                    }) {
-                        Ok(_version) => {}
-                        Err(error) if error.is_stale_lease() => {}
-                        Err(error) => {
-                            let reject = self.pipeline.kernel.reject_or_fail(
-                                "raw completion violated coordinator invariants",
-                                error,
-                            );
-                            let public_reject =
-                                (!matches!(reject, Reject::Full(_))).then_some(reject);
-                            self.settle_pipeline_raw_lease(&lease, public_reject).await;
+                    },
+                ) {
+                    Ok(_version) => {}
+                    Err(error) if error.is_stale_lease() => {}
+                    Err(error) => {
+                        if !error.is_transaction_rejection() {
+                            panic!("raw completion invariant failed: {error:?}")
                         }
+                        let reject = crate::component::pre_pool::pre_pool_reject(error);
+                        let public_reject = (!matches!(reject, Reject::Full(_))).then_some(reject);
+                        self.settle_pipeline_raw_lease(&lease, public_reject).await;
                     }
-                }
-                ResolveStageResult::Orphan(parents) => {
-                    match self.settle_raw_parent_wait(&lease, parents).await {
-                        Some(ParentWaitOutcome::Parked) => {}
-                        Some(ParentWaitOutcome::Requeued) => {}
-                        Some(ParentWaitOutcome::Unavailable) => {
-                            let reject = first_unknown_input_reject(&tx);
-                            self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
-                        }
-                        Some(ParentWaitOutcome::Rejected(reject)) => {
-                            self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
-                        }
-                        None => {}
-                    }
-                }
-                ResolveStageResult::Reject(reject) => {
-                    self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
                 }
             }
-        })
-        .await;
-
-        if let Err(message) = outcome {
-            error!("tx-pool raw worker panicked on {}: {}", lease.hash, message);
-            self.settle_pipeline_raw_lease(&lease, None).await;
+            ResolveStageResult::Orphan(parents) => {
+                match self.settle_raw_parent_wait(&lease, parents).await {
+                    Some(ParentWaitOutcome::Parked) => {}
+                    Some(ParentWaitOutcome::Requeued) => {}
+                    Some(ParentWaitOutcome::Unavailable) => {
+                        let reject = first_unknown_input_reject(&tx);
+                        self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
+                    }
+                    Some(ParentWaitOutcome::Rejected(reject)) => {
+                        self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
+                    }
+                    None => {}
+                }
+            }
+            ResolveStageResult::Reject(reject) => {
+                self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
+            }
         }
     }
 }
@@ -204,10 +220,15 @@ impl JobHandler for ResolveHandler {
     }
 
     async fn pop_one(&mut self) -> Option<ResolveLease> {
-        self.service
+        match self
+            .service
             .pipeline
             .kernel
             .checkout_resolve(ResolveLane::Ordered)
+        {
+            Ok(lease) => lease,
+            Err(error) => panic!("ordered resolve checkout invariant failed: {error:?}"),
+        }
     }
 
     async fn next_deadline(&self) -> Option<tokio::time::Instant> {
@@ -225,7 +246,7 @@ pub(crate) fn spawn_ordered_resolver(
     command_rx: watch::Receiver<ChunkCommand>,
     signal: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    handle.spawn(WorkerRunner::new(ResolveHandler { service }, command_rx, signal).supervise(0))
+    handle.spawn(WorkerRunner::new(ResolveHandler { service }, command_rx, signal).run(0))
 }
 
 fn first_unknown_input_reject(tx: &ckb_types::core::TransactionView) -> Reject {

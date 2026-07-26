@@ -1,4 +1,4 @@
-//! Recomputing executable oracle for the target seven-state pre-pool kernel.
+//! Recomputing executable oracle for the target six-state pre-pool kernel.
 //!
 //! This module is intentionally test-only and shares no production indexes or
 //! transition helpers. Commands mutate primary entries, then rebuild every
@@ -19,7 +19,6 @@ type Version = u128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum StateTag {
-    RecoveryRetained,
     ResolveQueued,
     ResolveLeased,
     Wait,
@@ -39,16 +38,14 @@ impl Source {
     fn ready_class(self) -> u8 {
         match self {
             Self::Remote(_) => 0,
-            Self::Proposal | Self::ChainRecovery => 1,
+            Self::Proposal => 1,
+            Self::ChainRecovery => 2,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum State {
-    RecoveryRetained {
-        ordinal: u16,
-    },
     ResolveQueued,
     ResolveLeased,
     Wait {
@@ -73,7 +70,6 @@ enum State {
 impl State {
     fn tag(&self) -> StateTag {
         match self {
-            Self::RecoveryRetained { .. } => StateTag::RecoveryRetained,
             Self::ResolveQueued => StateTag::ResolveQueued,
             Self::ResolveLeased => StateTag::ResolveLeased,
             Self::Wait { .. } => StateTag::Wait,
@@ -95,7 +91,6 @@ struct Entry {
 impl Entry {
     fn charge(&self) -> usize {
         let state_charge = match &self.state {
-            State::RecoveryRetained { .. } => 24,
             State::ResolveQueued | State::ResolveLeased => 16,
             State::Wait { keys, .. } => 32 + keys.len() * 16,
             State::VerifyQueued { dependencies } | State::VerifyLeased { dependencies } => {
@@ -256,7 +251,7 @@ impl Model {
             rebuilt.charge += entry.charge();
             let owner_class = entry.source.ready_class();
             match &entry.state {
-                State::RecoveryRetained { .. } | State::ResolveQueued => {
+                State::ResolveQueued => {
                     rebuilt
                         .resolve_queue
                         .insert((owner_class, *id, entry.version));
@@ -360,12 +355,7 @@ impl Model {
         let queued = self
             .entries
             .values()
-            .filter(|entry| {
-                matches!(
-                    entry.state,
-                    State::RecoveryRetained { .. } | State::ResolveQueued
-                )
-            })
+            .filter(|entry| matches!(entry.state, State::ResolveQueued))
             .count();
         assert_eq!(queued, self.derived.resolve_queue.len());
         let verify_queued = self
@@ -409,13 +399,8 @@ impl Model {
         self.insert(id, source, raw_bytes, State::ResolveQueued)
     }
 
-    fn retain_recovery(&mut self, id: TxId, ordinal: u16) -> PlanOutcome<Version> {
-        self.insert(
-            id,
-            Source::ChainRecovery,
-            100,
-            State::RecoveryRetained { ordinal },
-        )
+    fn retain_recovery(&mut self, id: TxId) -> PlanOutcome<Version> {
+        self.insert(id, Source::ChainRecovery, 100, State::ResolveQueued)
     }
 
     fn promote(&mut self, id: TxId, different_witness: bool) -> PlanOutcome<Version> {
@@ -445,10 +430,7 @@ impl Model {
         let Some(entry) = self.entries.get(&id) else {
             return PlanOutcome::Stale;
         };
-        if !matches!(
-            entry.state,
-            State::RecoveryRetained { .. } | State::ResolveQueued
-        ) {
+        if !matches!(entry.state, State::ResolveQueued) {
             return PlanOutcome::Stale;
         }
         let version = self.replace_state(id, State::ResolveLeased);
@@ -649,9 +631,8 @@ fn ready_result(id: TxId, arrival: u64) -> VerifyResult {
 }
 
 #[test]
-fn target_model_declares_exactly_the_frozen_seven_states() {
+fn target_model_declares_exactly_the_frozen_six_states() {
     let states = BTreeSet::from([
-        StateTag::RecoveryRetained,
         StateTag::ResolveQueued,
         StateTag::ResolveLeased,
         StateTag::Wait,
@@ -659,7 +640,7 @@ fn target_model_declares_exactly_the_frozen_seven_states() {
         StateTag::VerifyLeased,
         StateTag::Ready,
     ]);
-    assert_eq!(states.len(), 7);
+    assert_eq!(states.len(), 6);
 }
 
 #[test]
@@ -767,7 +748,7 @@ fn target_model_generated_commands_preserve_partition_lease_budget_and_indexes()
             2 if next_id < 2_000 => {
                 let id = next_id;
                 next_id += 1;
-                let _ = model.retain_recovery(id, id);
+                let _ = model.retain_recovery(id);
             }
             3 if !model.derived.resolve_queue.is_empty() => {
                 let (_, id, _) = *model.derived.resolve_queue.iter().next().unwrap();

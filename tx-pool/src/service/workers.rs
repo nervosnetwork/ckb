@@ -11,17 +11,14 @@ use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
 use crate::worker::RespawnBackoff;
 use ckb_async_runtime::Handle;
 use ckb_logger::{error, info};
-use futures_util::FutureExt;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-/// Retain one ordered state-transition message until it completes or the
-/// service is shutting down. A deterministic panic is backoff-limited but can
-/// never turn into an acknowledged/dropped message.
-async fn retry_retained_message<T, F, Fut>(
+/// Retain one ordered state-transition message across explicit retryable
+/// errors.  Panics are invariant failures, not a transport for retry control.
+async fn retry_retained_message<T, E, F, Fut>(
     worker_name: &'static str,
     item: T,
     cancel: &CancellationToken,
@@ -30,7 +27,8 @@ async fn retry_retained_message<T, F, Fut>(
 where
     T: Clone,
     F: FnMut(T) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: std::fmt::Debug,
 {
     let mut backoff = RespawnBackoff::new();
     loop {
@@ -38,13 +36,13 @@ where
             return false;
         }
         let started = std::time::Instant::now();
-        match crate::worker::catch_job_panic(handler(item.clone())).await {
+        match handler(item.clone()).await {
             Ok(()) => return true,
-            Err(message) => {
+            Err(error) => {
                 let delay = backoff.delay_for(started.elapsed());
                 error!(
-                    "{} panicked; retaining head message and retrying in {:?}: {}",
-                    worker_name, delay, message
+                    "{} failed; retaining head message and retrying in {:?}: {:?}",
+                    worker_name, delay, error
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(delay) => {}
@@ -58,7 +56,7 @@ where
 /// Output-producing counterpart used only for the first reorg phase. The
 /// successful output is the bounded phase-two authority token; the original
 /// transaction-bearing input is dropped when this function returns.
-async fn retry_retained_output<T, U, F, Fut>(
+async fn retry_retained_output<T, U, E, F, Fut>(
     worker_name: &'static str,
     item: T,
     cancel: &CancellationToken,
@@ -67,7 +65,8 @@ async fn retry_retained_output<T, U, F, Fut>(
 where
     T: Clone,
     F: FnMut(T) -> Fut,
-    Fut: std::future::Future<Output = U>,
+    Fut: std::future::Future<Output = Result<U, E>>,
+    E: std::fmt::Debug,
 {
     let mut backoff = RespawnBackoff::new();
     loop {
@@ -75,14 +74,13 @@ where
             return None;
         }
         let started = std::time::Instant::now();
-        match AssertUnwindSafe(handler(item.clone())).catch_unwind().await {
+        match handler(item.clone()).await {
             Ok(output) => return Some(output),
-            Err(payload) => {
-                let message = crate::util::panic_payload_to_string(payload.as_ref());
+            Err(error) => {
                 let delay = backoff.delay_for(started.elapsed());
                 error!(
-                    "{} panicked; retaining head message and retrying in {:?}: {}",
-                    worker_name, delay, message
+                    "{} failed; retaining head message and retrying in {:?}: {:?}",
+                    worker_name, delay, error
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(delay) => {}
@@ -97,7 +95,7 @@ where
 /// deterministic phase-two failure must never replay it. Reorg uses this to
 /// keep an assembler refresh retry from reapplying an already-committed
 /// TxPool snapshot/membership transition after a concurrent clear.
-async fn retry_retained_two_phase<T, U, F1, Fut1, F2, Fut2>(
+async fn retry_retained_two_phase<T, U, E1, E2, F1, Fut1, F2, Fut2>(
     first_name: &'static str,
     second_name: &'static str,
     item: T,
@@ -108,10 +106,12 @@ async fn retry_retained_two_phase<T, U, F1, Fut1, F2, Fut2>(
 where
     T: Clone,
     F1: FnMut(T) -> Fut1,
-    Fut1: std::future::Future<Output = U>,
+    Fut1: std::future::Future<Output = Result<U, E1>>,
+    E1: std::fmt::Debug,
     U: Clone,
     F2: FnMut(U) -> Fut2,
-    Fut2: std::future::Future<Output = ()>,
+    Fut2: std::future::Future<Output = Result<(), E2>>,
+    E2: std::fmt::Debug,
 {
     let Some(phase_two) = retry_retained_output(first_name, item, cancel, &mut first).await else {
         return false;
@@ -123,13 +123,17 @@ where
 /// waiting, or terminal entirely inside the coordinator; there is no trailing
 /// `finish` call that a stale worker could apply to a newer incarnation.
 pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
-    while let Some(lease) = service
-        .pipeline
-        .kernel
-        .wait_resolve(crate::component::pre_pool::ResolveLane::Ingress)
-        .await
-    {
-        service.process_pipeline_raw_lease(lease).await;
+    loop {
+        match service
+            .pipeline
+            .kernel
+            .wait_resolve(crate::component::pre_pool::ResolveLane::Ingress)
+            .await
+        {
+            Ok(Some(lease)) => service.process_pipeline_raw_lease(lease).await,
+            Ok(None) => break,
+            Err(error) => panic!("pre-check checkout invariant failed: {error:?}"),
+        }
     }
 }
 
@@ -139,36 +143,13 @@ pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
 pub(crate) fn spawn_pre_check_workers(
     handle: &Handle,
     service: TxPoolService,
-    pre_check_cancel: CancellationToken,
+    _pre_check_cancel: CancellationToken,
     count: usize,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let mut handles = Vec::with_capacity(count);
     for _ in 0..count {
         let svc = service.clone();
-        let cancel = pre_check_cancel.child_token();
-        let handle = handle.spawn(async move {
-            let mut backoff = RespawnBackoff::new();
-            loop {
-                let svc = svc.clone();
-                let started = std::time::Instant::now();
-                let worker = run_pre_check_worker_loop(svc);
-                let exit = AssertUnwindSafe(worker).catch_unwind().await;
-                if cancel.is_cancelled() {
-                    break;
-                }
-                match exit {
-                    Ok(()) => break,
-                    Err(payload) => {
-                        let message = crate::util::panic_payload_to_string(payload.as_ref());
-                        error!("tx-pool pre-check worker panicked: {}; respawning", message);
-                        tokio::select! {
-                            _ = tokio::time::sleep(backoff.delay_for(started.elapsed())) => {}
-                            _ = cancel.cancelled() => break,
-                        }
-                    }
-                }
-            }
-        });
+        let handle = handle.spawn(run_pre_check_worker_loop(svc));
         handles.push(handle);
     }
     handles
@@ -183,7 +164,6 @@ pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: C
         WorkLane::Commit,
         crate::component::pre_pool::WorkCapability::Any,
     );
-    let mut backoff = RespawnBackoff::new();
     loop {
         // Notify is only a hint. In particular, a driver panic consumes the
         // current permit while deliberately retaining the Ready owner. Read
@@ -198,24 +178,7 @@ pub(crate) async fn run_pipeline_commit_worker(service: TxPoolService, cancel: C
         if cancel.is_cancelled() {
             break;
         }
-        let started = std::time::Instant::now();
-        let outcome = AssertUnwindSafe(service.drive_pipeline_commits())
-            .catch_unwind()
-            .await;
-        if let Err(payload) = outcome {
-            let message = crate::util::panic_payload_to_string(payload.as_ref());
-            let delay = backoff.delay_for(started.elapsed());
-            error!(
-                "tx-pool commit driver panicked; retaining Ready owner and retrying in {:?}: {}",
-                delay, message
-            );
-            tokio::select! {
-                _ = tokio::time::sleep(delay) => {}
-                _ = cancel.cancelled() => break,
-            }
-        } else {
-            backoff = RespawnBackoff::new();
-        }
+        service.drive_pipeline_commits().await;
     }
     info!("TxPool pipeline commit worker exited");
 }
@@ -274,7 +237,7 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 // read-only commit ticket remains owned until its paired
                 // pool/kernel settlement finishes.
                 let commit_guard = service.pipeline.kernel.try_lock_commit_driver();
-                let expired = match service.pipeline.kernel.mutate(|coordinator| {
+                let expired = match service.pipeline.kernel.mutate_authoritative(|coordinator| {
                     let records =
                         coordinator.due_terminal_records(now, SLICE, commit_guard.is_some());
                     let batch = service.pipeline_terminal_effects(&records);
@@ -285,27 +248,33 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                             coordinator.expire_due(now, SLICE, commit_guard.is_some())
                         })
                 }) {
-                    Ok(Ok(records)) => records,
+                    Ok(Ok(records)) => {
+                        drop(commit_guard);
+                        records
+                    }
                     Ok(Err(error)) => {
-                        ckb_logger::error!("tx-pool pipeline expiry failed: {error:?}");
-                        break;
+                        drop(commit_guard);
+                        panic!("pipeline expiry invariant failed: {error:?}")
                     }
                     Err(EffectJournalError::Full) => {
                         drop(commit_guard);
                         continue;
                     }
                     Err(error) => {
+                        drop(commit_guard);
                         ckb_logger::error!("tx-pool expiry journal unavailable: {error:?}");
                         break;
                     }
                 };
-                drop(commit_guard);
-                let woke = service
+                let woke = match service
                     .pipeline
                     .kernel
-                    .mutate_required("tx-pool wait maintenance failed", |kernel| {
+                    .transition("wait maintenance mutation panicked", |kernel| {
                         kernel.drain_wait_wakes(SLICE)
-                    });
+                    }) {
+                    Ok(woke) => woke,
+                    Err(error) => panic!("wait maintenance invariant failed: {error:?}"),
+                };
                 let saturated = expired.len() == SLICE || woke == SLICE;
                 if !saturated && !service.pipeline.kernel.maintenance_pending() {
                     break;
@@ -363,9 +332,6 @@ pub(crate) fn spawn_reorg_handler(
                                 snapshot,
                             )
                             .await
-                            .unwrap_or_else(|error| {
-                                panic!("retryable tx-pool reorg transition failed: {error}")
-                            })
                     }
                 },
                 move |(candidate_uncles, snapshot)| {
@@ -374,9 +340,6 @@ pub(crate) fn spawn_reorg_handler(
                         service
                             .refresh_block_assembler_after_tx_pool_reorg(candidate_uncles, snapshot)
                             .await
-                            .unwrap_or_else(|error| {
-                                panic!("retryable block-assembler reorg refresh failed: {error}")
-                            });
                     }
                 },
             )

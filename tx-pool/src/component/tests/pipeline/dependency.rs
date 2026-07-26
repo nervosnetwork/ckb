@@ -8,7 +8,6 @@ async fn resolve_job_registers_the_exact_unknown_outpoint() {
     use crate::component::pre_pool::DependencyKey;
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::resolve_mgr::ResolveStageResult;
-    use crate::resolved_tx::ResolveJob;
     use ckb_types::packed::Byte32;
 
     let h = harness(0).workers(WorkerSet::None).build();
@@ -28,14 +27,12 @@ async fn resolve_job_registers_the_exact_unknown_outpoint() {
 
     let result = crate::resolve_mgr::resolve_job(
         &h.service,
-        ResolveJob::new_at(
-            tx,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 1.into(),
-            },
-            0,
-        ),
+        tx,
+        TxSource::Remote {
+            cycles: 0,
+            peer: 1.into(),
+        },
+        0,
     )
     .await;
     assert!(matches!(
@@ -81,6 +78,7 @@ async fn parent_commit_before_wait_registration_requeues_child() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
         .unwrap();
 
     h.service
@@ -155,6 +153,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
         .unwrap();
 
     let outcome = h
@@ -363,60 +362,6 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
     h.cancel.cancel();
 }
 
-/// A structural recovery failure is an authoritative defect, not a retryable
-/// reorg result. The first phase must exchange the ephemeral generation and
-/// return its compact phase-two token so the retained FIFO head cannot
-/// livelock every later chain update.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn structural_recovery_defect_advances_reorg_without_service_fail_stop() {
-    use crate::component::tests::harness::{WorkerSet, harness};
-    use crate::service::TxVerificationResult;
-    use std::collections::{HashSet, VecDeque};
-
-    let h = harness(1).workers(WorkerSet::None).build();
-    let tx = build_tx(&h.out_points[0], 4_000);
-    let detached = BlockBuilder::default()
-        .transaction(TransactionBuilder::default().build())
-        .transaction(tx)
-        .build();
-    let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
-    let old_epoch = h.service.current_pipeline_epoch().unwrap();
-    h.service
-        .pipeline
-        .kernel
-        .mutate(|kernel| kernel.exhaust_recovery_sessions_for_test());
-
-    tokio::time::timeout(
-        Duration::from_secs(5),
-        h.service.update_tx_pool_for_reorg(
-            VecDeque::from([detached]),
-            VecDeque::new(),
-            HashSet::new(),
-            snapshot,
-        ),
-    )
-    .await
-    .expect("a structural defect cannot retain/retry the reorg head")
-    .expect("DefectDomain converts the unwind into a completed phase");
-
-    assert!(!h.cancel.is_cancelled());
-    assert!(h.service.current_pipeline_epoch().unwrap() > old_epoch);
-    let reset = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            if let Ok(result) = h.relay_rx.try_recv()
-                && matches!(result, TxVerificationResult::GenerationReset)
-            {
-                break result;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the replaceable generation reset reaches the relayer");
-    assert!(matches!(reset, TxVerificationResult::GenerationReset));
-    h.cancel.cancel();
-}
-
 /// Successful dep-group expansion must add every live member to the canonical
 /// coordinator graph, not only members that happened to be missing. A later
 /// RBF removal of such a member must demote the already-resolved consumer in
@@ -489,6 +434,7 @@ async fn local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
         .unwrap();
     h.service.process_pipeline_raw_lease(lease).await;
     let resolved_view = h
@@ -1098,6 +1044,9 @@ async fn reorg_replays_detached_parent_with_accepted_descendant_closure() {
         )
         .await
         .expect("detached parent and accepted closure recover through ordinary admission");
+    wait_for_pending(&service, 3, Duration::from_secs(10))
+        .await
+        .expect("ordinary workers replay the complete recovery closure");
 
     let pool = service.pool.tx_pool.read().await;
     for tx in [&parent, &child, &grandchild] {
@@ -1137,7 +1086,7 @@ async fn over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation() 
     use crate::service::TxVerificationResult;
     use std::collections::{HashSet, VecDeque};
 
-    let h = harness(1).workers(WorkerSet::None).build();
+    let h = harness(1).workers(WorkerSet::All).build();
     let parent = build_tx(&h.out_points[0], 4_000);
     h.service
         .process_tx(parent.clone(), TxSource::Local)
@@ -1176,6 +1125,9 @@ async fn over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation() 
         )
         .await
         .expect("over-bound chain recovery converges");
+    wait_for_pending(&h.service, 1, Duration::from_secs(10))
+        .await
+        .expect("the retained prefix rejoins accepted ownership");
 
     let pool = h.service.pool.tx_pool.read().await;
     assert_eq!(pool.pool_map.len(), 1);

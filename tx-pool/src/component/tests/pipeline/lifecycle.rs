@@ -335,6 +335,7 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .unwrap();
 
     assert!(
@@ -430,6 +431,7 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .unwrap();
     assert_eq!(
         h.service
@@ -495,6 +497,7 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .unwrap();
     h.service.process_pipeline_raw_lease(raw).await;
     let verify = h
@@ -608,6 +611,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .unwrap();
     let old_usage = h
         .service
@@ -665,6 +669,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .unwrap();
     assert_eq!(
         replacement.payload.tx.witness_hash(),
@@ -917,137 +922,8 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
     }
 }
 
-/// An impossible Apply unwind replaces only ephemeral pool generations and
-/// cools untrusted ingress. It must not cancel the tx-pool service or block
-/// trusted/chain control paths.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn authoritative_defect_is_generation_local_not_service_fail_stop() {
-    use crate::component::pre_pool::ResolveLane;
-    use crate::component::tests::harness::{WorkerSet, harness};
-
-    let h = harness(1).workers(WorkerSet::None).build();
-    let remote = build_tx(&h.out_points[0], 4_000);
-    let trusted = build_tx(&h.out_points[0], 3_000);
-    let old_epoch = h.service.current_pipeline_epoch().unwrap();
-    h.service
-        .pipeline
-        .kernel
-        .admit_transaction(
-            remote.clone(),
-            TxSource::Remote {
-                cycles: 0,
-                peer: 9.into(),
-            },
-            old_epoch,
-            ResolveLane::Ingress,
-        )
-        .unwrap();
-
-    let mut pool = h.service.pool.tx_pool.write().await;
-    let snapshot = pool.cloned_snapshot();
-    let defect = h
-        .service
-        .pipeline
-        .kernel
-        .guard_authoritative_mutation::<()>("injected authoritative defect", || {
-            panic!("injected apply unwind")
-        })
-        .unwrap_err();
-    let disposal = h.service.recover_authoritative_defect_with_fingerprint(
-        &mut pool,
-        snapshot,
-        "fault-injection boundary",
-        defect,
-        Some(remote.witness_hash()),
-    );
-    assert!(
-        !h.service.pipeline.kernel.emergency_spare_available(),
-        "the sealed retired generation holds the one disposal permit"
-    );
-    drop(pool);
-    assert!(
-        !h.service.pipeline.kernel.emergency_spare_available(),
-        "opening TxPool does not destroy retired payloads implicitly"
-    );
-    drop(disposal);
-    assert!(
-        h.service.pipeline.kernel.emergency_spare_available(),
-        "dropping outside authority guards replenishes the emergency spare"
-    );
-
-    assert!(
-        !h.cancel.is_cancelled(),
-        "service cancellation is not containment"
-    );
-    assert!(h.service.current_pipeline_epoch().unwrap() > old_epoch);
-    assert!(
-        !h.service
-            .pipeline
-            .kernel
-            .read(|kernel| kernel.contains_hash(&remote.hash()))
-    );
-    let epoch = h.service.current_pipeline_epoch().unwrap();
-    assert_eq!(
-        h.service.pipeline.kernel.admit_transaction(
-            remote.clone(),
-            TxSource::Remote {
-                cycles: 0,
-                peer: 9.into(),
-            },
-            epoch,
-            ResolveLane::Ingress,
-        ),
-        Err(crate::component::pre_pool::PrePoolError::RemoteDefectGateClosed)
-    );
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while !h.service.pipeline.kernel.remote_admission_open() {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("global Remote cooling eventually closes");
-    assert_eq!(
-        h.service.pipeline.kernel.admit_transaction(
-            remote,
-            TxSource::Remote {
-                cycles: 0,
-                peer: 9.into(),
-            },
-            epoch,
-            ResolveLane::Ingress,
-        ),
-        Err(crate::component::pre_pool::PrePoolError::RemoteDefectGateClosed),
-        "the exact witness fingerprint remains quarantined after global cooling"
-    );
-    assert!(
-        h.service
-            .pipeline
-            .kernel
-            .admit_transaction(
-                trusted.clone(),
-                TxSource::Remote {
-                    cycles: 0,
-                    peer: 10.into(),
-                },
-                epoch,
-                ResolveLane::Ingress,
-            )
-            .is_ok(),
-        "an unrelated remote witness is admitted after cooling"
-    );
-    assert!(
-        h.service
-            .pipeline
-            .kernel
-            .admit_transaction(trusted, TxSource::Proposal, epoch, ResolveLane::Ingress)
-            .is_ok(),
-        "trusted proposal work remains available during Remote cooling"
-    );
-    h.cancel.cancel();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn chain_generation_reset_reuses_lock_outside_disposal_without_remote_cooling() {
+async fn chain_generation_reset_retires_old_generation_outside_the_lock() {
     use crate::component::pre_pool::ResolveLane;
     use crate::component::tests::harness::{WorkerSet, harness};
 
@@ -1073,19 +949,22 @@ async fn chain_generation_reset_reuses_lock_outside_disposal_without_remote_cool
         .service
         .pipeline
         .kernel
-        .reset_for_chain(|fresh| fresh.retain_recovery_batch(vec![recovery], epoch))
+        .reset_for_chain(|fresh| fresh.retain_recovery_batch(vec![recovery.clone()], epoch))
         .unwrap();
-    assert_eq!(batch.retained, 1);
-    assert!(h.service.pipeline.kernel.remote_admission_open());
-    assert!(!h.service.pipeline.kernel.emergency_spare_available());
+    assert_eq!(batch, 1);
+    assert!(
+        h.service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.contains_hash(&recovery.hash()))
+    );
     drop(disposal);
-    assert!(h.service.pipeline.kernel.emergency_spare_available());
     h.cancel.cancel();
 }
 
-/// Entry versions and recovery sessions are stable-shell clocks. Resetting
-/// them with an entry generation lets an old worker or reorg handler match a
-/// newly admitted owner with the same hash/location (ABA).
+/// Entry versions are stable-shell clocks. Resetting them with an entry
+/// generation lets an old worker match a newly admitted owner with the same
+/// hash/location (ABA).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authoritative_generation_swap_preserves_aba_clocks() {
     use crate::component::pre_pool::ResolveLane;
@@ -1093,7 +972,6 @@ async fn authoritative_generation_swap_preserves_aba_clocks() {
 
     let h = harness(3).workers(WorkerSet::None).build();
     let old_tx = build_tx(&h.out_points[0], 4_000);
-    let old_recovery = build_tx(&h.out_points[1], 4_000);
     let new_recovery = build_tx(&h.out_points[2], 4_000);
     let old_epoch = h.service.current_pipeline_epoch().unwrap();
     h.service
@@ -1114,58 +992,26 @@ async fn authoritative_generation_swap_preserves_aba_clocks() {
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .expect("old generation has one resolve lease");
-    let old_session = h
+    let (_, disposal) = h
         .service
         .pipeline
         .kernel
-        .mutate(|kernel| kernel.retain_recovery_batch(vec![old_recovery], old_epoch))
-        .unwrap()
-        .session;
-
-    let mut pool = h.service.pool.tx_pool.write().await;
-    let snapshot = pool.cloned_snapshot();
-    let disposal = h.service.recover_authoritative_defect(
-        &mut pool,
-        snapshot,
-        "ABA clock fault injection",
-        "injected".to_owned(),
-    );
-    drop(pool);
+        .reset_for_chain(|fresh| fresh.retain_recovery_batch(vec![new_recovery.clone()], old_epoch))
+        .unwrap();
     drop(disposal);
 
-    let new_epoch = h.service.current_pipeline_epoch().unwrap();
     h.service
         .pipeline
         .kernel
         .admit_transaction(
             old_tx.clone(),
             TxSource::Proposal,
-            new_epoch,
+            old_epoch,
             ResolveLane::Ingress,
         )
         .unwrap();
-    let new_session = h
-        .service
-        .pipeline
-        .kernel
-        .mutate(|kernel| kernel.retain_recovery_batch(vec![new_recovery], new_epoch))
-        .unwrap()
-        .session;
-
-    assert!(
-        new_session > old_session,
-        "recovery sessions never reuse after reset"
-    );
-    assert!(
-        h.service
-            .pipeline
-            .kernel
-            .checkout_recovery(old_session)
-            .unwrap()
-            .is_none(),
-        "an old reorg handler cannot lease the new session"
-    );
     assert!(
         h.service
             .pipeline

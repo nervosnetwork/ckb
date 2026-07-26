@@ -254,11 +254,10 @@ impl super::TxPoolService {
             Err(error) => {
                 if !self.is_pipeline_epoch_current(epoch) {
                     Err(Self::stale_pipeline_reject())
+                } else if error.is_transaction_rejection() {
+                    Err(crate::component::pre_pool::pre_pool_reject(error))
                 } else {
-                    Err(self.pipeline.kernel.reject_or_fail(
-                        "pipeline admission violated coordinator invariants",
-                        error,
-                    ))
+                    panic!("pipeline admission invariant failed: {error:?}")
                 }
             }
         }

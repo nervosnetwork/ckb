@@ -26,8 +26,11 @@ pub(crate) use runtime::{
 use self::queue::{FairQueue, WorkKey, WorkOwner};
 use crate::resolved_tx::ResolvedTx;
 use ckb_network::PeerIndex;
-use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_types::prelude::Entity;
+use ckb_types::{
+    core::{Capacity, Cycle, TransactionView},
+    packed::{Byte32, OutPoint, ProposalShortId},
+};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -158,7 +161,6 @@ pub(crate) enum WaitReason {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PrePoolLocation {
-    RecoveryRetained,
     ResolveQueued,
     ResolveLeased,
     Wait(WaitReason),
@@ -167,10 +169,36 @@ pub(crate) enum PrePoolLocation {
     Ready,
 }
 
+/// Stable RPC/query projection derived from one primary-entry lookup.
+pub(crate) enum PipelineTxLocation {
+    Ordered {
+        tx: TransactionView,
+    },
+    Verifying {
+        tx: TransactionView,
+        fee: Capacity,
+        status: crate::component::pool_map::Status,
+    },
+    Orphan {
+        tx: TransactionView,
+        cycle: Cycle,
+    },
+    ConflictHistory,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Residency {
     pub(crate) entries: usize,
     pub(crate) bytes: usize,
+}
+
+/// Fully checked counter values for one entry replacement. Apply installs
+/// these values verbatim, so budget validation and mutation cannot drift.
+struct UsagePlan {
+    total: Residency,
+    remote: Residency,
+    conflict: Residency,
+    peer_updates: [Option<(PeerIndex, Residency)>; 2],
 }
 
 impl Residency {
@@ -245,7 +273,6 @@ pub(crate) enum PrePoolError {
     ConflictHistoryBudgetExceeded,
     ActiveWorkLimitExceeded,
     PeerActiveWorkLimitExceeded(PeerIndex),
-    RemoteDefectGateClosed,
     VersionExhausted,
     Missing(Byte32),
     Stale {
@@ -261,68 +288,65 @@ pub(crate) enum PrePoolError {
     Repair(&'static str),
 }
 
+#[derive(Clone, Copy)]
+enum ErrorClass {
+    Transaction,
+    Capacity,
+    RetryableCapacity,
+    Stale,
+    Defect,
+}
+
 impl PrePoolError {
+    fn class(&self) -> ErrorClass {
+        match self {
+            Self::SelfDependency(_)
+            | Self::ZeroTransactionSize(_)
+            | Self::UnderReplacementFee { .. }
+            | Self::UnderFeeRate { .. }
+            | Self::FeeRateOverflow
+            | Self::ResidencyChargeOverflow => ErrorClass::Transaction,
+            Self::DependencyLimitExceeded
+            | Self::ParentFanoutLimitExceeded(_)
+            | Self::ConflictInputLimitExceeded
+            | Self::ConflictCandidateLimitExceeded(_) => ErrorClass::Capacity,
+            Self::ShortIdCollision { .. }
+            | Self::TotalBudgetExceeded
+            | Self::RemoteBudgetExceeded
+            | Self::PeerBudgetExceeded(_)
+            | Self::ConflictHistoryBudgetExceeded
+            | Self::ActiveWorkLimitExceeded
+            | Self::PeerActiveWorkLimitExceeded(_) => ErrorClass::RetryableCapacity,
+            Self::Missing(_) | Self::Stale { .. } | Self::LocationMismatch { .. } => {
+                ErrorClass::Stale
+            }
+            Self::DuplicateHash(_)
+            | Self::LocalMustRunDirect
+            | Self::VersionExhausted
+            | Self::Repair(_) => ErrorClass::Defect,
+        }
+    }
+
     pub(crate) fn is_transaction_rejection(&self) -> bool {
         matches!(
-            self,
-            Self::SelfDependency(_)
-                | Self::DependencyLimitExceeded
-                | Self::ParentFanoutLimitExceeded(_)
-                | Self::ConflictInputLimitExceeded
-                | Self::ConflictCandidateLimitExceeded(_)
-                | Self::ZeroTransactionSize(_)
-                | Self::UnderReplacementFee { .. }
-                | Self::UnderFeeRate { .. }
-                | Self::FeeRateOverflow
-                | Self::ResidencyChargeOverflow
-                | Self::ShortIdCollision { .. }
-                | Self::TotalBudgetExceeded
-                | Self::RemoteBudgetExceeded
-                | Self::PeerBudgetExceeded(_)
-                | Self::ConflictHistoryBudgetExceeded
-                | Self::ActiveWorkLimitExceeded
-                | Self::PeerActiveWorkLimitExceeded(_)
-                | Self::RemoteDefectGateClosed
+            self.class(),
+            ErrorClass::Transaction | ErrorClass::Capacity | ErrorClass::RetryableCapacity
         )
     }
 
     pub(crate) fn is_capacity_rejection(&self) -> bool {
         matches!(
-            self,
-            Self::DependencyLimitExceeded
-                | Self::ParentFanoutLimitExceeded(_)
-                | Self::ConflictInputLimitExceeded
-                | Self::ConflictCandidateLimitExceeded(_)
-                | Self::ShortIdCollision { .. }
-                | Self::TotalBudgetExceeded
-                | Self::RemoteBudgetExceeded
-                | Self::PeerBudgetExceeded(_)
-                | Self::ConflictHistoryBudgetExceeded
-                | Self::ActiveWorkLimitExceeded
-                | Self::PeerActiveWorkLimitExceeded(_)
-                | Self::RemoteDefectGateClosed
+            self.class(),
+            ErrorClass::Capacity | ErrorClass::RetryableCapacity
         )
     }
 
     pub(crate) fn is_retryable_capacity_rejection(&self) -> bool {
-        matches!(
-            self,
-            Self::ShortIdCollision { .. }
-                | Self::TotalBudgetExceeded
-                | Self::RemoteBudgetExceeded
-                | Self::PeerBudgetExceeded(_)
-                | Self::ConflictHistoryBudgetExceeded
-                | Self::ActiveWorkLimitExceeded
-                | Self::PeerActiveWorkLimitExceeded(_)
-                | Self::RemoteDefectGateClosed
-        )
+        matches!(self.class(), ErrorClass::RetryableCapacity)
     }
 
     pub(crate) fn is_stale_lease(&self) -> bool {
-        matches!(
-            self,
-            Self::Missing(_) | Self::Stale { .. } | Self::LocationMismatch { .. }
-        )
+        matches!(self.class(), ErrorClass::Stale)
     }
 }
 
@@ -393,24 +417,6 @@ pub(crate) struct ResolveLease {
     pub(crate) payload: Arc<PipelineRawTx>,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct RecoveryMeta {
-    pub(crate) session: u128,
-    pub(crate) ordinal: u32,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct RecoverySnapshotItem {
-    pub(crate) tx: ckb_types::core::TransactionView,
-    pub(crate) meta: RecoveryMeta,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct RecoveryBatch {
-    pub(crate) session: u128,
-    pub(crate) retained: usize,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct VerifyLease {
     pub(crate) hash: Byte32,
@@ -441,18 +447,7 @@ pub(crate) struct CommitSettlement {
     pub(crate) retained_conflicts: Vec<TerminalRecord>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct PrePoolView {
-    pub(crate) location: PrePoolLocation,
-    #[cfg(test)]
-    pub(crate) source: PrePoolSource,
-    #[cfg(test)]
-    pub(crate) dependencies: BTreeSet<Byte32>,
-    #[cfg(test)]
-    pub(crate) version: EntryVersion,
-}
-
-#[derive(Clone, Debug, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ReadyKey {
     source_class: u8,
     fee: u64,
@@ -460,17 +455,6 @@ pub(crate) struct ReadyKey {
     arrival: u128,
     hash: Byte32,
     version: EntryVersion,
-}
-
-impl PartialEq for ReadyKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.source_class == other.source_class
-            && self.fee == other.fee
-            && self.tx_size == other.tx_size
-            && self.arrival == other.arrival
-            && self.hash == other.hash
-            && self.version == other.version
-    }
 }
 
 impl Ord for ReadyKey {
@@ -502,11 +486,6 @@ struct WaitState {
 
 #[derive(Clone, Debug)]
 enum EntryState {
-    // P4 connects detached-chain recovery to this retained boundary. Keeping
-    // the state in the frozen kernel vocabulary now prevents the recovery
-    // cutover from inventing an eighth transient location later.
-    #[allow(dead_code)]
-    RecoveryRetained,
     ResolveQueued {
         lane: ResolveLane,
     },
@@ -529,7 +508,6 @@ enum EntryState {
 impl EntryState {
     fn location(&self) -> PrePoolLocation {
         match self {
-            Self::RecoveryRetained => PrePoolLocation::RecoveryRetained,
             Self::ResolveQueued { .. } => PrePoolLocation::ResolveQueued,
             Self::ResolveLeased => PrePoolLocation::ResolveLeased,
             Self::Wait(wait) => PrePoolLocation::Wait(wait.reason),
@@ -545,9 +523,6 @@ pub(in crate::component::pre_pool) struct Entry {
     short_id: ProposalShortId,
     raw: Arc<PipelineRawTx>,
     source: PrePoolSource,
-    /// Present for the complete lifetime of an authoritative recovery owner,
-    /// including while its versioned lease is being validated.
-    recovery: Option<RecoveryMeta>,
     state: EntryState,
     version: EntryVersion,
     arrival: u128,
@@ -574,22 +549,6 @@ impl Entry {
                 && verify_fee_rate_ordering,
         })
     }
-
-    fn view(&self) -> PrePoolView {
-        PrePoolView {
-            location: self.state.location(),
-            #[cfg(test)]
-            source: self.source,
-            #[cfg(test)]
-            dependencies: self
-                .dependencies
-                .iter()
-                .map(DependencyKey::parent_hash)
-                .collect(),
-            #[cfg(test)]
-            version: self.version,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -612,13 +571,6 @@ struct DeadlineKey {
     version: EntryVersion,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct RecoveryKey {
-    meta: RecoveryMeta,
-    hash: Byte32,
-    version: EntryVersion,
-}
-
 /// Swappable entry/index generation. Process-global clocks, limits and the
 /// runtime shell deliberately live outside this value, so a reset cannot
 /// reuse an ABA token or replace scheduler/effect authority.
@@ -636,7 +588,6 @@ pub(crate) struct PrePoolGeneration {
     ready: BTreeSet<ReadyKey>,
     ready_by_input: HashMap<OutPoint, BTreeSet<ReadyKey>>,
     deadlines: BTreeSet<DeadlineKey>,
-    recovery: BTreeSet<RecoveryKey>,
     total_usage: Residency,
     remote_usage: Residency,
     conflict_usage: Residency,
@@ -660,7 +611,6 @@ impl PrePoolGeneration {
             ready: BTreeSet::new(),
             ready_by_input: HashMap::new(),
             deadlines: BTreeSet::new(),
-            recovery: BTreeSet::new(),
             total_usage: Residency::default(),
             remote_usage: Residency::default(),
             conflict_usage: Residency::default(),
@@ -680,7 +630,6 @@ pub(crate) struct PrePoolKernel {
     limits: PrePoolLimits,
     next_version: EntryVersion,
     next_arrival: u128,
-    next_recovery_session: u128,
 }
 
 impl std::ops::Deref for PrePoolKernel {
@@ -704,7 +653,6 @@ impl PrePoolKernel {
             limits,
             next_version: 1,
             next_arrival: 0,
-            next_recovery_session: 1,
         }
     }
 
@@ -756,10 +704,12 @@ impl PrePoolKernel {
             .and_then(|value| value.checked_add(usize::from(entry.expires_at.is_some())))
             .ok_or(PrePoolError::ResidencyChargeOverflow)?;
         let current_state_memberships = match &entry.state {
-            EntryState::RecoveryRetained => 1,
             EntryState::ResolveLeased | EntryState::VerifyLeased { .. } => 0,
             // Work key, owner bucket and runnable head in the worst case.
-            EntryState::ResolveQueued { .. } | EntryState::VerifyQueued { .. } => 3,
+            EntryState::ResolveQueued { .. } => 3,
+            // Verify additionally projects the best small-cycle key so a
+            // large-cycle owner head cannot hide eligible reserved work.
+            EntryState::VerifyQueued { .. } => 4,
             // Exact waiter edge, dependency bucket, availability epoch and
             // dirty cursor/order reservation. The latter two are transient
             // but may appear without another entry transition.
@@ -810,11 +760,11 @@ impl PrePoolKernel {
         )
     }
 
-    fn check_usage_delta(
+    fn plan_usage_delta(
         &self,
         old: Option<&Entry>,
         new: Option<&Entry>,
-    ) -> Result<(), PrePoolError> {
+    ) -> Result<UsagePlan, PrePoolError> {
         let old_charge = old.map_or(Residency::default(), |entry| {
             Residency::new(1, entry.charge_bytes)
         });
@@ -862,7 +812,7 @@ impl PrePoolKernel {
             return Err(PrePoolError::ConflictHistoryBudgetExceeded);
         }
 
-        for peer in old_peer.into_iter().chain(new_peer) {
+        let project_peer = |peer| {
             let mut usage = self.peer_usage.get(&peer).copied().unwrap_or_default();
             if old_peer == Some(peer) {
                 usage = usage
@@ -877,62 +827,45 @@ impl PrePoolKernel {
             if !usage.fits(self.limits.per_peer) {
                 return Err(PrePoolError::PeerBudgetExceeded(peer));
             }
-        }
-        Ok(())
+            Ok(usage)
+        };
+        let old_update = old_peer
+            .map(|peer| project_peer(peer).map(|usage| (peer, usage)))
+            .transpose()?;
+        let new_update = new_peer
+            .filter(|peer| Some(*peer) != old_peer)
+            .map(|peer| project_peer(peer).map(|usage| (peer, usage)))
+            .transpose()?;
+        Ok(UsagePlan {
+            total,
+            remote,
+            conflict,
+            peer_updates: [old_update, new_update],
+        })
     }
 
-    pub(in crate::component::pre_pool) fn apply_usage_delta(
-        &mut self,
-        old: Option<&Entry>,
-        new: Option<&Entry>,
-    ) {
-        let old_charge = old.map_or(Residency::default(), |entry| {
-            Residency::new(1, entry.charge_bytes)
-        });
-        let new_charge = new.map_or(Residency::default(), |entry| {
-            Residency::new(1, entry.charge_bytes)
-        });
-        self.total_usage = self
-            .total_usage
-            .checked_sub(old_charge)
-            .and_then(|usage| usage.checked_add(new_charge))
-            .expect("prevalidated total usage delta");
-        let old_peer = old.and_then(|entry| entry.source.peer());
-        let new_peer = new.and_then(|entry| entry.source.peer());
-        if old_peer.is_some() {
-            self.remote_usage = self.remote_usage.checked_sub(old_charge).unwrap();
-        }
-        if new_peer.is_some() {
-            self.remote_usage = self.remote_usage.checked_add(new_charge).unwrap();
-        }
-        if old.is_some_and(Self::is_conflict) {
-            self.conflict_usage = self.conflict_usage.checked_sub(old_charge).unwrap();
-        }
-        if new.is_some_and(Self::is_conflict) {
-            self.conflict_usage = self.conflict_usage.checked_add(new_charge).unwrap();
-        }
-        for peer in old_peer
-            .into_iter()
-            .chain(new_peer)
-            .collect::<BTreeSet<_>>()
-        {
-            let usage = self.peer_usage.get(&peer).copied().unwrap_or_default();
-            let usage = if old_peer == Some(peer) {
-                usage.checked_sub(old_charge).unwrap()
-            } else {
-                usage
-            };
-            let usage = if new_peer == Some(peer) {
-                usage.checked_add(new_charge).unwrap()
-            } else {
-                usage
-            };
+    fn apply_usage_plan(&mut self, plan: UsagePlan) {
+        self.total_usage = plan.total;
+        self.remote_usage = plan.remote;
+        self.conflict_usage = plan.conflict;
+        for (peer, usage) in plan.peer_updates.into_iter().flatten() {
             if usage == Residency::default() {
                 self.peer_usage.remove(&peer);
             } else {
                 self.peer_usage.insert(peer, usage);
             }
         }
+    }
+
+    pub(in crate::component::pre_pool) fn apply_prevalidated_usage_delta(
+        &mut self,
+        old: Option<&Entry>,
+        new: Option<&Entry>,
+    ) {
+        let plan = self
+            .plan_usage_delta(old, new)
+            .expect("aggregate plan prevalidated every usage delta");
+        self.apply_usage_plan(plan);
     }
 
     pub(crate) fn peer_hashes(&self, peer: PeerIndex, max: usize) -> Vec<Byte32> {
@@ -943,10 +876,6 @@ impl PrePoolKernel {
             .take(max)
             .cloned()
             .collect()
-    }
-
-    pub(crate) fn view(&self, hash: &Byte32) -> Option<PrePoolView> {
-        self.entries.get(hash).map(Entry::view)
     }
 
     pub(crate) fn source_by_hash(&self, hash: &Byte32) -> Option<PrePoolSource> {
@@ -967,20 +896,37 @@ impl PrePoolKernel {
             .and_then(|hash| self.raw_by_hash(hash))
     }
 
-    pub(crate) fn unverified_by_hash(&self, hash: &Byte32) -> Option<&ResolvedTx> {
-        match &self.entries.get(hash)?.state {
-            EntryState::VerifyQueued { payload, .. } | EntryState::VerifyLeased { payload, .. } => {
-                Some(payload.as_ref())
+    pub(crate) fn tx_location_by_hash(&self, hash: &Byte32) -> Option<PipelineTxLocation> {
+        let entry = self.entries.get(hash)?;
+        let tx = entry.raw.tx.clone();
+        Some(match &entry.state {
+            EntryState::Wait(WaitState {
+                reason: WaitReason::Missing,
+                ..
+            }) => PipelineTxLocation::Orphan {
+                tx,
+                cycle: entry.raw.declared_cycles.unwrap_or(0),
+            },
+            EntryState::VerifyQueued { payload, .. } | EntryState::VerifyLeased { payload } => {
+                PipelineTxLocation::Verifying {
+                    tx,
+                    fee: payload.fee,
+                    status: payload.status,
+                }
             }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn verified_by_hash(&self, hash: &Byte32) -> Option<&PipelineVerifiedTx> {
-        match &self.entries.get(hash)?.state {
-            EntryState::Ready { payload, .. } => Some(payload.as_ref()),
-            _ => None,
-        }
+            EntryState::Ready { payload, .. } => PipelineTxLocation::Verifying {
+                tx,
+                fee: payload.candidate.fee,
+                status: payload.candidate.status,
+            },
+            EntryState::Wait(WaitState {
+                reason: WaitReason::Conflict,
+                ..
+            }) => PipelineTxLocation::ConflictHistory,
+            EntryState::ResolveQueued { .. } | EntryState::ResolveLeased => {
+                PipelineTxLocation::Ordered { tx }
+            }
+        })
     }
 
     pub(crate) fn hash_by_short_id(&self, short_id: &ProposalShortId) -> Option<&Byte32> {
@@ -1023,13 +969,5 @@ impl PrePoolKernel {
             })
             .map(|(hash, _)| hash.clone())
             .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn peer_active_work(&self, peer: PeerIndex) -> usize {
-        self.active_by_owner
-            .get(&WorkOwner::Remote(peer))
-            .copied()
-            .unwrap_or_default()
     }
 }

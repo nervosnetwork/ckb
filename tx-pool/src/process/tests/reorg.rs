@@ -1,6 +1,30 @@
-use super::detached_not_attached;
+use super::*;
 use ckb_types::{bytes::Bytes, core::TransactionBuilder, prelude::Pack};
 use ckb_util::LinkedHashSet;
+
+/// Test adapter for the production Begin/Finish pair. Production holds the
+/// cross-authority write guard while transferring recovery ownership between
+/// these two operations.
+pub(crate) fn update_tx_pool_for_reorg(
+    tx_pool: &mut TxPool,
+    attached: &LinkedHashSet<TransactionView>,
+    detached_headers: &HashSet<Byte32>,
+    detached_proposal_id: HashSet<ProposalShortId>,
+    snapshot: Arc<Snapshot>,
+    mine_mode: bool,
+) -> Result<ReorgOutcome, Reject> {
+    tx_pool.preflight_reorg_status_transitions()?;
+    let mut outcome = begin_tx_pool_reorg(
+        tx_pool,
+        attached,
+        detached_headers,
+        detached_proposal_id,
+        snapshot,
+        mine_mode,
+    );
+    finish_tx_pool_reorg(tx_pool, &mut outcome);
+    Ok(outcome)
+}
 
 #[test]
 fn attached_raw_hash_suppresses_detached_witness_variant() {

@@ -95,12 +95,6 @@ impl TxPoolController {
         self.started.load(Ordering::Acquire)
     }
 
-    /// Set tx-pool service started, should only used for test
-    #[cfg(feature = "internal")]
-    pub fn set_service_started(&self, v: bool) {
-        self.started.store(v, Ordering::Release);
-    }
-
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle
@@ -189,7 +183,15 @@ impl TxPoolController {
     ) -> Result<(), AnyError> {
         reject_callback_mutation!("submit_remote_tx");
         let source = TxSource::remote(declared_cycles, peer);
-        send_message!(self, SubmitRemoteTx, (tx, source))
+        let (responder, response) = tokio::sync::oneshot::channel();
+        let request = AsyncRequest::call((tx, source), responder);
+        self.sender
+            .try_send(Message::SubmitRemoteTx(request))
+            .map_err(|error| {
+                let (_, error) = handle_try_send_error(error);
+                error
+            })?;
+        response.await.map_err(Into::into)
     }
 
     /// Receive txs from network, try to add txs to tx-pool

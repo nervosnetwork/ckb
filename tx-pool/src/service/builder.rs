@@ -64,13 +64,9 @@ pub struct TxPoolServiceBuilder {
     pub(crate) recent_reject: Option<Arc<RecentReject>>,
 }
 
-/// Shared construction of the pipeline queues and a bare [`TxPoolService`],
-/// used by both [`TxPoolServiceBuilder::start`] (production) and
-/// [`TxPoolServiceBuilder::build_bench_service`] (internal benchmarks).
-/// Spawning the background workers the service depends on is left to the
-/// callers.
+/// Shared construction of the pipeline queues and a bare [`TxPoolService`].
 #[allow(clippy::too_many_arguments)]
-fn assemble_service(
+pub(crate) fn assemble_service(
     tx_pool: TxPool,
     consensus: Arc<ckb_chain_spec::consensus::Consensus>,
     block_assembler: Option<BlockAssembler>,
@@ -783,65 +779,6 @@ impl TxPoolServiceBuilder {
             })
         }
     }
-
-    /// Build a bare [`TxPoolService`] and its supporting queues **without**
-    /// spawning any background stage workers.
-    ///
-    /// Shares the exact same construction as [`Self::start`] via
-    /// `assemble_service`; the caller is responsible for spawning the
-    /// background workers that the returned service depends on.
-    #[cfg(feature = "internal")]
-    pub(crate) fn build_bench_service(self, network: TxPoolNetworkHandle) -> BenchServiceParts {
-        let consensus = self.snapshot.cloned_consensus();
-        let signal = self.signal_receiver;
-        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
-        let (block_assembler_sender, _) = self.block_assembler_channel;
-        let (verify_cache_sender, verify_cache_receiver) =
-            mpsc::channel::<VerifyCacheUpdate>(VERIFY_CACHE_CHANNEL_SIZE);
-
-        let service = assemble_service(
-            tx_pool,
-            consensus,
-            self.block_assembler,
-            self.callbacks,
-            network,
-            self.txs_verify_cache,
-            self.recent_reject,
-            self.fee_estimator,
-            self.tx_relay_sender,
-            block_assembler_sender,
-            verify_cache_sender,
-            self.chunk_rx,
-            signal.clone(),
-        );
-
-        let effect_publisher = self.handle.spawn(run_effect_publisher(
-            Arc::clone(&service.relay.effects),
-            EffectEndpoints {
-                network: Arc::clone(&service.relay.network),
-                tx_relay_sender: service.relay.tx_relay_sender.clone(),
-            },
-        ));
-
-        BenchServiceParts {
-            service,
-            signal,
-            verify_cache_receiver,
-            effect_publisher,
-        }
-    }
-}
-
-/// Components returned by [`TxPoolServiceBuilder::build_bench_service`].
-///
-/// The caller must spawn the pre-check, verify and ordered-resolve workers
-/// using these components.
-#[cfg(feature = "internal")]
-pub(crate) struct BenchServiceParts {
-    pub service: TxPoolService,
-    pub signal: CancellationToken,
-    pub verify_cache_receiver: mpsc::Receiver<VerifyCacheUpdate>,
-    pub effect_publisher: tokio::task::JoinHandle<()>,
 }
 
 #[cfg(test)]

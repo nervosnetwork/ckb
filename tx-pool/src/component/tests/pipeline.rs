@@ -261,6 +261,7 @@ async fn stage_verified_remote_candidate(
         .pipeline
         .kernel
         .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
         .unwrap();
     service.process_pipeline_raw_lease(raw).await;
     let verify = service

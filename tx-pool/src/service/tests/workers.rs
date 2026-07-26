@@ -11,7 +11,7 @@ async fn run_retained_receiver<T, F, Fut>(
 ) where
     T: Clone,
     F: FnMut(T) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Fut: std::future::Future<Output = Result<(), &'static str>>,
 {
     loop {
         let item = tokio::select! {
@@ -62,7 +62,9 @@ async fn retained_message_retries_until_success() {
         async move {
             assert_eq!(item, 7);
             if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3 {
-                panic!("injected deterministic transition panic");
+                Err("injected retryable error")
+            } else {
+                Ok(())
             }
         }
     })
@@ -91,7 +93,7 @@ async fn second_phase_retry_never_replays_completed_first_phase() {
                 attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 // Phase one deliberately returns a smaller authority token;
                 // the original message is not retained through phase two.
-                item + 1
+                Ok::<_, &'static str>(item + 1)
             }
         },
         move |item| {
@@ -99,7 +101,9 @@ async fn second_phase_retry_never_replays_completed_first_phase() {
             async move {
                 assert_eq!(item, 10);
                 if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    panic!("injected derived refresh failure");
+                    Err("injected derived refresh failure")
+                } else {
+                    Ok(())
                 }
             }
         },
@@ -122,7 +126,7 @@ async fn retained_message_cancellation_interrupts_backoff() {
             "test retained worker",
             1usize,
             &cancel_for_task,
-            |_| async { panic!("persistent injected panic") },
+            |_| async { Err::<(), _>("persistent explicit error") },
         )
         .await
     });
@@ -136,9 +140,9 @@ async fn retained_message_cancellation_interrupts_backoff() {
     assert!(!completed, "cancelled retained work is not acknowledged");
 }
 
-/// Later chain deltas must never overtake a retained/panicking head delta.
+/// Later chain deltas must never overtake a retained/failing head delta.
 #[tokio::test]
-async fn retained_receiver_preserves_fifo_across_panics() {
+async fn retained_receiver_preserves_fifo_across_explicit_errors() {
     let (sender, receiver) = mpsc::channel(2);
     sender.send(1usize).await.unwrap();
     sender.send(2usize).await.unwrap();
@@ -154,9 +158,10 @@ async fn retained_receiver_preserves_fifo_across_panics() {
         let processed = Arc::clone(&processed_for_handler);
         async move {
             if item == 1 && attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
-                panic!("injected head transition panic");
+                return Err("injected head transition error");
             }
             processed.lock().unwrap().push(item);
+            Ok(())
         }
     })
     .await;

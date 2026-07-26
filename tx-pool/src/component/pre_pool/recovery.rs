@@ -15,7 +15,7 @@ impl PrePoolKernel {
         &mut self,
         txs: Vec<TransactionView>,
         admitted_epoch: u64,
-    ) -> Result<RecoveryBatch, PrePoolError> {
+    ) -> Result<usize, PrePoolError> {
         if !self.entries.is_empty() {
             return Err(PrePoolError::Repair(
                 "recovery prefix requires an empty generation",
@@ -27,11 +27,11 @@ impl PrePoolKernel {
         let mut selected = Vec::new();
         for tx in txs {
             match probe.retain_recovery_batch(vec![tx.clone()], admitted_epoch) {
-                Ok(batch) if batch.retained == 1 => selected.push(tx),
+                Ok(1) => selected.push(tx),
                 Ok(_) => {}
                 // Transaction-shaped identity/shape/capacity failures bound
                 // the closure. Structural clock/projection failures still
-                // escape to the enclosing DefectDomain.
+                // remain internal invariant failures.
                 Err(error) if error.is_transaction_rejection() => break,
                 Err(error) => return Err(error),
             }
@@ -49,18 +49,11 @@ impl PrePoolKernel {
         &mut self,
         txs: Vec<TransactionView>,
         admitted_epoch: u64,
-    ) -> Result<RecoveryBatch, PrePoolError> {
+    ) -> Result<usize, PrePoolError> {
         if txs.is_empty() {
-            return Ok(RecoveryBatch {
-                session: self.next_recovery_session,
-                retained: 0,
-            });
+            return Ok(0);
         }
 
-        let session = self.next_recovery_session;
-        let next_session = session
-            .checked_add(1)
-            .ok_or(PrePoolError::VersionExhausted)?;
         let retained = txs.len();
         let mut hashes = HashSet::with_capacity(retained);
         let mut short_ids = HashMap::with_capacity(retained);
@@ -68,8 +61,7 @@ impl PrePoolKernel {
         let mut arrival_cursor = self.next_arrival;
         let mut planned = Vec::with_capacity(retained);
 
-        for (ordinal, tx) in txs.into_iter().enumerate() {
-            let ordinal = u32::try_from(ordinal).map_err(|_| PrePoolError::VersionExhausted)?;
+        for tx in txs {
             let hash = crate::util::compact_packed(&tx.hash());
             if !hashes.insert(hash.clone()) {
                 continue;
@@ -106,8 +98,9 @@ impl PrePoolKernel {
                 short_id,
                 raw: Arc::new(raw),
                 source: PrePoolSource::Recovery,
-                recovery: Some(RecoveryMeta { session, ordinal }),
-                state: EntryState::RecoveryRetained,
+                state: EntryState::ResolveQueued {
+                    lane: ResolveLane::Ordered,
+                },
                 version,
                 arrival,
                 expires_at: None,
@@ -261,88 +254,29 @@ impl PrePoolKernel {
             if let Some(old) = old {
                 let active = Self::active_owner(old.source, &old.state);
                 self.detach_indexes(hash, old);
-                self.apply_usage_delta(Some(old), None);
+                self.apply_prevalidated_usage_delta(Some(old), None);
                 self.entries.remove(hash);
-                self.apply_active_transition(active, None);
+                self.apply_prevalidated_active_transition(active, None);
             }
         }
         for (hash, _, next) in &planned {
-            self.apply_usage_delta(None, Some(next));
+            self.apply_prevalidated_usage_delta(None, Some(next));
             self.entries.insert(hash.clone(), next.clone());
             self.attach_indexes(hash, next);
         }
         self.next_version = version_cursor;
         self.next_arrival = arrival_cursor;
-        self.next_recovery_session = next_session;
-
-        Ok(RecoveryBatch {
-            session,
-            retained: planned.len(),
-        })
+        Ok(planned.len())
     }
 
-    /// Lease the next retained item of one recovery session. The raw payload
-    /// remains owned by the entry while direct validation awaits.
-    pub(crate) fn checkout_recovery(
-        &mut self,
-        session: u128,
-    ) -> Result<Option<ResolveLease>, PrePoolError> {
-        let Some(key) = self
-            .recovery
-            .iter()
-            .find(|key| key.meta.session == session)
-            .cloned()
-        else {
-            return Ok(None);
-        };
-        let old = self
-            .validate_location(&key.hash, key.version, PrePoolLocation::RecoveryRetained)?
-            .clone();
-        let version = self.allocate_version()?;
-        let mut next = old.clone();
-        next.version = version;
-        next.state = EntryState::ResolveLeased;
-        next.charge_bytes = self.entry_charge(&next)?;
-        self.check_usage_delta(Some(&old), Some(&next))?;
-        // The retained reorg handler is a single fixed trusted borrower, not
-        // part of the attacker-scalable worker set. Its payload is already
-        // charged by the entry, so Remote active-work saturation cannot delay
-        // chain convergence.
-        self.replace_entry(&key.hash, next.clone())?;
-        Ok(Some(ResolveLease {
-            hash: key.hash,
-            lane: ResolveLane::Ordered,
-            version,
-            payload: Arc::clone(&next.raw),
-        }))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn recovery_session_pending(&self, session: u128) -> bool {
-        self.entries.values().any(|entry| {
-            entry
-                .recovery
-                .is_some_and(|metadata| metadata.session == session)
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn exhaust_recovery_sessions_for_test(&mut self) {
-        self.next_recovery_session = u128::MAX;
-    }
-
-    pub(crate) fn recovery_snapshot(&self) -> Vec<RecoverySnapshotItem> {
+    pub(crate) fn recovery_snapshot(&self) -> Vec<TransactionView> {
         let mut items = self
             .entries
             .values()
-            .filter_map(|entry| {
-                entry.recovery.map(|meta| RecoverySnapshotItem {
-                    tx: entry.raw.tx.clone(),
-                    meta,
-                })
-            })
+            .filter(|entry| entry.source == PrePoolSource::Recovery)
+            .map(|entry| (entry.arrival, entry.raw.tx.clone()))
             .collect::<Vec<_>>();
-        items.sort_unstable_by_key(|item| item.meta);
-        items
+        items.sort_unstable_by_key(|(arrival, _)| *arrival);
+        items.into_iter().map(|(_, tx)| tx).collect()
     }
 }

@@ -27,6 +27,7 @@ use crate::block_assembler::BlockAssembler;
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
+pub(crate) use crate::component::pre_pool::PipelineTxLocation;
 use crate::component::recent_reject::RecentReject;
 use crate::pool::TxPool;
 #[cfg(feature = "internal")]
@@ -40,7 +41,7 @@ use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
-    core::{BlockView, Capacity, Cycle, TransactionView, UncleBlockView, tx_pool::TxStatus},
+    core::{BlockView, Capacity, UncleBlockView, tx_pool::TxStatus},
     packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::cache::TxVerificationCache;
@@ -50,7 +51,7 @@ use std::fmt;
 use std::panic::AssertUnwindSafe;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicU64, Ordering},
 };
 use tokio::sync::{RwLock, mpsc, watch};
 
@@ -197,37 +198,27 @@ pub(crate) struct PoolCore {
 #[derive(Debug, Default)]
 pub(crate) struct PipelineEpoch {
     value: AtomicU64,
-    exhausted: AtomicBool,
 }
 
 impl PipelineEpoch {
     pub(crate) fn current(&self) -> Option<u64> {
-        if self.exhausted.load(Ordering::Acquire) {
-            None
-        } else {
-            Some(self.value.load(Ordering::Acquire))
-        }
+        let value = self.value.load(Ordering::Acquire);
+        (value != u64::MAX).then_some(value)
     }
 
     pub(crate) fn is_current(&self, epoch: u64) -> bool {
-        !self.exhausted.load(Ordering::Acquire) && self.value.load(Ordering::Acquire) == epoch
+        epoch != u64::MAX && self.value.load(Ordering::Acquire) == epoch
     }
 
     /// Invalidate every job admitted before this call.
     pub(crate) fn advance(&self) -> Option<u64> {
-        if self.exhausted.load(Ordering::Acquire) {
-            return None;
-        }
         match self
             .value
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                value.checked_add(1)
+                (value != u64::MAX).then(|| value.saturating_add(1))
             }) {
-            Ok(previous) => Some(previous + 1),
-            Err(_) => {
-                self.exhausted.store(true, Ordering::Release);
-                None
-            }
+            Ok(previous) => (previous != u64::MAX - 1).then_some(previous + 1),
+            Err(_) => None,
         }
     }
 }
@@ -506,24 +497,6 @@ pub(crate) enum RemoveTxOutcome {
     InProgress,
     /// Not found anywhere.
     NotFound,
-}
-
-/// Location and metadata of a transaction found in the pipeline queues.
-pub(crate) enum PipelineTxLocation {
-    /// In the ordered resolve queue (not yet resolved/verified).
-    Ordered { tx: TransactionView },
-    /// In the verify queue (resolved, awaiting verification).
-    Verifying {
-        tx: TransactionView,
-        fee: Capacity,
-        status: Status,
-    },
-    /// In the orphan pool (missing inputs).
-    Orphan { tx: TransactionView, cycle: Cycle },
-    /// Retained rejected-conflict history. This owner remains available for
-    /// conflict audit and compact-block reconstruction, but it is not live
-    /// pipeline work and therefore must never project to RPC `Pending`.
-    ConflictHistory,
 }
 
 /// Result of looking up a transaction in the tx-pool or pipeline queues.

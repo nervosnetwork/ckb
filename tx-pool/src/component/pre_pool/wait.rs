@@ -357,7 +357,6 @@ impl PrePoolKernel {
             short_id,
             raw: Arc::new(raw),
             source,
-            recovery: None,
             state: EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys),
@@ -371,14 +370,14 @@ impl PrePoolKernel {
         };
         entry.charge_bytes = self.entry_charge(&entry)?;
         self.validate_entry_shape(&hash, &entry)?;
-        self.check_usage_delta(None, Some(&entry))?;
-        self.apply_usage_delta(None, Some(&entry));
+        let usage_plan = self.plan_usage_delta(None, Some(&entry))?;
+        self.apply_usage_plan(usage_plan);
         self.entries.insert(hash.clone(), entry.clone());
         self.attach_indexes(&hash, &entry);
         Ok((true, Vec::new()))
     }
 
-    pub(crate) fn remove_conflict_hash(&mut self, hash: &Byte32) -> bool {
+    pub(crate) fn remove_conflict_hash(&mut self, hash: &Byte32) -> Result<bool, PrePoolError> {
         let conflict = self.entries.get(hash).is_some_and(|entry| {
             matches!(
                 entry.state,
@@ -388,6 +387,9 @@ impl PrePoolKernel {
                 })
             )
         });
-        conflict && self.remove_entry(hash).is_ok()
+        if !conflict {
+            return Ok(false);
+        }
+        self.remove_entry(hash).map(|_| true)
     }
 }

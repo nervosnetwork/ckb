@@ -10,7 +10,10 @@
 //! ```
 
 use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
-use crate::service::TxPoolService;
+use crate::pool::TxPool;
+use crate::service::builder::{TxPoolServiceBuilder, assemble_service};
+use crate::service::effects::{EffectEndpoints, run_effect_publisher};
+use crate::service::{TxPoolService, VerifyCacheUpdate};
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
@@ -42,7 +45,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
-use tokio::sync::{Notify, RwLock, watch};
+use tokio::sync::{Notify, RwLock, mpsc, watch};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ALWAYS_SUCCESS_ISSUE_CAPACITY: u64 = 5_000;
@@ -184,6 +187,53 @@ struct SharedBench {
     runtime: tokio::runtime::Runtime,
     ckb_handle: ckb_async_runtime::Handle,
     secp_cell_deps: Option<Vec<CellDep>>,
+}
+
+struct BenchServiceParts {
+    service: TxPoolService,
+    signal: CancellationToken,
+    verify_cache_receiver: mpsc::Receiver<VerifyCacheUpdate>,
+    effect_publisher: tokio::task::JoinHandle<()>,
+}
+
+fn build_bench_service(
+    builder: TxPoolServiceBuilder,
+    network: TxPoolNetworkHandle,
+) -> BenchServiceParts {
+    let consensus = builder.snapshot.cloned_consensus();
+    let signal = builder.signal_receiver;
+    let tx_pool = TxPool::new(builder.tx_pool_config, builder.snapshot);
+    let (block_assembler_sender, _) = builder.block_assembler_channel;
+    let (verify_cache_sender, verify_cache_receiver) =
+        mpsc::channel::<VerifyCacheUpdate>(crate::constants::VERIFY_CACHE_CHANNEL_SIZE);
+    let service = assemble_service(
+        tx_pool,
+        consensus,
+        builder.block_assembler,
+        builder.callbacks,
+        network,
+        builder.txs_verify_cache,
+        builder.recent_reject,
+        builder.fee_estimator,
+        builder.tx_relay_sender,
+        block_assembler_sender,
+        verify_cache_sender,
+        builder.chunk_rx,
+        signal.clone(),
+    );
+    let effect_publisher = builder.handle.spawn(run_effect_publisher(
+        Arc::clone(&service.relay.effects),
+        EffectEndpoints {
+            network: Arc::clone(&service.relay.network),
+            tx_relay_sender: service.relay.tx_relay_sender.clone(),
+        },
+    ));
+    BenchServiceParts {
+        service,
+        signal,
+        verify_cache_receiver,
+        effect_publisher,
+    }
 }
 
 /// Event-driven stable-state completion barrier for measured submissions.
@@ -477,7 +527,7 @@ impl Drop for BenchServiceHandle {
 /// Build a [`TxPoolService`] together with its pipeline workers for direct
 /// method calls (e.g. `process_tx`, `test_accept_tx`).
 ///
-/// This uses [`TxPoolServiceBuilder::build_bench_service`] for the service
+/// This uses the production `assemble_service` constructor
 /// construction, ensuring the same assembly path as production code.  The
 /// returned [`BenchServiceHandle`] owns all spawned task handles and awaits
 /// their clean shutdown on drop.
@@ -501,7 +551,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // not affected by the process-wide exit signal used by the builder.
     let local_signal = CancellationToken::new();
     builder.signal_receiver = local_signal;
-    let mut parts = builder.build_bench_service(Arc::clone(&shared.network));
+    let mut parts = build_bench_service(builder, Arc::clone(&shared.network));
 
     let mut worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
