@@ -44,6 +44,7 @@ impl TxPoolService {
         reject: &Reject,
         epoch: u64,
     ) {
+        crate::metrics::record_rejection(reject);
         if !self.is_pipeline_epoch_current(epoch) {
             self.terminal_internal(tx, source).await;
             return;

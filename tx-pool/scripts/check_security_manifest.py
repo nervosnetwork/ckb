@@ -55,10 +55,10 @@ REQUIRED_RESIDUAL_RISKS = {
     "R5": "process_oom_abort_and_corruption",
     "R6": "trusted_notify_batch_outer_bound",
     "R7": "bounded_template_underfill_tradeoff",
-    "R8": "production_observability_debt",
+    "R8": "static_operational_projections_with_external_alerting",
     "R9": "legacy_v1_replay_ordering",
     "R10": "raw_conflict_wait_context_precision",
-    "R11": "notify_script_child_termination",
+    "R11": "template_notification_lifecycle_boundary",
     "R12": "controlled_performance_acceptance",
 }
 

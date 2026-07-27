@@ -251,6 +251,7 @@ impl MessageHandlerGuard {
 impl Drop for MessageHandlerGuard {
     fn drop(&mut self) {
         if !self.completed {
+            crate::metrics::record_failure(crate::metrics::FailureBoundary::HandlerUnwind);
             self.failed.store(true, Ordering::Release);
             self.shutdown.cancel();
         }
@@ -649,6 +650,9 @@ impl TxPoolServiceBuilder {
                     _ = supervisor.tick() => {
                         if !signal_receiver.is_cancelled() && worker_handles.any_finished() {
                             error!("tx-pool background worker exited unexpectedly; shutting down");
+                            crate::metrics::record_failure(
+                                crate::metrics::FailureBoundary::WorkerExit,
+                            );
                             worker_failed = true;
                             break;
                         }

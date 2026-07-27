@@ -191,7 +191,7 @@ impl PrePool {
             dependency_overhead: DEPENDENCY_EDGE_BYTES,
             verify_fee_rate_ordering: matches!(config.verify_ordering, VerifyOrdering::FeeRate),
         };
-        Ok(Self {
+        let pre_pool = Self {
             state: Mutex::new(PrePoolKernel::new(limits)),
             ingress_ready: Arc::new(Notify::new()),
             resolve_ready: Arc::new(Notify::new()),
@@ -201,7 +201,9 @@ impl PrePool {
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
             failed: AtomicBool::new(false),
-        })
+        };
+        crate::metrics::KernelUsage::default().publish();
+        Ok(pre_pool)
     }
 
     fn lock(&self) -> MutexGuard<'_, PrePoolKernel> {
@@ -216,7 +218,7 @@ impl PrePool {
     /// stale leases are returned by the transition itself; this shell never
     /// converts an invariant panic into a second state-management protocol.
     pub(crate) fn mutate_authoritative<T>(&self, apply: impl FnOnce(&mut PrePoolKernel) -> T) -> T {
-        let (result, ready, maintenance) = {
+        let (result, ready, maintenance, usage) = {
             let mut state = self.lock();
             let result = apply(&mut state);
             let ready = (
@@ -226,8 +228,18 @@ impl PrePool {
                 state.work_is_ready(WorkLane::Verify, WorkCapability::SmallCycleOnly),
                 state.work_is_ready(WorkLane::Commit, WorkCapability::Any),
             );
-            (result, ready, state.wait_wake_pending())
+            let usage = crate::metrics::KernelUsage {
+                total_entries: state.total_usage.entries,
+                total_bytes: state.total_usage.bytes,
+                remote_entries: state.remote_usage.entries,
+                remote_bytes: state.remote_usage.bytes,
+                conflict_entries: state.conflict_usage.entries,
+                conflict_bytes: state.conflict_usage.bytes,
+                active_work: state.active_work,
+            };
+            (result, ready, state.wait_wake_pending(), usage)
         };
+        usage.publish();
         let (ingress, resolve, verify, small_cycle, commit) = ready;
         if ingress {
             self.ingress_ready.notify_one();
@@ -308,6 +320,7 @@ impl PrePool {
     /// marks the generation ineligible for persistence before quiescence.
     pub(crate) fn report_fault(&self, context: &'static str, error: &impl std::fmt::Debug) {
         ckb_logger::error!("{context}: {error:?}");
+        crate::metrics::record_failure(crate::metrics::FailureBoundary::TypedFault);
         self.failed.store(true, Ordering::Release);
         self.shutdown.cancel();
     }

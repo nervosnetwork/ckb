@@ -115,16 +115,19 @@
         "tx-pool/src/service/effects.rs",
         "tx-pool/src/service/message.rs",
         "tx-pool/src/service/controller.rs",
+        "tx-pool/src/metrics.rs",
         "sync/src/relayer/block_proposal_process.rs",
-        "util/constant/src/sync.rs"
+        "util/constant/src/sync.rs",
+        "util/metrics/src/lib.rs"
       ],
-      "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects. Only a count-and-byte validated relay batch may enter the bounded dispatcher channel.",
+      "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects. Only a count-and-byte validated relay batch may enter the bounded dispatcher channel. Operational gauges are read-only snapshots of the same maintained counters and publish only after authority locks are released.",
       "hostile_case": "Parking, invalidation, reservation, peer churn, an oversized relay batch or an oversized displacement plan must not refund resident state, retain attacker-sized channel payload, evict unrelated stronger work or mutate before proving the bound.",
       "reviewer_questions": [
         "Is every owner charged if and only if it is resident?",
         "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
         "Does an impossible peer admission fail before global eviction planning?",
-        "Can a raw transaction Vec cross the dispatcher boundary without the relayer's count and byte proof?"
+        "Can a raw transaction Vec cross the dispatcher boundary without the relayer's count and byte proof?",
+        "Can metrics influence admission or require a scan, dynamic label, extra authority lock or retained payload?"
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|parent_projection_deduplicates|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound|notify_tx_batch_rejects)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
@@ -244,12 +247,16 @@
         "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/process/mod.rs",
         "tx-pool/src/process/submit/mod.rs",
+        "tx-pool/src/metrics.rs",
+        "tx-pool/src/service/builder.rs",
+        "tx-pool/src/service/effects.rs",
         "tx-pool/src/service/stages/resolve.rs",
         "tx-pool/src/service/dispatch.rs",
         "tx-pool/src/service/stages/verify.rs",
-        "sync/src/relayer/mod.rs"
+        "sync/src/relayer/mod.rs",
+        "util/metrics/src/lib.rs"
       ],
-      "required_behavior": "Static ownership and private constructors make invalid authority states unconstructable; every legal malformed, policy, capacity, duplicate and stale outcome remains typed before Apply; a pre-Apply primary/index/accounting system fault stops without persistence and is never converted to an RPC/peer outcome. Panic plus catch_unwind is not authority, worker, retry or rollback control flow.",
+      "required_behavior": "Static ownership and private constructors make invalid authority states unconstructable; every legal malformed, policy, capacity, duplicate and stale outcome remains typed before Apply; a pre-Apply primary/index/accounting system fault stops without persistence and is never converted to an RPC/peer outcome. Panic plus catch_unwind is not authority, worker, retry or rollback control flow. Low-cardinality counters observe the existing typed-fault, worker-exit, handler-unwind and effect-publisher boundaries but never select them.",
       "hostile_case": "A reproducible legal transaction, stale lease, foreign endpoint failure/hang or relay saturation must not panic or reach a structural fault; a genuine pre-Apply system fault must not be converted to success/rejection, restarted into an unknown generation or written to persistence.",
       "reviewer_questions": [
         "Can every peer-selectable legal outcome be traced to a typed result before mutation without assert, expect, unwrap, panic or unreachable?",
@@ -287,15 +294,16 @@
         "tx-pool/src/pool.rs",
         "tx-pool/src/process/reorg.rs"
       ],
-      "required_behavior": "Reset and full rebuild retain one ordered publication authority without serializing their construction: a full rebuild derives uncle content from the bounded candidate authority, wins over racing partial revisions but cannot cross a newer reset epoch, while reset consumes its exact generation token. Uncle, proposal and transaction partial updates remain concurrent revision-checked OCC, and every successful full/reset replacement reissues all three optimistic dirty generations so valid recovered transactions always regain a proposal/commit path. External template scripts are observational, own at most one live child per configured command and terminate that child on timeout.",
-      "hostile_case": "Detached uncle proposals, stale Gap status, an update_full/partial race or stale partial acknowledgement must not make a valid transaction RPC-pending but forever absent from normal get_block_template mining, nor serialize independent partial work behind full calculation. A hung notification script must not turn repeated template updates into unbounded child processes.",
+      "required_behavior": "Reset and full rebuild retain one ordered publication authority without serializing their construction: a full rebuild derives uncle content from the bounded candidate authority, wins over racing partial revisions but cannot cross a newer reset epoch, while reset consumes its exact generation token. Uncle, proposal and transaction partial updates remain concurrent revision-checked OCC, and every successful full/reset replacement reissues all three optimistic dirty generations so valid recovered transactions always regain a proposal/commit path. External template scripts are observational, own at most one live child per configured command and terminate that child on timeout; HTTP notification work remains cancellable and outside authority locks.",
+      "hostile_case": "Detached uncle proposals, stale Gap status, an update_full/partial race or stale partial acknowledgement must not make a valid transaction RPC-pending but forever absent from normal get_block_template mining, nor serialize independent partial work behind full calculation. A hung notification script must not turn repeated template updates into unbounded child processes, and a hung HTTP endpoint must not retain tx-pool authority past its configured timeout.",
       "reviewer_questions": [
         "Does the co-located revision/reset epoch preserve full-over-partial priority and reset-over-stale-full authority while re-dirtying uncle/proposal/transaction generations after replacement?",
         "Does a full rebuild derive detached uncles from the candidate authority instead of copying the reset template's transient blank projection?",
         "Can uncle proposal filtering exclude the sole proposal path of a recovered transaction?",
         "Are Gap/Pending/Proposed transitions reflected to assembler selection?",
         "Do uncle/proposal/transaction calculations remain concurrent with a waiting full rebuild and publish only through version checks?",
-        "Can any configured notification script accumulate live owned children in proportion to template update rate?"
+        "Can any configured notification script accumulate live owned children in proportion to template update rate?",
+        "Does HTTP notification remain cancellable and bounded by visible trusted configuration rather than transaction ownership?"
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle)/)'",
       "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."

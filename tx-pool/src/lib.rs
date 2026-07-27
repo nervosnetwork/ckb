@@ -74,6 +74,7 @@ mod callback;
 mod component;
 pub(crate) mod constants;
 pub mod error;
+mod metrics;
 mod network;
 mod persisted;
 pub mod pool;

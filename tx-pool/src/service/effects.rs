@@ -514,6 +514,18 @@ impl EffectRegions {
             EffectClass::Critical => self.total.fits(bytes, limits.total),
         }
     }
+
+    fn publish_metrics(self) {
+        crate::metrics::EffectUsage {
+            remote_batches: self.remote.batches,
+            remote_bytes: self.remote.bytes,
+            ordinary_batches: self.ordinary.batches,
+            ordinary_bytes: self.ordinary.bytes,
+            total_batches: self.total.batches,
+            total_bytes: self.total.bytes,
+        }
+        .publish();
+    }
 }
 
 struct JournalState {
@@ -725,7 +737,7 @@ impl EffectJournal {
                 }
             })
             .map_err(|_| EffectJournalError::AllocationFailed)?;
-        Ok(Self {
+        let journal = Self {
             state: Mutex::new(JournalState {
                 queued,
                 active: None,
@@ -748,7 +760,9 @@ impl EffectJournal {
             recent_reject_circuit_open: AtomicBool::new(false),
             callback_sender,
             generation_reset_batch: Arc::new(EffectBatch::reset_record()),
-        })
+        };
+        EffectRegions::default().publish_metrics();
+        Ok(journal)
     }
 
     fn class_limit(&self, class: EffectClass) -> EffectUsage {
@@ -846,7 +860,9 @@ impl EffectJournal {
         let plan = state.plan_append(class, bytes)?;
         let result = apply();
         state.apply_append(plan, class, batch);
+        let usage = state.usage;
         drop(state);
+        usage.publish_metrics();
         self.ready.notify_one();
         Ok(result)
     }
@@ -879,7 +895,9 @@ impl EffectJournal {
         match apply() {
             Ok(result) => {
                 state.apply_append(plan, class, batch);
+                let usage = state.usage;
                 drop(state);
+                usage.publish_metrics();
                 self.ready.notify_one();
                 Ok(Ok(result))
             }
@@ -937,7 +955,9 @@ impl EffectJournal {
                 }
             }
         }
+        let usage = state.usage;
         drop(state);
+        usage.publish_metrics();
         self.ready.notify_one();
         Ok(result)
     }
@@ -982,7 +1002,9 @@ impl EffectJournal {
                 ));
             };
             state.apply_append(plan, class, batch);
+            let usage = state.usage;
             drop(state);
+            usage.publish_metrics();
             self.ready.notify_one();
             return Ok(());
         }
@@ -1104,7 +1126,9 @@ impl EffectJournal {
             }
         }
         state.active.take();
+        let usage = state.usage;
         drop(state);
+        usage.publish_metrics();
         self.space.notify_waiters();
         Ok(())
     }
@@ -1355,6 +1379,7 @@ async fn run_effect_publisher_once(
 
 pub(crate) async fn run_effect_publisher(queue: Arc<EffectJournal>, endpoints: EffectEndpoints) {
     if let Err(error) = run_effect_publisher_once(Arc::clone(&queue), endpoints).await {
+        crate::metrics::record_failure(crate::metrics::FailureBoundary::EffectPublisher);
         error!("tx-pool effect publisher stopped on journal fault: {error:?}");
         queue.close();
     }

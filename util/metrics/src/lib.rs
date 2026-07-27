@@ -45,6 +45,48 @@ make_static_metric! {
         },
     }
 
+    struct CkbTxPoolPipelineResidencyStatistics: IntGauge{
+        "resource" => {
+            total_entries,
+            total_bytes,
+            remote_entries,
+            remote_bytes,
+            conflict_entries,
+            conflict_bytes,
+            active_work,
+        },
+    }
+
+    struct CkbTxPoolPipelineRejectionStatistics: IntCounter{
+        "class" => {
+            malformed,
+            policy,
+            capacity,
+            duplicate,
+            internal,
+        },
+    }
+
+    struct CkbTxPoolPipelineFailureStatistics: IntCounter{
+        "boundary" => {
+            typed_fault,
+            worker_exit,
+            handler_unwind,
+            effect_publisher,
+        },
+    }
+
+    struct CkbTxPoolEffectUsageStatistics: IntGauge{
+        "region" => {
+            remote_batches,
+            remote_bytes,
+            ordinary_batches,
+            ordinary_bytes,
+            total_batches,
+            total_bytes,
+        },
+    }
+
     struct CkbHeaderMapMemoryHitMissStatistics: IntCounter{
         "type" => {
             hit,
@@ -118,6 +160,14 @@ pub struct Metrics {
     pub ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics,
     // GaugeVec for CKB tx-pool tx entry status statistics
     pub ckb_tx_pool_entry: CkbTxPoolEntryStatistics,
+    /// Gauges for bounded pre-pool ownership and active work.
+    pub ckb_tx_pool_pipeline_residency: CkbTxPoolPipelineResidencyStatistics,
+    /// Counters for terminal tx-pool rejection classes.
+    pub ckb_tx_pool_pipeline_rejections: CkbTxPoolPipelineRejectionStatistics,
+    /// Counters for typed service failure boundaries.
+    pub ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics,
+    /// Gauges for the effect journal's cumulative capacity lattice.
+    pub ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics,
     /// Histogram for CKB network connections
     pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
@@ -288,6 +338,38 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             "ckb_tx_pool_entry",
             "CKB tx-pool entry status statistics",
             &["type"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_residency: CkbTxPoolPipelineResidencyStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_pipeline_residency",
+            "Bounded tx-pool pipeline residency and active work",
+            &["resource"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_rejections: CkbTxPoolPipelineRejectionStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_tx_pool_pipeline_rejections",
+            "Terminal tx-pool rejection outcomes by closed class",
+            &["class"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_tx_pool_pipeline_failures",
+            "Tx-pool service failures by existing fail-closed boundary",
+            &["boundary"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_effect_usage",
+            "Staged tx-pool effect-journal usage by cumulative region",
+            &["region"]
         )
                 .unwrap(),
         ),

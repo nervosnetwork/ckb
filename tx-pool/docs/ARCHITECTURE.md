@@ -892,6 +892,23 @@ create another owner.
 
 ## 21. Residual risks
 
+The operational projection consists of four static-label metric families:
+
+- `ckb_tx_pool_pipeline_residency` projects total, Remote and conflict-history
+  entry/byte residency plus active work;
+- `ckb_tx_pool_pipeline_rejections` counts the closed malformed, policy,
+  capacity, duplicate and internal terminal classes;
+- `ckb_tx_pool_pipeline_failures` counts typed faults, unexpected worker exits,
+  handler unwinds and effect-publisher failures; and
+- `ckb_tx_pool_effect_usage` projects the Remote, ordinary and total cumulative
+  effect regions in batches and bytes.
+
+Every label is compile-time fixed. Gauges are best-effort lock-free snapshots
+published after the authoritative transition; a concurrent older publication
+may be observed briefly and the next transition converges it. Metrics are
+therefore suitable for operational trends and alerts, never for state repair,
+admission, settlement or proof of an invariant.
+
 A residual is an explicit boundary, not an implicit bug waiver. `Eliminate`
 means a focused change can remove it without changing the ownership model;
 `Mitigate` means the model can bound but not erase it; `Accept` means removing
@@ -907,10 +924,10 @@ another mechanism, closes it.
 | R5 | Accept | OOM, allocator abort and process corruption are outside in-process recovery. | Process supervision and restart own this boundary. |
 | R6 | Mitigate | The public controller retains its compatible `Vec<TransactionView>` input, but the dispatcher message accepts only `NotifyTxBatch`, proven against the relayer's shared count and serialized-byte limits before channel admission. Caller-side allocation occurs outside tx-pool ownership. | Keep the protocol constants centralized in `ckb-constant` and the validated newtype as the sole message payload; never reconstruct a raw batch behind the controller boundary. |
 | R7 | Improve with evidence | `TxSelector` stops after 4,000 consecutive non-fitting packages, bounding CPU while permitting bounded template underfill. | Change only through a resumable cursor or fit-aware index with packing-quality and CPU/RSS A/B evidence; removing the cap is invalid. |
-| R8 | Eliminate | Kernel residency, rejection classes, worker failure and effect-region usage lack dedicated production metrics. | Add low-cost counters/gauges before claiming automated operational SLO detection. |
+| R8 | Mitigate | Static low-cardinality metrics project kernel residency, terminal rejection classes, service-failure boundaries and effect-region usage from already-maintained counters. Exporter availability, alert thresholds and operator response remain deployment concerns. | Keep metric publication outside authority locks and outside all state/control decisions. Add no metric-owned cache, scan, dynamic label or retry path; validate alert policy in deployment configuration. |
 | R9 | Accept for compatibility | A legacy or hand-authored v1 persistence file may order a child before an expanded dep-group parent and lose that local mempool child during serial replay. | A future fix must be a versioned batch-resolve/retry loader, not another raw ordering heuristic. Chain state is unaffected. |
 | R10 | Accept | Raw `Wait(Conflict)` cannot know expanded dep-group, header context or maturity until re-resolution. | Accepted/verified victims retain exact expanded edges. Do not retain another verified owner or contextual wake protocol without a concrete liveness counterexample. |
-| R11 | Mitigate | Each configured block-template script owns one RAII process slot and its direct child is killed on timeout, so template rate cannot multiply live owned children. A script that deliberately daemonizes descendants crosses the configured external-program boundary. | Keep `kill_on_drop` and the per-command permit inseparable from spawning. Use an OS service manager for intentionally detached descendants; process-group ownership requires a separate cross-platform product contract. |
+| R11 | Mitigate | Each configured block-template script owns one RAII process slot and its direct child is killed on timeout, so template rate cannot multiply live owned children. HTTP requests are cancellable at timeout, but their maximum concurrent count is the trusted configuration product of endpoint count and timeout/update-interval ratio. A script that deliberately daemonizes descendants crosses the configured external-program boundary. | Keep `kill_on_drop` and the per-command permit inseparable from spawning, and keep HTTP work cancellable and outside authority locks. Treat extreme notification timing/cardinality as an operator configuration risk; hard startup caps or process-group ownership require a separate backward-compatibility/product contract. |
 | R12 | Validate | Throughput, tail latency, CPU, allocation/RSS and lock-hold superiority are not established by correctness tests. | Pass the clean, repeated, fingerprint-matched A/B protocol in [`BENCHMARK.md`](BENCHMARK.md). |
 
 ## 22. Release conditions
