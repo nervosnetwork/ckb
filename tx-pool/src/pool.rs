@@ -3,7 +3,7 @@ use super::component::{TxEntry, tx_selector::TxSelector};
 use crate::component::pool_map::{ConflictClosure, PoolEntry, PoolMap, PoolMutationFault, Status};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
-use crate::pool_cell::{PoolCell, ResolvedOverlayCellChecker};
+use crate::pool_cell::{PoolCell, TxPoolResolvedCellChecker};
 use ckb_app_config::TxPoolConfig;
 use ckb_fee_estimator::Error as FeeEstimatorError;
 use ckb_logger::debug;
@@ -449,9 +449,9 @@ impl TxPool {
         let dep_cell = PoolCell::excluding(&self.pool_map, false, excluded);
         let current_tip = snapshot.tip_hash();
         let input_checker =
-            ResolvedOverlayCellChecker::new(&input_cell, snapshot, pre_resolve_tip, &current_tip);
+            TxPoolResolvedCellChecker::new(&input_cell, snapshot, pre_resolve_tip, &current_tip);
         let dep_checker =
-            ResolvedOverlayCellChecker::new(&dep_cell, snapshot, pre_resolve_tip, &current_tip);
+            TxPoolResolvedCellChecker::new(&dep_cell, snapshot, pre_resolve_tip, &current_tip);
         let mut seen_inputs = HashSet::new();
         rtx.check_with_cell_checkers(&mut seen_inputs, &input_checker, &dep_checker, snapshot)
             .map_err(Reject::Resolve)

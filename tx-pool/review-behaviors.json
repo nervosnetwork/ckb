@@ -34,10 +34,11 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/pool.rs"
       ],
-      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching versioned kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects.",
+      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching versioned kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
       "hostile_case": "Concurrent commits, stale leases, rejected RBF, capacity failure, accepted-duplicate acknowledgement racing clear/reorg, or a structural defect must not expose a pool/kernel ownership gap, strand Ready work, or publish success for an absent/unapplied owner.",
       "reviewer_questions": [
         "Is every final fee/conflict decision recomputed under the pool write guard?",
+        "Is same-tip resolved-cell evidence confined to tx-pool admission, chain-provenanced per cell, and excluded from removal-history and block/consensus validation?",
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
@@ -352,9 +353,9 @@
     {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
 
-    {"test": "resolution_evidence_skips_same_tip_chain_revalidation", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
-    {"test": "resolution_evidence_yields_to_pool_spends_and_tip_changes", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
-    {"test": "resolution_evidence_requires_chain_provenance", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
+    {"test": "tx_pool_same_tip_resolution_evidence_skips_chain_revalidation", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
+    {"test": "tx_pool_resolution_evidence_yields_to_pool_spends_and_tip_changes", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
+    {"test": "tx_pool_resolution_evidence_requires_chain_provenance", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
 
     {"test": "same_commit_wakes_prior_conflict_but_not_its_new_victim", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
 

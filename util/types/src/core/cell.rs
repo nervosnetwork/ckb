@@ -349,7 +349,7 @@ impl ResolvedTransaction {
                 return Ok(());
             }
 
-            match checker.is_live_cell(cell) {
+            match checker.is_live_resolved_cell(cell) {
                 Some(true) => {
                     checked_cells.insert(out_point.clone());
                     Ok(())
@@ -420,14 +420,15 @@ pub trait CellChecker {
     /// Returns true if the cell is live corresponding to specified out_point.
     fn is_live(&self, out_point: &OutPoint) -> Option<bool>;
 
-    /// Revalidate an already resolved cell.
+    /// Revalidate an already resolved cell while retaining its metadata.
     ///
-    /// The default deliberately ignores the metadata so ordinary checkers
-    /// retain their existing behavior. A caller with a typed proof that the
-    /// resolved metadata came from the same immutable chain state may use it
-    /// as positive liveness evidence while still consulting its mutable
-    /// overlay first.
-    fn is_live_cell(&self, cell: &CellMeta) -> Option<bool> {
+    /// This metadata-aware hook exists for tx-pool final admission. Its
+    /// default deliberately ignores the metadata and preserves the historical
+    /// `is_live(out_point)` semantics used by block, consensus, store and
+    /// snapshot checkers. An implementation must override it only when it can
+    /// prove that the metadata and its liveness stamp came from the same
+    /// immutable chain state; mutable overlays must still take precedence.
+    fn is_live_resolved_cell(&self, cell: &CellMeta) -> Option<bool> {
         self.is_live(&cell.out_point)
     }
 }

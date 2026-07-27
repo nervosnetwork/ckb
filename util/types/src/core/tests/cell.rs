@@ -60,6 +60,28 @@ impl CellChecker for CellMemoryDb {
     }
 }
 
+#[test]
+fn metadata_aware_liveness_defaults_to_outpoint_check() {
+    struct LegacyChecker {
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl CellChecker for LegacyChecker {
+        fn is_live(&self, _out_point: &OutPoint) -> Option<bool> {
+            self.calls.set(self.calls.get() + 1);
+            Some(false)
+        }
+    }
+
+    let checker = LegacyChecker {
+        calls: std::cell::Cell::new(0),
+    };
+    let cell = generate_dummy_cell_meta();
+
+    assert_eq!(checker.is_live_resolved_cell(&cell), Some(false));
+    assert_eq!(checker.calls.get(), 1);
+}
+
 fn generate_dummy_cell_meta_with_info(out_point: OutPoint, data: Bytes) -> CellMeta {
     let cell_output = CellOutput::new_builder()
         .capacity(capacity_bytes!(2))

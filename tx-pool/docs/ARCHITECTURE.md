@@ -492,6 +492,29 @@ section cost, not permission to add unbounded I/O. Kernel-only worker
 transitions use only the shorter kernel→journal suffix. Code must not acquire
 `TxPool` from an effect callback or while already holding the kernel.
 
+### 10.1 Tx-pool-only same-tip cell evidence
+
+`TxPoolResolvedCellChecker` is an admission optimization, not a consensus or
+block-validation rule. It may avoid a repeated chain point lookup for one
+resolved cell only when all of these conditions hold:
+
+1. the resolved metadata and `pre_resolve_tip` were captured from the same
+   `Arc<Snapshot>` used by resolution;
+2. `pre_resolve_tip == current_tip_hash`;
+3. that cell has `transaction_info`, which proves it came from the chain
+   snapshot rather than an accepted-pool producer; and
+4. the current accepted-pool overlay was checked first and did not report a
+   spender or producer result.
+
+The proof is per cell, never per transaction. A permissive RBF resolve ignores
+accepted-pool consumers only; it does not turn a chain miss into metadata, and
+pool-produced metadata has no `transaction_info`. A changed tip or absent
+chain provenance therefore falls through to the snapshot checker. Removal-
+history queries such as `planned_unavailable_parent_hashes` and
+`planned_available_dependencies` reason about other transactions and never
+consume this evidence. Block, consensus, store and snapshot checkers retain
+`CellChecker::is_live_resolved_cell`'s default `is_live(out_point)` behavior.
+
 The first attempt plans optimistically without a worst-case capacity wait. If
 the exact batch is `Full`, the caller releases every state lock, waits on that
 exact charge as a level-triggered hint, then replans against the new

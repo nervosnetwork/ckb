@@ -124,12 +124,12 @@ impl<'a> CellChecker for PoolCell<'a> {
 /// This is intentionally a closed enum instead of a boolean parameter: only
 /// [`Self::from_tips`] can establish the positive-evidence arm.
 #[derive(Clone, Copy)]
-enum ChainCellEvidence {
+enum TxPoolChainEvidence {
     SameTip,
     Revalidate,
 }
 
-impl ChainCellEvidence {
+impl TxPoolChainEvidence {
     fn from_tips(resolved: &Byte32, current: &Byte32) -> Self {
         if resolved == current {
             Self::SameTip
@@ -139,7 +139,7 @@ impl ChainCellEvidence {
     }
 }
 
-/// Role-aware final checker for a resolved transaction.
+/// Tx-pool-only, role-aware final-admission checker for a resolved transaction.
 ///
 /// The accepted-pool overlay always wins because pool spends/producers can
 /// change after resolution. On an overlay miss, a `CellMeta` carrying chain
@@ -147,13 +147,17 @@ impl ChainCellEvidence {
 /// immutable tip; stale tips and pool-produced metadata still fall through to
 /// the chain checker. This removes duplicate RocksDB reads without adding a
 /// cache, invalidation protocol, lock or second state authority.
-pub(crate) struct ResolvedOverlayCellChecker<'a, A, B> {
+///
+/// Block and consensus validation must not use this checker: they resolve
+/// against their own validation context and retain `CellChecker`'s conservative
+/// default behavior.
+pub(crate) struct TxPoolResolvedCellChecker<'a, A, B> {
     overlay: &'a A,
     chain: &'a B,
-    evidence: ChainCellEvidence,
+    evidence: TxPoolChainEvidence,
 }
 
-impl<'a, A, B> ResolvedOverlayCellChecker<'a, A, B> {
+impl<'a, A, B> TxPoolResolvedCellChecker<'a, A, B> {
     pub(crate) fn new(
         overlay: &'a A,
         chain: &'a B,
@@ -163,21 +167,21 @@ impl<'a, A, B> ResolvedOverlayCellChecker<'a, A, B> {
         Self {
             overlay,
             chain,
-            evidence: ChainCellEvidence::from_tips(resolved_tip, current_tip),
+            evidence: TxPoolChainEvidence::from_tips(resolved_tip, current_tip),
         }
     }
 }
 
-impl<A: CellChecker, B: CellChecker> CellChecker for ResolvedOverlayCellChecker<'_, A, B> {
+impl<A: CellChecker, B: CellChecker> CellChecker for TxPoolResolvedCellChecker<'_, A, B> {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
         self.overlay
             .is_live(out_point)
             .or_else(|| self.chain.is_live(out_point))
     }
 
-    fn is_live_cell(&self, cell: &CellMeta) -> Option<bool> {
+    fn is_live_resolved_cell(&self, cell: &CellMeta) -> Option<bool> {
         self.overlay.is_live(&cell.out_point).or_else(|| {
-            if matches!(self.evidence, ChainCellEvidence::SameTip)
+            if matches!(self.evidence, TxPoolChainEvidence::SameTip)
                 && cell.transaction_info.is_some()
             {
                 Some(true)
