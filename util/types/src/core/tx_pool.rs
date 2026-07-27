@@ -74,16 +74,11 @@ fn is_malformed_from_verification(error: &Error) -> bool {
     match error.kind() {
         ErrorKind::Transaction => error
             .downcast_ref::<TransactionError>()
-            .expect("error kind checked")
-            .is_malformed_tx(),
+            .is_some_and(TransactionError::is_malformed_tx),
         ErrorKind::Script => !format!("{}", error).contains(ARGV_TOO_LONG_TEXT),
-        ErrorKind::Internal => {
-            error
-                .downcast_ref::<InternalError>()
-                .expect("error kind checked")
-                .kind()
-                == InternalErrorKind::CapacityOverflow
-        }
+        ErrorKind::Internal => error
+            .downcast_ref::<InternalError>()
+            .is_some_and(|internal| internal.kind() == InternalErrorKind::CapacityOverflow),
         _ => false,
     }
 }
