@@ -317,15 +317,12 @@ async fn proposal_ready_commit_uses_trusted_effect_headroom() {
         .unwrap()
         .unwrap();
     let mut chunk_rx = h.chunk_rx.clone();
-    tokio::time::timeout(
-        Duration::from_secs(2),
-        async {
-            h.service
-                .process_pipeline_verify_lease(verify, &mut chunk_rx)
-                .await;
-            assert!(h.service.drive_pipeline_commits().await);
-        },
-    )
+    tokio::time::timeout(Duration::from_secs(2), async {
+        h.service
+            .process_pipeline_verify_lease(verify, &mut chunk_rx)
+            .await;
+        assert!(h.service.drive_pipeline_commits().await);
+    })
     .await
     .expect("trusted Ready admission must not wait on the full Remote region");
 
@@ -569,11 +566,15 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
-    let ready_source = h
-        .service
-        .pipeline
-        .kernel
-        .read(|kernel| kernel.begin_next_commit().unwrap().unwrap().payload.candidate.source);
+    let ready_source = h.service.pipeline.kernel.read(|kernel| {
+        kernel
+            .begin_next_commit()
+            .unwrap()
+            .unwrap()
+            .payload
+            .candidate
+            .source
+    });
     assert_eq!(
         ready_source,
         TxSource::Proposal,

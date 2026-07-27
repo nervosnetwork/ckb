@@ -607,6 +607,11 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // Create a fresh command channel shared by stage workers.
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
+    worker_handles.push(crate::service::workers::spawn_pipeline_commit_worker(
+        &shared.executor.ckb_handle,
+        parts.service.clone(),
+        signal.child_token(),
+    ));
     worker_handles.extend(crate::service::stages::spawn_verify_workers(
         &shared.executor.ckb_handle,
         parts.service.clone(),
