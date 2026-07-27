@@ -1,5 +1,5 @@
 use crate::component::pool_map::{PoolMutationFault, Status};
-use crate::component::tests::util::{
+use crate::test_support::{
     DEFAULT_MAX_ANCESTORS_COUNT, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, build_tx, build_tx_with_dep,
     build_tx_with_header_dep,
 };

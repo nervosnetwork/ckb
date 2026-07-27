@@ -521,13 +521,13 @@ impl TxPoolServiceBuilder {
             pre_check_cancel,
             pre_check_workers,
         );
-        let verify_handles = crate::verify_mgr::spawn_verify_workers(
+        let verify_handles = crate::service::stages::spawn_verify_workers(
             &handle,
             service.clone(),
             chunk_rx.clone(),
             signal_receiver.child_token(),
         );
-        let resolver_handle = crate::resolve_mgr::spawn_ordered_resolver(
+        let resolver_handle = crate::service::stages::spawn_ordered_resolver(
             &handle,
             service.clone(),
             chunk_rx,

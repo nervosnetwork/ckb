@@ -19,8 +19,8 @@ use ckb_types::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::harness::{WorkerSet, harness};
-use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx};
+use super::support::{WorkerSet, harness};
+use crate::test_support::{MOCK_CYCLES, MOCK_SIZE, build_tx};
 
 #[tokio::test]
 async fn persisted_file_is_topologically_ordered() {
@@ -371,7 +371,7 @@ async fn dispatcher_channel_close_quiesces_workers_and_persists_pool() {
     // Keep this test independent from the process-wide stop token. The only
     // shutdown trigger below is closing every controller sender.
     builder.signal_receiver = CancellationToken::new();
-    let dispatcher = builder.start_with_handle(super::harness::dummy_network());
+    let dispatcher = builder.start_with_handle(super::support::dummy_network());
 
     let tx = build_resolvable_tx(&funding[0], 4_000);
     let tx_id = tx.proposal_short_id();
@@ -444,7 +444,7 @@ async fn zero_verify_worker_config_still_runs_remote_pipeline() {
         FeeEstimator::new_dummy(),
     );
     builder.signal_receiver = CancellationToken::new();
-    let dispatcher = builder.start_with_handle(super::harness::dummy_network());
+    let dispatcher = builder.start_with_handle(super::support::dummy_network());
 
     let tx = build_resolvable_tx(&funding[0], 4_000);
     let cycles = controller
@@ -646,7 +646,7 @@ async fn callback_reentry_does_not_depend_on_a_dispatcher_permit() {
         callback_calls.fetch_add(1, Ordering::Release);
         callback_changed.notify_one();
     }));
-    let dispatcher = builder.start_with_handle(super::harness::dummy_network());
+    let dispatcher = builder.start_with_handle(super::support::dummy_network());
 
     let submissions = funding
         .iter()

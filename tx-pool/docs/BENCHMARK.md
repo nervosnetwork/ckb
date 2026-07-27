@@ -14,16 +14,16 @@ cargo bench -p ckb-tx-pool --features internal
 
 ```bash
 # default medium matrix (~10–15 minutes)
-python3 devtools/tx_pool_bench.py
+python3 tx-pool/scripts/benchmark.py
 
 # small quick matrix (~5 minutes)
-python3 devtools/tx_pool_bench.py --quick
+python3 tx-pool/scripts/benchmark.py --quick
 
 # focused quick diagnosis (one matching scenario family)
-python3 devtools/tx_pool_bench.py --quick --filter always_success_100
+python3 tx-pool/scripts/benchmark.py --quick --filter always_success_100
 
 # preferred quick A/B: alternate adjacent baseline/candidate runs
-python3 devtools/tx_pool_bench.py --quick --runs 3 \
+python3 tx-pool/scripts/benchmark.py --quick --runs 3 \
   --filter always_success_100 \
   --baseline-worktree /tmp/ckb-txpool-bench-checkpoint \
   --save-baseline-json /tmp/tx-pool-baseline.json \
@@ -31,14 +31,14 @@ python3 devtools/tx_pool_bench.py --quick --runs 3 \
   --fail-on-regression
 
 # full matrix (~1 hour)
-python3 devtools/tx_pool_bench.py --full
+python3 tx-pool/scripts/benchmark.py --full
 
 # save the median of three complete runs
-python3 devtools/tx_pool_bench.py --runs 3 \
+python3 tx-pool/scripts/benchmark.py --runs 3 \
   --save-json /tmp/tx-pool-baseline.json
 
 # compare and fail on any measured regression
-python3 devtools/tx_pool_bench.py --runs 3 \
+python3 tx-pool/scripts/benchmark.py --runs 3 \
   --compare-json /tmp/tx-pool-baseline.json \
   --save-json /tmp/tx-pool-candidate.json \
   --fail-on-regression
@@ -122,7 +122,7 @@ Regular workloads and dependent-chain workloads use different size/warm configur
 - `always_success`: independent transactions using the always-success lock and genesis issue outputs.
 - `secp256k1`: independent transactions using the secp256k1_blake160_sighash_all lock.
 - `dependent_always_success_parent_first`: a normal parent -> child chain using the always-success lock and the in-flight dependency path.
-- `dependent_always_success_child_first`: the same chain submitted in reverse to exercise coordinator parent waiting and wake-up.
+- `dependent_always_success_child_first`: the same chain submitted in reverse to exercise kernel dependency waiting and wake-up.
 - `dependent_secp_parent_first`: a normal parent -> child chain using the secp lock.
 - `dependent_secp_child_first`: the same secp chain submitted in reverse.
 
@@ -145,7 +145,7 @@ Each workload is tested in two variants:
 Dependent chains are measured in both directions because they exercise different state transitions:
 
 - **parent-first**: children observe an in-flight parent and use the ordered dependency path;
-- **child-first**: children enter coordinator `WaitingParents` state and are woken after their parents are accepted.
+- **child-first**: children enter kernel `Wait(Missing)` state and are woken after their parents are accepted.
 
 - **warm benchmark**: the warm prefix is already in the pool; the target segment is submitted in the selected direction.
 - **cold benchmark**: the target segment depends on the warm prefix. The warm prefix is submitted in natural order during setup (not measured), then the target segment is submitted parent-first or child-first during measurement.
@@ -157,7 +157,7 @@ Dependent chains are measured in both directions because they exercise different
 - Before returning a new controller to Criterion, setup completes one dispatcher round-trip and a short Tokio scheduling interval. This keeps freshly spawned worker startup latency outside the measured transaction batch without warming the verification cache or pool.
 - `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration. A teardown timeout or task panic fails the benchmark instead of silently admitting a contaminated sample.
 - Criterion uses `iter_batched_ref`, so that complete service shutdown (worker quiescence, pool save and relay-drain join) happens after the measurement interval rather than being charged to transaction latency.
-- `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the best-effort verification-cache worker. It is used only for cycle measurement. Teardown joins those workers first, releases the final service/relay sender, and only then joins the relay drain; joining all three ownership layers at once would deadlock until timeout.
+- `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify`, `ordered_resolver`) plus the best-effort verification-cache worker. It is used only for cycle measurement. Teardown joins those workers first, releases the final service/relay sender, and only then joins the relay drain; joining all three ownership layers at once would deadlock until timeout.
 - Both `start_controller` and `start_service` spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.
 - The verification-cache worker receives only the cache handle and channel receiver, so it cannot retain its own sender and prevent shutdown.
 - `SharedBench` creates genesis issue outputs according to the workload's actual need (`issue_outputs = max_size + warm_pool_size`), avoiding over-allocation for dependent chains.

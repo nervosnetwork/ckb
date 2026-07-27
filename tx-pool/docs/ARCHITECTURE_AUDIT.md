@@ -6,9 +6,9 @@ Execution ledger: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
-Stable code checkpoint: `9e559a482`.
-Audited candidate: P6.5 code checkpoint `9e559a482`; preceding evidence
-checkpoint `eb26bd272`
+Stable code checkpoint: `dd95e1f99`.
+Audited candidate: post-regression correctness checkpoint `dd95e1f99`;
+preceding P6.5 architecture checkpoint `9e559a482`.
 
 ## 1. Verdict
 
@@ -252,12 +252,12 @@ separately (production files contain no inline test body), the current result is
 | C1 `02e648255` | 24,236 / 60 files | 20,808 / 55 files | 1,422 / 1 file |
 | C13 `6d0577ad4` | 18,532 / 53 files | 13,602 / 44 files | 1,463 / 1 file |
 | P6.5 checkpoint `9e559a482` | 20,935 / 54 files | 14,429 / 44 files | 1,470 / 1 file |
-| post-regression working candidate | 21,769 / 54 files | 15,564 / 45 files | 1,470 / 1 file |
+| post-regression review-layout candidate | 21,780 / 55 files | 15,552 / 45 files | 1,470 / 1 file |
 
-The current candidate remains 2,467 production lines smaller than the audited
-C1 intermediate architecture, but adds 3,237 lines over C13 and remains 14,472
-above `develop`. It is 834 production lines above the P6.5 checkpoint; tests
-grew separately by 1,135 lines. That growth is material. The C13→current cost is
+The current candidate remains 2,456 production lines smaller than the audited
+C1 intermediate architecture, but adds 3,248 lines over C13 and remains 14,483
+above `develop`. It is 845 production lines above the P6.5 checkpoint; tests
+grew separately by 1,123 lines. That growth is material. The C13→current cost is
 concentrated
 in proof-carrying stored entries/prepared projection changes, exact accepted
 plans, typed administrative generation boundaries and stable-effect coupling;

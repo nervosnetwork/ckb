@@ -26,7 +26,7 @@ use ckb_types::{
 use std::sync::Arc;
 
 use super::pipeline::service_with_rbf;
-use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep};
+use crate::test_support::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep};
 
 /// The pool accepts a chain link `a_i` (spending `a_{i-1}:0`) while
 /// `i + 1 <= max_ancestors_count`, so the deepest addable chain is exactly
@@ -54,7 +54,7 @@ fn add_pending_chain(pool: &mut PoolMap, len: u32, fee: Capacity, size: usize) -
 
 #[tokio::test]
 async fn rbf_rejects_dep_group_member_from_replacement_victim() {
-    use super::harness::{WorkerSet, harness};
+    use super::support::{WorkerSet, harness};
     use ckb_types::core::cell::ResolvedTransaction;
 
     let service = harness(1)
@@ -119,7 +119,7 @@ async fn rbf_rejects_dep_group_member_from_replacement_victim() {
 
 #[tokio::test]
 async fn accepted_callback_runs_only_after_pool_write_lock_is_released() {
-    use super::harness::{WorkerSet, harness};
+    use super::support::{WorkerSet, harness};
     use std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -252,7 +252,7 @@ fn conflict_closure_aborts_at_candidate_limit() {
     use crate::component::pool_map::ConflictClosure;
     use std::collections::HashSet;
 
-    let mut pool = PoolMap::new(super::util::DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(crate::test_support::DEFAULT_MAX_ANCESTORS_COUNT);
     // A chain one link longer than the candidate limit (depth stays within
     // the pool's ancestor limit).
     let chain_len = 101u32;
@@ -289,7 +289,7 @@ fn conflict_closure_aborts_at_candidate_limit() {
 /// touching unrelated cell-dep readers.
 #[tokio::test]
 async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
-    use super::harness::{WorkerSet, harness};
+    use super::support::{WorkerSet, harness};
 
     // Pool totals: 124 links * 100 + E * 100 = 12_500, so
     // max_tx_pool_size = 12_499 forces `limit_size` to evict after N is
@@ -367,7 +367,7 @@ async fn self_eviction_plan_leaves_cell_dep_readers_untouched() {
 /// member and proposal-window status unchanged.
 #[tokio::test]
 async fn failed_size_plan_is_mutation_free_with_original_statuses() {
-    use super::harness::{WorkerSet, harness};
+    use super::support::{WorkerSet, harness};
     use std::sync::Arc;
 
     let service = harness(2)
@@ -539,11 +539,11 @@ async fn successful_replacement_does_not_recover_removed_descendants() {
         "the removed descendant must stay in conflict history"
     );
     assert!(matches!(
-        service.find_tx_in_coordinator_hash(&t1_hash),
+        service.find_pre_pool_tx_by_hash(&t1_hash),
         Some(crate::service::PipelineTxLocation::ConflictHistory)
     ));
     assert!(matches!(
-        service.find_tx_in_coordinator_hash(&t2_hash),
+        service.find_pre_pool_tx_by_hash(&t2_hash),
         Some(crate::service::PipelineTxLocation::ConflictHistory)
     ));
 }

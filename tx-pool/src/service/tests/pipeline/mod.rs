@@ -175,7 +175,7 @@ fn service_with_pipeline(
     MockStore,
     Vec<OutPoint>,
 ) {
-    let h = super::harness::harness(issue_outputs).build();
+    let h = super::support::harness(issue_outputs).build();
     (h.service, h.relay_rx, h.cancel, h.store, h.out_points)
 }
 
@@ -189,7 +189,7 @@ fn service_with_pipeline_workers(
     MockStore,
     Vec<OutPoint>,
 ) {
-    let h = super::harness::harness(issue_outputs)
+    let h = super::support::harness(issue_outputs)
         .max_workers(max_workers)
         .build();
     (h.service, h.relay_rx, h.cancel, h.store, h.out_points)
@@ -241,7 +241,7 @@ async fn wait_for_pending(
     .await
 }
 
-/// Drive one pipeline transaction to the coordinator's verified boundary
+/// Drive one pipeline transaction to the kernel's verified boundary
 /// without spawning workers. Tests can then exercise the production commit
 /// sequencer deterministically.
 async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, source: TxSource) {
@@ -269,7 +269,7 @@ async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, 
     let verify = service
         .pipeline
         .kernel
-        .mutate(|coordinator| coordinator.checkout_verify(WorkCapability::Any))
+        .mutate(|kernel| kernel.checkout_verify(WorkCapability::Any))
         .unwrap()
         .unwrap();
     let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
@@ -287,7 +287,7 @@ async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, 
     service
         .pipeline
         .kernel
-        .mutate(|coordinator| coordinator.complete_verify(&verify, verified, charge))
+        .mutate(|kernel| kernel.complete_verify(&verify, verified, charge))
         .unwrap();
 }
 

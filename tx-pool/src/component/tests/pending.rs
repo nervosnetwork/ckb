@@ -1,10 +1,10 @@
 use crate::component::out_point_index::OutPointIndex;
-use crate::component::tests::util::{
-    MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_with_header_dep,
-};
 use crate::component::{
     entry::TxEntry,
     pool_map::{PoolMap, Status},
+};
+use crate::test_support::{
+    MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_with_header_dep,
 };
 use ckb_types::core::Capacity;
 use ckb_types::packed::{OutPoint, ProposalShortId};

@@ -35,8 +35,8 @@ enum PipelineAdmissionFailure {
 }
 
 #[cfg(test)]
-#[path = "tests/classify_seam.rs"]
-mod test_seam;
+#[path = "tests/classify_test_support.rs"]
+mod test_support;
 
 impl super::TxPoolService {
     pub(crate) fn stale_pipeline_reject() -> Reject {
@@ -141,7 +141,7 @@ impl super::TxPoolService {
         source: TxSource,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Result<super::submit::VerifySubmitOutcome, super::submit::SubmissionError> {
-        // Local RPC and detached-block recovery bypass coordinator admission.
+        // Local RPC and detached-block recovery bypass kernel admission.
         // Materialize here so an accepted transaction never keeps the whole
         // caller-owned relay/block backing alive under a tx-sized charge.
         let tx = tx.into_compact();
@@ -228,7 +228,7 @@ impl super::TxPoolService {
             Err(PipelineAdmissionFailure::Rejected(reject)) => {
                 match source {
                     TxSource::Remote { .. } => {
-                        // Admission never established coordinator ownership,
+                        // Admission never established kernel ownership,
                         // so this adapter owns the definitive remote terminal.
                         self.reject_with_after_process(tx, source, reject.clone())
                             .await;
@@ -276,7 +276,7 @@ impl super::TxPoolService {
         let tx_hash = tx.hash();
         let proposal_id = tx.proposal_short_id();
         // The early duplicate check is only a cheap filter. Admission itself
-        // must share the universal TxPool -> coordinator boundary with commit:
+        // must share the universal TxPool -> kernel boundary with commit:
         // otherwise a commit between the early check and this mutation leaves
         // the same transaction owned by both authorities.
         loop {
@@ -356,7 +356,7 @@ impl super::TxPoolService {
     }
 
     /// Build the immutable remote-settlement batch before the matching total
-    /// coordinator transition. The batch is later passed to the journal's
+    /// kernel transition. The batch is later passed to the journal's
     /// `try_apply`, so capacity and ownership change share one inner critical
     /// section without a reservation token.
     pub(crate) fn pipeline_terminal_effects(
@@ -375,7 +375,7 @@ impl super::TxPoolService {
     }
 
     /// Journal the definitive outcome of one active raw/verify owner inside
-    /// the same Coordinator transition that removes it. `reject == None`
+    /// the same Kernel transition that removes it. `reject == None`
     /// denotes an internal/cancellation terminal and therefore never records
     /// blame, while still releasing a remote relayer filter.
     pub(crate) fn pipeline_outcome_effects(

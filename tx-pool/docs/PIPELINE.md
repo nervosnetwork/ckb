@@ -131,8 +131,8 @@ re-admission makes old work stale without reusing an identity.
 
 Implementation:
 
-- `src/resolve_mgr.rs`
-- `src/verify_mgr.rs`
+- `src/service/stages/resolve.rs`
+- `src/service/stages/verify.rs`
 - `src/service/workers.rs`
 - `src/process/classify.rs`
 - `src/process/submit/`
@@ -349,6 +349,7 @@ Step 5 remains frozen pending explicit benchmark authorization.
 | C15 `64ecdd0eb` | complete correctness/liveness and 150-spec integration acceptance |
 | C16 `eb26bd272` | evidence checkpoint before exact-admission/static-authority convergence |
 | C17 `9e559a482` | P6.5 exact admission, typed authority and full correctness acceptance |
+| C18 `dd95e1f99` | post-regression correctness freeze before mechanical review-layout cleanup |
 
 Checkpoint history is evidence for recovery and A/B, not a list of mechanisms
 that remain in the final architecture.

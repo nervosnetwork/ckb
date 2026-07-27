@@ -35,7 +35,7 @@ pub(crate) fn dummy_network() -> crate::network::TxPoolNetworkHandle {
 
 /// Which background workers the harness spawns.
 pub(crate) enum WorkerSet {
-    /// No pipeline state workers; tests drive coordinator transitions
+    /// No pipeline state workers; tests drive kernel transitions
     /// manually. The effect publisher and cache-update drain remain active.
     None,
     /// The full production pipeline: pre-check workers, verify manager, the
@@ -259,13 +259,13 @@ impl HarnessBuilder {
                     let svc = service.clone();
                     tokio::spawn(crate::service::workers::run_pre_check_worker_loop(svc));
                 }
-                drop(crate::verify_mgr::spawn_verify_workers(
+                drop(crate::service::stages::spawn_verify_workers(
                     &runtime,
                     service.clone(),
                     verify_chunk_rx,
                     signal.child_token(),
                 ));
-                drop(crate::resolve_mgr::spawn_ordered_resolver(
+                drop(crate::service::stages::spawn_ordered_resolver(
                     &runtime,
                     service.clone(),
                     chunk_tx.subscribe(),

@@ -382,7 +382,7 @@ impl TxPoolService {
 
         let dup = || Reject::Duplicated(tx.hash());
         // Membership and pre-pool ownership are checked in the universal
-        // TxPool -> coordinator order. This rejects replay of already accepted
+        // TxPool -> kernel order. This rejects replay of already accepted
         // transactions before it can consume bounded pipeline residency/CPU,
         // while remaining gap-free across a concurrent commit handoff.
         let duplicate = {
@@ -392,7 +392,7 @@ impl TxPoolService {
                 || self
                     .pipeline
                     .kernel
-                    .read(|coordinator| coordinator.contains_hash(&tx.hash()))
+                    .read(|kernel| kernel.contains_hash(&tx.hash()))
         };
         if duplicate {
             return Err(dup());
@@ -413,7 +413,7 @@ impl TxPoolService {
         // not retryable relayer events, but they still ban and record.
         if let Err(reject) = self.check_tx_basic_validity(&tx).await {
             // `Duplicated` covers both an already-accepted pool entry and an
-            // unverified coordinator owner. Only the former is a definitive
+            // unverified kernel owner. Only the former is a definitive
             // success; acknowledging the latter before verification would let
             // an invalid first witness make another peer accept the raw hash.
             if matches!(reject, Reject::Duplicated(_))
@@ -448,7 +448,7 @@ impl TxPoolService {
 
     pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
         // Proposal is a trusted source promotion, not an ordinary duplicate.
-        // Admission must reach the coordinator so an existing Remote owner is
+        // Admission must reach the kernel so an existing Remote owner is
         // upgraded in place (priority and peer budget) while immutable ingress
         // attribution remains available for later peer revocation and any
         // active versioned lease remains valid.
@@ -471,9 +471,9 @@ impl TxPoolService {
         source: TxSource,
     ) -> Result<Completed, Reject> {
         // Local RPC is deliberately synchronous. A matching remote/proposal
-        // coordinator entry must not turn it into an asynchronous duplicate:
+        // kernel entry must not turn it into an asynchronous duplicate:
         // run the authoritative checks directly and let a successful pool
-        // commit invalidate the older coordinator lease.
+        // commit invalidate the older kernel lease.
         if let Err(reject) = self.non_contextual_verify(&tx).await {
             self.reject_with_after_process(tx, source, reject.clone())
                 .await;
@@ -800,7 +800,7 @@ impl TxPoolService {
                         }
                         // Apply the complete membership delta under the same pool write
                         // guard. Attached/on-chain parents remain available; every other
-                        // physical removal demotes its already-resolved coordinator
+                        // physical removal demotes its already-resolved kernel
                         // consumers. An impossible projection defect unwinds to the
                         // typed internal defect boundary before either guard opens.
                         let mut committed: HashSet<_> =

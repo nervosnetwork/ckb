@@ -1,8 +1,8 @@
-use crate::component::tests::util::build_tx;
 use crate::component::{
     entry::TxEntry,
     pool_map::{PoolMap, Status},
 };
+use crate::test_support::build_tx;
 use ckb_types::core::{Capacity, Cycle, FeeRate};
 use std::num::NonZeroUsize;
 

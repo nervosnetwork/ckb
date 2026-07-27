@@ -1,0 +1,30 @@
+name: ci_tx_pool_review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'tx-pool/**'
+      - 'test/src/**'
+      - '.github/workflows/ci_tx_pool_review.yaml'
+  push:
+    branches: ['**']
+    paths:
+      - 'tx-pool/**'
+      - 'test/src/**'
+      - '.github/workflows/ci_tx_pool_review.yaml'
+  merge_group: {}
+  workflow_dispatch: {}
+
+jobs:
+  tx_pool_review_contracts:
+    name: tx_pool_review_contracts
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate tx-pool documentation and scripts
+        run: |
+          python3 -m compileall -q tx-pool/scripts
+          python3 tx-pool/scripts/check_docs.py
+          python3 tx-pool/scripts/check_review_guide.py
+          python3 tx-pool/scripts/check_test_layout.py

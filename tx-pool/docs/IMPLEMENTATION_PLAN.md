@@ -5,9 +5,9 @@ Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
 Status date: 2026-07-27
-Current stable code checkpoint: `9e559a482`
-Preceding evidence checkpoint: `eb26bd272`
-Current phase: P6.5 correctness/evidence accepted; P7 controlled performance
+Current stable code checkpoint: `dd95e1f99`
+Preceding architecture checkpoint: `9e559a482`
+Current phase: P6.6 review topology accepted; P7 controlled performance
 acceptance remains frozen pending explicit authorization
 
 This file is the live execution ledger. It is updated at every checkpoint so a
@@ -98,6 +98,7 @@ a transaction rejection.
 | C15 | `64ecdd0eb` | complete correctness, liveness and managed-integration acceptance |
 | C16 | `eb26bd272` | evidence-only correctness checkpoint before admission convergence review |
 | C17 | `9e559a482` | P6.5 exact admission, typed authority, static Rust proof and correctness acceptance |
+| C18 | `dd95e1f99` | post-regression correctness freeze before mechanical review-layout cleanup |
 
 No checkpoint before P7 is a performance verdict.
 
@@ -187,7 +188,7 @@ No checkpoint before P7 is a performance verdict.
       form.
 - [x] Verify every cross-authority pool plan settles kernel ownership before
       accepted Apply. Expected policy/capacity decisions finish in Plan;
-      coordinator operations after Plan are continuous-reservation/identity
+      kernel operations after Plan are continuous-reservation/identity
       obligations and fail-fast only on a structural contradiction.
 - [x] Classify residual startup/config fail-fast separately: minimum pre-pool
       residency, effect-region construction and dispatcher permit conversion
@@ -494,7 +495,7 @@ owner, lifecycle state, rollback log, repair generation or hot-path lock:
   remains concurrent versioned OCC, and every successful full/reset
   replacement reissues all three dirty generations.
 
-Current P6.5 acceptance evidence:
+Current pre-P7 acceptance evidence:
 
 - `cargo nextest run -p ckb-tx-pool --features internal`: 257/257 passed in
   24.829 seconds on the final working tree;
@@ -507,10 +508,29 @@ Current P6.5 acceptance evidence:
   177-spec universe passed through plain `make integration` in 372.452 seconds;
 - benchmark remains frozen and is the only open release gate.
 
+### P6.6 review topology — mechanical only
+
+- Kept `README.md` as the crate entry point, moved human design/review material
+  into `docs/`, and moved tx-pool-owned validation tools into `scripts/`.
+- Added a documentation index, a tool/CI usage guide, local-link/path drift
+  validation, and a dedicated fast CI contract flow. Machine-readable JSON
+  contracts remain in the crate root.
+- Moved resolve/verify execution under `service/stages`, renamed stale
+  coordinator vocabulary to `kernel`, and retired manager names where the code
+  implements stage handlers rather than managers.
+- Moved service-level scenarios and their harness out of `component/tests`,
+  normalized `tests/mod.rs`, and replaced opaque `_seam` names with domain test
+  or `_test_support` names. Shared builders are one crate-level `cfg(test)`
+  support module; no production API visibility was widened.
+- This phase changes module/file/test paths only. It adds no owner, state,
+  branch, lock, await, allocation, capacity rule, failure outcome, or runtime
+  publication edge. The discovered test count remains 257 and full nextest is
+  green after relocation.
+
 Physical Rust lines, with test roots/files and `benchmark.rs` excluded from
-production, are 21,769 production / 54 files, 15,564 tests / 45 files and 1,470
-benchmark / 1 file. The working candidate is 2,467 production lines smaller
-than C1 but 3,237 larger than C13 and 14,472 above `develop`; it is 834 lines
+production, are 21,780 production / 55 files, 15,552 tests / 45 files and 1,470
+benchmark / 1 file. The working candidate is 2,456 production lines smaller
+than C1 but 3,248 larger than C13 and 14,483 above `develop`; it is 845 lines
 above the P6.5 code checkpoint. That increase is accepted only provisionally:
 it represents the typed prepared-state/projection proof, the removal of the
 278-site runtime-panic proof surface, and the post-checkpoint peer-ban,
@@ -573,7 +593,7 @@ claim is made before this gate.
 ## 10. Per-stage whole-architecture review
 
 Every checkpoint answers all rows, not only the files edited in that phase.
-The repository-root [`AGENTS.md`](../AGENTS.md) Rust production checklist is a
+The repository-root [`AGENTS.md`](../../AGENTS.md) Rust production checklist is a
 required input to every pass, not merely an implementation-style hint. A
 checkpoint cannot close while its type design, error model, ownership/borrowing,
 async task lifetime, API misuse resistance, zero-cost abstraction or

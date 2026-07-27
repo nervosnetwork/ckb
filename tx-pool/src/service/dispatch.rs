@@ -173,7 +173,7 @@ impl TxPoolService {
 
     /// Look up a transaction in the main pool or in the in-flight pipeline.
     async fn resolve_tx_location(&self, hash: &Byte32) -> ResolvedTxLocation {
-        let (pool_entry, coordinator_location) = {
+        let (pool_entry, kernel_location) = {
             let tx_pool = self.pool.tx_pool.read().await;
             let pool_entry = tx_pool.pool_map.get_by_hash(hash).map(|entry| {
                 let status = entry.status;
@@ -185,14 +185,14 @@ impl TxPoolService {
                 };
                 (status, entry, min_replace_fee)
             });
-            let coordinator_location = if pool_entry.is_none() {
-                // Universal nested order: TxPool -> coordinator. A successful
+            let kernel_location = if pool_entry.is_none() {
+                // Universal nested order: TxPool -> kernel. A successful
                 // commit cannot be invisible between the two authorities.
-                self.find_tx_in_coordinator_hash(hash)
+                self.find_pre_pool_tx_by_hash(hash)
             } else {
                 None
             };
-            (pool_entry, coordinator_location)
+            (pool_entry, kernel_location)
         };
         if let Some((status, entry, min_replace_fee)) = pool_entry {
             return ResolvedTxLocation::Pool {
@@ -201,7 +201,7 @@ impl TxPoolService {
                 min_replace_fee,
             };
         }
-        if let Some(location) = coordinator_location {
+        if let Some(location) = kernel_location {
             return ResolvedTxLocation::Pipeline(location);
         }
         ResolvedTxLocation::NotFound
@@ -482,10 +482,11 @@ impl TxPoolService {
         let orphan_size = self
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.waiting_parent_len());
-        let verify_queue_size = self.pipeline.kernel.read(|coordinator| {
-            coordinator.queue_len(crate::component::pre_pool::WorkLane::Verify)
-        });
+            .read(|kernel| kernel.waiting_parent_len());
+        let verify_queue_size = self
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.queue_len(crate::component::pre_pool::WorkLane::Verify));
         TxPoolInfo {
             tip_hash,
             tip_number,

@@ -14,8 +14,8 @@ use ckb_types::prelude::Unpack;
 use ckb_util::LinkedHashSet;
 use std::collections::HashSet;
 
-use super::harness::{WorkerSet, harness};
-use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_header_dep};
+use super::support::{WorkerSet, harness};
+use crate::test_support::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_header_dep};
 
 #[tokio::test]
 async fn onchain_reconcile_runs_once_and_sweeps_zombies() {

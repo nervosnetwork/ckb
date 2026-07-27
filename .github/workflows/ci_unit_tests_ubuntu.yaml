@@ -45,9 +45,9 @@ jobs:
             ci-${{ runner.os }}-cargo-
       - name: Validate tx-pool security evidence
         run: |
-          python3 devtools/check_tx_pool_review_guide.py
-          python3 devtools/check_tx_pool_test_layout.py
-          python3 devtools/check_tx_pool_security_manifest.py
+          python3 tx-pool/scripts/check_review_guide.py
+          python3 tx-pool/scripts/check_test_layout.py
+          python3 tx-pool/scripts/check_security_manifest.py
       - name: Run unit tests
         run: make test
         shell: bash

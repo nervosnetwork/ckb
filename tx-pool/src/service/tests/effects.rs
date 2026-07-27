@@ -179,7 +179,7 @@ fn callback_effect_drops_resolved_payload_at_journal_boundary() {
 }
 
 #[test]
-fn submit_effect_formula_covers_coordinator_settlement_and_bounded_ban() {
+fn submit_effect_formula_covers_kernel_settlement_and_bounded_ban() {
     let records = 3;
     let bound = max_submit_effect_bytes(0, minimum_serialized_transaction_bytes());
     let mut effects = (0..records)

@@ -16,8 +16,8 @@ use ckb_util::LinkedHashSet;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::harness::{WorkerSet, harness};
-use super::util::{MOCK_CYCLES, MOCK_SIZE, build_tx};
+use super::support::{WorkerSet, harness};
+use crate::test_support::{MOCK_CYCLES, MOCK_SIZE, build_tx};
 
 fn snapshot_with_proposals(
     base: &Snapshot,

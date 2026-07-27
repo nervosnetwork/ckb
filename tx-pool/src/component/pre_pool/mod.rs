@@ -16,8 +16,8 @@ mod wait;
 pub(crate) use commit::{ConflictRetention, ExternalCommitPlan, FailedCommitPlan, ReadyCommitPlan};
 
 #[cfg(test)]
-#[path = "../tests/pre_pool_seam.rs"]
-mod test_seam;
+#[path = "../tests/pre_pool_test_support.rs"]
+mod test_support;
 
 pub(crate) use runtime::{
     PipelineAdmissionSource, PipelineRawTx, PipelineVerifiedTx, PrePool, historical_deadline,

@@ -3,13 +3,13 @@
 
 Examples:
     # One quick smoke run
-    python3 devtools/tx_pool_bench.py --quick
+    python3 tx-pool/scripts/benchmark.py --quick
 
     # Record an inter-run median baseline
-    python3 devtools/tx_pool_bench.py --runs 3 --save-json /tmp/tx-pool-baseline.json
+    python3 tx-pool/scripts/benchmark.py --runs 3 --save-json /tmp/tx-pool-baseline.json
 
     # Compare the current tree and fail on any measured regression
-    python3 devtools/tx_pool_bench.py --runs 3 \
+    python3 tx-pool/scripts/benchmark.py --runs 3 \
         --compare-json /tmp/tx-pool-baseline.json \
         --save-json /tmp/tx-pool-candidate.json \
         --fail-on-regression
@@ -31,7 +31,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 ResultKey = Tuple[int, int, bool, str, int]
 Result = Dict[str, float]
-WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 # Cargo's fingerprint cache is not worktree-aware when callers force two
 # checkouts through one CARGO_TARGET_DIR. Keep each checkout's benchmark binary
 # isolated so a baseline executable can never be mistaken for the candidate.
@@ -43,7 +43,7 @@ def bench_target_dir(workspace_root: Path) -> Path:
 
 def harness_files(workspace_root: Path) -> Tuple[Path, Path]:
     return (
-        workspace_root / "devtools" / "tx_pool_bench.py",
+        workspace_root / "tx-pool" / "scripts" / "benchmark.py",
         workspace_root / "tx-pool" / "src" / "benchmark.rs",
     )
 

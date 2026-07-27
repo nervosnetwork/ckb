@@ -330,5 +330,5 @@ impl TxPool {
 }
 
 #[cfg(test)]
-#[path = "tests/persisted_seam.rs"]
-mod test_seam;
+#[path = "tests/persisted.rs"]
+mod tests;

@@ -1,5 +1,6 @@
 //! Ordered resolution worker backed exclusively by the pre-pool kernel.
 
+use super::runner::{JobHandler, WorkerRunner};
 use crate::component::pre_pool::{
     DependencyKey, PrePoolError, PrePoolFault, ResolveLane, ResolveLease, VerifySchedule, WorkLane,
 };
@@ -8,7 +9,6 @@ use crate::process::PreCheckedTx;
 use crate::resolved_tx::ResolvedTx;
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
-use crate::worker::{JobHandler, WorkerRunner};
 use ckb_async_runtime::Handle;
 use ckb_logger::debug;
 use ckb_script::ChunkCommand;
@@ -69,18 +69,18 @@ impl TxPoolService {
             &lease.hash,
             reject,
             "current raw lease could not terminalize",
-            |coordinator, disposition| {
+            |kernel, disposition| {
                 if matches!(
                     disposition,
                     crate::component::pre_pool::ConflictDisposition::Retain
                 ) {
-                    coordinator.park_conflict_or_terminalize(
+                    kernel.park_conflict_or_terminalize(
                         &lease.hash,
                         lease.version,
                         crate::component::pre_pool::PrePoolLocation::ResolveLeased,
                     )
                 } else {
-                    coordinator.terminalize_resolve(lease)
+                    kernel.terminalize_resolve(lease)
                 }
             },
         )
@@ -93,7 +93,7 @@ impl TxPoolService {
         let Some(current_source) = self
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.source_by_hash(&lease.hash))
+            .read(|kernel| kernel.source_by_hash(&lease.hash))
         else {
             return;
         };
@@ -110,7 +110,7 @@ impl TxPoolService {
             ResolveStageResult::Ready(resolved) => {
                 // Raw admission can name a dep-group cell but only a
                 // successful resolver can name every expanded member.
-                // Publish those producer hashes in the same coordinator
+                // Publish those producer hashes in the same kernel
                 // transition as the resolved payload so later pool
                 // removal invalidates it causally instead of waiting for
                 // a stale final-commit failure.
@@ -131,8 +131,8 @@ impl TxPoolService {
                         cycles > self.pool.tx_pool_config.max_tx_verify_cycles
                     }),
                 );
-                match self.pipeline.kernel.mutate_authoritative(|coordinator| {
-                    coordinator.complete_resolve(
+                match self.pipeline.kernel.mutate_authoritative(|kernel| {
+                    kernel.complete_resolve(
                         &lease,
                         resolved,
                         charge_bytes,

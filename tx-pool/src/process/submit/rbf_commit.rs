@@ -36,8 +36,8 @@ use std::sync::Arc;
 use crate::process::{get_tx_status, status_to_verify_env};
 
 #[cfg(test)]
-#[path = "../tests/rbf_commit_seam.rs"]
-mod test_seam;
+#[path = "../tests/rbf_commit_test_support.rs"]
+mod test_support;
 
 enum AdmissionHandoff<'authority> {
     Ready(ReadyCommitPlan<'authority>),

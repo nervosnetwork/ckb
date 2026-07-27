@@ -589,13 +589,13 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // Create a fresh command channel shared by stage workers.
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
-    worker_handles.extend(crate::verify_mgr::spawn_verify_workers(
+    worker_handles.extend(crate::service::stages::spawn_verify_workers(
         &shared.ckb_handle,
         parts.service.clone(),
         chunk_rx,
         signal.child_token(),
     ));
-    worker_handles.push(crate::resolve_mgr::spawn_ordered_resolver(
+    worker_handles.push(crate::service::stages::spawn_ordered_resolver(
         &shared.ckb_handle,
         parts.service.clone(),
         chunk_tx.subscribe(),
@@ -1153,7 +1153,7 @@ fn register_cold_bench(
 ) {
     let (mut txs, mut cycles) = data.target(size);
     // Benchmark both dependency paths explicitly. Parent-first traffic uses
-    // the coordinator's ready dependency handoff; child-first traffic uses
+    // the kernel's ready dependency handoff; child-first traffic uses
     // bounded parent waiting and cascade recovery. Historically only the
     // latter was measured, which could hide a regression in the normal
     // dependent fast path.

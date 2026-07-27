@@ -278,5 +278,5 @@ impl FairQueue {
 }
 
 #[cfg(test)]
-#[path = "../tests/pre_pool_queue_seam.rs"]
-mod test_seam;
+#[path = "../tests/pre_pool_queue.rs"]
+mod tests;

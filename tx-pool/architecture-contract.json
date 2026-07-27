@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "authority_document": "tx-pool/ARCHITECTURE.md",
-  "audit_document": "tx-pool/ARCHITECTURE_AUDIT.md",
-  "review_guide": "tx-pool/REVIEW_GUIDE.md",
-  "historical_ledger": "tx-pool/security-regression-ledger.md",
+  "authority_document": "tx-pool/docs/ARCHITECTURE.md",
+  "audit_document": "tx-pool/docs/ARCHITECTURE_AUDIT.md",
+  "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
+  "historical_ledger": "tx-pool/docs/SECURITY_REGRESSION_LEDGER.md",
   "historical_ledger_last_id": 169,
   "authorities": ["TxPool", "PrePoolKernel"],
   "identity": {

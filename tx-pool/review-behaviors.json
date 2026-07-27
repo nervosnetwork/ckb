@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "guide": "tx-pool/REVIEW_GUIDE.md",
+  "guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "integration_impact": "tx-pool/integration-impact.json",
   "integration_runner": {
     "make_target": "integration",
@@ -55,7 +55,7 @@
       "required_behavior": "Only verified candidates participate in deterministic conflict ordering, while TxPool recomputes the complete replacement closure and both fee gates before atomic victim displacement.",
       "hostile_case": "An under-fee, multi-input, dep-group, self-evicted or concurrent candidate must not preempt through speculative state; every failed replacement must leave the complete original pool unchanged.",
       "reviewer_questions": [
-        "Is coordinator ordering still provisional rather than an admission verdict?",
+        "Is pre-pool Ready ordering still provisional rather than an admission verdict?",
         "Are all input and expanded dependency conflicts included in the immutable removal union?",
         "Does every failed path preserve original statuses, accounting and descendant order?"
       ],
@@ -131,7 +131,7 @@
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/workers.rs",
         "tx-pool/src/service/builder.rs",
-        "tx-pool/src/worker.rs"
+        "tx-pool/src/service/stages/runner.rs"
       ],
       "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart.",
       "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work nor create a respawn loop.",
@@ -238,9 +238,9 @@
         "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/process/mod.rs",
         "tx-pool/src/process/submit/mod.rs",
-        "tx-pool/src/resolve_mgr.rs",
+        "tx-pool/src/service/stages/resolve.rs",
         "tx-pool/src/service/dispatch.rs",
-        "tx-pool/src/verify_mgr.rs",
+        "tx-pool/src/service/stages/verify.rs",
         "sync/src/relayer/mod.rs"
       ],
       "required_behavior": "Static ownership and private constructors make invalid authority states unconstructable; every legal malformed, policy, capacity, duplicate and stale outcome remains typed before Apply; a pre-Apply primary/index/accounting system fault stops without persistence and is never converted to an RPC/peer outcome. Panic plus catch_unwind is not authority, worker, retry or rollback control flow.",
@@ -318,7 +318,7 @@
         "tx-pool/src/component/pre_pool/queue.rs",
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/benchmark.rs",
-        "devtools/tx_pool_bench.py"
+        "tx-pool/scripts/benchmark.py"
       ],
       "required_behavior": "Owner-head scheduling, victim selection and conflict probing stop at maintained bounds independent of unrelated population; benchmark comparisons use fingerprinted paired checkpoints and reject noisy samples.",
       "hostile_case": "A capped peer prefix, stronger suffix or large independent population must not turn one admission/checkout into an O(pool) scan; a noisy or mismatched harness must not claim a performance win.",

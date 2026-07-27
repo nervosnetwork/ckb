@@ -7,7 +7,7 @@ regressions. The six-state two-authority target is implemented and specified in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). Entries below remain
 mandatory behavior evidence; their machine-readable I1-I12 to
 F1-F8/T1-T13 bridge is
-[`architecture-contract.json`](architecture-contract.json).
+[`architecture-contract.json`](../architecture-contract.json).
 
 Status meanings:
 
@@ -296,7 +296,7 @@ are explicitly O12/O8/O11; packaging is resolved under O9.
 
 1. No split lifecycle owner may be reintroduced. A new store must declare
    whether it is authoritative, historical, an ID-only index, or best-effort.
-2. Every new lifecycle transition requires a coordinator/invariant test and a
+2. Every new lifecycle transition requires a kernel/invariant test and a
    production-path regression at the affected authority boundary.
 3. Performance runs are deferred until the correctness architecture and
    production ownership cutovers are nearly complete. At final acceptance run

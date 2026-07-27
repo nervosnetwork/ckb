@@ -4,11 +4,11 @@
 //! test-only `audit` independently rebuilds every derived index and charge
 //! from primary entries after each transition.
 
-use super::util::build_tx;
 use crate::component::entry::resolved_transaction_charge_bytes;
 use crate::component::pool_map::Status;
 use crate::component::pre_pool::*;
 use crate::resolved_tx::ResolvedTx;
+use crate::test_support::build_tx;
 use crate::tx_source::TxSource;
 use ckb_network::PeerIndex;
 use ckb_types::core::{Capacity, TransactionView, cell::ResolvedTransaction};

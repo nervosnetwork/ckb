@@ -1,8 +1,9 @@
 # Tx-Pool Architecture: Two-Authority Plan/Apply Kernel
 
-Status: implementation authority for the accepted P6.5 candidate at stable
-code checkpoint `9e559a482`; `eb26bd272` is the preceding evidence checkpoint
-and the current acceptance evidence is recorded below.
+Status: implementation authority for the post-regression correctness candidate
+at stable code checkpoint `dd95e1f99`; `9e559a482` is the preceding P6.5
+architecture checkpoint, and the current acceptance evidence is recorded
+below.
 Execution status is tracked in
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), independent conclusions in
 [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), and executable review evidence
@@ -630,7 +631,7 @@ unrepresentable.
 
 ## 19. Proof obligations
 
-The machine contract is [`architecture-contract.json`](architecture-contract.json).
+The machine contract is [`architecture-contract.json`](../architecture-contract.json).
 The human proof obligations are the stable, independently reviewable leaves
 below.  For reasoning they form eight broader theorem families: partition
 (T1), lease causality (T2), budget conservation (T3), derived views (T4--T5),
@@ -658,7 +659,7 @@ The leaves are:
   proposal-stranding template.
 
 The historical findings remain mapped to I1–I12 in
-[`security-regression-ledger.md`](security-regression-ledger.md). The mapping is
+[`SECURITY_REGRESSION_LEDGER.md`](SECURITY_REGRESSION_LEDGER.md). The mapping is
 evidence history, not permission to retain obsolete mechanisms.
 
 ## 20. Residual risks and release conditions

@@ -2,8 +2,8 @@
 extern crate rustc_hash;
 extern crate slab;
 #[cfg(test)]
-#[path = "tests/pool_map_audit.rs"]
-mod audit;
+#[path = "tests/pool_map_test_support.rs"]
+mod test_support;
 use super::links::TxLinks;
 use crate::TxEntry;
 use crate::component::entry::WeightError;

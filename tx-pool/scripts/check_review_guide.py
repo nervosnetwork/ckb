@@ -17,7 +17,7 @@ import re
 import sys
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REGISTRY = REPO_ROOT / "tx-pool" / "review-behaviors.json"
 START_MARKER = "<!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->"
 END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
@@ -575,7 +575,7 @@ def main() -> int:
     elif actual != expected:
         print(
             "error: REVIEW_GUIDE.md generated evidence drifted; run "
-            "python3 devtools/check_tx_pool_review_guide.py --write",
+            "python3 tx-pool/scripts/check_review_guide.py --write",
             file=sys.stderr,
         )
         return 1

@@ -77,7 +77,7 @@ pub(crate) fn max_submit_effect_bytes(max_pool_bytes: usize, max_block_bytes: us
         .saturating_add(max_block_bytes)
         .min(max_events.saturating_mul(max_block_bytes));
     let pool_effects = max_pool_mutation_effect_bytes(transaction_bytes);
-    let coordinator_effects = max_events
+    let kernel_effects = max_events
         .saturating_mul(
             EFFECT_ENVELOPE_BYTES
                 .saturating_mul(2)
@@ -87,7 +87,7 @@ pub(crate) fn max_submit_effect_bytes(max_pool_bytes: usize, max_block_bytes: us
         .saturating_add(MAX_COMMIT_BAN_REASON_BYTES)
         .saturating_add(PENDING_REJECT_INDEX_BYTES)
         .saturating_add(MAX_RECENT_REJECT_BYTES);
-    pool_effects.saturating_add(coordinator_effects).max(4096)
+    pool_effects.saturating_add(kernel_effects).max(4096)
 }
 
 pub(crate) fn bounded_commit_ban_reason(reject: &Reject) -> String {

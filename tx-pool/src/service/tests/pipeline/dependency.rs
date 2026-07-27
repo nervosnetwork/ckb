@@ -8,8 +8,8 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resolve_job_registers_complete_unknown_outpoint_frontier() {
     use crate::component::pre_pool::{DependencyKey, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
-    use crate::resolve_mgr::ResolveStageResult;
+    use crate::service::stages::resolve::ResolveStageResult;
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::packed::Byte32;
 
     let h = harness(0).workers(WorkerSet::None).build();
@@ -40,7 +40,7 @@ async fn resolve_job_registers_complete_unknown_outpoint_frontier() {
             ResolveLane::Ordered,
         )
         .unwrap();
-    let result = crate::resolve_mgr::resolve_job(
+    let result = crate::service::stages::resolve::resolve_job(
         &h.service,
         tx,
         TxSource::Remote {
@@ -71,13 +71,13 @@ async fn resolve_job_registers_complete_unknown_outpoint_frontier() {
 }
 
 /// A parent can commit after a child resolver observed `Unknown` but before
-/// it registers the wait. The atomic TxPool -> coordinator settlement must
+/// it registers the wait. The atomic TxPool -> kernel settlement must
 /// requeue the child instead of installing a waiter after the only wake edge.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parent_commit_before_wait_registration_requeues_child() {
     use crate::component::pre_pool::{DependencyKey, PrePoolLocation, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::pipeline_ops::ParentWaitOutcome;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let parent = build_tx(&h.out_points[0], 4_000);
@@ -125,7 +125,7 @@ async fn parent_commit_before_wait_registration_requeues_child() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.view(&child_hash).unwrap().location),
+            .read(|kernel| kernel.view(&child_hash).unwrap().location),
         PrePoolLocation::ResolveQueued
     );
 
@@ -133,7 +133,7 @@ async fn parent_commit_before_wait_registration_requeues_child() {
 }
 
 /// A remote transaction becomes externally observable as `UnknownParents`
-/// only through the same coordinator transition that installs its durable
+/// only through the same kernel transition that installs its durable
 /// parent wait. The missing hash intentionally differs from the raw direct
 /// parent: dep-group expansion can discover it only during resolution, and
 /// that ordinary input must extend the charged canonical graph rather than
@@ -141,9 +141,9 @@ async fn parent_commit_before_wait_registration_requeues_child() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
     use crate::component::pre_pool::{DependencyKey, PrePoolLocation, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
     use crate::service::pipeline_ops::ParentWaitOutcome;
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::packed::Byte32;
     use std::collections::HashSet;
 
@@ -170,7 +170,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .service
         .pipeline
         .kernel
-        .read(|coordinator| coordinator.view(&child_hash).unwrap().dependencies);
+        .read(|kernel| kernel.view(&child_hash).unwrap().dependencies);
     assert!(expected_dependencies.contains(&direct_parent));
     expected_dependencies.insert(discovered_parent.clone());
     let expected_parents = HashSet::from([direct_parent, discovered_parent.clone()]);
@@ -195,8 +195,8 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
         .unwrap();
     assert!(matches!(outcome, ParentWaitOutcome::Parked));
     assert_eq!(
-        h.service.pipeline.kernel.read(|coordinator| {
-            let view = coordinator.view(&child_hash).unwrap();
+        h.service.pipeline.kernel.read(|kernel| {
+            let view = kernel.view(&child_hash).unwrap();
             assert_eq!(view.dependencies, expected_dependencies);
             view.location
         }),
@@ -233,7 +233,7 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_parent_wait_lease_does_not_publish_unknown_parents() {
     use crate::component::pre_pool::{DependencyKey, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::packed::Byte32;
 
     let h = harness(0).workers(WorkerSet::None).build();
@@ -284,14 +284,14 @@ async fn stale_parent_wait_lease_does_not_publish_unknown_parents() {
 }
 
 /// Administrative removal deletes an accepted root and every accepted
-/// descendant. Coordinator consumers of any member of that closure must be
+/// descendant. Kernel consumers of any member of that closure must be
 /// demoted before the pool mutation, not only consumers of the root.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remove_pool_closure_demotes_consumers_of_removed_descendants() {
     use crate::component::entry::TxEntry;
     use crate::component::pre_pool::{PrePoolLocation, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::RemoveTxOutcome;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let root = build_tx(&h.out_points[0], 4_000);
@@ -336,7 +336,7 @@ async fn remove_pool_closure_demotes_consumers_of_removed_descendants() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.view(&consumer_hash).unwrap().location),
+            .read(|kernel| kernel.view(&consumer_hash).unwrap().location),
         PrePoolLocation::Wait(crate::component::pre_pool::WaitReason::Missing)
     );
 
@@ -349,7 +349,7 @@ async fn remove_pool_closure_demotes_consumers_of_removed_descendants() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
     use crate::callback::Callbacks;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use std::collections::{HashSet, VecDeque};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -436,7 +436,7 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash)),
+            .read(|kernel| kernel.contains_hash(&hash)),
         "clear is also the final pre-pool state"
     );
 
@@ -444,13 +444,13 @@ async fn clear_during_reorg_recovery_owns_the_final_empty_state() {
 }
 
 /// Successful dep-group expansion must add every live member to the canonical
-/// coordinator graph, not only members that happened to be missing. A later
+/// kernel graph, not only members that happened to be missing. A later
 /// RBF removal of such a member must demote the already-resolved consumer in
-/// the same pool/coordinator transaction.
+/// the same pool/kernel transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member() {
     use crate::component::pre_pool::{PrePoolLocation, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::core::DepType;
     use ckb_types::packed::OutPointVec;
 
@@ -521,7 +521,7 @@ async fn local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member() {
         .service
         .pipeline
         .kernel
-        .read(|coordinator| coordinator.view(&consumer_hash).unwrap());
+        .read(|kernel| kernel.view(&consumer_hash).unwrap());
     assert!(resolved_view.dependencies.contains(&original.hash()));
     assert!(resolved_view.dependencies.contains(&group.hash()));
 
@@ -544,7 +544,7 @@ async fn local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member() {
         .service
         .pipeline
         .kernel
-        .read(|coordinator| coordinator.view(&consumer_hash).unwrap());
+        .read(|kernel| kernel.view(&consumer_hash).unwrap());
     assert_eq!(
         view.location,
         PrePoolLocation::Wait(crate::component::pre_pool::WaitReason::Missing),
@@ -726,7 +726,7 @@ async fn pipeline_accepts_dep_reader_after_in_flight_spender() {
                 let in_pipeline = service
                     .pipeline
                     .kernel
-                    .read(|coordinator| coordinator.contains_hash(&tx_a.hash()));
+                    .read(|kernel| kernel.contains_hash(&tx_a.hash()));
                 (pool.pool_map.pending_size(), in_pipeline)
             };
             if pending == 1 || in_pipeline {
@@ -746,10 +746,7 @@ async fn pipeline_accepts_dep_reader_after_in_flight_spender() {
         loop {
             let (pending, pipeline_len) = {
                 let pool = service.pool.tx_pool.read().await;
-                let pipeline_len = service
-                    .pipeline
-                    .kernel
-                    .read(|coordinator| coordinator.len());
+                let pipeline_len = service.pipeline.kernel.read(|kernel| kernel.len());
                 (pool.pool_map.pending_size(), pipeline_len)
             };
             if pending >= 1 && pipeline_len == 0 {
@@ -919,13 +916,13 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-/// An attached block can commit a remote transaction before its coordinator
+/// An attached block can commit a remote transaction before its kernel
 /// worker reaches verification. Removing that sole lifecycle owner must also
 /// publish the ingress success in the same reorg effect transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn attached_commit_settles_pre_pool_remote_ingress() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
     use std::collections::{HashSet, VecDeque};
 
     let h = harness(1).workers(WorkerSet::None).build();
@@ -941,7 +938,7 @@ async fn attached_commit_settles_pre_pool_remote_ingress() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash))
+            .read(|kernel| kernel.contains_hash(&hash))
     );
 
     let attached = BlockBuilder::default()
@@ -962,7 +959,7 @@ async fn attached_commit_settles_pre_pool_remote_ingress() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash))
+            .read(|kernel| kernel.contains_hash(&hash))
     );
 
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
@@ -1066,12 +1063,9 @@ async fn reorg_direct_replay_treats_pool_duplicates_as_idempotent() {
     );
 
     assert_eq!(
-        service
-            .pipeline
-            .kernel
-            .read(|coordinator| coordinator.len()),
+        service.pipeline.kernel.read(|kernel| kernel.len()),
         0,
-        "coordinator should be empty after duplicate reorg recovery"
+        "kernel should be empty after duplicate reorg recovery"
     );
 
     signal.cancel();
@@ -1162,8 +1156,8 @@ async fn reorg_replays_detached_parent_with_accepted_descendant_closure() {
 /// closure, panic, or leave a parentless accepted suffix.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
     use std::collections::{HashSet, VecDeque};
 
     let h = harness(1).workers(WorkerSet::All).build();
@@ -1249,7 +1243,7 @@ pub(crate) fn service_with_rbf(
     MockStore,
     Vec<OutPoint>,
 ) {
-    let h = crate::component::tests::harness::harness(issue_outputs)
+    let h = crate::service::tests::support::harness(issue_outputs)
         .rbf(true)
         .build();
     (h.service, h.relay_rx, h.cancel, h.store, h.out_points)

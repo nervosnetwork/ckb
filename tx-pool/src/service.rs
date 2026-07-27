@@ -6,6 +6,7 @@ pub(crate) mod dispatch;
 pub(crate) mod effects;
 pub(crate) mod message;
 pub(crate) mod pipeline_ops;
+pub(crate) mod stages;
 pub(crate) mod workers;
 
 pub use builder::TxPoolServiceBuilder;
@@ -659,7 +660,7 @@ impl TxPoolService {
         }
     }
 
-    /// Rebuild mining state only after the matching pool/coordinator reorg
+    /// Rebuild mining state only after the matching pool/kernel reorg
     /// transaction and detached-tx recovery have completed. Publishing the
     /// new template first exposes a future snapshot when the retained reorg
     /// head later fails its preflight.

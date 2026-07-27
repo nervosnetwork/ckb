@@ -27,7 +27,7 @@ async fn pipeline_processes_independent_remote_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-/// A non-contextual remote rejection happens before coordinator admission,
+/// A non-contextual remote rejection happens before kernel admission,
 /// but it still crosses the same terminal boundary as a later verifier
 /// rejection. Malformed transactions are deliberately not announced as
 /// retryable relayer rejections; banning the peer and recording the public
@@ -35,7 +35,7 @@ async fn pipeline_processes_independent_remote_txs() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn malformed_remote_preflight_is_banned_recorded_and_not_relayed() {
     use crate::component::recent_reject::RecentReject;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let temp = tempfile::Builder::new().tempdir().unwrap();
     let recent_reject = Arc::new(RecentReject::build(temp.path(), 1, 100, -1).unwrap());
@@ -69,8 +69,8 @@ async fn malformed_remote_preflight_is_banned_recorded_and_not_relayed() {
 /// duplicate error nor survive after the local transaction enters TxPool.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_submit_bypasses_and_settles_matching_remote_owner() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -81,13 +81,13 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
     h.service
         .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer })
         .await
-        .expect("remote copy enters the coordinator");
+        .expect("remote copy enters the kernel");
     assert!(
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash)),
-        "the no-worker harness must leave the remote copy coordinator-owned"
+            .read(|kernel| kernel.contains_hash(&hash)),
+        "the no-worker harness must leave the remote copy kernel-owned"
     );
 
     let completed = h
@@ -110,7 +110,7 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash)),
+            .read(|kernel| kernel.contains_hash(&hash)),
         "successful local insertion must invalidate the older async owner"
     );
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
@@ -142,7 +142,7 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
     use crate::component::pre_pool::PrePoolLocation;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -152,7 +152,7 @@ async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.view(&hash).unwrap().location),
+            .read(|kernel| kernel.view(&hash).unwrap().location),
         PrePoolLocation::Ready
     );
 
@@ -168,7 +168,7 @@ async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.view(&hash).unwrap().location),
+            .read(|kernel| kernel.view(&hash).unwrap().location),
         PrePoolLocation::Ready,
         "waiting for TxPool must not consume the Ready owner"
     );
@@ -210,12 +210,12 @@ async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
 
 /// The early duplicate check can become stale before pipeline admission. The
 /// authoritative admission boundary must recheck TxPool while holding its read
-/// guard across the coordinator mutation, so a transaction committed in that
+/// guard across the kernel mutation, so a transaction committed in that
 /// window is never shadowed by a second pre-pool owner.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -249,8 +249,8 @@ async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash)),
-        "TxPool and coordinator must never both own the same hash"
+            .read(|kernel| kernel.contains_hash(&hash)),
+        "TxPool and kernel must never both own the same hash"
     );
 
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
@@ -282,9 +282,9 @@ async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_ready_commit_uses_trusted_effect_headroom() {
     use crate::component::pre_pool::{ResolveLane, WorkCapability};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
     use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::packed::Byte32;
 
     let mut h = harness(1).workers(WorkerSet::None).build();
@@ -348,9 +348,9 @@ async fn proposal_ready_commit_uses_trusted_effect_headroom() {
 /// the stale source embedded in the verified payload.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn promoted_remote_ready_commit_uses_trusted_effect_headroom() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
     use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::packed::Byte32;
 
     let mut h = harness(1).workers(WorkerSet::None).build();
@@ -390,9 +390,9 @@ async fn promoted_remote_ready_commit_uses_trusted_effect_headroom() {
 /// through trusted headroom.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_effect_backpressure_does_not_block_later_proposal() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
     use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::packed::Byte32;
 
     let mut h = harness(2).workers(WorkerSet::None).build();
@@ -461,7 +461,7 @@ async fn remote_effect_backpressure_does_not_block_later_proposal() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let first = build_tx(&h.out_points[0], 4_000)
@@ -485,7 +485,7 @@ async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
     tokio::task::yield_now().await;
     assert!(
         h.relay_rx.try_recv().is_err(),
-        "a merely coordinator-owned raw hash has no successful result yet"
+        "a merely kernel-owned raw hash has no successful result yet"
     );
 
     h.cancel.cancel();
@@ -498,8 +498,8 @@ async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     use crate::component::pre_pool::{PrePoolLocation, PrePoolSource, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -513,7 +513,7 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.deadline_len()),
+            .read(|kernel| kernel.deadline_len()),
         1
     );
     let lease = h
@@ -534,14 +534,14 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.view(&hash).unwrap().source),
+            .read(|kernel| kernel.view(&hash).unwrap().source),
         PrePoolSource::Proposal
     );
     assert_eq!(
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.deadline_len()),
+            .read(|kernel| kernel.deadline_len()),
         0,
         "trusted promotion must cancel the obsolete remote expiry"
     );
@@ -550,7 +550,7 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
         .service
         .pipeline
         .kernel
-        .read(|coordinator| coordinator.view(&hash).unwrap());
+        .read(|kernel| kernel.view(&hash).unwrap());
     assert_eq!(view.source, PrePoolSource::Proposal);
     assert_eq!(view.location, PrePoolLocation::VerifyQueued);
 
@@ -558,9 +558,7 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
         .service
         .pipeline
         .kernel
-        .mutate(|coordinator| {
-            coordinator.checkout_verify(crate::component::pre_pool::WorkCapability::Any)
-        })
+        .mutate(|kernel| kernel.checkout_verify(crate::component::pre_pool::WorkCapability::Any))
         .unwrap()
         .unwrap();
     let mut chunk_rx = h.chunk_rx.clone();
@@ -598,8 +596,8 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn peer_ban_removes_promoted_ingress_and_allows_refetch() {
     use crate::component::pre_pool::{PrePoolSource, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -685,8 +683,8 @@ async fn peer_ban_removes_promoted_ingress_and_allows_refetch() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ready_commit_observes_ban_fence_before_acceptance() {
     use crate::component::pre_pool::{PrePoolLocation, PrePoolSource};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -751,7 +749,7 @@ async fn ready_commit_observes_ban_fence_before_acceptance() {
 /// transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn peer_ban_does_not_rollback_an_already_accepted_transaction() {
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -798,9 +796,9 @@ async fn peer_ban_does_not_rollback_an_already_accepted_transaction() {
 /// two operations.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queued_remote_admission_after_ban_is_removed_and_refetchable() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::error::Reject;
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -849,13 +847,13 @@ async fn queued_remote_admission_after_ban_is_removed_and_refetchable() {
 
 /// A peer ban must revoke an already checked-out remote owner, release its
 /// active-work accounting and make the worker's lease stale in one
-/// coordinator transition. Otherwise an attacker can keep its budget slot
+/// kernel transition. Otherwise an attacker can keep its budget slot
 /// resident until the expensive worker eventually returns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
     use crate::component::pre_pool::ResolveLane;
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -876,7 +874,7 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.peer_active_work(peer)),
+            .read(|kernel| kernel.peer_active_work(peer)),
         1
     );
 
@@ -888,13 +886,13 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash))
+            .read(|kernel| kernel.contains_hash(&hash))
     );
     assert_eq!(
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.peer_active_work(peer)),
+            .read(|kernel| kernel.peer_active_work(peer)),
         0,
         "revocation must refund the peer's active-work slot immediately"
     );
@@ -906,7 +904,7 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash))
+            .read(|kernel| kernel.contains_hash(&hash))
     );
     assert!(matches!(
         h.relay_rx.try_recv().unwrap(),
@@ -943,8 +941,8 @@ fn phase_growth_budget(current_charge: usize, next_charge: usize) -> usize {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resolve_phase_capacity_growth_is_public_rejection() {
     use crate::component::pre_pool::ResolveLane;
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let probe = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&probe.out_points[0], 4_000);
@@ -1021,8 +1019,8 @@ async fn resolve_phase_capacity_growth_is_public_rejection() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn verify_phase_capacity_growth_is_public_rejection() {
     use crate::component::pre_pool::{ResolveLane, WorkCapability};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let probe = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&probe.out_points[0], 4_000);
@@ -1140,7 +1138,7 @@ async fn verify_phase_capacity_growth_is_public_rejection() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
     use crate::component::pre_pool::{PrePoolLocation, ResolveLane, WorkCapability};
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -1162,7 +1160,7 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
         .service
         .pipeline
         .kernel
-        .mutate_authoritative(|coordinator| coordinator.checkout_verify(WorkCapability::Any))
+        .mutate_authoritative(|kernel| kernel.checkout_verify(WorkCapability::Any))
         .unwrap()
         .unwrap();
 
@@ -1196,7 +1194,7 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.view(&hash).unwrap().location),
+            .read(|kernel| kernel.view(&hash).unwrap().location),
         PrePoolLocation::ResolveQueued
     );
     h.cancel.cancel();
@@ -1209,7 +1207,7 @@ async fn queued_resolved_work_is_snapshot_free_and_stale_tip_requeues() {
 #[tokio::test]
 async fn dependency_availability_uses_the_authoritative_overlay_level() {
     use crate::component::pre_pool::DependencyKey;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let live = h.out_points[0].clone();
@@ -1241,8 +1239,8 @@ async fn dependency_availability_uses_the_authoritative_overlay_level() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff() {
     use crate::component::pre_pool::{PrePoolLocation, PrePoolSource, ResolveLane};
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let remote = build_tx(&h.out_points[0], 4_000)
@@ -1262,7 +1260,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
     h.service
         .submit_remote_tx(remote, TxSource::Remote { cycles: 0, peer })
         .await
-        .expect("remote witness variant enters coordinator");
+        .expect("remote witness variant enters kernel");
     let old_lease = h
         .service
         .pipeline
@@ -1274,7 +1272,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         .service
         .pipeline
         .kernel
-        .read(|coordinator| coordinator.total_usage());
+        .read(|kernel| kernel.total_usage());
     assert!(!h.service.notify_tx(proposal.clone()).await.unwrap());
 
     assert!(
@@ -1288,10 +1286,10 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         "proposal notification must not synchronously execute script verification"
     );
     let (view, payload_witness, ingress_peer, blame_peer) =
-        h.service.pipeline.kernel.read(|coordinator| {
-            let raw = coordinator.raw_by_hash(&hash).unwrap();
+        h.service.pipeline.kernel.read(|kernel| {
+            let raw = kernel.raw_by_hash(&hash).unwrap();
             (
-                coordinator.view(&hash).unwrap(),
+                kernel.view(&hash).unwrap(),
                 raw.tx.witness_hash(),
                 raw.ingress_peer(),
                 raw.blame_peer(),
@@ -1303,7 +1301,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.total_usage().bytes)
+            .read(|kernel| kernel.total_usage().bytes)
             > old_usage.bytes,
         "the replacement witness, not the displaced witness, owns the payload charge"
     );
@@ -1317,7 +1315,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         h.service
             .pipeline
             .kernel
-            .mutate(|coordinator| coordinator.requeue_resolve(&old_lease)),
+            .mutate(|kernel| kernel.requeue_resolve(&old_lease)),
         Err(crate::component::pre_pool::PrePoolError::Stale { .. })
     ));
 
@@ -1337,9 +1335,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         .service
         .pipeline
         .kernel
-        .mutate(|coordinator| {
-            coordinator.checkout_verify(crate::component::pre_pool::WorkCapability::Any)
-        })
+        .mutate(|kernel| kernel.checkout_verify(crate::component::pre_pool::WorkCapability::Any))
         .unwrap()
         .unwrap();
     let mut chunk_rx = h.chunk_rx.clone();
@@ -1361,7 +1357,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&hash))
+            .read(|kernel| kernel.contains_hash(&hash))
     );
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
         loop {
@@ -1386,8 +1382,8 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -1423,8 +1419,8 @@ async fn proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress
 /// appending `Ok(old tx)` after clear's `GenerationReset`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn accepted_duplicate_relay_cannot_overtake_a_waiting_clear_reset() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -1488,7 +1484,7 @@ async fn accepted_duplicate_relay_cannot_overtake_a_waiting_clear_reset() {
     h.cancel.cancel();
 }
 
-fn hold_coordinator_read(
+fn hold_kernel_read(
     runtime: Arc<crate::component::pre_pool::PrePool>,
 ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
     let (locked_tx, locked_rx) = std::sync::mpsc::channel();
@@ -1498,12 +1494,12 @@ fn hold_coordinator_read(
             locked_tx.send(()).unwrap();
             release_rx
                 .recv_timeout(Duration::from_secs(5))
-                .expect("test releases the coordinator read guard");
+                .expect("test releases the kernel read guard");
         });
     });
     locked_rx
         .recv_timeout(Duration::from_secs(5))
-        .expect("coordinator read guard is held");
+        .expect("kernel read guard is held");
     (release_tx, thread)
 }
 
@@ -1518,21 +1514,21 @@ async fn wait_for_cross_authority_query_pool_guard(service: &TxPoolService) {
         }
     })
     .await
-    .expect("query acquires the pool read guard before inspecting coordinator state");
+    .expect("query acquires the pool read guard before inspecting kernel state");
 }
 
 /// Cross-authority queries hold the TxPool read guard while inspecting the
-/// coordinator. Clear and reorg both need the corresponding write guard for
+/// kernel. Clear and reorg both need the corresponding write guard for
 /// their ownership handoff, so a query must observe either the complete old
 /// state or the complete new state and never a transient `NotFound` gap.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
     use crate::component::pre_pool::ResolveLane;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use std::collections::{HashSet, VecDeque};
 
     // Query started before clear: force it to pause after taking the pool read
-    // guard, then prove clear cannot remove the coordinator owner underneath
+    // guard, then prove clear cannot remove the kernel owner underneath
     // it.
     {
         let h = harness(1).workers(WorkerSet::None).build();
@@ -1550,8 +1546,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
             )
             .unwrap();
 
-        let (release, coordinator_thread) =
-            hold_coordinator_read(Arc::clone(&h.service.pipeline.kernel));
+        let (release, kernel_thread) = hold_kernel_read(Arc::clone(&h.service.pipeline.kernel));
         let query_service = h.service.clone();
         let query_id = id.clone();
         let query = tokio::spawn(async move {
@@ -1576,7 +1571,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
         release.send(()).unwrap();
         assert!(query.await.unwrap().is_empty(), "query sees the old owner");
         clear.await.unwrap();
-        coordinator_thread.join().unwrap();
+        kernel_thread.join().unwrap();
         assert_eq!(
             h.service.exclude_existing_proposal(vec![id.clone()]).await,
             vec![id]
@@ -1586,7 +1581,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
     }
 
     // Query started before an attached-block handoff: the reorg cannot acquire
-    // TxPool write access until the query has completed its coordinator
+    // TxPool write access until the query has completed its kernel
     // snapshot; no cross-await recovery lock participates.
     {
         let h = harness(1).workers(WorkerSet::None).build();
@@ -1604,8 +1599,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
             )
             .unwrap();
 
-        let (release, coordinator_thread) =
-            hold_coordinator_read(Arc::clone(&h.service.pipeline.kernel));
+        let (release, kernel_thread) = hold_kernel_read(Arc::clone(&h.service.pipeline.kernel));
         let query_service = h.service.clone();
         let query_id = id.clone();
         let query = tokio::spawn(async move {
@@ -1640,7 +1634,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
         release.send(()).unwrap();
         assert!(query.await.unwrap().is_empty(), "query sees the old owner");
         reorg.await.unwrap().unwrap();
-        coordinator_thread.join().unwrap();
+        kernel_thread.join().unwrap();
         assert_eq!(
             h.service.exclude_existing_proposal(vec![id.clone()]).await,
             vec![id]
@@ -1653,7 +1647,7 @@ async fn cross_authority_query_is_serialized_with_clear_and_reorg() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chain_generation_reset_retires_old_generation_outside_the_lock() {
     use crate::component::pre_pool::ResolveLane;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(2).workers(WorkerSet::None).build();
     let remote = build_tx(&h.out_points[0], 4_000);
@@ -1695,7 +1689,7 @@ async fn chain_generation_reset_retires_old_generation_outside_the_lock() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authoritative_generation_swap_preserves_aba_clocks() {
     use crate::component::pre_pool::ResolveLane;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(3).workers(WorkerSet::None).build();
     let old_tx = build_tx(&h.out_points[0], 4_000);

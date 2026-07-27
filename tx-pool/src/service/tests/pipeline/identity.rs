@@ -7,8 +7,8 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ingress_structural_fault_is_not_a_transaction_or_peer_rejection() {
     use crate::component::pre_pool::PrePoolFault;
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
@@ -44,8 +44,8 @@ async fn ingress_structural_fault_is_not_a_transaction_or_peer_rejection() {
 /// policy is emitted, and the generation is reconciled and stopped once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn direct_submission_system_fault_is_not_transaction_policy() {
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     h.service.pipeline.epoch.set_for_test(u64::MAX);
@@ -75,8 +75,8 @@ async fn direct_submission_system_fault_is_not_transaction_policy() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pool_short_id_collision_is_not_a_successful_duplicate() {
     use crate::component::entry::TxEntry;
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(2).workers(WorkerSet::None).build();
     let mut accepted_hash = [0x24; 32];
@@ -127,7 +127,7 @@ async fn pool_short_id_collision_is_not_a_successful_duplicate() {
         !h.service
             .pipeline
             .kernel
-            .read(|coordinator| coordinator.contains_hash(&incoming_hash))
+            .read(|kernel| kernel.contains_hash(&incoming_hash))
     );
 
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
@@ -155,7 +155,7 @@ async fn pool_short_id_collision_is_not_a_successful_duplicate() {
 #[tokio::test]
 async fn synchronous_precheck_does_not_alias_short_id_collision_as_duplicate() {
     use crate::component::entry::TxEntry;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(2).workers(WorkerSet::None).build();
     let mut accepted_hash = [0x25; 32];
@@ -316,7 +316,7 @@ pub(super) fn secp_service_with_pipeline_workers(
     Vec<OutPoint>,
     Vec<CellDep>,
 ) {
-    let h = crate::component::tests::harness::harness(issue_outputs)
+    let h = crate::service::tests::support::harness(issue_outputs)
         .secp(true)
         .max_workers(max_workers)
         .build();
@@ -557,8 +557,8 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
     use crate::component::entry::{
         TxEntry, accepted_transaction_charge_bytes, resolved_transaction_charge_bytes,
     };
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::resolved_tx::ResolvedTx;
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_types::core::TransactionInfo;
     use ckb_types::core::cell::{CellMetaBuilder, ResolvedTransaction};
 
@@ -667,7 +667,7 @@ async fn verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn limit_size_returns_typed_fault_without_mutating_counter_drift() {
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
 
     let h = harness(1).workers(WorkerSet::None).build();
     let mut pool = h.service.pool.tx_pool.write().await;

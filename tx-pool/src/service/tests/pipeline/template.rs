@@ -7,7 +7,7 @@ use super::*;
 #[tokio::test]
 async fn full_rebuild_derives_uncles_from_candidate_authority() {
     use crate::block_assembler::BlockAssembler;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
 
@@ -62,7 +62,7 @@ async fn full_rebuild_derives_uncles_from_candidate_authority() {
 #[tokio::test]
 async fn reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention() {
     use crate::block_assembler::{BlockAssembler, ResetApply, ResetNotification};
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
 
@@ -128,8 +128,8 @@ async fn reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn clear_pool_resets_template_and_notifies_miner_immediately() {
     use crate::block_assembler::BlockAssembler;
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::BlockAssemblerMessage;
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
     use std::sync::atomic::Ordering;
@@ -216,7 +216,7 @@ async fn clear_pool_resets_template_and_notifies_miner_immediately() {
 /// at all — even when both requests carry the exact same snapshot Arc.
 #[tokio::test]
 async fn stale_block_assembler_reset_token_cannot_publish() {
-    use crate::component::tests::harness::harness;
+    use crate::service::tests::support::harness;
 
     let h = harness(1).build();
     let snapshot = h.service.pool.tx_pool.read().await.cloned_snapshot();
@@ -270,7 +270,7 @@ async fn stale_block_assembler_reset_token_cannot_publish() {
 #[tokio::test]
 async fn superseded_reset_cannot_swap_the_current_template() {
     use crate::block_assembler::BlockAssembler;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
 
@@ -333,8 +333,8 @@ async fn superseded_reset_cannot_swap_the_current_template() {
 #[tokio::test]
 async fn rejected_duplicate_uncle_does_not_retrigger_template_work() {
     use crate::block_assembler::BlockAssembler;
-    use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::BlockAssemblerMessage;
+    use crate::service::tests::support::{WorkerSet, harness};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
 
@@ -388,7 +388,7 @@ async fn rejected_duplicate_uncle_does_not_retrigger_template_work() {
 #[tokio::test]
 async fn failed_block_assembler_update_retains_dirty_generation_for_retry() {
     use crate::block_assembler::BlockAssembler;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use crate::service::{BlockAssemblerMessage, TxPoolServiceBuilder};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
@@ -457,7 +457,7 @@ async fn failed_block_assembler_update_retains_dirty_generation_for_retry() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn commit_and_removal_journal_block_assembler_delta() {
     use crate::block_assembler::BlockAssembler;
-    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::tests::support::{WorkerSet, harness};
     use crate::service::{BlockAssemblerMessage, RemoveTxOutcome};
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;

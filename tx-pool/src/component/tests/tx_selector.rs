@@ -1,6 +1,6 @@
 use super::*;
 use crate::component::pool_map::Status;
-use crate::component::tests::util::{MOCK_CYCLES, build_tx};
+use crate::test_support::{MOCK_CYCLES, build_tx};
 use ckb_types::core::{Capacity, TransactionBuilder, TransactionView};
 use ckb_types::packed::{Byte32, CellDep, CellInput, OutPoint};
 use ckb_types::prelude::*;

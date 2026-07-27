@@ -144,5 +144,5 @@ impl<H: JobHandler> WorkerRunner<H> {
 }
 
 #[cfg(test)]
-#[path = "tests/worker.rs"]
+#[path = "../tests/stage_runner.rs"]
 mod tests;

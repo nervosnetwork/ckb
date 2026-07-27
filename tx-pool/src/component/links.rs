@@ -131,5 +131,5 @@ impl TxLinksMap {
 }
 
 #[cfg(test)]
-#[path = "tests/links_seam.rs"]
-mod test_seam;
+#[path = "tests/links_test_support.rs"]
+mod test_support;

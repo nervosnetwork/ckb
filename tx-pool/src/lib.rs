@@ -79,13 +79,14 @@ mod persisted;
 pub mod pool;
 mod pool_cell;
 mod process;
-mod resolve_mgr;
 mod resolved_tx;
 pub mod service;
 pub(crate) mod tx_source;
 mod util;
-mod verify_mgr;
-mod worker;
+
+#[cfg(test)]
+#[path = "tests/support.rs"]
+pub(crate) mod test_support;
 
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::{TxEntry, TxEntrySnapshot};

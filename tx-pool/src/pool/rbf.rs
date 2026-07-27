@@ -43,7 +43,7 @@ impl TxPool {
     /// intentionally not a weight: the replacement threshold must use the same
     /// unit as `min_fee_rate` (shannons per kilo-bytes), which is calculated from
     /// size because cycles are not available at submission time. The
-    /// coordinator's verified-conflict gate also uses the size-based fee rate
+    /// kernel's verified-conflict gate also uses the size-based fee rate
     /// for provisional ordering: peer-declared cycles are not trusted before
     /// verification. That gate only affects scheduling and never lowers the
     /// replacement fee floor computed here.

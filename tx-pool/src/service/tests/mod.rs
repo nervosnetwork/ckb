@@ -8,6 +8,13 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use tokio::sync::watch;
 
+mod gap_reorg;
+mod persistence;
+mod pipeline;
+mod rbf_prevalidation;
+mod reconciliation;
+pub(crate) mod support;
+
 impl PipelineEpoch {
     pub(crate) fn set_for_test(&self, value: u64) {
         self.value.store(value, Ordering::Release);

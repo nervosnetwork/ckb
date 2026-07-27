@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// The pre-check worker body. Ownership moves queued → active → resolved,
-/// waiting, or terminal entirely inside the coordinator; there is no trailing
+/// waiting, or terminal entirely inside the kernel; there is no trailing
 /// `finish` call that a stale worker could apply to a newer incarnation.
 pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
     loop {
@@ -94,11 +94,11 @@ pub(crate) fn spawn_pipeline_commit_worker(
 }
 
 /// Drain dependency cascades and remote expiry in bounded slices. Conflict
-/// eligibility is derived synchronously inside each coordinator transition,
+/// eligibility is derived synchronously inside each kernel transition,
 /// so maintenance is never part of the candidate liveness path. The
 /// notification is level-triggered for graph work; a coarse timer is retained
 /// only for wall-clock expiry. No slice can grow with the full
-/// attacker-controlled graph while holding the coordinator mutex.
+/// attacker-controlled graph while holding the kernel mutex.
 pub(crate) fn spawn_pipeline_maintenance_worker(
     handle: &Handle,
     service: TxPoolService,
@@ -152,8 +152,8 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 // no read-only ticket survives between mutex acquisitions.
                 let expired = if !preview.is_empty() {
                     let result = service.pipeline.kernel.mutate_authoritative(
-                        |coordinator| -> Result<_, crate::component::pre_pool::PrePoolError> {
-                            let Some(plan) = coordinator.plan_expiry(now, SLICE)? else {
+                        |kernel| -> Result<_, crate::component::pre_pool::PrePoolError> {
+                            let Some(plan) = kernel.plan_expiry(now, SLICE)? else {
                                 return Ok(Ok(Vec::new()));
                             };
                             let batch = service.pipeline_terminal_effects(plan.records());

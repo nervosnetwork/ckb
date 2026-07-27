@@ -91,7 +91,7 @@ impl ResolvedTx {
         // Reserve the complete accepted-state footprint before publishing the
         // candidate to the commit path. This includes the PoolMap indexes and
         // dependency graph that will be allocated during insertion, so the
-        // coordinator cannot hand an already-undercharged object to the pool.
+        // kernel cannot hand an already-undercharged object to the pool.
         let resident_size = accepted_transaction_charge_bytes(self.tx_size, &rtx);
         // Resolution starts from the compact raw owner, so both views can
         // share that exact tx-sized allocation instead of retaining two
@@ -112,7 +112,7 @@ impl ResolvedTx {
 }
 
 /// Materialize every resolved-cell field before the payload becomes a
-/// coordinator-owned object.
+/// kernel-owned object.
 ///
 /// Snapshot and pool providers commonly return packed accessors or `Bytes`
 /// slices into an entire producer transaction/block. Charging only the
@@ -161,7 +161,7 @@ pub(crate) fn compact_verified_resolved_transaction(
     rtx: Arc<ResolvedTransaction>,
 ) -> Arc<ResolvedTransaction> {
     let mut rtx = Arc::try_unwrap(rtx).unwrap_or_else(|shared| (*shared).clone());
-    // Inputs were already materialized at the resolve/coordinator ownership
+    // Inputs were already materialized at the resolve/kernel ownership
     // boundary. Keep them move-only here: DAO calculation still needs their
     // complete output/data payload.
     for cell in rtx

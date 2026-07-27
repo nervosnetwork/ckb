@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 
-from check_tx_pool_review_guide import (
+from check_review_guide import (
     invariant_unit_evidence,
     load_registry,
     repo_path,
@@ -19,7 +19,7 @@ from check_tx_pool_review_guide import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
 REQUIRED_INVARIANTS = {f"I{number}" for number in range(1, 13)}
 REQUIRED_ROOT_FAMILIES = {f"F{number}" for number in range(1, 9)}

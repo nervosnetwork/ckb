@@ -106,7 +106,7 @@ impl TxPoolService {
         );
         // Synchronous local/reorg submissions do not participate in a second
         // speculative RBF owner. All remote/proposal pipeline competition is
-        // verified-only in the coordinator, while the authoritative complete
+        // verified-only in the kernel, while the authoritative complete
         // replacement closure is recalculated here under the pool write lock.
         loop {
             if !self.is_pipeline_epoch_current(epoch) {
@@ -234,7 +234,7 @@ impl TxPoolService {
         self.check_tx_basic_validity(&tx).await?;
         self.test_accept_tx_core(tx.clone()).await
     }
-    /// Run script verification for a coordinator-owned resolved payload
+    /// Run script verification for a kernel-owned resolved payload
     /// without changing lifecycle or pool membership. The caller must settle
     /// the versioned verify lease with `complete_verification*` or a terminal
     /// transition after this future returns.
@@ -281,7 +281,7 @@ impl TxPoolService {
         })
     }
     /// Non-authoritative maintenance after a transaction has been submitted:
-    /// enqueue a verify-cache update and record metrics. Coordinator ownership
+    /// enqueue a verify-cache update and record metrics. Kernel ownership
     /// and child wakeup already settle atomically inside the pool commit; a
     /// second best-effort wake here would obscure failures in that boundary.
     pub(crate) async fn post_submit_side_effects(

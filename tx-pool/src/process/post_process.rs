@@ -14,8 +14,8 @@ use ckb_types::packed::Byte32;
 use std::time::Duration;
 
 #[cfg(test)]
-#[path = "tests/post_process_seam.rs"]
-mod test_seam;
+#[path = "tests/post_process_test_support.rs"]
+mod test_support;
 
 impl TxPoolService {
     pub(crate) async fn after_process(
@@ -221,7 +221,7 @@ impl TxPoolService {
     /// final authority guards, so only a commit that linearized before the
     /// marker may already be Accepted.
     pub(crate) async fn remove_banned_peer_entries(&self, peer: PeerIndex) {
-        // Revoke coordinator ownership in bounded slices. Active raw/verify
+        // Revoke kernel ownership in bounded slices. Active raw/verify
         // leases become stale immediately. A commit already past its final
         // fence check linearized before the ban; every later Ready Plan
         // terminalizes through the same immutable-ingress policy.
@@ -230,14 +230,14 @@ impl TxPoolService {
             let hashes = self
                 .pipeline
                 .kernel
-                .read(|coordinator| coordinator.ingress_peer_hashes(peer, PEER_REMOVAL_SLICE));
+                .read(|kernel| kernel.ingress_peer_hashes(peer, PEER_REMOVAL_SLICE));
             if hashes.is_empty() {
                 break;
             }
-            let preview = self.pipeline.kernel.read(|coordinator| {
+            let preview = self.pipeline.kernel.read(|kernel| {
                 hashes
                     .iter()
-                    .filter_map(|hash| coordinator.terminal_record(hash))
+                    .filter_map(|hash| kernel.terminal_record(hash))
                     .collect::<Vec<_>>()
             });
             let preview_batch = self.pipeline_terminal_effects(&preview);
@@ -260,12 +260,12 @@ impl TxPoolService {
                 }
             }
             match self.pipeline.kernel.mutate_authoritative(
-                |coordinator| -> Result<_, crate::component::pre_pool::PrePoolError> {
+                |kernel| -> Result<_, crate::component::pre_pool::PrePoolError> {
                     // `hashes` is only an optimistic ingress-index snapshot.
                     // Rebind it under the sole kernel authority so removal can
                     // neither target a newer incarnation nor miss an owner
                     // whose current source was promoted after remote ingress.
-                    let Some(plan) = coordinator.plan_peer_revocation(peer, &hashes)? else {
+                    let Some(plan) = kernel.plan_peer_revocation(peer, &hashes)? else {
                         return Ok(Ok(Vec::new()));
                     };
                     let batch = self.pipeline_terminal_effects(plan.records());

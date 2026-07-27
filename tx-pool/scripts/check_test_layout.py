@@ -9,21 +9,21 @@ from pathlib import Path
 import re
 import sys
 
-from check_tx_pool_review_guide import (
+from check_review_guide import (
     behavior_ids as registered_behavior_ids,
     load_registry,
     validate_registry,
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "tx-pool" / "src"
 MANIFEST_PATH = REPO_ROOT / "tx-pool" / "test-layout-manifest.json"
 CFG_TEST = "#[cfg(test)]"
 TEST_ATTRIBUTE = re.compile(r"(?m)^\s*#\[(?:tokio::)?test(?:\([^]]*\))?\]")
 INLINE_TEST_MODULE = re.compile(
     r"(?m)^\s*(?:#\[cfg\(test\)\]\s*)?"
-    r"mod\s+(?:tests|[A-Za-z0-9_]*(?:_tests|test_seam))\s*\{"
+    r"mod\s+(?:tests|[A-Za-z0-9_]*(?:_tests|test_support))\s*\{"
 )
 TEST_MODULE_WIRING = re.compile(
     r"#\[cfg\(test\)\]\s*"

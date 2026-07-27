@@ -55,7 +55,7 @@ jobs:
         run: |
           # List all test specs
           ./target/release/ckb-test --list-specs --bin ./target/release/ckb > all_specs.txt
-          python3 devtools/check_tx_pool_security_manifest.py \
+          python3 tx-pool/scripts/check_security_manifest.py \
             --integration-only --integration-spec-list all_specs.txt
 
           # Split specs into chunks

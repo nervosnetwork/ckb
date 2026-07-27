@@ -317,5 +317,5 @@ fn is_cf_missing(err: &AnyError, cf: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "tests/recent_reject_seam.rs"]
-mod test_seam;
+#[path = "tests/recent_reject_test_support.rs"]
+mod test_support;

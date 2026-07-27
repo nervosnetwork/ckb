@@ -438,8 +438,8 @@ pub(crate) fn historical_deadline(source: PrePoolSource) -> Option<u64> {
 }
 
 #[cfg(test)]
-#[path = "../tests/pre_pool_runtime_seam.rs"]
-mod test_seam;
+#[path = "../tests/pre_pool_runtime_test_support.rs"]
+mod test_support;
 
 pub(crate) fn pre_pool_reject(error: PrePoolPublicError) -> Reject {
     match &error {

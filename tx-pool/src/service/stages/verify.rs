@@ -1,3 +1,4 @@
+use super::runner::{JobHandler, WorkerRunner};
 use crate::component::entry::TxEntry;
 use crate::component::pre_pool::PipelineVerifiedTx;
 use crate::component::pre_pool::{
@@ -6,7 +7,6 @@ use crate::component::pre_pool::{
 };
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
-use crate::worker::{JobHandler, WorkerRunner};
 use ckb_async_runtime::Handle;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
@@ -58,18 +58,18 @@ impl TxPoolService {
             &lease.hash,
             reject,
             "current verify lease could not terminalize",
-            |coordinator, disposition| {
+            |kernel, disposition| {
                 if matches!(
                     disposition,
                     crate::component::pre_pool::ConflictDisposition::Retain
                 ) {
-                    coordinator.park_conflict_or_terminalize(
+                    kernel.park_conflict_or_terminalize(
                         &lease.hash,
                         lease.version,
                         crate::component::pre_pool::PrePoolLocation::VerifyLeased,
                     )
                 } else {
-                    coordinator.terminalize_verify(lease)
+                    kernel.terminalize_verify(lease)
                 }
             },
         )
@@ -81,10 +81,10 @@ impl TxPoolService {
         lease: VerifyLease,
         command_rx: &mut watch::Receiver<ChunkCommand>,
     ) {
-        let authority = self.pipeline.kernel.read(|coordinator| {
-            coordinator
+        let authority = self.pipeline.kernel.read(|kernel| {
+            kernel
                 .source_by_hash(&lease.hash)
-                .zip(coordinator.raw_by_hash(&lease.hash))
+                .zip(kernel.raw_by_hash(&lease.hash))
         });
         let Some((current_source, raw)) = authority else {
             return;
@@ -104,8 +104,8 @@ impl TxPoolService {
         // consistent resolved bundle.
         let verification_snapshot = self.pool.tx_pool.read().await.cloned_snapshot();
         if verification_snapshot.tip_hash() != lease.payload.pre_resolve_tip {
-            match self.pipeline.kernel.mutate_authoritative(|coordinator| {
-                coordinator.verification_retry_resolution(&lease, std::collections::BTreeSet::new())
+            match self.pipeline.kernel.mutate_authoritative(|kernel| {
+                kernel.verification_retry_resolution(&lease, std::collections::BTreeSet::new())
             }) {
                 Ok(_) => {}
                 Err(error) if error.is_stale_lease() => {}
@@ -138,11 +138,11 @@ impl TxPoolService {
             Ok(verified) => verified,
             Err(first_reject) => {
                 let promoted = if source.peer().is_some() {
-                    let authority = self.pipeline.kernel.read(|coordinator| {
-                        coordinator
+                    let authority = self.pipeline.kernel.read(|kernel| {
+                        kernel
                             .source_by_hash(&lease.hash)
                             .filter(|source| !matches!(source, PrePoolSource::Remote(_)))
-                            .zip(coordinator.raw_by_hash(&lease.hash))
+                            .zip(kernel.raw_by_hash(&lease.hash))
                     });
                     authority
                         .map(|(promoted_source, raw)| raw.authoritative_source(promoted_source))
@@ -184,12 +184,12 @@ impl TxPoolService {
         };
 
         // Source promotion is allowed while verification is active. Bind
-        // the completed payload to the current coordinator source rather
+        // the completed payload to the current kernel source rather
         // than the worker's checkout snapshot.
-        let final_authority = self.pipeline.kernel.read(|coordinator| {
-            coordinator
+        let final_authority = self.pipeline.kernel.read(|kernel| {
+            kernel
                 .source_by_hash(&lease.hash)
-                .zip(coordinator.raw_by_hash(&lease.hash))
+                .zip(kernel.raw_by_hash(&lease.hash))
         });
         let Some((current_source, raw)) = final_authority else {
             return;
@@ -252,9 +252,11 @@ impl TxPoolService {
             }
         };
 
-        match self.pipeline.kernel.mutate_authoritative(|coordinator| {
-            coordinator.complete_verify(&lease, verified, charge_bytes)
-        }) {
+        match self
+            .pipeline
+            .kernel
+            .mutate_authoritative(|kernel| kernel.complete_verify(&lease, verified, charge_bytes))
+        {
             // Eagerly drain the candidate produced by this verify task.
             // The dedicated commit consumer is still the level-triggered
             // liveness path for eligibility created by every other
@@ -309,7 +311,7 @@ impl JobHandler for VerifyHandler {
             .service
             .pipeline
             .kernel
-            .mutate_authoritative(|coordinator| coordinator.checkout_verify(self.capability))
+            .mutate_authoritative(|kernel| kernel.checkout_verify(self.capability))
         {
             Ok(lease) => lease,
             Err(error) => {

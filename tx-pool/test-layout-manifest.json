@@ -7,35 +7,33 @@
     "tx-pool/src/process/tests",
     "tx-pool/src/service/tests"
   ],
-  "allowed_test_files": [
-    "tx-pool/src/block_assembler/tests.rs",
-    "tx-pool/src/service/tests.rs"
-  ],
+  "allowed_test_files": [],
   "module_wiring": [
     {"file": "tx-pool/src/benchmark.rs", "module": "debug_tests", "path": "tests/benchmark_debug.rs"},
     {"file": "tx-pool/src/block_assembler/candidate_uncles.rs", "module": "tests", "path": "tests/candidate_uncles.rs"},
     {"file": "tx-pool/src/block_assembler/mod.rs", "module": "tests"},
     {"file": "tx-pool/src/callback.rs", "module": "tests", "path": "tests/callback.rs"},
-    {"file": "tx-pool/src/component/links.rs", "module": "test_seam", "path": "tests/links_seam.rs"},
+    {"file": "tx-pool/src/component/links.rs", "module": "test_support", "path": "tests/links_test_support.rs"},
     {"file": "tx-pool/src/component/mod.rs", "module": "tests"},
     {"file": "tx-pool/src/component/out_point_index.rs", "module": "tests", "path": "tests/out_point_index.rs"},
-    {"file": "tx-pool/src/component/pool_map.rs", "module": "audit", "path": "tests/pool_map_audit.rs"},
-    {"file": "tx-pool/src/component/pre_pool/mod.rs", "module": "test_seam", "path": "../tests/pre_pool_seam.rs"},
-    {"file": "tx-pool/src/component/pre_pool/queue.rs", "module": "test_seam", "path": "../tests/pre_pool_queue_seam.rs"},
-    {"file": "tx-pool/src/component/pre_pool/runtime.rs", "module": "test_seam", "path": "../tests/pre_pool_runtime_seam.rs"},
-    {"file": "tx-pool/src/component/recent_reject.rs", "module": "test_seam", "path": "tests/recent_reject_seam.rs"},
+    {"file": "tx-pool/src/component/pool_map.rs", "module": "test_support", "path": "tests/pool_map_test_support.rs"},
+    {"file": "tx-pool/src/component/pre_pool/mod.rs", "module": "test_support", "path": "../tests/pre_pool_test_support.rs"},
+    {"file": "tx-pool/src/component/pre_pool/queue.rs", "module": "tests", "path": "../tests/pre_pool_queue.rs"},
+    {"file": "tx-pool/src/component/pre_pool/runtime.rs", "module": "test_support", "path": "../tests/pre_pool_runtime_test_support.rs"},
+    {"file": "tx-pool/src/component/recent_reject.rs", "module": "test_support", "path": "tests/recent_reject_test_support.rs"},
     {"file": "tx-pool/src/component/tx_selector.rs", "module": "tests", "path": "tests/tx_selector.rs"},
-    {"file": "tx-pool/src/process/classify.rs", "module": "test_seam", "path": "tests/classify_seam.rs"},
-    {"file": "tx-pool/src/process/post_process.rs", "module": "test_seam", "path": "tests/post_process_seam.rs"},
+    {"file": "tx-pool/src/lib.rs", "module": "test_support", "path": "tests/support.rs"},
+    {"file": "tx-pool/src/process/classify.rs", "module": "test_support", "path": "tests/classify_test_support.rs"},
+    {"file": "tx-pool/src/process/post_process.rs", "module": "test_support", "path": "tests/post_process_test_support.rs"},
     {"file": "tx-pool/src/process/reorg.rs", "module": "tests", "path": "tests/reorg.rs"},
-    {"file": "tx-pool/src/process/submit/rbf_commit.rs", "module": "test_seam", "path": "../tests/rbf_commit_seam.rs"},
-    {"file": "tx-pool/src/persisted.rs", "module": "test_seam", "path": "tests/persisted_seam.rs"},
+    {"file": "tx-pool/src/process/submit/rbf_commit.rs", "module": "test_support", "path": "../tests/rbf_commit_test_support.rs"},
+    {"file": "tx-pool/src/persisted.rs", "module": "tests", "path": "tests/persisted.rs"},
     {"file": "tx-pool/src/resolved_tx.rs", "module": "tests", "path": "tests/resolved_tx.rs"},
     {"file": "tx-pool/src/service.rs", "module": "tests"},
     {"file": "tx-pool/src/service/builder.rs", "module": "shutdown_tests", "path": "tests/builder_shutdown.rs"},
     {"file": "tx-pool/src/service/effects.rs", "module": "tests", "path": "tests/effects.rs"},
-    {"file": "tx-pool/src/util.rs", "module": "block_offload_tests", "path": "tests/block_offload.rs"},
-    {"file": "tx-pool/src/worker.rs", "module": "tests", "path": "tests/worker.rs"}
+    {"file": "tx-pool/src/service/stages/runner.rs", "module": "tests", "path": "../tests/stage_runner.rs"},
+    {"file": "tx-pool/src/util.rs", "module": "block_offload_tests", "path": "tests/block_offload.rs"}
   ],
   "cfg_test_occurrences": {
     "tx-pool/src/benchmark.rs": 1,
@@ -52,6 +50,7 @@
     "tx-pool/src/component/pre_pool/runtime.rs": 1,
     "tx-pool/src/component/recent_reject.rs": 1,
     "tx-pool/src/component/tx_selector.rs": 1,
+    "tx-pool/src/lib.rs": 1,
     "tx-pool/src/persisted.rs": 1,
     "tx-pool/src/process/classify.rs": 3,
     "tx-pool/src/process/post_process.rs": 1,
@@ -61,8 +60,8 @@
     "tx-pool/src/service.rs": 1,
     "tx-pool/src/service/builder.rs": 1,
     "tx-pool/src/service/effects.rs": 1,
-    "tx-pool/src/util.rs": 1,
-    "tx-pool/src/worker.rs": 1
+    "tx-pool/src/service/stages/runner.rs": 1,
+    "tx-pool/src/util.rs": 1
   },
   "seams": [
     {
