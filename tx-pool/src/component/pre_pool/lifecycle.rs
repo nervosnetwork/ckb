@@ -164,23 +164,18 @@ impl PrePoolKernel {
         entry: &StoredEntry,
     ) -> Result<(), PrePoolError> {
         self.validate_entry_intrinsic(hash, entry)?;
-        let parents = entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>();
-        for parent in &parents {
+        for parent in entry.parent_hashes() {
             let existing = self
                 .by_parent
-                .get(parent)
+                .get(&parent)
                 .map_or(0, |children| children.len());
             let already = self.entries.get(hash).is_some_and(|old| {
                 old.dependencies
                     .iter()
-                    .any(|key| key.parent_hash() == *parent)
+                    .any(|key| key.parent_hash() == parent)
             });
             if !already && existing >= self.limits.max_dependents_per_parent {
-                return Err(PrePoolError::ParentFanoutLimitExceeded(parent.clone()));
+                return Err(PrePoolError::ParentFanoutLimitExceeded(parent));
             }
         }
         if let EntryState::Ready { inputs, .. } = &entry.state {
@@ -222,12 +217,7 @@ impl PrePoolKernel {
                 "ingress-peer projection omits its primary",
             ));
         }
-        for parent in entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-        {
+        for parent in entry.parent_hashes() {
             if !self
                 .by_parent
                 .get(&parent)
@@ -379,12 +369,7 @@ impl PrePoolKernel {
         let mut input_counts = HashMap::<OutPoint, usize>::new();
         for change in &changes {
             if let Some(old) = &change.old {
-                for parent in old
-                    .dependencies
-                    .iter()
-                    .map(DependencyKey::parent_hash)
-                    .collect::<BTreeSet<_>>()
-                {
+                for parent in old.parent_hashes() {
                     let count = parent_counts
                         .entry(parent.clone())
                         .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
@@ -413,12 +398,7 @@ impl PrePoolKernel {
             let Some(next) = &change.next else {
                 continue;
             };
-            for parent in next
-                .dependencies
-                .iter()
-                .map(DependencyKey::parent_hash)
-                .collect::<BTreeSet<_>>()
-            {
+            for parent in next.parent_hashes() {
                 let count = parent_counts
                     .entry(parent.clone())
                     .or_insert_with(|| self.by_parent.get(&parent).map_or(0, BTreeSet::len));
@@ -750,12 +730,7 @@ impl PrePoolKernel {
                 .or_default()
                 .insert(hash.clone());
         }
-        for parent in entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-        {
+        for parent in entry.parent_hashes() {
             self.by_parent
                 .entry(parent)
                 .or_default()
@@ -833,12 +808,7 @@ impl PrePoolKernel {
                 self.by_ingress_peer.remove(&peer);
             }
         }
-        for parent in entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-        {
+        for parent in entry.parent_hashes() {
             let empty = self.by_parent.get_mut(&parent).is_none_or(|children| {
                 children.remove(hash);
                 children.is_empty()

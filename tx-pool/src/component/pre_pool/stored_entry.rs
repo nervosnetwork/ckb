@@ -38,12 +38,7 @@ impl StoredEntry {
                 .checked_add(2)
                 .ok_or(PrePoolError::ResidencyChargeOverflow)?;
         }
-        let parent_count = entry
-            .dependencies
-            .iter()
-            .map(DependencyKey::parent_hash)
-            .collect::<BTreeSet<_>>()
-            .len();
+        let parent_count = entry.parent_hashes().count();
         memberships = memberships
             .checked_add(entry.dependencies.len())
             .and_then(|value| value.checked_add(parent_count.checked_mul(2)?))

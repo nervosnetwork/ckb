@@ -242,6 +242,59 @@ impl DependencyKey {
     }
 }
 
+/// Unique parent transaction hashes projected from the already ordered
+/// dependency set without allocating a second set.
+///
+/// Cell dependencies are ordered by `(tx_hash, index)`, so equal cell parents
+/// are adjacent. Header dependencies form the second enum range; a logarithmic
+/// lookup suppresses the uncommon hash that is present in both ranges.
+struct ParentHashes<'a> {
+    dependencies: &'a BTreeSet<DependencyKey>,
+    iter: std::collections::btree_set::Iter<'a, DependencyKey>,
+    last_cell: Option<Byte32>,
+}
+
+impl<'a> ParentHashes<'a> {
+    fn new(dependencies: &'a BTreeSet<DependencyKey>) -> Self {
+        Self {
+            dependencies,
+            iter: dependencies.iter(),
+            last_cell: None,
+        }
+    }
+
+    fn has_cell_parent(&self, hash: &Byte32) -> bool {
+        let lower = DependencyKey::Cell(OutPoint::new(hash.clone(), 0));
+        self.dependencies.range(lower..).next().is_some_and(
+            |key| matches!(key, DependencyKey::Cell(out_point) if out_point.tx_hash() == *hash),
+        )
+    }
+}
+
+impl Iterator for ParentHashes<'_> {
+    type Item = Byte32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.iter.next()? {
+                DependencyKey::Cell(out_point) => {
+                    let parent = out_point.tx_hash();
+                    if self.last_cell.as_ref() == Some(&parent) {
+                        continue;
+                    }
+                    self.last_cell = Some(parent.clone());
+                    return Some(parent);
+                }
+                DependencyKey::Header(parent) => {
+                    if !self.has_cell_parent(parent) {
+                        return Some(parent.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn cell_dependency_keys(
     tx: &ckb_types::core::TransactionView,
     expanded: impl IntoIterator<Item = OutPoint>,
@@ -804,6 +857,10 @@ pub(in crate::component::pre_pool) struct Entry {
 }
 
 impl Entry {
+    fn parent_hashes(&self) -> ParentHashes<'_> {
+        ParentHashes::new(&self.dependencies)
+    }
+
     fn short_id(&self) -> ProposalShortId {
         self.raw.tx.proposal_short_id()
     }

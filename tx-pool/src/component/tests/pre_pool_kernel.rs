@@ -702,6 +702,33 @@ fn parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget() {
 }
 
 #[test]
+fn parent_projection_deduplicates_cell_and_header_edges() {
+    let parent = Byte32::new([0xbd; 32]);
+    let tx = build_tx(vec![(&parent, 0), (&parent, 1)], 1)
+        .as_advanced_builder()
+        .header_dep(parent.clone())
+        .build();
+    let raw = PipelineRawTx::new(tx.clone(), TxSource::Proposal, 1);
+    // Common projections: short ID (2), three dependency keys, and one
+    // unique parent represented in the parent map and child set (2).
+    // ResolveQueued reserves the larger exact-wait shape: 3 * 4.
+    let exact_bytes = raw.charge_bytes() + 128 + (2 + 3 + 2 + 12) * 32;
+    let mut kernel = PrePoolKernel::new(limits());
+
+    admit(
+        &mut kernel,
+        tx,
+        TxSource::Proposal,
+        ResolveLane::Ordered,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(kernel.total_usage().bytes, exact_bytes);
+    kernel.audit().unwrap();
+}
+
+#[test]
 fn successive_expanded_parent_losses_keep_exact_causal_keys_in_wait() {
     let mut kernel = PrePoolKernel::new(limits());
     let tx = transaction(112);
