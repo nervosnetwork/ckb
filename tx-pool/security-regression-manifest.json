@@ -7,7 +7,7 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "unit_test_count": 257,
+    "unit_test_count": 258,
     "integration_spec_count": 150
   },
   "release_blockers": [

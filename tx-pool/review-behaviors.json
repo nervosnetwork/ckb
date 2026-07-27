@@ -120,7 +120,7 @@
         "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
         "Does an impossible peer admission fail before global eviction planning?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|parent_projection_deduplicates|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
@@ -379,6 +379,7 @@
 
     {"test": "admission_budget_failure_leaves_primary_and_views_unchanged", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
     {"test": "parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
+    {"test": "parent_projection_deduplicates_cell_and_header_edges", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T6", "T8"]},
     {"test": "remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "journal_usage_charges_queued_and_active_batches_exactly", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8"]},
     {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
