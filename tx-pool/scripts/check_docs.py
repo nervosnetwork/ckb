@@ -12,8 +12,8 @@ from urllib.parse import unquote
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TX_POOL = REPO_ROOT / "tx-pool"
 DOCS = TX_POOL / "docs"
-TOOLS = DOCS / "TOOLS.md"
-DOC_INDEX = DOCS / "README.md"
+VALIDATION = DOCS / "VALIDATION.md"
+DOC_INDEX = TX_POOL / "README.md"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci_tx_pool_review.yaml"
 MARKDOWN_LINK = re.compile(r"\[[^]]*\]\(([^)]+)\)")
 RETIRED_PATHS = (
@@ -26,6 +26,27 @@ RETIRED_PATHS = (
     "tx-pool/IMPLEMENTATION_PLAN.md",
     "tx-pool/REVIEW_GUIDE.md",
     "tx-pool/security-regression-ledger.md",
+    "tx-pool/docs/ARCHITECTURE_AUDIT.md",
+    "tx-pool/docs/IMPLEMENTATION_PLAN.md",
+    "tx-pool/docs/PIPELINE.md",
+    "tx-pool/docs/README.md",
+    "tx-pool/docs/SECURITY_REGRESSION_LEDGER.md",
+    "tx-pool/docs/TOOLS.md",
+)
+RETIRED_DOCUMENT_NAMES = {
+    "ARCHITECTURE_AUDIT.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PIPELINE.md",
+    "SECURITY_REGRESSION_LEDGER.md",
+    "TOOLS.md",
+}
+MACHINE_CONTRACTS = (
+    "architecture-contract.json",
+    "integration-impact.json",
+    "review-behaviors.json",
+    "security-regression-manifest.json",
+    "test-inventory.txt",
+    "test-layout-manifest.json",
 )
 
 
@@ -59,11 +80,17 @@ def validate() -> list[str]:
         if document.name not in index:
             errors.append(f"documentation index omits {document.name}")
 
-    tools = TOOLS.read_text()
+    validation = VALIDATION.read_text()
     for script in sorted((TX_POOL / "scripts").glob("*.py")):
         relative = script.relative_to(REPO_ROOT).as_posix()
-        if relative not in tools:
-            errors.append(f"validation tools guide omits {relative}")
+        if relative not in validation:
+            errors.append(f"validation guide omits {relative}")
+
+    for name in MACHINE_CONTRACTS:
+        if name not in index:
+            errors.append(f"crate README omits machine contract {name}")
+        if name not in validation:
+            errors.append(f"validation guide does not explain machine contract {name}")
 
     ci = CI_WORKFLOW.read_text()
     for script in (
@@ -81,6 +108,13 @@ def validate() -> list[str]:
     ]
     for source in drift_surfaces:
         text = source.read_text()
+        if source.suffix == ".md":
+            for retired in RETIRED_DOCUMENT_NAMES:
+                if retired in text:
+                    errors.append(
+                        f"retired tx-pool document in "
+                        f"{source.relative_to(REPO_ROOT)}: {retired}"
+                    )
         for retired in RETIRED_PATHS:
             if retired in text:
                 errors.append(

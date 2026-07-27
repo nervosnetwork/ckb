@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
@@ -7,18 +7,13 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "checkpoint": "P6.5 exact-admission and typed-authority convergence",
     "unit_test_count": 257,
     "integration_spec_count": 150
   },
-  "baseline": {
-    "commit": "53178b830f69fcdcc73ece2e0ea812d4357251bf",
-    "nextest_count": 303
-  },
   "release_blockers": [
     {
-      "id": "P7-PERFORMANCE-ACCEPTANCE",
-      "reason": "Controlled clean-checkpoint throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains the final blocking production gate"
+      "id": "PERFORMANCE-ACCEPTANCE",
+      "reason": "Controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains the final blocking production gate"
     }
   ]
 }

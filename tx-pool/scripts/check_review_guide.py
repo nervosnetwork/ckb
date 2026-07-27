@@ -24,7 +24,7 @@ END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 MINIMUM_TEST_FILTER = re.compile(r"-E\s+['\"]test\(/\(([^)]+)\)/\)['\"]")
-REQUIRED_INVARIANTS = {f"I{number}" for number in range(1, 13)}
+REQUIRED_PROOF_OBLIGATIONS = {f"T{number}" for number in range(1, 14)}
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,8 +133,8 @@ def validate_minimum_command_arms(
 
 def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     errors: list[str] = []
-    if registry.get("schema_version") != 2:
-        errors.append("behavior registry schema_version must be 2")
+    if registry.get("schema_version") != 3:
+        errors.append("behavior registry schema_version must be 3")
 
     if impact is None:
         try:
@@ -287,7 +287,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         if not _nonempty_strings(invariants):
             errors.append(f"unit evidence {test!r} has no invariants")
         else:
-            unknown = set(invariants).difference(REQUIRED_INVARIANTS)
+            unknown = set(invariants).difference(REQUIRED_PROOF_OBLIGATIONS)
             if unknown:
                 errors.append(f"unit evidence {test!r} has unknown invariants {sorted(unknown)}")
             covered_invariants.update(invariants)
@@ -347,7 +347,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         if not _nonempty_strings(invariants):
             errors.append(f"integration evidence {spec_id!r} has no invariants")
         else:
-            unknown = set(invariants).difference(REQUIRED_INVARIANTS)
+            unknown = set(invariants).difference(REQUIRED_PROOF_OBLIGATIONS)
             if unknown:
                 errors.append(
                     f"integration evidence {spec_id!r} has unknown invariants {sorted(unknown)}"
@@ -408,7 +408,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     unreferenced = behavior_ids.difference(referenced_behaviors)
     if unreferenced:
         errors.append(f"behaviors without executable evidence: {sorted(unreferenced)}")
-    missing_invariants = REQUIRED_INVARIANTS.difference(covered_invariants)
+    missing_invariants = REQUIRED_PROOF_OBLIGATIONS.difference(covered_invariants)
     if missing_invariants:
         errors.append(f"invariants without executable evidence: {sorted(missing_invariants)}")
     return errors
@@ -419,7 +419,7 @@ def behavior_ids(registry: dict) -> set[str]:
 
 
 def invariant_unit_evidence(registry: dict) -> dict[str, list[str]]:
-    evidence = {invariant: [] for invariant in sorted(REQUIRED_INVARIANTS)}
+    evidence = {invariant: [] for invariant in sorted(REQUIRED_PROOF_OBLIGATIONS)}
     for entry in registry["unit_evidence"]:
         for invariant in entry["invariants"]:
             evidence[invariant].append(entry["test"])
@@ -460,7 +460,7 @@ def render_generated(registry: dict, impact: dict) -> str:
         "",
         f"`{integration_command(registry, [entry['anchor'] for entry in registry['integration_evidence']])}`",
         "",
-        f"The complete tx-pool impact universe contains {len(all_impact_specs)} specs. P6 and release CI run the exact inventory through:",
+        f"The complete tx-pool impact universe contains {len(all_impact_specs)} specs. Integration and release CI run the exact inventory through:",
         "",
         f"`{integration_command(registry, all_impact_specs)}`",
         "",

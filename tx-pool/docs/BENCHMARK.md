@@ -25,7 +25,7 @@ python3 tx-pool/scripts/benchmark.py --quick --filter always_success_100
 # preferred quick A/B: alternate adjacent baseline/candidate runs
 python3 tx-pool/scripts/benchmark.py --quick --runs 3 \
   --filter always_success_100 \
-  --baseline-worktree /tmp/ckb-txpool-bench-checkpoint \
+  --baseline-worktree /tmp/ckb-txpool-bench-baseline \
   --save-baseline-json /tmp/tx-pool-baseline.json \
   --save-json /tmp/tx-pool-candidate.json \
   --fail-on-regression

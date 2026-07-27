@@ -21,7 +21,6 @@ from check_review_guide import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
-REQUIRED_INVARIANTS = {f"I{number}" for number in range(1, 13)}
 REQUIRED_ROOT_FAMILIES = {f"F{number}" for number in range(1, 9)}
 REQUIRED_TARGET_INVARIANTS = {f"T{number}" for number in range(1, 14)}
 REQUIRED_PREPOOL_STATES = {
@@ -48,10 +47,20 @@ REQUIRED_LOCK_ORDER = [
     "PrePoolKernel",
     "EffectJournal",
 ]
-LEDGER_ROW = re.compile(
-    r"^\|\s*(?P<id>\d+)\s*\|.*\|\s*(?P<invariants>"
-    r"I(?:[1-9]|1[0-2])(?:,\s*I(?:[1-9]|1[0-2]))*)\s*\|$"
-)
+REQUIRED_RESIDUAL_RISKS = {
+    "R1": "typed_internal_contradiction_controlled_stop",
+    "R2": "bounded_reconcilable_effects_not_exactly_once",
+    "R3": "one_timed_out_blocking_call_per_endpoint_kind",
+    "R4": "non_crash_durable_persistence_and_uncancellable_filesystem_io",
+    "R5": "process_oom_abort_and_corruption",
+    "R6": "trusted_notify_batch_outer_bound",
+    "R7": "bounded_template_underfill_tradeoff",
+    "R8": "production_observability_debt",
+    "R9": "legacy_v1_replay_ordering",
+    "R10": "raw_conflict_wait_context_precision",
+    "R11": "notify_script_child_termination",
+    "R12": "controlled_performance_acceptance",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -109,8 +118,8 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     )
     if contract is None:
         return errors
-    if contract.get("schema_version") != 1:
-        errors.append("architecture contract schema_version must be 1")
+    if contract.get("schema_version") != 2:
+        errors.append("architecture contract schema_version must be 2")
     if contract.get("authorities") != ["TxPool", "PrePoolKernel"]:
         errors.append("architecture contract must declare exactly TxPool then PrePoolKernel")
     if _string_set(contract.get("prepool_states")) != REQUIRED_PREPOOL_STATES:
@@ -123,7 +132,7 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         "policy": "none",
         "remote_bound": "residency_deadline_and_budget",
         "trusted_bound": "bounded_chain_derived_ingress",
-        "acceptance_gate": "P7_saturation_throughput_and_tail_latency",
+        "acceptance_gate": "controlled_saturation_throughput_and_tail_latency",
     }:
         errors.append("architecture contract Ready aging trade-off is not explicit")
     if contract.get("lock_order") != REQUIRED_LOCK_ORDER:
@@ -140,63 +149,17 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         errors.append("architecture contract must define exactly F1-F8")
     if set(contract.get("target_invariants", {})) != REQUIRED_TARGET_INVARIANTS:
         errors.append("architecture contract must define exactly T1-T13")
+    if contract.get("residual_risks") != REQUIRED_RESIDUAL_RISKS:
+        errors.append("architecture contract residual risks differ from R1-R12")
 
-    bridge = contract.get("historical_invariant_bridge")
-    if not isinstance(bridge, dict) or set(bridge) != REQUIRED_INVARIANTS:
-        errors.append("architecture contract must bridge exactly I1-I12")
-        bridge = {}
-    behavior_ids = {entry["id"] for entry in registry.get("behaviors", [])}
-    for invariant, mapping in bridge.items():
-        if not isinstance(mapping, dict):
-            errors.append(f"architecture bridge {invariant} must be an object")
-            continue
-        families = _string_set(mapping.get("root_families"))
-        targets = _string_set(mapping.get("target_invariants"))
-        behaviors = _string_set(mapping.get("behavior_ids"))
-        if not families or not families <= REQUIRED_ROOT_FAMILIES:
-            errors.append(f"architecture bridge {invariant} has invalid root families")
-        if not targets or not targets <= REQUIRED_TARGET_INVARIANTS:
-            errors.append(f"architecture bridge {invariant} has invalid target invariants")
-        if not behaviors or not behaviors <= behavior_ids:
-            errors.append(f"architecture bridge {invariant} has invalid behavior IDs")
-
-    ledger_value = contract.get("historical_ledger")
-    if not isinstance(ledger_value, str):
-        errors.append("architecture contract historical_ledger must be a path")
-        return errors
-    try:
-        ledger_lines = repo_path(ledger_value).read_text().splitlines()
-    except (OSError, ValueError) as error:
-        errors.append(f"cannot read architecture historical ledger: {error}")
-        return errors
-    rows: list[tuple[int, set[str]]] = []
-    for line in ledger_lines:
-        match = LEDGER_ROW.match(line)
-        if match:
-            rows.append(
-                (
-                    int(match.group("id")),
-                    {item.strip() for item in match.group("invariants").split(",")},
-                )
-            )
-    row_ids = [row_id for row_id, _ in rows]
-    ledger_last_id = contract.get("historical_ledger_last_id")
-    if not isinstance(ledger_last_id, int) or isinstance(ledger_last_id, bool) or ledger_last_id < 1:
-        errors.append("architecture contract historical_ledger_last_id must be a positive integer")
-        ledger_last_id = 0
-    if row_ids != list(range(1, ledger_last_id + 1)):
-        errors.append(
-            "historical ledger must contain exactly ordered finding IDs "
-            f"1-{ledger_last_id} with I1-I12 mappings"
-        )
-    for row_id, invariants in rows:
-        if not invariants or not invariants <= set(bridge):
-            errors.append(f"historical ledger row {row_id} has no total architecture bridge")
+    evidence = invariant_unit_evidence(registry)
+    if set(evidence) != REQUIRED_TARGET_INVARIANTS:
+        errors.append("review evidence must map directly to exactly T1-T13")
 
     required_links = {
-        "authority_document": ["REVIEW_GUIDE.md", "IMPLEMENTATION_PLAN.md"],
-        "audit_document": ["ARCHITECTURE.md"],
-        "review_guide": ["ARCHITECTURE.md", "IMPLEMENTATION_PLAN.md"],
+        "authority_document": ["REVIEW_GUIDE.md", "VALIDATION.md"],
+        "review_guide": ["ARCHITECTURE.md", "VALIDATION.md"],
+        "validation_document": ["ARCHITECTURE.md", "REVIEW_GUIDE.md"],
     }
     for field, links in required_links.items():
         value = contract.get(field)
@@ -211,6 +174,24 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         for link in links:
             if link not in contents:
                 errors.append(f"architecture document {value} does not link {link}")
+
+    authority_value = contract.get("authority_document")
+    if isinstance(authority_value, str):
+        try:
+            authority = repo_path(authority_value).read_text()
+        except (OSError, ValueError):
+            pass
+        else:
+            for invariant in REQUIRED_TARGET_INVARIANTS:
+                if authority.count(f"- {invariant} ") != 1:
+                    errors.append(
+                        f"architecture document must define {invariant} exactly once"
+                    )
+            for risk in REQUIRED_RESIDUAL_RISKS:
+                if authority.count(f"| {risk} |") != 1:
+                    errors.append(
+                        f"architecture document must define residual {risk} exactly once"
+                    )
     return errors
 
 
@@ -252,8 +233,8 @@ def discover_tests(manifest: dict) -> tuple[set[str], int]:
 def validate_test_anchors(registry: dict, tests: set[str]) -> list[str]:
     errors: list[str] = []
     evidence = invariant_unit_evidence(registry)
-    missing_invariants = REQUIRED_INVARIANTS.difference(evidence)
-    extra_invariants = set(evidence).difference(REQUIRED_INVARIANTS)
+    missing_invariants = REQUIRED_TARGET_INVARIANTS.difference(evidence)
+    extra_invariants = set(evidence).difference(REQUIRED_TARGET_INVARIANTS)
     if missing_invariants:
         errors.append(f"missing invariant groups: {sorted(missing_invariants)}")
     if extra_invariants:
@@ -529,8 +510,8 @@ def main() -> int:
     if args.integration_only and args.update_inventory:
         raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 5:
-        raise SystemExit("security manifest schema_version must be 5")
+    if manifest.get("schema_version") != 6:
+        raise SystemExit("security manifest schema_version must be 6")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"
@@ -585,13 +566,7 @@ def main() -> int:
         )
         return 0
 
-    baseline = manifest.get("baseline", {}).get("nextest_count")
     assert test_count is not None
-    delta = (
-        ""
-        if baseline is None
-        else f" (baseline {baseline}, delta {test_count - baseline:+d})"
-    )
     evidence = invariant_unit_evidence(registry)
     references = sum(map(len, evidence.values()))
     unique_tests = len(registry["unit_evidence"])
@@ -600,7 +575,7 @@ def main() -> int:
         f"validated {references} invariant references covering {unique_tests} unique Rust "
         f"tests, {source_anchors} security integration anchors and "
         f"{len(managed_integration_specs)} managed integration specs against "
-        f"{test_count} nextest tests{delta}; "
+        f"{test_count} nextest tests; "
         f"{len(blockers)} explicit release blockers remain"
     )
     return 0

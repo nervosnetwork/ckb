@@ -1,13 +1,10 @@
 # Tx-Pool Architecture: Two-Authority Plan/Apply Kernel
 
-Status: implementation authority for the post-regression correctness candidate
-at stable code checkpoint `dd95e1f99`; `9e559a482` is the preceding P6.5
-architecture checkpoint, and the current acceptance evidence is recorded
-below.
-Execution status is tracked in
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), independent conclusions in
-[`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md), and executable review evidence
-in [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
+This is the normative design for the current implementation. Executable
+behavior and hostile-case evidence live in
+[`REVIEW_GUIDE.md`](REVIEW_GUIDE.md); contract maintenance and CI commands live
+in [`VALIDATION.md`](VALIDATION.md). Migration notes and checkpoint history are
+intentionally not part of the public architecture.
 
 ## 1. Decision
 
@@ -46,7 +43,7 @@ The architecture must:
   over unwind isolation; never use `panic!` plus `catch_unwind` as transaction,
   worker, retry, rollback or authority-control flow;
 - retain Local RPC's direct synchronous validation path by design;
-- preserve or improve pipeline throughput, subject to final checkpoint A/B.
+- preserve or improve pipeline throughput, subject to controlled A/B.
 
 It does not attempt to:
 
@@ -246,7 +243,8 @@ stable, Remote residency remains deadline/budget bounded, and only bounded
 chain-derived Proposal/Recovery ingress can outrank Remote. Under sustained
 overload a lower-fee Remote candidate can therefore wait until its residency
 deadline, matching fee-market preference at the cost of strict per-candidate
-fairness; P7 must measure saturation throughput and tail latency. Dynamic aging
+fairness; controlled performance acceptance must measure saturation throughput
+and tail latency. Dynamic aging
 would require periodic reindexing of every Ready key and is not justified
 without evidence that this explicit trade-off is unacceptable.
 
@@ -560,7 +558,7 @@ Correctness structure is also the intended performance structure:
 - block-template/effect notifications coalesce level-triggered work.
 
 Performance acceptance is empirical, not inferred from line count. The final
-gate compares clean checkpoints with controlled warmup/cache conditions and
+gate compares clean revisions with controlled warmup/cache conditions and
 measures throughput, tail latency, RSS/allocation, lock hold time, worker
 utilization, commit, reorg and template latency. A material regression blocks
 production even if correctness tests pass.
@@ -658,33 +656,69 @@ The leaves are:
 - T13 TemplateAuthority: reset/full/deltas cannot publish an old-parent or
   proposal-stranding template.
 
-The historical findings remain mapped to I1–I12 in
-[`SECURITY_REGRESSION_LEDGER.md`](SECURITY_REGRESSION_LEDGER.md). The mapping is
-evidence history, not permission to retain obsolete mechanisms.
+The T1–T13 mapping in [`review-behaviors.json`](../review-behaviors.json) is the
+current executable evidence. Development-era finding numbers are intentionally
+not part of the normative model.
 
-## 20. Residual risks and release conditions
+## 20. Implementation map
 
-- R1: OOM/allocator abort and process-level corruption are outside in-process
-  recovery.
-- R2: a genuine internal invariant defect stops tx-pool and skips persistence;
-  this is safe but operationally visible.
-- R3: callbacks/network delivery are at-least-bounded, not exactly-once.
-- R4: explicit pool persistence is not a crash-durable transaction log.
-- R5: trusted controller batch length needs an upstream bound audit.
-- R6: final performance superiority is unproven until P7 checkpoint A/B.
-- R7: the P6.5 candidate passed the complete unfiltered 150-spec managed
-  tx-pool-impact universe in 884.185 seconds and the repository-wide
-  unfiltered 177-spec process universe through plain `make integration` in
-  372.452 seconds.
-- R8: an operator-configured non-terminating block-template notify script has
-  a timeout-bounded Rust task, but its child-process termination is not
-  explicitly proven by the current command setup. This inherited operational
-  boundary is outside transaction authority and remains O14 rather than a new
-  scheduler/effect owner.
+The model is distributed by responsibility, not by lifecycle ownership:
 
-The document validators, all 257 `ckb-tx-pool` `nextest` tests, the complete
-150-spec managed integration impact universe and the repository-wide 177-spec
-process universe pass for P6.5. No production release or
-performance-superiority claim is valid until the separately authorized P7
-performance gates pass. Findings that are low-value, incompatible or unproven
-must be recorded as residuals rather than hidden by another mechanism.
+| Responsibility | Primary implementation | Review boundary |
+|---|---|---|
+| Pre-pool ownership, state, leases, budgets and indexes | `src/component/pre_pool/` | T1–T5, T8, T10–T11 |
+| Accepted membership, graph and mutation plans | `src/pool.rs`, `src/pool_map/` | T6, T12 |
+| Cross-authority admission and administrative transitions | `src/service/pipeline_ops.rs`, `src/process/submit/` | T6–T10 |
+| Resolve, verify and commit workers | `src/service/stages/`, `src/service/workers.rs` | T2, T10–T11 |
+| Stable effects and external endpoint isolation | `src/service/effects.rs` | T7, T10 |
+| Reorg, clear and persistence | `src/process/reorg.rs`, `src/process/mod.rs`, `src/persisted.rs` | T9, T12 |
+| Block-template reset/full/OCC deltas | `src/block_assembler/` | T13 |
+| RPC/network dispatch and source policy | `src/service/controller.rs`, `src/service/dispatch.rs`, `src/service/message.rs` | T7, T12 |
+
+`TxPool` and `PrePoolKernel` remain the only payload authorities. Modules in
+this table coordinate or project those authorities; their existence does not
+create another owner.
+
+## 21. Residual risks
+
+A residual is an explicit boundary, not an implicit bug waiver. `Eliminate`
+means a focused change can remove it without changing the ownership model;
+`Mitigate` means the model can bound but not erase it; `Accept` means removing
+it would add a disproportionate owner/protocol; `Validate` means evidence, not
+another mechanism, closes it.
+
+| ID | Disposition | Current boundary | Closure rule |
+|---|---|---|---|
+| R1 | Mitigate | A genuine pre-Apply primary/projection contradiction is a typed system fault: service stops and the generation is not persisted. | Legal input must remain excluded by private types, narrow result domains and total Apply. A reachable legal path requires redesigning that operation-specific API, never catch/repair control flow. |
+| R2 | Accept | Callback/network detail is bounded and reconcilable, not exactly-once. | Exactly-once would require a durable transactional outbox and idempotent receivers; do not add that protocol without a product requirement. |
+| R3 | Mitigate | A timed-out blocking endpoint may leave one detached call per endpoint kind until it returns; stable circuits suppress later calls. | Keep endpoint-kind cardinality bounded and authority locks released. Prefer cancellable async APIs when available. |
+| R4 | Accept | Explicit pool persistence is neither a crash-durable WAL nor a cancellable filesystem transaction; shutdown I/O may delay exit. | Keep I/O outside transaction authority. Add timeout/metrics only for an evidenced shutdown SLO; do not move I/O under authority locks. |
+| R5 | Accept | OOM, allocator abort and process corruption are outside in-process recovery. | Process supervision and restart own this boundary. |
+| R6 | Eliminate | The trusted `NotifyTxs(Vec<_>)` controller path has bounded elements but no locally proven outer batch bound. | Introduce a bounded ingress type or bounded slicing at the source before claiming a complete hostile-memory proof. |
+| R7 | Improve with evidence | `TxSelector` stops after 4,000 consecutive non-fitting packages, bounding CPU while permitting bounded template underfill. | Change only through a resumable cursor or fit-aware index with packing-quality and CPU/RSS A/B evidence; removing the cap is invalid. |
+| R8 | Eliminate | Kernel residency, rejection classes, worker failure and effect-region usage lack dedicated production metrics. | Add low-cost counters/gauges before claiming automated operational SLO detection. |
+| R9 | Accept for compatibility | A legacy or hand-authored v1 persistence file may order a child before an expanded dep-group parent and lose that local mempool child during serial replay. | A future fix must be a versioned batch-resolve/retry loader, not another raw ordering heuristic. Chain state is unaffected. |
+| R10 | Accept | Raw `Wait(Conflict)` cannot know expanded dep-group, header context or maturity until re-resolution. | Accepted/verified victims retain exact expanded edges. Do not retain another verified owner or contextual wake protocol without a concrete liveness counterexample. |
+| R11 | Eliminate | A configured non-terminating block-template notify script is timeout-bounded at the Rust task, but child-process termination is not proven. | Specify cross-platform kill-on-drop/process-group semantics and bound configured endpoint count. |
+| R12 | Validate | Throughput, tail latency, CPU, allocation/RSS and lock-hold superiority are not established by correctness tests. | Pass the clean, repeated, fingerprint-matched A/B protocol in [`BENCHMARK.md`](BENCHMARK.md). |
+
+## 22. Release conditions
+
+A release or superiority claim applies to the tested revision only. It
+requires:
+
+1. all read-only contract, documentation and test-layout validators in
+   [`VALIDATION.md`](VALIDATION.md) to pass without generated drift;
+2. the complete `ckb-tx-pool` internal-feature nextest suite and strict clippy
+   gate to pass;
+3. the complete managed integration impact inventory to agree with
+   `ckb-test --list-specs` and pass through `make integration` without filtering
+   failures;
+4. every changed behavior to retain its focused unit and process evidence in
+   [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md); and
+5. the controlled performance gate R12 to pass before claiming that the
+   redesign is performance-neutral or superior.
+
+Accepted or mitigated residuals remain visible in this document. New evidence
+must narrow a residual or add a new current ID; it must not revive a historical
+ledger or hide risk behind another owner, repair protocol or retry state.

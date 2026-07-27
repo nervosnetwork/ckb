@@ -1,10 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
-  "audit_document": "tx-pool/docs/ARCHITECTURE_AUDIT.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
-  "historical_ledger": "tx-pool/docs/SECURITY_REGRESSION_LEDGER.md",
-  "historical_ledger_last_id": 169,
+  "validation_document": "tx-pool/docs/VALIDATION.md",
   "authorities": ["TxPool", "PrePoolKernel"],
   "identity": {
     "ownership_key": "full_tx_hash",
@@ -56,7 +54,7 @@
     "policy": "none",
     "remote_bound": "residency_deadline_and_budget",
     "trusted_bound": "bounded_chain_derived_ingress",
-    "acceptance_gate": "P7_saturation_throughput_and_tail_latency"
+    "acceptance_gate": "controlled_saturation_throughput_and_tail_latency"
   },
   "lock_order": [
     "optional_serial_or_work_or_plan_permit",
@@ -90,20 +88,6 @@
     "T12": "AcceptedStatusExactness",
     "T13": "TemplateAuthority"
   },
-  "historical_invariant_bridge": {
-    "I1": {"root_families": ["F1", "F8"], "target_invariants": ["T1", "T2", "T3"], "behavior_ids": ["TP-OWN-001", "TP-IDENTITY-001"]},
-    "I2": {"root_families": ["F2"], "target_invariants": ["T6"], "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001", "TP-POOL-001"]},
-    "I3": {"root_families": ["F2"], "target_invariants": ["T6"], "behavior_ids": ["TP-COMMIT-001", "TP-RBF-001", "TP-POOL-001"]},
-    "I4": {"root_families": ["F1", "F3", "F5", "F6"], "target_invariants": ["T1", "T2", "T4", "T7", "T11"], "behavior_ids": ["TP-OWN-001", "TP-DEP-001", "TP-CACHE-001", "TP-WORKER-001", "TP-ADMIN-001", "TP-EFFECT-001"]},
-    "I5": {"root_families": ["F4"], "target_invariants": ["T3", "T8"], "behavior_ids": ["TP-BUDGET-001", "TP-PERF-001"]},
-    "I6": {"root_families": ["F5"], "target_invariants": ["T4", "T11"], "behavior_ids": ["TP-DEP-001", "TP-CACHE-001"]},
-    "I7": {"root_families": ["F7"], "target_invariants": ["T9", "T10", "T12", "T13"], "behavior_ids": ["TP-REORG-001", "TP-PERSIST-001", "TP-TEMPLATE-001"]},
-    "I8": {"root_families": ["F3"], "target_invariants": ["T7", "T10"], "behavior_ids": ["TP-EFFECT-001", "TP-ADMIN-001", "TP-REORG-001"]},
-    "I9": {"root_families": ["F2", "F6", "F8"], "target_invariants": ["T5", "T6"], "behavior_ids": ["TP-RBF-001", "TP-CACHE-001", "TP-IDENTITY-001"]},
-    "I10": {"root_families": ["F2", "F8"], "target_invariants": ["T6"], "behavior_ids": ["TP-POOL-001", "TP-RBF-001", "TP-IDENTITY-001"]},
-    "I11": {"root_families": ["F7", "F8"], "target_invariants": ["T12", "T13"], "behavior_ids": ["TP-TEMPLATE-001"]},
-    "I12": {"root_families": ["F4", "F7"], "target_invariants": ["T3", "T8", "T10", "T11", "T13"], "behavior_ids": ["TP-PERF-001", "TP-BUDGET-001", "TP-TEMPLATE-001"]}
-  },
   "effect_regions": [
     "Remote",
     "Trusted",
@@ -119,18 +103,18 @@
     "plan_admin_template_effect_borrowers",
     "sealed_retired_generation"
   ],
-  "residual_risks": ["R1", "R2", "R3", "R4", "R5", "R6", "R7"],
-  "p0_source_baseline": {
-    "checkpoint": "02e648255",
-    "production_rust_files": 60,
-    "production_rust_lines": 24236,
-    "test_rust_files": 55,
-    "test_rust_lines": 20808,
-    "benchmark_rust_files": 1,
-    "benchmark_rust_lines": 1422,
-    "direct_tx_pool_guard_sites": 34,
-    "direct_tx_pool_guard_files": 11,
-    "line_definition": "physical Rust lines; production excludes every tests directory, tests.rs and benchmark.rs",
-    "guard_definition": "production matches tx_pool.(read|write)().await including nested field access"
+  "residual_risks": {
+    "R1": "typed_internal_contradiction_controlled_stop",
+    "R2": "bounded_reconcilable_effects_not_exactly_once",
+    "R3": "one_timed_out_blocking_call_per_endpoint_kind",
+    "R4": "non_crash_durable_persistence_and_uncancellable_filesystem_io",
+    "R5": "process_oom_abort_and_corruption",
+    "R6": "trusted_notify_batch_outer_bound",
+    "R7": "bounded_template_underfill_tradeoff",
+    "R8": "production_observability_debt",
+    "R9": "legacy_v1_replay_ordering",
+    "R10": "raw_conflict_wait_context_precision",
+    "R11": "notify_script_child_termination",
+    "R12": "controlled_performance_acceptance"
   }
 }
