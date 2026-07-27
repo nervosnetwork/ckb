@@ -30,6 +30,9 @@ python3 tx-pool/scripts/benchmark.py --quick --runs 3 \
   --save-json /tmp/tx-pool-candidate.json \
   --fail-on-regression
 
+# override the post-build thermal settling interval when needed
+python3 tx-pool/scripts/benchmark.py --quick --cooldown-seconds 10
+
 # full matrix (~1 hour)
 python3 tx-pool/scripts/benchmark.py --full
 
@@ -47,11 +50,22 @@ python3 tx-pool/scripts/benchmark.py --runs 3 \
 The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), aggregates repeated runs by median, records the commit/dirty state/toolchain/platform and raw run medians in JSON, and can enforce the architecture's strict non-regression gate. A failing gate requires the baseline and candidate to come from the same recorded host/toolchain and to use the same repetition count of at least three; a one-run smoke record is never accepted as one side of a release decision.
 `--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
 
-Each checkout builds into its own `<workspace>/target/tx-pool-bench` directory;
-an externally supplied shared `CARGO_TARGET_DIR` is deliberately ignored. This
-prevents Cargo from reusing a baseline worktree's same-named executable for the
-candidate. Strict comparisons also require a byte-identical SHA-256 fingerprint
-of the Python runner and Rust benchmark harness.
+Each checkout builds exactly once into its own
+`<workspace>/target/tx-pool-bench` directory; an externally supplied shared
+`CARGO_TARGET_DIR` is deliberately ignored. The runner resolves and hashes each
+compiled executable, waits for the configured post-build cooldown (five seconds
+by default), and then invokes those unchanged binaries directly for every
+repetition. This prevents Cargo from reusing a baseline worktree's same-named
+executable for the candidate, avoids repeated freshness checks, and keeps
+compilation heat outside the measured A/B pairs. The hash is verified again
+after measurement. Strict comparisons also require a byte-identical SHA-256
+fingerprint of the Python runner and Rust benchmark harness.
+
+Criterion's own implicit on-disk baseline and plot generation are disabled by
+the runner, and every process receives an empty temporary `CRITERION_HOME`.
+The script is the sole A/B authority; Criterion otherwise compares against an
+unrelated prior invocation even in discard mode, producing misleading `change`
+output, while rendering reports adds CPU work between scenarios.
 
 Every report includes the max-min throughput spread across complete runs. With
 `--fail-on-regression`, either side exceeding
@@ -152,7 +166,10 @@ Dependent chains are measured in both directions because they exercise different
 
 ### Resource lifecycle
 
-- `SharedBench` owns the genesis snapshot, network controller, and tokio runtime, and is reused across all benchmark iterations.
+- All workload fixtures share one eight-thread Tokio executor and dummy network
+  handle. Their genesis stores/snapshots remain isolated, and every measured
+  service remains fresh. This avoids parking four independent eight-thread
+  runtimes in the same benchmark process.
 - `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
 - Before returning a new controller to Criterion, setup completes one dispatcher round-trip and a short Tokio scheduling interval. This keeps freshly spawned worker startup latency outside the measured transaction batch without warming the verification cache or pool.
 - `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration. A teardown timeout or task panic fails the benchmark instead of silently admitting a contaminated sample.
@@ -167,6 +184,11 @@ Dependent chains are measured in both directions because they exercise different
 Quick mode uses the narrow one-peer/one-worker-count matrix with 20 flat samples, a 2-second warm-up, and an 8-second measurement window. Its larger 100-transaction independent batches and 20-transaction dependent chains improve signal-to-noise without expanding the scenario matrix. Medium/full modes remain the release gates.
 
 Measured completion is event-driven: the pending callback increments an atomic counter and wakes a `Notify` waiter only after the pool transition is stable. No 1 ms polling timer or `get_tx_pool_info` request runs in the measured path.
+
+`PEER_COUNTS` denotes real ingress owners: every concurrent submitter uses a
+distinct `PeerIndex`. It is not merely a task-concurrency multiplier, so medium
+and full runs exercise the per-peer scheduler and budget boundaries they claim
+to cover.
 
 ## Output format
 

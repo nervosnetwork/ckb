@@ -2,14 +2,15 @@ use super::*;
 
 #[test]
 fn controller_dependent_secp_chain_reverse() {
-    let (mut shared, cell_deps) = SharedBench::new_secp(2);
+    let executor = Arc::new(BenchExecutor::new());
+    let (mut shared, cell_deps) = SharedBench::new_secp(2, executor);
     shared.secp_cell_deps = Some(cell_deps);
     let mut txs = build_single_dependent_chain(&shared, 2);
     let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
     txs.reverse();
     eprintln!("dependent secp chain cycles {:?}", cycles);
     let handle = shared.start_controller(4);
-    shared.runtime.block_on(async {
+    shared.executor.runtime.block_on(async {
         for tx in txs.iter() {
             let c = cycles.get(&tx.hash()).copied().expect("missing cycle");
             handle

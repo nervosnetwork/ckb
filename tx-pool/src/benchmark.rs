@@ -179,13 +179,33 @@ fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>
 // SharedBench — resources shared across all benchmark iterations
 // ---------------------------------------------------------------------------
 
+struct BenchExecutor {
+    network: TxPoolNetworkHandle,
+    runtime: tokio::runtime::Runtime,
+    ckb_handle: ckb_async_runtime::Handle,
+}
+
+impl BenchExecutor {
+    fn new() -> Self {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(8)
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+        let ckb_handle = ckb_async_runtime::Handle::new(runtime.handle().clone(), None);
+        Self {
+            network: Arc::new(DummyTxPoolNetwork),
+            runtime,
+            ckb_handle,
+        }
+    }
+}
+
 struct SharedBench {
     _store: MockStore,
     issue_tx: TransactionView,
     snapshot: Arc<Snapshot>,
-    network: TxPoolNetworkHandle,
-    runtime: tokio::runtime::Runtime,
-    ckb_handle: ckb_async_runtime::Handle,
+    executor: Arc<BenchExecutor>,
     secp_cell_deps: Option<Vec<CellDep>>,
 }
 
@@ -281,36 +301,28 @@ impl SharedBench {
         consensus: Consensus,
         issue_tx: TransactionView,
         secp_cell_deps: Option<Vec<CellDep>>,
+        executor: Arc<BenchExecutor>,
     ) -> Self {
         let consensus = Arc::new(consensus);
         let (store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
-        let network: TxPoolNetworkHandle = Arc::new(DummyTxPoolNetwork);
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(8)
-            .enable_all()
-            .build()
-            .expect("build tokio runtime");
-        let ckb_handle = ckb_async_runtime::Handle::new(runtime.handle().clone(), None);
         Self {
             _store: store,
             issue_tx,
             snapshot,
-            network,
-            runtime,
-            ckb_handle,
+            executor,
             secp_cell_deps,
         }
     }
 
-    fn new_always_success(issue_outputs: usize) -> Self {
+    fn new_always_success(issue_outputs: usize, executor: Arc<BenchExecutor>) -> Self {
         let (consensus, issue_tx) = test_consensus(issue_outputs);
-        Self::from_consensus(consensus, issue_tx, None)
+        Self::from_consensus(consensus, issue_tx, None, executor)
     }
 
-    fn new_secp(issue_outputs: usize) -> (Self, Vec<CellDep>) {
+    fn new_secp(issue_outputs: usize, executor: Arc<BenchExecutor>) -> (Self, Vec<CellDep>) {
         let (consensus, issue_tx, _, cell_deps) = secp_test_consensus(issue_outputs);
         (
-            Self::from_consensus(consensus, issue_tx, Some(cell_deps.clone())),
+            Self::from_consensus(consensus, issue_tx, Some(cell_deps.clone()), executor),
             cell_deps,
         )
     }
@@ -333,6 +345,7 @@ impl SharedBench {
 
         // Drain relay results so the channel behaves like a real relayer consumer.
         let drain_handle = self
+            .executor
             .runtime
             .spawn_blocking(move || while tx_relay_receiver.recv().is_ok() {});
 
@@ -344,7 +357,7 @@ impl SharedBench {
             Arc::clone(&self.snapshot),
             None,
             Arc::new(RwLock::new(init_cache())),
-            &self.ckb_handle,
+            &self.executor.ckb_handle,
             tx_relay_sender.clone(),
             FeeEstimator::new_dummy(),
         );
@@ -355,14 +368,14 @@ impl SharedBench {
         // does not affect other benchmark iterations.
         let local_signal = CancellationToken::new();
         builder.signal_receiver = local_signal.clone();
-        let dispatcher_handle = builder.start_with_handle(Arc::clone(&self.network));
+        let dispatcher_handle = builder.start_with_handle(Arc::clone(&self.executor.network));
         let service = ServiceHandle {
             controller,
             signal: local_signal,
             tx_relay_sender: Some(tx_relay_sender),
             drain_handle: Some(drain_handle),
             dispatcher_handle: Some(dispatcher_handle),
-            runtime: self.ckb_handle.clone(),
+            runtime: self.executor.ckb_handle.clone(),
             completion,
         };
 
@@ -375,7 +388,7 @@ impl SharedBench {
             .controller
             .get_tx_pool_info()
             .expect("benchmark dispatcher readiness round-trip");
-        self.runtime.block_on(async {
+        self.executor.runtime.block_on(async {
             tokio::task::yield_now().await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         });
@@ -540,6 +553,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     let config = tx_pool_config(max_workers);
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
     let drain_handle = shared
+        .executor
         .runtime
         .spawn_blocking(move || while tx_relay_receiver.recv().is_ok() {});
 
@@ -548,7 +562,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         Arc::clone(&shared.snapshot),
         None,
         Arc::new(RwLock::new(init_cache())),
-        &shared.ckb_handle,
+        &shared.executor.ckb_handle,
         tx_relay_sender,
         FeeEstimator::new_dummy(),
     );
@@ -556,7 +570,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // not affected by the process-wide exit signal used by the builder.
     let local_signal = CancellationToken::new();
     builder.signal_receiver = local_signal;
-    let parts = build_bench_service(builder, Arc::clone(&shared.network));
+    let parts = build_bench_service(builder, Arc::clone(&shared.executor.network));
 
     let mut worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
@@ -590,13 +604,13 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     worker_handles.extend(crate::service::stages::spawn_verify_workers(
-        &shared.ckb_handle,
+        &shared.executor.ckb_handle,
         parts.service.clone(),
         chunk_rx,
         signal.child_token(),
     ));
     worker_handles.push(crate::service::stages::spawn_ordered_resolver(
-        &shared.ckb_handle,
+        &shared.executor.ckb_handle,
         parts.service.clone(),
         chunk_tx.subscribe(),
         signal.child_token(),
@@ -609,7 +623,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         worker_handles,
         effect_publisher: Some(parts.effect_publisher),
         drain_handle: Some(drain_handle),
-        runtime: shared.ckb_handle.clone(),
+        runtime: shared.executor.ckb_handle.clone(),
     }
 }
 
@@ -684,8 +698,11 @@ fn measure_cycles(
     txs: &[TransactionView],
     mode: MeasureMode,
 ) -> HashMap<ckb_types::packed::Byte32, u64> {
-    let handle = shared.runtime.block_on(async { start_service(shared, 8) });
-    let cycles = shared.runtime.block_on(async {
+    let handle = shared
+        .executor
+        .runtime
+        .block_on(async { start_service(shared, 8) });
+    let cycles = shared.executor.runtime.block_on(async {
         let mut cycles = HashMap::with_capacity(txs.len());
         match mode {
             MeasureMode::Uniform => {
@@ -951,11 +968,16 @@ struct BenchData {
 }
 
 impl BenchData {
-    fn new(tx_type: TxType, max_size: usize, warm_pool_size: usize) -> Self {
+    fn new(
+        tx_type: TxType,
+        max_size: usize,
+        warm_pool_size: usize,
+        executor: Arc<BenchExecutor>,
+    ) -> Self {
         let issue_outputs = max_size + warm_pool_size;
         let (shared, txs, cycles) = match tx_type {
             TxType::AlwaysSuccess => {
-                let shared = SharedBench::new_always_success(issue_outputs);
+                let shared = SharedBench::new_always_success(issue_outputs, Arc::clone(&executor));
                 let txs: Vec<_> = shared
                     .issue_out_points(issue_outputs)
                     .iter()
@@ -967,7 +989,8 @@ impl BenchData {
                 (shared, txs, cycles)
             }
             TxType::Secp256k1 => {
-                let (shared, cell_deps) = SharedBench::new_secp(issue_outputs);
+                let (shared, cell_deps) =
+                    SharedBench::new_secp(issue_outputs, Arc::clone(&executor));
                 let txs: Vec<_> = shared
                     .issue_out_points(issue_outputs)
                     .iter()
@@ -979,13 +1002,13 @@ impl BenchData {
                 (shared, txs, cycles)
             }
             TxType::DependentAlwaysSuccess => {
-                let shared = SharedBench::new_always_success(issue_outputs);
+                let shared = SharedBench::new_always_success(issue_outputs, Arc::clone(&executor));
                 let txs = build_single_dependent_chain(&shared, issue_outputs);
                 let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
                 (shared, txs, cycles)
             }
             TxType::DependentSecp => {
-                let (shared, _) = SharedBench::new_secp(issue_outputs);
+                let (shared, _) = SharedBench::new_secp(issue_outputs, executor);
                 let txs = build_single_dependent_chain(&shared, issue_outputs);
                 let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
                 (shared, txs, cycles)
@@ -1048,14 +1071,15 @@ fn submit_and_wait(
             .collect();
 
         let mut handles = Vec::with_capacity(ranges.len());
-        for (start, end) in ranges {
+        for (submitter, (start, end)) in ranges.into_iter().enumerate() {
             let controller = controller.clone();
             let txs = Arc::clone(&txs);
             let cycles = Arc::clone(&cycles);
+            let peer = (submitter + 1).into();
             handles.push(tokio::spawn(async move {
                 for i in start..end {
                     controller
-                        .submit_remote_tx(txs[i].clone(), cycles[i], 1.into())
+                        .submit_remote_tx(txs[i].clone(), cycles[i], peer)
                         .await
                         .expect("submit remote tx");
                 }
@@ -1191,7 +1215,7 @@ fn register_cold_bench(
                     || {
                         let handle = data.shared.start_controller(workers);
                         submit_and_wait(
-                            &data.shared.runtime,
+                            &data.shared.executor.runtime,
                             &handle.controller,
                             &handle.completion,
                             Arc::clone(&warm_txs),
@@ -1203,7 +1227,7 @@ fn register_cold_bench(
                     },
                     |handle| {
                         submit_and_wait(
-                            &data.shared.runtime,
+                            &data.shared.executor.runtime,
                             &handle.controller,
                             &handle.completion,
                             Arc::clone(&txs),
@@ -1224,7 +1248,7 @@ fn register_cold_bench(
                     || data.shared.start_controller(workers),
                     |handle| {
                         submit_and_wait(
-                            &data.shared.runtime,
+                            &data.shared.executor.runtime,
                             &handle.controller,
                             &handle.completion,
                             Arc::clone(&txs),
@@ -1282,7 +1306,7 @@ fn register_warm_bench(
                 || {
                     let handle = data.shared.start_controller(workers);
                     submit_and_wait(
-                        &data.shared.runtime,
+                        &data.shared.executor.runtime,
                         &handle.controller,
                         &handle.completion,
                         Arc::clone(&warm_txs),
@@ -1294,7 +1318,7 @@ fn register_warm_bench(
                 },
                 |handle| {
                     submit_and_wait(
-                        &data.shared.runtime,
+                        &data.shared.executor.runtime,
                         &handle.controller,
                         &handle.completion,
                         Arc::clone(&target_txs),
@@ -1317,15 +1341,29 @@ fn bench(c: &mut Criterion) {
     let mode = "pipeline";
 
     let matrix = bench_matrix();
+    // All workload fixtures share one Tokio executor. Services and stores are
+    // still recreated per iteration, but inactive fixtures no longer leave
+    // three extra eight-thread runtimes parked beside the measured workload.
+    let executor = Arc::new(BenchExecutor::new());
 
     let non_dep_max = *matrix.sizes.iter().max().expect("sizes is non-empty");
     let mut data_sets = vec![
         (
-            BenchData::new(TxType::AlwaysSuccess, non_dep_max, matrix.warm_pool_size),
+            BenchData::new(
+                TxType::AlwaysSuccess,
+                non_dep_max,
+                matrix.warm_pool_size,
+                Arc::clone(&executor),
+            ),
             matrix.sizes,
         ),
         (
-            BenchData::new(TxType::Secp256k1, non_dep_max, matrix.warm_pool_size),
+            BenchData::new(
+                TxType::Secp256k1,
+                non_dep_max,
+                matrix.warm_pool_size,
+                Arc::clone(&executor),
+            ),
             matrix.sizes,
         ),
     ];
@@ -1343,6 +1381,7 @@ fn bench(c: &mut Criterion) {
                 TxType::DependentAlwaysSuccess,
                 dep_max,
                 matrix.dependent_warm_pool_size,
+                Arc::clone(&executor),
             ),
             matrix.dependent_sizes,
         ));
@@ -1351,6 +1390,7 @@ fn bench(c: &mut Criterion) {
                 TxType::DependentSecp,
                 dep_max,
                 matrix.dependent_warm_pool_size,
+                executor,
             ),
             matrix.dependent_sizes,
         ));

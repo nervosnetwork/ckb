@@ -26,6 +26,8 @@ import re
 import statistics
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -116,6 +118,15 @@ def parse_args() -> argparse.Namespace:
             "'always_success_100' or 'child_first_20')"
         ),
     )
+    parser.add_argument(
+        "--cooldown-seconds",
+        type=float,
+        default=5.0,
+        help=(
+            "idle interval after compiling the fixed benchmark binaries "
+            "and before measurement (default: 5)"
+        ),
+    )
     args = parser.parse_args()
     if args.baseline_worktree and args.compare_json:
         parser.error("--baseline-worktree and --compare-json are mutually exclusive")
@@ -135,6 +146,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--regression-threshold-percent cannot be negative")
     if args.max_run_spread_percent <= 0:
         parser.error("--max-run-spread-percent must be positive")
+    if args.cooldown_seconds < 0:
+        parser.error("--cooldown-seconds cannot be negative")
     return args
 
 
@@ -166,7 +179,31 @@ def files_sha256(paths: Iterable[Path], workspace_root: Path) -> str:
     return digest.hexdigest()
 
 
-def run_cargo_bench(run: int, workspace_root: Path, label: str = "") -> str:
+def benchmark_environment(
+    workspace_root: Path, criterion_home: Optional[Path] = None
+) -> Dict[str, str]:
+    env = os.environ.copy()
+    env["CARGO_TARGET_DIR"] = str(bench_target_dir(workspace_root))
+    env.pop("QUICK_BENCH", None)
+    env.pop("FULL_BENCH", None)
+    if ARGS.quick:
+        env["QUICK_BENCH"] = "1"
+    elif ARGS.full:
+        env["FULL_BENCH"] = "1"
+    if criterion_home is not None:
+        env["CRITERION_HOME"] = str(criterion_home)
+    return env
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def prepare_benchmark_binary(workspace_root: Path, label: str = "") -> Dict[str, str]:
     cmd = [
         "cargo",
         "bench",
@@ -176,40 +213,124 @@ def run_cargo_bench(run: int, workspace_root: Path, label: str = "") -> str:
         "internal",
         "--bench",
         "pipeline",
+        "--no-run",
+        "--message-format=json-render-diagnostics",
+    ]
+    print(
+        f"\n>>> compiling {label + ' ' if label else ''}benchmark once: "
+        f"{' '.join(cmd)}",
+        flush=True,
+    )
+    completed = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=benchmark_environment(workspace_root),
+        cwd=workspace_root,
+    )
+    executable = None
+    rendered_diagnostics: List[str] = []
+    for line in completed.stdout.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("reason") == "compiler-message":
+            rendered = message.get("message", {}).get("rendered")
+            if rendered:
+                rendered_diagnostics.append(rendered)
+        target = message.get("target", {})
+        if (
+            message.get("reason") == "compiler-artifact"
+            and target.get("name") == "pipeline"
+            and "bench" in target.get("kind", [])
+            and message.get("executable")
+        ):
+            executable = Path(message["executable"]).resolve()
+    if completed.returncode != 0:
+        for diagnostic in rendered_diagnostics:
+            print(diagnostic, file=sys.stderr, end="")
+        if completed.stderr:
+            print(completed.stderr, file=sys.stderr, end="")
+        raise RuntimeError(f"failed to compile {label or 'candidate'} benchmark")
+    if executable is None or not executable.is_file():
+        raise RuntimeError(
+            f"cargo did not report the {label or 'candidate'} pipeline benchmark binary"
+        )
+    prepared = {"path": str(executable), "sha256": file_sha256(executable)}
+    print(
+        f">>> fixed {label or 'candidate'} binary: {prepared['path']} "
+        f"({prepared['sha256'][:12]})",
+        flush=True,
+    )
+    return prepared
+
+
+def cool_down_after_build() -> None:
+    if ARGS.cooldown_seconds == 0:
+        return
+    print(
+        f"\n>>> cooling down for {ARGS.cooldown_seconds:g}s before measurement",
+        flush=True,
+    )
+    time.sleep(ARGS.cooldown_seconds)
+
+
+def verify_prepared_binary(prepared: Dict[str, str], label: str = "") -> None:
+    executable = Path(prepared["path"])
+    if not executable.is_file() or file_sha256(executable) != prepared["sha256"]:
+        raise RuntimeError(f"{label or 'candidate'} benchmark binary changed during A/B")
+
+
+def run_benchmark_binary(
+    run: int,
+    workspace_root: Path,
+    prepared: Dict[str, str],
+    label: str = "",
+) -> str:
+    executable = Path(prepared["path"])
+    if not executable.is_file():
+        raise RuntimeError(f"{label or 'candidate'} benchmark binary disappeared")
+    # The Python runner owns A/B comparison. Criterion's implicit `base`
+    # directory would compare against a stale prior invocation and plot/report
+    # generation would add CPU work between scenarios, so disable both.
+    cmd = [
+        str(executable),
+        "--bench",
+        "--noplot",
+        "--discard-baseline",
+        "--color",
+        "never",
     ]
     if ARGS.benchmark_filter:
-        cmd.extend(["--", ARGS.benchmark_filter])
+        cmd.append(ARGS.benchmark_filter)
     print(
         f"\n>>> {label + ' ' if label else ''}run {run}/{ARGS.runs}: "
         f"{' '.join(cmd)} ({matrix_mode()} matrix)",
         flush=True,
     )
-
-    env = os.environ.copy()
-    env["CARGO_TARGET_DIR"] = str(bench_target_dir(workspace_root))
-    env.pop("QUICK_BENCH", None)
-    env.pop("FULL_BENCH", None)
-    if ARGS.quick:
-        env["QUICK_BENCH"] = "1"
-    elif ARGS.full:
-        env["FULL_BENCH"] = "1"
-
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=env,
-        cwd=workspace_root,
-    )
     lines: List[str] = []
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        print(line, end="", flush=True)
-        lines.append(line)
-    proc.wait()
+    # Criterion compares against an existing `base` directory even when asked
+    # not to save the current run. An empty per-invocation home prevents stale
+    # historical samples from leaking into this runner's paired A/B output.
+    with tempfile.TemporaryDirectory(prefix="txpool-criterion-") as scratch:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=benchmark_environment(workspace_root, Path(scratch)),
+            cwd=workspace_root,
+        )
+        if proc.stdout is None:
+            raise RuntimeError("benchmark process stdout pipe was not created")
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            lines.append(line)
+        proc.wait()
     if proc.returncode != 0:
-        raise RuntimeError(f"cargo bench failed in repetition {run}")
+        raise RuntimeError(f"benchmark binary failed in repetition {run}")
     return "".join(lines)
 
 
@@ -335,8 +456,11 @@ def aggregate_runs(
     return medians, samples
 
 
-def environment_metadata(workspace_root: Path = WORKSPACE_ROOT) -> Dict:
-    return {
+def environment_metadata(
+    workspace_root: Path = WORKSPACE_ROOT,
+    prepared: Optional[Dict[str, str]] = None,
+) -> Dict:
+    metadata = {
         "git_commit": command_output(["git", "rev-parse", "HEAD"], workspace_root),
         "git_tracked_changes": command_output(
             ["git", "status", "--porcelain", "--untracked-files=no"],
@@ -351,13 +475,19 @@ def environment_metadata(workspace_root: Path = WORKSPACE_ROOT) -> Dict:
         ),
         "benchmark_target_dir": str(bench_target_dir(workspace_root)),
         "benchmark_filter": ARGS.benchmark_filter,
+        "cooldown_seconds": ARGS.cooldown_seconds,
     }
+    if prepared is not None:
+        metadata["benchmark_binary"] = prepared["path"]
+        metadata["benchmark_binary_sha256"] = prepared["sha256"]
+    return metadata
 
 
 def make_record(
     medians: Dict[ResultKey, Result],
     samples: Dict[ResultKey, Dict[str, List[float]]],
     workspace_root: Path = WORKSPACE_ROOT,
+    prepared: Optional[Dict[str, str]] = None,
 ) -> Dict:
     entries = []
     for key in sorted(medians):
@@ -387,7 +517,7 @@ def make_record(
         "runs": ARGS.runs,
         "results": entries,
     }
-    record.update(environment_metadata(workspace_root))
+    record.update(environment_metadata(workspace_root, prepared))
     return record
 
 
@@ -496,7 +626,13 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         )
 
     mismatches = []
-    for field in ("rustc", "platform", "machine", "benchmark_harness_sha256"):
+    for field in (
+        "rustc",
+        "platform",
+        "machine",
+        "benchmark_harness_sha256",
+        "cooldown_seconds",
+    ):
         if baseline.get(field) != current.get(field):
             mismatches.append(
                 f"{field}: {baseline.get(field)!r} != {current.get(field)!r}"
@@ -621,6 +757,13 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
     if not (baseline_root / "Cargo.toml").is_file():
         raise RuntimeError(f"baseline worktree has no Cargo.toml: {baseline_root}")
 
+    # Build both revisions before measurement, then run these immutable
+    # executables for every repetition. Besides avoiding repeated Cargo work,
+    # this keeps compilation heat outside either side of an A/B pair.
+    baseline_binary = prepare_benchmark_binary(baseline_root, "baseline")
+    candidate_binary = prepare_benchmark_binary(WORKSPACE_ROOT, "candidate")
+    cool_down_after_build()
+
     baseline_runs: List[Dict[ResultKey, Result]] = []
     candidate_runs: List[Dict[ResultKey, Result]] = []
     for run in range(1, ARGS.runs + 1):
@@ -633,15 +776,20 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
         if run % 2 == 0:
             pair.reverse()
         for label, root, destination in pair:
-            destination.append(parse_output(run_cargo_bench(run, root, label)))
+            prepared = baseline_binary if label == "baseline" else candidate_binary
+            destination.append(
+                parse_output(run_benchmark_binary(run, root, prepared, label))
+            )
+    verify_prepared_binary(baseline_binary, "baseline")
+    verify_prepared_binary(candidate_binary, "candidate")
 
     baseline_medians, baseline_samples = aggregate_runs(baseline_runs)
     candidate_medians, candidate_samples = aggregate_runs(candidate_runs)
     baseline_record = make_record(
-        baseline_medians, baseline_samples, baseline_root
+        baseline_medians, baseline_samples, baseline_root, baseline_binary
     )
     candidate_record = make_record(
-        candidate_medians, candidate_samples, WORKSPACE_ROOT
+        candidate_medians, candidate_samples, WORKSPACE_ROOT, candidate_binary
     )
     paired_samples: Dict[ResultKey, Dict[str, List[float]]] = {}
     for key in baseline_medians:
@@ -695,12 +843,15 @@ def main() -> None:
         }
         validate_comparison_environment(baseline_record, current_environment)
 
+    candidate_binary = prepare_benchmark_binary(WORKSPACE_ROOT)
+    cool_down_after_build()
     run_results = [
-        parse_output(run_cargo_bench(run, WORKSPACE_ROOT))
+        parse_output(run_benchmark_binary(run, WORKSPACE_ROOT, candidate_binary))
         for run in range(1, ARGS.runs + 1)
     ]
+    verify_prepared_binary(candidate_binary)
     medians, samples = aggregate_runs(run_results)
-    record = make_record(medians, samples)
+    record = make_record(medians, samples, prepared=candidate_binary)
     print_summary(medians, samples)
 
     if ARGS.save_json:
