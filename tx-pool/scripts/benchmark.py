@@ -187,7 +187,9 @@ def files_sha256(paths: Iterable[Path], workspace_root: Path) -> str:
 
 
 def benchmark_environment(
-    workspace_root: Path, criterion_home: Optional[Path] = None
+    workspace_root: Path,
+    criterion_home: Optional[Path] = None,
+    preflight: bool = False,
 ) -> Dict[str, str]:
     env = os.environ.copy()
     env["CARGO_TARGET_DIR"] = str(bench_target_dir(workspace_root))
@@ -200,10 +202,13 @@ def benchmark_environment(
         env["RUSTFLAGS"] = f"{rustflags} {remap}".strip()
     env.pop("QUICK_BENCH", None)
     env.pop("FULL_BENCH", None)
+    env.pop("TX_POOL_BENCH_PREFLIGHT", None)
     if ARGS.quick:
         env["QUICK_BENCH"] = "1"
     elif ARGS.full:
         env["FULL_BENCH"] = "1"
+    if preflight:
+        env["TX_POOL_BENCH_PREFLIGHT"] = "1"
     if criterion_home is not None:
         env["CRITERION_HOME"] = str(criterion_home)
     return env
@@ -316,6 +321,7 @@ def run_benchmark_binary(
     workspace_root: Path,
     prepared: Dict[str, str],
     label: str = "",
+    preflight: bool = False,
 ) -> str:
     executable = Path(prepared["path"])
     if not executable.is_file():
@@ -333,8 +339,9 @@ def run_benchmark_binary(
     ]
     if ARGS.benchmark_filter:
         cmd.append(ARGS.benchmark_filter)
+    phase = "preflight" if preflight else f"run {run}/{ARGS.runs}"
     print(
-        f"\n>>> {label + ' ' if label else ''}run {run}/{ARGS.runs}: "
+        f"\n>>> {label + ' ' if label else ''}{phase}: "
         f"{' '.join(cmd)} ({matrix_mode()} matrix)",
         flush=True,
     )
@@ -348,18 +355,29 @@ def run_benchmark_binary(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            env=benchmark_environment(workspace_root, Path(scratch)),
+            env=benchmark_environment(workspace_root, Path(scratch), preflight),
             cwd=workspace_root,
         )
         if proc.stdout is None:
             raise RuntimeError("benchmark process stdout pipe was not created")
         for line in proc.stdout:
-            print(line, end="", flush=True)
+            if not preflight:
+                print(line, end="", flush=True)
             lines.append(line)
         proc.wait()
     if proc.returncode != 0:
-        raise RuntimeError(f"benchmark binary failed in repetition {run}")
+        if preflight:
+            print("".join(lines), file=sys.stderr, end="")
+        raise RuntimeError(
+            f"benchmark binary failed during {'preflight' if preflight else f'repetition {run}'}"
+        )
     return "".join(lines)
+
+
+def preflight_benchmark_binary(
+    workspace_root: Path, prepared: Dict[str, str], label: str = ""
+) -> None:
+    run_benchmark_binary(0, workspace_root, prepared, label, preflight=True)
 
 
 TIME_RE = re.compile(
@@ -811,6 +829,11 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
     # this keeps compilation heat outside either side of an A/B pair.
     baseline_binary = prepare_benchmark_binary(baseline_root, "baseline")
     candidate_binary = prepare_benchmark_binary(WORKSPACE_ROOT, "candidate")
+    # The recorded schedule starts with baseline. Warm the candidate first and
+    # baseline second so both executable/code paths are resident without giving
+    # the first measured side a uniquely cold VM path.
+    preflight_benchmark_binary(WORKSPACE_ROOT, candidate_binary, "candidate")
+    preflight_benchmark_binary(baseline_root, baseline_binary, "baseline")
     cool_down_after_build()
 
     baseline_runs: List[Dict[ResultKey, Result]] = []
@@ -893,6 +916,7 @@ def main() -> None:
         validate_comparison_environment(baseline_record, current_environment)
 
     candidate_binary = prepare_benchmark_binary(WORKSPACE_ROOT)
+    preflight_benchmark_binary(WORKSPACE_ROOT, candidate_binary)
     cool_down_after_build()
     run_results = [
         parse_output(run_benchmark_binary(run, WORKSPACE_ROOT, candidate_binary))

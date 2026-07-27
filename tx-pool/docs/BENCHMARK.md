@@ -55,7 +55,11 @@ Each checkout builds exactly once into its own
 `CARGO_TARGET_DIR` is deliberately ignored. The runner resolves and hashes each
 compiled executable, waits for the configured post-build cooldown (15 seconds
 by default), and then invokes those unchanged binaries directly for every
-repetition. This prevents Cargo from reusing a baseline worktree's same-named
+repetition. Before the cooldown, each side receives one unrecorded short
+preflight of the selected workload (10 flat samples, one-second warm-up and
+one-second measurement). This symmetrically populates VM, code-page and crypto
+paths that Criterion's first ordinary warm-up does not reliably cover. This
+prevents Cargo from reusing a baseline worktree's same-named
 executable for the candidate, avoids repeated freshness checks, and keeps
 compilation heat outside the measured A/B pairs. The hash is verified again
 after measurement. Strict comparisons also require a byte-identical SHA-256

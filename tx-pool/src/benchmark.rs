@@ -1407,9 +1407,18 @@ fn bench(c: &mut Criterion) {
 
     let quick = std::env::var("QUICK_BENCH").is_ok();
     let full = std::env::var("FULL_BENCH").is_ok();
+    let preflight = std::env::var("TX_POOL_BENCH_PREFLIGHT").is_ok();
 
     let mut group = c.benchmark_group("tx_pool_pipeline");
-    if quick {
+    if preflight {
+        // The A/B runner executes one unrecorded pass per fixed binary to
+        // populate VM/code-page caches symmetrically. Keep that pass short;
+        // its values are never parsed as benchmark evidence.
+        group.sample_size(10);
+        group.sampling_mode(SamplingMode::Flat);
+        group.warm_up_time(Duration::from_secs(1));
+        group.measurement_time(Duration::from_secs(1));
+    } else if quick {
         // Keep the matrix narrow, but collect enough work per scenario to
         // amortize scheduler jitter. This remains much faster than medium
         // because it has one peer/worker combination instead of four.
