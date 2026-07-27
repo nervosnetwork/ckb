@@ -11,6 +11,7 @@
   "module_wiring": [
     {"file": "tx-pool/src/benchmark.rs", "module": "debug_tests", "path": "tests/benchmark_debug.rs"},
     {"file": "tx-pool/src/block_assembler/candidate_uncles.rs", "module": "tests", "path": "tests/candidate_uncles.rs"},
+    {"file": "tx-pool/src/block_assembler/notify.rs", "module": "tests", "path": "tests/notify.rs"},
     {"file": "tx-pool/src/block_assembler/mod.rs", "module": "tests"},
     {"file": "tx-pool/src/callback.rs", "module": "tests", "path": "tests/callback.rs"},
     {"file": "tx-pool/src/component/links.rs", "module": "test_support", "path": "tests/links_test_support.rs"},
@@ -33,6 +34,7 @@
     {"file": "tx-pool/src/service.rs", "module": "tests"},
     {"file": "tx-pool/src/service/builder.rs", "module": "shutdown_tests", "path": "tests/builder_shutdown.rs"},
     {"file": "tx-pool/src/service/effects.rs", "module": "tests", "path": "tests/effects.rs"},
+    {"file": "tx-pool/src/service/message.rs", "module": "tests", "path": "tests/message.rs"},
     {"file": "tx-pool/src/service/stages/runner.rs", "module": "tests", "path": "../tests/stage_runner.rs"},
     {"file": "tx-pool/src/util.rs", "module": "block_offload_tests", "path": "tests/block_offload.rs"}
   ],
@@ -40,7 +42,7 @@
     "tx-pool/src/benchmark.rs": 1,
     "tx-pool/src/block_assembler/candidate_uncles.rs": 1,
     "tx-pool/src/block_assembler/mod.rs": 3,
-    "tx-pool/src/block_assembler/notify.rs": 1,
+    "tx-pool/src/block_assembler/notify.rs": 2,
     "tx-pool/src/callback.rs": 1,
     "tx-pool/src/component/links.rs": 1,
     "tx-pool/src/component/mod.rs": 1,
@@ -62,6 +64,7 @@
     "tx-pool/src/service.rs": 1,
     "tx-pool/src/service/builder.rs": 1,
     "tx-pool/src/service/effects.rs": 1,
+    "tx-pool/src/service/message.rs": 1,
     "tx-pool/src/service/stages/runner.rs": 1,
     "tx-pool/src/util.rs": 1
   },

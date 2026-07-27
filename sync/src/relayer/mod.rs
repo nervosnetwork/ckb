@@ -29,6 +29,7 @@ use crate::{Status, StatusCode};
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
+pub use ckb_constant::sync::{MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH};
 use ckb_error::is_internal_db_error;
 use ckb_logger::{
     debug, debug_target, error, error_target, info_target, trace_target, warn_target,
@@ -57,9 +58,6 @@ pub const ASK_FOR_TXS_TOKEN: u64 = 1;
 pub const TX_HASHES_TOKEN: u64 = 2;
 
 pub const MAX_RELAY_PEERS: usize = 128;
-pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
-pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
-
 type RateLimiter<T> = governor::RateLimiter<
     T,
     governor::state::keyed::HashMapStateStore<T>,

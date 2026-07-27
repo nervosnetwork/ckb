@@ -1925,6 +1925,7 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-channel",
+ "ckb-constant",
  "ckb-crypto",
  "ckb-dao",
  "ckb-dao-utils",

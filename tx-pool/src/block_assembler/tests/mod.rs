@@ -342,6 +342,9 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
         .input(CellInput::new_cellbase_input(1))
         .build();
     let template_draft = super::BlockTemplateDraft::new(&snapshot, &epoch).unwrap();
+    let script_notifier = Arc::new(super::notify::NotifyScriptRunner::new(
+        &config.notify_scripts,
+    ));
     let current = super::CurrentTemplate {
         template: template_draft.build(cellbase, 0, Byte32::zero(), 1),
         size: super::TemplateSize {
@@ -367,6 +370,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
                 hyper_util::client::legacy::connect::HttpConnector::new(),
             ),
         ),
+        script_notifier,
         notify_count: Arc::new(AtomicU64::new(0)),
     };
     let original = assembler.current.read().await.clone();

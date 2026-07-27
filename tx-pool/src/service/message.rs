@@ -37,13 +37,96 @@ pub(crate) type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionVie
 
 pub(crate) type FeeEstimatesResult = Result<FeeRate, AnyError>;
 
+/// Relay transaction batch proven safe to retain in the tx-pool dispatcher.
+///
+/// The public controller keeps accepting `Vec<TransactionView>` for API
+/// compatibility, but only this validated type may cross the bounded channel.
+/// Its limits are the same protocol constants used by the relayer, so the
+/// upstream network proof cannot be lost at the tx-pool boundary.
+#[derive(Debug)]
+pub(crate) struct NotifyTxBatch(Vec<TransactionView>);
+
+#[derive(Debug, PartialEq, Eq)]
+enum NotifyTxBatchError {
+    TooMany { actual: usize, maximum: usize },
+    TooLarge { actual: usize, maximum: usize },
+    SizeOverflow,
+}
+
+impl std::fmt::Display for NotifyTxBatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooMany { actual, maximum } => {
+                write!(
+                    formatter,
+                    "relay transaction batch has {actual} items; maximum is {maximum}"
+                )
+            }
+            Self::TooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "relay transaction batch has {actual} bytes; maximum is {maximum}"
+                )
+            }
+            Self::SizeOverflow => formatter.write_str("relay transaction batch size overflowed"),
+        }
+    }
+}
+
+impl std::error::Error for NotifyTxBatchError {}
+
+impl NotifyTxBatch {
+    pub(crate) fn try_new(txs: Vec<TransactionView>) -> Result<Self, AnyError> {
+        Self::try_new_with_limits(
+            txs,
+            ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH,
+            ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH,
+        )
+        .map_err(Into::into)
+    }
+
+    fn try_new_with_limits(
+        txs: Vec<TransactionView>,
+        max_count: usize,
+        max_bytes: usize,
+    ) -> Result<Self, NotifyTxBatchError> {
+        if txs.len() > max_count {
+            return Err(NotifyTxBatchError::TooMany {
+                actual: txs.len(),
+                maximum: max_count,
+            });
+        }
+        let bytes = txs.iter().try_fold(0usize, |total, tx| {
+            total
+                .checked_add(tx.data().total_size())
+                .ok_or(NotifyTxBatchError::SizeOverflow)
+        })?;
+        if bytes > max_bytes {
+            return Err(NotifyTxBatchError::TooLarge {
+                actual: bytes,
+                maximum: max_bytes,
+            });
+        }
+        Ok(Self(txs))
+    }
+}
+
+impl IntoIterator for NotifyTxBatch {
+    type Item = TransactionView;
+    type IntoIter = std::vec::IntoIter<TransactionView>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(SyncRequest<TransactionView, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, bool>),
     TestAcceptTx(SyncRequest<TransactionView, TestAcceptTxResult>),
     SubmitRemoteTx(AsyncRequest<(TransactionView, TxSource), ()>),
-    NotifyTxs(Notify<Vec<TransactionView>>),
+    NotifyTxs(Notify<NotifyTxBatch>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
@@ -89,6 +172,10 @@ pub(crate) enum BlockAssemblerMessage {
     /// Snapshot authority never travels through the bounded channel.
     Reset,
 }
+
+#[cfg(test)]
+#[path = "tests/message.rs"]
+mod tests;
 
 /// Best-effort verification-cache update. Dropping one only causes a later
 /// re-verification; executable transaction recovery is owned separately by

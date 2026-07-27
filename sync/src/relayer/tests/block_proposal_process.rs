@@ -1,6 +1,9 @@
 use crate::Status;
+use crate::StatusCode;
+use crate::relayer::MAX_RELAY_TXS_BYTES_PER_BATCH;
 use crate::relayer::block_proposal_process::BlockProposalProcess;
 use crate::relayer::tests::helper::{build_chain, new_transaction};
+use ckb_types::bytes::Bytes;
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
 
@@ -95,6 +98,38 @@ fn test_ok() {
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert!(known);
+}
+
+#[test]
+fn test_oversized_batch_is_rejected_before_relay_state_changes() {
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
+    let transaction = new_transaction(&relayer, 1, &always_success_out_point)
+        .as_advanced_builder()
+        .set_outputs_data(vec![
+            Bytes::from(vec![0; MAX_RELAY_TXS_BYTES_PER_BATCH]).pack(),
+        ])
+        .build();
+    let proposal = transaction.proposal_short_id();
+    relayer
+        .shared
+        .state()
+        .insert_inflight_proposals(vec![proposal.clone()], 1);
+
+    let content = packed::BlockProposal::new_builder()
+        .transactions(vec![transaction.data()])
+        .build();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+
+    assert_eq!(
+        rt.block_on(process.execute()),
+        StatusCode::ProtocolMessageIsMalformed.into(),
+    );
+    assert!(relayer.shared.state().contains_inflight_proposal(&proposal));
+    assert!(!relayer.shared.state().already_known_tx(&transaction.hash()));
 }
 
 #[test]

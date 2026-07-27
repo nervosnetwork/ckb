@@ -78,7 +78,9 @@ fn full_controller() -> TxPoolController {
 
     assert!(
         sender
-            .try_send(Message::NotifyTxs(Notify::new(Vec::new())))
+            .try_send(Message::NotifyTxs(Notify::new(
+                crate::service::NotifyTxBatch::try_new(Vec::new()).unwrap(),
+            )))
             .is_ok()
     );
 

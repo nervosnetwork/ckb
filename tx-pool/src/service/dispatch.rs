@@ -152,7 +152,7 @@ impl TxPoolService {
         respond(responder, (), "submit_remote_tx");
     }
 
-    async fn handle_notify_txs(&self, req: Notify<Vec<TransactionView>>) {
+    async fn handle_notify_txs(&self, req: Notify<crate::service::NotifyTxBatch>) {
         let Notify { arguments: txs } = req;
         for tx in txs {
             let _ret = self.notify_tx(tx).await;

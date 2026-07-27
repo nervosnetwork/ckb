@@ -6,6 +6,7 @@ block_assembler::candidate_uncles::tests::enforces_per_height_limit
 block_assembler::candidate_uncles::tests::full_container_keeps_a_hard_global_bound
 block_assembler::candidate_uncles::tests::keeps_the_highest_bounded_candidates
 block_assembler::candidate_uncles::tests::rejected_high_candidate_cannot_evict_lowest_height
+block_assembler::notify::tests::one_configured_script_owns_at_most_one_live_process_slot
 block_assembler::tests::cell_liveness_memo_caches_and_invalidates_on_tip_change
 block_assembler::tests::full_reset_and_partial_priority_use_template_owned_tokens
 block_assembler::tests::pending_proposals_filter_conflicting_uncle_subtree
@@ -161,6 +162,8 @@ service::effects::tests::stable_effect_hash_detaches_from_transaction_backing
 service::effects::tests::submit_effect_formula_covers_kernel_settlement_and_bounded_ban
 service::effects::tests::trusted_saturation_cannot_consume_critical_headroom
 service::effects::tests::unknown_parent_effect_charges_hash_table_residency
+service::message::tests::notify_tx_batch_rejects_bytes_before_dispatch
+service::message::tests::notify_tx_batch_rejects_count_before_dispatch
 service::stages::runner::tests::worker_exits_when_command_channel_dropped
 service::tests::async_network_controller_calls_fail_fast_when_channel_is_full
 service::tests::banned_peer_fence_never_evicts_an_unexpired_marker

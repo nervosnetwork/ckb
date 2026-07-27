@@ -12,7 +12,7 @@ pub(crate) mod workers;
 pub use builder::TxPoolServiceBuilder;
 pub use controller::TxPoolController;
 pub(crate) use message::{
-    AsyncRequest, BlockAssemblerMessage, Message, SyncRequest, TestAcceptTxResult,
+    AsyncRequest, BlockAssemblerMessage, Message, NotifyTxBatch, SyncRequest, TestAcceptTxResult,
     VerifyCacheUpdate,
 };
 

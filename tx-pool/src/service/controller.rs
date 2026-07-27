@@ -4,7 +4,7 @@ use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_err
 use crate::service::{
     AsyncRequest, BlockTemplateResult, ChainReorgArgs, FeeEstimatesResult,
     FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
-    Request, SubmitTxResult, TestAcceptTxResult, TxPoolService,
+    NotifyTxBatch, Request, SubmitTxResult, TestAcceptTxResult, TxPoolService,
 };
 use crate::tx_source::TxSource;
 use ckb_async_runtime::Handle;
@@ -196,12 +196,12 @@ impl TxPoolController {
 
     /// Receive txs from network, try to add txs to tx-pool
     pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        send_notify!(self, NotifyTxs, txs)
+        send_notify!(self, NotifyTxs, NotifyTxBatch::try_new(txs)?)
     }
 
     /// Receive txs from network, try to add txs to tx-pool
     pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        let notify = Notify::new(txs);
+        let notify = Notify::new(NotifyTxBatch::try_new(txs)?);
         self.sender
             .try_send(Message::NotifyTxs(notify))
             .map_err(|e| {

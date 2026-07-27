@@ -33,6 +33,7 @@ ckb-stop-handler.workspace = true
 ckb-app-config.workspace = true
 ckb-network.workspace = true
 ckb-channel.workspace = true
+ckb-constant.workspace = true
 ckb-db.workspace = true
 ckb-script.workspace = true
 futures-util.workspace = true

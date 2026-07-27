@@ -66,6 +66,8 @@ pub const SYNC_USELESS_BAN_TIME: Duration = Duration::from_secs(10 * 60);
 
 /// The maximum number transaction hashes inside a `RelayTransactionHashes` message
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
+/// The maximum serialized transaction bytes inside one relay response batch.
+pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
 /// The soft limit to the number of unknown transactions
 pub const MAX_UNKNOWN_TX_HASHES_SIZE: usize = 50000;
 /// The soft limit to the number of unknown transactions per peer

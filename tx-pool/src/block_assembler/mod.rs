@@ -80,6 +80,10 @@ pub struct BlockAssembler {
     /// cross `.await`.
     cell_liveness_memo: Arc<StdMutex<CellLivenessMemo>>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
+    /// Bounded process owner for configured template-notification scripts.
+    /// Each configured command has at most one live child; timeout drops and
+    /// kills that child before its slot can be reused.
+    script_notifier: Arc<notify::NotifyScriptRunner>,
     /// Test-only observation point for the external miner-notification
     /// boundary. Production builds pay no field or atomic-operation cost.
     #[cfg(test)]
@@ -108,6 +112,7 @@ impl BlockAssembler {
             vec![],
             &cell_liveness_memo,
         )?;
+        let script_notifier = Arc::new(notify::NotifyScriptRunner::new(&config.notify_scripts));
 
         Ok(Self {
             config: Arc::new(config),
@@ -119,6 +124,7 @@ impl BlockAssembler {
                 Client::builder(hyper_util::rt::TokioExecutor::new())
                     .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
             ),
+            script_notifier,
             #[cfg(test)]
             notify_count: Arc::new(AtomicU64::new(0)),
         })
