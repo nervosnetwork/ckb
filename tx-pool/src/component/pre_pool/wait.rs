@@ -304,7 +304,7 @@ impl PrePoolKernel {
                         _ => false,
                     }
             });
-            let wake_plan = if should_wake {
+            if should_wake {
                 let old = self.entries.get(&edge.hash).cloned().ok_or(
                     PrePoolError::ProjectionInconsistent("wake edge lost its validated primary"),
                 )?;
@@ -314,11 +314,14 @@ impl PrePoolKernel {
                 next.state = EntryState::ResolveQueued {
                     lane: ResolveLane::Ordered,
                 };
-                let next = StoredEntry::prepare(next, self.limits)?;
-                let mut desired = MutationSet::default();
-                desired.set_entry(next);
-                match self.compile_cohort(desired, next_version, self.next_arrival) {
-                    Ok(cohort) => Some(cohort),
+                match self.replace_entry(
+                    &edge.hash,
+                    next,
+                    next_version,
+                    self.next_arrival,
+                    super::lifecycle::ReplacementMode::Ordinary,
+                ) {
+                    Ok(()) => {}
                     Err(error) if error.is_retryable_capacity_rejection() => {
                         return Err(PrePoolError::ProjectionInconsistent(
                             "wait wake exceeded its continuously reserved budget",
@@ -326,20 +329,10 @@ impl PrePoolKernel {
                     }
                     Err(error) => return Err(error),
                 }
-            } else {
-                None
-            };
-
-            let prepared = wake_plan
-                .map(|cohort| self.seal_cohort(cohort, std::iter::empty()))
-                .transpose()?;
-            if let Some(prepared) = prepared {
-                prepared.apply();
             }
             // Cursor publication is derived bookkeeping, not part of the
-            // primary wake transaction. Advance it only after every fallible
-            // Plan/seal predicate has completed and the optional total Apply
-            // has consumed its exclusive capability.
+            // primary wake transaction. Advance it only after the optional
+            // replacement has completed its total Plan/Apply transition.
             self.dirty_order.pop_front();
             if let Some(current) = self.dirty.get_mut(&key) {
                 current.cursor = Some(edge);

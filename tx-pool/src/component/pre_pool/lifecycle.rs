@@ -12,7 +12,6 @@ pub(super) enum ReplacementMode {
 }
 
 struct EntryReplacementPlan {
-    old: StoredEntry,
     usage: UsagePlan,
     active: ActivePlan,
     queue_lengths: WorkLaneSlots<usize>,
@@ -895,7 +894,6 @@ impl PrePoolKernel {
             }
         };
         Ok(EntryReplacementPlan {
-            old: old.clone(),
             usage,
             active,
             queue_lengths,
@@ -915,8 +913,18 @@ impl PrePoolKernel {
     ) -> Result<(), PrePoolError> {
         let next = StoredEntry::prepare(next, self.limits)?;
         let plan = self.plan_entry_replacement(hash, &next, mode, next_version, next_arrival)?;
-        let old_source = plan.old.source;
-        self.detach_indexes_with_checkout(hash, &plan.old, plan.checkout);
+        // Planning holds the exclusive kernel borrow and completes every
+        // fallible predicate above. Move the validated primary into Apply
+        // instead of deep-cloning its dependency and observation sets into
+        // the plan merely to detach them once.
+        let old = self
+            .entries
+            .remove(hash)
+            .ok_or(PrePoolError::ProjectionInconsistent(
+                "prepared replacement lost its primary",
+            ))?;
+        let old_source = old.source;
+        self.detach_indexes_with_checkout(hash, &old, plan.checkout);
         self.apply_usage_plan(plan.usage);
         self.attach_indexes(hash, &next);
         let next_source = next.source;
