@@ -26,6 +26,52 @@ model found that closes the concrete `develop` ownership, RBF atomicity,
 liveness and resource-bound failures without serializing read-heavy accepted-
 pool or optimistic block-template work.
 
+```mermaid
+flowchart TB
+    subgraph Ingress["Ingress policy"]
+        Remote["Remote"]
+        Proposal["Proposal"]
+        Recovery["Recovery"]
+        Local["Local RPC"]
+    end
+
+    subgraph PrePool["Authority 1: PrePoolKernel"]
+        Primary["One full-hash primary entry<br/>one of six locations + version + charge"]
+        Indexes["Derived identity/accounting indexes<br/>queues, wait edges, deadlines, ready order"]
+        Primary -. "derives" .-> Indexes
+    end
+
+    Workers["Resolve / verify workers<br/>versioned borrow; no payload ownership"]
+    Admission["AdmissionPlan<br/>read-only proof + single-use total Apply<br/>not an owner"]
+
+    subgraph Accepted["Authority 2: TxPool"]
+        PoolMap["Accepted PoolMap<br/>membership + graph + Pending/Gap/Proposed"]
+    end
+
+    Journal["EffectJournal<br/>committed records; no transaction ownership"]
+    Endpoints["Relay / callback / database endpoints"]
+    Consumers["RPC / block assembler / persistence readers"]
+
+    Remote --> Primary
+    Proposal --> Primary
+    Recovery --> Primary
+    Primary -->|"lease"| Workers
+    Workers -->|"typed settlement"| Primary
+    Primary -->|"prepared handoff"| Admission
+    Local -->|"direct validation"| Admission
+    Admission -->|"total ownership transfer"| PoolMap
+    Admission -->|"append with Apply"| Journal
+    Journal -->|"after authority locks open"| Endpoints
+    PoolMap --> Consumers
+
+    classDef owner fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px;
+    class Primary,PoolMap owner;
+```
+
+Only the two blue nodes own transaction payloads. Workers borrow one exact
+version, `AdmissionPlan` proves a transfer, and the journal owns immutable
+effects—not a third copy of transaction lifecycle state.
+
 ## 2. Goals and non-goals
 
 The architecture must:
@@ -125,6 +171,50 @@ Ready
 they do not own payloads independently. Recovery is a trusted source, not a
 state. There is no persistent `Committing`, `Invalidated`, `RaceLost`,
 `RecoveryRetained`, victim hold, undo state or conflict-owned payload.
+
+```mermaid
+stateDiagram-v2
+    state "Nowhere" as Absent
+    state "ResolveQueued" as RQ
+    state "ResolveLeased" as RL
+    state "Wait(Missing | Conflict)" as Wait
+    state "VerifyQueued" as VQ
+    state "VerifyLeased" as VL
+    state "Ready" as Ready
+    state "Accepted in TxPool" as Accepted
+
+    [*] --> Absent
+    Absent --> RQ: admit Remote / Proposal / Recovery
+    Absent --> Accepted: Local direct Plan / Apply
+    RQ --> RL: checkout exact head + version
+    RL --> VQ: resolved
+    RL --> Wait: exact dependency unavailable
+    Wait --> RQ: observed availability level changes
+    VQ --> VL: checkout exact head + version
+    VL --> Ready: verified + fee gate
+    VL --> RQ: snapshot stale
+    VL --> Wait: parent unavailable
+    Ready --> Accepted: AdmissionPlan + total Apply
+    Accepted --> Wait: RBF victim retained as bounded history
+    Accepted --> RQ: detached-chain Recovery
+
+    note right of RQ
+        Recovery is a source,
+        never a seventh state.
+    end note
+    note right of Wait
+        Missing and Conflict are reasons
+        inside one owning location.
+    end note
+    note right of Absent
+        reject / expiry / remove / clear
+        can terminalize any retained state.
+    end note
+```
+
+Every worker completion must present the full hash, exact version and expected
+leased location. A stale arrow therefore becomes a typed no-op instead of an
+implicit state transition.
 
 The entry owns:
 
@@ -318,9 +408,52 @@ Ordinary admission, RBF and capacity eviction use one concrete
    batch. Planning may return a typed stale/capacity result but changes no
    owner, clock, index or budget.
 4. The innermost effect-journal predicate first accepts that exact batch, then
-   one total Apply consumes the kernel owner, installs accepted membership and
-   records the level-triggered template delta before appending the effect.
+   one total Apply installs accepted membership, consumes the kernel owner and
+   records the level-triggered template delta before appending the effect. The
+   physical order makes the only still-fallible pool insertion the first
+   operation; the complete transition remains hidden under both authority
+   guards.
 5. Release locks, then run callbacks/network/database endpoints.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as Commit driver (orchestrator only)
+    participant P as TxPool
+    participant K as PrePoolKernel
+    participant J as EffectJournal
+    participant E as External endpoints
+
+    D->>P: acquire accepted write guard
+    D->>P: build immutable PoolMutationPlan
+    alt Reject / Stale / Backpressure
+        P-->>D: typed outcome; release guard; original state unchanged
+    else accepted plan is complete
+        D->>K: acquire kernel and prepare exact versioned handoff
+        D->>J: acquire innermost journal guard and test exact batch
+        Note over P,J: Fixed nesting TxPool → PrePoolKernel → EffectJournal<br/>No await, I/O or foreign code
+        alt exact journal region is Full
+            J-->>D: Full before Apply; release journal
+            D-->>K: release kernel
+            D-->>P: release TxPool
+            D->>J: wait for capacity with no state guard
+            D->>P: replan from current generations
+        else capacity accepted
+            D->>P: total accepted PoolMap Apply
+            D->>K: consume the prepared pre-pool owner
+            Note over P,K: Both authority guards remain held;<br/>no reader observes the physical overlap
+            D->>J: append the matching committed effect sequence
+            D-->>J: release journal
+            D-->>K: release kernel
+            D-->>P: release TxPool
+            D->>E: publish effects after authority locks open
+        end
+    end
+```
+
+The failure half of the diagram is as important as the success half: no legal
+failure occurs after accepted mutation begins, and capacity waiting owns no
+reservation or transaction state across the await.
 
 `PoolMutationPlan` contains the candidate, final status, exact removals and
 post totals. The enclosing `AdmissionPlan` contains the only matching kernel
@@ -531,6 +664,48 @@ Template state has two forms:
 - a full authoritative snapshot generation, updated by Reset/`update_full`;
 - coalesced uncle/proposal/transaction dirty generations applied concurrently
   and optimistically through version checks.
+
+```mermaid
+flowchart TB
+    ResetEvent["Chain/admin Reset<br/>generation-tagged snapshot"] --> ResetBuild["Build reset template<br/>without publication guard"]
+    FullEvent["High-priority full reconcile"] --> FullBuild["Build full template<br/>from TxPool + candidate-uncle authority"]
+
+    UncleDirty["Uncle dirty generation"] --> UncleBuild["Build uncle delta<br/>and refresh proposals"]
+    ProposalDirty["Proposal dirty generation"] --> ProposalBuild["Build proposal delta"]
+    TxDirty["Transaction dirty generation"] --> TxBuild["Build transaction delta"]
+
+    subgraph Publish["CurrentTemplate publication boundary (short write guard)"]
+        ResetApply["Reset Apply<br/>exact reset token; advance reset_epoch"]
+        FullApply["Full Apply<br/>same reset_epoch; ignores partial revision"]
+        PartialApply["Partial Apply<br/>CAS captured template revision"]
+        Current["CurrentTemplate<br/>template + size + revision + reset_epoch"]
+        ResetApply --> Current
+        FullApply --> Current
+        PartialApply --> Current
+    end
+
+    ResetBuild --> ResetApply
+    FullBuild --> FullApply
+    UncleBuild --> PartialApply
+    ProposalBuild --> PartialApply
+    TxBuild --> PartialApply
+
+    ResetApply -->|"re-dirty all partial levels"| Reconcile["Uncle + proposal + transaction reconcile"]
+    FullApply -->|"re-dirty all partial levels"| Reconcile
+    Reconcile --> UncleDirty
+    Reconcile --> ProposalDirty
+    Reconcile --> TxDirty
+
+    classDef authority fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px;
+    class Current authority;
+```
+
+Reset and full construction may overlap partial construction; only publication
+is serialized. A reset invalidates an older full build through `reset_epoch`.
+A full build wins over intervening partial revisions, while each partial update
+must match its captured `TemplateRevision`. Re-dirtying all three partial
+levels after reset/full closes the lost-acknowledgement race without routing
+all work through one actor.
 
 Candidate-uncle retention is the input authority for both full and uncle-only
 plans. Preparation clones the bounded cache under a short synchronous lock;
