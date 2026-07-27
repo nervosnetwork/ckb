@@ -186,6 +186,23 @@ impl CandidateUncles {
             self.remove_by_number(&uncle);
         }
     }
+
+    /// Exercise the complete successful-publication behavior from a
+    /// cross-crate test without exposing the internal read-only Plan or its
+    /// token-sensitive Apply primitives in production builds.
+    #[cfg(feature = "internal")]
+    #[doc(hidden)]
+    pub fn prepare_and_commit_for_test(
+        &mut self,
+        snapshot: &Snapshot,
+        current_epoch_ext: &EpochExt,
+    ) -> Vec<UncleBlockView> {
+        let (selected, stale) = self
+            .prepare_uncles(snapshot, current_epoch_ext)
+            .into_parts();
+        self.prune(stale);
+        selected
+    }
 }
 
 impl Default for CandidateUncles {

@@ -37,6 +37,10 @@ use std::time::Duration;
 use tokio::sync::{RwLock, Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
+fn service_cancellation_token(process_exit: &CancellationToken) -> CancellationToken {
+    process_exit.child_token()
+}
+
 /// A builder used to create TxPoolService.
 pub struct TxPoolServiceBuilder {
     pub(crate) tx_pool_config: TxPoolConfig,
@@ -160,7 +164,11 @@ impl TxPoolServiceBuilder {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let block_assembler_channel = mpsc::channel(BLOCK_ASSEMBLER_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(REORG_CHANNEL_SIZE);
-        let signal_receiver: CancellationToken = new_tokio_exit_rx();
+        // A service owns its cancellation domain. Global process shutdown
+        // still propagates through the parent, while `TxPoolController::stop`
+        // cannot poison a later service or cancel unrelated siblings.
+        let process_exit = new_tokio_exit_rx();
+        let signal_receiver = service_cancellation_token(&process_exit);
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let started = Arc::new(AtomicBool::new(false));
 

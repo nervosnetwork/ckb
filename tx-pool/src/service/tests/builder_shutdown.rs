@@ -1,4 +1,4 @@
-use super::{BackgroundWorkerHandles, MessageHandlerGuard};
+use super::{BackgroundWorkerHandles, MessageHandlerGuard, service_cancellation_token};
 use crate::network::DummyTxPoolNetwork;
 use crate::service::TxVerificationResult;
 use crate::service::effects::{EffectEndpoints, EffectJournal, run_effect_publisher};
@@ -51,6 +51,21 @@ fn completed_message_handler_guard_does_not_cancel_service() {
     drop(guard);
     assert!(!shutdown.is_cancelled());
     assert!(!failed.load(Ordering::Acquire));
+}
+
+#[test]
+fn service_cancellation_is_scoped_under_process_exit() {
+    let process_exit = CancellationToken::new();
+    let first = service_cancellation_token(&process_exit);
+    let second = service_cancellation_token(&process_exit);
+
+    first.cancel();
+    assert!(first.is_cancelled());
+    assert!(!second.is_cancelled());
+    assert!(!process_exit.is_cancelled());
+
+    process_exit.cancel();
+    assert!(second.is_cancelled());
 }
 
 #[tokio::test]

@@ -336,6 +336,7 @@ Rust evidence:
 - `expiry_batch_is_bounded_without_a_ready_prefix_scan` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
 - `large_owner_head_does_not_hide_its_small_cycle_work` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
 - `panicked_state_worker_makes_shutdown_ineligible_for_persistence` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
+- `service_cancellation_is_scoped_under_process_exit` (T1, T4, T7)
 - `worker_exits_when_command_channel_dropped` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
 - `zero_verify_worker_config_still_runs_remote_pipeline` (T1, T2, T4, T7, T11)
 

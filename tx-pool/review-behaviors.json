@@ -396,6 +396,7 @@
     {"test": "large_owner_head_does_not_hide_its_small_cycle_work", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "worker_exits_when_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "panicked_state_worker_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "service_cancellation_is_scoped_under_process_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T4", "T7"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
 
     {"test": "banned_peer_fence_never_evicts_an_unexpired_marker", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T8"]},

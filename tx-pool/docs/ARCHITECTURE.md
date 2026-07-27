@@ -641,6 +641,10 @@ in dependency order. Graceful shutdown persists only after supervised state
 workers and the effect publisher finish normally. An invariant failure marks
 persistence ineligible so a corrupt derived state is not written as truth.
 
+Each service owns a child of the process-wide cancellation token. Global exit
+therefore stops every service, while `TxPoolController::stop` closes only that
+tx-pool generation and cannot poison a later restart or an unrelated sibling.
+
 ## 14. Rust-native failure model
 
 The design does not emulate Erlang supervision or promise recovery from OOM,

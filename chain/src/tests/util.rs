@@ -21,14 +21,41 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, HeaderView) {
+pub(crate) struct ChainTestScope {
+    // Field order is intentional: quiesce tx-pool before joining the chain
+    // service and releasing the store retained by its snapshots.
+    _tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
+    chain: ChainServiceScope,
+}
+
+impl ChainTestScope {
+    pub(crate) fn new(
+        tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
+        chain: ChainServiceScope,
+    ) -> Self {
+        Self {
+            _tx_pool: tx_pool,
+            chain,
+        }
+    }
+}
+
+impl std::ops::Deref for ChainTestScope {
+    type Target = ChainServiceScope;
+
+    fn deref(&self) -> &Self::Target {
+        &self.chain
+    }
+}
+
+pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainTestScope, Shared, HeaderView) {
     start_chain_with_tx_pool_config(consensus, TxPoolConfig::default())
 }
 
 pub(crate) fn start_chain_with_tx_pool_config(
     consensus: Option<Consensus>,
     tx_pool_config: TxPoolConfig,
-) -> (ChainServiceScope, Shared, HeaderView) {
+) -> (ChainTestScope, Shared, HeaderView) {
     let builder = SharedBuilder::with_temp_db();
     let (_, _, always_success_script) = always_success_cell();
     let consensus = consensus.unwrap_or_else(|| {
@@ -84,7 +111,12 @@ pub(crate) fn start_chain_with_tx_pool_config(
         .build()
         .unwrap();
     let network = dummy_network(&shared);
-    pack.take_tx_pool_builder().start(network);
+    let tx_pool = ckb_tx_pool::internal_test_support::start_blocking_test_service(
+        pack.take_tx_pool_builder(),
+        network,
+        pack.take_relay_tx_receiver(),
+    )
+    .expect("start blocking tx-pool test service");
 
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
     let parent = {
@@ -95,7 +127,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
             .unwrap()
     };
 
-    (chain, shared, parent)
+    (ChainTestScope::new(tx_pool, chain), shared, parent)
 }
 
 pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {

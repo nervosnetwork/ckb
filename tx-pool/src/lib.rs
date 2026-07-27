@@ -84,6 +84,10 @@ pub mod service;
 pub(crate) mod tx_source;
 mod util;
 
+#[cfg(feature = "internal")]
+#[path = "tests/blocking_service.rs"]
+pub mod internal_test_support;
+
 #[cfg(test)]
 #[path = "tests/support.rs"]
 pub(crate) mod test_support;

@@ -77,6 +77,12 @@
       "symbols": ["BlockAssembler::notify_count"],
       "kind": "external notification observation hook",
       "behavior_ids": ["TP-TEMPLATE-001", "TP-EFFECT-001"]
+    },
+    {
+      "file": "tx-pool/src/block_assembler/candidate_uncles.rs",
+      "symbols": ["CandidateUncles::prepare_and_commit_for_test"],
+      "kind": "internal-feature cross-crate Plan/Apply publication seam",
+      "behavior_ids": ["TP-TEMPLATE-001"]
     }
   ]
 }
