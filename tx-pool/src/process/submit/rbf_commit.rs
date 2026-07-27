@@ -317,7 +317,13 @@ impl TxPoolService {
 
         // Final liveness always uses the virtual post-RBF pool. This is both
         // the stale-verification check and the role-aware reader/spender rule.
-        let status = check_rtx(tx_pool, snapshot, &entry.rtx, &removal_set)?;
+        let status = check_rtx(
+            tx_pool,
+            snapshot,
+            &entry.rtx,
+            &removal_set,
+            &pre_resolve_tip,
+        )?;
 
         // If snapshot changed by context switch redo time-relative verify.
         let tip_hash = snapshot.tip_hash();
@@ -594,10 +600,11 @@ fn check_rtx(
     snapshot: &Snapshot,
     rtx: &ResolvedTransaction,
     excluded: &HashSet<ProposalShortId>,
+    pre_resolve_tip: &Byte32,
 ) -> Result<Status, Reject> {
     let short_id = rtx.transaction.proposal_short_id();
     let tx_status = get_tx_status(snapshot, &short_id);
     tx_pool
-        .check_rtx_from_pool_excluding(rtx, excluded)
+        .check_rtx_from_pool_excluding(rtx, excluded, pre_resolve_tip)
         .map(|_| tx_status)
 }

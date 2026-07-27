@@ -336,10 +336,11 @@ impl ResolvedTransaction {
         dep_checker: &DC,
         header_checker: &HC,
     ) -> Result<(), OutPointError> {
-        let check_cell = |out_point: &OutPoint,
+        let check_cell = |cell: &CellMeta,
                           checker: &dyn CellChecker,
                           checked_cells: &mut HashSet<OutPoint>|
          -> Result<(), OutPointError> {
+            let out_point = &cell.out_point;
             if seen_inputs.contains(out_point) {
                 return Err(OutPointError::Dead(out_point.clone()));
             }
@@ -348,7 +349,7 @@ impl ResolvedTransaction {
                 return Ok(());
             }
 
-            match checker.is_live(out_point) {
+            match checker.is_live_cell(cell) {
                 Some(true) => {
                     checked_cells.insert(out_point.clone());
                     Ok(())
@@ -363,7 +364,7 @@ impl ResolvedTransaction {
 
         // // check input
         for cell_meta in &self.resolved_inputs {
-            check_cell(&cell_meta.out_point, input_checker, &mut checked_inputs)?;
+            check_cell(cell_meta, input_checker, &mut checked_inputs)?;
         }
 
         let mut resolved_system_deps: HashSet<&OutPoint> = HashSet::new();
@@ -378,7 +379,7 @@ impl ResolvedTransaction {
                 if let Some(ResolvedDep::Group(_, cell_deps)) = dep_group {
                     resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
                 } else {
-                    check_cell(&cell_meta.out_point, dep_checker, &mut checked_deps)?;
+                    check_cell(cell_meta, dep_checker, &mut checked_deps)?;
                 }
             }
 
@@ -391,7 +392,7 @@ impl ResolvedTransaction {
                 if system_cell.get(&cell_dep).is_none()
                     && !resolved_system_deps.contains(&cell_meta.out_point)
                 {
-                    check_cell(&cell_meta.out_point, dep_checker, &mut checked_deps)?;
+                    check_cell(cell_meta, dep_checker, &mut checked_deps)?;
                 }
             }
         } else {
@@ -400,7 +401,7 @@ impl ResolvedTransaction {
                 .iter()
                 .chain(self.resolved_dep_groups.iter())
             {
-                check_cell(&cell_meta.out_point, dep_checker, &mut checked_deps)?;
+                check_cell(cell_meta, dep_checker, &mut checked_deps)?;
             }
         }
 
@@ -418,6 +419,17 @@ impl ResolvedTransaction {
 pub trait CellChecker {
     /// Returns true if the cell is live corresponding to specified out_point.
     fn is_live(&self, out_point: &OutPoint) -> Option<bool>;
+
+    /// Revalidate an already resolved cell.
+    ///
+    /// The default deliberately ignores the metadata so ordinary checkers
+    /// retain their existing behavior. A caller with a typed proof that the
+    /// resolved metadata came from the same immutable chain state may use it
+    /// as positive liveness evidence while still consulting its mutable
+    /// overlay first.
+    fn is_live_cell(&self, cell: &CellMeta) -> Option<bool> {
+        self.is_live(&cell.out_point)
+    }
 }
 
 /// Overlay cell checker wrapper

@@ -87,13 +87,7 @@ impl super::TxPoolService {
                 };
                 let status = get_tx_status(&snapshot, &short_id);
                 (
-                    Ok(make_pre_checked_tx(
-                        snapshot.tip_hash(),
-                        rtx,
-                        status,
-                        fee,
-                        tx_size,
-                    )),
+                    Ok(make_pre_checked_tx(&snapshot, rtx, status, fee, tx_size)),
                     snapshot,
                 )
             }
@@ -109,12 +103,11 @@ impl super::TxPoolService {
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .read_tx_pool_with_snapshot(|tx_pool, snapshot| {
-                let tip_hash = snapshot.tip_hash();
                 check_txid_collision(tx_pool, tx)?;
                 match resolve_tx(tx_pool, &snapshot, tx.clone(), false) {
                     Ok((rtx, status)) => {
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                        Ok(make_pre_checked_tx(tip_hash, rtx, status, fee, tx_size))
+                        Ok(make_pre_checked_tx(&snapshot, rtx, status, fee, tx_size))
                     }
                     Err(Reject::Resolve(OutPointError::Dead(out))) => {
                         let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
@@ -126,7 +119,7 @@ impl super::TxPoolService {
                             );
                             return Err(Reject::Resolve(OutPointError::Dead(out)));
                         }
-                        Ok(make_pre_checked_tx(tip_hash, rtx, status, fee, tx_size))
+                        Ok(make_pre_checked_tx(&snapshot, rtx, status, fee, tx_size))
                     }
                     Err(err) => Err(err),
                 }

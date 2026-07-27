@@ -431,7 +431,7 @@ sequenceDiagram
     else accepted plan is complete
         D->>K: acquire kernel and prepare exact versioned handoff
         D->>J: acquire innermost journal guard and test exact batch
-        Note over P,J: Fixed nesting TxPool → PrePoolKernel → EffectJournal<br/>No await, I/O or foreign code
+        Note over P,J: Fixed nesting TxPool → PrePoolKernel → EffectJournal<br/>No await or foreign endpoint; bounded snapshot reads are Plan-only
         alt exact journal region is Full
             J-->>D: Full before Apply; release journal
             D-->>K: release kernel
@@ -481,8 +481,14 @@ optional serial/work permit
       -> EffectJournal mutex for capacity + total Apply + append
 ```
 
-No await, callback, network/database endpoint or retired-generation drop occurs
-while the accepted pool/kernel/journal nesting is held. Kernel-only worker
+No await, callback, mutable database endpoint or retired-generation drop occurs
+while the accepted pool/kernel/journal nesting is held. Immutable chain-
+snapshot reads are currently allowed only while constructing a bounded Plan.
+The normal same-tip final-liveness path consumes the resolved cell's existing
+chain provenance as positive evidence after checking the mutable pool overlay,
+so it does not repeat the RocksDB point lookup; stale-tip and unproven cells
+must revalidate. Remaining RBF/removal snapshot reads are a measured critical-
+section cost, not permission to add unbounded I/O. Kernel-only worker
 transitions use only the shorter kernel→journal suffix. Code must not acquire
 `TxPool` from an effect callback or while already holding the kernel.
 
@@ -729,7 +735,10 @@ Correctness structure is also the intended performance structure:
 - move-only Apply; no cloned old-entry snapshot/undo journal;
 - one serialized commit driver instead of competing commit owners;
 - accepted reads remain behind the existing `RwLock`, not a global actor;
-- no I/O or payload destruction under authority locks;
+- no foreign/mutable I/O or payload destruction under authority locks;
+- same-tip resolved chain provenance removes normal duplicate liveness reads;
+  remaining bounded immutable-snapshot Plan reads require dedicated lock-hold
+  measurements before any cache, prefetch or optimistic-retry protocol is added;
 - block-template/effect notifications coalesce level-triggered work.
 
 Performance acceptance is empirical, not inferred from line count. The final

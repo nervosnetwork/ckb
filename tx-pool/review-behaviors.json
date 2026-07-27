@@ -41,7 +41,7 @@
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence)/)'",
       "performance_bound": "Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation."
     },
     {
@@ -348,8 +348,13 @@
     {"test": "failed_size_plan_is_mutation_free_with_original_statuses", "behavior_id": "TP-RBF-001", "invariants": ["T6"]},
     {"test": "self_eviction_plan_leaves_cell_dep_readers_untouched", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
     {"test": "rbf_replacement_certain_to_fail_commit_cannot_churn_pool", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "permissive_rbf_resolution_cannot_forge_chain_provenance", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
+
+    {"test": "resolution_evidence_skips_same_tip_chain_revalidation", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
+    {"test": "resolution_evidence_yields_to_pool_spends_and_tip_changes", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
+    {"test": "resolution_evidence_requires_chain_provenance", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
 
     {"test": "same_commit_wakes_prior_conflict_but_not_its_new_victim", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
 

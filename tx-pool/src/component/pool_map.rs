@@ -82,7 +82,7 @@ pub(crate) enum RemovalCause {
     SizeLimit,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct PlannedRemoval {
     pub(crate) id: ProposalShortId,
     pub(crate) hash: Byte32,
@@ -90,6 +90,7 @@ pub(crate) struct PlannedRemoval {
     pub(crate) cause: RemovalCause,
     pub(crate) entry: TxEntry,
     links: TxLinks,
+    edges: EntryOutPointEdges,
 }
 
 /// Immutable decision for one accepted-pool admission. Every ordinary
@@ -151,13 +152,14 @@ pub(crate) struct PreparedPoolMutation<'pool> {
     plan: PoolMutationPlan,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct ProjectionRemoval {
     id: ProposalShortId,
     hash: Byte32,
     status: Status,
     entry: TxEntry,
     links: TxLinks,
+    edges: EntryOutPointEdges,
 }
 
 #[derive(Debug)]
@@ -434,6 +436,7 @@ impl PoolMap {
                 cause: RemovalCause::Replacement,
                 entry: entry.inner.clone(),
                 links: links.clone(),
+                edges: EntryOutPointEdges::from_entry(&entry.inner),
             });
         }
         if removed.len() > MAX_POOL_MUTATION_CANDIDATES {
@@ -587,6 +590,7 @@ impl PoolMap {
                     cause: RemovalCause::SizeLimit,
                     entry: current.inner.clone(),
                     links: links.clone(),
+                    edges: EntryOutPointEdges::from_entry(&current.inner),
                 });
             }
         }
@@ -807,6 +811,7 @@ impl PoolMap {
                 status: current.status,
                 entry: current.inner.clone(),
                 links: links.clone(),
+                edges: EntryOutPointEdges::from_entry(&current.inner),
             });
         }
         if removals.is_empty() {
@@ -877,6 +882,7 @@ impl PoolMap {
                 removal.status,
                 &removal.entry,
                 &removal.links,
+                &removal.edges,
                 &removed,
                 false,
             )?;
@@ -1021,6 +1027,7 @@ impl PoolMap {
                 removal.status,
                 &removal.entry,
                 &removal.links,
+                &removal.edges,
                 removed,
                 true,
             )?;
@@ -1036,6 +1043,7 @@ impl PoolMap {
         status: Status,
         entry: &TxEntry,
         links: &TxLinks,
+        edges: &EntryOutPointEdges,
         removed: &HashSet<ProposalShortId>,
         require_closed_descendants: bool,
     ) -> Result<(), PoolMutationFault> {
@@ -1084,7 +1092,6 @@ impl PoolMap {
                 ));
             }
         }
-        let edges = EntryOutPointEdges::from_entry(entry);
         if edges
             .inputs
             .iter()
@@ -1161,12 +1168,12 @@ impl PoolMap {
             }
             let _ = self.links.remove(&planned.id);
 
-            let edges = EntryOutPointEdges::from_entry(&planned.entry);
-            for input in edges.inputs {
-                let _ = self.out_point_index.remove_input(&input);
+            for input in &planned.edges.inputs {
+                let _ = self.out_point_index.remove_input(input);
             }
-            for dep in edges.deps {
-                self.out_point_index.delete_txid_by_dep(dep, &planned.id);
+            for dep in &planned.edges.deps {
+                self.out_point_index
+                    .delete_txid_by_dep(dep.clone(), &planned.id);
             }
             self.out_point_index.header_deps.remove(&planned.id);
         }
@@ -1225,11 +1232,10 @@ impl PoolMap {
                 let _ = self.links.remove_parent(child, &removal.id);
             }
             let _ = self.links.remove(&removal.id);
-            let edges = EntryOutPointEdges::from_entry(&removal.entry);
-            for input in edges.inputs {
+            for input in removal.edges.inputs {
                 let _ = self.out_point_index.remove_input(&input);
             }
-            for dep in edges.deps {
+            for dep in removal.edges.deps {
                 self.out_point_index.delete_txid_by_dep(dep, &removal.id);
             }
             self.out_point_index.header_deps.remove(&removal.id);

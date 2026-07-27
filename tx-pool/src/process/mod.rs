@@ -1046,12 +1046,17 @@ type ResolveResult = Result<(Arc<ResolvedTransaction>, Status), Reject>;
 /// Assemble a [`PreCheckedTx`] from its parts; shared by the fast
 /// (chain-only) and locked (pool-overlay) pre-check paths.
 fn make_pre_checked_tx(
-    pre_resolve_tip: Byte32,
+    snapshot: &Snapshot,
     rtx: Arc<ResolvedTransaction>,
     status: Status,
     fee: Capacity,
     tx_size: usize,
 ) -> PreCheckedTx {
+    // Accept the resolution snapshot rather than an independently supplied
+    // hash, so every production call site derives the provenance stamp from
+    // the same capture it used for resolution. Final admission relies on this
+    // pairing.
+    let pre_resolve_tip = snapshot.tip_hash();
     let rtx = crate::resolved_tx::compact_resolved_transaction_for_residency(rtx);
     let resident_size = crate::component::entry::resolved_transaction_charge_bytes(tx_size, &rtx);
     PreCheckedTx {

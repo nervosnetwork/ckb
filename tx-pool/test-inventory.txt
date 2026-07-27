@@ -116,6 +116,9 @@ component::tx_selector::tests::descendants_cache_members_stay_within_budget
 component::tx_selector::tests::over_budget_dep_entry_does_not_censor_independent_suffix
 component::tx_selector::tests::selected_reader_is_ordered_before_spender
 persisted::tests::persistence_writer_admits_only_one_snapshot_owner
+pool_cell::tests::resolution_evidence_requires_chain_provenance
+pool_cell::tests::resolution_evidence_skips_same_tip_chain_revalidation
+pool_cell::tests::resolution_evidence_yields_to_pool_spends_and_tip_changes
 process::reorg::tests::attached_raw_hash_suppresses_detached_witness_variant
 resolved_tx::tests::resolved_residency_detaches_cell_views_and_data_slices
 service::builder::shutdown_tests::completed_message_handler_guard_does_not_cancel_service
@@ -248,6 +251,7 @@ service::tests::pipeline_epoch_exhaustion_is_fail_closed_without_wraparound
 service::tests::rbf_prevalidation::accepted_callback_runs_only_after_pool_write_lock_is_released
 service::tests::rbf_prevalidation::conflict_closure_aborts_at_candidate_limit
 service::tests::rbf_prevalidation::failed_size_plan_is_mutation_free_with_original_statuses
+service::tests::rbf_prevalidation::permissive_rbf_resolution_cannot_forge_chain_provenance
 service::tests::rbf_prevalidation::rbf_rejects_dep_group_member_from_replacement_victim
 service::tests::rbf_prevalidation::rbf_replacement_certain_to_fail_commit_cannot_churn_pool
 service::tests::rbf_prevalidation::self_eviction_plan_leaves_cell_dep_readers_untouched

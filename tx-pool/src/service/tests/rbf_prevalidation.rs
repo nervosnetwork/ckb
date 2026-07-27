@@ -33,6 +33,76 @@ use crate::test_support::{MOCK_CYCLES, MOCK_SIZE, build_tx, build_tx_with_dep};
 /// `max_ancestors_count` transactions long.
 const CHAIN_LEN: u32 = 125;
 
+/// RBF's permissive resolve ignores only accepted-pool consumers. It must not
+/// turn a chain miss into resolved metadata, and a pool-produced output must
+/// remain distinguishable from same-tip chain provenance.
+#[tokio::test]
+async fn permissive_rbf_resolution_cannot_forge_chain_provenance() {
+    use super::support::{WorkerSet, harness};
+
+    let h = harness(1).rbf(true).workers(WorkerSet::None).build();
+    let producer = TransactionBuilder::default()
+        .input(CellInput::new(h.out_points[0].clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(1_000).unwrap())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+    let victim = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(producer.hash(), 0), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(900).unwrap())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+    let replacement = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(producer.hash(), 0), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(800).unwrap())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+    {
+        let mut pool = h.service.pool.tx_pool.write().await;
+        for tx in [producer, victim] {
+            pool.pool_map
+                .add_entry(
+                    TxEntry::dummy_resolve(tx, MOCK_CYCLES, Capacity::shannons(1), MOCK_SIZE),
+                    Status::Pending,
+                )
+                .unwrap();
+        }
+    }
+
+    let replacement_size = replacement.data().serialized_size_in_block();
+    let (resolved, _) = h.service.pre_check(&replacement, replacement_size).await;
+    let resolved = resolved.expect("pool-spent producer output is a valid RBF candidate input");
+    assert!(
+        resolved.rtx.resolved_inputs[0].transaction_info.is_none(),
+        "permissive pool resolution must not mint chain provenance"
+    );
+
+    let missing = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(Byte32::new([0xf1; 32]), 0), 0))
+        .build();
+    let missing_size = missing.data().serialized_size_in_block();
+    let (missing_result, _) = h.service.pre_check(&missing, missing_size).await;
+    assert!(matches!(
+        missing_result,
+        Err(Reject::Resolve(
+            ckb_types::core::error::OutPointError::Unknown(_)
+        ))
+    ));
+
+    h.cancel.cancel();
+}
+
 /// Build the exact Pending ancestor shape used by the RBF capacity tests.
 /// Fee and size remain explicit at every call site because they are part of
 /// the attack construction, rather than incidental fixture defaults.

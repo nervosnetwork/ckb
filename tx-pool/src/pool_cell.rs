@@ -1,8 +1,8 @@
 extern crate rustc_hash;
 extern crate slab;
 use crate::component::pool_map::PoolMap;
-use ckb_types::core::cell::{CellChecker, CellMetaBuilder, CellProvider, CellStatus};
-use ckb_types::packed::{OutPoint, ProposalShortId};
+use ckb_types::core::cell::{CellChecker, CellMeta, CellMetaBuilder, CellProvider, CellStatus};
+use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use std::collections::HashSet;
 
 pub(crate) struct PoolCell<'a> {
@@ -117,3 +117,77 @@ impl<'a> CellChecker for PoolCell<'a> {
         None
     }
 }
+
+/// Whether resolved chain metadata was produced against the exact chain tip
+/// used by final admission.
+///
+/// This is intentionally a closed enum instead of a boolean parameter: only
+/// [`Self::from_tips`] can establish the positive-evidence arm.
+#[derive(Clone, Copy)]
+enum ChainCellEvidence {
+    SameTip,
+    Revalidate,
+}
+
+impl ChainCellEvidence {
+    fn from_tips(resolved: &Byte32, current: &Byte32) -> Self {
+        if resolved == current {
+            Self::SameTip
+        } else {
+            Self::Revalidate
+        }
+    }
+}
+
+/// Role-aware final checker for a resolved transaction.
+///
+/// The accepted-pool overlay always wins because pool spends/producers can
+/// change after resolution. On an overlay miss, a `CellMeta` carrying chain
+/// `transaction_info` is already a positive liveness receipt for the same
+/// immutable tip; stale tips and pool-produced metadata still fall through to
+/// the chain checker. This removes duplicate RocksDB reads without adding a
+/// cache, invalidation protocol, lock or second state authority.
+pub(crate) struct ResolvedOverlayCellChecker<'a, A, B> {
+    overlay: &'a A,
+    chain: &'a B,
+    evidence: ChainCellEvidence,
+}
+
+impl<'a, A, B> ResolvedOverlayCellChecker<'a, A, B> {
+    pub(crate) fn new(
+        overlay: &'a A,
+        chain: &'a B,
+        resolved_tip: &Byte32,
+        current_tip: &Byte32,
+    ) -> Self {
+        Self {
+            overlay,
+            chain,
+            evidence: ChainCellEvidence::from_tips(resolved_tip, current_tip),
+        }
+    }
+}
+
+impl<A: CellChecker, B: CellChecker> CellChecker for ResolvedOverlayCellChecker<'_, A, B> {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.overlay
+            .is_live(out_point)
+            .or_else(|| self.chain.is_live(out_point))
+    }
+
+    fn is_live_cell(&self, cell: &CellMeta) -> Option<bool> {
+        self.overlay.is_live(&cell.out_point).or_else(|| {
+            if matches!(self.evidence, ChainCellEvidence::SameTip)
+                && cell.transaction_info.is_some()
+            {
+                Some(true)
+            } else {
+                self.chain.is_live(&cell.out_point)
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/pool_cell.rs"]
+mod tests;
