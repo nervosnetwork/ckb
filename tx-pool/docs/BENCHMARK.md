@@ -23,7 +23,7 @@ python3 tx-pool/scripts/benchmark.py --quick
 python3 tx-pool/scripts/benchmark.py --quick --filter always_success_100
 
 # preferred quick A/B: alternate adjacent baseline/candidate runs
-python3 tx-pool/scripts/benchmark.py --quick --runs 3 \
+python3 tx-pool/scripts/benchmark.py --quick --runs 4 \
   --filter always_success_100 \
   --baseline-worktree /tmp/ckb-txpool-bench-baseline \
   --save-baseline-json /tmp/tx-pool-baseline.json \
@@ -53,13 +53,18 @@ The script **streams each benchmark's progress in real time** (instead of waitin
 Each checkout builds exactly once into its own
 `<workspace>/target/tx-pool-bench` directory; an externally supplied shared
 `CARGO_TARGET_DIR` is deliberately ignored. The runner resolves and hashes each
-compiled executable, waits for the configured post-build cooldown (five seconds
+compiled executable, waits for the configured post-build cooldown (15 seconds
 by default), and then invokes those unchanged binaries directly for every
 repetition. This prevents Cargo from reusing a baseline worktree's same-named
 executable for the candidate, avoids repeated freshness checks, and keeps
 compilation heat outside the measured A/B pairs. The hash is verified again
 after measurement. Strict comparisons also require a byte-identical SHA-256
 fingerprint of the Python runner and Rust benchmark harness.
+
+Both builds disable incremental compilation and remap their distinct worktree
+roots to the same logical source prefix. This keeps checkout paths from
+perturbing generated-code identity/layout. The normalized effective Rust flags
+are recorded and must match across a strict comparison.
 
 Criterion's own implicit on-disk baseline and plot generation are disabled by
 the runner, and every process receives an empty temporary `CRITERION_HOME`.
@@ -81,7 +86,9 @@ local notes do not invalidate a run).
 
 `--baseline-worktree` is the preferred quick comparison mode. It runs each
 baseline/candidate pair adjacently and reverses their order on every second
-pair, reducing systematic thermal or host-load bias. Paired mode evaluates the
+pair, reducing systematic thermal or host-load bias. A strict paired gate
+therefore requires an even repetition count of at least four; an odd number
+would give one revision more first-run slots. Paired mode evaluates the
 median of each adjacent candidate/baseline ratio and bounds every ratio's
 relative deviation from that median; it does not double-count symmetric
 above/below-median movement as a max-minus-min range. Each worktree still uses

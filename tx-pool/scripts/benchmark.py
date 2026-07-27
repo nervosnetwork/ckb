@@ -34,6 +34,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 ResultKey = Tuple[int, int, bool, str, int]
 Result = Dict[str, float]
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+REMAPPED_SOURCE_ROOT = "/ckb-txpool-bench-source"
 # Cargo's fingerprint cache is not worktree-aware when callers force two
 # checkouts through one CARGO_TARGET_DIR. Keep each checkout's benchmark binary
 # isolated so a baseline executable can never be mistaken for the candidate.
@@ -121,10 +122,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cooldown-seconds",
         type=float,
-        default=5.0,
+        default=15.0,
         help=(
             "idle interval after compiling the fixed benchmark binaries "
-            "and before measurement (default: 5)"
+            "and before measurement (default: 15)"
         ),
     )
     args = parser.parse_args()
@@ -136,6 +137,12 @@ def parse_args() -> argparse.Namespace:
         parser.error(
             "--fail-on-regression requires --compare-json or --baseline-worktree"
         )
+    if args.fail_on_regression and args.baseline_worktree:
+        if args.runs < 4 or args.runs % 2 != 0:
+            parser.error(
+                "strict paired worktree comparison requires an even --runs "
+                "value of at least 4 so A/B execution order is balanced"
+            )
     if args.regression_threshold_percent is None:
         args.regression_threshold_percent = 2.0 if args.quick else 0.0
     if args.max_run_spread_percent is None:
@@ -184,6 +191,13 @@ def benchmark_environment(
 ) -> Dict[str, str]:
     env = os.environ.copy()
     env["CARGO_TARGET_DIR"] = str(bench_target_dir(workspace_root))
+    env["CARGO_INCREMENTAL"] = "0"
+    remap = f"--remap-path-prefix={workspace_root}={REMAPPED_SOURCE_ROOT}"
+    if encoded_flags := env.get("CARGO_ENCODED_RUSTFLAGS"):
+        env["CARGO_ENCODED_RUSTFLAGS"] = f"{encoded_flags}\x1f{remap}"
+    else:
+        rustflags = env.get("RUSTFLAGS", "")
+        env["RUSTFLAGS"] = f"{rustflags} {remap}".strip()
     env.pop("QUICK_BENCH", None)
     env.pop("FULL_BENCH", None)
     if ARGS.quick:
@@ -193,6 +207,13 @@ def benchmark_environment(
     if criterion_home is not None:
         env["CRITERION_HOME"] = str(criterion_home)
     return env
+
+
+def benchmark_build_fingerprint(workspace_root: Path) -> str:
+    env = benchmark_environment(workspace_root)
+    flags = env.get("CARGO_ENCODED_RUSTFLAGS", env.get("RUSTFLAGS", ""))
+    normalized = flags.replace(str(workspace_root), "$WORKSPACE")
+    return f"CARGO_INCREMENTAL=0;RUSTFLAGS={normalized}"
 
 
 def file_sha256(path: Path) -> str:
@@ -476,6 +497,7 @@ def environment_metadata(
         "benchmark_target_dir": str(bench_target_dir(workspace_root)),
         "benchmark_filter": ARGS.benchmark_filter,
         "cooldown_seconds": ARGS.cooldown_seconds,
+        "benchmark_build_fingerprint": benchmark_build_fingerprint(workspace_root),
     }
     if prepared is not None:
         metadata["benchmark_binary"] = prepared["path"]
@@ -631,6 +653,7 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         "platform",
         "machine",
         "benchmark_harness_sha256",
+        "benchmark_build_fingerprint",
         "cooldown_seconds",
     ):
         if baseline.get(field) != current.get(field):
@@ -653,15 +676,21 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
                 )
         baseline_runs = int(baseline.get("runs", 1))
         current_runs = int(current.get("runs", 1))
-        if baseline_runs < 3 or current_runs < 3:
+        minimum_runs = 4 if current_paired else 3
+        if baseline_runs < minimum_runs or current_runs < minimum_runs:
             raise RuntimeError(
-                "--fail-on-regression requires at least three complete runs "
+                f"--fail-on-regression requires at least {minimum_runs} complete runs "
                 f"on both sides (baseline={baseline_runs}, current={current_runs})"
             )
         if baseline_runs != current_runs:
             raise RuntimeError(
                 "--fail-on-regression requires symmetric repetition counts "
                 f"(baseline={baseline_runs}, current={current_runs})"
+            )
+        if current_paired and current_runs % 2 != 0:
+            raise RuntimeError(
+                "strict paired comparison requires an even repetition count "
+                "so baseline-first and candidate-first orders are balanced"
             )
         if current_paired:
             validate_paired_stability(current)
