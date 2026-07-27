@@ -891,24 +891,30 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
     preflight_benchmark_binary(baseline_root, baseline_binary, "baseline")
     cool_down_after_build()
 
-    baseline_runs: List[Dict[ResultKey, Result]] = []
-    candidate_runs: List[Dict[ResultKey, Result]] = []
-    for run in range(1, ARGS.runs + 1):
-        baseline_run: Dict[ResultKey, Result] = {}
-        candidate_run: Dict[ResultKey, Result] = {}
-        scenarios = list(baseline_scenarios)
-        if run % 2 == 0:
-            scenarios.reverse()
-        for scenario in scenarios:
+    baseline_runs: List[Dict[ResultKey, Result]] = [{} for _ in range(ARGS.runs)]
+    candidate_runs: List[Dict[ResultKey, Result]] = [{} for _ in range(ARGS.runs)]
+    for scenario in baseline_scenarios:
+        for run_index in range(ARGS.runs):
+            run = run_index + 1
             pair = [
-                ("baseline", baseline_root, baseline_binary, baseline_run),
-                ("candidate", WORKSPACE_ROOT, candidate_binary, candidate_run),
+                (
+                    "baseline",
+                    baseline_root,
+                    baseline_binary,
+                    baseline_runs[run_index],
+                ),
+                (
+                    "candidate",
+                    WORKSPACE_ROOT,
+                    candidate_binary,
+                    candidate_runs[run_index],
+                ),
             ]
             # Keep both measurements of the exact scenario adjacent. Running
             # an entire matrix per side leaves corresponding samples roughly
             # one matrix apart and aliases host-frequency drift into the code
-            # delta. Reverse side and scenario order on alternate repetitions
-            # so neither revision or scenario owns a privileged time slot.
+            # delta. Complete the balanced AB/BA block before changing the
+            # workload so each estimator sees one stable thermal/code path.
             if run % 2 == 0:
                 pair.reverse()
             for label, root, prepared, destination in pair:
@@ -931,8 +937,6 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
                     names = ", ".join(sorted(format_key(key) for key in duplicate))
                     raise RuntimeError(f"duplicate paired benchmark result: {names}")
                 destination.update(result)
-        baseline_runs.append(baseline_run)
-        candidate_runs.append(candidate_run)
     verify_prepared_binary(baseline_binary, "baseline")
     verify_prepared_binary(candidate_binary, "candidate")
 
@@ -958,8 +962,8 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
         }
     baseline_record["paired_execution"] = True
     candidate_record["paired_execution"] = True
-    baseline_record["paired_schedule"] = "scenario-adjacent-alternating-v1"
-    candidate_record["paired_schedule"] = "scenario-adjacent-alternating-v1"
+    baseline_record["paired_schedule"] = "scenario-blocked-alternating-v2"
+    candidate_record["paired_schedule"] = "scenario-blocked-alternating-v2"
     candidate_record["paired_ratio_samples"] = {
         format_key(key): values for key, values in paired_samples.items()
     }

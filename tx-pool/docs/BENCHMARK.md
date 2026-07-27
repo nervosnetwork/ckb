@@ -98,10 +98,12 @@ local notes do not invalidate a run).
 `--baseline-worktree` is the preferred quick comparison mode. After listing
 and verifying that both binaries expose the same selected matrix, it invokes
 one exact scenario at a time: baseline/candidate measurements for that
-scenario are adjacent instead of separated by an entire matrix. It reverses
-both side order and scenario order on every second repetition. This prevents a
+scenario are adjacent instead of separated by an entire matrix. All balanced
+AB/BA repetitions for that scenario finish before the runner changes workload,
+so a secp-heavy scenario cannot perturb later repetitions of a lightweight
+scenario. It reverses side order on every second repetition. This prevents a
 slow host-frequency drift from being misclassified as a code delta and avoids
-giving any revision or scenario a privileged time slot. A strict paired gate
+giving either revision a privileged time slot. A strict paired gate
 therefore requires an even repetition count of at least four; an odd number
 would give one revision more first-run slots. Paired mode evaluates the median
 of each adjacent candidate/baseline ratio and bounds every ratio's relative
