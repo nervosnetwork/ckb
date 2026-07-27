@@ -49,6 +49,7 @@ use std::{cmp, iter};
 use tokio::sync::RwLock;
 
 use crate::TxPool;
+use builder::TemplateContentUpdate;
 pub(crate) use builder::{BlockTemplateBuilder, BlockTemplateDraft};
 pub(crate) use process::{ResetApply, ResetNotification, process, process_reset};
 pub(crate) use state::{CurrentTemplate, ResetEpoch, TemplateRevision, TemplateSize};
@@ -269,24 +270,31 @@ impl BlockAssembler {
             .checked_add(txs_size)
             .ok_or(BlockAssemblerError::Overflow)?;
 
-        let mut builder = BlockTemplateBuilder::from_template(&current.template);
+        let mut builder = BlockTemplateBuilder::for_update(
+            &current.template,
+            TemplateContentUpdate::Full {
+                uncles,
+                transactions: checked_txs,
+                proposals,
+                dao,
+            },
+        );
         builder
-            .set_uncles(uncles)
-            .set_proposals(proposals)
-            .set_transactions(checked_txs)
             .work_id(Self::take_counter(&self.work_id, "work id")?)
             .current_time(cmp::max(
                 unix_time_as_millis(),
                 current.template.current_time,
-            ))
-            .dao(dao);
+            ));
 
-        let mut new_current = (*current).clone();
-        new_current.template = builder.build();
-        new_current.size.txs = txs_size;
-        new_current.size.total = total_size;
-        new_current.size.proposals = proposals_size;
-        new_current.size.uncles = uncles_size;
+        let new_current = current.with_content(
+            builder.build(),
+            TemplateSize {
+                txs: txs_size,
+                proposals: proposals_size,
+                uncles: uncles_size,
+                total: total_size,
+            },
+        );
 
         trace!(
             "[BlockAssembler] update_full {} uncles-{} proposals-{} txs-{}",
@@ -419,26 +427,16 @@ impl BlockAssembler {
 
     /// Apply a partial update to the current block template.
     ///
-    /// The `update` closure receives a builder and the mutable size summary. It
-    /// should configure the builder with the new content and update `size`
-    /// accordingly. Returning `false` aborts the update without swapping.
-    async fn apply_partial_update<F>(
+    async fn apply_partial_update(
         &self,
         current: Arc<CurrentTemplate>,
         revision: TemplateRevision,
         stale_uncles: Vec<UncleBlockView>,
         label: &'static str,
-        update: F,
-    ) -> Result<bool, BlockAssemblerError>
-    where
-        F: FnOnce(&mut BlockTemplateBuilder, &mut TemplateSize) -> bool,
-    {
-        let mut builder = BlockTemplateBuilder::from_template(&current.template);
-        let mut size = current.size;
-        if !update(&mut builder, &mut size) {
-            return Ok(false);
-        }
-
+        update: TemplateContentUpdate,
+        size: TemplateSize,
+    ) -> Result<bool, BlockAssemblerError> {
+        let mut builder = BlockTemplateBuilder::for_update(&current.template, update);
         builder
             .work_id(Self::take_counter(&self.work_id, "work id")?)
             .current_time(cmp::max(
@@ -446,9 +444,7 @@ impl BlockAssembler {
                 current.template.current_time,
             ));
 
-        let mut new_current = (*current).clone();
-        new_current.template = builder.build();
-        new_current.size = size;
+        let new_current = current.with_content(builder.build(), size);
 
         trace!(
             "[BlockAssembler] {}-{} epoch-{} uncles-{} proposals-{} txs-{}",
@@ -511,17 +507,18 @@ impl BlockAssembler {
             return Ok(true);
         }
 
+        let size = TemplateSize {
+            uncles: new_uncle_size,
+            total: new_total_size,
+            ..current.size
+        };
         self.apply_partial_update(
             current,
             revision,
             stale_uncles,
             "update_uncles",
-            |builder, size| {
-                builder.set_uncles(uncles);
-                size.uncles = new_uncle_size;
-                size.total = new_total_size;
-                true
-            },
+            TemplateContentUpdate::Uncles { uncles },
+            size,
         )
         .await
     }
@@ -565,18 +562,19 @@ impl BlockAssembler {
             return Ok(false);
         };
 
+        let size = TemplateSize {
+            uncles: new_uncles_size,
+            proposals: new_proposals_size,
+            total: new_total_size,
+            ..current.size
+        };
         self.apply_partial_update(
             current,
             revision,
             Vec::new(),
             "update_proposals",
-            |builder, size| {
-                builder.set_uncles(uncles).set_proposals(proposals);
-                size.uncles = new_uncles_size;
-                size.proposals = new_proposals_size;
-                size.total = new_total_size;
-                true
-            },
+            TemplateContentUpdate::Proposals { uncles, proposals },
+            size,
         )
         .await
     }
@@ -681,19 +679,21 @@ impl BlockAssembler {
                     );
                     return Ok(false);
                 };
+                let size = TemplateSize {
+                    txs: new_txs_size,
+                    total: new_total_size,
+                    ..current.size
+                };
                 self.apply_partial_update(
                     current,
                     revision,
                     Vec::new(),
                     "update_transactions",
-                    |builder, size| {
-                        // `from_template` already copied the extension; only
-                        // transactions and DAO need to change here.
-                        builder.set_transactions(checked_txs).dao(dao);
-                        size.txs = new_txs_size;
-                        size.total = new_total_size;
-                        true
+                    TemplateContentUpdate::Transactions {
+                        transactions: checked_txs,
+                        dao,
                     },
+                    size,
                 )
                 .await
                 .map_err(Into::into)

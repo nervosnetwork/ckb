@@ -11,7 +11,6 @@ use ckb_types::{
     packed::{Byte32, Bytes, ProposalShortId},
 };
 
-#[derive(Clone)]
 pub(crate) struct BlockTemplate {
     pub(crate) version: Version,
     pub(crate) compact_target: u32,
@@ -33,7 +32,6 @@ pub(crate) struct BlockTemplate {
     pub(crate) extension: Option<Bytes>,
 }
 
-#[derive(Clone)]
 struct TemplateParts {
     version: Version,
     compact_target: u32,
@@ -55,13 +53,38 @@ pub(crate) struct BlockTemplateDraft {
     parts: TemplateParts,
 }
 
-#[derive(Clone)]
 pub(crate) struct BlockTemplateBuilder {
     parts: TemplateParts,
     cellbase: TransactionView,
     work_id: u64,
     dao: Byte32,
     current_time: u64,
+}
+
+/// Complete content replacement scopes used by block-template workers.
+///
+/// Each variant carries every collection that its worker is allowed to
+/// replace. `for_update` therefore clones only content that must survive the
+/// update, while the type prevents a full rebuild from accidentally retaining
+/// a stale collection.
+pub(crate) enum TemplateContentUpdate {
+    Full {
+        uncles: Vec<UncleBlockView>,
+        transactions: Vec<TxEntry>,
+        proposals: Vec<ProposalShortId>,
+        dao: Byte32,
+    },
+    Uncles {
+        uncles: Vec<UncleBlockView>,
+    },
+    Proposals {
+        uncles: Vec<UncleBlockView>,
+        proposals: Vec<ProposalShortId>,
+    },
+    Transactions {
+        transactions: Vec<TxEntry>,
+        dao: Byte32,
+    },
 }
 
 impl BlockTemplateDraft {
@@ -129,7 +152,33 @@ impl BlockTemplateDraft {
 }
 
 impl BlockTemplateBuilder {
-    pub(crate) fn from_template(template: &BlockTemplate) -> Self {
+    pub(crate) fn for_update(template: &BlockTemplate, update: TemplateContentUpdate) -> Self {
+        let (uncles, transactions, proposals, dao) = match update {
+            TemplateContentUpdate::Full {
+                uncles,
+                transactions,
+                proposals,
+                dao,
+            } => (uncles, transactions, proposals, dao),
+            TemplateContentUpdate::Uncles { uncles } => (
+                uncles,
+                template.transactions.clone(),
+                template.proposals.clone(),
+                template.dao.clone(),
+            ),
+            TemplateContentUpdate::Proposals { uncles, proposals } => (
+                uncles,
+                template.transactions.clone(),
+                proposals,
+                template.dao.clone(),
+            ),
+            TemplateContentUpdate::Transactions { transactions, dao } => (
+                template.uncles.clone(),
+                transactions,
+                template.proposals.clone(),
+                dao,
+            ),
+        };
         Self {
             parts: TemplateParts {
                 version: template.version,
@@ -141,39 +190,19 @@ impl BlockTemplateBuilder {
                 bytes_limit: template.bytes_limit,
                 uncles_count_limit: template.uncles_count_limit,
                 extension: template.extension.clone(),
-                uncles: template.uncles.clone(),
-                transactions: template.transactions.clone(),
-                proposals: template.proposals.clone(),
+                uncles,
+                transactions,
+                proposals,
             },
             cellbase: template.cellbase.clone(),
             work_id: template.work_id,
-            dao: template.dao.clone(),
+            dao,
             current_time: template.current_time,
         }
     }
 
-    pub(crate) fn set_uncles(&mut self, uncles: Vec<UncleBlockView>) -> &mut Self {
-        self.parts.uncles = uncles;
-        self
-    }
-
-    pub(crate) fn set_transactions(&mut self, transactions: Vec<TxEntry>) -> &mut Self {
-        self.parts.transactions = transactions;
-        self
-    }
-
-    pub(crate) fn set_proposals(&mut self, proposals: Vec<ProposalShortId>) -> &mut Self {
-        self.parts.proposals = proposals;
-        self
-    }
-
     pub(crate) fn work_id(&mut self, work_id: u64) -> &mut Self {
         self.work_id = work_id;
-        self
-    }
-
-    pub(crate) fn dao(&mut self, dao: Byte32) -> &mut Self {
-        self.dao = dao;
         self
     }
 

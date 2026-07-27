@@ -58,7 +58,6 @@ impl TemplateSize {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct CurrentTemplate {
     pub(crate) template: BlockTemplate,
     pub(crate) size: TemplateSize,
@@ -69,4 +68,24 @@ pub(crate) struct CurrentTemplate {
     /// with a counter from another publication.
     pub(crate) revision: TemplateRevision,
     pub(crate) reset_epoch: ResetEpoch,
+}
+
+impl CurrentTemplate {
+    /// Build unpublished content for the same chain snapshot and reset
+    /// generation. Publication assigns the successor revision and rechecks
+    /// the appropriate OCC token.
+    ///
+    /// `CurrentTemplate` deliberately does not implement `Clone`: copying it
+    /// would also deep-clone every transaction, proposal, and uncle only for
+    /// callers to replace that template immediately.
+    pub(crate) fn with_content(&self, template: BlockTemplate, size: TemplateSize) -> Self {
+        Self {
+            template,
+            size,
+            snapshot: Arc::clone(&self.snapshot),
+            epoch: self.epoch.clone(),
+            revision: self.revision,
+            reset_epoch: self.reset_epoch,
+        }
+    }
 }

@@ -378,8 +378,22 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
             .insert(stale_candidate.clone())
     );
 
-    let mut partial = (*original).clone();
-    partial.template.current_time = 11;
+    let at_time = |current: &super::CurrentTemplate, current_time| {
+        let template = &current.template;
+        let mut builder = super::BlockTemplateBuilder::for_update(
+            template,
+            super::builder::TemplateContentUpdate::Full {
+                uncles: template.uncles.clone(),
+                transactions: template.transactions.clone(),
+                proposals: template.proposals.clone(),
+                dao: template.dao.clone(),
+            },
+        );
+        builder.current_time(current_time);
+        current.with_content(builder.build(), current.size)
+    };
+
+    let partial = at_time(&original, 11);
     assert!(
         assembler
             .try_publish_partial(partial, original.revision, Vec::new())
@@ -387,8 +401,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
             .unwrap()
     );
 
-    let mut full = (*original).clone();
-    full.template.current_time = 22;
+    let full = at_time(&original, 22);
     assert!(
         assembler
             .try_publish_full(full, original.reset_epoch, Vec::new())
@@ -398,8 +411,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     );
     assert_eq!(assembler.current.read().await.template.current_time, 22);
 
-    let mut stale_partial = (*original).clone();
-    stale_partial.template.current_time = 33;
+    let stale_partial = at_time(&original, 33);
     assert!(
         !assembler
             .try_publish_partial(stale_partial, original.revision, Vec::new())
@@ -414,16 +426,14 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     // must not cross it; a rebuild captured afterwards remains authoritative.
     let reset = {
         let mut guard = assembler.current.write().await;
-        let mut reset = (**guard).clone();
-        reset.template.current_time = 44;
+        let mut reset = at_time(guard.as_ref(), 44);
         reset.revision = guard.revision.next().unwrap();
         reset.reset_epoch = guard.reset_epoch.next().unwrap();
         *guard = Arc::new(reset);
         guard.clone()
     };
 
-    let mut pre_reset_full = (*original).clone();
-    pre_reset_full.template.current_time = 55;
+    let pre_reset_full = at_time(&original, 55);
     assert!(
         !assembler
             .try_publish_full(
@@ -441,8 +451,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
         "a rejected full plan cannot apply its candidate-cache cleanup"
     );
 
-    let mut post_reset_full = (*reset).clone();
-    post_reset_full.template.current_time = 66;
+    let post_reset_full = at_time(&reset, 66);
     assert!(
         assembler
             .try_publish_full(
