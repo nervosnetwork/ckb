@@ -22,7 +22,7 @@ python3 tx-pool/scripts/benchmark.py --quick
 # focused quick diagnosis (one matching scenario family)
 python3 tx-pool/scripts/benchmark.py --quick --filter always_success_100
 
-# preferred quick A/B: alternate adjacent baseline/candidate runs
+# preferred quick A/B: pair each exact scenario adjacently
 python3 tx-pool/scripts/benchmark.py --quick --runs 4 \
   --filter always_success_100 \
   --baseline-worktree /tmp/ckb-txpool-bench-baseline \
@@ -91,13 +91,17 @@ acceptance evidence. Strict records must also come from clean tracked trees,
 so the exact measured source can be reconstructed from `git_commit` (untracked
 local notes do not invalidate a run).
 
-`--baseline-worktree` is the preferred quick comparison mode. It runs each
-baseline/candidate pair adjacently and reverses their order on every second
-pair, reducing systematic thermal or host-load bias. A strict paired gate
+`--baseline-worktree` is the preferred quick comparison mode. After listing
+and verifying that both binaries expose the same selected matrix, it invokes
+one exact scenario at a time: baseline/candidate measurements for that
+scenario are adjacent instead of separated by an entire matrix. It reverses
+both side order and scenario order on every second repetition. This prevents a
+slow host-frequency drift from being misclassified as a code delta and avoids
+giving any revision or scenario a privileged time slot. A strict paired gate
 therefore requires an even repetition count of at least four; an odd number
-would give one revision more first-run slots. Paired mode evaluates the
-median of each adjacent candidate/baseline ratio and bounds every ratio's
-relative deviation from that median; it does not double-count symmetric
+would give one revision more first-run slots. Paired mode evaluates the median
+of each adjacent candidate/baseline ratio and bounds every ratio's relative
+deviation from that median; it does not double-count symmetric
 above/below-median movement as a max-minus-min range. Each worktree still uses
 its isolated Cargo target, and both records retain independent commit/dirty
 metadata plus the common harness fingerprint.

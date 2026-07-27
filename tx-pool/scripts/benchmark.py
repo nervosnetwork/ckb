@@ -322,6 +322,7 @@ def run_benchmark_binary(
     prepared: Dict[str, str],
     label: str = "",
     preflight: bool = False,
+    benchmark_filter: Optional[str] = None,
 ) -> str:
     executable = Path(prepared["path"])
     if not executable.is_file():
@@ -337,8 +338,11 @@ def run_benchmark_binary(
         "--color",
         "never",
     ]
-    if ARGS.benchmark_filter:
-        cmd.append(ARGS.benchmark_filter)
+    effective_filter = (
+        ARGS.benchmark_filter if benchmark_filter is None else benchmark_filter
+    )
+    if effective_filter:
+        cmd.append(effective_filter)
     phase = "preflight" if preflight else f"run {run}/{ARGS.runs}"
     print(
         f"\n>>> {label + ' ' if label else ''}{phase}: "
@@ -378,6 +382,41 @@ def preflight_benchmark_binary(
     workspace_root: Path, prepared: Dict[str, str], label: str = ""
 ) -> None:
     run_benchmark_binary(0, workspace_root, prepared, label, preflight=True)
+
+
+def list_benchmark_scenarios(
+    workspace_root: Path, prepared: Dict[str, str], label: str
+) -> List[str]:
+    executable = Path(prepared["path"])
+    cmd = [str(executable), "--list", "--bench"]
+    if ARGS.benchmark_filter:
+        cmd.append(ARGS.benchmark_filter)
+    completed = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=benchmark_environment(workspace_root),
+        cwd=workspace_root,
+    )
+    if completed.returncode != 0:
+        print(completed.stdout, file=sys.stderr, end="")
+        raise RuntimeError(f"failed to list {label} benchmark scenarios")
+
+    suffix = ": benchmark"
+    scenarios = []
+    for line in completed.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.endswith(suffix):
+            scenarios.append(stripped[: -len(suffix)])
+    if not scenarios:
+        raise RuntimeError(f"{label} benchmark filter selected no scenarios")
+    if len(scenarios) != len(set(scenarios)):
+        raise RuntimeError(f"{label} benchmark listed duplicate scenarios")
+    unsupported = [scenario for scenario in scenarios if not NAME_RE.match(scenario)]
+    if unsupported:
+        raise RuntimeError(f"{label} benchmark listed unsupported scenarios: {unsupported}")
+    return scenarios
 
 
 TIME_RE = re.compile(
@@ -829,6 +868,17 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
     # this keeps compilation heat outside either side of an A/B pair.
     baseline_binary = prepare_benchmark_binary(baseline_root, "baseline")
     candidate_binary = prepare_benchmark_binary(WORKSPACE_ROOT, "candidate")
+    baseline_scenarios = list_benchmark_scenarios(
+        baseline_root, baseline_binary, "baseline"
+    )
+    candidate_scenarios = list_benchmark_scenarios(
+        WORKSPACE_ROOT, candidate_binary, "candidate"
+    )
+    if baseline_scenarios != candidate_scenarios:
+        raise RuntimeError(
+            "baseline and candidate benchmark scenario lists differ: "
+            f"{baseline_scenarios!r} != {candidate_scenarios!r}"
+        )
     # The recorded schedule starts with baseline. Warm the candidate first and
     # baseline second so both executable/code paths are resident without giving
     # the first measured side a uniquely cold VM path.
@@ -839,19 +889,45 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
     baseline_runs: List[Dict[ResultKey, Result]] = []
     candidate_runs: List[Dict[ResultKey, Result]] = []
     for run in range(1, ARGS.runs + 1):
-        pair = [
-            ("baseline", baseline_root, baseline_runs),
-            ("candidate", WORKSPACE_ROOT, candidate_runs),
-        ]
-        # Alternate which side runs first so steady thermal/load drift cannot
-        # systematically favor one checkout across repeated pairs.
+        baseline_run: Dict[ResultKey, Result] = {}
+        candidate_run: Dict[ResultKey, Result] = {}
+        scenarios = list(baseline_scenarios)
         if run % 2 == 0:
-            pair.reverse()
-        for label, root, destination in pair:
-            prepared = baseline_binary if label == "baseline" else candidate_binary
-            destination.append(
-                parse_output(run_benchmark_binary(run, root, prepared, label))
-            )
+            scenarios.reverse()
+        for scenario in scenarios:
+            pair = [
+                ("baseline", baseline_root, baseline_binary, baseline_run),
+                ("candidate", WORKSPACE_ROOT, candidate_binary, candidate_run),
+            ]
+            # Keep both measurements of the exact scenario adjacent. Running
+            # an entire matrix per side leaves corresponding samples roughly
+            # one matrix apart and aliases host-frequency drift into the code
+            # delta. Reverse side and scenario order on alternate repetitions
+            # so neither revision or scenario owns a privileged time slot.
+            if run % 2 == 0:
+                pair.reverse()
+            for label, root, prepared, destination in pair:
+                result = parse_output(
+                    run_benchmark_binary(
+                        run,
+                        root,
+                        prepared,
+                        label,
+                        benchmark_filter=scenario,
+                    )
+                )
+                if len(result) != 1:
+                    raise RuntimeError(
+                        f"exact benchmark scenario selected {len(result)} results: "
+                        f"{scenario}"
+                    )
+                duplicate = destination.keys() & result.keys()
+                if duplicate:
+                    names = ", ".join(sorted(format_key(key) for key in duplicate))
+                    raise RuntimeError(f"duplicate paired benchmark result: {names}")
+                destination.update(result)
+        baseline_runs.append(baseline_run)
+        candidate_runs.append(candidate_run)
     verify_prepared_binary(baseline_binary, "baseline")
     verify_prepared_binary(candidate_binary, "candidate")
 
@@ -877,6 +953,8 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
         }
     baseline_record["paired_execution"] = True
     candidate_record["paired_execution"] = True
+    baseline_record["paired_schedule"] = "scenario-adjacent-alternating-v1"
+    candidate_record["paired_schedule"] = "scenario-adjacent-alternating-v1"
     candidate_record["paired_ratio_samples"] = {
         format_key(key): values for key, values in paired_samples.items()
     }
