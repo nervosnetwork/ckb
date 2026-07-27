@@ -67,11 +67,15 @@ fingerprint of the Python runner and Rust benchmark harness.
 
 Both builds disable incremental compilation and remap their distinct worktree
 roots to the same logical source prefix. This keeps checkout paths from
-perturbing generated-code identity/layout. The normalized effective Rust flags
-are recorded and must match across a strict comparison. The runner also binds
-the comparison to the same Rust/Cargo/Python versions, logical CPU count,
-`Cargo.lock`, and workspace manifest (including the bench profile). Missing
-command metadata is an error, not an `unknown == unknown` match.
+perturbing source-derived generated-code identity/layout. Rust dependencies may
+still embed compile-time `CARGO_MANIFEST_DIR` strings, which remapping cannot
+rewrite, so strict A/B also requires baseline and candidate worktree paths to
+have the same byte length. Use equally sized names such as `/tmp/txpool-base`
+and `/tmp/txpool-cand`. The normalized effective Rust flags are recorded and
+must match across a strict comparison. The runner also binds the comparison to
+the same Rust/Cargo/Python versions, logical CPU count, `Cargo.lock`, and
+workspace manifest (including the bench profile). Missing command metadata is
+an error, not an `unknown == unknown` match.
 
 Criterion's own implicit on-disk baseline and plot generation are disabled by
 the runner, and every process receives an empty temporary `CRITERION_HOME`.
@@ -82,7 +86,7 @@ output, while rendering reports adds CPU work between scenarios.
 Every report includes the max-min throughput spread across complete runs. With
 `--fail-on-regression`, either side exceeding
 `--max-run-spread-percent` is rejected as an invalid/noisy measurement rather
-than mislabeled as a code regression. Quick diagnostics default to an 8% spread
+than mislabeled as a code regression. Quick diagnostics default to a 4% spread
 ceiling and a 2% regression threshold; medium/full retain the 5% spread ceiling
 and strict 0% architectural gate. `--filter` runs only matching benchmark IDs,
 which is useful for a fast follow-up on a suspicious workload. Quick remains a

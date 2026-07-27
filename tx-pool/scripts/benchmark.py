@@ -107,7 +107,7 @@ def parse_args() -> argparse.Namespace:
             "maximum allowed throughput noise across repetitions (max-min "
             "spread for independent records; maximum deviation from the "
             "median ratio for paired records); a noisier record is invalid "
-            "for --fail-on-regression (default: 8 for quick diagnostics, "
+            "for --fail-on-regression (default: 4 for quick diagnostics, "
             "5 for medium/full)"
         ),
     )
@@ -146,7 +146,7 @@ def parse_args() -> argparse.Namespace:
     if args.regression_threshold_percent is None:
         args.regression_threshold_percent = 2.0 if args.quick else 0.0
     if args.max_run_spread_percent is None:
-        args.max_run_spread_percent = 8.0 if args.quick else 5.0
+        args.max_run_spread_percent = 4.0 if args.quick else 5.0
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.regression_threshold_percent < 0:
@@ -557,6 +557,10 @@ def environment_metadata(
         "machine": platform.machine(),
         "python": platform.python_version(),
         "cpu_count": os.cpu_count(),
+        # Compile-time CARGO_MANIFEST_DIR strings are not rewritten by
+        # --remap-path-prefix. Equal byte lengths keep those unavoidable path
+        # differences from shifting native code/data layout between revisions.
+        "source_root_bytes": len(os.fsencode(workspace_root)),
         "cargo_lock_sha256": source_file_sha256(workspace_root, "Cargo.lock"),
         "workspace_manifest_sha256": source_file_sha256(workspace_root, "Cargo.toml"),
         "benchmark_harness_sha256": files_sha256(
@@ -723,6 +727,7 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         "machine",
         "python",
         "cpu_count",
+        "source_root_bytes",
         "cargo_lock_sha256",
         "workspace_manifest_sha256",
         "benchmark_harness_sha256",
