@@ -224,6 +224,13 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def source_file_sha256(workspace_root: Path, relative: str) -> str:
+    path = workspace_root / relative
+    if not path.is_file():
+        raise RuntimeError(f"benchmark fingerprint input is missing: {path}")
+    return file_sha256(path)
+
+
 def prepare_benchmark_binary(workspace_root: Path, label: str = "") -> Dict[str, str]:
     cmd = [
         "cargo",
@@ -488,9 +495,13 @@ def environment_metadata(
             workspace_root,
         ),
         "rustc": command_output(["rustc", "--version", "--verbose"]),
+        "cargo": command_output(["cargo", "--version"]),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python": platform.python_version(),
+        "cpu_count": os.cpu_count(),
+        "cargo_lock_sha256": source_file_sha256(workspace_root, "Cargo.lock"),
+        "workspace_manifest_sha256": source_file_sha256(workspace_root, "Cargo.toml"),
         "benchmark_harness_sha256": files_sha256(
             harness_files(workspace_root), workspace_root
         ),
@@ -650,8 +661,13 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
     mismatches = []
     for field in (
         "rustc",
+        "cargo",
         "platform",
         "machine",
+        "python",
+        "cpu_count",
+        "cargo_lock_sha256",
+        "workspace_manifest_sha256",
         "benchmark_harness_sha256",
         "benchmark_build_fingerprint",
         "cooldown_seconds",
@@ -660,6 +676,8 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
             mismatches.append(
                 f"{field}: {baseline.get(field)!r} != {current.get(field)!r}"
             )
+        elif baseline.get(field) in (None, "", "unknown"):
+            mismatches.append(f"{field}: unavailable on both sides")
     if mismatches:
         raise RuntimeError(
             "benchmark environment differs; record a new same-host baseline: "
@@ -668,6 +686,8 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
 
     if ARGS.fail_on_regression:
         for label, record in (("baseline", baseline), ("candidate", current)):
+            if record.get("git_commit") in (None, "", "unknown"):
+                raise RuntimeError(f"{label} benchmark has no reproducible git commit")
             tracked_changes = record.get("git_tracked_changes", "unknown")
             if tracked_changes != "":
                 raise RuntimeError(

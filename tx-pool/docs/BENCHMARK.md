@@ -64,7 +64,10 @@ fingerprint of the Python runner and Rust benchmark harness.
 Both builds disable incremental compilation and remap their distinct worktree
 roots to the same logical source prefix. This keeps checkout paths from
 perturbing generated-code identity/layout. The normalized effective Rust flags
-are recorded and must match across a strict comparison.
+are recorded and must match across a strict comparison. The runner also binds
+the comparison to the same Rust/Cargo/Python versions, logical CPU count,
+`Cargo.lock`, and workspace manifest (including the bench profile). Missing
+command metadata is an error, not an `unknown == unknown` match.
 
 Criterion's own implicit on-disk baseline and plot generation are disabled by
 the runner, and every process receives an empty temporary `CRITERION_HOME`.
@@ -173,10 +176,11 @@ Dependent chains are measured in both directions because they exercise different
 
 ### Resource lifecycle
 
-- All workload fixtures share one eight-thread Tokio executor and dummy network
-  handle. Their genesis stores/snapshots remain isolated, and every measured
-  service remains fresh. This avoids parking four independent eight-thread
-  runtimes in the same benchmark process.
+- All workload fixtures share one Tokio executor and dummy network handle. The
+  executor uses the host's available parallelism, matching the production
+  runtime default; its value is part of the comparison fingerprint. Genesis
+  stores/snapshots remain isolated, and every measured service remains fresh.
+  This avoids parking four independent runtimes in the same benchmark process.
 - `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
 - Before returning a new controller to Criterion, setup completes one dispatcher round-trip and a short Tokio scheduling interval. This keeps freshly spawned worker startup latency outside the measured transaction batch without warming the verification cache or pool.
 - `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration. A teardown timeout or task panic fails the benchmark instead of silently admitting a contaminated sample.
@@ -196,6 +200,12 @@ Measured completion is event-driven: the pending callback increments an atomic c
 distinct `PeerIndex`. It is not merely a task-concurrency multiplier, so medium
 and full runs exercise the per-peer scheduler and budget boundaries they claim
 to cover.
+
+Dependent-chain latency includes a fixed notify → resolve → verify → commit →
+journal → callback path. That fixed cost can dilute the percentage impact of a
+change isolated to one stage. Review both the absolute median times in the A/B
+summaries and the paired ratios; do not interpret a ratio near one as proof
+that an individual stage is unchanged.
 
 ## Output format
 

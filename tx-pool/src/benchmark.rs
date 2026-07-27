@@ -187,8 +187,12 @@ struct BenchExecutor {
 
 impl BenchExecutor {
     fn new() -> Self {
+        // Match the production runtime default. This matters on hosts whose
+        // available parallelism differs from the quick matrix's eight verify
+        // workers, especially because script verification uses block_in_place.
+        let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
         let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(8)
+            .worker_threads(runtime_threads)
             .enable_all()
             .build()
             .expect("build tokio runtime");
