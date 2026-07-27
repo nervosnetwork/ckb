@@ -319,8 +319,12 @@ async fn proposal_ready_commit_uses_trusted_effect_headroom() {
     let mut chunk_rx = h.chunk_rx.clone();
     tokio::time::timeout(
         Duration::from_secs(2),
-        h.service
-            .process_pipeline_verify_lease(verify, &mut chunk_rx),
+        async {
+            h.service
+                .process_pipeline_verify_lease(verify, &mut chunk_rx)
+                .await;
+            assert!(h.service.drive_pipeline_commits().await);
+        },
     )
     .await
     .expect("trusted Ready admission must not wait on the full Remote region");
@@ -565,6 +569,17 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
+    let ready_source = h
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.begin_next_commit().unwrap().unwrap().payload.candidate.source);
+    assert_eq!(
+        ready_source,
+        TxSource::Proposal,
+        "verification completion must bind Ready to the source owned by its atomic transition"
+    );
+    assert!(h.service.drive_pipeline_commits().await);
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
         loop {
             if let Ok(result) = h.relay_rx.try_recv() {
@@ -1342,6 +1357,7 @@ async fn proposal_witness_variant_replaces_remote_payload_at_authoritative_hando
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
+    assert!(h.service.drive_pipeline_commits().await);
 
     let resident = h
         .service

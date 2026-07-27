@@ -3,7 +3,7 @@ use crate::component::entry::TxEntry;
 use crate::component::pre_pool::PipelineVerifiedTx;
 use crate::component::pre_pool::{
     DependencyKey, PrePoolError, PrePoolFault, PrePoolPublicError, PrePoolRejection, PrePoolSource,
-    VerifyLease, WorkCapability, WorkLane,
+    VerifyLease, WorkCapability,
 };
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
@@ -134,7 +134,7 @@ impl TxPoolService {
         // consensus cap. Without this edge, a bad remote declaration can make
         // a concurrent local/proposal promotion fail even though the promoted
         // transaction is valid.
-        let mut verified = match first {
+        let verified = match first {
             Ok(verified) => verified,
             Err(first_reject) => {
                 let promoted = if source.peer().is_some() {
@@ -182,20 +182,6 @@ impl TxPoolService {
                 }
             }
         };
-
-        // Source promotion is allowed while verification is active. Bind
-        // the completed payload to the current kernel source rather
-        // than the worker's checkout snapshot.
-        let final_authority = self.pipeline.kernel.read(|kernel| {
-            kernel
-                .source_by_hash(&lease.hash)
-                .zip(kernel.raw_by_hash(&lease.hash))
-        });
-        let Some((current_source, raw)) = final_authority else {
-            return;
-        };
-        let final_source = raw.authoritative_source(current_source);
-        verified.candidate.source = final_source;
 
         let entry = TxEntry::new_with_resident_size(
             Arc::clone(&verified.candidate.rtx),
@@ -257,14 +243,11 @@ impl TxPoolService {
             .kernel
             .mutate_authoritative(|kernel| kernel.complete_verify(&lease, verified, charge_bytes))
         {
-            // Eagerly drain the candidate produced by this verify task.
-            // The dedicated commit consumer is still the level-triggered
-            // liveness path for eligibility created by every other
-            // transition. Competing drivers are ordered by the accepted-pool
-            // write boundary and select their ticket inside the kernel Apply.
-            Ok(_version) => {
-                self.drive_pipeline_commits().await;
-            }
+            // Ready is level-triggered. The single commit worker is its only
+            // consumer, so verify tasks do not contend on the accepted-pool
+            // write boundary merely to discover that another driver drained
+            // the queue first.
+            Ok(_version) => {}
             Err(PrePoolError::Stale(_)) => {}
             Err(PrePoolError::Public(error)) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
@@ -290,13 +273,6 @@ impl JobHandler for VerifyHandler {
 
     fn worker_name(&self) -> &'static str {
         "verify worker"
-    }
-
-    async fn is_queue_empty(&self) -> bool {
-        self.service
-            .pipeline
-            .kernel
-            .queue_is_empty(WorkLane::Verify)
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {

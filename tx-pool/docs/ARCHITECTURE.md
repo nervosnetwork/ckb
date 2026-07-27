@@ -244,6 +244,10 @@ Derived projections own no transaction payload:
   original ingress used for administrative revocation.
 - Proposal is trusted and may promote the same-witness Remote entry or replace
   its payload with a trusted witness variant.
+- Verification workers never publish a separately sampled source. The
+  `VerifyLeased -> Ready` transition derives the payload source from the same
+  stored entry and version it replaces, so promotion and Ready publication
+  have one linearization point.
 - Recovery is trusted detached-chain input and enters the ordinary resolve
   lifecycle parent-first.
 - Local never enters the pre-pool. It validates synchronously, commits under
@@ -761,6 +765,8 @@ Correctness structure is also the intended performance structure:
 - heap-backed cohort planning only for bounded multi-entry changes;
 - move-only Apply; no cloned old-entry snapshot/undo journal;
 - one serialized commit driver instead of competing commit owners;
+- worker checkout itself proves whether a level-triggered queue is empty;
+  there is no separate check-then-pop lock pair;
 - accepted reads remain behind the existing `RwLock`, not a global actor;
 - no foreign/mutable I/O or payload destruction under authority locks;
 - same-tip resolved chain provenance removes normal duplicate liveness reads;

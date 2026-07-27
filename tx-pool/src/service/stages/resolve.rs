@@ -2,7 +2,7 @@
 
 use super::runner::{JobHandler, WorkerRunner};
 use crate::component::pre_pool::{
-    DependencyKey, PrePoolError, PrePoolFault, ResolveLane, ResolveLease, VerifySchedule, WorkLane,
+    DependencyKey, PrePoolError, PrePoolFault, ResolveLane, ResolveLease, VerifySchedule,
 };
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
@@ -189,13 +189,6 @@ impl JobHandler for ResolveHandler {
 
     fn worker_name(&self) -> &'static str {
         "ordered resolver"
-    }
-
-    async fn is_queue_empty(&self) -> bool {
-        self.service
-            .pipeline
-            .kernel
-            .queue_is_empty(WorkLane::Resolve)
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {

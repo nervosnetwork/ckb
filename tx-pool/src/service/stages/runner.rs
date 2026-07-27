@@ -24,9 +24,6 @@ pub(crate) trait JobHandler: Clone + Send + Sync + 'static {
     /// Human-readable name used only for debug logging.
     fn worker_name(&self) -> &'static str;
 
-    /// Cheap check to avoid locking the queue when it is empty.
-    fn is_queue_empty(&self) -> impl Future<Output = bool> + Send;
-
     /// Subscribe to the queue's readiness notification.
     fn queue_ready(&self) -> impl Future<Output = Arc<Notify>> + Send;
 
@@ -122,13 +119,6 @@ impl<H: JobHandler> WorkerRunner<H> {
         loop {
             if self.exit_signal.is_cancelled() {
                 debug!("{} process_loop cancelled", self.handler.worker_name());
-                return;
-            }
-            self.refresh_status();
-            if self.status != ChunkCommand::Resume {
-                return;
-            }
-            if self.handler.is_queue_empty().await {
                 return;
             }
             self.refresh_status();

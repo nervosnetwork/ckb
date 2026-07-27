@@ -1393,7 +1393,7 @@ impl PrePoolKernel {
     pub(crate) fn complete_verify(
         &mut self,
         lease: &VerifyLease,
-        verified: PipelineVerifiedTx,
+        mut verified: PipelineVerifiedTx,
         charge_bytes: usize,
     ) -> Result<EntryVersion, PrePoolError> {
         let mut next = self
@@ -1416,6 +1416,11 @@ impl PrePoolKernel {
         if inputs.is_empty() || verified.candidate.tx_size == 0 {
             return Err(PrePoolError::ZeroTransactionSize(lease.hash.clone()));
         }
+        // Promotion may race with verification, but Ready is published only
+        // by this transition. Bind the payload to the source owned by this
+        // exact version instead of relying on a separate, immediately stale
+        // read in the worker.
+        verified.candidate.source = next.raw.authoritative_source(next.source);
         let inputs = ReadyInputs::new(inputs, self.limits.max_inputs_per_ready)?;
         let mut version_cursor = self.next_version;
         let version = EntryVersion::take(&mut version_cursor)?;

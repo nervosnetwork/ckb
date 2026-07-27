@@ -408,13 +408,11 @@ impl TxPoolService {
         }
     }
 
-    /// Drain a bounded ordered slice of verified pre-pool work. Every step
-    /// selects its Ready ticket inside the same `TxPool -> PrePoolKernel`
-    /// critical section that validates and applies it. Multiple eager drivers
-    /// may therefore race safely without a separate cross-await serial guard;
-    /// the accepted-pool write boundary orders them, while journal
-    /// backpressure holds no state authority. Returns false only after journal
-    /// shutdown or a structural fault.
+    /// Drain a bounded ordered slice of verified pre-pool work. The one commit
+    /// worker selects each Ready ticket inside the same
+    /// `TxPool -> PrePoolKernel` critical section that validates and applies
+    /// it. Journal backpressure holds no state authority. Returns false only
+    /// after journal shutdown or a structural fault.
     pub(crate) async fn drive_pipeline_commits(&self) -> bool {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
         for _ in 0..MAX_COMMITS_PER_DRIVE {
@@ -472,8 +470,8 @@ impl TxPoolService {
 
         let attempt = self.pipeline.kernel.mutate_authoritative(|kernel| {
             // Selecting and consuming the ticket under one kernel borrow is
-            // the complete proof that expiry or another eager driver cannot
-            // invalidate it between observation and Apply.
+            // the complete proof that expiry cannot invalidate it between
+            // observation and Apply.
             let Some(lease) = kernel
                 .begin_next_commit()
                 .map_err(PrePoolError::into_unexpected_fault)

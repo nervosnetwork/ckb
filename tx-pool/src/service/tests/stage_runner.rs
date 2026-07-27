@@ -10,10 +10,6 @@ impl JobHandler for NoopHandler {
         "noop"
     }
 
-    fn is_queue_empty(&self) -> impl Future<Output = bool> + Send {
-        std::future::ready(true)
-    }
-
     fn queue_ready(&self) -> impl Future<Output = Arc<Notify>> + Send {
         std::future::ready(Arc::new(Notify::new()))
     }
