@@ -350,6 +350,12 @@ def run_benchmark_binary(
         flush=True,
     )
     lines: List[str] = []
+    # Rendering Criterion's per-sample log can itself consume substantial CPU
+    # in CI log collectors and desktop terminals. Paired mode already prints
+    # one progress marker per exact scenario and a final parsed summary, so
+    # retain raw output for parsing/failures without perturbing the measured
+    # host through the presentation path.
+    stream_output = not preflight and not ARGS.baseline_worktree
     # Criterion compares against an existing `base` directory even when asked
     # not to save the current run. An empty per-invocation home prevents stale
     # historical samples from leaking into this runner's paired A/B output.
@@ -365,12 +371,12 @@ def run_benchmark_binary(
         if proc.stdout is None:
             raise RuntimeError("benchmark process stdout pipe was not created")
         for line in proc.stdout:
-            if not preflight:
+            if stream_output:
                 print(line, end="", flush=True)
             lines.append(line)
         proc.wait()
     if proc.returncode != 0:
-        if preflight:
+        if not stream_output:
             print("".join(lines), file=sys.stderr, end="")
         raise RuntimeError(
             f"benchmark binary failed during {'preflight' if preflight else f'repetition {run}'}"

@@ -47,7 +47,16 @@ python3 tx-pool/scripts/benchmark.py --runs 3 \
   --fail-on-regression
 ```
 
-The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), aggregates repeated runs by median, records the commit/dirty state/toolchain/platform and raw run medians in JSON, and can enforce the architecture's strict non-regression gate. A failing gate requires the baseline and candidate to come from the same recorded host/toolchain and to use the same repetition count of at least three; a one-run smoke record is never accepted as one side of a release decision.
+The script streams progress for independent/manual runs, aggregates repeated
+runs by median, records the commit/dirty state/toolchain/platform and raw run
+medians in JSON, and can enforce the architecture's strict non-regression gate.
+Paired A/B prints one marker per exact scenario and the final summaries but
+keeps Criterion's verbose sample log off the terminal/UI; rendering that log
+can otherwise compete with the measured workers. Raw output is retained in
+memory for parsing and is printed if a benchmark process fails. A failing gate
+requires the baseline and candidate to come from the same recorded
+host/toolchain and to use the same repetition count of at least three; a
+one-run smoke record is never accepted as one side of a release decision.
 `--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
 
 Each checkout builds exactly once into its own
