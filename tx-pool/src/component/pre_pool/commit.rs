@@ -153,14 +153,14 @@ impl PrePoolKernel {
         unavailable_parents: &HashSet<Byte32>,
         losers: &BTreeSet<Byte32>,
         winner: &Byte32,
-        retain_conflicts: bool,
+        disposition: ConflictDisposition,
     ) -> Result<CommitHandoffDesired, PrePoolError> {
         // Conflict-history retention keeps a loser executable, so its
         // children remain valid waiters. The capacity fallback terminalizes
         // losers instead; only then are their produced outputs definitive
         // dependency losses. Build that expanded set exclusively on the rare
         // fallback path so the normal Ready hot path adds no clone or scan.
-        let terminal_unavailable = (!retain_conflicts).then(|| {
+        let terminal_unavailable = (!disposition.retains()).then(|| {
             unavailable_parents
                 .iter()
                 .cloned()
@@ -174,7 +174,7 @@ impl PrePoolKernel {
             desired.set_entry(entry);
         }
         for hash in losers {
-            if !retain_conflicts {
+            if !disposition.retains() {
                 desired.set_remove(hash.clone());
                 continue;
             }
@@ -223,6 +223,7 @@ impl PrePoolKernel {
             version: rank.version,
             rank,
             payload: Arc::clone(payload),
+            ingress_peer: entry.raw.ingress_peer(),
         }))
     }
 
@@ -273,7 +274,7 @@ impl PrePoolKernel {
     pub(crate) fn plan_failed_commit(
         &mut self,
         ticket: &CommitTicket,
-        retain_conflict: bool,
+        disposition: ConflictDisposition,
     ) -> Result<FailedCommitPlan<'_>, PrePoolError> {
         let entry = self.validate_commit(ticket)?;
         let record = TerminalRecord {
@@ -281,7 +282,7 @@ impl PrePoolKernel {
             raw: Arc::clone(&entry.raw),
             source: entry.source,
         };
-        if retain_conflict {
+        if disposition.retains() {
             let keys = Self::causal_keys(entry);
             let mut next = entry.clone().into_draft();
             let mut next_version = self.next_version;
@@ -329,12 +330,17 @@ impl PrePoolKernel {
             .limits
             .max_inputs_per_ready
             .checked_mul(self.limits.max_candidates_per_input)
-            .ok_or(PrePoolError::ResidencyChargeOverflow)?;
+            .ok_or(PrePoolError::InvalidConfiguration(
+                "ready conflict product bound overflows usize",
+            ))?;
         let mut losers = BTreeSet::new();
         for input in &winner_inputs {
             if let Some(candidates) = self.ready_by_input.get(input) {
                 for rank in candidates.iter().filter(|rank| rank.hash != ticket.hash) {
                     losers.insert(rank.hash.clone());
+                    if losers.len() > crate::constants::MAX_POOL_MUTATION_CANDIDATES {
+                        return Err(PrePoolError::CommitConflictCohortLimitExceeded);
+                    }
                     if losers.len() > max_losers {
                         return Err(PrePoolError::ProjectionInconsistent(
                             "ready conflict union exceeds its indexed product bound",
@@ -356,8 +362,12 @@ impl PrePoolKernel {
             });
         }
 
-        let (desired, version_cursor) =
-            self.commit_handoff_desired(unavailable_parents, &losers, &ticket.hash, true)?;
+        let (desired, version_cursor) = self.commit_handoff_desired(
+            unavailable_parents,
+            &losers,
+            &ticket.hash,
+            ConflictDisposition::Retain,
+        )?;
         let mut optional = desired;
         let mut optional_version = version_cursor;
         let mut optional_arrival = self.next_arrival;
@@ -372,8 +382,12 @@ impl PrePoolKernel {
         {
             Ok(cohort) => (cohort, false),
             Err(error) if error.is_optional_retention_rejection() => {
-                let (fallback, fallback_version) =
-                    self.commit_handoff_desired(unavailable_parents, &losers, &ticket.hash, false)?;
+                let (fallback, fallback_version) = self.commit_handoff_desired(
+                    unavailable_parents,
+                    &losers,
+                    &ticket.hash,
+                    ConflictDisposition::Terminalize,
+                )?;
                 (
                     self.compile_cohort(fallback, fallback_version, self.next_arrival)?,
                     true,

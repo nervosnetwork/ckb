@@ -631,16 +631,20 @@ impl Relayer {
     pub async fn send_bulk_of_tx_hashes(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         const BUFFER_SIZE: usize = 42;
 
-        let connected_peers = nc.full_relay_connected_peers();
-        if connected_peers.is_empty() {
-            return;
-        }
+        // Verification results are committed tx-pool effects, not merely a
+        // network-broadcast queue. Their Reject/GenerationReset/parent-wait
+        // projections must be consumed even while IBD or with no relay peer;
+        // only the optional hash broadcast is gated by network readiness.
+        let connected_peers = if self.shared.active_chain().is_initial_block_download() {
+            Vec::new()
+        } else {
+            nc.full_relay_connected_peers()
+        };
 
         let tx_verify_results = self
             .shared
             .state()
             .take_relay_tx_verify_results(MAX_RELAY_TXS_NUM_PER_BATCH);
-        let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
             for tx_verify_result in tx_verify_results {
                 match tx_verify_result {
@@ -648,33 +652,15 @@ impl Relayer {
                         original_peer,
                         tx_hash,
                     } => {
-                        for target in &connected_peers {
-                            match original_peer {
-                                Some(peer) => {
-                                    // broadcast tx hash to all connected peers except original peer
-                                    if peer != *target {
-                                        let hashes = selected
-                                            .entry(*target)
-                                            .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
-                                        hashes.push(tx_hash.clone());
-                                    }
-                                }
-                                None => {
-                                    // since this tx is submitted through local rpc, it is assumed to be a new tx for all connected peers
-                                    let hashes = selected
-                                        .entry(*target)
-                                        .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
-                                    hashes.push(tx_hash.clone());
-                                    self.shared.state().mark_as_known_tx(tx_hash.clone());
-                                }
-                            }
-                        }
+                        self.shared
+                            .state()
+                            .record_accepted_tx(tx_hash, original_peer);
                     }
                     TxVerificationResult::Reject { tx_hash } => {
-                        self.shared.state().remove_from_known_txs(&tx_hash);
+                        self.shared.state().reject_pending_relay_tx(&tx_hash);
                     }
                     TxVerificationResult::GenerationReset => {
-                        self.shared.state().reset_known_txs();
+                        self.shared.state().reset_tx_pool_relay_projection();
                     }
                     TxVerificationResult::UnknownParents { peer, parents } => {
                         let tx_hashes: Vec<_> = {
@@ -687,6 +673,24 @@ impl Relayer {
                         };
                         self.shared.state().add_ask_for_txs(peer, tx_hashes);
                     }
+                }
+            }
+        }
+        if connected_peers.is_empty() {
+            return;
+        }
+        let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
+        for (tx_hash, original_peer) in self
+            .shared
+            .state()
+            .take_pending_relay_txs(MAX_RELAY_TXS_NUM_PER_BATCH)
+        {
+            for target in &connected_peers {
+                if original_peer != Some(*target) {
+                    selected
+                        .entry(*target)
+                        .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE))
+                        .push(tx_hash.clone());
                 }
             }
         }
@@ -938,8 +942,10 @@ impl CKBProtocolHandler for Relayer {
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
-        // If self is in the IBD state, don't trigger any relayer notify.
-        if self.shared.active_chain().is_initial_block_download() {
+        // During IBD network relay stays disabled, but the committed tx-pool
+        // result stream must still update its local projections and drain its
+        // bounded sink.
+        if self.shared.active_chain().is_initial_block_download() && token != TX_HASHES_TOKEN {
             return;
         }
 

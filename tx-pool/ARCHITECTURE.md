@@ -150,8 +150,10 @@ Derived projections own no transaction payload:
 
 `PrePoolSource` is `Remote(peer)`, `Proposal`, or `Recovery`.
 
-- Remote retains immutable ingress and blame attribution, declared cycles,
-  remote/per-peer charge and expiry.
+- Remote retains immutable ingress attribution, current-payload blame,
+  declared cycles, remote/per-peer charge and expiry. Trusted same-hash source
+  promotion may change scheduling and payload blame, but cannot erase the
+  original ingress used for administrative revocation.
 - Proposal is trusted and may promote the same-witness Remote entry or replace
   its payload with a trusted witness variant.
 - Recovery is trusted detached-chain input and enters the ordinary resolve
@@ -251,6 +253,19 @@ A `CommitTicket` proves the selected entry's hash, version and rank. A later,
 stronger Ready entry does not invalidate an already selected exact ticket; the
 single commit driver settles it, then selects the new head. This avoids a legal
 arrival race becoming an invariant failure or livelock.
+
+The ticket also carries the immutable ingress peer captured from that exact
+Ready version. An expiring, non-evicting peer-ban marker is the revocation
+linearization point: new remote admission rechecks it immediately after taking
+kernel ownership, and Ready planning rechecks it before building the Accepted
+mutation. Marker cardinality is coupled to the network's existing unexpired
+ban set; a transaction-residency LRU is deliberately not used because unrelated
+newer bans could evict a live fence. The ban path itself removes the indexed
+ingress cohort in bounded prepared slices.
+Together these edges cover queued admission and Ready-commit races without a
+second lifecycle state. A commit already past the final fence remains valid
+Accepted state; permitting a later peer ban to roll it back would turn network
+administration into a valid-transaction deletion primitive.
 
 ### 7.3 Wait is level-triggered
 
@@ -401,7 +416,11 @@ Failed RBF does not remove and restore victims. A verified losing transaction
 may remain as bounded `Wait(Conflict)` history only after it has passed the
 higher fee gates. When its keys become available it returns through ordinary
 resolution and final RBF validation. Optional-history saturation terminalizes
-the loser rather than blocking the winning commit.
+the loser rather than blocking the winning commit. The cohort seal defines the
+event cut centrally: unchanged history observes a dependency-level advance,
+but a victim retained by that same Apply records the post-Apply level and
+cannot treat its own replacement release as a later wake event. This rule adds
+no lifecycle state or caller-maintained publication ordering.
 
 ## 13. Reorg, clear and persistence
 
@@ -434,8 +453,11 @@ the only proposal path of its recovered transactions for an epoch.
 
 Block assembler authority is intentionally asymmetric:
 
-- Reset and `update_full` serialize on the complete-template boundary;
+- Reset and `update_full` linearize at one complete-template publication
+  boundary while their construction remains concurrent;
 - `update_full` has highest priority;
+- `update_full` derives uncle content from the bounded candidate authority
+  rather than copying a reset template's transient blank projection;
 - uncle/proposal/transaction updates remain concurrent, optimistic versioned
   OCC deltas and may be skipped transiently;
 - every successful reset/full replacement re-dirties all three partial
@@ -510,6 +532,11 @@ Template state has two forms:
 - a full authoritative snapshot generation, updated by Reset/`update_full`;
 - coalesced uncle/proposal/transaction dirty generations applied concurrently
   and optimistically through version checks.
+
+Candidate-uncle retention is the input authority for both full and uncle-only
+plans. Preparation clones the bounded cache under a short synchronous lock;
+chain lookups and template construction run after that lock opens, and stale
+cleanup is committed only with the matching successful publication token.
 
 Candidate uncles are bounded at production limits (128 total, 10 per height)
 in both production and tests. An uncle is removed/rejected when it is on the
@@ -644,16 +671,19 @@ evidence history, not permission to retain obsolete mechanisms.
 - R4: explicit pool persistence is not a crash-durable transaction log.
 - R5: trusted controller batch length needs an upstream bound audit.
 - R6: final performance superiority is unproven until P7 checkpoint A/B.
-- R7: the P6.5 candidate passed the same complete unfiltered 150-spec
-  process-level integration universe in 884.185 seconds.
+- R7: the P6.5 candidate passed the complete unfiltered 150-spec managed
+  tx-pool-impact universe in 884.185 seconds and the repository-wide
+  unfiltered 177-spec process universe through plain `make integration` in
+  372.452 seconds.
 - R8: an operator-configured non-terminating block-template notify script has
   a timeout-bounded Rust task, but its child-process termination is not
   explicitly proven by the current command setup. This inherited operational
   boundary is outside transaction authority and remains O14 rather than a new
   scheduler/effect owner.
 
-The document validators, all `ckb-tx-pool` `nextest` tests and the complete
-150-spec integration impact universe pass for P6.5. No production release or
+The document validators, all 257 `ckb-tx-pool` `nextest` tests, the complete
+150-spec managed integration impact universe and the repository-wide 177-spec
+process universe pass for P6.5. No production release or
 performance-superiority claim is valid until the separately authorized P7
 performance gates pass. Findings that are low-value, incompatible or unproven
 must be recorded as residuals rather than hidden by another mechanism.

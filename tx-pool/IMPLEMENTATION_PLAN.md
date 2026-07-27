@@ -1,7 +1,7 @@
 # Tx-Pool Root-Cause Refactor — Live Execution Plan
 
 Design authority: [`ARCHITECTURE.md`](ARCHITECTURE.md)
-Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)  
+Independent audit: [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md)
 Review evidence: [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md)
 
 Status date: 2026-07-27
@@ -144,9 +144,11 @@ No checkpoint before P7 is a performance verdict.
   fails fast instead of continuing after an invariant panic.
 - Reorg authoritative mutation runs once; only compact derived template work
   remains retryable. Recovery is a trusted source in the six-state kernel.
-- Preserved block assembler semantics: Reset/update_full serialize on the full
-  template boundary, update_full has priority, and optimistic uncle/proposal/
-  transaction deltas remain concurrent, versioned and level-triggered.
+- Preserved block assembler semantics: Reset/update_full share one ordered full
+  publication boundary while construction remains concurrent, update_full has
+  priority and derives from the bounded candidate-uncle authority, and
+  optimistic uncle/proposal/transaction deltas remain concurrent, versioned
+  and level-triggered.
 
 ## 5. P4 — Complete: failure semantics and authority acceptance
 
@@ -471,7 +473,8 @@ owner, lifecycle state, rollback log, repair generation or hot-path lock:
 - Internal resolver/verifier/worker/publisher control flow returns typed
   outcomes. Production source is statically rejected for `assert*`, `expect`,
   `unwrap`, `panic!`, `unreachable!`, unchecked indexing/arithmetic and
-  `catch_unwind`; only genuinely foreign endpoint code is isolated.
+  `catch_unwind`, and `clippy::await_holding_lock` is denied; only genuinely
+  foreign endpoint code is isolated.
 - Callback, network-ban and recent-reject database effects share the exact
   production timeout and stable endpoint circuits. A hung foreign call cannot
   pin the sole journal head; circuit opening permits at most one detached
@@ -482,6 +485,10 @@ owner, lifecycle state, rollback log, repair generation or hot-path lock:
 - Definitive terminalization—including the optional-history-full commit loser
   path—publishes bounded parent loss, so trusted Proposal/Recovery descendants
   cannot remain in `Wait(Missing)` forever.
+- The unique cohort seal binds conflict history created by an Apply to that
+  Apply's post-change dependency level. Older history can wake on the release,
+  while the newly displaced victim cannot self-wake and restart an RBF cycle;
+  callers do not publish or repair observation cuts manually.
 - Block assembler concurrency is not collapsed into an actor: reset/full keep
   high-priority mutual exclusion, uncle/proposal/transaction partial work
   remains concurrent versioned OCC, and every successful full/reset
@@ -489,25 +496,29 @@ owner, lifecycle state, rollback log, repair generation or hot-path lock:
 
 Current P6.5 acceptance evidence:
 
-- `cargo nextest run -p ckb-tx-pool --features internal`: 238/238 passed in
-  20.808 seconds (`--lib` without the internal benchmark-harness regression is
-  237/237);
+- `cargo nextest run -p ckb-tx-pool --features internal`: 257/257 passed in
+  24.829 seconds on the final working tree;
 - `cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D
   warnings`, `cargo fmt --all -- --check` and `git diff --check` passed;
-- review/security generators validate 118 unique Rust anchors, 16 focused
+- review/security generators validate 133 unique Rust anchors, 16 focused
   integration anchors and the complete 150-spec managed universe;
-- the complete unfiltered 150-spec managed universe passed through `make
-  integration` with `-c 1 --no-fail-fast` in 884.185 seconds;
+- the complete unfiltered 150-spec managed universe passed through its
+  recorded serial `make integration` run, and the repository-wide unfiltered
+  177-spec universe passed through plain `make integration` in 372.452 seconds;
 - benchmark remains frozen and is the only open release gate.
 
 Physical Rust lines, with test roots/files and `benchmark.rs` excluded from
-production, are 20,935 production / 54 files, 14,429 tests / 44 files and 1,470
-benchmark / 1 file. The candidate is 3,301 production lines smaller than C1
-but 2,403 larger than C13 and 13,638 above `develop`. That increase is accepted
-only provisionally: it represents the typed prepared-state/projection proof and
-the removal of the 278-site runtime-panic proof surface. The final global audit
-must reject any duplicated orchestration that does not shorten that proof; test
-growth is reported separately and is not used to justify production growth.
+production, are 21,769 production / 54 files, 15,564 tests / 45 files and 1,470
+benchmark / 1 file. The working candidate is 2,467 production lines smaller
+than C1 but 3,237 larger than C13 and 14,472 above `develop`; it is 834 lines
+above the P6.5 code checkpoint. That increase is accepted only provisionally:
+it represents the typed prepared-state/projection proof, the removal of the
+278-site runtime-panic proof surface, and the post-checkpoint peer-ban,
+publication, dependency/event-cut and template-boundary corrections found by
+the unfiltered integration audit. The final global audit found no new owner,
+state, lock, undo/retry protocol or duplicated publication mechanism to remove;
+test growth is reported separately and is not used to justify production
+growth.
 
 ### Pre-benchmark audit disposition
 
@@ -520,8 +531,8 @@ authority boundaries:
 | ordinary submit status publication | covered by P6.5 | `AdmissionPlan` derives the status receipt from the same immutable pool plan and its sole Apply records the assembler delta; returning it from `PoolMap` would invert the component boundary |
 | administrative `remove_tx` | completed in P6.5 | one typed bounded accepted/pre-pool removal reconciliation replaces manual cross-partition caller discipline without moving callbacks into `PoolMap` |
 | generation reset pairing | completed in P6.5 | clear/reorg/fault paths use explicit service-level generation transactions; a closed journal rejects before authority Apply, and each caller retains its distinct typed payload rather than an untyped closure |
-| reorg full reconcile exits | completed locally | reorg emits the authoritative reset and marks all uncle/proposal/transaction levels dirty in one refresh boundary without moving policy into `BlockAssembler::update_full` or changing full/reset priority |
-| malformed-peer ban ordering | retain | the internal ban fence intentionally becomes visible before asynchronous network publication, so the apparent two-step sequence is fail-closed rather than an ownership drift |
+| reorg full reconcile exits | completed locally | reorg emits the authoritative reset and marks all uncle/proposal/transaction levels dirty in one refresh boundary; the later full plan derives uncle content from the bounded candidate authority and commits candidate cleanup only with its reset-epoch token, without changing full/reset/partial priority |
+| malformed-peer ban ordering | completed in P6.5 | the expiring non-evicting marker intentionally linearizes before asynchronous network publication; immutable ingress removal, post-admission cleanup and the exact Ready-ticket fence cover queued/commit races, release every PrePool projection and preserve already-linearized Accepted state without a ban lifecycle state or an LRU eviction bypass |
 | invariant `13 -> 8` renumbering | reject; group only | T1--T13 are useful review/evidence leaves.  They may be grouped under theorem families without renumbering 248 references or weakening independently checkable clauses |
 | Tier A/C performance list | P7 candidates only | exact-tip, fast-path, clone and lock claims require code-specific safety proofs plus controlled A/B; charge caching is already implemented in `EffectBatch` and therefore is not an open change |
 

@@ -88,18 +88,21 @@
       "title": "Conflict-history Wait ownership and wakeup",
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/wait.rs",
+        "tx-pool/src/component/pre_pool/lifecycle.rs",
+        "tx-pool/src/component/pre_pool/stored_entry.rs",
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/process/reorg.rs"
       ],
-      "required_behavior": "Historical conflicts are ordinary bounded PrePoolKernel Wait entries until an exact dependency becomes available in the post-mutation TxPool/Snapshot overlay; waking changes the same primary owner atomically and is version-safe, while RPC projects retained conflict history through recent-reject rather than as live Pending work.",
-      "hostile_case": "A release observed before another parent becomes live, an output created and consumed in one attached branch, duplicate metadata enrichment, remote conflict pinning or high-fanout input must not lose the only future wake, create a false wake, overwrite the root rejection, masquerade as Pending, retain epoch history without a waiter, duplicate ownership or cause unbounded pool-lock work.",
+      "required_behavior": "Historical conflicts are ordinary bounded PrePoolKernel Wait entries until an exact dependency becomes available in the post-mutation TxPool/Snapshot overlay; unchanged history observes the next dependency level, while a victim retained by the same atomic cohort is sealed at that cohort's post-Apply observation cut and cannot self-wake. Waking changes the same primary owner atomically and is version-safe, while RPC projects retained conflict history through recent-reject rather than as live Pending work.",
+      "hostile_case": "A release observed before another parent becomes live, a newly retained victim observing its own replacement release, an output created and consumed in one attached branch, duplicate metadata enrichment, remote conflict pinning or high-fanout input must not lose the only future wake, create a false wake, overwrite the root rejection, masquerade as Pending, retain epoch history without a waiter, duplicate ownership or cause unbounded pool-lock work.",
       "reviewer_questions": [
         "Does Wait retain ownership until an exact dependency epoch changes?",
+        "Does the cohort seal distinguish an unchanged historical waiter from a conflict victim created by that same Apply, without hand-coded call-site ordering?",
         "Does every chain/pool availability edge re-arm a previously examined entry only when the resulting authoritative overlay makes that exact dependency available?",
         "Are discovery, generations and fanout work bounded and fair?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(full_conflict_history|repeated_dependency_epochs|availability_without_a_wait|dependency_availability_uses_the_authoritative_overlay|remote_conflict_history|remote_peer_order|pipeline_rejects_conflicting_double_spend)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(full_conflict_history|same_commit_wakes_prior_conflict|repeated_dependency_epochs|availability_without_a_wait|dependency_availability_uses_the_authoritative_overlay|remote_conflict_history|remote_peer_order|pipeline_rejects_conflicting_double_spend)/)'",
       "performance_bound": "Bound history count/bytes and process indexed recovery in fixed fair slices outside population-sized scans."
     },
     {
@@ -117,7 +120,7 @@
         "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
         "Does an impossible peer admission fail before global eviction planning?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
@@ -147,17 +150,26 @@
       "change_surfaces": [
         "tx-pool/src/service.rs",
         "tx-pool/src/service/pipeline_ops.rs",
-        "tx-pool/src/component/recent_reject.rs"
+        "tx-pool/src/process/classify.rs",
+        "tx-pool/src/component/recent_reject.rs",
+        "tx-pool/src/process/post_process.rs",
+        "tx-pool/src/process/submit/mod.rs",
+        "tx-pool/src/process/submit/rbf_commit.rs",
+        "tx-pool/src/component/pre_pool/commit.rs",
+        "sync/src/relayer/mod.rs",
+        "sync/src/types/mod.rs"
       ],
-      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
-      "hostile_case": "An already active malicious peer must not pin an active slot, resurrect through a late lease or turn a typed malformed input into fail-stop or an ineligible relay reject.",
+      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. Immutable ingress attribution survives trusted source promotion: the ban marker is expiring but cannot evict an unexpired revocation fence, post-admission checks remove already queued ingress and the proof-carrying Ready ticket rechecks the same fence before Accepted planning. Banning that ingress therefore removes every matching owner that is still in PrePool in bounded slices, but never rolls back an Accepted transaction whose commit linearized first. A matching Reject releases both relayer known and pending projections so the same valid transaction can be requested from another peer. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
+      "hostile_case": "An already queued, active, Ready or source-promoted malicious-peer transaction must not cross a concurrent ban into Accepted, escape revocation, pin an active slot, retain a budget/index/lease ghost, resurrect through a late lease, remain permanently pinned in the relayer known filter or turn a typed malformed input into fail-stop or an ineligible relay reject.",
       "reviewer_questions": [
         "Does administrative removal make every outstanding lease stale atomically?",
-        "Are trusted promotion and immutable ingress attribution preserved deliberately?",
+        "Are mutable scheduling source and immutable ingress attribution modeled separately, with every derived index and budget cleaned from the authoritative removal plan?",
+        "Do both sides of the admission race recheck the same non-evicting ban marker: immediately after new ownership and in the final Ready Plan before Accepted Apply?",
+        "Does the cross-crate Reject projection make the same transaction requestable from another peer while leaving Accepted state untouched?",
         "Are ban/reject history and relay policy separate explicit decisions?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_revokes|malformed_remote_preflight|proposal_promoted_remote_clear)/)'",
-      "performance_bound": "Administrative removal uses indexed owners and bounded batches; peer fences/history remain bounded and expiring."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_fence_never_evicts_an_unexpired_marker|banned_peer_revokes|banned_peer_revocation_plan_uses_immutable_ingress_attribution|peer_ban_removes_promoted_ingress_and_allows_refetch|peer_ban_does_not_rollback_an_already_accepted_transaction|ready_commit_observes_ban_fence_before_acceptance|queued_remote_admission_after_ban_is_removed_and_refetchable|proposal_promotes_active_remote_owner_without_restarting_lease|malformed_remote_preflight|proposal_promoted_remote_clear)/)'",
+      "performance_bound": "Administrative removal uses indexed owners and bounded batches; peer fences are expiry-pruned and share the network ban set's unexpired cardinality without allowing live-fence eviction."
     },
     {
       "id": "TP-EFFECT-001",
@@ -223,9 +235,12 @@
       "title": "Rust-native failure and persistence boundary",
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/runtime.rs",
+        "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/process/mod.rs",
         "tx-pool/src/process/submit/mod.rs",
+        "tx-pool/src/resolve_mgr.rs",
         "tx-pool/src/service/dispatch.rs",
+        "tx-pool/src/verify_mgr.rs",
         "sync/src/relayer/mod.rs"
       ],
       "required_behavior": "Static ownership and private constructors make invalid authority states unconstructable; every legal malformed, policy, capacity, duplicate and stale outcome remains typed before Apply; a pre-Apply primary/index/accounting system fault stops without persistence and is never converted to an RPC/peer outcome. Panic plus catch_unwind is not authority, worker, retry or rollback control flow.",
@@ -237,7 +252,7 @@
         "Are genuinely foreign callbacks/endpoints isolated without selecting tx-pool state, retry or rollback semantics?",
         "Does a pre-Apply system fault stop supervised state work and skip persistence?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_accounting_drift|authoritative_generation_swap|chain_generation_reset|panicked_effect_publisher)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_accounting_drift|authoritative_generation_swap|chain_generation_reset|panicked_effect_publisher|phase_capacity_growth_is_public_rejection|structural_fault_is_not_a_transaction_or_peer_rejection|system_fault_is_not_transaction_policy)/)'",
       "performance_bound": "Proof-carrying plans and typed results are zero-cost ownership encodings on the healthy path; no recovery mutex, quarantine lookup, spare generation, unwind-driven retry or restart protocol is added."
     },
     {
@@ -266,15 +281,16 @@
         "tx-pool/src/pool.rs",
         "tx-pool/src/process/reorg.rs"
       ],
-      "required_behavior": "Reset and full rebuild remain mutually exclusive with full highest priority; uncle, proposal and transaction partial updates remain concurrent versioned OCC, and every successful full/reset replacement reissues all three optimistic dirty generations so valid recovered transactions always regain a proposal/commit path.",
+      "required_behavior": "Reset and full rebuild retain one ordered publication authority without serializing their construction: a full rebuild derives uncle content from the bounded candidate authority, wins over racing partial revisions but cannot cross a newer reset epoch, while reset consumes its exact generation token. Uncle, proposal and transaction partial updates remain concurrent revision-checked OCC, and every successful full/reset replacement reissues all three optimistic dirty generations so valid recovered transactions always regain a proposal/commit path.",
       "hostile_case": "Detached uncle proposals, stale Gap status, an update_full/partial race or stale partial acknowledgement must not make a valid transaction RPC-pending but forever absent from normal get_block_template mining, nor serialize independent partial work behind full calculation.",
       "reviewer_questions": [
-        "Does full/reset retain authority over every optimistic delta and re-dirty uncle/proposal/transaction generations after replacement?",
+        "Does the co-located revision/reset epoch preserve full-over-partial priority and reset-over-stale-full authority while re-dirtying uncle/proposal/transaction generations after replacement?",
+        "Does a full rebuild derive detached uncles from the candidate authority instead of copying the reset template's transient blank projection?",
         "Can uncle proposal filtering exclude the sole proposal path of a recovered transaction?",
         "Are Gap/Pending/Proposed transitions reflected to assembler selection?",
         "Do uncle/proposal/transaction calculations remain concurrent with a waiting full rebuild and publish only through version checks?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|uncle_update_remains_optimistic|full_rebuild_reissues_every_optimistic_delta|selected_reader|conditional_cycle)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|selected_reader|conditional_cycle)/)'",
       "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."
     },
     {
@@ -335,6 +351,8 @@
     {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["I2", "I9", "I10"]},
 
+    {"test": "same_commit_wakes_prior_conflict_but_not_its_new_victim", "behavior_id": "TP-CACHE-001", "invariants": ["I4", "I6", "I9"]},
+
     {"test": "target_model_wait_wake_and_ready_conflict_use_recomputed_views", "behavior_id": "TP-DEP-001", "invariants": ["I6", "I9"]},
     {"test": "parent_loss_invalidates_an_active_lease_into_exact_wait", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6"]},
     {"test": "definitive_parent_terminalization_wakes_trusted_dependents", "behavior_id": "TP-DEP-001", "invariants": ["I4", "I6", "I12"]},
@@ -365,6 +383,7 @@
     {"test": "journal_usage_charges_queued_and_active_batches_exactly", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
     {"test": "conflict_closure_aborts_at_candidate_limit", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
     {"test": "verified_candidate_compacts_deps_and_pool_budget_counts_retained_inputs", "behavior_id": "TP-BUDGET-001", "invariants": ["I5"]},
+    {"test": "multi_input_conflict_union_respects_the_global_commit_bound", "behavior_id": "TP-BUDGET-001", "invariants": ["I5", "I12"]},
 
     {"test": "expiry_batch_is_bounded_without_a_ready_prefix_scan", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "large_owner_head_does_not_hide_its_small_cycle_work", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
@@ -372,7 +391,14 @@
     {"test": "panicked_state_worker_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-WORKER-001", "invariants": ["I4", "I12"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["I4"]},
 
+    {"test": "banned_peer_fence_never_evicts_an_unexpired_marker", "behavior_id": "TP-ADMIN-001", "invariants": ["I1", "I5"]},
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
+    {"test": "banned_peer_revocation_plan_uses_immutable_ingress_attribution", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
+    {"test": "peer_ban_removes_promoted_ingress_and_allows_refetch", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5", "I8"]},
+    {"test": "peer_ban_does_not_rollback_an_already_accepted_transaction", "behavior_id": "TP-ADMIN-001", "invariants": ["I1", "I4", "I8"]},
+    {"test": "ready_commit_observes_ban_fence_before_acceptance", "behavior_id": "TP-ADMIN-001", "invariants": ["I1", "I4", "I5", "I8"]},
+    {"test": "queued_remote_admission_after_ban_is_removed_and_refetchable", "behavior_id": "TP-ADMIN-001", "invariants": ["I1", "I4", "I5", "I8"]},
+    {"test": "proposal_promotes_active_remote_owner_without_restarting_lease", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5"]},
     {"test": "malformed_remote_preflight_is_banned_recorded_and_not_relayed", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I8"]},
     {"test": "proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter", "behavior_id": "TP-ADMIN-001", "invariants": ["I4", "I5", "I8", "I12"]},
 
@@ -420,6 +446,10 @@
     {"test": "chain_generation_reset_retires_old_generation_outside_the_lock", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I7", "I8"]},
     {"test": "generation_reset_register_bypasses_full_fifo_and_coalesces", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8"]},
     {"test": "panicked_effect_publisher_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
+    {"test": "resolve_phase_capacity_growth_is_public_rejection", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8"]},
+    {"test": "verify_phase_capacity_growth_is_public_rejection", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I5", "I8"]},
+    {"test": "ingress_structural_fault_is_not_a_transaction_or_peer_rejection", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
+    {"test": "direct_submission_system_fault_is_not_transaction_policy", "behavior_id": "TP-DEFECT-001", "invariants": ["I4", "I7", "I8"]},
 
     {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
     {"test": "status_counter_underflow_returns_typed_fault_without_partial_removal", "behavior_id": "TP-POOL-001", "invariants": ["I10"]},
@@ -433,7 +463,9 @@
 
     {"test": "reorg_demotes_stale_gap_to_pending", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
     {"test": "pending_proposals_filter_conflicting_uncle_subtree", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
-    {"test": "uncle_update_remains_optimistic_while_full_waits_for_priority_lock", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11", "I12"]},
+    {"test": "full_reset_and_partial_priority_use_template_owned_tokens", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I7", "I11", "I12"]},
+    {"test": "full_rebuild_derives_uncles_from_candidate_authority", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I7", "I11", "I12"]},
+    {"test": "reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I7", "I11", "I12"]},
     {"test": "full_rebuild_reissues_every_optimistic_delta_generation", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I7", "I11"]},
     {"test": "commit_and_removal_journal_block_assembler_delta", "behavior_id": "TP-TEMPLATE-001", "invariants": ["I11"]},
 
@@ -556,8 +588,8 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfCyclingAttack",
       "invariants": ["I4", "I9"],
-      "unit_anchors": ["full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants"],
-      "boundary": "A cyclic sequence of overlapping replacements recovers the transaction whose input becomes free and does not resurrect transactions whose inputs remain consumed."
+      "unit_anchors": ["same_commit_wakes_prior_conflict_but_not_its_new_victim", "full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants"],
+      "boundary": "A cyclic sequence of overlapping replacements recovers the pre-existing transaction whose input becomes free, while the victim retained by that same atomic replacement observes the post-Apply dependency cut and does not resurrect while its input remains consumed."
     },
     {
       "id": "rbf-cell-deps",
@@ -590,9 +622,9 @@
       "id": "async-uncle-candidate-publication",
       "behavior_ids": ["TP-REORG-001", "TP-TEMPLATE-001"],
       "path": "test/src/specs/mining/uncle.rs",
-      "anchor": "UncleInheritFromForkBlock",
+      "anchor": "UncleInheritFromForkUncle",
       "invariants": ["I7", "I11"],
-      "unit_anchors": ["failed_block_assembler_update_retains_dirty_generation_for_retry", "uncle_update_remains_optimistic_while_full_waits_for_priority_lock", "full_rebuild_reissues_every_optimistic_delta_generation"],
+      "unit_anchors": ["failed_block_assembler_update_retains_dirty_generation_for_retry", "full_reset_and_partial_priority_use_template_owned_tokens", "full_rebuild_derives_uncles_from_candidate_authority", "reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention", "full_rebuild_reissues_every_optimistic_delta_generation"],
       "boundary": "After a forced fork, the process test waits for phase-two detached-uncle publication instead of mistaking the authoritative blank reset template for final convergence; it then consumes every eligible uncle and validates the descendant rule."
     }
   ]

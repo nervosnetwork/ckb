@@ -434,9 +434,10 @@ impl TxPoolService {
         ) {
             Ok((txs, _size, _cycles)) => txs,
             Err(error) => {
-                self.pipeline
-                    .kernel
-                    .report_fault("internal package transaction selection failed", &error);
+                self.fail_tx_pool_generation(
+                    "internal package transaction selection failed",
+                    &crate::process::TxPoolGenerationFault::Selection(error),
+                );
                 Vec::new()
             }
         };

@@ -8,8 +8,25 @@ pub(crate) const MAX_CANDIDATE_UNCLES: usize = 128;
 pub(crate) const MAX_PER_HEIGHT: usize = 10;
 
 /// Candidate uncles container
+#[derive(Clone)]
 pub struct CandidateUncles {
-    pub(crate) map: BTreeMap<BlockNumber, HashSet<UncleBlockView>>,
+    map: BTreeMap<BlockNumber, HashSet<UncleBlockView>>,
+}
+
+/// Read-only uncle selection produced from one candidate-cache snapshot.
+///
+/// Selection must not mutate the live cache: an optimistic template build may
+/// later lose its publication token. Stale candidates are pruned only by the
+/// matching successful template Apply.
+pub(crate) struct PreparedUncles {
+    selected: Vec<UncleBlockView>,
+    stale: Vec<UncleBlockView>,
+}
+
+impl PreparedUncles {
+    pub(crate) fn into_parts(self) -> (Vec<UncleBlockView>, Vec<UncleBlockView>) {
+        (self.selected, self.stale)
+    }
 }
 
 impl CandidateUncles {
@@ -45,13 +62,9 @@ impl CandidateUncles {
             };
             if number > first_key {
                 self.map.remove(&first_key);
-            } else if number < first_key {
+            } else {
                 return false;
             }
-            // `number == first_key`: fall through into the existing height
-            // set. MAX_CANDIDATE_UNCLES is a soft cap and MAX_PER_HEIGHT
-            // bounds the excess — rejecting the boundary height while
-            // evicting it for higher heights would be arbitrary.
         }
 
         let set = self.map.entry(number).or_default();
@@ -67,9 +80,7 @@ impl CandidateUncles {
 
     /// Returns the number of elements in the container.
     pub fn len(&self) -> usize {
-        self.map
-            .values()
-            .fold(0usize, |count, set| count.saturating_add(set.len()))
+        self.map.values().map(HashSet::len).sum()
     }
 
     /// Returns true if the container contains no elements.
@@ -120,13 +131,16 @@ impl CandidateUncles {
     // (2) height(B2) > height(B1);
     // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
     // and (4) B2 is the first block in its chain to refer to B1.
-    pub fn prepare_uncles(
-        &mut self,
+    pub(crate) fn prepare_uncles(
+        &self,
         snapshot: &Snapshot,
         current_epoch_ext: &EpochExt,
-    ) -> Vec<UncleBlockView> {
+    ) -> PreparedUncles {
         let Some(candidate_number) = snapshot.tip_number().checked_add(1) else {
-            return Vec::new();
+            return PreparedUncles {
+                selected: Vec::new(),
+                stale: Vec::new(),
+            };
         };
         let epoch_number = current_epoch_ext.number();
         let max_uncles_num = snapshot.consensus().max_uncles_num();
@@ -158,10 +172,19 @@ impl CandidateUncles {
             }
         }
 
-        for r in removed {
-            self.remove_by_number(&r);
+        PreparedUncles {
+            selected: uncles,
+            stale: removed,
         }
-        uncles
+    }
+
+    /// Apply stale-candidate cleanup from a plan whose template publication
+    /// token is still current. Removal is idempotent because another committed
+    /// update may already have pruned the same bounded candidates.
+    pub(crate) fn prune(&mut self, stale: Vec<UncleBlockView>) {
+        for uncle in stale {
+            self.remove_by_number(&uncle);
+        }
     }
 }
 

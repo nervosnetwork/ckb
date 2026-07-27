@@ -19,7 +19,11 @@ pub(crate) fn update_tx_pool_for_reorg(
         detached_headers,
         detached_proposal_id,
         snapshot,
-        mine_mode,
+        if mine_mode {
+            MiningMode::Package
+        } else {
+            MiningMode::ObserveOnly
+        },
     )?;
     finish_tx_pool_reorg(tx_pool, &mut outcome)?;
     Ok(outcome)

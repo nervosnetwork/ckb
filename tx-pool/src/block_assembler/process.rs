@@ -1,6 +1,4 @@
 use crate::service::{BlockAssemblerMessage, TxPoolService};
-use std::sync::Arc;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResetApply {
     Idle,
@@ -9,46 +7,74 @@ pub(crate) enum ResetApply {
     Retry,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResetNotification {
+    NotifyBlank,
+    SuppressUntilFull,
+}
+
 /// Apply the latest generation-tagged reset. Reorg refresh uses
-/// `notify = false` so miners observe the subsequent high-priority full
-/// template once; the ordinary reset consumer publishes the blank management
-/// template immediately.
-pub(crate) async fn process_reset(service: TxPoolService, notify: bool) -> ResetApply {
-    let (Some(block_assembler), Some((generation, snapshot))) = (
+/// `SuppressUntilFull` so miners observe the subsequent high-priority full
+/// template once; the ordinary reset consumer uses `NotifyBlank` to publish
+/// the blank management template immediately.
+pub(crate) async fn process_reset(
+    service: TxPoolService,
+    notification: ResetNotification,
+) -> ResetApply {
+    let (Some(block_assembler), Some(pending)) = (
         service.block_assembler.as_ref(),
         service.relay.load_block_assembler_reset(),
     ) else {
         return ResetApply::Idle;
     };
-    if let Err(e) = block_assembler.reset_template(Arc::clone(&snapshot)).await {
-        ckb_logger::error!(
-            "block_assembler reset_template error; reset remains pending: {}",
-            e
-        );
-        // If a newer generation arrived (or another serialized consumer
-        // completed this one), retrying the stale generation is unnecessary.
-        return if service
-            .relay
-            .load_block_assembler_reset()
-            .is_some_and(|(pending, _)| pending == generation)
-        {
-            ResetApply::Retry
-        } else {
-            ResetApply::Superseded
-        };
-    }
-    service.relay.complete_block_assembler_reset(generation);
-    if service.relay.block_assembler_reset_pending() {
-        // A newer snapshot arrived during the rebuild. Do not publish the old
-        // template or unblock ordinary deltas.
+
+    let prepared = match block_assembler
+        .prepare_reset_template(pending.snapshot())
+        .await
+    {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            ckb_logger::error!(
+                "block_assembler reset preparation error; reset remains pending: {}",
+                error
+            );
+            return if service.relay.block_assembler_reset.is_current(&pending) {
+                ResetApply::Retry
+            } else {
+                ResetApply::Superseded
+            };
+        }
+    };
+    let applied = match block_assembler
+        .publish_reset_template(prepared, &pending, &service.relay.block_assembler_reset)
+        .await
+    {
+        Ok(applied) => applied,
+        Err(error) => {
+            ckb_logger::error!(
+                "block_assembler reset publication error; reset remains pending: {}",
+                error
+            );
+            return if service.relay.block_assembler_reset.is_current(&pending) {
+                ResetApply::Retry
+            } else {
+                ResetApply::Superseded
+            };
+        }
+    };
+    if !applied {
         return ResetApply::Superseded;
     }
-    // reset_template is an unconditional high-priority replacement. Any
-    // optimistic partial update which completed against the old template is
-    // therefore reissued level-wise, including an uncle update that raced
-    // without taking the full/reset serialization lock.
+    if service.relay.block_assembler_reset_pending() {
+        // A newer snapshot arrived after the exact publication. Its token is
+        // still pending and is now the sole template authority.
+        return ResetApply::Superseded;
+    }
+    // Reset is an authoritative replacement. Any optimistic partial update
+    // which completed against the old template is therefore reissued
+    // level-wise, including an uncle update that raced with reset preparation.
     service.journal_block_assembler_full_reconcile();
-    if notify {
+    if matches!(notification, ResetNotification::NotifyBlank) {
         block_assembler.notify().await;
     }
     ResetApply::Applied
@@ -60,9 +86,16 @@ pub(crate) async fn process(service: TxPoolService, message: &BlockAssemblerMess
     match message {
         BlockAssemblerMessage::Pending => {
             if let Some(ref block_assembler) = service.block_assembler {
-                return block_assembler
+                return match block_assembler
                     .update_proposals(&service.pool.tx_pool)
-                    .await;
+                    .await
+                {
+                    Ok(applied) => applied,
+                    Err(error) => {
+                        ckb_logger::error!("block_assembler update_proposals error {}", error);
+                        false
+                    }
+                };
             }
         }
         BlockAssemblerMessage::Proposed => {
@@ -88,7 +121,13 @@ pub(crate) async fn process(service: TxPoolService, message: &BlockAssemblerMess
                 let proposals_applied = block_assembler
                     .update_proposals(&service.pool.tx_pool)
                     .await;
-                return uncles_applied && proposals_applied;
+                return match (uncles_applied, proposals_applied) {
+                    (Ok(uncles), Ok(proposals)) => uncles && proposals,
+                    (Err(error), _) | (_, Err(error)) => {
+                        ckb_logger::error!("block_assembler uncle/proposal update error {}", error);
+                        false
+                    }
+                };
             }
         }
         BlockAssemblerMessage::Reset => {
@@ -98,7 +137,8 @@ pub(crate) async fn process(service: TxPoolService, message: &BlockAssemblerMess
             // notified right away (same as the reorg path): otherwise they
             // keep mining a template built on the cleared pool until the next
             // Pending/Proposed message or interval batch.
-            return process_reset(service, true).await != ResetApply::Retry;
+            return process_reset(service, ResetNotification::NotifyBlank).await
+                != ResetApply::Retry;
         }
     }
     true

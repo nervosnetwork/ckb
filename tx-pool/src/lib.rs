@@ -6,6 +6,7 @@
     not(test),
     deny(
         clippy::arithmetic_side_effects,
+        clippy::await_holding_lock,
         clippy::expect_used,
         clippy::indexing_slicing,
         clippy::panic,
@@ -35,14 +36,16 @@
 //! persistence I/O run only after state mutation has been journaled and no
 //! state lock is held.
 //!
-//! `block_assembler.template_lock` guards the current block template.
-//! `update_full` and `reset_template` acquire `template_lock` first and then
-//! read `tx_pool` so a concurrent `Reset` cannot swap the template while
-//! the full update is in progress. Partial updates (`update_uncles`,
-//! `update_proposals` and `update_transactions`) remain concurrent and use a
-//! version-checked optimistic swap. Every unconditional full/reset replacement
-//! reissues all three level-triggered delta generations, so a partial update
-//! which landed just before the replacement is retried instead of lost.
+//! Block-template publication co-locates a content revision and reset epoch
+//! with the current template. Full rebuilds and reset preparation run without
+//! serializing partial work: full publication deliberately wins over racing
+//! partial revisions but is rejected if a newer reset epoch landed; reset
+//! publication consumes its exact generation token. Partial updates
+//! (`update_uncles`, `update_proposals` and `update_transactions`) remain
+//! concurrent and use a revision-checked optimistic swap. Every successful
+//! full/reset replacement reissues all three level-triggered delta generations,
+//! so a partial update which landed just before the replacement is retried
+//! instead of lost.
 //!
 //! Combined membership reads take `tx_pool` and then inspect the pre-pool kernel
 //! under its synchronous lock, matching the writer order and preventing a
@@ -58,6 +61,7 @@
 #[cfg(feature = "internal")]
 #[allow(
     clippy::arithmetic_side_effects,
+    clippy::await_holding_lock,
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::panic,

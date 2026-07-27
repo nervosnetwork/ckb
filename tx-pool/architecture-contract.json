@@ -4,6 +4,7 @@
   "audit_document": "tx-pool/ARCHITECTURE_AUDIT.md",
   "review_guide": "tx-pool/REVIEW_GUIDE.md",
   "historical_ledger": "tx-pool/security-regression-ledger.md",
+  "historical_ledger_last_id": 169,
   "authorities": ["TxPool", "PrePoolKernel"],
   "identity": {
     "ownership_key": "full_tx_hash",

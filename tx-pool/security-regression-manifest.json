@@ -8,7 +8,7 @@
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
     "checkpoint": "P6.5 exact-admission and typed-authority convergence",
-    "unit_test_count": 238,
+    "unit_test_count": 257,
     "integration_spec_count": 150
   },
   "baseline": {

@@ -300,6 +300,7 @@ pub(crate) fn gen_block(
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    full_relay_peers: RefCell<Vec<PeerIndex>>,
 }
 
 // test mock context with single thread
@@ -312,7 +313,12 @@ impl MockProtocolContext {
         Self {
             protocol,
             sent_messages: Default::default(),
+            full_relay_peers: Default::default(),
         }
+    }
+
+    pub(crate) fn set_full_relay_peers(&self, peers: Vec<PeerIndex>) {
+        *self.full_relay_peers.borrow_mut() = peers;
     }
 
     pub(crate) fn has_sent(
@@ -436,7 +442,12 @@ impl CKBProtocolContext for MockProtocolContext {
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         self.send_message_to(peer_index, data)
     }
-    fn quick_filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
+    fn quick_filter_broadcast(&self, target: TargetSession, data: P2pBytes) -> Result<(), Error> {
+        if let TargetSession::Single(peer) = target {
+            self.sent_messages
+                .borrow_mut()
+                .push((self.protocol_id(), peer, data));
+        }
         Ok(())
     }
     fn quick_filter_broadcast_with_proto(
@@ -486,7 +497,7 @@ impl CKBProtocolContext for MockProtocolContext {
         vec![]
     }
     fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
-        vec![]
+        self.full_relay_peers.borrow().clone()
     }
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
         unimplemented!();

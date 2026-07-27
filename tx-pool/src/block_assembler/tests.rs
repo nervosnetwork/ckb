@@ -1,8 +1,6 @@
-use ckb_types::core::{BlockBuilder, BlockNumber, EpochNumberWithFraction};
+use ckb_types::core::{BlockBuilder, EpochNumberWithFraction};
 
-use crate::block_assembler::candidate_uncles::{
-    CandidateUncles, MAX_CANDIDATE_UNCLES, MAX_PER_HEIGHT,
-};
+use crate::block_assembler::candidate_uncles::CandidateUncles;
 
 use super::CellLivenessMemo;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -92,76 +90,6 @@ fn cell_liveness_memo_caches_and_invalidates_on_tip_change() {
     );
 }
 
-#[test]
-fn test_candidate_uncles_basic() {
-    let mut candidate_uncles = CandidateUncles::new();
-    let block = &BlockBuilder::default().build().as_uncle();
-    assert!(candidate_uncles.insert(block.clone()));
-    assert_eq!(candidate_uncles.len(), 1);
-    // insert duplicate
-    assert!(!candidate_uncles.insert(block.clone()));
-    assert_eq!(candidate_uncles.len(), 1);
-
-    assert!(candidate_uncles.remove_by_number(block));
-    assert_eq!(candidate_uncles.len(), 0);
-    assert_eq!(candidate_uncles.map.len(), 0);
-}
-
-#[test]
-fn test_candidate_uncles_max_size() {
-    let mut candidate_uncles = CandidateUncles::new();
-
-    let mut blocks = Vec::new();
-    for i in 0..(MAX_CANDIDATE_UNCLES + 3) {
-        let number = i as BlockNumber;
-        let block = BlockBuilder::default()
-            .number(number)
-            .epoch(EpochNumberWithFraction::new(
-                number / 1000,
-                number % 1000,
-                10000,
-            ))
-            .build()
-            .as_uncle();
-        blocks.push(block);
-    }
-
-    for block in &blocks {
-        candidate_uncles.insert(block.clone());
-    }
-    let first_key = *candidate_uncles.map.keys().next().unwrap();
-    assert_eq!(candidate_uncles.len(), MAX_CANDIDATE_UNCLES);
-    assert_eq!(first_key, 3);
-
-    candidate_uncles.clear();
-    for block in blocks.iter().rev() {
-        candidate_uncles.insert(block.clone());
-    }
-    let first_key = *candidate_uncles.map.keys().next().unwrap();
-    assert_eq!(candidate_uncles.len(), MAX_CANDIDATE_UNCLES);
-    assert_eq!(first_key, 3);
-}
-
-#[test]
-fn test_candidate_uncles_max_per_height() {
-    let mut candidate_uncles = CandidateUncles::new();
-
-    let mut blocks = Vec::new();
-    for i in 0..(MAX_PER_HEIGHT + 3) {
-        let block = BlockBuilder::default()
-            .timestamp(i as u64)
-            .build()
-            .as_uncle();
-        blocks.push(block);
-    }
-
-    for block in &blocks {
-        candidate_uncles.insert(block.clone());
-    }
-    assert_eq!(candidate_uncles.map.len(), 1);
-    assert_eq!(candidate_uncles.len(), MAX_PER_HEIGHT);
-}
-
 /// Bug #49: `uncle_size` must use the same accounting basis as
 /// `basic_block_size` and the consensus block-bytes limit:
 /// `serialized_size_in_block` minus the proposal ids (which are
@@ -205,9 +133,9 @@ fn uncle_size_matches_basic_block_size_basis() {
     );
 }
 
-/// Bug #56: `prepare_uncles` must remove candidates that are already on
-/// the main chain or embedded as an uncle, instead of retaining them
-/// until the epoch boundary.
+/// Bug #56: a committed uncle plan must remove candidates that are already on
+/// the main chain or embedded as an uncle. Read-only preparation itself must
+/// not mutate the live cache because its publication token may lose a race.
 #[test]
 fn prepare_uncles_removes_main_chain_and_embedded_candidates() {
     let snapshot = genesis_snapshot();
@@ -231,12 +159,20 @@ fn prepare_uncles_removes_main_chain_and_embedded_candidates() {
     candidate_uncles.insert(off_chain.clone());
     assert_eq!(candidate_uncles.len(), 2);
 
-    let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch_ext);
+    let (uncles, stale) = candidate_uncles
+        .prepare_uncles(&snapshot, &epoch_ext)
+        .into_parts();
+
+    assert!(
+        candidate_uncles.contains(&genesis_uncle),
+        "read-only preparation cannot prune before publication"
+    );
+    candidate_uncles.prune(stale);
 
     // The genesis uncle is on the main chain: must be removed.
     assert!(
         !candidate_uncles.contains(&genesis_uncle),
-        "main-chain candidate must be removed by prepare_uncles"
+        "main-chain candidate must be removed by committed uncle cleanup"
     );
     // The off-chain candidate is eligible (its parent is genesis which is
     // on the main chain) and is returned as a valid uncle.
@@ -375,16 +311,17 @@ fn uncle_update_keeps_ordered_fitting_prefix_with_checked_accounting() {
     );
 }
 
-/// Full/reset retain their high-priority serialization domain, while uncle
-/// refresh remains optimistic just like proposal/transaction updates.
+/// Full publication wins over an intervening partial revision, while stale
+/// partial work is rejected. Both guarantees come from tokens co-located with
+/// the current template; no full/reset lock serializes construction.
 #[tokio::test]
-async fn uncle_update_remains_optimistic_while_full_waits_for_priority_lock() {
-    use crate::pool::TxPool;
-    use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
+async fn full_reset_and_partial_priority_use_template_owned_tokens() {
+    use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;
     use ckb_types::{h256, packed::CellInput};
+    use ckb_util::Mutex;
     use std::sync::atomic::AtomicU64;
-    use tokio::sync::{Mutex, RwLock, oneshot};
+    use tokio::sync::RwLock;
 
     let snapshot = genesis_snapshot();
     let config = BlockAssemblerConfig {
@@ -400,9 +337,6 @@ async fn uncle_update_remains_optimistic_while_full_waits_for_priority_lock() {
         notify_timeout_millis: 800,
         notify_auth_token: None,
     };
-    // Construct only the state needed to exercise the two concurrency paths.
-    // Full is cancelled while blocked, before it can consume this dummy
-    // template; the empty uncle update is valid without chain-root MMR setup.
     let epoch = snapshot.consensus().genesis_epoch_ext().clone();
     let cellbase = ckb_types::core::TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(1))
@@ -416,16 +350,16 @@ async fn uncle_update_remains_optimistic_while_full_waits_for_priority_lock() {
             uncles: 0,
             total: 0,
         },
-        snapshot: Arc::clone(&snapshot),
+        snapshot,
         epoch,
+        revision: super::TemplateRevision::INITIAL,
+        reset_epoch: super::ResetEpoch::INITIAL,
     };
     let assembler = super::BlockAssembler {
         config: Arc::new(config),
         work_id: Arc::new(AtomicU64::new(1)),
         candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
         current: Arc::new(RwLock::new(Arc::new(current))),
-        version: Arc::new(AtomicU64::new(0)),
-        template_lock: Arc::new(Mutex::new(())),
         cell_liveness_memo: Arc::new(ckb_util::Mutex::new(CellLivenessMemo::default())),
         poster: Arc::new(
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
@@ -435,44 +369,94 @@ async fn uncle_update_remains_optimistic_while_full_waits_for_priority_lock() {
         ),
         notify_count: Arc::new(AtomicU64::new(0)),
     };
-    let pool = Arc::new(RwLock::new(TxPool::new(
-        TxPoolConfig::default(),
-        Arc::clone(&snapshot),
-    )));
-
-    let guard = assembler.template_lock.lock().await;
-
-    let (full_started_tx, full_started_rx) = oneshot::channel();
-    let full_assembler = assembler.clone();
-    let full_pool = Arc::clone(&pool);
-    let full = tokio::spawn(async move {
-        let _ = full_started_tx.send(());
-        full_assembler.update_full(&full_pool).await
-    });
-
-    let (uncle_started_tx, uncle_started_rx) = oneshot::channel();
-    let uncle_assembler = assembler.clone();
-    let uncle = tokio::spawn(async move {
-        let _ = uncle_started_tx.send(());
-        uncle_assembler.update_uncles().await;
-    });
-
-    full_started_rx.await.expect("full update task started");
-    uncle_started_rx.await.expect("uncle update task started");
-    tokio::task::yield_now().await;
+    let original = assembler.current.read().await.clone();
+    let stale_candidate = BlockBuilder::default().build().as_uncle();
     assert!(
-        !full.is_finished(),
-        "full update must wait for template_lock"
+        assembler
+            .candidate_uncles
+            .lock()
+            .insert(stale_candidate.clone())
     );
-    tokio::time::timeout(std::time::Duration::from_secs(1), uncle)
-        .await
-        .expect("uncle update must not wait for the full/reset lock")
-        .expect("uncle update task completes");
-    full.abort();
-    drop(guard);
+
+    let mut partial = (*original).clone();
+    partial.template.current_time = 11;
     assert!(
-        full.await
-            .expect_err("full update was cancelled")
-            .is_cancelled()
+        assembler
+            .try_publish_partial(partial, original.revision, Vec::new())
+            .await
+            .unwrap()
+    );
+
+    let mut full = (*original).clone();
+    full.template.current_time = 22;
+    assert!(
+        assembler
+            .try_publish_full(full, original.reset_epoch, Vec::new())
+            .await
+            .unwrap(),
+        "full publication ignores a partial-only revision race"
+    );
+    assert_eq!(assembler.current.read().await.template.current_time, 22);
+
+    let mut stale_partial = (*original).clone();
+    stale_partial.template.current_time = 33;
+    assert!(
+        !assembler
+            .try_publish_partial(stale_partial, original.revision, Vec::new())
+            .await
+            .unwrap(),
+        "partial publication cannot overwrite newer full content"
+    );
+    assert_eq!(assembler.current.read().await.template.current_time, 22);
+
+    // Model the linearization point of a reset publication: both tokens move
+    // with the replacement template. A full build captured before this point
+    // must not cross it; a rebuild captured afterwards remains authoritative.
+    let reset = {
+        let mut guard = assembler.current.write().await;
+        let mut reset = (**guard).clone();
+        reset.template.current_time = 44;
+        reset.revision = guard.revision.next().unwrap();
+        reset.reset_epoch = guard.reset_epoch.next().unwrap();
+        *guard = Arc::new(reset);
+        guard.clone()
+    };
+
+    let mut pre_reset_full = (*original).clone();
+    pre_reset_full.template.current_time = 55;
+    assert!(
+        !assembler
+            .try_publish_full(
+                pre_reset_full,
+                original.reset_epoch,
+                vec![stale_candidate.clone()],
+            )
+            .await
+            .unwrap(),
+        "a full build captured before reset cannot cross its epoch"
+    );
+    assert_eq!(assembler.current.read().await.template.current_time, 44);
+    assert!(
+        assembler.candidate_uncles.lock().contains(&stale_candidate),
+        "a rejected full plan cannot apply its candidate-cache cleanup"
+    );
+
+    let mut post_reset_full = (*reset).clone();
+    post_reset_full.template.current_time = 66;
+    assert!(
+        assembler
+            .try_publish_full(
+                post_reset_full,
+                reset.reset_epoch,
+                vec![stale_candidate.clone()],
+            )
+            .await
+            .unwrap(),
+        "a full build captured after reset publishes normally"
+    );
+    assert_eq!(assembler.current.read().await.template.current_time, 66);
+    assert!(
+        !assembler.candidate_uncles.lock().contains(&stale_candidate),
+        "a committed full plan applies its candidate-cache cleanup"
     );
 }

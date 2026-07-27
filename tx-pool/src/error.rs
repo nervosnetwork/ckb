@@ -19,6 +19,9 @@ pub enum BlockAssemblerError {
     /// The chain snapshot has no epoch extension for its tip.
     #[error("Missing tip epoch")]
     MissingTipEpoch,
+    /// A monotonic assembler publication/work token was exhausted.
+    #[error("Block assembler {0} counter exhausted")]
+    CounterExhausted(&'static str),
 }
 
 impl_error_conversion_with_kind!(

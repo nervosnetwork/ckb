@@ -142,7 +142,6 @@ pub(crate) struct PrePool {
     commit_ready: Arc<Notify>,
     maintenance_ready: Arc<Notify>,
     shutdown: CancellationToken,
-    max_entries: usize,
     failed: AtomicBool,
 }
 
@@ -201,7 +200,6 @@ impl PrePool {
             commit_ready: Arc::new(Notify::new()),
             maintenance_ready: Arc::new(Notify::new()),
             shutdown,
-            max_entries: total_entries,
             failed: AtomicBool::new(false),
         })
     }
@@ -305,10 +303,6 @@ impl PrePool {
         self.read(PrePoolKernel::wait_wake_pending)
     }
 
-    pub(crate) fn max_entries(&self) -> usize {
-        self.max_entries
-    }
-
     /// Contain a typed kernel defect without unwinding through an authority
     /// lock. Legal transaction outcomes inhabit other error variants; this
     /// marks the generation ineligible for persistence before quiescence.
@@ -332,9 +326,9 @@ impl PrePool {
         source: PipelineAdmissionSource,
         epoch: u64,
         lane: ResolveLane,
-    ) -> Result<bool, PrePoolError> {
+    ) -> Result<bool, PrePoolAdmissionError> {
         let hash = tx.hash();
-        self.mutate_authoritative(|kernel| {
+        let admitted: Result<bool, PrePoolError> = self.mutate_authoritative(|kernel| {
             if kernel.entries.contains_key(&hash) {
                 return match source {
                     PipelineAdmissionSource::Remote(_) => Ok(false),
@@ -364,7 +358,8 @@ impl PrePool {
             let expires_at = historical_deadline(owner);
             kernel.admit(raw, lane, owner, expires_at, dependencies)?;
             Ok(true)
-        })
+        });
+        admitted.map_err(PrePoolAdmissionError::from)
     }
 
     pub(crate) fn checkout_resolve(
@@ -446,18 +441,14 @@ pub(crate) fn historical_deadline(source: PrePoolSource) -> Option<u64> {
 #[path = "../tests/pre_pool_runtime_seam.rs"]
 mod test_seam;
 
-pub(crate) fn pre_pool_reject(error: PrePoolError) -> Reject {
+pub(crate) fn pre_pool_reject(error: PrePoolPublicError) -> Reject {
     match &error {
-        PrePoolError::Rejected(_) => Reject::Malformed(
+        PrePoolPublicError::Rejected(_) => Reject::Malformed(
             "transaction".to_string(),
             format!("pre-pool policy rejection: {error:?}"),
         ),
-        PrePoolError::Backpressure(PrePoolBackpressure::DuplicateHash(_)) => {
-            Reject::Internal(format!("pre-pool duplicate transition: {error:?}"))
-        }
-        PrePoolError::Backpressure(_) => Reject::Full(format!("pre-pool backpressure: {error:?}")),
-        PrePoolError::Stale(_) | PrePoolError::Fault(_) => {
-            Reject::Internal(format!("pre-pool internal transition failure: {error:?}"))
+        PrePoolPublicError::Backpressure(_) => {
+            Reject::Full(format!("pre-pool backpressure: {error:?}"))
         }
     }
 }

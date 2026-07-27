@@ -1,6 +1,6 @@
 use super::*;
 use ckb_types::bytes::Bytes;
-use ckb_types::core::UncleBlockView;
+use ckb_types::core::{BlockNumber, EpochNumberWithFraction, UncleBlockView};
 use ckb_types::packed;
 use ckb_types::prelude::Entity;
 
@@ -42,12 +42,70 @@ fn fill_to_capacity(container: &mut CandidateUncles, lowest_has_room: bool) {
     }
 }
 
-/// A full container must still accept an uncle at the *boundary*
-/// height (equal to the lowest stored height) into that height's
-/// existing set when it has room — instead of rejecting it while
-/// evicting the whole lowest set for strictly higher heights.
 #[test]
-fn full_container_accepts_uncle_at_lowest_existing_height() {
+fn basic_insert_and_remove() {
+    let mut candidates = CandidateUncles::new();
+    let block = uncle(0, 0);
+    assert!(candidates.insert(block.clone()));
+    assert_eq!(candidates.len(), 1);
+    assert!(!candidates.insert(block.clone()));
+    assert!(candidates.remove_by_number(&block));
+    assert!(candidates.is_empty());
+    assert!(candidates.map.is_empty());
+}
+
+#[test]
+fn keeps_the_highest_bounded_candidates() {
+    let mut candidates = CandidateUncles::new();
+    let blocks = (0..(MAX_CANDIDATE_UNCLES + 3))
+        .map(|index| {
+            let number = index as BlockNumber;
+            ckb_types::core::BlockBuilder::default()
+                .number(number)
+                .epoch(EpochNumberWithFraction::new(
+                    number / 1000,
+                    number % 1000,
+                    10_000,
+                ))
+                .build()
+                .as_uncle()
+        })
+        .collect::<Vec<_>>();
+
+    for block in &blocks {
+        candidates.insert(block.clone());
+    }
+    assert_eq!(candidates.len(), MAX_CANDIDATE_UNCLES);
+    assert_eq!(candidates.map.keys().next().copied(), Some(3));
+
+    candidates.clear();
+    for block in blocks.iter().rev() {
+        candidates.insert(block.clone());
+    }
+    assert_eq!(candidates.len(), MAX_CANDIDATE_UNCLES);
+    assert_eq!(candidates.map.keys().next().copied(), Some(3));
+}
+
+#[test]
+fn enforces_per_height_limit() {
+    let mut candidates = CandidateUncles::new();
+    for index in 0..(MAX_PER_HEIGHT + 3) {
+        candidates.insert(
+            ckb_types::core::BlockBuilder::default()
+                .timestamp(index as u64)
+                .build()
+                .as_uncle(),
+        );
+    }
+    assert_eq!(candidates.map.len(), 1);
+    assert_eq!(candidates.len(), MAX_PER_HEIGHT);
+}
+
+/// Global capacity is a hard residency boundary. An equal-priority candidate
+/// cannot grow the cache past the bound or evict an arbitrary peer; only a
+/// strictly higher-height candidate may replace the complete lowest bucket.
+#[test]
+fn full_container_keeps_a_hard_global_bound() {
     let mut container = CandidateUncles::new();
 
     // Fill to capacity: height 1 has room left in its set, the others
@@ -55,16 +113,8 @@ fn full_container_accepts_uncle_at_lowest_existing_height() {
     fill_to_capacity(&mut container, true);
     assert_eq!(container.len(), MAX_CANDIDATE_UNCLES);
 
-    // Boundary height with room: accepted into the existing set (the
-    // soft cap may be exceeded by one set, bounded by MAX_PER_HEIGHT).
-    assert!(
-        container.insert(uncle(1, 200)),
-        "boundary-height uncle must be accepted into the existing set"
-    );
-    assert!(
-        !container.insert(uncle(1, 201)),
-        "but the per-height cap still holds"
-    );
+    assert!(!container.insert(uncle(1, 200)));
+    assert_eq!(container.len(), MAX_CANDIDATE_UNCLES);
 
     // A strictly lower height is rejected.
     assert!(!container.insert(uncle(0, 202)));

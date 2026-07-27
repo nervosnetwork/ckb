@@ -9,6 +9,7 @@ pub(crate) struct PrePoolView {
     pub(crate) source: PrePoolSource,
     pub(crate) dependencies: BTreeSet<Byte32>,
     pub(crate) version: EntryVersion,
+    pub(crate) charge_bytes: usize,
 }
 
 impl PrePoolKernel {
@@ -22,6 +23,7 @@ impl PrePoolKernel {
                 .map(DependencyKey::parent_hash)
                 .collect(),
             version: entry.version,
+            charge_bytes: entry.charge_bytes(),
         })
     }
 
@@ -77,7 +79,7 @@ impl PrePoolKernel {
 
     fn independently_expected_charge(&self, entry: &Entry) -> Result<usize, String> {
         let mut memberships = 2usize;
-        if entry.source.peer().is_some() {
+        if entry.raw.ingress_peer().is_some() {
             memberships = memberships
                 .checked_add(2)
                 .ok_or_else(|| "peer projection charge overflow".to_string())?;
@@ -155,7 +157,7 @@ impl PrePoolKernel {
 
     pub(crate) fn audit(&self) -> Result<(), String> {
         let mut by_short_id = HashMap::new();
-        let mut by_peer = HashMap::<_, BTreeSet<_>>::new();
+        let mut by_ingress_peer = HashMap::<_, BTreeSet<_>>::new();
         let mut by_parent = HashMap::<_, BTreeSet<_>>::new();
         let mut waiters = HashMap::<_, BTreeSet<_>>::new();
         let mut queues = WorkLaneSlots::from_fn(|_| BTreeSet::<WorkKey>::new());
@@ -195,8 +197,11 @@ impl PrePoolKernel {
             if by_short_id.insert(entry.short_id(), hash.clone()).is_some() {
                 return Err("two full hashes occupy one short-id slot".to_string());
             }
-            if let Some(peer) = entry.source.peer() {
-                by_peer.entry(peer).or_default().insert(hash.clone());
+            if let Some(peer) = entry.raw.ingress_peer() {
+                by_ingress_peer
+                    .entry(peer)
+                    .or_default()
+                    .insert(hash.clone());
             }
             for parent in entry
                 .dependencies
@@ -272,7 +277,7 @@ impl PrePoolKernel {
         }
 
         if by_short_id != self.by_short_id
-            || by_peer != self.by_peer
+            || by_ingress_peer != self.by_ingress_peer
             || by_parent != self.by_parent
             || waiters != self.waiters
             || ready != self.ready

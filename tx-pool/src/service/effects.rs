@@ -175,6 +175,29 @@ pub(crate) enum EffectJournalError {
     Projection(&'static str),
 }
 
+/// Closed error domain for the capacity wait operation.
+///
+/// Waiting consumes `Full` internally and performs no journal mutation, so it
+/// cannot produce sequence/projection/allocation failures. Exposing those
+/// variants here previously let callers collapse a violated startup size
+/// proof into ordinary shutdown with `.is_err()`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EffectCapacityWaitError {
+    Closed,
+    BatchTooLarge { bytes: usize, max_bytes: usize },
+}
+
+impl From<EffectCapacityWaitError> for EffectJournalError {
+    fn from(error: EffectCapacityWaitError) -> Self {
+        match error {
+            EffectCapacityWaitError::Closed => Self::Closed,
+            EffectCapacityWaitError::BatchTooLarge { bytes, max_bytes } => {
+                Self::BatchTooLarge { bytes, max_bytes }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EffectBuildError {
     UnboundedPoolMutationReject,
@@ -609,11 +632,50 @@ pub(crate) struct EffectJournal {
 }
 
 /// Publication paired with one chain-authoritative state transition.
-/// Generation reset is an explicit committed outcome, not an out-of-band
-/// repair attempted after authority locks have opened.
-pub(crate) enum AuthoritativePublication {
+/// Construction is private; callers receive an [`AuthoritativeCapacity`]
+/// capability and cannot return detail when only the reset slot was reserved.
+enum AuthoritativePublication {
     Detail(Option<EffectBatch>),
     GenerationReset,
+}
+
+pub(crate) struct AuthoritativeCommit<T> {
+    result: T,
+    publication: AuthoritativePublication,
+}
+
+/// Exact publication capacity reserved while chain authority and the journal
+/// are held. The capability converts detail into a reset automatically when
+/// the critical FIFO lacks room, making the old `(false, Detail)` mismatch
+/// unrepresentable at the API boundary.
+#[derive(Clone, Copy)]
+pub(crate) struct AuthoritativeCapacity {
+    retains_detail: bool,
+}
+
+impl AuthoritativeCapacity {
+    pub(crate) fn retains_detail(self) -> bool {
+        self.retains_detail
+    }
+
+    pub(crate) fn detail<T>(self, result: T, batch: Option<EffectBatch>) -> AuthoritativeCommit<T> {
+        let publication = if self.retains_detail {
+            AuthoritativePublication::Detail(batch)
+        } else {
+            AuthoritativePublication::GenerationReset
+        };
+        AuthoritativeCommit {
+            result,
+            publication,
+        }
+    }
+
+    pub(crate) fn reset<T>(self, result: T) -> AuthoritativeCommit<T> {
+        AuthoritativeCommit {
+            result,
+            publication: AuthoritativePublication::GenerationReset,
+        }
+    }
 }
 
 impl EffectJournal {
@@ -735,10 +797,10 @@ impl EffectJournal {
         &self,
         bytes: usize,
         class: EffectClass,
-    ) -> Result<(), EffectJournalError> {
+    ) -> Result<(), EffectCapacityWaitError> {
         let max_bytes = self.class_limit(class).bytes;
         if bytes > max_bytes {
-            return Err(EffectJournalError::BatchTooLarge { bytes, max_bytes });
+            return Err(EffectCapacityWaitError::BatchTooLarge { bytes, max_bytes });
         }
         loop {
             let space = self.space.notified();
@@ -747,7 +809,7 @@ impl EffectJournal {
             {
                 let state = self.lock_state();
                 if state.closed {
-                    return Err(EffectJournalError::Closed);
+                    return Err(EffectCapacityWaitError::Closed);
                 }
                 if self.fits(&state, class, bytes) {
                     return Ok(());
@@ -837,7 +899,7 @@ impl EffectJournal {
     pub(crate) fn try_apply_authoritative<T>(
         &self,
         max_detail_bytes: usize,
-        apply: impl FnOnce(bool) -> (T, AuthoritativePublication),
+        apply: impl FnOnce(AuthoritativeCapacity) -> AuthoritativeCommit<T>,
     ) -> Result<T, EffectJournalError> {
         let class = EffectClass::Critical;
         let class_max = self.class_limit(class).bytes;
@@ -852,13 +914,18 @@ impl EffectJournal {
             return Err(EffectJournalError::Closed);
         }
         let sequence = state.reserve_sequence()?;
-        let publish_detail = self.fits(&state, class, max_detail_bytes);
-        let (result, publication) = apply(publish_detail);
+        let capacity = AuthoritativeCapacity {
+            retains_detail: self.fits(&state, class, max_detail_bytes),
+        };
+        let AuthoritativeCommit {
+            result,
+            publication,
+        } = apply(capacity);
         match publication {
             AuthoritativePublication::GenerationReset => {
                 state.apply_generation_reset(sequence, &self.generation_reset_batch);
             }
-            AuthoritativePublication::Detail(batch) if publish_detail => {
+            AuthoritativePublication::Detail(batch) => {
                 if let Some(batch) = batch {
                     self.push_bounded_or_reset(
                         &mut state,
@@ -868,12 +935,6 @@ impl EffectJournal {
                         batch,
                     );
                 }
-            }
-            AuthoritativePublication::Detail(batch) => {
-                if batch.is_some() {
-                    error!("authoritative reset fallback returned unused detail");
-                }
-                state.apply_generation_reset(sequence, &self.generation_reset_batch);
             }
         }
         drop(state);
@@ -889,7 +950,7 @@ impl EffectJournal {
         &self,
         apply: impl FnOnce() -> T,
     ) -> Result<T, EffectJournalError> {
-        self.try_apply_authoritative(0, |_| (apply(), AuthoritativePublication::GenerationReset))
+        self.try_apply_authoritative(0, |capacity| capacity.reset(apply()))
     }
 
     pub(crate) async fn append(
@@ -904,7 +965,9 @@ impl EffectJournal {
         }
         let mut batch = Some(batch);
         loop {
-            self.wait_capacity(bytes, class).await?;
+            self.wait_capacity(bytes, class)
+                .await
+                .map_err(EffectJournalError::from)?;
             let mut state = self.lock_state();
             if state.closed {
                 return Err(EffectJournalError::Closed);
@@ -1189,6 +1252,7 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
         }
         TxPoolEffect::Relay(result) => {
             let is_reset = matches!(result, TxVerificationResult::GenerationReset);
+            let is_parent_request = matches!(result, TxVerificationResult::UnknownParents { .. });
             let started = tokio::time::Instant::now();
             let mut pending = result;
             loop {
@@ -1198,7 +1262,10 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
                         if queue.is_closed() {
                             break;
                         }
-                        if !is_reset && started.elapsed() >= RELAY_RETRY_TIMEOUT {
+                        if !is_reset
+                            && !is_parent_request
+                            && started.elapsed() >= RELAY_RETRY_TIMEOUT
+                        {
                             // Individual results are no longer reliable once
                             // the internal sink has stayed saturated. Replace
                             // them with the existing constant-size authority:
@@ -1220,6 +1287,11 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
                     }
                     Err(TrySendError::Disconnected(_)) => {
                         error!("tx-pool relayer result receiver dropped");
+                        // The receiver is a required consumer for essential
+                        // parent requests. Close the journal so supervision
+                        // quiesces the generation instead of draining and
+                        // silently discarding every later committed effect.
+                        queue.close();
                         break;
                     }
                 }

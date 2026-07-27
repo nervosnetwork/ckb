@@ -134,10 +134,6 @@ fn stage_ready(
         .resident_size
         .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
         .unwrap();
-    let inputs = tx.input_pts_iter().collect::<HashSet<_>>();
-    let meta = FeeGate::new(0, 0)
-        .validate(tx.hash(), inputs, fee, candidate.tx_size)
-        .unwrap();
     kernel
         .complete_verify(
             &verify,
@@ -151,7 +147,6 @@ fn stage_ready(
                 started_at: Instant::now(),
             },
             charge,
-            meta,
         )
         .unwrap();
     kernel.begin_next_commit().unwrap().unwrap()
@@ -212,14 +207,6 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
     kernel.audit().unwrap();
     let candidate = (*verify.payload).clone().into_pool_candidate();
     let candidate_charge = candidate.resident_size + std::mem::size_of::<PipelineVerifiedTx>();
-    let meta = FeeGate::new(1_000, 1_000)
-        .validate(
-            tx.hash(),
-            tx.input_pts_iter().collect(),
-            2_000,
-            candidate.tx_size,
-        )
-        .unwrap();
     kernel
         .complete_verify(
             &verify,
@@ -233,15 +220,80 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
                 started_at: Instant::now(),
             },
             candidate_charge,
-            meta,
         )
         .unwrap();
     kernel.audit().unwrap();
     let ticket = kernel.begin_next_commit().unwrap().unwrap();
-    let plan = kernel.plan_failed_commit(&ticket, false).unwrap();
+    let plan = kernel
+        .plan_failed_commit(&ticket, ConflictDisposition::Terminalize)
+        .unwrap();
     plan.apply();
     assert_eq!(kernel.len(), 0);
     assert_eq!(kernel.total_usage(), Residency::default());
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn verify_completion_derives_indexes_from_the_same_payload() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let source = TxSource::Remote {
+        cycles: 0,
+        peer: 1.into(),
+    };
+    let tx = transaction(1);
+    admit(
+        &mut kernel,
+        tx.clone(),
+        source,
+        ResolveLane::Ingress,
+        Some(100),
+    )
+    .unwrap();
+    let raw = kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    let resolved_tx = resolved(tx, source, 2_000);
+    let resolved_charge = resolved_tx.resident_size;
+    kernel
+        .complete_raw(
+            &raw,
+            resolved_tx,
+            resolved_charge,
+            VerifySchedule::default(),
+        )
+        .unwrap();
+    let verify = kernel
+        .checkout_verify(WorkCapability::Any)
+        .unwrap()
+        .unwrap();
+
+    let other = resolved(transaction(2), source, 2_000).into_pool_candidate();
+    let charge = other.resident_size + std::mem::size_of::<PipelineVerifiedTx>();
+    let error = kernel
+        .complete_verify(
+            &verify,
+            PipelineVerifiedTx {
+                candidate: other,
+                completed: Completed {
+                    cycles: 0,
+                    fee: Capacity::shannons(2_000),
+                },
+                verify_cache_hit: false,
+                started_at: Instant::now(),
+            },
+            charge,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        PrePoolError::Fault(PrePoolFault::PrimaryKeyMismatch { .. })
+    ));
+    assert_eq!(
+        kernel.view(&verify.hash).unwrap().location,
+        PrePoolLocation::VerifyLeased
+    );
     kernel.audit().unwrap();
 }
 
@@ -314,11 +366,11 @@ fn admission_budget_failure_leaves_primary_and_views_unchanged() {
             ResolveLane::Ingress,
             Some(100)
         ),
-        Err(PrePoolError::Backpressure(
+        Err(PrePoolError::Public(PrePoolPublicError::Backpressure(
             PrePoolBackpressure::TotalBudgetExceeded
                 | PrePoolBackpressure::RemoteBudgetExceeded
                 | PrePoolBackpressure::PeerBudgetExceeded(_)
-        ))
+        )))
     ));
     assert_eq!(kernel.len(), 1);
     assert_eq!(kernel.total_usage(), usage);
@@ -352,9 +404,9 @@ fn short_id_collision_is_backpressure_not_aliasing() {
             ResolveLane::Ingress,
             None
         ),
-        Err(PrePoolError::Backpressure(
+        Err(PrePoolError::Public(PrePoolPublicError::Backpressure(
             PrePoolBackpressure::ShortIdCollision { .. }
-        ))
+        )))
     ));
     assert_eq!(
         kernel.hash_by_short_id(&left.proposal_short_id()),
@@ -453,6 +505,50 @@ fn availability_without_a_wait_owner_retains_no_epoch_history() {
     .unwrap();
     assert_eq!(kernel.dependency_epoch_len(), 0);
     assert!(!kernel.wait_wake_pending());
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn same_commit_wakes_prior_conflict_but_not_its_new_victim() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let shared = Byte32::new([0xac; 32]);
+    let key = DependencyKey::Cell(OutPoint::new(shared.clone(), 0));
+    let prior = build_tx(vec![(&shared, 0)], 1);
+    let victim = build_tx(vec![(&shared, 0)], 2);
+
+    kernel
+        .retain_conflict(
+            PipelineRawTx::new(prior.clone(), TxSource::Proposal, 1),
+            PrePoolSource::Proposal,
+            BTreeSet::from([key.clone()]),
+            None,
+        )
+        .unwrap();
+    let history = ConflictRetention::new(
+        PipelineRawTx::new(victim.clone(), TxSource::Proposal, 1),
+        PrePoolSource::Proposal,
+        BTreeSet::from([key.clone()]),
+        None,
+    );
+
+    kernel
+        .plan_external_commit(&HashSet::new(), &HashSet::new(), [key], vec![history])
+        .unwrap()
+        .apply();
+
+    while kernel.wait_wake_pending() {
+        kernel.drain_wait_wakes(1).unwrap();
+    }
+    assert_eq!(
+        kernel.view(&prior.hash()).unwrap().location,
+        PrePoolLocation::ResolveQueued,
+        "a conflict retained before the commit must observe the released input"
+    );
+    assert_eq!(
+        kernel.view(&victim.hash()).unwrap().location,
+        PrePoolLocation::Wait(WaitReason::Conflict),
+        "the victim retained by this commit must observe the post-commit level"
+    );
     kernel.audit().unwrap();
 }
 
@@ -675,9 +771,9 @@ fn oversized_missing_dependency_set_is_rejected_without_mutating_the_lease() {
 
     assert!(matches!(
         kernel.wait_resolve(&lease, dependencies),
-        Err(PrePoolError::Backpressure(
+        Err(PrePoolError::Public(PrePoolPublicError::Backpressure(
             PrePoolBackpressure::DependencyLimitExceeded
-        ))
+        )))
     ));
     assert_eq!(
         kernel.view(&tx.hash()).unwrap().location,
@@ -717,6 +813,40 @@ fn proposal_promotion_transfers_active_accounting_without_invalidating_same_witn
     kernel
         .complete_raw(&lease, value, charge, VerifySchedule::default())
         .unwrap();
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn banned_peer_revocation_plan_uses_immutable_ingress_attribution() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let peer = PeerIndex::from(121);
+    let promoted = transaction(121);
+    let remote = transaction(122);
+    for tx in [&promoted, &remote] {
+        admit(
+            &mut kernel,
+            tx.clone(),
+            TxSource::Remote { cycles: 0, peer },
+            ResolveLane::Ingress,
+            Some(100),
+        )
+        .unwrap();
+    }
+
+    // Model the capacity-wait race: the outer ingress snapshot was taken while
+    // both entries were remote, then one scheduling source was promoted before
+    // the authoritative revocation plan was compiled.
+    let stale_slice = vec![promoted.hash(), remote.hash()];
+    kernel.promote_source(&promoted.hash()).unwrap();
+    let plan = kernel
+        .plan_peer_revocation(peer, &stale_slice)
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.records().len(), 2);
+    let removed = plan.apply();
+    assert_eq!(removed.len(), 2);
+    assert!(kernel.view(&promoted.hash()).is_none());
+    assert!(kernel.view(&remote.hash()).is_none());
     kernel.audit().unwrap();
 }
 
@@ -877,6 +1007,49 @@ fn multi_input_conflict_union_uses_the_product_bound() {
             PrePoolLocation::Wait(WaitReason::Conflict)
         );
     }
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn multi_input_conflict_union_respects_the_global_commit_bound() {
+    let mut constrained = limits();
+    let over_bound = crate::constants::MAX_POOL_MUTATION_CANDIDATES + 1;
+    constrained.max_dependencies_per_entry = over_bound;
+    constrained.max_inputs_per_ready = over_bound;
+    constrained.max_candidates_per_input = 2;
+    constrained.total = Residency::new(over_bound + 1, usize::MAX);
+    constrained.remote = constrained.total;
+    let mut kernel = PrePoolKernel::new(constrained);
+    let parents = (0..over_bound)
+        .map(|index| {
+            let mut raw = [0u8; 32];
+            raw[..std::mem::size_of::<usize>()].copy_from_slice(&index.to_le_bytes());
+            Byte32::new(raw)
+        })
+        .collect::<Vec<_>>();
+    for parent in &parents {
+        let tx = build_tx(vec![(parent, 0)], 1);
+        stage_ready(&mut kernel, tx, TxSource::Proposal, None, 1_000);
+    }
+    let winner = build_tx(parents.iter().map(|parent| (parent, 0)).collect(), 1);
+    let ticket = stage_ready(&mut kernel, winner, TxSource::Proposal, None, 10_000_000);
+
+    let Err(error) =
+        kernel.plan_ready_commit(&ticket, &HashSet::new(), std::iter::empty(), Vec::new())
+    else {
+        panic!("an over-bound conflict cohort must not produce an apply capability");
+    };
+    assert_eq!(
+        error,
+        PrePoolError::Public(PrePoolPublicError::Backpressure(
+            PrePoolBackpressure::CommitConflictCohortLimitExceeded,
+        ))
+    );
+    assert_eq!(
+        kernel.view(&ticket.hash).unwrap().location,
+        PrePoolLocation::Ready,
+        "a rejected read-only Plan must not mutate the selected owner"
+    );
     kernel.audit().unwrap();
 }
 
@@ -1090,9 +1263,9 @@ fn remote_conflict_keeps_remote_reservation_and_wakes_without_capacity_retry() {
             ResolveLane::Ingress,
             Some(100),
         ),
-        Err(PrePoolError::Backpressure(
+        Err(PrePoolError::Public(PrePoolPublicError::Backpressure(
             PrePoolBackpressure::RemoteBudgetExceeded
-        ))
+        )))
     ));
 
     reconcile_dependencies(&mut kernel, HashSet::new(), [key]).unwrap();
@@ -1122,8 +1295,8 @@ fn remote_conflict_history_keeps_its_bounded_residency_deadline() {
             Some(5),
         )
         .unwrap();
-    assert_eq!(kernel.expire_due(4, 1).unwrap().len(), 0);
-    let expired = kernel.expire_due(5, 1).unwrap();
+    assert!(kernel.plan_expiry(4, 1).unwrap().is_none());
+    let expired = kernel.plan_expiry(5, 1).unwrap().unwrap().apply();
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].hash, tx.hash());
     assert_eq!(kernel.total_usage(), Residency::default());
@@ -1158,7 +1331,7 @@ fn expiry_batch_is_bounded_without_a_ready_prefix_scan() {
         Some(5),
     )
     .unwrap();
-    let expired = kernel.expire_due(5, 2).unwrap();
+    let expired = kernel.plan_expiry(5, 2).unwrap().unwrap().apply();
     assert_eq!(expired.len(), 2);
     assert!(expired.iter().any(|record| record.hash == ready_tx.hash()));
     assert!(expired.iter().any(|record| record.hash == queued_tx.hash()));
@@ -1248,9 +1421,9 @@ fn over_budget_recovery_plan_is_mutation_free() {
     let second = transaction(203);
     assert_eq!(
         kernel.retain_recovery_batch(vec![first.clone(), second], 9),
-        Err(PrePoolError::Backpressure(
+        Err(PrePoolError::Public(PrePoolPublicError::Backpressure(
             PrePoolBackpressure::TotalBudgetExceeded
-        ))
+        )))
     );
     assert!(!kernel.contains_hash(&first.hash()));
     assert_eq!(kernel.len(), 0);

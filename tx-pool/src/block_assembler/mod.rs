@@ -14,8 +14,10 @@ mod tests;
 
 use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
+use crate::service::{BlockAssemblerResetJournal, PendingBlockAssemblerReset};
 use crate::util::block_offload;
 pub use candidate_uncles::CandidateUncles;
+use candidate_uncles::PreparedUncles;
 use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_error::{AnyError, InternalErrorKind};
@@ -44,33 +46,34 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 use std::{cmp, iter};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 use crate::TxPool;
 pub(crate) use builder::{BlockTemplateBuilder, BlockTemplateDraft};
-pub(crate) use process::{ResetApply, process, process_reset};
-pub(crate) use state::{CurrentTemplate, TemplateSize};
+pub(crate) use process::{ResetApply, ResetNotification, process, process_reset};
+pub(crate) use state::{CurrentTemplate, ResetEpoch, TemplateRevision, TemplateSize};
+
+/// Read-only result of reset preparation. Stale uncle cleanup is retained in
+/// the plan and becomes visible only if the matching reset token is applied.
+pub(crate) struct PreparedResetTemplate {
+    template: CurrentTemplate,
+    stale_uncles: Vec<UncleBlockView>,
+}
 
 /// Block generator
 #[derive(Clone)]
 pub struct BlockAssembler {
     pub(crate) config: Arc<BlockAssemblerConfig>,
     pub(crate) work_id: Arc<AtomicU64>,
-    pub(crate) candidate_uncles: Arc<Mutex<CandidateUncles>>,
+    /// Bounded optional uncle cache. Preparation clones its at-most-128-entry
+    /// snapshot under this short synchronous lock and performs chain lookups
+    /// after releasing it. Pruning occurs only inside a successful template
+    /// publication Apply.
+    pub(crate) candidate_uncles: Arc<StdMutex<CandidateUncles>>,
     /// Current template snapshot. Readers clone the inner `Arc` under a read
     /// lock; updaters build a new `CurrentTemplate` without holding the lock,
     /// then swap the `Arc` under a write lock.
     pub(crate) current: Arc<RwLock<Arc<CurrentTemplate>>>,
-    /// Monotonic version used by non-forced updates to detect concurrent
-    /// reorgs. A successful write increments this counter.
-    pub(crate) version: Arc<AtomicU64>,
-    /// Serializes `reset_template` with the read-and-swap window of
-    /// `update_full`. The full rebuild is the high-priority unconditional
-    /// writer; proposal/transaction deltas remain optimistic and may lose a
-    /// version race. The service re-dirties both delta classes after a full
-    /// rebuild so a partial update acknowledged just before the full swap is
-    /// reconciled again instead of becoming a lost wakeup.
-    pub(crate) template_lock: Arc<Mutex<()>>,
     /// Shared per-tip memo of chain-cell liveness for `calc_dao`. Uses a
     /// `std::sync::Mutex` because the critical sections are short and never
     /// cross `.await`.
@@ -108,10 +111,8 @@ impl BlockAssembler {
         Ok(Self {
             config: Arc::new(config),
             work_id: Arc::new(work_id),
-            candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
+            candidate_uncles: Arc::new(StdMutex::new(CandidateUncles::new())),
             current: Arc::new(RwLock::new(Arc::new(current))),
-            version: Arc::new(AtomicU64::new(0)),
-            template_lock: Arc::new(Mutex::new(())),
             cell_liveness_memo,
             poster: Arc::new(
                 Client::builder(hyper_util::rt::TokioExecutor::new())
@@ -155,7 +156,7 @@ impl BlockAssembler {
         }
         let template = draft.build(
             cellbase,
-            work_id.fetch_add(1, Ordering::SeqCst),
+            Self::take_counter(work_id, "work id")?,
             dao,
             cmp::max(
                 unix_time_as_millis(),
@@ -178,21 +179,30 @@ impl BlockAssembler {
             size,
             snapshot,
             epoch: current_epoch.clone(),
+            revision: TemplateRevision::INITIAL,
+            reset_epoch: ResetEpoch::INITIAL,
         })
     }
 
-    pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<bool, AnyError> {
-        // Serialize with `reset_template` so that the snapshot we read here
-        // cannot be reset between the read and the final unconditional swap.
-        // Partial updates remain concurrent because they do not take this lock.
-        let _template_guard = self.template_lock.lock().await;
+    fn take_counter(counter: &AtomicU64, label: &'static str) -> Result<u64, BlockAssemblerError> {
+        counter
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| BlockAssemblerError::CounterExhausted(label))
+    }
 
-        // Reorg finalization has the highest priority: it never checks the
-        // version and always succeeds, so a concurrent non-forced update can
-        // never overwrite the reorg result.
+    pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<bool, AnyError> {
+        // Full construction runs concurrently with optimistic partial work.
+        // Publication ignores partial revisions (full wins) but is fenced by
+        // the reset epoch captured with this template (a later reset wins).
         let current = self.current.read().await.clone();
+        let expected_reset_epoch = current.reset_epoch;
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
+        let (prepared_uncles, stale_uncles) = self
+            .prepare_uncles(&current.snapshot, &current.epoch)
+            .into_parts();
 
         let current_template = &current.template;
 
@@ -206,7 +216,7 @@ impl BlockAssembler {
             let proposal_set: HashSet<ProposalShortId> = proposals.iter().cloned().collect();
             let uncles = Self::filter_uncles_conflicting_with_proposals(
                 &current.snapshot,
-                &current_template.uncles,
+                &prepared_uncles,
                 &proposal_set,
             );
 
@@ -264,7 +274,7 @@ impl BlockAssembler {
             .set_uncles(uncles)
             .set_proposals(proposals)
             .set_transactions(checked_txs)
-            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+            .work_id(Self::take_counter(&self.work_id, "work id")?)
             .current_time(cmp::max(
                 unix_time_as_millis(),
                 current.template.current_time,
@@ -286,51 +296,75 @@ impl BlockAssembler {
             new_current.template.transactions.len(),
         );
 
-        // `expected_version == None` means unconditional swap, so this always
-        // returns true; propagate it for clarity and future-proofing.
-        let swapped = self.try_swap_template(new_current, None).await;
+        let swapped = self
+            .try_publish_full(new_current, expected_reset_epoch, stale_uncles)
+            .await?;
 
         Ok(swapped)
     }
 
-    /// Swap the current template if `expected_version` is still valid.
-    ///
-    /// `expected_version` of `None` means the swap is unconditional (used for
-    /// reorg finalization). Returns `true` if the swap happened.
-    async fn try_swap_template(
+    /// Publish an optimistic partial update only when its complete source
+    /// template is still current.
+    async fn try_publish_partial(
         &self,
-        new_current: CurrentTemplate,
-        expected_version: Option<u64>,
-    ) -> bool {
+        mut new_current: CurrentTemplate,
+        expected_revision: TemplateRevision,
+        stale_uncles: Vec<UncleBlockView>,
+    ) -> Result<bool, BlockAssemblerError> {
         let mut guard = self.current.write().await;
-        if expected_version.is_some_and(|expected| self.version.load(Ordering::SeqCst) != expected)
-        {
-            return false;
+        if guard.revision != expected_revision {
+            return Ok(false);
         }
+        if !stale_uncles.is_empty() {
+            self.candidate_uncles.lock().prune(stale_uncles);
+        }
+        new_current.revision = guard
+            .revision
+            .next()
+            .ok_or(BlockAssemblerError::CounterExhausted("template revision"))?;
+        new_current.reset_epoch = guard.reset_epoch;
         *guard = Arc::new(new_current);
-        self.version.fetch_add(1, Ordering::SeqCst);
-        true
+        Ok(true)
     }
 
-    pub(crate) async fn reset_template(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
-        // Serialize with `update_full` so that a reorg finalization and an
-        // explicit reset never interleave with each other. Every partial
-        // update remains concurrent and version-guarded; the caller reissues
-        // all level-triggered delta generations after this unconditional swap.
-        //
-        // The swap is always unconditional (`expected_version = None`): both
-        // callers (reorg finalization and the management `Reset` message,
-        // e.g. `clear_pool`) must not be dropped by the version check — the
-        // pool state they rebuild from has already changed.
-        let _template_guard = self.template_lock.lock().await;
+    /// Publish a full rebuild unless an authoritative reset landed after its
+    /// source template was captured. Partial revisions are deliberately not a
+    /// precondition: full publication has priority over partial publication.
+    async fn try_publish_full(
+        &self,
+        mut new_current: CurrentTemplate,
+        expected_reset_epoch: ResetEpoch,
+        stale_uncles: Vec<UncleBlockView>,
+    ) -> Result<bool, BlockAssemblerError> {
+        let mut guard = self.current.write().await;
+        if guard.reset_epoch != expected_reset_epoch {
+            return Ok(false);
+        }
+        if !stale_uncles.is_empty() {
+            self.candidate_uncles.lock().prune(stale_uncles);
+        }
+        new_current.revision = guard
+            .revision
+            .next()
+            .ok_or(BlockAssemblerError::CounterExhausted("template revision"))?;
+        new_current.reset_epoch = guard.reset_epoch;
+        *guard = Arc::new(new_current);
+        Ok(true)
+    }
 
+    /// Build a reset template without holding template authority or the reset
+    /// journal. Publication is a separate exact-token Apply step.
+    pub(crate) async fn prepare_reset_template(
+        &self,
+        snapshot: Arc<Snapshot>,
+    ) -> Result<PreparedResetTemplate, AnyError> {
         let consensus = snapshot.consensus();
         let current_epoch = consensus
             .next_epoch_ext(snapshot.tip_header(), &snapshot.borrow_as_data_loader())
             .ok_or(BlockAssemblerError::MissingTipEpoch)?
             .epoch();
 
-        let uncles = self.prepare_uncles(&snapshot, &current_epoch).await;
+        let (uncles, stale_uncles) = self.prepare_uncles(&snapshot, &current_epoch).into_parts();
         let new_blank = Self::build_base_template(
             &self.config,
             &self.work_id,
@@ -348,8 +382,39 @@ impl BlockAssembler {
             new_blank.template.transactions.len(),
         );
 
-        self.try_swap_template(new_blank, None).await;
-        Ok(())
+        Ok(PreparedResetTemplate {
+            template: new_blank,
+            stale_uncles,
+        })
+    }
+
+    /// Atomically publish a prepared reset and consume the exact authority
+    /// token that selected its snapshot. No lock in this method crosses an
+    /// await point: the template write guard is acquired first, then the short
+    /// synchronous reset-journal Apply runs as the innermost boundary.
+    pub(crate) async fn publish_reset_template(
+        &self,
+        prepared: PreparedResetTemplate,
+        pending: &PendingBlockAssemblerReset,
+        journal: &BlockAssemblerResetJournal,
+    ) -> Result<bool, BlockAssemblerError> {
+        let PreparedResetTemplate {
+            mut template,
+            stale_uncles,
+        } = prepared;
+        let mut guard = self.current.write().await;
+        let next_revision = guard
+            .revision
+            .next()
+            .ok_or(BlockAssemblerError::CounterExhausted("template revision"))?;
+        Ok(journal
+            .try_apply(pending, || {
+                self.candidate_uncles.lock().prune(stale_uncles);
+                template.revision = next_revision;
+                template.reset_epoch = pending.generation();
+                *guard = Arc::new(template);
+            })
+            .is_some())
     }
 
     /// Apply a partial update to the current block template.
@@ -360,21 +425,22 @@ impl BlockAssembler {
     async fn apply_partial_update<F>(
         &self,
         current: Arc<CurrentTemplate>,
-        version: u64,
+        revision: TemplateRevision,
+        stale_uncles: Vec<UncleBlockView>,
         label: &'static str,
         update: F,
-    ) -> bool
+    ) -> Result<bool, BlockAssemblerError>
     where
         F: FnOnce(&mut BlockTemplateBuilder, &mut TemplateSize) -> bool,
     {
         let mut builder = BlockTemplateBuilder::from_template(&current.template);
         let mut size = current.size;
         if !update(&mut builder, &mut size) {
-            return false;
+            return Ok(false);
         }
 
         builder
-            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+            .work_id(Self::take_counter(&self.work_id, "work id")?)
             .current_time(cmp::max(
                 unix_time_as_millis(),
                 current.template.current_time,
@@ -394,27 +460,30 @@ impl BlockAssembler {
             new_current.template.transactions.len(),
         );
 
-        self.try_swap_template(new_current, Some(version)).await
+        self.try_publish_partial(new_current, revision, stale_uncles)
+            .await
     }
 
-    pub(crate) async fn update_uncles(&self) -> bool {
+    pub(crate) async fn update_uncles(&self) -> Result<bool, BlockAssemblerError> {
         // Uncle work follows the same optimistic protocol as proposals and
         // transactions. A racing full/reset swap invalidates this version;
         // if this update lands first, that high-priority writer reissues the
         // Uncle generation after its unconditional replacement.
-        let (current, version) = {
+        let (current, revision) = {
             let guard = self.current.read().await;
-            (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
+            (Arc::clone(&*guard), guard.revision)
         };
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
         let max_uncles_num = consensus.max_uncles_num();
         let current_uncles_num = current.template.uncles.len();
         if current_uncles_num >= max_uncles_num {
-            return true;
+            return Ok(true);
         }
 
-        let prepared = self.prepare_uncles(&current.snapshot, &current.epoch).await;
+        let (prepared, stale_uncles) = self
+            .prepare_uncles(&current.snapshot, &current.epoch)
+            .into_parts();
         let proposals: HashSet<ProposalShortId> =
             current.template.proposals.iter().cloned().collect();
         let mut uncles = Self::filter_uncles_conflicting_with_proposals(
@@ -434,33 +503,42 @@ impl BlockAssembler {
             // Refuse to publish an update if the cached size ledger is
             // internally inconsistent or its non-uncle base already exceeds
             // the consensus limit.
-            return false;
+            return Ok(false);
         };
         if compatible_non_empty && uncles.is_empty() {
             // Nothing fits at all: keep the current set (the original
             // all-or-nothing behavior for this case).
-            return true;
+            return Ok(true);
         }
 
-        self.apply_partial_update(current, version, "update_uncles", |builder, size| {
-            builder.set_uncles(uncles);
-            size.uncles = new_uncle_size;
-            size.total = new_total_size;
-            true
-        })
+        self.apply_partial_update(
+            current,
+            revision,
+            stale_uncles,
+            "update_uncles",
+            |builder, size| {
+                builder.set_uncles(uncles);
+                size.uncles = new_uncle_size;
+                size.total = new_total_size;
+                true
+            },
+        )
         .await
     }
 
-    pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) -> bool {
-        let (current, version) = {
+    pub(crate) async fn update_proposals(
+        &self,
+        tx_pool: &RwLock<TxPool>,
+    ) -> Result<bool, BlockAssemblerError> {
+        let (current, revision) = {
             let guard = self.current.read().await;
-            (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
+            (Arc::clone(&*guard), guard.revision)
         };
         let consensus = current.snapshot.consensus();
         let mut proposals = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
-                return false;
+                return Ok(false);
             }
             tx_pool_reader.package_proposals(consensus.max_block_proposals_limit())
         };
@@ -472,28 +550,34 @@ impl BlockAssembler {
         );
 
         let Ok(new_uncles_size) = Self::uncles_size(&uncles) else {
-            return false;
+            return Ok(false);
         };
         let Some(base_total_size) = current
             .size
             .calc_total_by_uncles_and_proposals(new_uncles_size, 0)
         else {
-            return false;
+            return Ok(false);
         };
         let max_block_bytes = consensus.max_block_bytes() as usize;
         let Some((new_proposals_size, new_total_size)) =
             Self::fit_proposal_prefix(&mut proposals, base_total_size, max_block_bytes)
         else {
-            return false;
+            return Ok(false);
         };
 
-        self.apply_partial_update(current, version, "update_proposals", |builder, size| {
-            builder.set_uncles(uncles).set_proposals(proposals);
-            size.uncles = new_uncles_size;
-            size.proposals = new_proposals_size;
-            size.total = new_total_size;
-            true
-        })
+        self.apply_partial_update(
+            current,
+            revision,
+            Vec::new(),
+            "update_proposals",
+            |builder, size| {
+                builder.set_uncles(uncles).set_proposals(proposals);
+                size.uncles = new_uncles_size;
+                size.proposals = new_proposals_size;
+                size.total = new_total_size;
+                true
+            },
+        )
         .await
     }
 
@@ -548,9 +632,9 @@ impl BlockAssembler {
         &self,
         tx_pool: &RwLock<TxPool>,
     ) -> Result<bool, AnyError> {
-        let (current, version) = {
+        let (current, revision) = {
             let guard = self.current.read().await;
-            (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
+            (Arc::clone(&*guard), guard.revision)
         };
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
@@ -597,21 +681,22 @@ impl BlockAssembler {
                     );
                     return Ok(false);
                 };
-                Ok(self
-                    .apply_partial_update(
-                        current,
-                        version,
-                        "update_transactions",
-                        |builder, size| {
-                            // `from_template` already copied the extension; only
-                            // transactions and DAO need to change here.
-                            builder.set_transactions(checked_txs).dao(dao);
-                            size.txs = new_txs_size;
-                            size.total = new_total_size;
-                            true
-                        },
-                    )
-                    .await)
+                self.apply_partial_update(
+                    current,
+                    revision,
+                    Vec::new(),
+                    "update_transactions",
+                    |builder, size| {
+                        // `from_template` already copied the extension; only
+                        // transactions and DAO need to change here.
+                        builder.set_transactions(checked_txs).dao(dao);
+                        size.txs = new_txs_size;
+                        size.total = new_total_size;
+                        true
+                    },
+                )
+                .await
+                .map_err(Into::into)
             }
             Err(err) => {
                 warn!(
@@ -723,13 +808,15 @@ impl BlockAssembler {
         }
     }
 
-    pub(crate) async fn prepare_uncles(
+    pub(crate) fn prepare_uncles(
         &self,
         snapshot: &Snapshot,
         current_epoch: &EpochExt,
-    ) -> Vec<UncleBlockView> {
-        let mut guard = self.candidate_uncles.lock().await;
-        guard.prepare_uncles(snapshot, current_epoch)
+    ) -> PreparedUncles {
+        // Chain lookups run on a detached bounded copy. A stale optimistic
+        // build therefore cannot mutate the live candidate cache.
+        let candidates = self.candidate_uncles.lock().clone();
+        candidates.prepare_uncles(snapshot, current_epoch)
     }
 
     /// Keep proposal selection live even when miners omit optional uncles.

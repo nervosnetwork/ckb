@@ -291,7 +291,9 @@ impl PrePoolKernel {
                 continue;
             };
 
-            examined = examined.saturating_add(1);
+            examined = examined
+                .checked_add(1)
+                .ok_or(PrePoolError::CounterExhausted)?;
             let should_wake = self.entries.get(&edge.hash).is_some_and(|entry| {
                 entry.version == edge.version
                     && match &entry.state {
@@ -328,15 +330,21 @@ impl PrePoolKernel {
                 None
             };
 
+            let prepared = wake_plan
+                .map(|cohort| self.seal_cohort(cohort, std::iter::empty()))
+                .transpose()?;
+            if let Some(prepared) = prepared {
+                prepared.apply();
+            }
+            // Cursor publication is derived bookkeeping, not part of the
+            // primary wake transaction. Advance it only after every fallible
+            // Plan/seal predicate has completed and the optional total Apply
+            // has consumed its exclusive capability.
             self.dirty_order.pop_front();
             if let Some(current) = self.dirty.get_mut(&key) {
                 current.cursor = Some(edge);
             }
             self.dirty_order.push_back(key);
-            if let Some(cohort) = wake_plan {
-                let prepared = self.seal_cohort(cohort, std::iter::empty())?;
-                prepared.apply();
-            }
         }
         Ok(examined)
     }
@@ -364,7 +372,9 @@ impl PrePoolKernel {
                 .filter(|key| parents.contains(&key.parent_hash()))
                 .collect::<BTreeSet<_>>();
             if keys.is_empty() {
-                return Err(PrePoolError::EmptyWaitDependencies);
+                return Err(PrePoolError::ProjectionInconsistent(
+                    "parent reverse index has no matching causal dependency",
+                ));
             }
             if let EntryState::Wait(wait) = &entry.state {
                 keys.extend(wait.observed.keys().cloned());

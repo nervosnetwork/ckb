@@ -89,9 +89,21 @@ locations.
 
 ### Projections
 
-`FairQueue`, `by_short_id`, `by_peer`, `by_parent`, `waiters`, `deadlines`,
-`ready`, `ready_by_input`, usage and active-work maps are derived in the same
-mutex section as the primary. Tests recompute them independently.
+`FairQueue`, `by_short_id`, `by_ingress_peer`, `by_parent`, `waiters`,
+`deadlines`, `ready`, `ready_by_input`, usage and active-work maps are derived
+in the same mutex section as the primary. `by_ingress_peer` is immutable
+revocation attribution; mutable scheduling source and its remote/per-peer
+budget may be promoted independently. A peer ban therefore removes every
+matching owner still in `PrePoolKernel`, including source-promoted work, while
+an already accepted `TxPool` entry remains authoritative. Its terminal Reject
+also clears the relayer known/pending projection so another peer can announce
+the same hash. The expiring, non-evicting ban marker is checked immediately
+after queued remote admission takes ownership and again from the exact Ready
+ticket before Accepted planning. Its cardinality follows the network's
+existing unexpired ban set; unrelated peer churn cannot evict a still-live
+fence. Removal and both race edges reuse the same immutable ingress fact rather
+than adding a ban lifecycle state. Tests recompute kernel projections
+independently.
 
 ### Single-entry transitions
 
@@ -129,6 +141,11 @@ Resolve lanes distinguish ordinary ingress from parent-first ordered work.
 Unknown/dead dependencies are converted into exact `DependencyKey` sets.
 `Wait` keeps one observed availability epoch per key; dirty keys are drained in
 bounded maintenance slices. A missed wake notification cannot erase the level.
+At the unique cohort seal, a `Wait(Conflict)` owner created by that same Apply
+is bound to the post-Apply dependency cut, while unchanged historical conflict
+owners retain their older observation and wake. `Wait(Missing)` is intentionally
+not rebased because definitive parent loss schedules bounded re-resolution
+through the same level change.
 
 Verification uses the declared Remote cycle cap where applicable and checks
 the exact snapshot generation. The cache key is
@@ -234,17 +251,20 @@ accepted/recovery-relevant transactions only after supervised workers quiesce.
 Implementation: `src/block_assembler/` and the assembler loop in
 `src/service/builder.rs`.
 
-Reset/`update_full` are the full-template authority and serialize together.
-`update_full` has priority. Uncle, proposal and transaction changes remain
+Reset/`update_full` share one ordered full-template publication boundary while
+their construction remains concurrent. `update_full` has priority and derives
+uncle content from the bounded candidate authority instead of copying the
+reset template's transient projection. Uncle, proposal and transaction changes remain
 concurrent optimistic versioned OCC generations; losing an individual channel
 edge does not lose the dirty level. Every successful full/reset replacement
 reissues all three partial generations so a racing stale acknowledgement
 cannot erase work hidden by the replacement.
 
 After reorg, accepted Gap status is reevaluated against the new proposal
-window. Candidate uncles that would suppress proposal IDs needed by recovered
-transactions are filtered. Production/test limits are identical: 128 total
-candidates and 10 per height.
+window. Full and uncle-only plans prepare candidate uncles read-only; candidate
+cleanup occurs only with the matching publication token. Candidates that would
+suppress proposal IDs needed by recovered transactions are filtered.
+Production/test limits are identical: 128 total candidates and 10 per height.
 
 The unified loop supports:
 
@@ -300,9 +320,11 @@ The required sequence is:
 4. complete managed process suite via `make integration`
 5. checkpoint A/B benchmark only after correctness and harness-noise review
 
-The P6.5 candidate completed steps 1–4: 238/238 `nextest` tests passed,
-all-target clippy and static/document validators passed, and the complete
-unfiltered 150-spec managed process universe passed in 884.185 seconds.
+The P6.5 candidate completed steps 1–4: 257/257 `nextest` tests passed,
+all-target clippy and static/document validators passed, the complete
+150-spec managed tx-pool-impact universe passed in its recorded serial run,
+and the repository-wide unfiltered 177-spec process universe passed through
+plain `make integration` in 372.452 seconds.
 Step 5 remains frozen pending explicit benchmark authorization.
 
 ## 14. Implementation checkpoints

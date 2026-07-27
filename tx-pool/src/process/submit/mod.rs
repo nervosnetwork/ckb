@@ -10,10 +10,10 @@
 pub(crate) mod rbf_commit;
 
 use crate::component::entry::TxEntry;
-use crate::component::pre_pool::{PipelineVerifiedTx, PrePoolError};
+use crate::component::pre_pool::{PipelineVerifiedTx, PrePoolError, PrePoolFault};
 use crate::error::Reject;
 use crate::service::TxPoolService;
-use crate::service::effects::{EffectClass, EffectJournalError};
+use crate::service::effects::{EffectCapacityWaitError, EffectClass, EffectJournalError};
 use crate::util::verify_rtx;
 use ckb_logger::{info, warn};
 use ckb_script::ChunkCommand;
@@ -45,6 +45,11 @@ pub(crate) enum VerifySubmitOutcome {
     Cleared,
 }
 
+pub(crate) enum SubmissionError {
+    Rejected(Reject),
+    Fault(PipelineCommitFault),
+}
+
 /// Result of one read-only Plan plus atomic Apply attempt for the current
 /// highest-ranked Ready owner. No ticket or authority lock survives this
 /// value: a backpressured driver waits and then replans from current state.
@@ -56,8 +61,9 @@ enum PipelineCommitStep {
     Fault(PipelineCommitFault),
 }
 
-enum PipelineCommitFault {
-    Kernel(PrePoolError),
+pub(crate) enum PipelineCommitFault {
+    Epoch(crate::service::PipelineEpochExhausted),
+    Kernel(PrePoolFault),
     Pool(crate::component::pool_map::PoolMutationFault),
     Effect(EffectJournalError),
     EffectBuild(crate::service::effects::EffectBuildError),
@@ -66,6 +72,7 @@ enum PipelineCommitFault {
 impl std::fmt::Debug for PipelineCommitFault {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Epoch(error) => formatter.debug_tuple("Epoch").field(error).finish(),
             Self::Kernel(error) => formatter.debug_tuple("Kernel").field(error).finish(),
             Self::Pool(error) => formatter.debug_tuple("Pool").field(error).finish(),
             Self::Effect(error) => formatter.debug_tuple("Effect").field(error).finish(),
@@ -85,7 +92,7 @@ impl TxPoolService {
         &self,
         candidate: crate::resolved_tx::PoolCandidate,
         verified_cycles: ckb_types::core::Cycle,
-    ) -> Result<SubmitEntryResult, Reject> {
+    ) -> Result<SubmitEntryResult, SubmissionError> {
         let epoch = candidate.epoch;
         let source = candidate.source;
         let original_peer = candidate.source.peer();
@@ -129,6 +136,7 @@ impl TxPoolService {
                         entry.clone(),
                         source,
                         original_peer,
+                        epoch,
                     ) {
                         Ok(plan) => plan,
                         Err(rbf_commit::AdmissionPlanningError::Policy(reject)) => {
@@ -162,7 +170,9 @@ impl TxPoolService {
                                     expires_at,
                                     "direct-submit conflict retention failed",
                                 ) {
-                                    return Attempt::Fault(PipelineCommitFault::Kernel(error));
+                                    return Attempt::Fault(PipelineCommitFault::Kernel(
+                                        error.into_unexpected_fault(),
+                                    ));
                                 }
                             }
                             return Attempt::Rejected(reject);
@@ -183,14 +193,9 @@ impl TxPoolService {
                 })
             };
             match attempt {
-                Attempt::Rejected(reject) => return Err(reject),
+                Attempt::Rejected(reject) => return Err(SubmissionError::Rejected(reject)),
                 Attempt::Fault(error) => {
-                    self.pipeline
-                        .kernel
-                        .report_fault("direct-submit admission planning failed", &error);
-                    return Err(Reject::Internal(format!(
-                        "direct-submit admission fault: {error:?}"
-                    )));
+                    return Err(SubmissionError::Fault(error));
                 }
                 Attempt::Applied(Ok(()), _, _) => return Ok(SubmitEntryResult::Committed),
                 Attempt::Applied(
@@ -199,19 +204,28 @@ impl TxPoolService {
                     class,
                 ) => {
                     drop(tx_pool);
-                    if let Err(error) = self.relay.effects.wait_capacity(bytes, class).await {
-                        return Err(Reject::Full(format!(
-                            "tx-pool effect journal unavailable: {error:?}"
-                        )));
+                    match self.relay.effects.wait_capacity(bytes, class).await {
+                        Ok(()) => {}
+                        Err(EffectCapacityWaitError::Closed) => {
+                            return Ok(SubmitEntryResult::Cleared);
+                        }
+                        Err(error) => {
+                            return Err(SubmissionError::Fault(PipelineCommitFault::Effect(
+                                error.into(),
+                            )));
+                        }
                     }
                 }
                 Attempt::Applied(Err(error), _, _) => {
-                    self.pipeline
-                        .kernel
-                        .report_fault("direct-submit effect batch violated its bound", &error);
-                    return Err(Reject::Internal(format!(
-                        "tx-pool effect journal fault: {error:?}"
-                    )));
+                    let fault = match error {
+                        rbf_commit::AdmissionApplyError::Journal(error) => {
+                            PipelineCommitFault::Effect(error)
+                        }
+                        rbf_commit::AdmissionApplyError::Pool(error) => {
+                            PipelineCommitFault::Pool(error)
+                        }
+                    };
+                    return Err(SubmissionError::Fault(fault));
                 }
             }
         }
@@ -318,7 +332,7 @@ impl TxPoolService {
         resolved: crate::resolved_tx::ResolvedTx,
         snapshot: Arc<Snapshot>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Result<VerifySubmitOutcome, Reject> {
+    ) -> Result<VerifySubmitOutcome, SubmissionError> {
         let declared_cycles = resolved.source.cycles();
         // Verification uses the snapshot captured at resolve time. If the chain
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
@@ -350,7 +364,7 @@ impl TxPoolService {
                 if !self.is_pipeline_epoch_current(resolved.epoch) {
                     return Ok(VerifySubmitOutcome::Cleared);
                 }
-                return Err(err);
+                return Err(SubmissionError::Rejected(err));
             }
         };
 
@@ -366,7 +380,10 @@ impl TxPoolService {
             if !self.is_pipeline_epoch_current(resolved.epoch) {
                 return Ok(VerifySubmitOutcome::Cleared);
             }
-            return Err(Reject::DeclaredWrongCycles(declared, verified.cycles));
+            return Err(SubmissionError::Rejected(Reject::DeclaredWrongCycles(
+                declared,
+                verified.cycles,
+            )));
         }
 
         let entry_cycles = verified.cycles;
@@ -400,26 +417,28 @@ impl TxPoolService {
     /// shutdown or a structural fault.
     pub(crate) async fn drive_pipeline_commits(&self) -> bool {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
-        let mut committed = 0;
-        while committed < MAX_COMMITS_PER_DRIVE {
+        for _ in 0..MAX_COMMITS_PER_DRIVE {
             match self.commit_next_pipeline_entry().await {
-                PipelineCommitStep::Progress => committed = committed.saturating_add(1),
+                PipelineCommitStep::Progress => {}
                 PipelineCommitStep::Idle => return true,
                 PipelineCommitStep::Closed => return false,
                 PipelineCommitStep::Fault(error) => {
-                    self.pipeline
-                        .kernel
-                        .report_fault("pipeline commit fault", &error);
+                    self.fail_tx_pool_generation(
+                        "pipeline commit fault",
+                        &crate::process::TxPoolGenerationFault::Commit(error),
+                    );
                     return false;
                 }
                 PipelineCommitStep::Backpressured { bytes, class } => {
                     match self.relay.effects.wait_capacity(bytes, class).await {
                         Ok(()) => {}
-                        Err(EffectJournalError::Closed) => return false,
+                        Err(EffectCapacityWaitError::Closed) => return false,
                         Err(error) => {
-                            self.pipeline.kernel.report_fault(
+                            self.fail_tx_pool_generation(
                                 "a previously bounded pipeline effect batch became invalid",
-                                &error,
+                                &crate::process::TxPoolGenerationFault::Commit(
+                                    PipelineCommitFault::Effect(error.into()),
+                                ),
                             );
                             return false;
                         }
@@ -457,6 +476,7 @@ impl TxPoolService {
             // invalidate it between observation and Apply.
             let Some(lease) = kernel
                 .begin_next_commit()
+                .map_err(PrePoolError::into_unexpected_fault)
                 .map_err(PipelineCommitFault::Kernel)?
             else {
                 return Ok(None);
@@ -476,6 +496,7 @@ impl TxPoolService {
                 verified.candidate.pre_resolve_tip.clone(),
                 entry.clone(),
                 &lease,
+                verified.candidate.epoch,
             ) {
                 Ok(plan) => {
                     let effect_bytes = plan.effect_bytes();
@@ -487,9 +508,28 @@ impl TxPoolService {
                         verified,
                     }))
                 }
-                Err(rbf_commit::AdmissionPlanningError::Policy(reject)) => {
+                Err(error) => {
+                    let reject = match error {
+                        rbf_commit::ReadyAdmissionPlanningError::IngressRevoked => None,
+                        rbf_commit::ReadyAdmissionPlanningError::Admission(
+                            rbf_commit::AdmissionPlanningError::Policy(reject),
+                        ) => Some(reject),
+                        rbf_commit::ReadyAdmissionPlanningError::Admission(
+                            rbf_commit::AdmissionPlanningError::Kernel(error),
+                        ) => return Err(PipelineCommitFault::Kernel(error)),
+                        rbf_commit::ReadyAdmissionPlanningError::Admission(
+                            rbf_commit::AdmissionPlanningError::Pool(error),
+                        ) => return Err(PipelineCommitFault::Pool(error)),
+                        rbf_commit::ReadyAdmissionPlanningError::Admission(
+                            rbf_commit::AdmissionPlanningError::Effect(error),
+                        ) => return Err(PipelineCommitFault::EffectBuild(error)),
+                    };
+                    let cause = match reject.as_ref() {
+                        Some(reject) => rbf_commit::UnacceptedReadyCause::Policy(reject),
+                        None => rbf_commit::UnacceptedReadyCause::IngressRevoked,
+                    };
                     let plan = match self
-                        .plan_failed_admission(&tx_pool, kernel, &lease, &entry, &reject)
+                        .plan_unaccepted_admission(&tx_pool, kernel, &lease, &entry, cause)
                     {
                         Ok(plan) => plan,
                         Err(error) => return Err(PipelineCommitFault::Kernel(error)),
@@ -502,15 +542,6 @@ impl TxPoolService {
                         effect_class,
                         verified,
                     }))
-                }
-                Err(rbf_commit::AdmissionPlanningError::Kernel(error)) => {
-                    Err(PipelineCommitFault::Kernel(error))
-                }
-                Err(rbf_commit::AdmissionPlanningError::Pool(error)) => {
-                    Err(PipelineCommitFault::Pool(error))
-                }
-                Err(rbf_commit::AdmissionPlanningError::Effect(error)) => {
-                    Err(PipelineCommitFault::EffectBuild(error))
                 }
             }
         });

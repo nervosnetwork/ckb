@@ -23,7 +23,7 @@ pub(crate) use message::{
 #[cfg(feature = "internal")]
 pub(crate) use workers::spawn_verify_cache_worker;
 
-use crate::block_assembler::BlockAssembler;
+use crate::block_assembler::{BlockAssembler, ResetEpoch};
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::pool_map::Status;
@@ -45,7 +45,7 @@ use ckb_types::{
 };
 use ckb_util::Mutex;
 use ckb_verification::cache::TxVerificationCache;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::num::NonZeroU32;
 use std::sync::{
@@ -229,6 +229,17 @@ pub(crate) struct PipelineEpoch {
     value: AtomicU64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PipelineEpochExhausted;
+
+impl std::fmt::Display for PipelineEpochExhausted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("tx-pool pipeline epoch exhausted")
+    }
+}
+
+impl std::error::Error for PipelineEpochExhausted {}
+
 impl PipelineEpoch {
     pub(crate) fn current(&self) -> Option<u64> {
         let value = self.value.load(Ordering::Acquire);
@@ -244,7 +255,7 @@ impl PipelineEpoch {
         match self
             .value
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                (value != u64::MAX).then(|| value.saturating_add(1))
+                value.checked_add(1)
             }) {
             Ok(previous) => previous.checked_add(1).filter(|next| *next != u64::MAX),
             Err(_) => None,
@@ -307,6 +318,25 @@ pub(crate) struct BlockAssemblerResetJournal {
     state: Mutex<BlockAssemblerResetState>,
 }
 
+/// Exact reset work loaded from the level-triggered authority journal.
+/// Keeping generation and snapshot in one opaque value prevents callers from
+/// acknowledging or publishing a snapshot under a different generation.
+#[derive(Clone)]
+pub(crate) struct PendingBlockAssemblerReset {
+    generation: ResetEpoch,
+    snapshot: Arc<Snapshot>,
+}
+
+impl PendingBlockAssemblerReset {
+    pub(crate) fn snapshot(&self) -> Arc<Snapshot> {
+        Arc::clone(&self.snapshot)
+    }
+
+    pub(crate) fn generation(&self) -> ResetEpoch {
+        self.generation
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BlockAssemblerJournalError {
     GenerationExhausted,
@@ -314,8 +344,8 @@ pub(crate) enum BlockAssemblerJournalError {
 
 #[derive(Default)]
 struct BlockAssemblerResetState {
-    next_generation: u64,
-    pending: Option<(u64, Arc<Snapshot>)>,
+    next_generation: ResetEpoch,
+    pending: Option<PendingBlockAssemblerReset>,
 }
 
 impl BlockAssemblerResetJournal {
@@ -323,30 +353,53 @@ impl BlockAssemblerResetJournal {
         let mut state = self.state.lock();
         state.next_generation = state
             .next_generation
-            .checked_add(1)
+            .next()
             .ok_or(BlockAssemblerJournalError::GenerationExhausted)?;
         let generation = state.next_generation;
-        state.pending = Some((generation, snapshot));
+        state.pending = Some(PendingBlockAssemblerReset {
+            generation,
+            snapshot,
+        });
         Ok(())
     }
 
-    fn load(&self) -> Option<(u64, Arc<Snapshot>)> {
+    fn load(&self) -> Option<PendingBlockAssemblerReset> {
         self.state.lock().pending.clone()
     }
 
-    fn complete(&self, completed_generation: u64) {
+    /// Linearize publication with consumption of the exact reset token. The
+    /// closure runs while the journal lock is held and must not block. A newer
+    /// generation either wins before this check (so the stale closure never
+    /// runs) or is installed after the committed publication and remains
+    /// pending.
+    pub(crate) fn try_apply<T>(
+        &self,
+        pending: &PendingBlockAssemblerReset,
+        apply: impl FnOnce() -> T,
+    ) -> Option<T> {
         let mut state = self.state.lock();
-        if state
+        if !state
             .pending
             .as_ref()
-            .is_some_and(|(generation, _)| *generation == completed_generation)
+            .is_some_and(|current| current.generation == pending.generation)
         {
-            state.pending.take();
+            return None;
         }
+        let result = apply();
+        state.pending.take();
+        Some(result)
     }
 
     fn is_pending(&self) -> bool {
         self.state.lock().pending.is_some()
+    }
+
+    pub(crate) fn is_current(&self, pending: &PendingBlockAssemblerReset) -> bool {
+        self.state
+            .lock()
+            .pending
+            .as_ref()
+            .is_some_and(|current| current.generation == pending.generation)
     }
 }
 
@@ -449,62 +502,92 @@ impl RelayState {
     /// Load the latest required reset without consuming it. The reset journal
     /// is level-triggered authority: a failed template rebuild must leave the
     /// snapshot available for the interval consumer's next attempt.
-    pub(crate) fn load_block_assembler_reset(&self) -> Option<(u64, Arc<Snapshot>)> {
+    pub(crate) fn load_block_assembler_reset(&self) -> Option<PendingBlockAssemblerReset> {
         self.block_assembler_reset.load()
     }
 
     pub(crate) fn block_assembler_reset_pending(&self) -> bool {
         self.block_assembler_reset.is_pending()
     }
+}
 
-    /// Acknowledge only the exact loaded generation. Pointer identity is not
-    /// sufficient because the same snapshot Arc may be journaled again while
-    /// an earlier rebuild is off-lock.
-    pub(crate) fn complete_block_assembler_reset(&self, completed_generation: u64) {
-        self.block_assembler_reset.complete(completed_generation);
+/// Internal ban fence for controller messages and worker leases that raced
+/// with network-level peer eviction.
+///
+/// An unexpired fence must never be evicted for capacity: doing so would turn
+/// peer churn into an integrity bypass for an older queued ingress. Entries
+/// are pruned by the same expiry as the network ban. Their cardinality is
+/// therefore coupled to the network's existing durable ban set instead of to
+/// tx-pool transaction residency, and does not create an independent
+/// process-lifetime retention class.
+pub(crate) struct BannedPeerSet {
+    state: Mutex<BanFenceState>,
+}
+
+struct BanFenceState {
+    entries: HashMap<ckb_network::PeerIndex, BanFenceDeadline>,
+    expirations: BTreeSet<(std::time::Instant, ckb_network::PeerIndex)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BanFenceDeadline {
+    At(std::time::Instant),
+    ProcessLifetime,
+}
+
+impl BanFenceDeadline {
+    fn after(now: std::time::Instant, duration: std::time::Duration) -> Self {
+        now.checked_add(duration)
+            .map_or(Self::ProcessLifetime, Self::At)
     }
 }
 
-/// Bounded internal ban fence for controller messages and worker leases that
-/// raced with network-level peer eviction. The network service owns the
-/// durable three-day ban; tx-pool only needs enough markers to cover its
-/// bounded channel, active handlers and coordinator residents. A reconnect
-/// churn attack must not turn those transient markers into an unbounded
-/// three-day HashMap.
-pub(crate) struct BannedPeerSet {
-    entries: Mutex<lru::LruCache<ckb_network::PeerIndex, std::time::Instant>>,
-}
-
 impl BannedPeerSet {
-    pub(crate) fn new(capacity: usize) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            entries: Mutex::new(lru::LruCache::new(capacity.max(1))),
+            state: Mutex::new(BanFenceState {
+                entries: HashMap::new(),
+                expirations: BTreeSet::new(),
+            }),
         }
     }
 
     pub(crate) fn record(&self, peer: ckb_network::PeerIndex, duration: std::time::Duration) {
-        let expires_at = std::time::Instant::now()
-            .checked_add(duration)
-            .unwrap_or_else(std::time::Instant::now);
-        self.entries.lock().put(peer, expires_at);
+        let now = std::time::Instant::now();
+        let deadline = BanFenceDeadline::after(now, duration);
+        let mut state = self.state.lock();
+        state.prune(now);
+        if let Some(BanFenceDeadline::At(previous)) = state.entries.insert(peer, deadline) {
+            state.expirations.remove(&(previous, peer));
+        }
+        if let BanFenceDeadline::At(deadline) = deadline {
+            state.expirations.insert((deadline, peer));
+        }
     }
 
     pub(crate) fn contains(&self, peer: ckb_network::PeerIndex) -> bool {
-        let mut entries = self.entries.lock();
-        match entries.peek(&peer).copied() {
-            Some(expires_at) if expires_at > std::time::Instant::now() => true,
-            Some(_) => {
-                entries.pop(&peer);
-                false
+        let mut state = self.state.lock();
+        let now = std::time::Instant::now();
+        state.prune(now);
+        state.entries.contains_key(&peer)
+    }
+}
+
+impl BanFenceState {
+    fn prune(&mut self, now: std::time::Instant) {
+        while let Some((deadline, peer)) = self.expirations.first().copied() {
+            if deadline > now {
+                break;
             }
-            None => false,
+            self.expirations.remove(&(deadline, peer));
+            self.entries.remove(&peer);
         }
     }
 }
 
 impl Default for BannedPeerSet {
     fn default() -> Self {
-        Self::new(DEFAULT_CHANNEL_SIZE)
+        Self::new()
     }
 }
 
@@ -569,7 +652,7 @@ impl TxPoolService {
 
     pub async fn receive_candidate_uncle(&self, uncle: UncleBlockView) {
         if let Some(ref block_assembler) = self.block_assembler {
-            let inserted = block_assembler.candidate_uncles.lock().await.insert(uncle);
+            let inserted = block_assembler.candidate_uncles.lock().insert(uncle);
             if inserted {
                 self.journal_block_assembler_message(BlockAssemblerMessage::Uncle);
             }
@@ -590,11 +673,31 @@ impl TxPoolService {
             {
                 return;
             }
+            // Phase one has already committed the matching pool/kernel reorg,
+            // so detached candidates can enter their bounded optional cache
+            // before reset publication is arbitrated. The assembler loop and
+            // this phase may both consume the same reset generation; retaining
+            // candidates first prevents the loser from dropping the only
+            // phase-two payload on its `Superseded` exit. A reset prepared
+            // before this insertion is still repaired by `update_full`, which
+            // derives from the candidate authority, or by the reissued Uncle
+            // dirty generation.
+            {
+                let mut retained = block_assembler.candidate_uncles.lock();
+                for uncle in candidate_uncles {
+                    retained.insert(uncle);
+                }
+            }
             // Consume the generation-tagged authority journal instead of the
             // reorg handler's captured snapshot. A later clear may have won
             // while retained payloads were validating; applying the captured
             // snapshot here would resurrect stale template authority.
-            match crate::block_assembler::process_reset(self.clone(), false).await {
+            match crate::block_assembler::process_reset(
+                self.clone(),
+                crate::block_assembler::ResetNotification::SuppressUntilFull,
+            )
+            .await
+            {
                 crate::block_assembler::ResetApply::Retry => {
                     // The assembler loop owns the latest reset and retries it
                     // level-wise. Keep the pool-derived deltas dirty, but do
@@ -620,31 +723,24 @@ impl TxPoolService {
                 self.journal_block_assembler_full_reconcile();
                 return;
             }
-            // Candidate uncles are a bounded optional cache, not a retained
-            // reorg phase. Once the matching reset generation is current they
-            // can remain for the ordinary level-triggered uncle/proposal
-            // updater even when this eager full refresh fails.
-            {
-                let mut retained = block_assembler.candidate_uncles.lock().await;
-                for uncle in candidate_uncles {
-                    retained.insert(uncle);
-                }
-            }
             match block_assembler.update_full(&self.pool.tx_pool).await {
-                Ok(true) => self.journal_block_assembler_full_reconcile(),
+                Ok(true) => {}
                 Ok(false) => {
                     ckb_logger::debug!(
                         "block assembler full rebuild observed a tx-pool tip mismatch; retaining level-triggered reconcile"
                     );
-                    self.journal_block_assembler_full_reconcile();
                 }
                 Err(e) => {
                     ckb_logger::error!(
                         "block assembler full rebuild failed; retaining level-triggered reconcile: {e:?}"
                     );
-                    self.journal_block_assembler_full_reconcile();
                 }
             }
+            // A full attempt consumes an arbitrary snapshot of optimistic
+            // partial/uncle dirtiness. Re-publish that level-triggered work at
+            // this single exit regardless of success, tip mismatch or build
+            // failure; the three outcomes differ only in diagnostics.
+            self.journal_block_assembler_full_reconcile();
             // A reset is already a valid blank template if the full rebuild
             // fails; publish at most once after the complete refresh attempt.
             if !self.relay.block_assembler_reset_pending() {

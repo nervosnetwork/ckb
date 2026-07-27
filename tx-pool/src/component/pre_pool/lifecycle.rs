@@ -21,6 +21,24 @@ struct EntryReplacementPlan {
     next_arrival: Arrival,
 }
 
+/// Proof-carrying terminal cohort. Effects are built from `records` and the
+/// journal closure can only consume the already-validated, total mutation.
+pub(crate) struct PreparedTerminalCohort<'authority> {
+    prepared: PreparedKernelMutation<'authority>,
+    records: Vec<TerminalRecord>,
+}
+
+impl PreparedTerminalCohort<'_> {
+    pub(crate) fn records(&self) -> &[TerminalRecord] {
+        &self.records
+    }
+
+    pub(crate) fn apply(self) -> Vec<TerminalRecord> {
+        self.prepared.apply();
+        self.records
+    }
+}
+
 /// A bounded multi-entry state change compiled entirely from the current
 /// primary map. Every identity, shape, fan-out and budget predicate is checked
 /// before Apply; Apply only detaches old projections, installs the exact final
@@ -37,6 +55,25 @@ pub(super) struct CohortPlan {
     affected_owners: BTreeSet<WorkOwner>,
     next_version: EntryVersion,
     next_arrival: Arrival,
+}
+
+impl CohortPlan {
+    /// Bind conflict history created by this cohort to the post-Apply
+    /// dependency level. An unchanged historical waiter must observe the
+    /// level change and retry, but a victim retained by the same accepted
+    /// mutation must not interpret that mutation as a later release and
+    /// immediately resurrect itself.
+    ///
+    /// `Wait(Missing)` is deliberately excluded: definitive parent loss uses
+    /// the same level change to schedule bounded re-resolution of consumers
+    /// invalidated by this cohort.
+    fn bind_conflict_observation_cut(&mut self, changes: &DependencyChangePlan) {
+        for change in &mut self.changes {
+            if let Some(next) = change.next.take() {
+                change.next = Some(next.bind_conflict_observation_cut(changes));
+            }
+        }
+    }
 }
 
 /// One final primary action per hash. Stored-entry keys are always derived
@@ -176,14 +213,14 @@ impl PrePoolKernel {
                 "short-id projection omits its primary",
             ));
         }
-        if let Some(peer) = entry.source.peer()
+        if let Some(peer) = entry.raw.ingress_peer()
             && !self
-                .by_peer
+                .by_ingress_peer
                 .get(&peer)
                 .is_some_and(|hashes| hashes.contains(hash))
         {
             return Err(PrePoolError::ProjectionInconsistent(
-                "peer projection omits its primary",
+                "ingress-peer projection omits its primary",
             ));
         }
         for parent in entry
@@ -568,11 +605,12 @@ impl PrePoolKernel {
     /// method creates the exclusive capability required to Apply one.
     pub(super) fn seal_cohort(
         &mut self,
-        cohort: CohortPlan,
+        mut cohort: CohortPlan,
         dependency_changes: impl IntoIterator<Item = DependencyKey>,
     ) -> Result<PreparedKernelMutation<'_>, PrePoolError> {
         let dependency_changes =
             self.plan_dependency_changes_for_cohort(dependency_changes, &cohort)?;
+        cohort.bind_conflict_observation_cut(&dependency_changes);
         Ok(PreparedKernelMutation {
             authority: self,
             cohort,
@@ -707,8 +745,11 @@ impl PrePoolKernel {
 
     fn attach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
         self.by_short_id.insert(entry.short_id(), hash.clone());
-        if let Some(peer) = entry.source.peer() {
-            self.by_peer.entry(peer).or_default().insert(hash.clone());
+        if let Some(peer) = entry.raw.ingress_peer() {
+            self.by_ingress_peer
+                .entry(peer)
+                .or_default()
+                .insert(hash.clone());
         }
         for parent in entry
             .dependencies
@@ -784,13 +825,13 @@ impl PrePoolKernel {
         if self.by_short_id.get(&entry.short_id()) == Some(hash) {
             self.by_short_id.remove(&entry.short_id());
         }
-        if let Some(peer) = entry.source.peer() {
-            let empty = self.by_peer.get_mut(&peer).is_none_or(|hashes| {
+        if let Some(peer) = entry.raw.ingress_peer() {
+            let empty = self.by_ingress_peer.get_mut(&peer).is_none_or(|hashes| {
                 hashes.remove(hash);
                 hashes.is_empty()
             });
             if empty {
-                self.by_peer.remove(&peer);
+                self.by_ingress_peer.remove(&peer);
             }
         }
         for parent in entry
@@ -936,10 +977,10 @@ impl PrePoolKernel {
     /// bounded maintenance, which re-resolves remote consumers (and therefore
     /// republishes their missing-parent request) while trusted consumers reach
     /// their ordinary terminal policy instead of remaining parked forever.
-    pub(super) fn remove_unavailable_entries(
+    fn prepare_unavailable_entries(
         &mut self,
         hashes: &[Byte32],
-    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
+    ) -> Result<Option<PreparedTerminalCohort<'_>>, PrePoolError> {
         let mut present = hashes
             .iter()
             .filter(|hash| self.entries.contains_key(*hash))
@@ -948,7 +989,7 @@ impl PrePoolKernel {
         present.sort_unstable();
         present.dedup();
         if present.is_empty() {
-            return Ok(Vec::new());
+            return Ok(None);
         }
 
         let parents = present.iter().cloned().collect::<HashSet<_>>();
@@ -973,8 +1014,16 @@ impl PrePoolKernel {
         }
         let prepared =
             self.prepare_cohort(desired, version_cursor, self.next_arrival, changed_keys)?;
-        prepared.apply();
-        Ok(records)
+        Ok(Some(PreparedTerminalCohort { prepared, records }))
+    }
+
+    pub(super) fn remove_unavailable_entries(
+        &mut self,
+        hashes: &[Byte32],
+    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
+        Ok(self
+            .prepare_unavailable_entries(hashes)?
+            .map_or_else(Vec::new, PreparedTerminalCohort::apply))
     }
 
     pub(super) fn remove_unavailable_entry(
@@ -1368,13 +1417,28 @@ impl PrePoolKernel {
         lease: &VerifyLease,
         verified: PipelineVerifiedTx,
         charge_bytes: usize,
-        candidate: VerifiedCandidate,
     ) -> Result<EntryVersion, PrePoolError> {
         let mut next = self
             .validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?
             .clone()
             .into_draft();
-        let inputs = ReadyInputs::new(candidate.inputs, self.limits.max_inputs_per_ready)?;
+        let candidate_hash = crate::util::compact_packed(&verified.candidate.tx.hash());
+        if candidate_hash != lease.hash {
+            return Err(PrePoolError::primary_key_mismatch(
+                lease.hash.clone(),
+                candidate_hash,
+            ));
+        }
+        let inputs = verified
+            .candidate
+            .tx
+            .input_pts_iter()
+            .map(|input| crate::util::compact_packed(&input))
+            .collect::<BTreeSet<_>>();
+        if inputs.is_empty() || verified.candidate.tx_size == 0 {
+            return Err(PrePoolError::ZeroTransactionSize(lease.hash.clone()));
+        }
+        let inputs = ReadyInputs::new(inputs, self.limits.max_inputs_per_ready)?;
         let mut version_cursor = self.next_version;
         let version = EntryVersion::take(&mut version_cursor)?;
         next.version = version;
@@ -1403,11 +1467,19 @@ impl PrePoolKernel {
         self.remove_unavailable_entry(hash).map(Some)
     }
 
-    pub(crate) fn force_terminalize_many(
+    pub(crate) fn plan_peer_revocation(
         &mut self,
-        hashes: &[Byte32],
-    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
-        self.remove_unavailable_entries(hashes)
+        peer: PeerIndex,
+        candidates: &[Byte32],
+    ) -> Result<Option<PreparedTerminalCohort<'_>>, PrePoolError> {
+        let hashes = candidates
+            .iter()
+            .filter_map(|hash| {
+                let record = self.terminal_record(hash)?;
+                (record.raw.ingress_peer() == Some(peer)).then_some(record.hash)
+            })
+            .collect::<Vec<_>>();
+        self.prepare_unavailable_entries(&hashes)
     }
 
     fn due_hashes(&self, now: u64, limit: usize) -> Vec<Byte32> {
@@ -1431,13 +1503,13 @@ impl PrePoolKernel {
             .collect()
     }
 
-    pub(crate) fn expire_due(
+    pub(crate) fn plan_expiry(
         &mut self,
         now: u64,
         limit: usize,
-    ) -> Result<Vec<TerminalRecord>, PrePoolError> {
+    ) -> Result<Option<PreparedTerminalCohort<'_>>, PrePoolError> {
         let hashes = self.due_hashes(now, limit);
-        self.remove_unavailable_entries(&hashes)
+        self.prepare_unavailable_entries(&hashes)
     }
 
     pub(crate) fn work_is_ready(&self, lane: WorkLane, capability: WorkCapability) -> bool {

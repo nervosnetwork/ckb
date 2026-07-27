@@ -3,9 +3,7 @@ use crate::component::pre_pool::{PrePoolError, PrePoolGeneration, PrePoolKernel}
 use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
 use crate::error::Reject;
 use crate::pool::TxPool;
-use crate::service::effects::{
-    AuthoritativePublication, EffectBatch, EffectBuildError, EffectJournalError, TxPoolEffect,
-};
+use crate::service::effects::{EffectBatch, EffectBuildError, EffectJournalError, TxPoolEffect};
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
 use crate::util::non_contextual_verify;
@@ -33,6 +31,34 @@ mod classify;
 mod post_process;
 pub(crate) mod reorg;
 pub(crate) mod submit;
+
+pub(crate) enum TxPoolGenerationFault {
+    PrePool(crate::component::pre_pool::PrePoolFault),
+    AcceptedPool(crate::component::pool_map::PoolMutationFault),
+    #[cfg(feature = "internal")]
+    Selection(crate::component::tx_selector::TxSelectionError),
+    Reorg(ReorgUpdateError),
+    Commit(submit::PipelineCommitFault),
+    Epoch(crate::service::PipelineEpochExhausted),
+    Effect(EffectJournalError),
+}
+
+impl std::fmt::Debug for TxPoolGenerationFault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PrePool(error) => formatter.debug_tuple("PrePool").field(error).finish(),
+            Self::AcceptedPool(error) => {
+                formatter.debug_tuple("AcceptedPool").field(error).finish()
+            }
+            #[cfg(feature = "internal")]
+            Self::Selection(error) => formatter.debug_tuple("Selection").field(error).finish(),
+            Self::Reorg(error) => formatter.debug_tuple("Reorg").field(error).finish(),
+            Self::Commit(error) => formatter.debug_tuple("Commit").field(error).finish(),
+            Self::Epoch(error) => formatter.debug_tuple("Epoch").field(error).finish(),
+            Self::Effect(error) => formatter.debug_tuple("Effect").field(error).finish(),
+        }
+    }
+}
 
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
@@ -76,7 +102,7 @@ enum ReorgFallback {
 enum ReorgMutationFault {
     Sort(DependencySortError),
     Effect(EffectBuildError),
-    Kernel(PrePoolError),
+    Kernel(crate::component::pre_pool::PrePoolFault),
 }
 
 impl From<DependencySortError> for ReorgMutationFault {
@@ -91,8 +117,8 @@ impl From<EffectBuildError> for ReorgMutationFault {
     }
 }
 
-impl From<PrePoolError> for ReorgMutationFault {
-    fn from(error: PrePoolError) -> Self {
+impl From<crate::component::pre_pool::PrePoolFault> for ReorgMutationFault {
+    fn from(error: crate::component::pre_pool::PrePoolFault) -> Self {
         Self::Kernel(error)
     }
 }
@@ -121,9 +147,9 @@ impl std::error::Error for DependencySortError {}
 #[derive(Debug)]
 pub(crate) enum ReorgUpdateError {
     Effect(EffectJournalError),
-    Epoch(Reject),
+    Epoch(crate::service::PipelineEpochExhausted),
     Sort(DependencySortError),
-    Kernel(PrePoolError),
+    Kernel(crate::component::pre_pool::PrePoolFault),
     EffectBuild(EffectBuildError),
 }
 
@@ -149,8 +175,8 @@ impl From<EffectJournalError> for ReorgUpdateError {
     }
 }
 
-impl From<Reject> for ReorgUpdateError {
-    fn from(error: Reject) -> Self {
+impl From<crate::service::PipelineEpochExhausted> for ReorgUpdateError {
+    fn from(error: crate::service::PipelineEpochExhausted) -> Self {
         Self::Epoch(error)
     }
 }
@@ -161,8 +187,8 @@ impl From<DependencySortError> for ReorgUpdateError {
     }
 }
 
-impl From<PrePoolError> for ReorgUpdateError {
-    fn from(error: PrePoolError) -> Self {
+impl From<crate::component::pre_pool::PrePoolFault> for ReorgUpdateError {
+    fn from(error: crate::component::pre_pool::PrePoolFault) -> Self {
         Self::Kernel(error)
     }
 }
@@ -209,6 +235,26 @@ impl TxPoolService {
     pub(crate) const SUPERSEDED_BY_HIGHER_FEE_CANDIDATE: &'static str =
         "superseded by higher-fee-rate in-flight candidate";
 
+    /// Converge every externally inferred relay state before stopping a
+    /// generation whose typed authority proof failed. The reset register is
+    /// allocation-free and capacity-independent; installing it before the
+    /// cancellation edge avoids a shutdown race in which an internal fault is
+    /// accidentally published as a transaction/peer rejection.
+    pub(crate) fn fail_tx_pool_generation(
+        &self,
+        context: &'static str,
+        fault: &TxPoolGenerationFault,
+    ) {
+        if let Err(reset_error) = self.relay.effects.install_generation_reset()
+            && reset_error != crate::service::effects::EffectJournalError::Closed
+        {
+            ckb_logger::error!(
+                "failed to install relayer reset before pipeline fault: {reset_error:?}"
+            );
+        }
+        self.pipeline.kernel.report_fault(context, fault);
+    }
+
     fn wake_block_assembler(&self, message: BlockAssemblerMessage, saturated: &'static str) {
         if let Err(error) = self.relay.block_assembler_sender.try_send(message) {
             match error {
@@ -248,6 +294,9 @@ impl TxPoolService {
             return;
         }
         if let Err(error) = self.relay.mark_block_assembler_dirty(&message) {
+            // This path can run inside an effect-journal Apply closure. Do not
+            // call `fail_tx_pool_generation` here: installing another relay
+            // reset would re-enter that journal lock.
             self.pipeline
                 .kernel
                 .report_fault("block-assembler dirty generation exhausted", &error);
@@ -268,6 +317,7 @@ impl TxPoolService {
             return;
         }
         if let Err(error) = self.relay.mark_block_assembler_full_reconcile() {
+            // May be called while the effect journal is exclusively borrowed.
             self.pipeline
                 .kernel
                 .report_fault("block-assembler reconcile generation exhausted", &error);
@@ -292,6 +342,7 @@ impl TxPoolService {
             return;
         }
         if let Err(error) = self.relay.mark_block_assembler_reset(snapshot) {
+            // Reorg/clear invoke this from their effect-journal Apply closure.
             self.pipeline
                 .kernel
                 .report_fault("block-assembler reset generation exhausted", &error);
@@ -374,11 +425,17 @@ impl TxPoolService {
                 {
                     Ok(true) => return Err(reject),
                     Ok(false) => {}
+                    Err(EffectJournalError::Closed) => {
+                        return Err(Self::stale_pipeline_reject());
+                    }
                     Err(error) => {
-                        ckb_logger::error!(
-                            "accepted duplicate relay publication failed: {error:?}"
+                        self.fail_tx_pool_generation(
+                            "accepted duplicate relay publication failed",
+                            &TxPoolGenerationFault::Effect(error),
                         );
-                        return Err(reject);
+                        return Err(Reject::Internal(
+                            "tx-pool relay publication generation failed".to_owned(),
+                        ));
                     }
                 }
             }
@@ -392,8 +449,9 @@ impl TxPoolService {
     pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
         // Proposal is a trusted source promotion, not an ordinary duplicate.
         // Admission must reach the coordinator so an existing Remote owner is
-        // upgraded in place (priority, peer budget and ban attribution) while
-        // any active versioned lease remains valid.
+        // upgraded in place (priority and peer budget) while immutable ingress
+        // attribution remains available for later peer revocation and any
+        // active versioned lease remains valid.
         if let Err(reject) = self.non_contextual_verify(&tx).await {
             self.reject_with_after_process(tx, TxSource::Proposal, reject.clone())
                 .await;
@@ -422,14 +480,29 @@ impl TxPoolService {
             return Err(reject);
         }
 
-        let ret = self.process_tx_direct(tx.clone(), source, None).await;
-        // A fresh commit journals its Ok relay result inside the authoritative
-        // pool transaction. Only pre-commit failures (including a Local
-        // duplicate, which intentionally re-broadcasts Ok) remain here.
-        if let Err(reject) = &ret {
-            self.after_process(tx, source, reject).await;
+        match self
+            .process_tx_direct_outcome(tx.clone(), source, None)
+            .await
+        {
+            Ok(submit::VerifySubmitOutcome::Committed(completed)) => Ok(completed),
+            Ok(submit::VerifySubmitOutcome::Cleared) => Err(Self::stale_pipeline_reject()),
+            Err(submit::SubmissionError::Rejected(reject)) => {
+                // A fresh commit journals its Ok relay result inside the
+                // authoritative pool transaction. Only typed pre-commit
+                // transaction failures enter after-process policy.
+                self.after_process(tx, source, &reject).await;
+                Err(reject)
+            }
+            Err(submit::SubmissionError::Fault(fault)) => {
+                self.fail_tx_pool_generation(
+                    "direct transaction processing failed",
+                    &TxPoolGenerationFault::Commit(fault),
+                );
+                Err(Reject::Internal(
+                    "tx-pool transaction processing generation failed".to_owned(),
+                ))
+            }
         }
-        ret
     }
 
     pub(crate) async fn send_result_to_relayer(&self, result: TxVerificationResult) {
@@ -570,14 +643,20 @@ impl TxPoolService {
         fallback: ReorgFallback,
         recovery_epoch: u64,
         snapshot: Arc<Snapshot>,
-    ) -> (RetiredReorgGeneration, Option<PrePoolError>) {
+    ) -> (
+        RetiredReorgGeneration,
+        Option<crate::component::pre_pool::PrePoolFault>,
+    ) {
         let (kernel, error) = match fallback {
             ReorgFallback::Retain(txs) => {
                 match kernel.replace_generation_for_chain(|fresh| {
                     fresh.retain_recovery_prefix_after_clear(txs, recovery_epoch)
                 }) {
                     Ok((_retained, retired)) => (retired, None),
-                    Err(error) => (kernel.replace_empty_generation(), Some(error)),
+                    Err(error) => (
+                        kernel.replace_empty_generation(),
+                        Some(error.into_unexpected_fault()),
+                    ),
                 }
             }
             ReorgFallback::Empty => (kernel.replace_empty_generation(), None),
@@ -597,7 +676,11 @@ impl TxPoolService {
         let effect_bound = self.max_reorg_effect_bytes();
         let recovery_epoch = self.current_pipeline_epoch()?;
 
-        let mine_mode = self.block_assembler.is_some();
+        let mining = if self.block_assembler.is_some() {
+            reorg::MiningMode::Package
+        } else {
+            reorg::MiningMode::ObserveOnly
+        };
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
 
@@ -609,7 +692,7 @@ impl TxPoolService {
         // transaction-bearing blocks. Bound the handoff through the same
         // candidate container used by the assembler so completing phase one
         // releases the original retained reorg message and all tx payloads.
-        let candidate_uncles = if mine_mode {
+        let candidate_uncles = if mining.packages() {
             let mut candidates = crate::block_assembler::CandidateUncles::new();
             for block in &detached_blocks {
                 candidates.insert(block.as_uncle());
@@ -648,7 +731,8 @@ impl TxPoolService {
             let transition = self.pipeline.kernel.mutate_authoritative(|kernel| {
                 self.relay
                     .effects
-                    .try_apply_authoritative(effect_bound, |publish_detail| {
+                    .try_apply_authoritative(effect_bound, |capacity| {
+                        let publish_detail = capacity.retains_detail();
                         let (draft, detail) = (|| {
                         let mut outcome = match reorg::begin_tx_pool_reorg(
                             &mut tx_pool,
@@ -656,7 +740,7 @@ impl TxPoolService {
                             &detached_headers,
                             detached_proposal_id.clone(),
                             Arc::clone(&snapshot),
-                            mine_mode,
+                            mining,
                         ) {
                             Ok(outcome) => outcome,
                             Err(error) => {
@@ -690,14 +774,17 @@ impl TxPoolService {
                         combined.retain(|tx| hashes.insert(tx.hash()));
                         match kernel.retain_recovery_batch(combined.clone(), recovery_epoch) {
                             Ok(_) => {}
-                            Err(error)
-                                if error.is_capacity_rejection()
-                                    || error.is_transaction_rejection() =>
-                            {
+                            Err(PrePoolError::Public(_)) => {
                                 return (ReorgDraft::Reset(combined), None);
                             }
                             Err(error) => {
-                                error!("reorg recovery retention failed; resetting generation: {error:?}");
+                                // The reorg boundary owns both executable authorities,
+                                // so it can repair a structural kernel contradiction by
+                                // replacing the whole generation before either lock opens.
+                                // Keep this distinct from transaction/capacity fallback:
+                                // if the fresh rebuild repeats the defect, it escapes as a
+                                // typed fault and the generation is not persisted.
+                                error!("reorg recovery retention invariant failed; rebuilding generation: {error:?}");
                                 return (ReorgDraft::Reset(combined), None);
                             }
                         };
@@ -810,10 +897,7 @@ impl TxPoolService {
                         })();
 
                         match draft {
-                            ReorgDraft::Queued => (
-                                ReorgMutation::Queued,
-                                AuthoritativePublication::Detail(detail),
-                            ),
+                            ReorgDraft::Queued => capacity.detail(ReorgMutation::Queued, detail),
                             ReorgDraft::Reset(txs) => {
                                 let (retired, error) = self.converge_reorg_fallback(
                                     &mut tx_pool,
@@ -829,7 +913,7 @@ impl TxPoolService {
                                         retired,
                                     },
                                 };
-                                (mutation, AuthoritativePublication::GenerationReset)
+                                capacity.reset(mutation)
                             }
                             ReorgDraft::Fault(error) => {
                                 let (retired, convergence_error) = self.converge_reorg_fallback(
@@ -840,10 +924,7 @@ impl TxPoolService {
                                     Arc::clone(&snapshot),
                                 );
                                 let error = convergence_error.map_or(error, Into::into);
-                                (
-                                    ReorgMutation::Fault { error, retired },
-                                    AuthoritativePublication::GenerationReset,
-                                )
+                                capacity.reset(ReorgMutation::Fault { error, retired })
                             }
                         }
                     })
@@ -879,10 +960,10 @@ impl TxPoolService {
         drop(tx_pool);
         match transition {
             Ok(retired) => drop(retired),
-            Err(error) => self
-                .pipeline
-                .kernel
-                .report_fault("clear-pool generation reset journal failed", &error),
+            Err(error) => self.fail_tx_pool_generation(
+                "clear-pool generation reset journal failed",
+                &TxPoolGenerationFault::Effect(error),
+            ),
         }
     }
 

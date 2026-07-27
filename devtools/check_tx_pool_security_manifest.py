@@ -180,9 +180,14 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
                 )
             )
     row_ids = [row_id for row_id, _ in rows]
-    if row_ids != list(range(1, 168)):
+    ledger_last_id = contract.get("historical_ledger_last_id")
+    if not isinstance(ledger_last_id, int) or isinstance(ledger_last_id, bool) or ledger_last_id < 1:
+        errors.append("architecture contract historical_ledger_last_id must be a positive integer")
+        ledger_last_id = 0
+    if row_ids != list(range(1, ledger_last_id + 1)):
         errors.append(
-            "historical ledger must contain exactly ordered finding IDs 1-167 with I1-I12 mappings"
+            "historical ledger must contain exactly ordered finding IDs "
+            f"1-{ledger_last_id} with I1-I12 mappings"
         )
     for row_id, invariants in rows:
         if not invariants or not invariants <= set(bridge):

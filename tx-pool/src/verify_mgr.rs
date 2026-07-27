@@ -1,7 +1,8 @@
 use crate::component::entry::TxEntry;
 use crate::component::pre_pool::PipelineVerifiedTx;
 use crate::component::pre_pool::{
-    DependencyKey, FeeGate, PrePoolError, PrePoolSource, VerifyLease, WorkCapability, WorkLane,
+    DependencyKey, PrePoolError, PrePoolFault, PrePoolPublicError, PrePoolRejection, PrePoolSource,
+    VerifyLease, WorkCapability, WorkLane,
 };
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
@@ -9,7 +10,6 @@ use crate::worker::{JobHandler, WorkerRunner};
 use ckb_async_runtime::Handle;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -23,17 +23,25 @@ struct VerifyHandler {
     command_rx: watch::Receiver<ChunkCommand>,
 }
 
+/// Why an active verification owner is leaving the pipeline.
+///
+/// A policy/capacity rejection is observable by the submitter; administrative
+/// invalidation is not. Keeping those outcomes in distinct variants prevents a
+/// normal `Reject::Full` from being silently reclassified as worker cleanup.
+enum VerifyFailure {
+    Rejected(crate::error::Reject),
+    Invalidated,
+}
+
 impl TxPoolService {
-    async fn settle_pipeline_verify_failure(
-        &self,
-        lease: &VerifyLease,
-        mut reject: crate::error::Reject,
-        internal: bool,
-    ) {
-        if !internal
-            && let crate::error::Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(
-                outpoint,
-            )) = &reject
+    async fn settle_pipeline_verify_failure(&self, lease: &VerifyLease, failure: VerifyFailure) {
+        let mut reject = match failure {
+            VerifyFailure::Rejected(reject) => Some(reject),
+            VerifyFailure::Invalidated => None,
+        };
+        if let Some(crate::error::Reject::Resolve(
+            ckb_types::core::error::OutPointError::Unknown(outpoint),
+        )) = &reject
         {
             let dependencies = std::collections::BTreeSet::from([DependencyKey::Cell(
                 crate::util::compact_packed(outpoint),
@@ -42,17 +50,19 @@ impl TxPoolService {
                 Some(ParentWaitOutcome::Parked) => return,
                 Some(ParentWaitOutcome::Requeued) => return,
                 Some(ParentWaitOutcome::Unavailable) => {}
-                Some(ParentWaitOutcome::Rejected(wait_reject)) => reject = wait_reject,
+                Some(ParentWaitOutcome::Rejected(wait_reject)) => reject = Some(wait_reject),
                 None => return,
             }
         }
-        let public_reject = (!internal).then_some(reject);
         self.settle_pipeline_terminal(
             &lease.hash,
-            public_reject,
+            reject,
             "current verify lease could not terminalize",
-            |coordinator, retain_conflict| {
-                if retain_conflict {
+            |coordinator, disposition| {
+                if matches!(
+                    disposition,
+                    crate::component::pre_pool::ConflictDisposition::Retain
+                ) {
                     coordinator.park_conflict_or_terminalize(
                         &lease.hash,
                         lease.version,
@@ -82,14 +92,8 @@ impl TxPoolService {
         let source = raw.authoritative_source(current_source);
         let epoch = raw.admitted_epoch;
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
-            self.settle_pipeline_verify_failure(
-                &lease,
-                crate::error::Reject::Internal(
-                    "pipeline verification invalidated before execution".to_string(),
-                ),
-                true,
-            )
-            .await;
+            self.settle_pipeline_verify_failure(&lease, VerifyFailure::Invalidated)
+                .await;
             return;
         }
 
@@ -105,10 +109,10 @@ impl TxPoolService {
             }) {
                 Ok(_) => {}
                 Err(error) if error.is_stale_lease() => {}
-                Err(error) => self
-                    .pipeline
-                    .kernel
-                    .report_fault("stale verify requeue invariant failed", &error),
+                Err(error) => self.fail_tx_pool_generation(
+                    "stale verify requeue invariant failed",
+                    &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                ),
             }
             return;
         }
@@ -158,15 +162,21 @@ impl TxPoolService {
                         match promoted_result {
                             Ok(verified) => verified,
                             Err(reject) => {
-                                self.settle_pipeline_verify_failure(&lease, reject, false)
-                                    .await;
+                                self.settle_pipeline_verify_failure(
+                                    &lease,
+                                    VerifyFailure::Rejected(reject),
+                                )
+                                .await;
                                 return;
                             }
                         }
                     }
                     None => {
-                        self.settle_pipeline_verify_failure(&lease, first_reject, false)
-                            .await;
+                        self.settle_pipeline_verify_failure(
+                            &lease,
+                            VerifyFailure::Rejected(first_reject),
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -213,50 +223,37 @@ impl TxPoolService {
         match rbf_precheck {
             Ok(()) => {}
             Err(crate::component::pool_map::PoolMutationPlanningError::Policy(reject)) => {
-                self.settle_pipeline_verify_failure(&lease, reject, false)
+                self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
                 return;
             }
             Err(crate::component::pool_map::PoolMutationPlanningError::Fault(error)) => {
-                self.pipeline
-                    .kernel
-                    .report_fault("RBF verification precheck projection failed", &error);
+                self.fail_tx_pool_generation(
+                    "RBF verification precheck projection failed",
+                    &crate::process::TxPoolGenerationFault::AcceptedPool(error),
+                );
                 return;
             }
         }
 
-        let inputs: HashSet<_> = verified.candidate.tx.input_pts_iter().collect();
-        let candidate = match FeeGate::new(0, 0).validate(
-            lease.hash.clone(),
-            inputs,
-            verified.candidate.fee.as_u64(),
-            verified.candidate.tx_size,
-        ) {
-            Ok(candidate) => candidate,
-            Err(error) => {
-                let reject = crate::component::pre_pool::pre_pool_reject(error);
-                self.settle_pipeline_verify_failure(&lease, reject, false)
-                    .await;
-                return;
-            }
-        };
         let charge_bytes = match verified
             .candidate
             .resident_size
             .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
-            .ok_or(PrePoolError::ResidencyChargeOverflow)
-        {
+            .ok_or(PrePoolPublicError::Rejected(
+                PrePoolRejection::ResidencyChargeOverflow,
+            )) {
             Ok(charge) => charge,
             Err(error) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
-                self.settle_pipeline_verify_failure(&lease, reject, false)
+                self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
                 return;
             }
         };
 
         match self.pipeline.kernel.mutate_authoritative(|coordinator| {
-            coordinator.complete_verify(&lease, verified, charge_bytes, candidate)
+            coordinator.complete_verify(&lease, verified, charge_bytes)
         }) {
             // Eagerly drain the candidate produced by this verify task.
             // The dedicated commit consumer is still the level-triggered
@@ -266,19 +263,22 @@ impl TxPoolService {
             Ok(_version) => {
                 self.drive_pipeline_commits().await;
             }
-            Err(error) if error.is_stale_lease() => {}
-            Err(error) => {
-                if !error.is_transaction_rejection() {
-                    self.pipeline
-                        .kernel
-                        .report_fault("verification completion invariant failed", &error);
-                    return;
-                }
+            Err(PrePoolError::Stale(_)) => {}
+            Err(PrePoolError::Public(error)) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
-                let internal = matches!(reject, crate::error::Reject::Full(_));
-                self.settle_pipeline_verify_failure(&lease, reject, internal)
+                self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
             }
+            Err(PrePoolError::Duplicate(hash)) => self.fail_tx_pool_generation(
+                "verification completion produced a duplicate entry",
+                &crate::process::TxPoolGenerationFault::PrePool(
+                    PrePoolFault::UnexpectedTransitionDuplicate(hash),
+                ),
+            ),
+            Err(PrePoolError::Fault(fault)) => self.fail_tx_pool_generation(
+                "verification completion invariant failed",
+                &crate::process::TxPoolGenerationFault::PrePool(fault),
+            ),
         }
     }
 }
@@ -313,10 +313,10 @@ impl JobHandler for VerifyHandler {
         {
             Ok(lease) => lease,
             Err(error) => {
-                self.service
-                    .pipeline
-                    .kernel
-                    .report_fault("verify checkout invariant failed", &error);
+                self.service.fail_tx_pool_generation(
+                    "verify checkout invariant failed",
+                    &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                );
                 None
             }
         }

@@ -2,9 +2,9 @@
 //! kernel-owned asynchronous pipeline.
 
 use super::{get_tx_status, make_pre_checked_tx, resolve_tx};
-use crate::component::pre_pool::{ResolveLane, TerminalRecord};
+use crate::component::pre_pool::{PrePoolAdmissionError, ResolveLane, TerminalRecord};
 use crate::error::Reject;
-use crate::process::PreCheckedTx;
+use crate::process::{PreCheckedTx, TxPoolGenerationFault};
 use crate::service::TxVerificationResult;
 use crate::service::effects::{EffectBatch, TxPoolEffect, bounded_commit_ban_reason};
 use crate::tx_source::TxSource;
@@ -14,13 +14,32 @@ use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::{TransactionView, cell::resolve_transaction};
+#[cfg(test)]
 use ckb_verification::cache::Completed;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::watch;
 
+/// Closed ingress failure domain. Only `Rejected` may enter transaction/peer
+/// terminal policy; administrative invalidation releases relay state without
+/// blame, and a structural fault converges the whole relay generation before
+/// fail-stop.
+enum PipelineAdmissionFailure {
+    Rejected(Reject),
+    Invalidated(Reject),
+    /// The external ban marker won the admission race. The bounded peer
+    /// removal transaction already owns any required relayer Reject, so the
+    /// adapter must not publish a second terminal effect.
+    Revoked(Reject),
+    Fault(TxPoolGenerationFault),
+}
+
+#[cfg(test)]
+#[path = "tests/classify_seam.rs"]
+mod test_seam;
+
 impl super::TxPoolService {
-    fn stale_pipeline_reject() -> Reject {
+    pub(crate) fn stale_pipeline_reject() -> Reject {
         Reject::Internal("tx-pool pipeline generation invalidated by clear".to_string())
     }
 
@@ -121,12 +140,14 @@ impl super::TxPoolService {
         tx: TransactionView,
         source: TxSource,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Result<super::submit::VerifySubmitOutcome, Reject> {
+    ) -> Result<super::submit::VerifySubmitOutcome, super::submit::SubmissionError> {
         // Local RPC and detached-block recovery bypass coordinator admission.
         // Materialize here so an accepted transaction never keeps the whole
         // caller-owned relay/block backing alive under a tx-sized charge.
         let tx = tx.into_compact();
-        let epoch = self.current_pipeline_epoch()?;
+        let epoch = self.current_pipeline_epoch().map_err(|error| {
+            super::submit::SubmissionError::Fault(super::submit::PipelineCommitFault::Epoch(error))
+        })?;
         let tx_size = tx.data().serialized_size_in_block();
         let (ret, snapshot) = self.pre_check(&tx, tx_size).await;
         let PreCheckedTx {
@@ -136,7 +157,7 @@ impl super::TxPoolService {
             fee,
             tx_size,
             resident_size,
-        } = ret?;
+        } = ret.map_err(super::submit::SubmissionError::Rejected)?;
 
         self.verify_and_submit_core(
             crate::resolved_tx::ResolvedTx {
@@ -155,6 +176,7 @@ impl super::TxPoolService {
         .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn process_tx_direct(
         &self,
         tx: TransactionView,
@@ -164,7 +186,16 @@ impl super::TxPoolService {
         match self.process_tx_direct_outcome(tx, source, command_rx).await {
             Ok(super::submit::VerifySubmitOutcome::Committed(completed)) => Ok(completed),
             Ok(super::submit::VerifySubmitOutcome::Cleared) => Err(Self::stale_pipeline_reject()),
-            Err(reject) => Err(reject),
+            Err(super::submit::SubmissionError::Rejected(reject)) => Err(reject),
+            Err(super::submit::SubmissionError::Fault(fault)) => {
+                self.fail_tx_pool_generation(
+                    "direct transaction processing failed",
+                    &TxPoolGenerationFault::Commit(fault),
+                );
+                Err(Reject::Internal(
+                    "tx-pool transaction processing generation failed".to_owned(),
+                ))
+            }
         }
     }
 
@@ -178,30 +209,54 @@ impl super::TxPoolService {
                 self.admit_pipeline_raw_at(tx.clone(), source, epoch, ResolveLane::Ingress)
                     .await
             }
-            Err(reject) => Err(reject),
+            Err(error) => Err(PipelineAdmissionFailure::Fault(
+                TxPoolGenerationFault::Epoch(error),
+            )),
         };
 
-        if let Err(reject) = &result {
-            match source {
-                TxSource::Remote { .. } => {
-                    // Admission never established coordinator ownership, so
-                    // this adapter owns the one definitive remote terminal.
-                    self.reject_with_after_process(tx, source, reject.clone())
+        self.finish_pipeline_admission(tx, source, result).await
+    }
+
+    async fn finish_pipeline_admission(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        result: Result<bool, PipelineAdmissionFailure>,
+    ) -> Result<bool, Reject> {
+        match result {
+            Ok(admitted) => Ok(admitted),
+            Err(PipelineAdmissionFailure::Rejected(reject)) => {
+                match source {
+                    TxSource::Remote { .. } => {
+                        // Admission never established coordinator ownership,
+                        // so this adapter owns the definitive remote terminal.
+                        self.reject_with_after_process(tx, source, reject.clone())
+                            .await;
+                    }
+                    TxSource::Proposal if matches!(reject, Reject::Full(_)) => {
+                        // Proposal-fetch capacity is retryable and carries no
+                        // peer blame, but its outstanding filter must release.
+                        self.send_result_to_relayer(TxVerificationResult::Reject {
+                            tx_hash: tx.hash(),
+                        })
                         .await;
+                    }
+                    TxSource::Local | TxSource::Proposal => {}
                 }
-                TxSource::Proposal if matches!(reject, Reject::Full(_)) => {
-                    // Preserve the proposal-fetch backpressure contract: a
-                    // transient local capacity failure releases the relayer's
-                    // outstanding transaction filter without blaming a peer.
-                    self.send_result_to_relayer(crate::service::TxVerificationResult::Reject {
-                        tx_hash: tx.hash(),
-                    })
-                    .await;
-                }
-                TxSource::Local | TxSource::Proposal => {}
+                Err(reject)
+            }
+            Err(PipelineAdmissionFailure::Invalidated(reject)) => {
+                self.terminal_internal(tx, source).await;
+                Err(reject)
+            }
+            Err(PipelineAdmissionFailure::Revoked(reject)) => Err(reject),
+            Err(PipelineAdmissionFailure::Fault(error)) => {
+                self.fail_tx_pool_generation("pipeline admission invariant failed", &error);
+                Err(Reject::Internal(
+                    "tx-pool pipeline admission generation failed".to_owned(),
+                ))
             }
         }
-        result
     }
 
     async fn admit_pipeline_raw_at(
@@ -210,13 +265,13 @@ impl super::TxPoolService {
         source: TxSource,
         epoch: u64,
         stage: ResolveLane,
-    ) -> Result<bool, Reject> {
+    ) -> Result<bool, PipelineAdmissionFailure> {
         let admission_source =
             crate::component::pre_pool::PipelineAdmissionSource::from_tx_source(source)
                 .ok_or_else(|| {
-                    Reject::Internal(
+                    PipelineAdmissionFailure::Rejected(Reject::Internal(
                         "local submissions cannot enter the asynchronous pipeline".to_string(),
-                    )
+                    ))
                 })?;
         let tx_hash = tx.hash();
         let proposal_id = tx.proposal_short_id();
@@ -225,7 +280,8 @@ impl super::TxPoolService {
         // otherwise a commit between the early check and this mutation leaves
         // the same transaction owned by both authorities.
         loop {
-            self.ensure_current(epoch)?;
+            self.ensure_current(epoch)
+                .map_err(PipelineAdmissionFailure::Invalidated)?;
             let tx_pool = self.pool.tx_pool.read().await;
             if tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some() {
                 let Some(peer) = source.peer() else {
@@ -241,10 +297,15 @@ impl super::TxPoolService {
                     // was acquired. Re-enter the complete ownership decision
                     // instead of acknowledging stale membership.
                     Ok(false) => continue,
+                    Err(crate::service::effects::EffectJournalError::Closed) => {
+                        return Err(PipelineAdmissionFailure::Invalidated(
+                            Self::stale_pipeline_reject(),
+                        ));
+                    }
                     Err(error) => {
-                        return Err(Reject::Full(format!(
-                            "accepted duplicate relay unavailable: {error:?}"
-                        )));
+                        return Err(PipelineAdmissionFailure::Fault(
+                            TxPoolGenerationFault::Effect(error),
+                        ));
                     }
                 }
             }
@@ -253,9 +314,9 @@ impl super::TxPoolService {
                 // must never receive a successful duplicate settlement. The
                 // proposal namespace is temporarily occupied, so expose retryable
                 // backpressure instead of poisoning recent-reject state.
-                return Err(Reject::Full(format!(
+                return Err(PipelineAdmissionFailure::Rejected(Reject::Full(format!(
                     "proposal short-id collision while admitting {tx_hash}"
-                )));
+                ))));
             }
             let admitted =
                 self.pipeline
@@ -263,19 +324,33 @@ impl super::TxPoolService {
                     .admit_transaction(tx.clone(), admission_source, epoch, stage);
             drop(tx_pool);
             return match admitted {
-                Ok(added) => Ok(added),
-                Err(error) => {
-                    if !self.is_pipeline_epoch_current(epoch) {
-                        Err(Self::stale_pipeline_reject())
-                    } else if error.is_transaction_rejection() {
-                        Err(crate::component::pre_pool::pre_pool_reject(error))
+                Ok(added) => {
+                    if let Some(peer) = source.peer()
+                        && self.relay.banned_peers.contains(peer)
+                    {
+                        // Either the ban's own slice observes this owner or
+                        // this post-admission edge does. Ready planning also
+                        // checks the same marker, so the owner cannot cross
+                        // into Accepted between those two bounded removals.
+                        self.remove_banned_peer_entries(peer).await;
+                        Err(PipelineAdmissionFailure::Revoked(Reject::Internal(
+                            "remote ingress invalidated by peer ban".to_owned(),
+                        )))
                     } else {
-                        self.pipeline
-                            .kernel
-                            .report_fault("pipeline admission invariant failed", &error);
-                        Err(crate::component::pre_pool::pre_pool_reject(error))
+                        Ok(added)
                     }
                 }
+                Err(_) if !self.is_pipeline_epoch_current(epoch) => Err(
+                    PipelineAdmissionFailure::Invalidated(Self::stale_pipeline_reject()),
+                ),
+                Err(PrePoolAdmissionError::Public(error)) => {
+                    Err(PipelineAdmissionFailure::Rejected(
+                        crate::component::pre_pool::pre_pool_reject(error),
+                    ))
+                }
+                Err(PrePoolAdmissionError::Fault(fault)) => Err(PipelineAdmissionFailure::Fault(
+                    TxPoolGenerationFault::PrePool(fault),
+                )),
             };
         }
     }

@@ -1,7 +1,8 @@
 use crate::constants::MALFORMED_TX_BAN_SECONDS;
 use crate::error::Reject;
 use crate::service::effects::{
-    EffectClass, EffectJournalError, TxPoolEffect, bounded_commit_ban_reason,
+    EffectCapacityWaitError, EffectClass, EffectJournalError, TxPoolEffect,
+    bounded_commit_ban_reason,
 };
 use crate::service::{TxPoolService, TxVerificationResult};
 use crate::tx_source::TxSource;
@@ -23,9 +24,15 @@ impl TxPoolService {
         source: TxSource,
         reject: &Reject,
     ) {
-        let Ok(epoch) = self.current_pipeline_epoch() else {
-            self.terminal_internal(tx, source).await;
-            return;
+        let epoch = match self.current_pipeline_epoch() {
+            Ok(epoch) => epoch,
+            Err(error) => {
+                self.fail_tx_pool_generation(
+                    "post-process epoch unavailable",
+                    &crate::process::TxPoolGenerationFault::Epoch(error),
+                );
+                return;
+            }
         };
         self.after_process_at(tx, source, reject, epoch).await;
     }
@@ -67,9 +74,12 @@ impl TxPoolService {
                     )
                 });
                 if let Err(error) = retention_error {
-                    self.pipeline
-                        .kernel
-                        .report_fault("post-process conflict retention failed", &error);
+                    self.fail_tx_pool_generation(
+                        "post-process conflict retention failed",
+                        &crate::process::TxPoolGenerationFault::PrePool(
+                            error.into_unexpected_fault(),
+                        ),
+                    );
                 }
             }
             drop(tx_pool);
@@ -86,10 +96,12 @@ impl TxPoolService {
             TxSource::Local | TxSource::Proposal => {
                 debug!("after_process {} reject: {} ", tx_hash, reject);
                 if matches!(reject, Reject::Duplicated(_)) {
-                    if let Err(error) = self.publish_accepted_relay_result(tx_hash, None).await {
-                        ckb_logger::error!(
-                            "accepted duplicate relay publication failed: {error:?}"
-                        );
+                    match self.publish_accepted_relay_result(tx_hash, None).await {
+                        Ok(_) | Err(EffectJournalError::Closed) => {}
+                        Err(error) => self.fail_tx_pool_generation(
+                            "accepted duplicate relay publication failed",
+                            &crate::process::TxPoolGenerationFault::Effect(error),
+                        ),
                     }
                 } else if let Some(effect) = self.recent_reject_effect(tx_hash, reject) {
                     self.publish_effects(vec![effect]).await;
@@ -124,8 +136,8 @@ impl TxPoolService {
 
     /// True if the peer was banned within the ban window. Workers check
     /// popped jobs against this so a banned peer's in-flight jobs do not
-    /// keep flowing into the pool: queue-level removal (`remove_by_peer`)
-    /// only covers queued jobs, not ones a worker has already popped.
+    /// keep flowing into the pool: sliced ingress revocation may race a job
+    /// a worker has already checked out.
     pub(crate) fn is_recently_banned(&self, source: TxSource) -> bool {
         let Some(peer) = source.peer() else {
             return false;
@@ -204,19 +216,21 @@ impl TxPoolService {
         self.relay.banned_peers.record(peer, duration);
     }
 
-    /// Revoke every non-committing Coordinator owner attributed to a banned
-    /// peer in bounded, journaled slices.
+    /// Revoke every kernel owner attributed to a banned peer in bounded,
+    /// journaled slices. Ready planning rechecks the same ban fence under the
+    /// final authority guards, so only a commit that linearized before the
+    /// marker may already be Accepted.
     pub(crate) async fn remove_banned_peer_entries(&self, peer: PeerIndex) {
         // Revoke coordinator ownership in bounded slices. Active raw/verify
-        // leases become stale immediately; an entry already inside the
-        // write-locked commit boundary is allowed to settle and cannot make
-        // the slice spin forever.
+        // leases become stale immediately. A commit already past its final
+        // fence check linearized before the ban; every later Ready Plan
+        // terminalizes through the same immutable-ingress policy.
         const PEER_REMOVAL_SLICE: usize = 32;
         loop {
             let hashes = self
                 .pipeline
                 .kernel
-                .read(|coordinator| coordinator.peer_hashes(peer, PEER_REMOVAL_SLICE));
+                .read(|coordinator| coordinator.ingress_peer_hashes(peer, PEER_REMOVAL_SLICE));
             if hashes.is_empty() {
                 break;
             }
@@ -227,44 +241,62 @@ impl TxPoolService {
                     .collect::<Vec<_>>()
             });
             let preview_batch = self.pipeline_terminal_effects(&preview);
-            if let Some(batch) = &preview_batch
-                && self
+            if let Some(batch) = &preview_batch {
+                match self
                     .relay
                     .effects
                     .wait_capacity(batch.charge_bytes(), EffectClass::Remote)
                     .await
-                    .is_err()
-            {
-                break;
+                {
+                    Ok(()) => {}
+                    Err(EffectCapacityWaitError::Closed) => break,
+                    Err(error) => {
+                        self.fail_tx_pool_generation(
+                            "peer-revocation effect capacity proof failed",
+                            &crate::process::TxPoolGenerationFault::Effect(error.into()),
+                        );
+                        break;
+                    }
+                }
             }
-            let terminal = match self.pipeline.kernel.mutate_authoritative(|coordinator| {
-                let current = hashes
-                    .iter()
-                    .filter_map(|hash| coordinator.terminal_record(hash))
-                    .collect::<Vec<_>>();
-                let batch = self.pipeline_terminal_effects(&current);
-                self.relay
-                    .effects
-                    .try_apply(batch, EffectClass::Remote, || {
-                        coordinator.force_terminalize_many(&hashes)
-                    })
-            }) {
+            match self.pipeline.kernel.mutate_authoritative(
+                |coordinator| -> Result<_, crate::component::pre_pool::PrePoolError> {
+                    // `hashes` is only an optimistic ingress-index snapshot.
+                    // Rebind it under the sole kernel authority so removal can
+                    // neither target a newer incarnation nor miss an owner
+                    // whose current source was promoted after remote ingress.
+                    let Some(plan) = coordinator.plan_peer_revocation(peer, &hashes)? else {
+                        return Ok(Ok(Vec::new()));
+                    };
+                    let batch = self.pipeline_terminal_effects(plan.records());
+                    Ok(self
+                        .relay
+                        .effects
+                        .try_apply(batch, EffectClass::Remote, || plan.apply()))
+                },
+            ) {
                 Ok(Ok(records)) => records,
+                Ok(Err(EffectJournalError::Full)) => continue,
+                Ok(Err(EffectJournalError::Closed)) => break,
                 Ok(Err(error)) => {
-                    self.pipeline
-                        .kernel
-                        .report_fault("banned-peer owner cohort transition failed", &error);
+                    self.fail_tx_pool_generation(
+                        "peer-revocation effect journal invariant failed",
+                        &crate::process::TxPoolGenerationFault::Effect(error),
+                    );
                     break;
                 }
-                Err(EffectJournalError::Full) => continue,
                 Err(error) => {
-                    ckb_logger::error!("banned-peer effect journal unavailable: {error:?}");
+                    self.fail_tx_pool_generation(
+                        "banned-peer owner cohort transition failed",
+                        &crate::process::TxPoolGenerationFault::PrePool(
+                            error.into_unexpected_fault(),
+                        ),
+                    );
                     break;
                 }
             };
-            if terminal.is_empty() {
-                break;
-            }
+            // Re-read the immutable ingress projection after every slice; a
+            // stale snapshot may have lost or replaced every selected hash.
             tokio::task::yield_now().await;
         }
     }

@@ -245,10 +245,8 @@ async fn wait_for_pending(
 /// without spawning workers. Tests can then exercise the production commit
 /// sequencer deterministically.
 async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, source: TxSource) {
-    use crate::component::pre_pool::{FeeGate, ResolveLane, WorkCapability};
-    use std::collections::HashSet;
+    use crate::component::pre_pool::{ResolveLane, WorkCapability};
 
-    let tx_hash = tx.hash();
     match source {
         TxSource::Remote { peer, .. } => {
             let cycles = measured_cycles(service, tx.clone()).await;
@@ -279,14 +277,6 @@ async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, 
         .verify_pipeline_resolved((*verify.payload).clone(), snapshot, None)
         .await
         .unwrap();
-    let candidate = FeeGate::new(0, 0)
-        .validate(
-            tx_hash,
-            tx.input_pts_iter().collect::<HashSet<_>>(),
-            verified.candidate.fee.as_u64(),
-            verified.candidate.tx_size,
-        )
-        .unwrap();
     let charge = verified
         .candidate
         .resident_size
@@ -297,7 +287,7 @@ async fn stage_verified_candidate(service: &TxPoolService, tx: TransactionView, 
     service
         .pipeline
         .kernel
-        .mutate(|coordinator| coordinator.complete_verify(&verify, verified, charge, candidate))
+        .mutate(|coordinator| coordinator.complete_verify(&verify, verified, charge))
         .unwrap();
 }
 

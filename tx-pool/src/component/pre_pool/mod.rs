@@ -366,33 +366,40 @@ pub(crate) struct PrePoolLimits {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PrePoolError {
+    Public(PrePoolPublicError),
+    Duplicate(Byte32),
+    Stale(PrePoolStale),
+    Fault(PrePoolFault),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolPublicError {
     Rejected(PrePoolRejection),
     Backpressure(PrePoolBackpressure),
-    Stale(PrePoolStale),
+}
+
+/// Closed error domain for a fresh ingress admission.
+///
+/// Admission owns no lease, so a stale lease/location result or a duplicate
+/// discovered after the same-authority primary check is an internal
+/// contradiction rather than a transaction outcome. Keeping those cases out
+/// of the public variants makes the ingress adapter exhaustively separate
+/// peer policy from generation failure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PrePoolAdmissionError {
+    Public(PrePoolPublicError),
     Fault(PrePoolFault),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PrePoolRejection {
     SelfDependency(Byte32),
-    EmptyWaitDependencies,
     ZeroTransactionSize(Byte32),
-    UnderReplacementFee {
-        hash: Byte32,
-        required: u64,
-        actual: u64,
-    },
-    UnderFeeRate {
-        hash: Byte32,
-        required_per_kb: u64,
-    },
-    FeeRateOverflow,
     ResidencyChargeOverflow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PrePoolBackpressure {
-    DuplicateHash(Byte32),
     ShortIdCollision {
         short_id: ProposalShortId,
         existing_hash: Byte32,
@@ -401,6 +408,7 @@ pub(crate) enum PrePoolBackpressure {
     ParentFanoutLimitExceeded(Byte32),
     ConflictInputLimitExceeded,
     ConflictCandidateLimitExceeded(OutPoint),
+    CommitConflictCohortLimitExceeded,
     TotalBudgetExceeded,
     RemoteBudgetExceeded,
     PeerBudgetExceeded(PeerIndex),
@@ -430,12 +438,38 @@ pub(crate) enum PrePoolFault {
     PrimaryKeyMismatch { expected: Byte32, actual: Byte32 },
     ProjectionInconsistent(&'static str),
     InvalidConfiguration(&'static str),
+    UnexpectedTransitionOutcome(PrePoolPublicError),
+    UnexpectedTransitionStale(PrePoolStale),
+    UnexpectedTransitionDuplicate(Byte32),
+}
+
+impl From<PrePoolError> for PrePoolAdmissionError {
+    fn from(error: PrePoolError) -> Self {
+        match error {
+            PrePoolError::Public(error) => Self::Public(error),
+            PrePoolError::Duplicate(hash) => {
+                Self::Fault(PrePoolFault::UnexpectedTransitionDuplicate(hash))
+            }
+            PrePoolError::Stale(reason) => {
+                Self::Fault(PrePoolFault::UnexpectedTransitionStale(reason))
+            }
+            PrePoolError::Fault(fault) => Self::Fault(fault),
+        }
+    }
 }
 
 #[allow(non_snake_case, non_upper_case_globals)]
 impl PrePoolError {
+    const fn Rejected(reason: PrePoolRejection) -> Self {
+        Self::Public(PrePoolPublicError::Rejected(reason))
+    }
+
+    const fn Backpressure(reason: PrePoolBackpressure) -> Self {
+        Self::Public(PrePoolPublicError::Backpressure(reason))
+    }
+
     fn DuplicateHash(hash: Byte32) -> Self {
-        Self::Backpressure(PrePoolBackpressure::DuplicateHash(hash))
+        Self::Duplicate(hash)
     }
 
     fn ShortIdCollision(short_id: ProposalShortId, existing_hash: Byte32) -> Self {
@@ -449,7 +483,6 @@ impl PrePoolError {
         Self::Rejected(PrePoolRejection::SelfDependency(hash))
     }
 
-    const EmptyWaitDependencies: Self = Self::Rejected(PrePoolRejection::EmptyWaitDependencies);
     const DependencyLimitExceeded: Self =
         Self::Backpressure(PrePoolBackpressure::DependencyLimitExceeded);
 
@@ -464,26 +497,13 @@ impl PrePoolError {
         Self::Backpressure(PrePoolBackpressure::ConflictCandidateLimitExceeded(input))
     }
 
+    const CommitConflictCohortLimitExceeded: Self =
+        Self::Backpressure(PrePoolBackpressure::CommitConflictCohortLimitExceeded);
+
     fn ZeroTransactionSize(hash: Byte32) -> Self {
         Self::Rejected(PrePoolRejection::ZeroTransactionSize(hash))
     }
 
-    fn UnderReplacementFee(hash: Byte32, required: u64, actual: u64) -> Self {
-        Self::Rejected(PrePoolRejection::UnderReplacementFee {
-            hash,
-            required,
-            actual,
-        })
-    }
-
-    fn UnderFeeRate(hash: Byte32, required_per_kb: u64) -> Self {
-        Self::Rejected(PrePoolRejection::UnderFeeRate {
-            hash,
-            required_per_kb,
-        })
-    }
-
-    const FeeRateOverflow: Self = Self::Rejected(PrePoolRejection::FeeRateOverflow);
     pub(crate) const ResidencyChargeOverflow: Self =
         Self::Rejected(PrePoolRejection::ResidencyChargeOverflow);
     const TotalBudgetExceeded: Self = Self::Backpressure(PrePoolBackpressure::TotalBudgetExceeded);
@@ -537,16 +557,8 @@ impl PrePoolError {
         Self::Fault(PrePoolFault::InvalidConfiguration(message))
     }
 
-    pub(crate) fn is_transaction_rejection(&self) -> bool {
-        match self {
-            Self::Rejected(_) => true,
-            Self::Backpressure(reason) => !matches!(reason, PrePoolBackpressure::DuplicateHash(_)),
-            Self::Stale(_) | Self::Fault(_) => false,
-        }
-    }
-
     pub(crate) fn is_capacity_rejection(&self) -> bool {
-        matches!(self, Self::Backpressure(reason) if !matches!(reason, PrePoolBackpressure::DuplicateHash(_)))
+        matches!(self, Self::Public(PrePoolPublicError::Backpressure(_)))
     }
 
     /// An optional conflict-history projection may be omitted when its own
@@ -554,13 +566,13 @@ impl PrePoolError {
     /// represented. None of these outcomes may veto the authoritative winner
     /// whose commit caused the history record to be considered.
     pub(crate) fn is_optional_retention_rejection(&self) -> bool {
-        matches!(self, Self::Rejected(_) | Self::Backpressure(_))
+        matches!(self, Self::Public(_) | Self::Duplicate(_))
     }
 
     pub(crate) fn is_retryable_capacity_rejection(&self) -> bool {
         matches!(
             self,
-            Self::Backpressure(
+            Self::Public(PrePoolPublicError::Backpressure(
                 PrePoolBackpressure::ShortIdCollision { .. }
                     | PrePoolBackpressure::TotalBudgetExceeded
                     | PrePoolBackpressure::RemoteBudgetExceeded
@@ -568,64 +580,25 @@ impl PrePoolError {
                     | PrePoolBackpressure::ConflictHistoryBudgetExceeded
                     | PrePoolBackpressure::ActiveWorkLimitExceeded
                     | PrePoolBackpressure::PeerActiveWorkLimitExceeded(_)
-            )
+            ))
         )
     }
 
     pub(crate) fn is_stale_lease(&self) -> bool {
         matches!(self, Self::Stale(_))
     }
-}
 
-#[derive(Clone, Debug)]
-pub(crate) struct VerifiedCandidate {
-    inputs: BTreeSet<OutPoint>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct FeeGate {
-    required_replacement_fee: u64,
-    min_fee_rate_per_kb: u64,
-}
-
-impl FeeGate {
-    pub(crate) const fn new(required_replacement_fee: u64, min_fee_rate_per_kb: u64) -> Self {
-        Self {
-            required_replacement_fee,
-            min_fee_rate_per_kb,
+    /// Convert an error at a boundary that has statically ruled out every
+    /// ordinary transaction outcome and stale lease. Callers must make that
+    /// proof at the transition site; the returned type cannot be routed back
+    /// into peer policy or RPC rejection handling.
+    pub(crate) fn into_unexpected_fault(self) -> PrePoolFault {
+        match self {
+            Self::Public(error) => PrePoolFault::UnexpectedTransitionOutcome(error),
+            Self::Duplicate(hash) => PrePoolFault::UnexpectedTransitionDuplicate(hash),
+            Self::Stale(stale) => PrePoolFault::UnexpectedTransitionStale(stale),
+            Self::Fault(fault) => fault,
         }
-    }
-
-    pub(crate) fn validate(
-        self,
-        hash: Byte32,
-        inputs: HashSet<OutPoint>,
-        fee: u64,
-        tx_size: usize,
-    ) -> Result<VerifiedCandidate, PrePoolError> {
-        if inputs.is_empty() || tx_size == 0 {
-            return Err(PrePoolError::ZeroTransactionSize(hash));
-        }
-        if fee < self.required_replacement_fee {
-            return Err(PrePoolError::UnderReplacementFee(
-                hash,
-                self.required_replacement_fee,
-                fee,
-            ));
-        }
-        let actual = u128::from(fee) * 1_000;
-        let required = u128::from(self.min_fee_rate_per_kb)
-            .checked_mul(u128::try_from(tx_size).map_err(|_| PrePoolError::FeeRateOverflow)?)
-            .ok_or(PrePoolError::FeeRateOverflow)?;
-        if actual < required {
-            return Err(PrePoolError::UnderFeeRate(hash, self.min_fee_rate_per_kb));
-        }
-        Ok(VerifiedCandidate {
-            inputs: inputs
-                .into_iter()
-                .map(|input| crate::util::compact_packed(&input))
-                .collect(),
-        })
     }
 }
 
@@ -650,6 +623,10 @@ pub(crate) struct CommitTicket {
     pub(crate) version: EntryVersion,
     pub(crate) rank: ReadyKey,
     pub(crate) payload: Arc<PipelineVerifiedTx>,
+    /// Immutable remote origin captured with the exact Ready version. A
+    /// source promotion may change scheduling priority, but a ban fence that
+    /// linearized before final Plan must still revoke this owner.
+    pub(crate) ingress_peer: Option<PeerIndex>,
 }
 
 #[derive(Clone, Debug)]
@@ -683,8 +660,10 @@ impl Ord for ReadyKey {
     fn cmp(&self, other: &Self) -> Ordering {
         let other_size = u64::try_from(other.tx_size).unwrap_or(u64::MAX);
         let self_size = u64::try_from(self.tx_size).unwrap_or(u64::MAX);
-        // Both operands are at most u64::MAX, so saturation is unreachable;
-        // the method form makes the exact finite arithmetic domain explicit.
+        // Both operands are at most u64::MAX, so their product is exact in u128.
+        // A u64-by-u64 product is exact in u128. `saturating_mul` keeps that
+        // proof explicit to the production arithmetic lint and remains safe
+        // if either operand type is widened later.
         let left_rate = u128::from(self.fee).saturating_mul(u128::from(other_size));
         let right_rate = u128::from(other.fee).saturating_mul(u128::from(self_size));
         self.source_class
@@ -712,7 +691,9 @@ struct ObservedDependencies(BTreeMap<DependencyKey, u128>);
 impl ObservedDependencies {
     fn new(values: BTreeMap<DependencyKey, u128>) -> Result<Self, PrePoolError> {
         if values.is_empty() {
-            Err(PrePoolError::EmptyWaitDependencies)
+            Err(PrePoolError::ProjectionInconsistent(
+                "wait state has no observed dependencies",
+            ))
         } else {
             Ok(Self(values))
         }
@@ -781,6 +762,20 @@ enum EntryState {
         payload: Arc<PipelineVerifiedTx>,
         inputs: ReadyInputs,
     },
+}
+
+/// Whether a failed/conflicting executable owner remains as bounded conflict
+/// history or becomes a definitive dependency loss.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConflictDisposition {
+    Retain,
+    Terminalize,
+}
+
+impl ConflictDisposition {
+    fn retains(self) -> bool {
+        matches!(self, Self::Retain)
+    }
 }
 
 impl EntryState {
@@ -894,7 +889,11 @@ struct DeadlineKey {
 pub(crate) struct PrePoolGeneration {
     entries: HashMap<Byte32, StoredEntry>,
     by_short_id: HashMap<ProposalShortId, Byte32>,
-    by_peer: HashMap<PeerIndex, BTreeSet<Byte32>>,
+    /// Immutable ingress attribution used only for peer revocation. Remote
+    /// residency/accounting follows the mutable authoritative `source`
+    /// instead, so trusted promotion cannot erase the origin needed by a
+    /// later ban or accidentally keep the relayer's known filter pinned.
+    by_ingress_peer: HashMap<PeerIndex, BTreeSet<Byte32>>,
     by_parent: HashMap<Byte32, BTreeSet<Byte32>>,
     waiters: HashMap<DependencyKey, BTreeSet<WaitEdge>>,
     availability_epoch: HashMap<DependencyKey, u128>,
@@ -917,7 +916,7 @@ impl PrePoolGeneration {
         Self {
             entries: HashMap::new(),
             by_short_id: HashMap::new(),
-            by_peer: HashMap::new(),
+            by_ingress_peer: HashMap::new(),
             by_parent: HashMap::new(),
             waiters: HashMap::new(),
             availability_epoch: HashMap::new(),
@@ -1096,8 +1095,8 @@ impl PrePoolKernel {
         }
     }
 
-    pub(crate) fn peer_hashes(&self, peer: PeerIndex, max: usize) -> Vec<Byte32> {
-        self.by_peer
+    pub(crate) fn ingress_peer_hashes(&self, peer: PeerIndex, max: usize) -> Vec<Byte32> {
+        self.by_ingress_peer
             .get(&peer)
             .into_iter()
             .flatten()

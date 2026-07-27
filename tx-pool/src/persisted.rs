@@ -277,11 +277,11 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
         file.write_all(MAGIC)?;
         file.write_all(&accepted_len.to_le_bytes())?;
         file.write_all(&recovery_count.to_le_bytes())?;
-        for (ordinal, _) in snapshot.recovery.iter().enumerate() {
+        for ordinal in 0..recovery_count {
             // v2 retains the retired session slot as zero for on-disk
             // compatibility; ordinal alone defines parent-first recovery.
             file.write_all(&0u128.to_le_bytes())?;
-            file.write_all(&(ordinal as u32).to_le_bytes())?;
+            file.write_all(&ordinal.to_le_bytes())?;
         }
         file.write_all(accepted.as_slice())?;
         file.write_all(recovery.as_slice())?;

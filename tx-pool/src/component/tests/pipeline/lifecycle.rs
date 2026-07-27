@@ -491,11 +491,12 @@ async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
     h.cancel.cancel();
 }
 
-/// Proposal notification upgrades an existing remote owner in place. The
-/// old peer can then be banned without revoking the trusted transaction, and
-/// a lease checked out before promotion must settle under the new source.
+/// Proposal notification upgrades scheduling authority in place, so an active
+/// lease can finish under the trusted source without repeating resolution or
+/// script verification. Immutable ingress attribution remains separate and
+/// is tested by the peer-revocation case below.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
+async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     use crate::component::pre_pool::{PrePoolLocation, PrePoolSource, ResolveLane};
     use crate::component::tests::harness::{WorkerSet, harness};
     use crate::service::TxVerificationResult;
@@ -544,9 +545,6 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         0,
         "trusted promotion must cancel the obsolete remote expiry"
     );
-    h.service
-        .ban_malformed(peer, "test old remote owner ban".to_string())
-        .await;
     h.service.process_pipeline_raw_lease(lease).await;
     let view = h
         .service
@@ -590,6 +588,262 @@ async fn proposal_promotes_active_remote_owner_and_detaches_peer_ban() {
         "trusted scheduling priority must not erase immutable relay attribution"
     );
 
+    h.cancel.cancel();
+}
+
+/// A source promotion changes scheduling and budget ownership, not immutable
+/// ingress attribution. Banning the origin removes every still-pre-pool owner,
+/// publishes Reject to release the relayer filter and permits another peer to
+/// supply the same transaction again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peer_ban_removes_promoted_ingress_and_allows_refetch() {
+    use crate::component::pre_pool::{PrePoolSource, ResolveLane};
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let banned_peer = ckb_network::PeerIndex::from(27);
+    let original_source = TxSource::Remote {
+        cycles: 0,
+        peer: banned_peer,
+    };
+    h.service
+        .submit_remote_tx(tx.clone(), original_source)
+        .await
+        .unwrap();
+    let lease = h
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+
+    assert!(!h.service.notify_tx(tx.clone()).await.unwrap());
+    assert_eq!(
+        h.service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.view(&hash).unwrap().source),
+        PrePoolSource::Proposal
+    );
+
+    h.service
+        .ban_malformed(banned_peer, "test promoted ingress revocation".to_owned())
+        .await;
+    h.service.relay.effects.wait_idle().await;
+    h.service.pipeline.kernel.read(|kernel| {
+        assert!(!kernel.contains_hash(&hash));
+        assert_eq!(kernel.total_usage(), Default::default());
+        assert_eq!(kernel.remote_usage(), Default::default());
+        assert_eq!(kernel.peer_usage(banned_peer), Default::default());
+        assert_eq!(kernel.active_work(), 0);
+        kernel.audit().unwrap();
+    });
+    assert!(matches!(
+        h.relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
+    // A late completion from the removed incarnation is stale and cannot
+    // recreate ownership after the ban transition.
+    h.service.process_pipeline_raw_lease(lease).await;
+    assert!(
+        !h.service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.contains_hash(&hash))
+    );
+
+    let replacement_peer = ckb_network::PeerIndex::from(28);
+    assert!(
+        h.service
+            .submit_remote_tx(
+                tx,
+                TxSource::Remote {
+                    cycles: 0,
+                    peer: replacement_peer,
+                },
+            )
+            .await
+            .unwrap(),
+        "the released hash must be admissible from another peer"
+    );
+    h.service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.audit().unwrap());
+    h.cancel.cancel();
+}
+
+/// The ban marker is the peer-removal linearization point. A Ready candidate
+/// may race the later bounded deletion slices, but a commit whose final Plan
+/// starts after that marker must terminalize the immutable ingress owner
+/// instead of accepting it. This closes the only window in which a
+/// source-promoted owner could otherwise cross the ban fence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ready_commit_observes_ban_fence_before_acceptance() {
+    use crate::component::pre_pool::{PrePoolLocation, PrePoolSource};
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let banned_peer = ckb_network::PeerIndex::from(29);
+    stage_verified_remote_candidate(&h.service, tx.clone(), banned_peer).await;
+    assert!(!h.service.notify_tx(tx.clone()).await.unwrap());
+    let before = h
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.view(&hash).unwrap());
+    assert_eq!(before.source, PrePoolSource::Proposal);
+    assert_eq!(before.location, PrePoolLocation::Ready);
+
+    h.service
+        .record_peer_ban(banned_peer, Duration::from_secs(60));
+    h.service.drive_pipeline_commits().await;
+    h.service.relay.effects.wait_idle().await;
+
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_none(),
+        "a Plan started after the ban fence cannot accept the old ingress"
+    );
+    h.service.pipeline.kernel.read(|kernel| {
+        assert!(!kernel.contains_hash(&hash));
+        assert_eq!(kernel.total_usage(), Default::default());
+        assert_eq!(kernel.active_work(), 0);
+        kernel.audit().unwrap();
+    });
+    assert!(matches!(
+        h.relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
+
+    let replacement_peer = ckb_network::PeerIndex::from(30);
+    assert!(
+        h.service
+            .submit_remote_tx(
+                tx,
+                TxSource::Remote {
+                    cycles: 0,
+                    peer: replacement_peer,
+                },
+            )
+            .await
+            .unwrap(),
+        "the terminal Reject leaves the hash requestable from another peer"
+    );
+    h.cancel.cancel();
+}
+
+/// Peer revocation governs only the pre-pool owner attributed to that ingress.
+/// Once the exact Ready Plan has committed, TxPool is the sole authority and a
+/// later network ban must not become a primitive for deleting a valid accepted
+/// transaction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peer_ban_does_not_rollback_an_already_accepted_transaction() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(33);
+    stage_verified_remote_candidate(&h.service, tx, peer).await;
+
+    assert!(h.service.drive_pipeline_commits().await);
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_some()
+    );
+    h.service
+        .ban_malformed(peer, "test accepted-owner boundary".to_owned())
+        .await;
+    h.service.relay.effects.wait_idle().await;
+
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_some(),
+        "peer administration cannot roll back the accepted authority"
+    );
+    h.service.pipeline.kernel.read(|kernel| {
+        assert!(!kernel.contains_hash(&hash));
+        kernel.audit().unwrap();
+    });
+    h.cancel.cancel();
+}
+
+/// A controller message can already be queued when another transaction bans
+/// its peer. Admission rechecks that external marker after taking ownership,
+/// runs the ordinary bounded peer-removal transaction, and returns only after
+/// the new owner is gone. The commit fence covers the interval between those
+/// two operations.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn queued_remote_admission_after_ban_is_removed_and_refetchable() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::error::Reject;
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let banned_peer = ckb_network::PeerIndex::from(31);
+    h.service
+        .record_peer_ban(banned_peer, Duration::from_secs(60));
+
+    let result = h
+        .service
+        .submit_remote_tx(
+            tx.clone(),
+            TxSource::Remote {
+                cycles: 0,
+                peer: banned_peer,
+            },
+        )
+        .await;
+    assert!(matches!(result, Err(Reject::Internal(_))));
+    h.service.relay.effects.wait_idle().await;
+    h.service.pipeline.kernel.read(|kernel| {
+        assert!(!kernel.contains_hash(&hash));
+        assert_eq!(kernel.total_usage(), Default::default());
+        kernel.audit().unwrap();
+    });
+    assert!(matches!(
+        h.relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
+    assert!(h.relay_rx.try_recv().is_err());
+
+    assert!(
+        h.service
+            .submit_remote_tx(
+                tx,
+                TxSource::Remote {
+                    cycles: 0,
+                    peer: ckb_network::PeerIndex::from(32),
+                },
+            )
+            .await
+            .unwrap()
+    );
     h.cancel.cancel();
 }
 
@@ -659,6 +913,225 @@ async fn banned_peer_revokes_active_remote_lease_and_releases_budget() {
         TxVerificationResult::Reject { tx_hash } if tx_hash == hash
     ));
     h.cancel.cancel();
+}
+
+/// Choose a total pipeline byte budget whose derived per-peer byte partition
+/// admits `current_charge` but rejects `next_charge`. Production derives the
+/// per-peer partition as `(total * 7 / 8) / 8`.
+fn phase_growth_budget(current_charge: usize, next_charge: usize) -> usize {
+    assert!(next_charge > current_charge);
+    let mut total = current_charge
+        .checked_mul(64)
+        .and_then(|value| value.checked_div(7))
+        .expect("test phase charge fits usize");
+    while total.saturating_mul(7).saturating_div(8).saturating_div(8) < current_charge {
+        total = total.checked_add(1).expect("test budget fits usize");
+    }
+    let peer_budget = total.saturating_mul(7).saturating_div(8).saturating_div(8);
+    assert!(peer_budget >= current_charge);
+    assert!(
+        peer_budget < next_charge,
+        "phase charges leave no representable per-peer budget boundary"
+    );
+    total
+}
+
+/// A legal raw payload can grow when resolution attaches cell metadata. If the
+/// new exact charge crosses the pipeline budget, the unchanged resolve lease
+/// must terminalize with an explicit Full rejection rather than disappear as
+/// internal cleanup.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn resolve_phase_capacity_growth_is_public_rejection() {
+    use crate::component::pre_pool::ResolveLane;
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let probe = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&probe.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(73);
+    submit_remote(&probe.service, tx.clone(), 0, peer)
+        .await
+        .unwrap();
+    let raw_charge = probe
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.view(&hash).unwrap().charge_bytes);
+    let raw = probe
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    probe.service.process_pipeline_raw_lease(raw).await;
+    let resolved_charge = probe
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.view(&hash).unwrap().charge_bytes);
+    probe.cancel.cancel();
+
+    let budget = phase_growth_budget(raw_charge, resolved_charge);
+    let limited = harness(1)
+        .workers(WorkerSet::None)
+        .max_pipeline_resident_size(budget)
+        .build();
+    let tx = build_tx(&limited.out_points[0], 4_000);
+    let hash = tx.hash();
+    submit_remote(&limited.service, tx, 0, peer).await.unwrap();
+    let raw = limited
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    limited.service.process_pipeline_raw_lease(raw).await;
+
+    assert!(
+        !limited
+            .service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.contains_hash(&hash))
+    );
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = limited.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("capacity rejection releases the remote ingress filter");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
+    assert!(!limited.service.pipeline.kernel.has_failed());
+    limited.cancel.cancel();
+}
+
+/// Ready payload/index charging is another legal phase-growth boundary. It
+/// uses the same explicit rejection protocol as resolution and must never be
+/// routed through the structural-fault or silent-invalidation path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn verify_phase_capacity_growth_is_public_rejection() {
+    use crate::component::pre_pool::{ResolveLane, WorkCapability};
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let probe = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&probe.out_points[0], 4_000);
+    let hash = tx.hash();
+    let peer = ckb_network::PeerIndex::from(74);
+    let cycles = measured_cycles(&probe.service, tx.clone()).await;
+    submit_remote(&probe.service, tx.clone(), cycles, peer)
+        .await
+        .unwrap();
+    let raw = probe
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    probe.service.process_pipeline_raw_lease(raw).await;
+    let resolved_charge = probe
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.view(&hash).unwrap().charge_bytes);
+    let verify = probe
+        .service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.checkout_verify(WorkCapability::Any))
+        .unwrap()
+        .unwrap();
+    let snapshot = probe.service.pool.tx_pool.read().await.cloned_snapshot();
+    let verified = probe
+        .service
+        .verify_pipeline_resolved((*verify.payload).clone(), snapshot, None)
+        .await
+        .unwrap();
+    let charge = verified
+        .candidate
+        .resident_size
+        .checked_add(std::mem::size_of::<
+            crate::component::pre_pool::PipelineVerifiedTx,
+        >())
+        .unwrap();
+    probe
+        .service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.complete_verify(&verify, verified, charge))
+        .unwrap();
+    let ready_charge = probe
+        .service
+        .pipeline
+        .kernel
+        .read(|kernel| kernel.view(&hash).unwrap().charge_bytes);
+    probe.cancel.cancel();
+
+    let budget = phase_growth_budget(resolved_charge, ready_charge);
+    let limited = harness(1)
+        .workers(WorkerSet::None)
+        .max_pipeline_resident_size(budget)
+        .build();
+    let tx = build_tx(&limited.out_points[0], 4_000);
+    let hash = tx.hash();
+    submit_remote(&limited.service, tx, cycles, peer)
+        .await
+        .unwrap();
+    let raw = limited
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    limited.service.process_pipeline_raw_lease(raw).await;
+    let verify = limited
+        .service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.checkout_verify(WorkCapability::Any))
+        .unwrap()
+        .unwrap();
+    let mut chunk_rx = limited.chunk_rx.clone();
+    limited
+        .service
+        .process_pipeline_verify_lease(verify, &mut chunk_rx)
+        .await;
+
+    assert!(
+        !limited
+            .service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.contains_hash(&hash))
+    );
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = limited.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("capacity rejection releases the remote ingress filter");
+    assert!(matches!(
+        relayed,
+        TxVerificationResult::Reject { tx_hash } if tx_hash == hash
+    ));
+    assert!(!limited.service.pipeline.kernel.has_failed());
+    limited.cancel.cancel();
 }
 
 /// Resolved work can wait behind expensive verification for many blocks. It

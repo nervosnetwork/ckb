@@ -16,27 +16,37 @@ impl PipelineEpoch {
 
 impl BannedPeerSet {
     pub(crate) fn len(&self) -> usize {
-        self.entries.lock().len()
+        self.state.lock().entries.len()
     }
 }
 
 #[test]
-fn banned_peer_fence_is_bounded_and_expires_entries() {
-    let peers = BannedPeerSet::new(2);
+fn banned_peer_fence_never_evicts_an_unexpired_marker() {
+    let peers = BannedPeerSet::new();
     let first = ckb_network::PeerIndex::from(1);
     let second = ckb_network::PeerIndex::from(2);
     let third = ckb_network::PeerIndex::from(3);
     peers.record(first, std::time::Duration::from_secs(60));
     peers.record(second, std::time::Duration::from_secs(60));
     peers.record(third, std::time::Duration::from_secs(60));
-    assert_eq!(peers.len(), 2);
-    assert!(!peers.contains(first), "oldest transient marker is evicted");
+    assert_eq!(peers.len(), 3);
+    assert!(
+        peers.contains(first),
+        "peer churn must not evict an older live revocation fence"
+    );
     assert!(peers.contains(second));
     assert!(peers.contains(third));
 
+    peers.record(first, std::time::Duration::from_secs(120));
+    assert_eq!(
+        peers.state.lock().expirations.len(),
+        3,
+        "re-banning replaces the old expiry index instead of retaining a duplicate"
+    );
+
     peers.record(second, std::time::Duration::ZERO);
     assert!(!peers.contains(second));
-    assert_eq!(peers.len(), 1);
+    assert_eq!(peers.len(), 2);
 }
 
 fn relay_state() -> RelayState {

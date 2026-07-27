@@ -7,7 +7,7 @@
 
 use crate::component::pre_pool::WorkLane;
 use crate::process::ReorgUpdateError;
-use crate::service::effects::{EffectClass, EffectJournalError};
+use crate::service::effects::{EffectCapacityWaitError, EffectClass, EffectJournalError};
 use crate::service::{ChainReorgArgs, Notify, TxPoolService, VerifyCacheUpdate};
 use ckb_async_runtime::Handle;
 use ckb_logger::info;
@@ -30,10 +30,10 @@ pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
             Ok(Some(lease)) => service.process_pipeline_raw_lease(lease).await,
             Ok(None) => break,
             Err(error) => {
-                service
-                    .pipeline
-                    .kernel
-                    .report_fault("pre-check checkout invariant failed", &error);
+                service.fail_tx_pool_generation(
+                    "pre-check checkout invariant failed",
+                    &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                );
                 break;
             }
         }
@@ -124,43 +124,63 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                     .pipeline
                     .kernel
                     .read(|kernel| kernel.due_terminal_records(now, SLICE));
-                if let Some(batch) = service.pipeline_terminal_effects(&preview)
-                    && service
+                if let Some(batch) = service.pipeline_terminal_effects(&preview) {
+                    // Every deadline is created by a Remote owner. Expiry is
+                    // maintenance work, but its publication remains
+                    // attacker-originated and must not borrow trusted
+                    // headroom during a coordinated expiry wave.
+                    match service
                         .relay
                         .effects
-                        .wait_capacity(batch.charge_bytes(), EffectClass::Trusted)
+                        .wait_capacity(batch.charge_bytes(), EffectClass::Remote)
                         .await
-                        .is_err()
-                {
-                    break;
+                    {
+                        Ok(()) => {}
+                        Err(EffectCapacityWaitError::Closed) => break,
+                        Err(error) => {
+                            service.fail_tx_pool_generation(
+                                "expiry effect capacity proof failed",
+                                &crate::process::TxPoolGenerationFault::Effect(error.into()),
+                            );
+                            break;
+                        }
+                    }
                 }
                 // Commit ticket selection and Apply now share one kernel
                 // critical section. Expiry can execute directly: whichever
                 // transition acquires the authority first owns the entry, and
                 // no read-only ticket survives between mutex acquisitions.
                 let expired = if !preview.is_empty() {
-                    let result = service.pipeline.kernel.mutate_authoritative(|coordinator| {
-                        let records = coordinator.due_terminal_records(now, SLICE);
-                        let batch = service.pipeline_terminal_effects(&records);
-                        service
-                            .relay
-                            .effects
-                            .try_apply(batch, EffectClass::Trusted, || {
-                                coordinator.expire_due(now, SLICE)
-                            })
-                    });
+                    let result = service.pipeline.kernel.mutate_authoritative(
+                        |coordinator| -> Result<_, crate::component::pre_pool::PrePoolError> {
+                            let Some(plan) = coordinator.plan_expiry(now, SLICE)? else {
+                                return Ok(Ok(Vec::new()));
+                            };
+                            let batch = service.pipeline_terminal_effects(plan.records());
+                            Ok(service
+                                .relay
+                                .effects
+                                .try_apply(batch, EffectClass::Remote, || plan.apply()))
+                        },
+                    );
                     match result {
                         Ok(Ok(records)) => records,
+                        Ok(Err(EffectJournalError::Full)) => continue,
+                        Ok(Err(EffectJournalError::Closed)) => break,
                         Ok(Err(error)) => {
-                            service
-                                .pipeline
-                                .kernel
-                                .report_fault("pipeline expiry invariant failed", &error);
+                            service.fail_tx_pool_generation(
+                                "expiry effect journal invariant failed",
+                                &crate::process::TxPoolGenerationFault::Effect(error),
+                            );
                             break;
                         }
-                        Err(EffectJournalError::Full) => continue,
                         Err(error) => {
-                            ckb_logger::error!("tx-pool expiry journal unavailable: {error:?}");
+                            service.fail_tx_pool_generation(
+                                "pipeline expiry invariant failed",
+                                &crate::process::TxPoolGenerationFault::PrePool(
+                                    error.into_unexpected_fault(),
+                                ),
+                            );
                             break;
                         }
                     }
@@ -174,10 +194,12 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                 {
                     Ok(woke) => woke,
                     Err(error) => {
-                        service
-                            .pipeline
-                            .kernel
-                            .report_fault("wait maintenance invariant failed", &error);
+                        service.fail_tx_pool_generation(
+                            "wait maintenance invariant failed",
+                            &crate::process::TxPoolGenerationFault::PrePool(
+                                error.into_unexpected_fault(),
+                            ),
+                        );
                         break;
                     }
                 };
@@ -231,10 +253,10 @@ pub(crate) fn spawn_reorg_handler(
                 Ok(output) => output,
                 Err(ReorgUpdateError::Effect(EffectJournalError::Closed)) => break,
                 Err(error) => {
-                    service
-                        .pipeline
-                        .kernel
-                        .report_fault("reorg authoritative update failed", &error);
+                    service.fail_tx_pool_generation(
+                        "reorg authoritative update failed",
+                        &crate::process::TxPoolGenerationFault::Reorg(error),
+                    );
                     break;
                 }
             };

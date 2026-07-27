@@ -42,6 +42,17 @@ pub struct RecentReject {
 }
 
 impl RecentReject {
+    fn increment_approximate_count(&self) {
+        // The counter is intentionally approximate, but wrapping to zero would
+        // disable the shrink trigger. Saturation preserves the conservative
+        // upper-bound behavior at the representational limit.
+        let _ = self
+            .total_keys_num
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                Some(count.saturating_add(1))
+            });
+    }
+
     /// Opens a new `RecentReject` database at `path` with the default number
     /// of shards.
     ///
@@ -131,7 +142,7 @@ impl RecentReject {
                         // after the guard was released and could count a key
                         // that `shrink` had already estimated and dropped,
                         // making the counter drift upwards monotonically.
-                        self.total_keys_num.fetch_add(1, Ordering::SeqCst);
+                        self.increment_approximate_count();
                     }
                 }
                 Err(e) => {
@@ -171,7 +182,7 @@ impl RecentReject {
             // count this write as a new key. Concurrent puts of the same key
             // can double-count — that is inside the declared approximate
             // tolerance of the counter.
-            self.total_keys_num.fetch_add(1, Ordering::SeqCst);
+            self.increment_approximate_count();
             Ok::<(), AnyError>(())
         })?;
         self.maybe_shrink();

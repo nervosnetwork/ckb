@@ -386,10 +386,15 @@ async fn authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full() {
         .unwrap();
     let applied = AtomicUsize::new(0);
     queue
-        .try_apply_authoritative(EFFECT_ENVELOPE_BYTES, |publish_detail| {
-            assert!(!publish_detail, "the detailed critical FIFO is saturated");
+        .try_apply_authoritative(EFFECT_ENVELOPE_BYTES, |capacity| {
+            assert!(
+                !capacity.retains_detail(),
+                "the detailed critical FIFO is saturated"
+            );
             applied.fetch_add(1, Ordering::SeqCst);
-            ((), AuthoritativePublication::Detail(None))
+            // Even a caller which asks to publish detail through this
+            // capability can only construct the reserved GenerationReset.
+            capacity.detail((), None)
         })
         .expect("chain authority does not backpressure behind publication");
     assert_eq!(applied.load(Ordering::SeqCst), 1);
@@ -668,6 +673,19 @@ async fn capacity_wait_is_not_a_reservation_or_resident_owner() {
 }
 
 #[tokio::test]
+async fn capacity_wait_distinguishes_static_size_failure_from_shutdown() {
+    let queue = EffectJournal::new(1, 100).unwrap();
+    assert_eq!(
+        queue.wait_capacity(101, EffectClass::Trusted).await,
+        Err(EffectCapacityWaitError::BatchTooLarge {
+            bytes: 101,
+            max_bytes: 100,
+        })
+    );
+    assert!(!queue.is_closed());
+}
+
+#[tokio::test]
 async fn close_wakes_every_blocked_capacity_waiter() {
     let queue = Arc::new(EffectJournal::new(1, 256).unwrap());
     queue
@@ -695,7 +713,7 @@ async fn close_wakes_every_blocked_capacity_waiter() {
             .await
             .expect("close must wake every registered capacity waiter")
             .unwrap();
-        assert!(matches!(result, Err(EffectJournalError::Closed)));
+        assert!(matches!(result, Err(EffectCapacityWaitError::Closed)));
     }
 }
 
@@ -936,6 +954,66 @@ async fn full_relayer_coalesces_to_bounded_reconciliation() {
     publisher.await.unwrap();
 }
 
+#[tokio::test]
+async fn parent_request_is_not_replaced_by_generation_reset() {
+    let journal = Arc::new(EffectJournal::new(1, 1_000).unwrap());
+    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+    relay_tx
+        .send(TxVerificationResult::Reject {
+            tx_hash: Byte32::zero(),
+        })
+        .unwrap();
+    let peer = 7.into();
+    let parents = HashSet::from([Byte32::new([0x5a; 32])]);
+    journal
+        .enqueue(
+            EffectBatch::new(vec![TxPoolEffect::Relay(
+                TxVerificationResult::UnknownParents {
+                    peer,
+                    parents: parents.clone(),
+                },
+            )])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let publisher = tokio::spawn(run_effect_publisher(
+        Arc::clone(&journal),
+        endpoints(relay_tx),
+    ));
+
+    tokio::time::sleep(RELAY_RETRY_TIMEOUT + Duration::from_millis(50)).await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), journal.wait_idle())
+            .await
+            .is_err(),
+        "an essential parent request remains the journal head while its sink is full"
+    );
+    assert!(matches!(
+        relay_rx.try_recv().unwrap(),
+        TxVerificationResult::Reject { tx_hash } if tx_hash == Byte32::zero()
+    ));
+    let delivered = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("parent request must publish after sink capacity returns");
+    assert!(matches!(
+        delivered,
+        TxVerificationResult::UnknownParents {
+            peer: delivered_peer,
+            parents: delivered_parents,
+        } if delivered_peer == peer && delivered_parents == parents
+    ));
+    journal.close();
+    publisher.await.unwrap();
+}
+
 #[test]
 fn oversized_batch_never_executes_total_apply() {
     let journal = EffectJournal::new(1, 127).unwrap();
@@ -987,4 +1065,16 @@ fn ordinary_full_is_mutation_free_and_does_not_install_reset() {
     let state = journal.state.lock();
     assert_eq!(state.queued.len(), 1);
     assert!(state.latest_generation_reset.is_none());
+}
+
+#[test]
+fn checked_apply_failure_does_not_publish_its_effect_batch() {
+    let journal = EffectJournal::new(1, EFFECT_ENVELOPE_BYTES).unwrap();
+    let result = journal.try_apply_checked(Some(reject_batch(0)), EffectClass::Trusted, || {
+        Err::<(), _>("stale authority")
+    });
+
+    assert_eq!(result, Ok(Err("stale authority")));
+    assert_eq!(journal.usage(), EffectUsage::default());
+    assert!(journal.checkout().is_none());
 }

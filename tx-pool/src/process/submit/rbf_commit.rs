@@ -13,7 +13,7 @@ use crate::component::pool_map::{
 };
 use crate::component::pre_pool::{
     CommitTicket, ConflictRetention, DependencyKey, ExternalCommitPlan, PipelineRawTx,
-    PrePoolError, PrePoolKernel, PrePoolSource, ReadyCommitPlan,
+    PrePoolError, PrePoolFault, PrePoolKernel, PrePoolSource, ReadyCommitPlan,
 };
 use crate::error::Reject;
 use crate::pool::TxPool;
@@ -49,9 +49,30 @@ enum AdmissionHandoff<'authority> {
 /// or inconsistent authority proof and must never be returned as policy.
 pub(crate) enum AdmissionPlanningError {
     Policy(Reject),
-    Kernel(PrePoolError),
+    Kernel(PrePoolFault),
     Pool(PoolMutationFault),
     Effect(EffectBuildError),
+}
+
+/// Ready planning has one additional administrative outcome that external
+/// Local/Recovery admission cannot produce. Keeping it outside
+/// `AdmissionPlanningError` makes direct submission exhaustively free of a
+/// fictitious peer-revocation branch.
+pub(crate) enum ReadyAdmissionPlanningError {
+    IngressRevoked,
+    Admission(AdmissionPlanningError),
+}
+
+impl From<AdmissionPlanningError> for ReadyAdmissionPlanningError {
+    fn from(error: AdmissionPlanningError) -> Self {
+        Self::Admission(error)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum UnacceptedReadyCause<'a> {
+    Policy(&'a Reject),
+    IngressRevoked,
 }
 
 impl From<Reject> for AdmissionPlanningError {
@@ -62,7 +83,23 @@ impl From<Reject> for AdmissionPlanningError {
 
 impl From<PrePoolError> for AdmissionPlanningError {
     fn from(error: PrePoolError) -> Self {
-        Self::Kernel(error)
+        Self::Kernel(error.into_unexpected_fault())
+    }
+}
+
+impl AdmissionPlanningError {
+    /// A Ready handoff can still encounter a bounded scheduling-policy limit
+    /// (for example the globally capped conflict cohort). That is ordinary
+    /// backpressure on the candidate, not evidence that either authority is
+    /// inconsistent. Every other failure at this already-owned boundary is a
+    /// structural fault or a stale capability and remains generation-fatal.
+    fn from_ready_handoff(error: PrePoolError) -> Self {
+        match error {
+            PrePoolError::Public(error) => {
+                Self::Policy(crate::component::pre_pool::pre_pool_reject(error))
+            }
+            error => Self::Kernel(error.into_unexpected_fault()),
+        }
     }
 }
 
@@ -214,8 +251,11 @@ impl TxPoolService {
             .collect()
     }
 
-    fn planned_replacement_history(&self, plan: &PoolMutationPlan) -> Vec<ConflictRetention> {
-        let epoch = self.pipeline.epoch.current().unwrap_or(0);
+    fn planned_replacement_history(
+        &self,
+        plan: &PoolMutationPlan,
+        epoch: u64,
+    ) -> Vec<ConflictRetention> {
         plan.removals
             .iter()
             .filter(|removal| removal.cause == RemovalCause::Replacement)
@@ -347,12 +387,13 @@ impl TxPoolService {
         entry: TxEntry,
         source: TxSource,
         original_peer: Option<ckb_network::PeerIndex>,
+        epoch: u64,
     ) -> Result<AdmissionPlan<'authority, 'pool>, AdmissionPlanningError> {
         let pool = self.prepare_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry)?;
         let plan = pool.decision();
         let unavailable = self.planned_unavailable_parent_hashes(plan, &snapshot);
         let available = self.planned_available_dependencies(pool.pool(), &snapshot, &entry, plan);
-        let history = self.planned_replacement_history(plan);
+        let history = self.planned_replacement_history(plan, epoch);
         let committed = HashSet::from([entry.transaction().hash()]);
         let handoff = kernel.plan_external_commit(&committed, &unavailable, available, history)?;
         let committed_ingress_peer = handoff
@@ -366,7 +407,9 @@ impl TxPoolService {
                 tx_hash: entry.transaction().hash(),
             },
         )];
-        let (effects, block_assembler_statuses) = self.planned_publication(plan, extra_effects)?;
+        let (effects, block_assembler_statuses) = self
+            .planned_publication(plan, extra_effects)
+            .map_err(AdmissionPlanningError::from)?;
         Ok(AdmissionPlan {
             pool,
             handoff: AdmissionHandoff::External(handoff),
@@ -380,6 +423,7 @@ impl TxPoolService {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn plan_ready_admission<'authority, 'pool>(
         &self,
         tx_pool: &'pool mut TxPool,
@@ -388,13 +432,22 @@ impl TxPoolService {
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         ticket: &CommitTicket,
-    ) -> Result<AdmissionPlan<'authority, 'pool>, AdmissionPlanningError> {
+        epoch: u64,
+    ) -> Result<AdmissionPlan<'authority, 'pool>, ReadyAdmissionPlanningError> {
+        if ticket
+            .ingress_peer
+            .is_some_and(|peer| self.relay.banned_peers.contains(peer))
+        {
+            return Err(ReadyAdmissionPlanningError::IngressRevoked);
+        }
         let pool = self.prepare_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry)?;
         let plan = pool.decision();
         let unavailable = self.planned_unavailable_parent_hashes(plan, &snapshot);
         let available = self.planned_available_dependencies(pool.pool(), &snapshot, &entry, plan);
-        let history = self.planned_replacement_history(plan);
-        let handoff = kernel.plan_ready_commit(ticket, &unavailable, available, history)?;
+        let history = self.planned_replacement_history(plan, epoch);
+        let handoff = kernel
+            .plan_ready_commit(ticket, &unavailable, available, history)
+            .map_err(AdmissionPlanningError::from_ready_handoff)?;
         let settlement = handoff.settlement();
         // Source promotion changes the authoritative pre-pool owner without
         // rewriting the already verified payload. Publication capacity must
@@ -425,7 +478,9 @@ impl TxPoolService {
                 ));
             }
         }
-        let (effects, block_assembler_statuses) = self.planned_publication(plan, extra_effects)?;
+        let (effects, block_assembler_statuses) = self
+            .planned_publication(plan, extra_effects)
+            .map_err(AdmissionPlanningError::from)?;
         Ok(AdmissionPlan {
             pool,
             handoff: AdmissionHandoff::Ready(handoff),
@@ -466,59 +521,49 @@ impl TxPoolService {
         applied.map_err(AdmissionApplyError::Pool)
     }
 
-    pub(crate) fn plan_failed_admission<'authority>(
+    pub(crate) fn plan_unaccepted_admission<'authority>(
         &self,
         tx_pool: &TxPool,
         kernel: &'authority mut PrePoolKernel,
         ticket: &CommitTicket,
         entry: &TxEntry,
-        reject: &Reject,
-    ) -> Result<FailedAdmissionPlan<'authority>, PrePoolError> {
-        let retain_conflict = matches!(
-            reject,
-            Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_))
-        ) && tx_pool
+        cause: UnacceptedReadyCause<'_>,
+    ) -> Result<FailedAdmissionPlan<'authority>, PrePoolFault> {
+        let reject = match cause {
+            UnacceptedReadyCause::Policy(reject) => Some(reject),
+            UnacceptedReadyCause::IngressRevoked => None,
+        };
+        let disposition = if reject.is_some_and(|reject| {
+            matches!(
+                reject,
+                Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_))
+            )
+        }) && tx_pool
             .pool_map
             .find_conflict_outpoint(entry.transaction())
-            .is_some();
-        let terminal = kernel.plan_failed_commit(ticket, retain_conflict)?;
-        let record = terminal.record();
-        let mut effects = Vec::new();
-        if let Some(effect) = self.recent_reject_effect(record.hash.clone(), reject) {
-            effects.push(effect);
-        }
-        let peer_ban = if reject.is_malformed_tx() {
-            record.raw.blame_peer().map(|peer| {
-                let duration =
-                    std::time::Duration::from_secs(crate::constants::MALFORMED_TX_BAN_SECONDS);
-                effects.push(TxPoolEffect::BanPeer {
-                    peer,
-                    duration,
-                    reason: crate::service::effects::bounded_commit_ban_reason(reject),
-                });
-                (peer, duration)
-            })
-        } else {
-            None
-        };
-        if record.raw.ingress_peer().is_some()
-            && reject.is_allowed_relay()
-            && !matches!(reject, Reject::Duplicated(_))
+            .is_some()
         {
-            effects.push(TxPoolEffect::Relay(
-                crate::service::TxVerificationResult::Reject {
-                    tx_hash: record.hash.clone(),
-                },
-            ));
-        }
-        let effect_class = if matches!(record.source, PrePoolSource::Remote(_)) {
-            EffectClass::Remote
+            crate::component::pre_pool::ConflictDisposition::Retain
         } else {
-            EffectClass::Trusted
+            crate::component::pre_pool::ConflictDisposition::Terminalize
+        };
+        let terminal = kernel
+            .plan_failed_commit(ticket, disposition)
+            .map_err(PrePoolError::into_unexpected_fault)?;
+        let record = terminal.record();
+        let (effects, peer_ban) = self.pipeline_outcome_effects(record, reject);
+        let effect_class = match cause {
+            UnacceptedReadyCause::IngressRevoked => EffectClass::Remote,
+            UnacceptedReadyCause::Policy(_)
+                if matches!(record.source, PrePoolSource::Remote(_)) =>
+            {
+                EffectClass::Remote
+            }
+            UnacceptedReadyCause::Policy(_) => EffectClass::Trusted,
         };
         Ok(FailedAdmissionPlan {
             terminal,
-            effects: EffectBatch::new(effects),
+            effects,
             effect_class,
             peer_ban,
         })

@@ -227,6 +227,62 @@ async fn remote_parent_wait_and_unknown_parents_effect_are_one_transition() {
     h.cancel.cancel();
 }
 
+/// A worker lease can become stale while the same hash is admitted again.
+/// The failed state transition must not publish the parent request prepared
+/// from the newer owner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_parent_wait_lease_does_not_publish_unknown_parents() {
+    use crate::component::pre_pool::{DependencyKey, ResolveLane};
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use ckb_types::packed::Byte32;
+
+    let h = harness(0).workers(WorkerSet::None).build();
+    let parent = Byte32::new([44; 32]);
+    let tx = build_tx(&OutPoint::new(parent.clone(), 0), 3_000);
+    let hash = tx.hash();
+    let peer = 8.into();
+    let epoch = h.service.current_pipeline_epoch().unwrap();
+    let source = crate::component::pre_pool::PipelineAdmissionSource::Remote(
+        crate::component::pre_pool::RemoteSource::new(peer, 0),
+    );
+    h.service
+        .pipeline
+        .kernel
+        .admit_transaction(tx.clone(), source, epoch, ResolveLane::Ordered)
+        .unwrap();
+    let stale = h
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ordered)
+        .unwrap()
+        .unwrap();
+    h.service
+        .pipeline
+        .kernel
+        .mutate_authoritative(|kernel| kernel.force_terminalize(&hash))
+        .unwrap();
+    h.service
+        .pipeline
+        .kernel
+        .admit_transaction(tx, source, epoch, ResolveLane::Ordered)
+        .unwrap();
+
+    assert!(
+        h.service
+            .settle_raw_parent_wait(
+                &stale,
+                std::collections::BTreeSet::from([DependencyKey::Cell(OutPoint::new(parent, 0))]),
+            )
+            .await
+            .is_none()
+    );
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(h.relay_rx.try_recv().is_err());
+
+    h.cancel.cancel();
+}
+
 /// Administrative removal deletes an accepted root and every accepted
 /// descendant. Coordinator consumers of any member of that closure must be
 /// demoted before the pool mutation, not only consumers of the root.

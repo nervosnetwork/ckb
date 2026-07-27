@@ -33,7 +33,7 @@ impl PrePoolKernel {
                 // Transaction-shaped identity/shape/capacity failures bound
                 // the closure. Structural clock/projection failures still
                 // remain internal invariant failures.
-                Err(error) if error.is_transaction_rejection() => break,
+                Err(PrePoolError::Public(_)) => break,
                 Err(error) => return Err(error),
             }
         }

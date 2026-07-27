@@ -45,6 +45,7 @@ FORBIDDEN_PRODUCTION = (
 )
 REQUIRED_STATIC_LINTS = {
     "clippy::arithmetic_side_effects",
+    "clippy::await_holding_lock",
     "clippy::expect_used",
     "clippy::indexing_slicing",
     "clippy::panic",

@@ -88,15 +88,6 @@ pub(crate) fn assemble_service(
             .map_err(|error| format!("invalid tx-pool pipeline configuration: {error:?}"))?,
     );
     let tx_pool_config = tx_pool.config.clone();
-    let banned_peer_capacity = kernel
-        .max_entries()
-        .saturating_add(DEFAULT_CHANNEL_SIZE)
-        .saturating_add(
-            tx_pool_config
-                .max_tx_verify_workers
-                .max(1)
-                .saturating_mul(MESSAGE_CONCURRENCY_MULTIPLIER),
-        );
     // Static effect regions: Remote owns the ordinary ceiling, trusted work
     // has one largest-admission byte cohort plus fixed batch headroom, and
     // chain authority has one independent reorg cohort. None is a dynamic
@@ -143,7 +134,7 @@ pub(crate) fn assemble_service(
             block_assembler_reset: Arc::new(Default::default()),
             callbacks: Arc::new(callbacks),
             effects,
-            banned_peers: Arc::new(crate::service::BannedPeerSet::new(banned_peer_capacity)),
+            banned_peers: Arc::new(crate::service::BannedPeerSet::new()),
         },
         aux: crate::service::AuxServices {
             txs_verify_cache,

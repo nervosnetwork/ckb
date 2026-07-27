@@ -65,6 +65,7 @@ pub(crate) struct HarnessBuilder {
     rbf: bool,
     max_tx_pool_size: Option<usize>,
     max_workers: Option<usize>,
+    max_pipeline_resident_size: Option<usize>,
     workers: WorkerSet,
     snapshot: Option<(MockStore, Arc<Snapshot>)>,
 }
@@ -78,6 +79,7 @@ pub(crate) fn harness(issue_outputs: usize) -> HarnessBuilder {
         rbf: false,
         max_tx_pool_size: None,
         max_workers: None,
+        max_pipeline_resident_size: None,
         workers: WorkerSet::All,
         snapshot: None,
     }
@@ -104,6 +106,11 @@ impl HarnessBuilder {
 
     pub(crate) fn max_workers(mut self, n: usize) -> Self {
         self.max_workers = Some(n);
+        self
+    }
+
+    pub(crate) fn max_pipeline_resident_size(mut self, bytes: usize) -> Self {
+        self.max_pipeline_resident_size = Some(bytes);
         self
     }
 
@@ -142,6 +149,9 @@ impl HarnessBuilder {
         }
         if let Some(n) = self.max_workers {
             config.max_tx_verify_workers = n;
+        }
+        if let Some(bytes) = self.max_pipeline_resident_size {
+            config.max_tx_pipeline_resident_size = bytes;
         }
 
         let (tx_relay_sender, relay_rx) = ckb_channel::bounded(1024);

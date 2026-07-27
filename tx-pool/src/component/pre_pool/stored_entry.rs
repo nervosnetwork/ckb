@@ -33,7 +33,7 @@ impl StoredEntry {
         }
 
         let mut memberships = 2usize;
-        if entry.source.peer().is_some() {
+        if entry.raw.ingress_peer().is_some() {
             memberships = memberships
                 .checked_add(2)
                 .ok_or(PrePoolError::ResidencyChargeOverflow)?;
@@ -96,6 +96,26 @@ impl StoredEntry {
 
     pub(super) fn into_draft(self) -> Entry {
         self.entry
+    }
+
+    /// Advance only a conflict waiter's observed levels to the atomic
+    /// transition's post-Apply cut. Hash, dependency membership and resident
+    /// charge are unchanged, so this narrow consuming API preserves every
+    /// property established by [`Self::prepare`] without exposing mutable
+    /// access to a stored primary.
+    pub(super) fn bind_conflict_observation_cut(mut self, changes: &DependencyChangePlan) -> Self {
+        if let EntryState::Wait(WaitState {
+            reason: WaitReason::Conflict,
+            observed,
+        }) = &mut self.entry.state
+        {
+            for (key, epoch) in &changes.0 {
+                if let Some(observed_epoch) = observed.0.get_mut(key) {
+                    *observed_epoch = *epoch;
+                }
+            }
+        }
+        self
     }
 }
 

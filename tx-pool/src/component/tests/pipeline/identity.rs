@@ -1,5 +1,73 @@
 use super::*;
 
+/// A primary/index contradiction invalidates the complete pre-pool
+/// generation. It must never flow through transaction rejection policy: the
+/// relayer receives one conservative generation reset, while the originating
+/// peer is neither blamed nor given a hash-specific Reject outcome.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ingress_structural_fault_is_not_a_transaction_or_peer_rejection() {
+    use crate::component::pre_pool::PrePoolFault;
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let peer = ckb_network::PeerIndex::from(31);
+    let result = h
+        .service
+        .settle_ingress_fault_for_test(
+            tx,
+            TxSource::Remote { cycles: 0, peer },
+            PrePoolFault::ProjectionInconsistent("test-only ingress contradiction"),
+        )
+        .await;
+
+    assert!(matches!(result, Err(crate::error::Reject::Internal(_))));
+    assert!(h.service.pipeline.kernel.has_failed());
+    assert!(!h.service.relay.banned_peers.contains(peer));
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the failed generation publishes its reconciliation record");
+    assert!(matches!(relayed, TxVerificationResult::GenerationReset));
+    assert!(h.relay_rx.try_recv().is_err());
+}
+
+/// Local/RPC compatibility still returns `Reject`, but a system fault must be
+/// kept out of `after_process`: no hash-specific reject or recent-reject
+/// policy is emitted, and the generation is reconciled and stopped once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn direct_submission_system_fault_is_not_transaction_policy() {
+    use crate::component::tests::harness::{WorkerSet, harness};
+    use crate::service::TxVerificationResult;
+
+    let h = harness(1).workers(WorkerSet::None).build();
+    h.service.pipeline.epoch.set_for_test(u64::MAX);
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let result = h.service.process_tx(tx, TxSource::Local).await;
+
+    assert!(matches!(result, Err(crate::error::Reject::Internal(_))));
+    assert!(h.service.pipeline.kernel.has_failed());
+    let relayed = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Ok(result) = h.relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the direct-processing fault publishes generation reconciliation");
+    assert!(matches!(relayed, TxVerificationResult::GenerationReset));
+    assert!(h.relay_rx.try_recv().is_err());
+}
+
 /// A proposal short ID identifies only one protocol slot, not transaction
 /// equality. Reporting a distinct colliding remote transaction as `Duplicated`
 /// suppresses the relayer Reject terminal and leaves its filter resident. The

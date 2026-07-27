@@ -108,12 +108,12 @@ catching that unwind does not make the choice sound.
 | dependency liveness | pass | exact reverse keys, bounded dirty levels, parent-loss demotion and final accepted revalidation |
 | effects | pass in unit/model evidence | state Apply and bounded stable append share the innermost journal lock; foreign callback/network/database work occurs after locks behind timeout/circuits; accepted-duplicate success retains membership capability through append |
 | reorg/admin | pass in unit/model evidence | chain mutation/recovery plan is one authoritative phase; clear uses generation swap; old generic replay retry removed |
-| template liveness | pass in unit evidence | Gap reevaluation and uncle/proposal conflict filter; Reset/full priority preserved; uncle/proposal/transaction deltas remain concurrent versioned OCC and are all re-dirtied by replacement |
+| template liveness | pass | Gap reevaluation and uncle/proposal conflict filter; full rebuild derives from candidate-uncle authority and token-commits cleanup; Reset/full priority is preserved while uncle/proposal/transaction deltas remain concurrent versioned OCC and are all re-dirtied by replacement; both uncle-inheritance and ordinary-mining dependent-reorg process regressions passed |
 | hostile input bounds | pass with one residual | entry/byte/peer/work/graph/effect/uncle bounds precede retention; trusted `NotifyTxs` vector length needs upstream proof |
 | failure semantics | pass in static/unit evidence | legal hostile input is typed; production authority/worker code contains no explicit panic surface or unwind-driven control flow; foreign endpoints are isolated outside authority locks |
 | test/production parity | pass after correction | candidate-uncle test-only limits and callback-timeout divergence removed; remaining `cfg(test)` sites are wiring/observation/fault seams tracked by manifest |
 | simplification | pass for P5 code slice | redundant entry clones, disposal wrappers, submit envelopes, duplicate reorg plan and assembler loop removed without new state |
-| integration | pass | P6.5 passed the complete unfiltered managed 150-spec universe through `make integration` with `-c 1 --no-fail-fast` in 884.185 seconds; the ordinary-template dependent-reorg regression passed in the same run |
+| integration | pass | P6.5 passed the complete unfiltered managed 150-spec universe through `make integration` with `-c 1 --no-fail-fast` in 884.185 seconds and the repository-wide unfiltered 177-spec universe through plain `make integration` in 372.452 seconds; RBF cycling, uncle inheritance and ordinary-template dependent-reorg regressions passed in the latter run |
 | performance | open/blocking | no superiority claim before controlled checkpoint A/B and lock/allocation/tail-latency analysis |
 
 ## 6. Static Rust proof audit
@@ -128,7 +128,9 @@ Production transaction, authority, worker and publisher paths may not use
 `assert*`, `expect`, `unwrap`, `panic!`, `unreachable!`, unchecked indexing or
 unchecked arithmetic as correctness mechanisms. They may not use
 `panic + catch_unwind` to choose settlement, retry, rollback, shutdown or
-generation state. Startup/configuration failures return startup errors;
+generation state. The crate also denies `clippy::await_holding_lock`, matching
+the documented ownership rule with a compile-time gate. Startup/configuration
+failures return startup errors;
 malformed, stale, duplicate, capacity, RBF, clear and shutdown outcomes remain
 typed. Genuinely foreign callbacks/endpoints are isolated outside authority
 locks and report channel/timeout failure.
@@ -138,6 +140,61 @@ memory corruption. It does require legal inputs and internal protocol outcomes
 to stay within statically or explicitly typed control flow. A structural fault
 that cannot yet be made unrepresentable must be detected before mutation as a
 typed system fault, never asserted during Apply or caught afterward.
+
+The current legal-input/fault separation was re-audited by transition class:
+
+| Boundary | Legal outcome | Why it cannot become a structural fault |
+|---|---|---|
+| fresh ingress | typed rejection/backpressure/duplicate before ownership | `PrePoolAdmissionError` is a closed adapter domain; malformed or capacity input never enters the fault arm |
+| resolve/verify completion | stale is discarded; charge/shape growth is an explicit public rejection | both phase-growth branches terminalize the exact lease and publish Reject; focused regressions prove the generation remains live |
+| resolver/verifier checkout | executable lease or no work | queue selection and active-owner capacity are evaluated under the same kernel borrow; no peer-controlled fact is introduced by checkout |
+| parent wait/wake | park, requeue, public rejection or stale | discovered dependencies are bounded before Apply; every resident owner reserves its maximum Wait metadata, so a wake cannot discover new capacity pressure |
+| expiry, ban and definitive terminalization | bounded prepared removal/demotion | these transitions only remove ownership or move dependents into the continuously reserved Wait shape; immutable ingress attribution is rebound under authority before peer removal, while post-admission and exact Ready-ticket fence checks close both sides of the ban race without adding a lifecycle state |
+| Ready handoff | policy/backpressure before Apply, then total settlement | the global conflict cohort is bounded explicitly, optional history degrades to terminalization, and ticket selection plus Plan/Apply share one kernel borrow inside the accepted-pool sequencer |
+| reorg recovery | closure-safe admitted prefix or generation reset | an empty scratch generation proves the exact prefix under identical limits before the real empty generation consumes it |
+
+`PrePoolError` remains the shared private planner error because the same bounded
+cohort compiler serves ingress and authority-only transitions. The remaining
+`into_unexpected_fault` sites therefore carry a review obligation rather than
+a new runtime state: they are permitted only at the authority-only rows above.
+Adding a public error variant, changing conservative charge equations or adding
+another call site requires re-running `TP-DEFECT-001` and either proving the
+row still excludes that outcome or replacing the boundary with a narrower
+operation-specific result type. This maintenance risk is recorded as O18; it
+is not evidence of a currently reachable legal-input fail-stop path.
+
+### Regression convergence and architecture-drift review
+
+The unfiltered process suite found failures which narrower unit and managed
+integration runs did not expose. They were reviewed together before accepting
+their fixes:
+
+| Regression | Root boundary | Architectural correction | Model cost |
+|---|---|---|---|
+| reverse/unordered orphan relay | resolution published one observed miss rather than the complete bounded direct frontier | build and settle the exact frontier under the existing `TxPool -> PrePoolKernel -> EffectJournal` boundary | no owner, state, lock or retry added |
+| Local test submission | an API source was routed by pipeline convenience rather than its synchronous contract | keep `Local` structurally outside the pre-pool and reuse ordinary direct Plan/Apply | one source-policy correction; no new mechanism |
+| detached-uncle inheritance | reset/full copied a transient derived template and optional uncle retention could lose the publication race | derive full content from candidate authority and commit cleanup only with the matching reset/publication token | two typed template counters replace a lock-held construction window; partial work remains concurrent |
+| RBF cycling | a new conflict victim observed the pre-Apply dependency epoch and consumed its own replacement release | the unique cohort seal binds only same-Apply conflict waiters to the post-Apply observation cut; old history still observes the edge | one narrow consuming `StoredEntry` transform; no caller-managed publication |
+| suite-wide RPC timeout | loopback integration RPC inherited desktop proxy discovery | make the integration client explicitly no-proxy | harness-only failure-domain isolation |
+
+These failures cluster at facts crossing an authority boundary: complete input
+frontiers, API source policy, derived publication tokens and event observation
+cuts. They are not evidence that another lifecycle location or a rollback
+engine is missing. The corrective rule is now explicit: every Plan must carry
+not only its final values but also the exact observation/publication cut at
+which derived work becomes valid. That cut is sealed once by the owning
+authority; callers may not reconstruct it from pre-Apply snapshots or
+post-Apply notifications.
+
+The review found no model drift after these corrections. Production still has
+exactly two payload authorities, six pre-pool locations, one accepted Apply,
+one kernel cohort seal, one stable-effect journal and no undo/restart protocol.
+The remaining risk is transferred only where it is already declared: typed
+system faults still stop an inconsistent generation (O18), endpoint delivery
+is bounded rather than exactly-once, and the new bounded work under the pool
+and kernel locks has not yet received the P7 performance verdict. Replacing
+these residuals with a universal actor, event bus or recovery state would add
+more failure modes than it removes.
 
 ## 7. Attack review
 
@@ -194,18 +251,26 @@ separately (production files contain no inline test body), the current result is
 | `develop` | 7,297 / 23 files | 2,434 / 13 files | 0 |
 | C1 `02e648255` | 24,236 / 60 files | 20,808 / 55 files | 1,422 / 1 file |
 | C13 `6d0577ad4` | 18,532 / 53 files | 13,602 / 44 files | 1,463 / 1 file |
-| P6.5 candidate | 20,935 / 54 files | 14,429 / 44 files | 1,470 / 1 file |
+| P6.5 checkpoint `9e559a482` | 20,935 / 54 files | 14,429 / 44 files | 1,470 / 1 file |
+| post-regression working candidate | 21,769 / 54 files | 15,564 / 45 files | 1,470 / 1 file |
 
-The P6.5 candidate remains 3,301 production lines smaller than the audited C1
-intermediate architecture, but adds 2,403 lines over C13 and remains 13,638
-above `develop`. That growth is material. The new C13→P6.5 cost is concentrated
+The current candidate remains 2,467 production lines smaller than the audited
+C1 intermediate architecture, but adds 3,237 lines over C13 and remains 14,472
+above `develop`. It is 834 production lines above the P6.5 checkpoint; tests
+grew separately by 1,135 lines. That growth is material. The C13→current cost is
+concentrated
 in proof-carrying stored entries/prepared projection changes, exact accepted
 plans, typed administrative generation boundaries and stable-effect coupling;
-it replaces the 278-site runtime-panic proof surface rather than adding a new
-owner, state, rollback or restart protocol. Test growth is reported separately
-and does not excuse production growth. Further deletion is required wherever
-it removes duplicate orchestration, but collapsing typed phase payloads,
-Plan/Apply, exact wait keys or effect coupling would weaken the proof.
+the post-P6.5 increment closes peer-ban admission races, legal-input/fault
+classification, stable endpoint and accepted-result publication, dependency
+loss/event-cut liveness, and template publication races. It replaces the
+278-site runtime-panic proof surface rather than adding a new owner, state,
+rollback or restart protocol. Test growth is reported separately and does not
+excuse production growth. The final call-site review found no duplicated owner,
+publication or observation mechanism whose deletion preserves the same proof;
+P7 may still justify local allocation or lookup optimizations. Collapsing typed
+phase payloads, Plan/Apply, exact wait keys or effect coupling would weaken the
+proof.
 
 Extension is intentionally constrained. A seventh payload state, third owner,
 rollback journal, broad retry, reverse lock acquisition, unbounded graph or
@@ -240,8 +305,9 @@ P7:
 
 The architecture is preferable to `develop` and its additional mechanisms are
 necessary at the root boundaries they protect. It is also substantially
-simpler than the intermediate coordinator/undo/defect-restart designs. P6.5
-static and process correctness acceptance is complete; the correct next step
-is the separately authorized performance verdict, not another redesign. Any
-new problem must first be mapped to an existing authority/invariant; only a
-contradiction in those frozen rules justifies changing the model.
+simpler than the intermediate coordinator/undo/defect-restart designs.
+Post-regression static and process correctness acceptance is complete; the
+correct next step is the separately authorized performance verdict, not
+another redesign. Any new problem must first be mapped to an existing
+authority/invariant; only a contradiction in those frozen rules justifies
+changing the model.

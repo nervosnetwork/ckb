@@ -10,6 +10,20 @@ use ckb_util::LinkedHashSet;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Whether this node packages proposal-window transitions for mining. Gap
+/// demotion is consensus-view correction and runs in both modes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MiningMode {
+    Package,
+    ObserveOnly,
+}
+
+impl MiningMode {
+    pub(crate) fn packages(self) -> bool {
+        matches!(self, Self::Package)
+    }
+}
+
 /// Retain detached transactions whose raw transaction hash is absent from
 /// the attached branch. `TransactionView` equality includes witnesses, but
 /// cell identity and spendability use the raw transaction hash: treating two
@@ -131,7 +145,7 @@ pub(crate) fn begin_tx_pool_reorg(
     detached_headers: &HashSet<Byte32>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
-    mine_mode: bool,
+    mining: MiningMode,
 ) -> Result<ReorgOutcome, PoolMutationFault> {
     let mut reject_events = Vec::new();
     // Proposed/pending notifications are *collected* and dispatched by the
@@ -170,7 +184,7 @@ pub(crate) fn begin_tx_pool_reorg(
     for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
         let short_id = entry.inner.proposal_short_id();
         if snapshot.proposals().contains_proposed(&short_id) {
-            if mine_mode {
+            if mining.packages() {
                 to_proposed.push((short_id, entry.inner.clone()));
             }
         } else if !snapshot.proposals().contains_gap(&short_id) {
@@ -178,7 +192,7 @@ pub(crate) fn begin_tx_pool_reorg(
         }
     }
 
-    if mine_mode {
+    if mining.packages() {
         for entry in tx_pool.pool_map.entries.get_by_status(&Status::Pending) {
             let short_id = entry.inner.proposal_short_id();
             let elem = (short_id.clone(), entry.inner.clone());

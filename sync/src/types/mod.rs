@@ -1021,6 +1021,7 @@ impl SyncShared {
             shared_best_header,
             tx_filter: Mutex::new(TtlFilter::default()),
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
+            pending_relay_txs: Mutex::new(LruCache::new(FILTER_SIZE)),
             peers: Peers::default(),
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: tokio::sync::Mutex::new(HashMap::default()),
@@ -1327,6 +1328,14 @@ pub struct SyncState {
     // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
     unknown_tx_hashes: Mutex<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>>,
 
+    /// Accepted hashes whose one-shot relay opportunity is waiting for a
+    /// usable peer. This projection shares the known-filter's fixed 50k bound,
+    /// coalesces by hash, is removed by Reject/reset and drains in
+    /// protocol-sized slices. Relay remains best-effort beyond that bound,
+    /// while endpoint absence can never create unbounded memory or block the
+    /// tx-pool's committed-effect sink.
+    pending_relay_txs: Mutex<LruCache<Byte32, Option<PeerIndex>>>,
+
     /* Status relevant to peers */
     peers: Peers,
 
@@ -1443,6 +1452,30 @@ impl SyncState {
 
     pub fn reset_known_txs(&self) {
         self.tx_filter.lock().clear();
+    }
+
+    pub fn record_accepted_tx(&self, hash: Byte32, original_peer: Option<PeerIndex>) {
+        // A remote Ok after GenerationReset must restore the filter entry even
+        // though ingress originally marked it before reset was consumed.
+        self.mark_as_known_tx(hash.clone());
+        self.pending_relay_txs.lock().put(hash, original_peer);
+    }
+
+    pub fn reject_pending_relay_tx(&self, hash: &Byte32) {
+        self.remove_from_known_txs(hash);
+        self.pending_relay_txs.lock().pop(hash);
+    }
+
+    pub fn reset_tx_pool_relay_projection(&self) {
+        self.reset_known_txs();
+        self.pending_relay_txs.lock().clear();
+    }
+
+    pub fn take_pending_relay_txs(&self, limit: usize) -> Vec<(Byte32, Option<PeerIndex>)> {
+        let mut pending = self.pending_relay_txs.lock();
+        std::iter::from_fn(|| pending.pop_lru())
+            .take(limit)
+            .collect()
     }
 
     // maybe someday we can use

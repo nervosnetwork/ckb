@@ -20,6 +20,11 @@ use ckb_types::{H256, packed::Byte32};
 pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
     std::sync::LazyLock::new(|| {
         reqwest::blocking::Client::builder()
+            // Integration RPC endpoints are always loopback nodes created by
+            // this process. System proxy auto-discovery can otherwise route
+            // localhost through a desktop proxy and make every spec wait on
+            // an unrelated external failure domain.
+            .no_proxy()
             .timeout(::std::time::Duration::from_secs(30))
             .build()
             .expect("reqwest Client build")

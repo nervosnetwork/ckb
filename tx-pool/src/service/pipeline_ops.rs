@@ -9,10 +9,13 @@
 use crate::component::pool_map::PoolMutationFault;
 use crate::component::pre_pool::PrePoolKernel;
 use crate::component::pre_pool::{
-    DependencyKey, PrePoolError, PrePoolSource, ResolveLease, TerminalRecord, VerifyLease,
+    ConflictDisposition, DependencyKey, PrePoolError, PrePoolFault, PrePoolSource, ResolveLease,
+    TerminalRecord, VerifyLease,
 };
 use crate::error::Reject;
-use crate::service::effects::{EffectBatch, EffectClass, EffectJournalError, TxPoolEffect};
+use crate::service::effects::{
+    EffectBatch, EffectCapacityWaitError, EffectClass, EffectJournalError, TxPoolEffect,
+};
 use crate::service::{PipelineTxLocation, RemoveTxOutcome, TxPoolService};
 use ckb_store::ChainStore;
 use ckb_types::core::TransactionView;
@@ -24,6 +27,7 @@ use std::collections::{BTreeSet, HashSet};
 enum AdministrativeRemovalError {
     Accepted(PoolMutationFault),
     PrePool(PrePoolError),
+    Effect(EffectJournalError),
 }
 
 impl From<PoolMutationFault> for AdministrativeRemovalError {
@@ -101,10 +105,13 @@ impl TxPoolService {
         info
     }
 
-    pub(crate) fn current_pipeline_epoch(&self) -> Result<u64, crate::error::Reject> {
-        self.pipeline.epoch.current().ok_or_else(|| {
-            crate::error::Reject::Internal("tx-pool pipeline epoch exhausted".to_string())
-        })
+    pub(crate) fn current_pipeline_epoch(
+        &self,
+    ) -> Result<u64, crate::service::PipelineEpochExhausted> {
+        self.pipeline
+            .epoch
+            .current()
+            .ok_or(crate::service::PipelineEpochExhausted)
     }
 
     pub(crate) fn is_pipeline_epoch_current(&self, epoch: u64) -> bool {
@@ -177,7 +184,7 @@ impl TxPoolService {
                     EffectClass::Trusted
                 };
                 effect_bytes = Self::unknown_parents_effect_bytes(unavailable.len());
-                Ok(self.relay.effects.try_apply(batch, class, || {
+                Ok(self.relay.effects.try_apply_checked(batch, class, || {
                     transition(coordinator, unavailable.clone())?;
                     Ok(if unavailable.is_empty() {
                         ParentWaitOutcome::Requeued
@@ -189,38 +196,53 @@ impl TxPoolService {
             drop(pool);
             match outcome {
                 Ok(Ok(Ok(outcome))) => return Some(outcome),
-                Ok(Ok(Err(error))) | Err(error) if error.is_stale_lease() => return None,
-                Ok(Ok(Err(error))) | Err(error) => {
-                    if error.is_transaction_rejection() {
-                        return Some(ParentWaitOutcome::Rejected(
-                            crate::component::pre_pool::pre_pool_reject(error),
-                        ));
-                    }
-                    self.pipeline
-                        .kernel
-                        .report_fault("parent-wait settlement invariant failed", &error);
+                Ok(Ok(Err(PrePoolError::Stale(_)))) | Err(PrePoolError::Stale(_)) => return None,
+                Ok(Ok(Err(PrePoolError::Public(error)))) | Err(PrePoolError::Public(error)) => {
+                    return Some(ParentWaitOutcome::Rejected(
+                        crate::component::pre_pool::pre_pool_reject(error),
+                    ));
+                }
+                Ok(Ok(Err(PrePoolError::Duplicate(hash)))) | Err(PrePoolError::Duplicate(hash)) => {
+                    self.fail_tx_pool_generation(
+                        "parent-wait settlement produced a duplicate entry",
+                        &crate::process::TxPoolGenerationFault::PrePool(
+                            PrePoolFault::UnexpectedTransitionDuplicate(hash),
+                        ),
+                    );
+                    return None;
+                }
+                Ok(Ok(Err(PrePoolError::Fault(fault)))) | Err(PrePoolError::Fault(fault)) => {
+                    self.fail_tx_pool_generation(
+                        "parent-wait settlement invariant failed",
+                        &crate::process::TxPoolGenerationFault::PrePool(fault),
+                    );
                     return None;
                 }
                 Ok(Err(EffectJournalError::Full)) => {
-                    if self
+                    match self
                         .relay
                         .effects
                         .wait_capacity(effect_bytes, EffectClass::Remote)
                         .await
-                        .is_err()
                     {
-                        return Some(ParentWaitOutcome::Rejected(Reject::Full(
-                            "effect journal unavailable".to_owned(),
-                        )));
+                        Ok(()) => {}
+                        Err(EffectCapacityWaitError::Closed) => return None,
+                        Err(error) => {
+                            self.fail_tx_pool_generation(
+                                "parent-wait effect capacity proof failed",
+                                &crate::process::TxPoolGenerationFault::Effect(error.into()),
+                            );
+                            return None;
+                        }
                     }
                 }
+                Ok(Err(EffectJournalError::Closed)) => return None,
                 Ok(Err(error)) => {
-                    ckb_logger::error!(
-                        "parent-wait settlement effect journal unavailable: {error:?}"
+                    self.fail_tx_pool_generation(
+                        "parent-wait effect journal failed",
+                        &crate::process::TxPoolGenerationFault::Effect(error),
                     );
-                    return Some(ParentWaitOutcome::Rejected(Reject::Full(
-                        "effect journal unavailable".to_owned(),
-                    )));
+                    return None;
                 }
             }
         }
@@ -236,7 +258,10 @@ impl TxPoolService {
         subject: &Byte32,
         reject: Option<Reject>,
         mutation_context: &'static str,
-        mut terminalize: impl FnMut(&mut PrePoolKernel, bool) -> Result<TerminalRecord, PrePoolError>
+        mut terminalize: impl FnMut(
+            &mut PrePoolKernel,
+            ConflictDisposition,
+        ) -> Result<TerminalRecord, PrePoolError>
         + Send,
     ) {
         loop {
@@ -253,15 +278,23 @@ impl TxPoolService {
             } else {
                 EffectClass::Trusted
             };
-            if let Some(batch) = &preview_batch
-                && self
+            if let Some(batch) = &preview_batch {
+                match self
                     .relay
                     .effects
                     .wait_capacity(batch.charge_bytes(), class)
                     .await
-                    .is_err()
-            {
-                return;
+                {
+                    Ok(()) => {}
+                    Err(EffectCapacityWaitError::Closed) => return,
+                    Err(error) => {
+                        self.fail_tx_pool_generation(
+                            "terminal effect capacity proof failed",
+                            &crate::process::TxPoolGenerationFault::Effect(error.into()),
+                        );
+                        return;
+                    }
+                }
             }
 
             let tx_pool = if reject.is_some() {
@@ -269,7 +302,7 @@ impl TxPoolService {
             } else {
                 None
             };
-            let retain_conflict = reject.as_ref().is_some_and(|reject| {
+            let disposition = if reject.as_ref().is_some_and(|reject| {
                 matches!(
                     reject,
                     Reject::RBFRejected(..)
@@ -281,7 +314,11 @@ impl TxPoolService {
                         })
                     })
                 })
-            });
+            }) {
+                ConflictDisposition::Retain
+            } else {
+                ConflictDisposition::Terminalize
+            };
             let result = self.pipeline.kernel.mutate_authoritative(|coordinator| {
                 let Some(record) = coordinator.terminal_record(subject) else {
                     return Ok(Err(PrePoolError::Missing(subject.clone())));
@@ -292,8 +329,8 @@ impl TxPoolService {
                 } else {
                     EffectClass::Trusted
                 };
-                self.relay.effects.try_apply(batch, class, || {
-                    let terminal = terminalize(coordinator, retain_conflict)?;
+                self.relay.effects.try_apply_checked(batch, class, || {
+                    let terminal = terminalize(coordinator, disposition)?;
                     if let Some((peer, duration)) = peer_ban {
                         self.record_peer_ban(peer, duration);
                     }
@@ -310,12 +347,21 @@ impl TxPoolService {
                 }
                 Ok(Err(error)) if error.is_stale_lease() => return,
                 Ok(Err(error)) => {
-                    self.pipeline.kernel.report_fault(mutation_context, &error);
+                    self.fail_tx_pool_generation(
+                        mutation_context,
+                        &crate::process::TxPoolGenerationFault::PrePool(
+                            error.into_unexpected_fault(),
+                        ),
+                    );
                     return;
                 }
                 Err(EffectJournalError::Full) => continue,
+                Err(EffectJournalError::Closed) => return,
                 Err(error) => {
-                    ckb_logger::error!("{mutation_context}: effect journal unavailable: {error:?}");
+                    self.fail_tx_pool_generation(
+                        "terminal effect journal invariant failed",
+                        &crate::process::TxPoolGenerationFault::Effect(error),
+                    );
                     return;
                 }
             }
@@ -367,14 +413,23 @@ impl TxPoolService {
         if let Some(batch) = preview
             .as_ref()
             .and_then(|record| self.pipeline_terminal_effects(std::slice::from_ref(record)))
-            && self
+        {
+            match self
                 .relay
                 .effects
                 .wait_capacity(batch.charge_bytes(), EffectClass::Trusted)
                 .await
-                .is_err()
-        {
-            return RemoveTxOutcome::InProgress;
+            {
+                Ok(()) => {}
+                Err(EffectCapacityWaitError::Closed) => return RemoveTxOutcome::InProgress,
+                Err(error) => {
+                    self.fail_tx_pool_generation(
+                        "administrative removal effect capacity proof failed",
+                        &crate::process::TxPoolGenerationFault::Effect(error.into()),
+                    );
+                    return RemoveTxOutcome::InProgress;
+                }
+            }
         }
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         let mutation = {
@@ -451,18 +506,13 @@ impl TxPoolService {
                         });
                         self.relay
                             .effects
-                            .try_apply(batch, EffectClass::Trusted, || {
+                            .try_apply_checked(batch, EffectClass::Trusted, || {
                                 coordinator.force_terminalize(&tx_hash)
                             })
                     }) {
                         Ok(Ok(record)) => record,
                         Ok(Err(error)) => return Err(error.into()),
-                        Err(error) => {
-                            ckb_logger::error!(
-                                "administrative removal journal unavailable: {error:?}"
-                            );
-                            return Ok(None);
-                        }
+                        Err(error) => return Err(AdministrativeRemovalError::Effect(error)),
                     };
                     (record, Vec::new())
                 };
@@ -473,16 +523,28 @@ impl TxPoolService {
         let mutation = match mutation {
             Ok(mutation) => mutation,
             Err(AdministrativeRemovalError::Accepted(error)) => {
-                self.pipeline.kernel.report_fault(
+                self.fail_tx_pool_generation(
                     "administrative accepted-pool removal planning failed",
-                    &error,
+                    &crate::process::TxPoolGenerationFault::AcceptedPool(error),
                 );
                 return RemoveTxOutcome::InProgress;
             }
             Err(AdministrativeRemovalError::PrePool(error)) => {
-                self.pipeline.kernel.report_fault(
+                self.fail_tx_pool_generation(
                     "administrative pre-pool reconciliation planning failed",
-                    &error,
+                    &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                );
+                return RemoveTxOutcome::InProgress;
+            }
+            Err(AdministrativeRemovalError::Effect(
+                EffectJournalError::Full | EffectJournalError::Closed,
+            )) => {
+                return RemoveTxOutcome::InProgress;
+            }
+            Err(AdministrativeRemovalError::Effect(error)) => {
+                self.fail_tx_pool_generation(
+                    "administrative removal effect journal invariant failed",
+                    &crate::process::TxPoolGenerationFault::Effect(error),
                 );
                 return RemoveTxOutcome::InProgress;
             }
@@ -513,10 +575,10 @@ impl TxPoolService {
         drop(tx_pool);
         match transition {
             Ok(retired) => drop(retired),
-            Err(error) => self
-                .pipeline
-                .kernel
-                .report_fault("clear-pipeline generation reset journal failed", &error),
+            Err(error) => self.fail_tx_pool_generation(
+                "clear-pipeline generation reset journal failed",
+                &crate::process::TxPoolGenerationFault::Effect(error),
+            ),
         }
     }
 

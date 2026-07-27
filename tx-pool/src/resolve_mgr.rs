@@ -1,7 +1,7 @@
 //! Ordered resolution worker backed exclusively by the pre-pool kernel.
 
 use crate::component::pre_pool::{
-    DependencyKey, ResolveLane, ResolveLease, VerifySchedule, WorkLane,
+    DependencyKey, PrePoolError, PrePoolFault, ResolveLane, ResolveLease, VerifySchedule, WorkLane,
 };
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
@@ -69,8 +69,11 @@ impl TxPoolService {
             &lease.hash,
             reject,
             "current raw lease could not terminalize",
-            |coordinator, retain_conflict| {
-                if retain_conflict {
+            |coordinator, disposition| {
+                if matches!(
+                    disposition,
+                    crate::component::pre_pool::ConflictDisposition::Retain
+                ) {
                     coordinator.park_conflict_or_terminalize(
                         &lease.hash,
                         lease.version,
@@ -138,18 +141,21 @@ impl TxPoolService {
                     )
                 }) {
                     Ok(_version) => {}
-                    Err(error) if error.is_stale_lease() => {}
-                    Err(error) => {
-                        if !error.is_transaction_rejection() {
-                            self.pipeline
-                                .kernel
-                                .report_fault("raw completion invariant failed", &error);
-                            return;
-                        }
+                    Err(PrePoolError::Stale(_)) => {}
+                    Err(PrePoolError::Public(error)) => {
                         let reject = crate::component::pre_pool::pre_pool_reject(error);
-                        let public_reject = (!matches!(reject, Reject::Full(_))).then_some(reject);
-                        self.settle_pipeline_raw_lease(&lease, public_reject).await;
+                        self.settle_pipeline_raw_lease(&lease, Some(reject)).await;
                     }
+                    Err(PrePoolError::Duplicate(hash)) => self.fail_tx_pool_generation(
+                        "raw completion produced a duplicate entry",
+                        &crate::process::TxPoolGenerationFault::PrePool(
+                            PrePoolFault::UnexpectedTransitionDuplicate(hash),
+                        ),
+                    ),
+                    Err(PrePoolError::Fault(fault)) => self.fail_tx_pool_generation(
+                        "raw completion invariant failed",
+                        &crate::process::TxPoolGenerationFault::PrePool(fault),
+                    ),
                 }
             }
             ResolveStageResult::Orphan(parents) => {
@@ -208,10 +214,10 @@ impl JobHandler for ResolveHandler {
         {
             Ok(lease) => lease,
             Err(error) => {
-                self.service
-                    .pipeline
-                    .kernel
-                    .report_fault("ordered resolve checkout invariant failed", &error);
+                self.service.fail_tx_pool_generation(
+                    "ordered resolve checkout invariant failed",
+                    &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                );
                 None
             }
         }

@@ -24,13 +24,17 @@ impl TxPoolService {
                 entry,
                 TxSource::Local,
                 None,
+                self.current_pipeline_epoch()
+                    .expect("test admission has a live pipeline epoch"),
             ) {
                 Err(AdmissionPlanningError::Policy(reject)) => TestAdmissionOutcome {
                     result: Err(reject),
                     assembler_statuses: HashSet::new(),
                 },
                 Err(AdmissionPlanningError::Kernel(error)) => TestAdmissionOutcome {
-                    result: Err(crate::component::pre_pool::pre_pool_reject(error)),
+                    result: Err(Reject::Internal(format!(
+                        "pre-pool planning fault in test seam: {error:?}"
+                    ))),
                     assembler_statuses: HashSet::new(),
                 },
                 Err(AdmissionPlanningError::Pool(error)) => TestAdmissionOutcome {
