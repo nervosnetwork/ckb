@@ -637,14 +637,14 @@ impl PrePoolKernel {
 
         for change in &changes {
             if let Some(old) = &change.old {
-                self.detach_index_delta(&change.hash, old, change.next.as_ref(), None);
+                self.detach_indexes(&change.hash, old);
                 self.entries.remove(&change.hash);
             }
         }
-        for EntryChange { hash, old, next } in changes {
-            if let Some(next) = next {
-                self.attach_index_delta(&hash, old.as_ref(), &next);
-                self.entries.insert(hash, next);
+        for change in changes {
+            if let Some(next) = change.next {
+                self.attach_indexes(&change.hash, &next);
+                self.entries.insert(change.hash, next);
             }
         }
         for (lane, len) in queue_lengths.into_entries() {
@@ -688,20 +688,12 @@ impl PrePoolKernel {
         entry.expires_at.map(|expires_at| DeadlineKey {
             expires_at,
             hash: hash.clone(),
+            revision: entry.revision,
         })
     }
 
-    pub(super) fn attach_indexes(&mut self, hash: &Byte32, entry: &StoredEntry) {
-        self.attach_index_delta(hash, None, entry);
-    }
-
-    fn attach_index_delta(
-        &mut self,
-        hash: &Byte32,
-        old: Option<&StoredEntry>,
-        entry: &StoredEntry,
-    ) {
-        self.attach_common_index_delta(hash, old, entry);
+    pub(super) fn attach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.attach_common_indexes(hash, entry);
         if let Some((lane, key)) = entry.queued_work(hash, self.limits.verify_fee_rate_ordering) {
             self.queues.get_mut(lane).apply_insert(key);
             self.refresh_owner_runnable(entry.source.into());
@@ -730,59 +722,36 @@ impl PrePoolKernel {
         }
     }
 
-    fn attach_common_index_delta(
-        &mut self,
-        hash: &Byte32,
-        old: Option<&StoredEntry>,
-        next: &StoredEntry,
-    ) {
-        // State-specific indexes always follow the lifecycle transition. The
-        // identity, ingress, dependency and expiry projections below instead
-        // publish only their exact old/new difference. They remain derived
-        // from the same StoredEntry primary and never become another owner.
-        if old.is_none_or(|old| old.short_id() != next.short_id()) {
-            self.by_short_id.insert(next.short_id(), hash.clone());
-        }
-        let old_peer = old.and_then(|entry| entry.raw.ingress_peer());
-        let next_peer = next.raw.ingress_peer();
-        if old_peer != next_peer
-            && let Some(peer) = next_peer
-        {
+    fn attach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.by_short_id.insert(entry.short_id(), hash.clone());
+        if let Some(peer) = entry.raw.ingress_peer() {
             self.by_ingress_peer
                 .entry(peer)
                 .or_default()
                 .insert(hash.clone());
         }
-        for parent in next.parent_hashes() {
-            if old.is_some_and(|entry| entry.has_parent(&parent)) {
-                continue;
-            }
+        for parent in entry.parent_hashes() {
             self.by_parent
                 .entry(parent)
                 .or_default()
                 .insert(hash.clone());
         }
-        let old_deadline = old.and_then(|entry| Self::deadline_key(hash, entry));
-        let next_deadline = Self::deadline_key(hash, next);
-        if old_deadline != next_deadline
-            && let Some(deadline) = next_deadline
-        {
+        if let Some(deadline) = Self::deadline_key(hash, entry) {
             self.deadlines.insert(deadline);
         }
     }
 
-    pub(super) fn detach_indexes(&mut self, hash: &Byte32, entry: &StoredEntry) {
-        self.detach_index_delta(hash, entry, None, None);
+    pub(super) fn detach_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        self.detach_indexes_with_checkout(hash, entry, None);
     }
 
-    fn detach_index_delta(
+    fn detach_indexes_with_checkout(
         &mut self,
         hash: &Byte32,
-        entry: &StoredEntry,
-        next: Option<&StoredEntry>,
+        entry: &Entry,
         checkout: Option<(WorkLane, WorkKey, u128)>,
     ) {
-        self.detach_common_index_delta(hash, entry, next);
+        self.detach_common_indexes(hash, entry);
         if let Some((lane, key)) = entry.queued_work(hash, self.limits.verify_fee_rate_ordering) {
             match checkout {
                 Some((checkout_lane, checkout_key, next_turn))
@@ -826,22 +795,11 @@ impl PrePoolKernel {
         }
     }
 
-    fn detach_common_index_delta(
-        &mut self,
-        hash: &Byte32,
-        old: &StoredEntry,
-        next: Option<&StoredEntry>,
-    ) {
-        if next.is_none_or(|next| old.short_id() != next.short_id())
-            && self.by_short_id.get(&old.short_id()) == Some(hash)
-        {
-            self.by_short_id.remove(&old.short_id());
+    fn detach_common_indexes(&mut self, hash: &Byte32, entry: &Entry) {
+        if self.by_short_id.get(&entry.short_id()) == Some(hash) {
+            self.by_short_id.remove(&entry.short_id());
         }
-        let old_peer = old.raw.ingress_peer();
-        let next_peer = next.and_then(|entry| entry.raw.ingress_peer());
-        if old_peer != next_peer
-            && let Some(peer) = old_peer
-        {
+        if let Some(peer) = entry.raw.ingress_peer() {
             let empty = self.by_ingress_peer.get_mut(&peer).is_none_or(|hashes| {
                 hashes.remove(hash);
                 hashes.is_empty()
@@ -850,10 +808,7 @@ impl PrePoolKernel {
                 self.by_ingress_peer.remove(&peer);
             }
         }
-        for parent in old.parent_hashes() {
-            if next.is_some_and(|entry| entry.has_parent(&parent)) {
-                continue;
-            }
+        for parent in entry.parent_hashes() {
             let empty = self.by_parent.get_mut(&parent).is_none_or(|children| {
                 children.remove(hash);
                 children.is_empty()
@@ -862,11 +817,7 @@ impl PrePoolKernel {
                 self.by_parent.remove(&parent);
             }
         }
-        let old_deadline = Self::deadline_key(hash, old);
-        let next_deadline = next.and_then(|entry| Self::deadline_key(hash, entry));
-        if old_deadline != next_deadline
-            && let Some(deadline) = old_deadline
-        {
+        if let Some(deadline) = Self::deadline_key(hash, entry) {
             self.deadlines.remove(&deadline);
         }
     }
@@ -943,9 +894,9 @@ impl PrePoolKernel {
                 "prepared replacement lost its primary",
             ))?;
         let old_source = old.source;
-        self.detach_index_delta(hash, &old, Some(&next), plan.checkout);
+        self.detach_indexes_with_checkout(hash, &old, plan.checkout);
         self.apply_usage_plan(plan.usage);
-        self.attach_index_delta(hash, Some(&old), &next);
+        self.attach_indexes(hash, &next);
         let next_source = next.source;
         self.entries.insert(hash.clone(), next);
         for (lane, len) in plan.queue_lengths.into_entries() {
@@ -1591,7 +1542,7 @@ impl PrePoolKernel {
             .filter(|deadline| {
                 self.entries
                     .get(&deadline.hash)
-                    .is_some_and(|entry| entry.expires_at == Some(deadline.expires_at))
+                    .is_some_and(|entry| entry.revision == deadline.revision)
             })
             .take(limit)
             .map(|deadline| deadline.hash.clone())
