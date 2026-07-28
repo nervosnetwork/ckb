@@ -1384,7 +1384,28 @@ impl SyncState {
     }
 
     pub fn take_relay_tx_verify_results(&self, limit: usize) -> Vec<TxVerificationResult> {
-        self.tx_relay_receiver.try_iter().take(limit).collect()
+        let results = self.tx_relay_receiver.try_iter().take(limit).collect();
+        self.update_relay_tx_verify_result_queue_size();
+        results
+    }
+
+    pub(crate) fn trim_relay_tx_verify_results(&self, limit: usize) -> usize {
+        if self.tx_relay_receiver.len() <= limit {
+            return 0;
+        }
+        let excess = self.tx_relay_receiver.len().saturating_sub(limit);
+        let dropped = self.tx_relay_receiver.try_iter().take(excess).count();
+        self.update_relay_tx_verify_result_queue_size();
+        dropped
+    }
+
+    fn update_relay_tx_verify_result_queue_size(&self) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            let queue_size = i64::try_from(self.tx_relay_receiver.len()).unwrap_or(i64::MAX);
+            metrics
+                .ckb_relay_tx_verify_result_queue_size
+                .set(queue_size);
+        }
     }
 
     pub fn shared_best_header(&self) -> HeaderIndexView {

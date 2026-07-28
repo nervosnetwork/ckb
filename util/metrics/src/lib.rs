@@ -94,6 +94,8 @@ pub struct Metrics {
     pub ckb_freezer_number: IntGauge,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
+    /// Gauge for pending transaction verification results waiting for relay
+    pub ckb_relay_tx_verify_result_queue_size: IntGauge,
     /// Histogram for relay compact block verify duration
     pub ckb_relay_cb_verify_duration: Histogram,
     /// Histogram for block process duration
@@ -223,6 +225,11 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
     ckb_relay_transaction_short_id_collide: register_int_counter!(
         "ckb_relay_transaction_short_id_collide",
         "The CKB relay transaction short id collide"
+    )
+            .unwrap(),
+    ckb_relay_tx_verify_result_queue_size: register_int_gauge!(
+        "ckb_relay_tx_verify_result_queue_size",
+        "Pending transaction verification results waiting for relay"
     )
             .unwrap(),
     ckb_relay_cb_verify_duration: register_histogram!(
