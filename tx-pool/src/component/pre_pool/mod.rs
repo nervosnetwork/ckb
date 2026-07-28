@@ -206,17 +206,26 @@ pub(crate) enum WorkCapability {
     SmallCycleOnly,
 }
 
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum VerifyCycleClass {
+    /// Eligible for both the general and small-cycle worker capabilities.
+    #[default]
+    Small,
+    /// Eligible only for a general verify worker.
+    Large,
+}
+
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub(crate) struct VerifySchedule {
     pub(crate) fee_rate_per_kb: u64,
-    pub(crate) is_large_cycle: bool,
+    pub(crate) cycle_class: VerifyCycleClass,
 }
 
 impl VerifySchedule {
-    pub(crate) const fn new(fee_rate_per_kb: u64, is_large_cycle: bool) -> Self {
+    pub(crate) const fn new(fee_rate_per_kb: u64, cycle_class: VerifyCycleClass) -> Self {
         Self {
             fee_rate_per_kb,
-            is_large_cycle,
+            cycle_class,
         }
     }
 }

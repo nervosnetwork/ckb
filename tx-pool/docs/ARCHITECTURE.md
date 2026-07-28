@@ -323,8 +323,13 @@ replacement proof and performance evidence; it is not a mechanical cleanup.
 
 Resolve and verify queues contain `WorkKey` identities only. Each source owner
 has a queue with a fair turn; runnable heads are derived from global and
-per-owner active limits. A large-cycle verify item cannot hide eligible
-small-cycle work from a constrained worker.
+per-owner active limits. Verify work carries a typed `VerifyCycleClass` and is
+stored in exactly one of the owner's disjoint small/large ordered sets. The
+general head is the maximum of the two partition heads under the unchanged
+total `WorkKey` order; a constrained worker reads only the small head. Thus a
+large-cycle population cannot hide eligible small work or turn capability
+filtering into an owner-population scan, and no key is duplicated to obtain
+that bound.
 
 After a successful Resolve or Verify completion, the worker may check out the
 next lease from the same lane inside that completion's kernel mutation. This is
@@ -401,6 +406,11 @@ visible. Parent terminalization and dependent invalidation share one cohort
 Apply, so trusted Proposal/Recovery children re-evaluate terminal policy rather
 than parking forever, while Remote children retain their request/expiry policy.
 Parent loss demotes resolved/verified consumers using the same exact keys.
+The immutable cohort Plan projects waiter-count deltas once over changed
+primaries, inspecting the smaller of its requested and observed key frontiers;
+it never multiplies every changed key by every cohort member or persists a
+second dependency index. The resulting level plan is still applied only after
+the primary cohort's total Apply.
 Final accepted-pool validation remains authoritative even if background
 demotion has not run yet.
 

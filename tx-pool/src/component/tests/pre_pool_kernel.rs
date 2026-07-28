@@ -212,7 +212,12 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
     );
     let charge = resolved.resident_size;
     kernel
-        .complete_raw(&raw, resolved, charge, VerifySchedule::new(2_000, false))
+        .complete_raw(
+            &raw,
+            resolved,
+            charge,
+            VerifySchedule::new(2_000, VerifyCycleClass::Small),
+        )
         .unwrap();
     kernel.audit().unwrap();
     let verify = kernel
@@ -392,7 +397,14 @@ fn verify_continuation_uses_the_checked_out_worker_capability() {
                 &raw,
                 resolved,
                 charge,
-                VerifySchedule::new(0, *is_large_cycle),
+                VerifySchedule::new(
+                    0,
+                    if *is_large_cycle {
+                        VerifyCycleClass::Large
+                    } else {
+                        VerifyCycleClass::Small
+                    },
+                ),
             )
             .unwrap();
     }

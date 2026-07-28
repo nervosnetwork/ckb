@@ -172,11 +172,18 @@ impl PrePoolKernel {
         parents: &HashSet<Byte32>,
     ) -> BTreeSet<DependencyKey> {
         let mut keys = BTreeSet::new();
+        let mut seen_children = (parents.len() > 1).then(HashSet::new);
         for parent in parents {
             let Some(children) = self.by_parent.get(parent) else {
                 continue;
             };
             for child in children {
+                if seen_children
+                    .as_mut()
+                    .is_some_and(|seen| !seen.insert(child))
+                {
+                    continue;
+                }
                 let Some(entry) = self.entries.get(child) else {
                     continue;
                 };
@@ -202,9 +209,17 @@ impl PrePoolKernel {
     ) -> Result<DependencyChangePlan, PrePoolError> {
         let mut unique = BTreeSet::new();
         unique.extend(keys.into_iter().map(DependencyKey::into_compact));
-        let mut planned = Vec::with_capacity(unique.len());
-        for key in unique {
-            if !self.dirty.contains_key(&key) && self.projected_waiter_count(&key, cohort)? == 0 {
+        let mut projected_waiters = unique
+            .into_iter()
+            .map(|key| {
+                let count = self.waiters.get(&key).map_or(0, BTreeSet::len);
+                (key, count)
+            })
+            .collect::<BTreeMap<_, _>>();
+        cohort.apply_waiter_count_delta(&mut projected_waiters)?;
+        let mut planned = Vec::with_capacity(projected_waiters.len());
+        for (key, waiter_count) in projected_waiters {
+            if !self.dirty.contains_key(&key) && waiter_count == 0 {
                 continue;
             }
             let epoch = self

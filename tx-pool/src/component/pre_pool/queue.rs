@@ -1,5 +1,6 @@
 use super::{
-    Arrival, EntryRevision, PrePoolError, PrePoolSource, VerifySchedule, WorkCapability, WorkLane,
+    Arrival, EntryRevision, PrePoolError, PrePoolSource, VerifyCycleClass, VerifySchedule,
+    WorkCapability, WorkLane,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
@@ -53,7 +54,7 @@ impl Ord for WorkKey {
             .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
             .then_with(|| self.revision.cmp(&other.revision))
             .then_with(|| self.source.cmp(&other.source))
-            .then_with(|| self.schedule.is_large_cycle.cmp(&other.schedule.is_large_cycle))
+            .then_with(|| self.schedule.cycle_class.cmp(&other.schedule.cycle_class))
             .then_with(|| self.schedule.fee_rate_per_kb.cmp(&other.schedule.fee_rate_per_kb))
     }
 }
@@ -90,9 +91,54 @@ impl PartialOrd for RunnableHead {
 
 #[derive(Debug, Default)]
 struct OwnerQueue {
-    work: BTreeSet<WorkKey>,
+    small_work: BTreeSet<WorkKey>,
+    large_work: BTreeSet<WorkKey>,
     turn: u128,
     runnable: bool,
+}
+
+impl OwnerQueue {
+    fn work(&self, class: VerifyCycleClass) -> &BTreeSet<WorkKey> {
+        match class {
+            VerifyCycleClass::Small => &self.small_work,
+            VerifyCycleClass::Large => &self.large_work,
+        }
+    }
+
+    fn work_mut(&mut self, class: VerifyCycleClass) -> &mut BTreeSet<WorkKey> {
+        match class {
+            VerifyCycleClass::Small => &mut self.small_work,
+            VerifyCycleClass::Large => &mut self.large_work,
+        }
+    }
+
+    fn head(&self, capability: WorkCapability) -> Option<&WorkKey> {
+        match capability {
+            WorkCapability::SmallCycleOnly => self.small_work.last(),
+            WorkCapability::Any => match (self.small_work.last(), self.large_work.last()) {
+                (Some(small), Some(large)) => Some(std::cmp::max(small, large)),
+                (Some(small), None) => Some(small),
+                (None, Some(large)) => Some(large),
+                (None, None) => None,
+            },
+        }
+    }
+
+    fn contains(&self, key: &WorkKey) -> bool {
+        self.work(key.schedule.cycle_class).contains(key)
+    }
+
+    fn insert(&mut self, key: WorkKey) -> bool {
+        self.work_mut(key.schedule.cycle_class).insert(key)
+    }
+
+    fn remove(&mut self, key: &WorkKey) -> bool {
+        self.work_mut(key.schedule.cycle_class).remove(key)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.small_work.is_empty() && self.large_work.is_empty()
+    }
 }
 
 /// Exact payload-free scheduler. Each owner contributes at most one head and
@@ -133,14 +179,7 @@ impl FairQueue {
         if !queue.runnable {
             return None;
         }
-        let work = match capability {
-            WorkCapability::Any => queue.work.last(),
-            WorkCapability::SmallCycleOnly => queue
-                .work
-                .iter()
-                .rev()
-                .find(|key| !key.schedule.is_large_cycle),
-        }?;
+        let work = queue.head(capability)?;
         Some(RunnableHead {
             turn: std::cmp::Reverse(queue.turn),
             work: work.clone(),
@@ -177,7 +216,7 @@ impl FairQueue {
     pub(super) fn contains(&self, key: &WorkKey) -> bool {
         self.owners
             .get(&WorkOwner::from(key.source))
-            .is_some_and(|queue| queue.work.contains(key))
+            .is_some_and(|queue| queue.contains(key))
     }
 
     pub(super) fn apply_insert(&mut self, key: WorkKey) {
@@ -189,7 +228,6 @@ impl FairQueue {
                 runnable: true,
                 ..OwnerQueue::default()
             })
-            .work
             .insert(key);
         self.insert_head(owner);
     }
@@ -202,11 +240,11 @@ impl FairQueue {
         let owner = WorkOwner::from(key.source);
         self.remove_head(owner);
         let empty = self.owners.get_mut(&owner).is_none_or(|queue| {
-            queue.work.remove(key);
+            queue.remove(key);
             if let Some(turn) = turn {
                 queue.turn = turn;
             }
-            queue.work.is_empty()
+            queue.is_empty()
         });
         if let Some(turn) = turn {
             self.next_turn = turn;

@@ -2,7 +2,7 @@
 
 use super::runner::{ContinuationMode, JobHandler, WorkerRunner};
 use crate::component::pre_pool::{
-    DependencyKey, PrePoolError, ResolveLane, ResolveLease, VerifySchedule,
+    DependencyKey, PrePoolError, ResolveLane, ResolveLease, VerifyCycleClass, VerifySchedule,
 };
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
@@ -136,12 +136,15 @@ impl TxPoolService {
                     .collect::<std::collections::BTreeSet<_>>();
                 let charge_bytes = resolved.resident_size;
                 let fee_rate = FeeRate::calculate(resolved.fee, resolved.tx_size as u64);
-                let schedule = VerifySchedule::new(
-                    fee_rate.as_u64(),
-                    source.cycles().is_some_and(|cycles| {
-                        cycles > self.pool.tx_pool_config.max_tx_verify_cycles
-                    }),
-                );
+                let cycle_class = if source
+                    .cycles()
+                    .is_some_and(|cycles| cycles > self.pool.tx_pool_config.max_tx_verify_cycles)
+                {
+                    VerifyCycleClass::Large
+                } else {
+                    VerifyCycleClass::Small
+                };
+                let schedule = VerifySchedule::new(fee_rate.as_u64(), cycle_class);
                 match self
                     .pipeline
                     .kernel

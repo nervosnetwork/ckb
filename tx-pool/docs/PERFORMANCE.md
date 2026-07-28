@@ -309,6 +309,7 @@ not expose `xctrace`, so no Instruments result is claimed.
 | A2 | Borrow Ready commit authority through Plan/Apply instead of cloning it. | The exclusive kernel borrow proves the Ready owner remains current until handoff or rejection. | Remove payload cloning and redundant authority reads at commit. | Committed in `30b77357c`. |
 | A4 | On successful Resolve or Verify completion, check out one next same-lane lease inside the same kernel mutation. | The fair queue still selects work; `VerifyLease` seals the original worker capability and continuation cannot cross stages. `AppliedContinuation` distinguishes completed Apply from post-Apply checkout failure. Pause, cancellation or command loss completes at most the already-owned lease in final mode. | Remove one kernel mutex acquisition and one wake/scheduler round trip per independent same-lane transaction. | Implemented; 271 unit tests, strict static gates and direct RelayV3 integration evidence pass; final performance acceptance remains. |
 | A5 | Feature-gated low-cardinality stage/kernel profiling points, fallible Tokio-console setup and a reproducible windowed Samply capture/analyzer. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. Strict manifests and boundary-aware CPU accounting prevent attribution drift. | Preserve future attribution and wake/lock analysis without temporary source patches. | Completed at `a5dd75743`; 271 unit tests, strict static gates and the twelve-scenario candidate-selection matrix pass. |
+| A7 | Partition each owner's verify queue by the typed small/large cycle class, and reduce dependency-publication waiter deltas once from the immutable cohort Plan. | Every work key still occupies exactly one queue membership; `Any` compares the two canonical partition heads with the unchanged total order, while `SmallCycleOnly` can only name the small partition. Waiter counts remain transient Plan evidence and Apply/publication points are unchanged. | Remove a single-peer large-cycle O(N) reverse scan from every head refresh/checkout and replace the changed-key × cohort-member publication product with one bounded edge reduction. | Implemented after adversarial static analysis; 272 unit tests and strict Clippy pass. Final common-workload A/B remains a separate gate. |
 
 ## Rejected change
 
@@ -335,6 +336,20 @@ reservation owner it makes duplicate spam pay full preparation, while a
 reservation would enlarge the state machine merely to move bounded work.
 Future work must first identify a different material cost; it must not combine
 these discarded mechanisms and hope their noise becomes a gain.
+
+## Adversarial complexity audit
+
+The post-A6 audit treats attacker-shaped asymptotics separately from the 2%
+common-workload timing gate. The latter cannot expose a rare population-sized
+scan reliably.
+
+| Shape | Bound and evidence | Decision |
+|---|---|---|
+| One peer with a large-cycle verify backlog | The old small-only head walked the owner's ordered set in reverse during head removal, insertion, runnable refresh and checkout validation. Per-peer residency permits a large prefix, so repeated transitions could amplify to quadratic maintenance. | A7 stores each key in exactly one typed cycle-class partition. Small-only lookup is independent of the large partition; `large_cycle_population_is_partitioned_from_small_head` fixes the structural regression. |
+| Multi-parent dependency loss / fan-out | Parent fan-out is capped, but the old Plan queried every changed key against every cohort member and could rescan one multi-parent child once per parent. | A7 deduplicates affected children and reduces requested waiter counts once over the immutable cohort, inspecting the smaller requested/observed frontier for each changed primary. No resident cache or second publication path was added. |
+| Accepted conflict / eviction closure | RBF and reorg transfer stop at `MAX_POOL_MUTATION_CANDIDATES` (100). General accepted removal can visit ancestor/descendant relations repeatedly, but every accepted entry is limited by configured `max_ancestors_count`; total relation work is therefore linear in removed membership with that operator-selected factor. The size-reconcile loop can rescan status order only when an already accepted pool is over budget, which ordinary atomic admission cannot create. | Record as bounded cold-path debt; do not add a second weight-maintenance algorithm without a reproducible trigger and measurement. |
+| Reorg recovery slice | Accepted descendants use one multi-source traversal capped at 100 and reset the ephemeral generation beyond it. Detached transaction sorting/retention is linear in the actual reorg payload and the fresh generation is residency bounded. | Existing bounds and over-bound reset regressions are sufficient; no second recovery DAG. |
+| Large template dependency tree / conditional cycle | Descendant cache and selected dependency occurrences are each capped at 200k memberships; exact SCC shedding is capped at 64 rounds with a deterministic fallback. | Existing dense-SCC, over-budget independent-suffix and cache-budget regressions cover the attack shapes. |
 
 ## A4 preliminary signal
 

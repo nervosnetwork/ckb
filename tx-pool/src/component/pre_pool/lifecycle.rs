@@ -6,6 +6,25 @@ struct ActivePlan {
 }
 
 #[derive(Clone, Copy)]
+enum WaiterEdgeDelta {
+    Detach,
+    Attach,
+}
+
+impl WaiterEdgeDelta {
+    fn apply(self, count: usize) -> Result<usize, PrePoolError> {
+        match self {
+            Self::Detach => count
+                .checked_sub(1)
+                .ok_or(PrePoolError::ProjectionInconsistent(
+                    "waiter projection omits a cohort primary edge",
+                )),
+            Self::Attach => count.checked_add(1).ok_or(PrePoolError::CounterExhausted),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(super) enum ReplacementMode {
     Ordinary,
     Checkout(WorkCapability),
@@ -57,6 +76,50 @@ pub(super) struct CohortPlan {
 }
 
 impl CohortPlan {
+    fn apply_waiter_edges(
+        counts: &mut BTreeMap<DependencyKey, usize>,
+        observed: &ObservedDependencies,
+        delta: WaiterEdgeDelta,
+    ) -> Result<(), PrePoolError> {
+        if observed.len() <= counts.len() {
+            for key in observed.keys() {
+                if let Some(count) = counts.get_mut(key) {
+                    *count = delta.apply(*count)?;
+                }
+            }
+        } else {
+            for (key, count) in counts {
+                if observed.contains_key(key) {
+                    *count = delta.apply(*count)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply this cohort's waiter-edge delta to the requested dependency
+    /// counts in one pass over the changed primaries.
+    ///
+    /// Computing one key at a time would rescan the complete cohort for every
+    /// changed dependency. A hostile multi-parent fan-out could therefore
+    /// turn one bounded transition into the Cartesian product of dependency
+    /// keys and cohort members. Keeping the reduction on the immutable plan
+    /// preserves the same proof boundary without adding a resident index.
+    pub(super) fn apply_waiter_count_delta(
+        &self,
+        counts: &mut BTreeMap<DependencyKey, usize>,
+    ) -> Result<(), PrePoolError> {
+        for change in &self.changes {
+            if let Some(EntryState::Wait(wait)) = change.old.as_ref().map(|entry| &entry.state) {
+                Self::apply_waiter_edges(counts, &wait.observed, WaiterEdgeDelta::Detach)?;
+            }
+            if let Some(EntryState::Wait(wait)) = change.next.as_ref().map(|entry| &entry.state) {
+                Self::apply_waiter_edges(counts, &wait.observed, WaiterEdgeDelta::Attach)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Bind conflict history created by this cohort to the post-Apply
     /// dependency level. An unchanged historical waiter must observe the
     /// level change and retry, but a victim retained by the same accepted
@@ -655,33 +718,6 @@ impl PrePoolKernel {
         for owner in affected_owners {
             self.refresh_owner_runnable(owner);
         }
-    }
-
-    pub(super) fn projected_waiter_count(
-        &self,
-        key: &DependencyKey,
-        cohort: &CohortPlan,
-    ) -> Result<usize, PrePoolError> {
-        let mut count = self.waiters.get(key).map_or(0, BTreeSet::len);
-        for change in &cohort.changes {
-            if change.old.as_ref().is_some_and(|entry| {
-                matches!(&entry.state, EntryState::Wait(wait) if wait.observed.contains_key(key))
-            }) {
-                count = count
-                    .checked_sub(1)
-                    .ok_or(PrePoolError::ProjectionInconsistent(
-                        "waiter projection omits a cohort primary edge",
-                    ))?;
-            }
-            if change.next.as_ref().is_some_and(|entry| {
-                matches!(&entry.state, EntryState::Wait(wait) if wait.observed.contains_key(key))
-            }) {
-                count = count
-                    .checked_add(1)
-                    .ok_or(PrePoolError::CounterExhausted)?;
-            }
-        }
-        Ok(count)
     }
 
     pub(super) fn deadline_key(hash: &Byte32, entry: &Entry) -> Option<DeadlineKey> {

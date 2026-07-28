@@ -17,6 +17,7 @@ block_assembler::tests::uncle_update_keeps_ordered_fitting_prefix_with_checked_a
 callback::tests::callback_worker_marker_is_thread_local
 callback::tests::publish_dispatches_the_typed_event
 component::out_point_index::tests::persistent_outpoint_indexes_detach_shared_backing
+component::pre_pool::queue::tests::large_cycle_population_is_partitioned_from_small_head
 component::pre_pool::queue::tests::large_owner_head_does_not_hide_its_small_cycle_work
 component::tests::entry::test_min_fee_and_weight_evict
 component::tests::entry::test_min_timestamp_evict
