@@ -1701,10 +1701,10 @@ fn bench(c: &mut Criterion) {
         // Keep the matrix narrow, but collect enough work per scenario to
         // amortize scheduler jitter. This remains much faster than medium
         // because it has one peer/worker combination instead of four.
-        group.sample_size(20);
+        group.sample_size(30);
         group.sampling_mode(SamplingMode::Flat);
-        group.warm_up_time(Duration::from_secs(2));
-        group.measurement_time(Duration::from_secs(8));
+        group.warm_up_time(Duration::from_secs(3));
+        group.measurement_time(Duration::from_secs(10));
     } else if full {
         group.sample_size(50);
         group.warm_up_time(Duration::from_secs(5));
