@@ -35,16 +35,18 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/pool.rs"
       ],
-      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching revision-bound kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
-      "hostile_case": "Concurrent commits, stale leases, rejected RBF, capacity failure, accepted-duplicate acknowledgement racing clear/reorg, or a structural defect must not expose a pool/kernel ownership gap, strand Ready work, or publish success for an absent/unapplied owner.",
+      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching revision-bound kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. A verified lease may fold its otherwise adjacent Ready handoff into that same sealed CommitSession only when its prospective ReadyKey is stronger than every published Ready owner and its exact transient payload charge fits the existing budgets; every Plan, ban fence, rejection and effect path remains shared. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
+      "hostile_case": "Concurrent commits, a stronger Ready owner, stale leases, rejected RBF, transient verified-payload growth, journal backpressure, accepted-duplicate acknowledgement racing clear/reorg, or a structural defect must not expose a pool/kernel ownership gap, strand Ready work, bypass ordering/budgets, or publish success for an absent/unapplied owner.",
       "reviewer_questions": [
         "Is every final fee/conflict decision recomputed under the pool write guard?",
+        "Does verified-to-accepted folding reuse the sealed pipeline CommitSession, exact payload-derived charge and the ordinary Ready fallback instead of adding a second admission path?",
+        "Can a stronger published Ready owner, peer-ban fence or unavailable effect journal force the verified owner through the unchanged Ready/terminal transition before any Apply?",
         "Is same-tip resolved-cell evidence confined to tx-pool admission, chain-provenanced per cell, and excluded from removal-history and block/consensus validation?",
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence)/)'",
-      "performance_bound": "Reuse the existing pool sequencer; do not add a normal-path recovery lock, second commit queue or population-sized reconciliation."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence)/)'",
+      "performance_bound": "Reuse the existing pool sequencer and fold only the adjacent verified/Ready ceremony; do not add a normal-path recovery lock, second admission implementation, commit queue or population-sized reconciliation."
     },
     {
       "id": "TP-RBF-001",
@@ -371,6 +373,9 @@
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["T5", "T6"]},
     {"test": "local_submit_bypasses_and_settles_matching_remote_owner", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T11"]},
     {"test": "equal_priority_ready_candidates_commit_earlier_arrival_first", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
+    {"test": "verified_commit_session_commits_the_canonical_leased_owner_without_ready_publication", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T7", "T11"]},
+    {"test": "verified_commit_session_defers_to_a_stronger_ready_owner", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T5", "T6", "T11"]},
+    {"test": "verified_commit_effect_backpressure_falls_back_to_ready", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T7", "T10", "T11"]},
 
     {"test": "successful_replacement_does_not_recover_removed_descendants", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "failed_size_plan_is_mutation_free_with_original_statuses", "behavior_id": "TP-RBF-001", "invariants": ["T6"]},
@@ -379,6 +384,7 @@
     {"test": "permissive_rbf_resolution_cannot_forge_chain_provenance", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
+    {"test": "verified_commit_session_uses_the_existing_ready_conflict_cohort", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
 
     {"test": "tx_pool_same_tip_resolution_evidence_skips_chain_revalidation", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
     {"test": "tx_pool_resolution_evidence_yields_to_pool_spends_and_tip_changes", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},

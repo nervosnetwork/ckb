@@ -300,6 +300,49 @@ If `xcrun --find xctrace` fails, the result is unavailable rather than
 evidence. On the current development host the command-line developer tools do
 not expose `xctrace`, so no Instruments result is claimed.
 
+### P9 develop-gap attribution and typed verified commit
+
+The robust common public-API harness compared final-before-P9 (`0f9cf6b1b`)
+with develop (`91b97ab5f`) using six AB/BA pairs per scenario. Its six-scenario
+throughput geometric delta was `-17.58%`: always-success 1-peer `-13.74%`,
+always-success 4-peer `-27.79%`, secp 1-peer `-20.12%`, secp 4-peer `-2.40%`,
+dependent chain `-21.39%`, and depth-10 forest `-17.89%`. The dependency rows
+had about 3.4% MAD, but every individual pair remained below develop. Artifact:
+`/private/tmp/txperf-final-develop-paired.json` on the profiling host. This is
+the remaining performance problem; improvements relative only to an earlier
+pipeline checkpoint do not close it.
+
+Windowed profiling then measured cheap 4-peer final at about 8,138 tx/s and
+5.1 average CPU cores versus develop at about 10,544 tx/s and 7.0 cores.
+Approximately 17% of final samples were under the kernel mutex path and the
+feature-gated operation trace recorded about 9,239 authoritative mutations per
+1,000 targets. The secp 4-worker gap was only 2.4%. Together these facts locate
+the material cost in stage publication/checkout/wake and accepted handoff
+ceremony, not VM execution. Raising active caps, `try_write`, a generic pool
+Plan shortcut, broader commit guards, distributed commit, direct
+Resolve-to-Verify handoff and wrapping VM work in `block_in_place` were each
+neutral, shape-dependent or regressive and were rejected.
+
+Checkpoint `8686f92fe` retains the one evidence-backed fold. A sealed generic
+`CommitSession` lets the canonical verified lease use the existing final
+Plan/Apply directly; a stronger Ready owner or unavailable journal returns it
+to the unchanged Ready transition. It adds no state, queue, lock, task or
+effect path. The initial fixed-binary 6-pair experiment versus pre-P9 measured
+cheap 1-peer `+8.51%` (MAD 0.95%), cheap 4-peer `+9.38%` (MAD 1.98%), depth-10
+forest `+6.54%` (MAD 1.30%), and secp 1-peer `+0.06%` (MAD 1.18%). Exact
+transient capacity charging was then restored after its regression test caught
+the unsafe prototype; charged versus uncharged deltas all remained within the
+corresponding noise spread. Artifacts:
+`/private/tmp/txperf-typed-commit-vs-final.json` and
+`/private/tmp/txperf-typed-charge-proof.json`.
+
+Those prototype records admit the design; they are not the release verdict.
+The post-checkpoint fixed binaries must still run the pilot/interleaved
+quick/medium protocol, and a new window profile must verify that the removed
+Ready ceremony—not a fixture shortcut—explains the retained gain. A separate
+helper-inlining experiment had a `+2.72%` median but 4.15% MAD and large host
+outliers, so it is explicitly ineligible as evidence.
+
 ## Retained changes
 
 | ID | Design | Safety argument | Performance intent | Status |
@@ -310,6 +353,7 @@ not expose `xctrace`, so no Instruments result is claimed.
 | A4 | On successful Resolve or Verify completion, check out one next same-lane lease inside the same kernel mutation. | The fair queue still selects work; `VerifyLease` seals the original worker capability and continuation cannot cross stages. `AppliedContinuation` distinguishes completed Apply from post-Apply checkout failure. Pause, cancellation or command loss completes at most the already-owned lease in final mode. | Remove one kernel mutex acquisition and one wake/scheduler round trip per independent same-lane transaction. | Implemented; 271 unit tests, strict static gates and direct RelayV3 integration evidence pass; final performance acceptance remains. |
 | A5 | Feature-gated low-cardinality stage/kernel profiling points, fallible Tokio-console setup and a reproducible windowed Samply capture/analyzer. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. Strict manifests and boundary-aware CPU accounting prevent attribution drift. | Preserve future attribution and wake/lock analysis without temporary source patches. | Completed at `a5dd75743`; 271 unit tests, strict static gates and the twelve-scenario candidate-selection matrix pass. |
 | A7 | Partition each owner's verify queue by the typed small/large cycle class, and reduce dependency-publication waiter deltas once from the immutable cohort Plan. | Every work key still occupies exactly one queue membership; `Any` compares the two canonical partition heads with the unchanged total order, while `SmallCycleOnly` can only name the small partition. Waiter counts remain transient Plan evidence and Apply/publication points are unchanged. | Remove a single-peer large-cycle O(N) reverse scan from every head refresh/checkout and replace the changed-key × cohort-member publication product with one bounded edge reduction. | Implemented after adversarial static analysis; 272 unit tests and strict Clippy pass. Final common-workload A/B remains a separate gate. |
+| A8 | Fold a canonical verified lease into the existing sealed pipeline CommitSession; publish Ready on stronger-order or journal fallback. | Both origins share final liveness, RBF/capacity Plan, ban fence, exact payload-derived pre-pool charge, total Apply and committed effect journal. The sealed origin type prevents a third caller; six resident states remain unchanged. | Remove one Ready publication, commit-driver wake and authority round trip from the common independent path without adding a second admission policy. | Checkpoint `8686f92fe`; 275 unit tests and strict Clippy pass. Prototype A/B is positive for cheap/forest and neutral for secp; formal post-checkpoint quick/medium remains required. |
 
 ## Rejected change
 

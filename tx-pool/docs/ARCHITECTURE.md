@@ -191,7 +191,8 @@ stateDiagram-v2
     RL --> Wait: exact dependency unavailable
     Wait --> RQ: observed availability level changes
     VQ --> VL: checkout exact head + version
-    VL --> Ready: verified + fee gate
+    VL --> Accepted: canonical verified CommitSession + AdmissionPlan
+    VL --> Ready: stronger Ready owner or journal unavailable
     VL --> RQ: snapshot stale
     VL --> Wait: parent unavailable
     Ready --> Accepted: AdmissionPlan + total Apply
@@ -245,9 +246,9 @@ Derived projections own no transaction payload:
 - Proposal is trusted and may promote the same-witness Remote entry or replace
   its payload with a trusted witness variant.
 - Verification workers never publish a separately sampled source. The
-  `VerifyLeased -> Ready` transition derives the payload source from the same
-  stored entry and version it replaces, so promotion and Ready publication
-  have one linearization point.
+  `VerifyLeased -> Ready/Accepted` transition derives the payload source from
+  the same stored entry and version it replaces, so promotion, optional direct
+  handoff and Ready fallback have one linearization point.
 - Recovery is trusted detached-chain input and enters the ordinary resolve
   lifecycle parent-first.
 - Local never enters the pre-pool. It validates synchronously, commits under
@@ -283,7 +284,8 @@ The public transition family is closed:
 | ResolveLeased | exact dependency unavailable | Wait(Missing/Conflict) |
 | Wait | all observed keys available | ResolveQueued |
 | VerifyQueued | checkout exact queue head | VerifyLeased(new revision) |
-| VerifyLeased | verified and fee-gated | Ready(new revision) |
+| VerifyLeased | verified, fee-gated and stronger than every published Ready owner | Accepted through the ordinary AdmissionPlan |
+| VerifyLeased | stronger Ready owner or unavailable effect journal | Ready(new revision) |
 | VerifyLeased | snapshot/parent stale | ResolveQueued or Wait |
 | Ready | selected commit handoff | accepted or bounded Conflict wait/history |
 | any retained location | reject/remove/expiry/peer removal/clear | Nowhere |
@@ -376,13 +378,26 @@ and tail latency. Dynamic aging
 would require periodic reindexing of every Ready key and is not justified
 without evidence that this explicit trade-off is unacceptable.
 
-`ReadyCommitSession<'_>` is a non-copyable capability that exclusively borrows
-the kernel from selection through accepted or rejected Plan/Apply. Its private
-candidate records the selected entry's hash, revision, rank, payload and
-immutable ingress peer. While the session exists, Rust prevents expiry,
-verification publication or another commit selection from mutating the same
-authority; while a returned Plan exists, it reborrows the session until Apply
-or drop. Stale commit tickets are therefore not a runtime outcome.
+`CommitSession<'_, Origin>` is a non-copyable capability whose `Origin` is one
+of two private sealed types: a published Ready owner or the exact active
+`VerifyLease`. Both exclusively borrow the kernel from selection through the
+same accepted or rejected Plan/Apply API. The private candidate records hash,
+revision, rank, payload, inputs, location proof and immutable ingress peer.
+Rust therefore prevents expiry, verification publication or another commit
+selection from mutating that authority; while a returned Plan exists, it
+reborrows the session until Apply or drop. Stale commit tickets and a third
+caller-defined origin are unrepresentable.
+
+The verified origin is an opportunistic fold, not a second fast-path policy.
+It opens only when its prospective `ReadyKey` is strictly stronger than the
+current published Ready head. Otherwise the existing `VerifyLeased -> Ready`
+transition runs. It derives the exact transient charge from the verified
+payload and proves the same total/remote/per-peer budget delta before planning
+accepted admission. Final liveness, RBF closure, capacity, source promotion,
+peer-ban fence, conflict retention, template receipt and effect batch all use
+the same generic session and `AdmissionPlan`. Journal Full/Closed applies
+nothing and publishes the owner as Ready for the level-triggered driver; no
+verified worker waits on effect capacity while holding state.
 
 The session rechecks the immutable ingress peer captured from that exact Ready
 revision. An expiring, non-evicting peer-ban marker is the revocation
@@ -431,9 +446,11 @@ Admission or transition planning accounts conservatively before retention:
 
 The charge is held continuously across queued, leased, waiting and Ready
 locations. A worker borrows an `Arc`; it does not become a new owner or refund
-residency. Optional conflict history degrades to a terminal result when its
-partition is full. Graph operations stop at explicit product/fan-out bounds
-before mutating.
+residency. Before a verified lease can transfer directly, its payload-derived
+post-verification growth is checked with the same exact usage-delta planner;
+the Ready fallback consumes that identical charge. Optional conflict history
+degrades to a terminal result when its partition is full. Graph operations stop
+at explicit product/fan-out bounds before mutating.
 
 `NotifyTxs(Vec<TransactionView>)` is a trusted controller boundary. Each item
 still passes validation and admission accounting, but the vector itself is not
@@ -464,7 +481,7 @@ Ordinary admission, RBF and capacity eviction use one concrete
 ```mermaid
 sequenceDiagram
     autonumber
-    participant D as Commit driver (orchestrator only)
+    participant D as Verified completion or Ready commit driver
     participant P as TxPool
     participant K as PrePoolKernel
     participant J as EffectJournal
@@ -482,7 +499,8 @@ sequenceDiagram
             J-->>D: Full before Apply; release journal
             D-->>K: release kernel
             D-->>P: release TxPool
-            D->>J: wait for capacity with no state guard
+            D->>K: verified origin publishes Ready; otherwise no state change
+            D->>J: Ready driver waits for capacity with no state guard
             D->>P: replan from current generations
         else capacity accepted
             D->>P: total accepted PoolMap Apply
@@ -530,6 +548,12 @@ optional serial/work permit
 No await, callback, mutable database endpoint or retired-generation drop occurs
 while the accepted pool/kernel/journal nesting is held. Immutable chain-
 snapshot reads are currently allowed only while constructing a bounded Plan.
+Verified workers may await the outer TxPool write guard before entering this
+nesting, but retain only their existing typed lease: total waiters are bounded
+by `max_active_work`, one peer by `max_active_work_per_peer`, and Tokio's FIFO
+write queue prevents later verified arrivals from overtaking an already queued
+Local/reorg writer. No timeout, try-lock, reservation or second semaphore
+changes that ordering.
 The normal same-tip final-liveness path consumes the resolved cell's existing
 chain provenance as positive evidence after checking the mutable pool overlay,
 so it does not repeat the RocksDB point lookup; stale-tip and unproven cells
