@@ -116,7 +116,7 @@ fn stage_ready(
     source: TxSource,
     expires_at: Option<u64>,
     fee: u64,
-) -> CommitTicket {
+) {
     let lane = ResolveLane::Ingress;
     admit(kernel, tx.clone(), source, lane, expires_at).unwrap();
     let raw = kernel.checkout_resolve(lane).unwrap().unwrap();
@@ -149,17 +149,12 @@ fn stage_ready(
             charge,
         )
         .unwrap();
-    kernel.begin_next_commit().unwrap().unwrap()
 }
 
-fn commit_ready(kernel: &mut PrePoolKernel, ticket: &CommitTicket) -> CommitSettlement {
-    let plan = kernel
-        .plan_ready_commit(
-            ticket,
-            &HashSet::new(),
-            Vec::<DependencyKey>::new(),
-            Vec::new(),
-        )
+fn commit_ready(kernel: &mut PrePoolKernel) -> CommitSettlement {
+    let mut session = kernel.begin_next_commit().unwrap().unwrap();
+    let plan = session
+        .plan_ready(&HashSet::new(), Vec::<DependencyKey>::new(), Vec::new())
         .unwrap();
     let settlement = plan.settlement().clone();
     plan.apply();
@@ -223,9 +218,9 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
         )
         .unwrap();
     kernel.audit().unwrap();
-    let ticket = kernel.begin_next_commit().unwrap().unwrap();
-    let plan = kernel
-        .plan_failed_commit(&ticket, ConflictDisposition::Terminalize)
+    let mut session = kernel.begin_next_commit().unwrap().unwrap();
+    let plan = session
+        .plan_failed(ConflictDisposition::Terminalize)
         .unwrap();
     plan.apply();
     assert_eq!(kernel.len(), 0);
@@ -1016,7 +1011,7 @@ fn multi_input_conflict_union_uses_the_product_bound() {
         })
         .collect::<Vec<_>>();
     let winner = build_tx(parents.iter().map(|parent| (parent, 0)).collect(), 10);
-    let ticket = stage_ready(
+    stage_ready(
         &mut kernel,
         winner.clone(),
         TxSource::Proposal,
@@ -1024,7 +1019,7 @@ fn multi_input_conflict_union_uses_the_product_bound() {
         100_000,
     );
 
-    let settlement = commit_ready(&mut kernel, &ticket);
+    let settlement = commit_ready(&mut kernel);
 
     assert_eq!(settlement.winner.hash, winner.hash());
     assert_eq!(settlement.superseded.len(), 3);
@@ -1059,11 +1054,11 @@ fn multi_input_conflict_union_respects_the_global_commit_bound() {
         stage_ready(&mut kernel, tx, TxSource::Proposal, None, 1_000);
     }
     let winner = build_tx(parents.iter().map(|parent| (parent, 0)).collect(), 1);
-    let ticket = stage_ready(&mut kernel, winner, TxSource::Proposal, None, 10_000_000);
+    let winner_hash = winner.hash();
+    stage_ready(&mut kernel, winner, TxSource::Proposal, None, 10_000_000);
 
-    let Err(error) =
-        kernel.plan_ready_commit(&ticket, &HashSet::new(), std::iter::empty(), Vec::new())
-    else {
+    let mut session = kernel.begin_next_commit().unwrap().unwrap();
+    let Err(error) = session.plan_ready(&HashSet::new(), std::iter::empty(), Vec::new()) else {
         panic!("an over-bound conflict cohort must not produce an apply capability");
     };
     assert_eq!(
@@ -1072,8 +1067,9 @@ fn multi_input_conflict_union_respects_the_global_commit_bound() {
             PrePoolBackpressure::CommitConflictCohortLimitExceeded,
         ))
     );
+    drop(session);
     assert_eq!(
-        kernel.view(&ticket.hash).unwrap().location,
+        kernel.view(&winner_hash).unwrap().location,
         PrePoolLocation::Ready,
         "a rejected read-only Plan must not mutate the selected owner"
     );
@@ -1081,12 +1077,12 @@ fn multi_input_conflict_union_respects_the_global_commit_bound() {
 }
 
 #[test]
-fn commit_ticket_remains_valid_when_a_higher_rank_arrives() {
+fn commit_session_selects_the_current_highest_rank() {
     let mut kernel = PrePoolKernel::new(limits());
-    let selected = transaction(0xd1);
-    let ticket = stage_ready(
+    let earlier = transaction(0xd1);
+    stage_ready(
         &mut kernel,
-        selected.clone(),
+        earlier.clone(),
         TxSource::Proposal,
         None,
         1_000,
@@ -1099,16 +1095,10 @@ fn commit_ticket_remains_valid_when_a_higher_rank_arrives() {
         None,
         100_000,
     );
+    let settlement = commit_ready(&mut kernel);
+    assert_eq!(settlement.winner.hash, later.hash());
     assert_eq!(
-        kernel.begin_next_commit().unwrap().unwrap().hash,
-        later.hash(),
-        "the later candidate becomes the next scheduling head"
-    );
-
-    let settlement = commit_ready(&mut kernel, &ticket);
-    assert_eq!(settlement.winner.hash, selected.hash());
-    assert_eq!(
-        kernel.view(&later.hash()).unwrap().location,
+        kernel.view(&earlier.hash()).unwrap().location,
         PrePoolLocation::Ready
     );
     kernel.audit().unwrap();
@@ -1128,11 +1118,9 @@ fn equal_priority_ready_candidates_commit_earlier_arrival_first() {
     let later = transaction(0xd4);
     stage_ready(&mut kernel, later, TxSource::Proposal, None, 1_000);
 
-    assert_eq!(
-        kernel.begin_next_commit().unwrap().unwrap().hash,
-        earlier.hash(),
-        "the reversed comparator feeds ready.last(), so equal priority is FIFO"
-    );
+    let session = kernel.begin_next_commit().unwrap().unwrap();
+    assert_eq!(session.payload().candidate.tx.hash(), earlier.hash());
+    drop(session);
     kernel.audit().unwrap();
 }
 
@@ -1145,7 +1133,7 @@ fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
     let loser = build_tx(vec![(&parent, 0)], 1);
     stage_ready(&mut kernel, loser.clone(), TxSource::Proposal, None, 1_000);
     let winner = build_tx(vec![(&parent, 0)], 2);
-    let ticket = stage_ready(
+    stage_ready(
         &mut kernel,
         winner.clone(),
         TxSource::Proposal,
@@ -1153,7 +1141,7 @@ fn commit_handoff_terminalizes_superseded_entries_when_history_is_full() {
         100_000,
     );
 
-    let settlement = commit_ready(&mut kernel, &ticket);
+    let settlement = commit_ready(&mut kernel);
 
     assert_eq!(settlement.winner.hash, winner.hash());
     assert_eq!(settlement.superseded.len(), 1);
@@ -1192,8 +1180,8 @@ fn terminalized_superseded_parent_wakes_its_trusted_child() {
         .unwrap();
 
     let winner = build_tx(vec![(&shared_input, 0)], 3);
-    let ticket = stage_ready(&mut kernel, winner, TxSource::Proposal, None, 100_000);
-    commit_ready(&mut kernel, &ticket);
+    stage_ready(&mut kernel, winner, TxSource::Proposal, None, 100_000);
+    commit_ready(&mut kernel);
 
     assert!(!kernel.contains_hash(&loser.hash()));
     assert!(
@@ -1225,7 +1213,7 @@ fn optional_commit_history_cannot_veto_the_ready_winner() {
         .unwrap();
 
     let winner = transaction(0xe6);
-    let ticket = stage_ready(
+    stage_ready(
         &mut kernel,
         winner.clone(),
         TxSource::Proposal,
@@ -1241,15 +1229,12 @@ fn optional_commit_history_cannot_veto_the_ready_winner() {
         None,
     );
 
-    let plan = kernel
-        .plan_ready_commit(
-            &ticket,
-            &HashSet::new(),
-            Vec::<DependencyKey>::new(),
-            vec![history],
-        )
+    let mut session = kernel.begin_next_commit().unwrap().unwrap();
+    let plan = session
+        .plan_ready(&HashSet::new(), Vec::<DependencyKey>::new(), vec![history])
         .expect("duplicate optional history must fall back to the winner-only cohort");
     plan.apply();
+    drop(session);
 
     assert!(!kernel.contains_hash(&winner.hash()));
     assert!(kernel.contains_hash(&existing.hash()));

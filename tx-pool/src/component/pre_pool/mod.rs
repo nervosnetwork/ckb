@@ -670,16 +670,24 @@ pub(crate) struct VerifyLease {
     pub(crate) payload: Arc<ResolvedTx>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct CommitTicket {
-    pub(crate) hash: Byte32,
-    pub(crate) version: EntryVersion,
-    pub(crate) rank: ReadyKey,
-    pub(crate) payload: Arc<PipelineVerifiedTx>,
+struct ReadyCommitCandidate {
+    rank: ReadyKey,
+    payload: Arc<PipelineVerifiedTx>,
     /// Immutable remote origin captured with the exact Ready version. A
     /// source promotion may change scheduling priority, but a ban fence that
     /// linearized before final Plan must still revoke this owner.
-    pub(crate) ingress_peer: Option<PeerIndex>,
+    ingress_peer: Option<PeerIndex>,
+}
+
+/// Exclusive capability for planning the currently selected Ready owner.
+///
+/// The borrowed kernel is intentionally private. While this value exists,
+/// callers can inspect the immutable candidate and build exactly one of the
+/// Ready handoff plans, but cannot mutate or select from the authority through
+/// another path. A returned plan reborrows the session until Apply or drop.
+pub(crate) struct ReadyCommitSession<'authority> {
+    authority: &'authority mut PrePoolKernel,
+    candidate: ReadyCommitCandidate,
 }
 
 #[derive(Clone, Debug)]

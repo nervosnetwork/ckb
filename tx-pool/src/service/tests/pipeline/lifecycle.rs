@@ -137,8 +137,8 @@ async fn local_submit_bypasses_and_settles_matching_remote_owner() {
 /// Candidate checkout is part of the authoritative TxPool write transaction.
 /// If it happened before waiting for that guard, a synchronous Local/clear/
 /// reorg handoff could consume the Ready owner while the old driver was
-/// already carrying a commit ticket. Its later failure settlement would then
-/// confuse a legitimate stale ticket with kernel corruption.
+/// already carrying a copyable commit ticket. The commit session now opens
+/// only after the pool guard and makes that stale-ticket state unrepresentable.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipeline_commit_worker_waits_for_the_pool_sequencer() {
     use crate::component::pre_pool::PrePoolLocation;
@@ -278,7 +278,7 @@ async fn stale_precheck_cannot_readmit_an_already_accepted_transaction() {
 /// property of the shared driver. A full Remote region must therefore leave a
 /// Proposal candidate able to consume the separately provisioned trusted
 /// headroom. The old worst-case driver wait always used `Remote` before it had
-/// selected a ticket and stranded this candidate indefinitely.
+/// selected a copyable ticket and stranded this candidate indefinitely.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_ready_commit_uses_trusted_effect_headroom() {
     use crate::component::pre_pool::{ResolveLane, WorkCapability};
@@ -566,14 +566,9 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
-    let ready_source = h.service.pipeline.kernel.read(|kernel| {
-        kernel
-            .begin_next_commit()
-            .unwrap()
-            .unwrap()
-            .payload
-            .candidate
-            .source
+    let ready_source = h.service.pipeline.kernel.mutate(|kernel| {
+        let session = kernel.begin_next_commit().unwrap().unwrap();
+        session.payload().candidate.source
     });
     assert_eq!(
         ready_source,

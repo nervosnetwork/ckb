@@ -51,7 +51,7 @@ pub(crate) enum SubmissionError {
 }
 
 /// Result of one read-only Plan plus atomic Apply attempt for the current
-/// highest-ranked Ready owner. No ticket or authority lock survives this
+/// highest-ranked Ready owner. No session or authority lock survives this
 /// value: a backpressured driver waits and then replans from current state.
 enum PipelineCommitStep {
     Progress,
@@ -409,7 +409,7 @@ impl TxPoolService {
     }
 
     /// Drain a bounded ordered slice of verified pre-pool work. The one commit
-    /// worker selects each Ready ticket inside the same
+    /// worker opens each Ready commit session inside the same
     /// `TxPool -> PrePoolKernel` critical section that validates and applies
     /// it. Journal backpressure holds no state authority. Returns false only
     /// after journal shutdown or a structural fault.
@@ -449,10 +449,10 @@ impl TxPoolService {
 
     /// Select and commit one Ready candidate under the same TxPool write
     /// guard. The pool guard is the authoritative membership sequencer, so a
-    /// Local/clear/reorg handoff cannot consume the Ready owner between ticket
-    /// validation and pool insertion. The bounded Plan/Apply runs under the
-    /// same kernel borrow; no transient commit location or stale ticket
-    /// exists.
+    /// Local/clear/reorg handoff cannot consume the Ready owner between
+    /// selection and pool insertion. The non-copyable commit session keeps an
+    /// exclusive kernel borrow through bounded Plan/Apply; no transient commit
+    /// location or runtime stale-ticket branch exists.
     async fn commit_next_pipeline_entry(&self) -> PipelineCommitStep {
         let mut tx_pool = self.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
@@ -469,17 +469,17 @@ impl TxPoolService {
         }
 
         let attempt = self.pipeline.kernel.mutate_authoritative(|kernel| {
-            // Selecting and consuming the ticket under one kernel borrow is
-            // the complete proof that expiry cannot invalidate it between
-            // observation and Apply.
-            let Some(lease) = kernel
+            // The session exclusively borrows the kernel from selection until
+            // its accepted or rejected Plan is applied. No independent ticket
+            // can escape this boundary and later be validated dynamically.
+            let Some(mut session) = kernel
                 .begin_next_commit()
                 .map_err(PrePoolError::into_unexpected_fault)
                 .map_err(PipelineCommitFault::Kernel)?
             else {
                 return Ok(None);
             };
-            let verified = Arc::clone(&lease.payload);
+            let verified = Arc::clone(session.payload());
             let entry = TxEntry::new_with_resident_size(
                 Arc::clone(&verified.candidate.rtx),
                 verified.completed.cycles,
@@ -489,11 +489,10 @@ impl TxPoolService {
             );
             match self.plan_ready_admission(
                 &mut tx_pool,
-                kernel,
+                &mut session,
                 snapshot,
                 verified.candidate.pre_resolve_tip.clone(),
                 entry.clone(),
-                &lease,
                 verified.candidate.epoch,
             ) {
                 Ok(plan) => {
@@ -526,12 +525,12 @@ impl TxPoolService {
                         Some(reject) => rbf_commit::UnacceptedReadyCause::Policy(reject),
                         None => rbf_commit::UnacceptedReadyCause::IngressRevoked,
                     };
-                    let plan = match self
-                        .plan_unaccepted_admission(&tx_pool, kernel, &lease, &entry, cause)
-                    {
-                        Ok(plan) => plan,
-                        Err(error) => return Err(PipelineCommitFault::Kernel(error)),
-                    };
+                    let plan =
+                        match self.plan_unaccepted_admission(&tx_pool, &mut session, &entry, cause)
+                        {
+                            Ok(plan) => plan,
+                            Err(error) => return Err(PipelineCommitFault::Kernel(error)),
+                        };
                     let effect_bytes = plan.effect_bytes();
                     let effect_class = plan.effect_class();
                     Ok(Some(Attempt {

@@ -12,8 +12,8 @@ use crate::component::pool_map::{
     RemovalCause, Status,
 };
 use crate::component::pre_pool::{
-    CommitTicket, ConflictRetention, DependencyKey, ExternalCommitPlan, PipelineRawTx,
-    PrePoolError, PrePoolFault, PrePoolKernel, PrePoolSource, ReadyCommitPlan,
+    ConflictRetention, DependencyKey, ExternalCommitPlan, PipelineRawTx, PrePoolError,
+    PrePoolFault, PrePoolKernel, PrePoolSource, ReadyCommitPlan, ReadyCommitSession,
 };
 use crate::error::Reject;
 use crate::pool::TxPool;
@@ -433,15 +433,14 @@ impl TxPoolService {
     pub(crate) fn plan_ready_admission<'authority, 'pool>(
         &self,
         tx_pool: &'pool mut TxPool,
-        kernel: &'authority mut PrePoolKernel,
+        session: &'authority mut ReadyCommitSession<'_>,
         snapshot: Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        ticket: &CommitTicket,
         epoch: u64,
     ) -> Result<AdmissionPlan<'authority, 'pool>, ReadyAdmissionPlanningError> {
-        if ticket
-            .ingress_peer
+        if session
+            .ingress_peer()
             .is_some_and(|peer| self.relay.banned_peers.contains(peer))
         {
             return Err(ReadyAdmissionPlanningError::IngressRevoked);
@@ -451,8 +450,8 @@ impl TxPoolService {
         let unavailable = self.planned_unavailable_parent_hashes(plan, &snapshot);
         let available = self.planned_available_dependencies(pool.pool(), &snapshot, &entry, plan);
         let history = self.planned_replacement_history(plan, epoch);
-        let handoff = kernel
-            .plan_ready_commit(ticket, &unavailable, available, history)
+        let handoff = session
+            .plan_ready(&unavailable, available, history)
             .map_err(AdmissionPlanningError::from_ready_handoff)?;
         let settlement = handoff.settlement();
         // Source promotion changes the authoritative pre-pool owner without
@@ -530,8 +529,7 @@ impl TxPoolService {
     pub(crate) fn plan_unaccepted_admission<'authority>(
         &self,
         tx_pool: &TxPool,
-        kernel: &'authority mut PrePoolKernel,
-        ticket: &CommitTicket,
+        session: &'authority mut ReadyCommitSession<'_>,
         entry: &TxEntry,
         cause: UnacceptedReadyCause<'_>,
     ) -> Result<FailedAdmissionPlan<'authority>, PrePoolFault> {
@@ -553,8 +551,8 @@ impl TxPoolService {
         } else {
             crate::component::pre_pool::ConflictDisposition::Terminalize
         };
-        let terminal = kernel
-            .plan_failed_commit(ticket, disposition)
+        let terminal = session
+            .plan_failed(disposition)
             .map_err(PrePoolError::into_unexpected_fault)?;
         let record = terminal.record();
         let (effects, peer_ban) = self.pipeline_outcome_effects(record, reject);

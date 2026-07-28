@@ -83,6 +83,38 @@ impl FailedCommitPlan<'_> {
     }
 }
 
+impl ReadyCommitSession<'_> {
+    pub(crate) fn payload(&self) -> &Arc<PipelineVerifiedTx> {
+        &self.candidate.payload
+    }
+
+    pub(crate) fn ingress_peer(&self) -> Option<PeerIndex> {
+        self.candidate.ingress_peer
+    }
+
+    pub(crate) fn plan_failed(
+        &mut self,
+        disposition: ConflictDisposition,
+    ) -> Result<FailedCommitPlan<'_>, PrePoolError> {
+        self.authority
+            .plan_failed_commit(&self.candidate, disposition)
+    }
+
+    pub(crate) fn plan_ready(
+        &mut self,
+        unavailable_parents: &HashSet<Byte32>,
+        available_dependencies: impl IntoIterator<Item = DependencyKey>,
+        history: Vec<ConflictRetention>,
+    ) -> Result<ReadyCommitPlan<'_>, PrePoolError> {
+        self.authority.plan_ready_commit(
+            &self.candidate,
+            unavailable_parents,
+            available_dependencies,
+            history,
+        )
+    }
+}
+
 impl PrePoolKernel {
     fn conflict_retention_entry(
         &self,
@@ -199,7 +231,9 @@ impl PrePoolKernel {
         Ok((desired, version_cursor))
     }
 
-    pub(crate) fn begin_next_commit(&self) -> Result<Option<CommitTicket>, PrePoolError> {
+    pub(crate) fn begin_next_commit(
+        &mut self,
+    ) -> Result<Option<ReadyCommitSession<'_>>, PrePoolError> {
         let Some(rank) = self.ready.last().cloned() else {
             return Ok(None);
         };
@@ -218,30 +252,35 @@ impl PrePoolKernel {
                 "ready rank does not match its primary",
             ));
         }
-        Ok(Some(CommitTicket {
-            hash: rank.hash.clone(),
-            version: rank.version,
+        let candidate = ReadyCommitCandidate {
             rank,
             payload: Arc::clone(payload),
             ingress_peer: entry.raw.ingress_peer(),
+        };
+        Ok(Some(ReadyCommitSession {
+            authority: self,
+            candidate,
         }))
     }
 
-    fn validate_commit(&self, ticket: &CommitTicket) -> Result<&StoredEntry, PrePoolError> {
-        let entry = self.validate_location(&ticket.hash, ticket.version, PrePoolLocation::Ready)?;
+    fn validate_commit(
+        &self,
+        candidate: &ReadyCommitCandidate,
+    ) -> Result<&StoredEntry, PrePoolError> {
+        let entry = self.validate_location(
+            &candidate.rank.hash,
+            candidate.rank.version,
+            PrePoolLocation::Ready,
+        )?;
         if !matches!(entry.state, EntryState::Ready { .. }) {
             return Err(PrePoolError::ProjectionInconsistent(
                 "Ready location contains a non-Ready state",
             ));
         }
-        // The commit driver is serialized, but verification can publish a
-        // higher-ranked Ready owner while the selected ticket waits for the
-        // TxPool write boundary. That does not invalidate this exact owner:
-        // the later candidate remains Ready for the next driver iteration.
-        if entry.ready_key(&ticket.hash).as_ref() != Some(&ticket.rank) {
+        if entry.ready_key(&candidate.rank.hash).as_ref() != Some(&candidate.rank) {
             return Err(PrePoolError::stale(
-                ticket.hash.clone(),
-                ticket.version,
+                candidate.rank.hash.clone(),
+                candidate.rank.version,
                 entry.version,
             ));
         }
@@ -250,35 +289,33 @@ impl PrePoolKernel {
 
     fn plan_terminal_commit(
         &mut self,
-        ticket: &CommitTicket,
+        candidate: &ReadyCommitCandidate,
     ) -> Result<FailedCommitPlan<'_>, PrePoolError> {
-        self.validate_commit(ticket)?;
-        let record =
-            self.terminal_record(&ticket.hash)
-                .ok_or(PrePoolError::ProjectionInconsistent(
-                    "validated Ready commit lost its primary",
-                ))?;
-        let parents = HashSet::from([ticket.hash.clone()]);
+        self.validate_commit(candidate)?;
+        let record = self.terminal_record(&candidate.rank.hash).ok_or(
+            PrePoolError::ProjectionInconsistent("validated Ready commit lost its primary"),
+        )?;
+        let parents = HashSet::from([candidate.rank.hash.clone()]);
         let dependency_changes = self.dependency_keys_for_parents(&parents);
         let mut version_cursor = self.next_version;
         let mut desired = MutationSet::default();
         for (_, entry) in self.unavailable_replacements(&parents, &mut version_cursor)? {
             desired.set_entry(entry);
         }
-        desired.set_remove(ticket.hash.clone());
+        desired.set_remove(candidate.rank.hash.clone());
         let cohort = self.compile_cohort(desired, version_cursor, self.next_arrival)?;
         let prepared = self.seal_cohort(cohort, dependency_changes)?;
         Ok(FailedCommitPlan { prepared, record })
     }
 
-    pub(crate) fn plan_failed_commit(
+    fn plan_failed_commit(
         &mut self,
-        ticket: &CommitTicket,
+        candidate: &ReadyCommitCandidate,
         disposition: ConflictDisposition,
     ) -> Result<FailedCommitPlan<'_>, PrePoolError> {
-        let entry = self.validate_commit(ticket)?;
+        let entry = self.validate_commit(candidate)?;
         let record = TerminalRecord {
-            hash: ticket.hash.clone(),
+            hash: candidate.rank.hash.clone(),
             raw: Arc::clone(&entry.raw),
             source: entry.source,
         };
@@ -303,26 +340,26 @@ impl PrePoolKernel {
                 Err(error) => return Err(error),
             }
         }
-        self.plan_terminal_commit(ticket)
+        self.plan_terminal_commit(candidate)
     }
 
-    pub(crate) fn plan_ready_commit(
+    fn plan_ready_commit(
         &mut self,
-        ticket: &CommitTicket,
+        candidate: &ReadyCommitCandidate,
         unavailable_parents: &HashSet<Byte32>,
         available_dependencies: impl IntoIterator<Item = DependencyKey>,
         history: Vec<ConflictRetention>,
     ) -> Result<ReadyCommitPlan<'_>, PrePoolError> {
         let mut dependency_changes = self.dependency_keys_for_parents(unavailable_parents);
         dependency_changes.extend(available_dependencies);
-        let winner = self.validate_commit(ticket)?;
+        let winner = self.validate_commit(candidate)?;
         let (winner_inputs, winner_raw, winner_source) = match &winner.state {
             EntryState::Ready { inputs, .. } => {
                 (inputs.clone(), Arc::clone(&winner.raw), winner.source)
             }
             _ => {
                 return Err(PrePoolError::ProjectionInconsistent(
-                    "validated Ready ticket contains a non-Ready state",
+                    "validated Ready candidate contains a non-Ready state",
                 ));
             }
         };
@@ -336,7 +373,10 @@ impl PrePoolKernel {
         let mut losers = BTreeSet::new();
         for input in &winner_inputs {
             if let Some(candidates) = self.ready_by_input.get(input) {
-                for rank in candidates.iter().filter(|rank| rank.hash != ticket.hash) {
+                for rank in candidates
+                    .iter()
+                    .filter(|rank| rank.hash != candidate.rank.hash)
+                {
                     losers.insert(rank.hash.clone());
                     if losers.len() > crate::constants::MAX_POOL_MUTATION_CANDIDATES {
                         return Err(PrePoolError::CommitConflictCohortLimitExceeded);
@@ -365,7 +405,7 @@ impl PrePoolKernel {
         let (desired, version_cursor) = self.commit_handoff_desired(
             unavailable_parents,
             &losers,
-            &ticket.hash,
+            &candidate.rank.hash,
             ConflictDisposition::Retain,
         )?;
         let mut optional = desired;
@@ -385,7 +425,7 @@ impl PrePoolKernel {
                 let (fallback, fallback_version) = self.commit_handoff_desired(
                     unavailable_parents,
                     &losers,
-                    &ticket.hash,
+                    &candidate.rank.hash,
                     ConflictDisposition::Terminalize,
                 )?;
                 (
@@ -401,7 +441,7 @@ impl PrePoolKernel {
         }
         let prepared = self.seal_cohort(cohort, dependency_changes)?;
         let winner_record = TerminalRecord {
-            hash: ticket.hash.clone(),
+            hash: candidate.rank.hash.clone(),
             raw: winner_raw,
             source: winner_source,
         };

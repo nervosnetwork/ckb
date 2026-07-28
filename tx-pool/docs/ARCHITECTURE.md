@@ -261,7 +261,7 @@ Derived projections own no transaction payload:
 | full transaction hash | primary ownership, accepted membership, lease owner |
 | witness hash (`wtx_hash`) | `TxVerificationCacheKey`; verification results cannot alias witness variants |
 | proposal short ID | collision-aware index and consensus proposal protocol only |
-| entry version (`u128`) | process-global, non-reused ABA token for leases/tickets |
+| entry version (`u128`) | process-global, non-reused ABA token for leases and derived-index identities |
 | pipeline epoch | administrative clear/reorg invalidation, not per-entry identity |
 
 A short-ID collision is backpressure/rejection, never proof of duplicate
@@ -342,13 +342,16 @@ and tail latency. Dynamic aging
 would require periodic reindexing of every Ready key and is not justified
 without evidence that this explicit trade-off is unacceptable.
 
-A `CommitTicket` proves the selected entry's hash, version and rank. A later,
-stronger Ready entry does not invalidate an already selected exact ticket; the
-single commit driver settles it, then selects the new head. This avoids a legal
-arrival race becoming an invariant failure or livelock.
+`ReadyCommitSession<'_>` is a non-copyable capability that exclusively borrows
+the kernel from selection through accepted or rejected Plan/Apply. Its private
+candidate records the selected entry's hash, version, rank, payload and
+immutable ingress peer. While the session exists, Rust prevents expiry,
+verification publication or another commit selection from mutating the same
+authority; while a returned Plan exists, it reborrows the session until Apply
+or drop. Stale commit tickets are therefore not a runtime outcome.
 
-The ticket also carries the immutable ingress peer captured from that exact
-Ready version. An expiring, non-evicting peer-ban marker is the revocation
+The session rechecks the immutable ingress peer captured from that exact Ready
+version. An expiring, non-evicting peer-ban marker is the revocation
 linearization point: new remote admission rechecks it immediately after taking
 kernel ownership, and Ready planning rechecks it before building the Accepted
 mutation. Marker cardinality is coupled to the network's existing unexpired

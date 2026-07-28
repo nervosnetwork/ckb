@@ -146,10 +146,11 @@ pub(crate) fn spawn_pipeline_maintenance_worker(
                         }
                     }
                 }
-                // Commit ticket selection and Apply now share one kernel
-                // critical section. Expiry can execute directly: whichever
-                // transition acquires the authority first owns the entry, and
-                // no read-only ticket survives between mutex acquisitions.
+                // The commit session exclusively borrows the kernel from
+                // selection through Apply. Expiry can execute directly:
+                // whichever transition acquires the authority first owns the
+                // entry, and no copyable commit capability crosses mutex
+                // acquisitions.
                 let expired = if !preview.is_empty() {
                     let result = service.pipeline.kernel.mutate_authoritative(
                         |kernel| -> Result<_, crate::component::pre_pool::PrePoolError> {
