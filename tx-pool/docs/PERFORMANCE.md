@@ -83,6 +83,55 @@ for one fair same-lane checkout. A notification-only experiment was
 neutral/slower and was discarded; adding more wakes does not address the
 observed cost.
 
+### A5 candidate-selection matrix
+
+After A4, the committed runner was used to capture a broader matrix at
+`a5dd757432d6b4150f8d224a6895278db95553b5`. Every row reused the same release
+binary (`sha256:59f1ba2396c86ce0aa3cc37773a6c0e6820c3a51dffe83f586031b569e3b7c6c`)
+and the same harness source. All twelve manifests were subsequently rechecked
+by the committed analyzer, including their source and artifact hashes.
+
+The wall/CPU columns are single profiling executions and are not benchmark
+results. Mutex percentages are inclusive target-window Samply samples. Lock,
+mutation and read counts come from the separate same-scenario span execution;
+they are deterministic control-flow evidence per target transaction, not CPU
+time.
+
+| Workload | Shape | Wall / CPU ms | Kernel mutex samples | Lock / mutate / read closes per target |
+|---|---|---:|---:|---:|
+| always-success cold | 1 peer / 1 worker / 1,000 tx | 245.1 / 293.7 | 0.00% | 9.01 / 5.01 / 4.00 |
+| always-success cold | 1 peer / 8 workers / 1,000 tx | 185.6 / 700.0 | 3.14% | 9.53 / 5.87 / 3.67 |
+| always-success cold | 4 peers / 8 workers / 1,000 tx | 160.1 / 740.2 | 11.72% | 13.07 / 9.22 / 3.85 |
+| always-success warm | 4 peers / 8 workers / 1,000 tx, 200 warm | 147.5 / 707.9 | 9.88% | 13.22 / 9.28 / 3.94 |
+| dependent always-success, parent first | 1 peer / 8 workers / 200 tx, 20 warm | 92.3 / 124.2 | 4.29% | 30.74 / 19.87 / 10.88 |
+| dependent always-success, child first | 1 peer / 8 workers / 200 tx, 20 warm | 103.4 / 130.1 | 3.62% | 30.45 / 19.52 / 10.93 |
+| secp256k1 cold | 1 peer / 1 worker / 400 tx | 813.6 / 827.2 | 0.00% | 9.05 / 5.04 / 4.01 |
+| secp256k1 cold | 1 peer / 8 workers / 400 tx | 232.5 / 930.4 | 0.38% | 9.16 / 5.13 / 4.03 |
+| secp256k1 cold | 4 peers / 8 workers / 400 tx | 204.9 / 1,238.0 | 2.36% | 9.93 / 6.21 / 3.72 |
+| secp256k1 warm | 4 peers / 8 workers / 400 tx, 100 warm | 240.3 / 1,239.3 | 2.34% | 10.33 / 6.45 / 3.88 |
+| dependent secp256k1, parent first | 1 peer / 8 workers / 100 tx, 10 warm | 189.4 / 196.9 | 0.97% | 30.70 / 19.86 / 10.85 |
+| dependent secp256k1, child first | 1 peer / 8 workers / 100 tx, 10 warm | 203.3 / 205.7 | 0.47% | 28.95 / 18.43 / 10.52 |
+
+This matrix narrows A6 rather than proving an optimization. Independent cheap
+transactions scale from one to eight workers, but multi-peer concurrency raises
+the mutex path from no sampled contention to 11.72% and raises authoritative
+mutations from 5.01 to 9.22 per target. The equivalent secp workload spends only
+2.36% in that path because verification dominates. Dependent workloads require
+about three times as many authority acquisitions by design because dependency
+availability changes and wake settlement are causal transitions. Consequently,
+the first A6 candidates are repeated work within the existing atomic mutation:
+idempotent scheduler-head publication and unchanged projection maintenance.
+The evidence does not admit a second DAG, cache, batch owner or wider lock
+epoch. Those designs add proof and starvation costs before the measured
+mechanical work has been removed.
+
+The host artifacts were retained under
+`/private/tmp/txpool-profile-matrix-a5` during the review. They are deliberately
+not repository inputs. To reproduce the matrix, run the first command in the
+next section without `--binary`, then pass its manifest's exact binary path to
+the remaining scenario combinations shown in the table. Published release
+claims still require the paired quick/medium protocol rather than these rows.
+
 Host-specific Samply profiles and symbol tables are not versioned because they
 are large and not portable. The committed feature-gated profiling surface lets
 reviewers regenerate stage/kernel attribution without a private harness. It
@@ -259,7 +308,7 @@ not expose `xctrace`, so no Instruments result is claimed.
 | A1 | Seal raw revisions behind typed Resolve/Verify leases. | Callers cannot assemble a hash/revision/location authority tuple; stale completion is rejected by construction. | Keeps later hot-path changes proof-carrying without lookup/defensive state. | Committed in `3376261f1`. |
 | A2 | Borrow Ready commit authority through Plan/Apply instead of cloning it. | The exclusive kernel borrow proves the Ready owner remains current until handoff or rejection. | Remove payload cloning and redundant authority reads at commit. | Committed in `30b77357c`. |
 | A4 | On successful Resolve or Verify completion, check out one next same-lane lease inside the same kernel mutation. | The fair queue still selects work; `VerifyLease` seals the original worker capability and continuation cannot cross stages. `AppliedContinuation` distinguishes completed Apply from post-Apply checkout failure. Pause, cancellation or command loss completes at most the already-owned lease in final mode. | Remove one kernel mutex acquisition and one wake/scheduler round trip per independent same-lane transaction. | Implemented; 271 unit tests, strict static gates and direct RelayV3 integration evidence pass; final performance acceptance remains. |
-| A5 | Feature-gated low-cardinality stage/kernel profiling points, fallible Tokio-console setup and a reproducible windowed Samply capture/analyzer. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. Strict manifests and boundary-aware CPU accounting prevent attribution drift. | Preserve future attribution and wake/lock analysis without temporary source patches. | Implemented; correctness/static gates and final architecture review remain before checkpoint. |
+| A5 | Feature-gated low-cardinality stage/kernel profiling points, fallible Tokio-console setup and a reproducible windowed Samply capture/analyzer. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. Strict manifests and boundary-aware CPU accounting prevent attribution drift. | Preserve future attribution and wake/lock analysis without temporary source patches. | Completed at `a5dd75743`; 271 unit tests, strict static gates and the twelve-scenario candidate-selection matrix pass. |
 
 ## Rejected change
 
