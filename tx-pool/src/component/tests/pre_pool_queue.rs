@@ -113,3 +113,36 @@ fn large_owner_head_does_not_hide_its_small_cycle_work() {
     assert_eq!(queue.peek(WorkCapability::Any), Some(&large));
     queue.audit().unwrap();
 }
+
+#[test]
+fn runnable_publication_is_idempotent_and_not_cached_for_absent_owners() {
+    let source = PrePoolSource::Remote(crate::component::pre_pool::RemoteSource::new(
+        PeerIndex::from(1),
+        0,
+    ));
+    let owner = WorkOwner::from(source);
+    let key = WorkKey {
+        hash: Byte32::new([1; 32]),
+        revision: EntryRevision(1),
+        source,
+        arrival: Arrival(1),
+        schedule: VerifySchedule::default(),
+        fee_ordered: false,
+    };
+    let mut queue = FairQueue::new(WorkLane::Resolve);
+
+    queue.set_runnable(owner, false);
+    queue.insert(key.clone()).unwrap();
+    assert_eq!(queue.peek(WorkCapability::Any), Some(&key));
+
+    queue.set_runnable(owner, true);
+    assert_eq!(queue.peek(WorkCapability::Any), Some(&key));
+    queue.set_runnable(owner, false);
+    assert_eq!(queue.peek(WorkCapability::Any), None);
+    queue.set_runnable(owner, false);
+    assert_eq!(queue.peek(WorkCapability::Any), None);
+    queue.set_runnable(owner, true);
+    queue.set_runnable(owner, true);
+    assert_eq!(queue.peek(WorkCapability::Any), Some(&key));
+    queue.audit().unwrap();
+}

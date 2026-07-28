@@ -261,6 +261,13 @@ impl FairQueue {
     }
 
     pub(super) fn set_runnable(&mut self, owner: WorkOwner, runnable: bool) {
+        if self
+            .owners
+            .get(&owner)
+            .is_none_or(|queue| queue.runnable == runnable)
+        {
+            return;
+        }
         self.remove_head(owner);
         if let Some(queue) = self.owners.get_mut(&owner) {
             queue.runnable = runnable;
