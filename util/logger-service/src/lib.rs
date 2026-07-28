@@ -1,7 +1,7 @@
 //! CKB logger and logging service.
 
 use backtrace::Backtrace;
-use ckb_channel::{self, unbounded};
+use ckb_channel::{self, bounded};
 use ckb_notify::{LogEntry, NotifyController};
 use env_logger::filter::{Builder, Filter};
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
@@ -26,6 +26,8 @@ mod tests;
 static CONTROL_HANDLE: OnceLock<ckb_channel::Sender<Message>> = OnceLock::new();
 static FORMAT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
 static RE: OnceLock<regex::Regex> = OnceLock::new();
+
+const LOG_CHANNEL_SIZE: usize = 8192;
 
 enum Message {
     Record {
@@ -114,7 +116,7 @@ impl Logger {
             }
         }
 
-        let (sender, receiver) = unbounded();
+        let (sender, receiver) = bounded(LOG_CHANNEL_SIZE);
         CONTROL_HANDLE
             .set(sender.clone())
             .expect("CONTROL_HANDLE init once");
@@ -350,12 +352,7 @@ impl Logger {
         CONTROL_HANDLE
             .get()
             .ok_or_else(|| "no sender for logger service".to_owned())
-            .and_then(|sender| {
-                sender
-                    .send(message)
-                    .map_err(|err| format!("failed to send message to logger service: {err}"))
-                    .map(|_| ())
-            })
+            .and_then(|sender| try_send_message(sender, message))
     }
 
     /// Updates the main logger.
@@ -450,7 +447,7 @@ impl Log for Logger {
                         record.args()
                     )
                 };
-                let _ = self.sender.send(Message::Record {
+                let message = Message::Record {
                     is_match,
                     extras,
                     data: with_color,
@@ -458,7 +455,8 @@ impl Log for Logger {
                     target: record.target().to_string(),
                     date: dt,
                     original_message: format!("{}", record.args()),
-                });
+                };
+                try_send_record(&self.sender, message);
             }
         }
     }
@@ -468,6 +466,16 @@ impl Log for Logger {
         let _ = self.sender.send(Message::Terminate);
         let _ = handle.join();
     }
+}
+
+fn try_send_record(sender: &ckb_channel::Sender<Message>, message: Message) -> bool {
+    sender.try_send(message).is_ok()
+}
+
+fn try_send_message(sender: &ckb_channel::Sender<Message>, message: Message) -> Result<(), String> {
+    sender
+        .try_send(message)
+        .map_err(|err| format!("failed to send message to logger service: {err}"))
 }
 
 fn sanitize_color(s: &str) -> String {
