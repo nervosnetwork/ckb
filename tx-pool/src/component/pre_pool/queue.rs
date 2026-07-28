@@ -1,5 +1,5 @@
 use super::{
-    Arrival, EntryVersion, PrePoolError, PrePoolSource, VerifySchedule, WorkCapability, WorkLane,
+    Arrival, EntryRevision, PrePoolError, PrePoolSource, VerifySchedule, WorkCapability, WorkLane,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
@@ -25,7 +25,7 @@ impl From<PrePoolSource> for WorkOwner {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct WorkKey {
     pub(super) hash: Byte32,
-    pub(super) version: EntryVersion,
+    pub(super) revision: EntryRevision,
     pub(super) source: PrePoolSource,
     pub(super) arrival: Arrival,
     pub(super) schedule: VerifySchedule,
@@ -51,7 +51,7 @@ impl Ord for WorkKey {
             // its greatest key, so both stable tie breakers are reversed.
             .then_with(|| other.arrival.cmp(&self.arrival))
             .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
-            .then_with(|| self.version.cmp(&other.version))
+            .then_with(|| self.revision.cmp(&other.revision))
             .then_with(|| self.source.cmp(&other.source))
             .then_with(|| self.schedule.is_large_cycle.cmp(&other.schedule.is_large_cycle))
             .then_with(|| self.schedule.fee_rate_per_kb.cmp(&other.schedule.fee_rate_per_kb))

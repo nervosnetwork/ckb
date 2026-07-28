@@ -78,7 +78,7 @@ fn admit(
     source: TxSource,
     lane: ResolveLane,
     expires_at: Option<u64>,
-) -> Result<EntryVersion, PrePoolError> {
+) -> Result<(), PrePoolError> {
     let owner = match source {
         TxSource::Remote { cycles, peer } => PrePoolSource::Remote(RemoteSource::new(peer, cycles)),
         TxSource::Proposal => PrePoolSource::Proposal,
@@ -821,7 +821,6 @@ fn proposal_promotion_transfers_active_accounting_without_invalidating_same_witn
         .checkout_resolve(ResolveLane::Ingress)
         .unwrap()
         .unwrap();
-    let version = lease.version;
     kernel.promote_source(&tx.hash()).unwrap();
     assert_eq!(kernel.peer_active_work(peer), 0);
     assert_eq!(kernel.active_work(), 1);
@@ -829,7 +828,6 @@ fn proposal_promotion_transfers_active_accounting_without_invalidating_same_witn
         kernel.view(&tx.hash()).unwrap().source,
         PrePoolSource::Proposal
     );
-    assert_eq!(kernel.view(&tx.hash()).unwrap().version, version);
     let value = resolved(tx, TxSource::Proposal, 0);
     let charge = value.resident_size;
     kernel
@@ -982,9 +980,7 @@ fn full_conflict_history_terminalizes_rejected_owner_without_panicking() {
         .checkout_resolve(ResolveLane::Ingress)
         .unwrap()
         .unwrap();
-    kernel
-        .park_conflict_or_terminalize(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)
-        .unwrap();
+    kernel.park_resolve_conflict_or_terminalize(&lease).unwrap();
     assert!(!kernel.contains_hash(&tx.hash()));
     assert_eq!(kernel.conflict_usage(), Residency::default());
     kernel.audit().unwrap();

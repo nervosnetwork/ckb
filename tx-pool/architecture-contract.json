@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
@@ -8,7 +8,7 @@
     "ownership_key": "full_tx_hash",
     "verification_cache_key": "wtx_hash",
     "proposal_short_id_role": "collision_aware_index_only",
-    "entry_version": "process_global_non_reused_u128"
+    "entry_revision": "process_global_non_reused_u128"
   },
   "prepool_states": [
     "ResolveQueued",
@@ -48,7 +48,7 @@
     "absolute_fee",
     "earlier_arrival",
     "smaller_full_hash",
-    "entry_version"
+    "entry_revision"
   ],
   "ready_aging": {
     "policy": "none",

@@ -377,9 +377,9 @@ impl TxPoolService {
     ) -> Option<ParentWaitOutcome> {
         self.settle_parent_wait(&lease.hash, dependencies, |kernel, dependencies| {
             if dependencies.is_empty() {
-                kernel.requeue_resolve(lease).map(|_| ())
+                kernel.requeue_resolve(lease)
             } else {
-                kernel.wait_resolve(lease, dependencies).map(|_| ())
+                kernel.wait_resolve(lease, dependencies)
             }
         })
         .await
@@ -394,9 +394,7 @@ impl TxPoolService {
         dependencies: BTreeSet<DependencyKey>,
     ) -> Option<ParentWaitOutcome> {
         self.settle_parent_wait(&lease.hash, dependencies, |kernel, dependencies| {
-            kernel
-                .verification_retry_resolution(lease, dependencies)
-                .map(|_| ())
+            kernel.verification_retry_resolution(lease, dependencies)
         })
         .await
     }

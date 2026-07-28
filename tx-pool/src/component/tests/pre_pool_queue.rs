@@ -87,7 +87,7 @@ fn large_owner_head_does_not_hide_its_small_cycle_work() {
     fn key(hash: u8, fee: u64, is_large_cycle: bool) -> WorkKey {
         WorkKey {
             hash: Byte32::new([hash; 32]),
-            version: EntryVersion(u128::from(hash)),
+            revision: EntryRevision(u128::from(hash)),
             source: PrePoolSource::Remote(crate::component::pre_pool::RemoteSource::new(
                 PeerIndex::from(1),
                 0,

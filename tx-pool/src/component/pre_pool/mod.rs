@@ -2,7 +2,7 @@
 //!
 //! The primary map owns payloads. Scheduling, waiting, conflict and deadline
 //! structures contain identities only and are updated in the same short mutex
-//! section. Workers borrow immutable `Arc`s with one process-global version;
+//! section. Workers borrow immutable `Arc`s with one process-global revision;
 //! queues and notifications never own transaction data.
 
 mod commit;
@@ -37,13 +37,14 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-/// Process-global, non-reused identity for one exact retained ownership
-/// incarnation. Keeping this distinct from arrival and dependency clocks
-/// prevents an otherwise type-correct cursor from entering an ABA check.
+/// Process-global, non-reused identity for one exact primary state and its
+/// derived projections. Every transition that changes the indexed state takes
+/// a fresh revision, so stale leases and retired index keys cannot alias a
+/// later state of the same full transaction hash.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EntryVersion(u128);
+pub(crate) struct EntryRevision(u128);
 
-impl EntryVersion {
+impl EntryRevision {
     const FIRST: Self = Self(1);
 
     fn take(cursor: &mut Self) -> Result<Self, PrePoolError> {
@@ -57,7 +58,7 @@ impl EntryVersion {
 }
 
 /// Stable admission order. This is deliberately a different domain from an
-/// ownership version even though both compile to one `u128`.
+/// ownership revision even though both compile to one `u128`.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Arrival(u128);
 
@@ -473,10 +474,10 @@ pub(crate) enum PrePoolBackpressure {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PrePoolStale {
     Missing(Byte32),
-    Stale {
+    RevisionMismatch {
         hash: Byte32,
-        expected: EntryVersion,
-        actual: EntryVersion,
+        expected: EntryRevision,
+        actual: EntryRevision,
     },
     LocationMismatch {
         hash: Byte32,
@@ -580,8 +581,8 @@ impl PrePoolError {
         Self::Stale(PrePoolStale::Missing(hash))
     }
 
-    fn stale(hash: Byte32, expected: EntryVersion, actual: EntryVersion) -> Self {
-        Self::Stale(PrePoolStale::Stale {
+    fn revision_mismatch(hash: Byte32, expected: EntryRevision, actual: EntryRevision) -> Self {
+        Self::Stale(PrePoolStale::RevisionMismatch {
             hash,
             expected,
             actual,
@@ -659,21 +660,21 @@ impl PrePoolError {
 pub(crate) struct ResolveLease {
     pub(crate) hash: Byte32,
     pub(crate) lane: ResolveLane,
-    pub(crate) version: EntryVersion,
+    revision: EntryRevision,
     pub(crate) payload: Arc<PipelineRawTx>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct VerifyLease {
     pub(crate) hash: Byte32,
-    pub(crate) version: EntryVersion,
+    revision: EntryRevision,
     pub(crate) payload: Arc<ResolvedTx>,
 }
 
 struct ReadyCommitCandidate {
     rank: ReadyKey,
     payload: Arc<PipelineVerifiedTx>,
-    /// Immutable remote origin captured with the exact Ready version. A
+    /// Immutable remote origin captured with the exact Ready revision. A
     /// source promotion may change scheduling priority, but a ban fence that
     /// linearized before final Plan must still revoke this owner.
     ingress_peer: Option<PeerIndex>,
@@ -714,7 +715,7 @@ pub(crate) struct ReadyKey {
     tx_size: usize,
     arrival: Arrival,
     hash: Byte32,
-    version: EntryVersion,
+    revision: EntryRevision,
 }
 
 impl Ord for ReadyKey {
@@ -733,10 +734,10 @@ impl Ord for ReadyKey {
             .then_with(|| self.fee.cmp(&other.fee))
             // `ready.last()` selects the maximum: reverse comparisons make
             // earlier arrivals and smaller hashes the stronger deterministic
-            // tie-breakers. Process-global versions make the order total.
+            // tie-breakers. Process-global revisions make the order total.
             .then_with(|| other.arrival.cmp(&self.arrival))
             .then_with(|| other.hash.as_slice().cmp(self.hash.as_slice()))
-            .then_with(|| self.version.cmp(&other.version))
+            .then_with(|| self.revision.cmp(&other.revision))
     }
 }
 
@@ -857,7 +858,7 @@ pub(in crate::component::pre_pool) struct Entry {
     raw: Arc<PipelineRawTx>,
     source: PrePoolSource,
     state: EntryState,
-    version: EntryVersion,
+    revision: EntryRevision,
     arrival: Arrival,
     expires_at: Option<u64>,
     payload_charge_bytes: usize,
@@ -893,7 +894,7 @@ impl Entry {
             lane,
             WorkKey {
                 hash: hash.clone(),
-                version: self.version,
+                revision: self.revision,
                 source: self.source,
                 arrival: self.arrival,
                 schedule,
@@ -916,7 +917,7 @@ impl Entry {
             tx_size: payload.candidate.tx_size,
             arrival: self.arrival,
             hash: hash.clone(),
-            version: self.version,
+            revision: self.revision,
         }
     }
 }
@@ -924,7 +925,7 @@ impl Entry {
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct WaitEdge {
     hash: Byte32,
-    version: EntryVersion,
+    revision: EntryRevision,
 }
 
 #[derive(Clone, Debug)]
@@ -944,7 +945,7 @@ struct DependencyChangePlan(Vec<(DependencyKey, u128)>);
 struct DeadlineKey {
     expires_at: u64,
     hash: Byte32,
-    version: EntryVersion,
+    revision: EntryRevision,
 }
 
 /// Swappable entry/index generation. Process-global clocks, limits and the
@@ -1008,7 +1009,7 @@ impl PrePoolGeneration {
 pub(crate) struct PrePoolKernel {
     generation: PrePoolGeneration,
     limits: PrePoolLimits,
-    next_version: EntryVersion,
+    next_revision: EntryRevision,
     next_arrival: Arrival,
 }
 
@@ -1031,7 +1032,7 @@ impl PrePoolKernel {
         Self {
             generation: PrePoolGeneration::new(),
             limits,
-            next_version: EntryVersion::FIRST,
+            next_revision: EntryRevision::FIRST,
             next_arrival: Arrival::FIRST,
         }
     }

@@ -38,7 +38,7 @@ REQUIRED_READY_KEY = [
     "absolute_fee",
     "earlier_arrival",
     "smaller_full_hash",
-    "entry_version",
+    "entry_revision",
 ]
 REQUIRED_LOCK_ORDER = [
     "optional_serial_or_work_or_plan_permit",
@@ -118,8 +118,8 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     )
     if contract is None:
         return errors
-    if contract.get("schema_version") != 2:
-        errors.append("architecture contract schema_version must be 2")
+    if contract.get("schema_version") != 3:
+        errors.append("architecture contract schema_version must be 3")
     if contract.get("authorities") != ["TxPool", "PrePoolKernel"]:
         errors.append("architecture contract must declare exactly TxPool then PrePoolKernel")
     if _string_set(contract.get("prepool_states")) != REQUIRED_PREPOOL_STATES:
@@ -142,7 +142,7 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         "ownership_key": "full_tx_hash",
         "verification_cache_key": "wtx_hash",
         "proposal_short_id_role": "collision_aware_index_only",
-        "entry_version": "process_global_non_reused_u128",
+        "entry_revision": "process_global_non_reused_u128",
     }:
         errors.append("architecture contract identity domains differ from the frozen model")
     if set(contract.get("root_families", {})) != REQUIRED_ROOT_FAMILIES:

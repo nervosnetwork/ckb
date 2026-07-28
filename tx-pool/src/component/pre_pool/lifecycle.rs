@@ -16,7 +16,7 @@ struct EntryReplacementPlan {
     active: ActivePlan,
     queue_lengths: WorkLaneSlots<usize>,
     checkout: Option<(WorkLane, WorkKey, u128)>,
-    next_version: EntryVersion,
+    next_revision: EntryRevision,
     next_arrival: Arrival,
 }
 
@@ -52,7 +52,7 @@ pub(super) struct CohortPlan {
     owner_updates: BTreeMap<WorkOwner, usize>,
     queue_lengths: WorkLaneSlots<usize>,
     affected_owners: BTreeSet<WorkOwner>,
-    next_version: EntryVersion,
+    next_revision: EntryRevision,
     next_arrival: Arrival,
 }
 
@@ -245,7 +245,7 @@ impl PrePoolKernel {
         if let EntryState::Wait(wait) = &entry.state {
             let edge = WaitEdge {
                 hash: hash.clone(),
-                version: entry.version,
+                revision: entry.revision,
             };
             for key in wait.observed.keys() {
                 if !self
@@ -318,7 +318,7 @@ impl PrePoolKernel {
     pub(super) fn compile_cohort(
         &self,
         desired: MutationSet,
-        next_version: EntryVersion,
+        next_revision: EntryRevision,
         next_arrival: Arrival,
     ) -> Result<CohortPlan, PrePoolError> {
         let mut changes = Vec::with_capacity(desired.0.len());
@@ -560,7 +560,7 @@ impl PrePoolKernel {
             owner_updates,
             queue_lengths,
             affected_owners,
-            next_version,
+            next_revision,
             next_arrival,
         })
     }
@@ -571,11 +571,11 @@ impl PrePoolKernel {
     pub(super) fn prepare_cohort(
         &mut self,
         desired: MutationSet,
-        next_version: EntryVersion,
+        next_revision: EntryRevision,
         next_arrival: Arrival,
         dependency_changes: impl IntoIterator<Item = DependencyKey>,
     ) -> Result<PreparedKernelMutation<'_>, PrePoolError> {
-        let cohort = self.compile_cohort(desired, next_version, next_arrival)?;
+        let cohort = self.compile_cohort(desired, next_revision, next_arrival)?;
         self.seal_cohort(cohort, dependency_changes)
     }
 
@@ -612,7 +612,7 @@ impl PrePoolKernel {
             owner_updates,
             queue_lengths,
             affected_owners,
-            next_version,
+            next_revision,
             next_arrival,
         }: CohortPlan,
     ) {
@@ -650,7 +650,7 @@ impl PrePoolKernel {
         for (lane, len) in queue_lengths.into_entries() {
             self.queues.get_mut(lane).set_len(len);
         }
-        self.next_version = next_version;
+        self.next_revision = next_revision;
         self.next_arrival = next_arrival;
         for owner in affected_owners {
             self.refresh_owner_runnable(owner);
@@ -688,7 +688,7 @@ impl PrePoolKernel {
         entry.expires_at.map(|expires_at| DeadlineKey {
             expires_at,
             hash: hash.clone(),
-            version: entry.version,
+            revision: entry.revision,
         })
     }
 
@@ -701,7 +701,7 @@ impl PrePoolKernel {
         if let EntryState::Wait(wait) = &entry.state {
             let edge = WaitEdge {
                 hash: hash.clone(),
-                version: entry.version,
+                revision: entry.revision,
             };
             for key in wait.observed.keys() {
                 self.waiters
@@ -765,7 +765,7 @@ impl PrePoolKernel {
         if let EntryState::Wait(wait) = &entry.state {
             let edge = WaitEdge {
                 hash: hash.clone(),
-                version: entry.version,
+                revision: entry.revision,
             };
             for key in wait.observed.keys() {
                 let empty = self.waiters.get_mut(key).is_none_or(|edges| {
@@ -827,7 +827,7 @@ impl PrePoolKernel {
         hash: &Byte32,
         next: &StoredEntry,
         mode: ReplacementMode,
-        next_version: EntryVersion,
+        next_revision: EntryRevision,
         next_arrival: Arrival,
     ) -> Result<EntryReplacementPlan, PrePoolError> {
         self.validate_entry_shape(hash, next)?;
@@ -868,7 +868,7 @@ impl PrePoolKernel {
             active,
             queue_lengths,
             checkout,
-            next_version,
+            next_revision,
             next_arrival,
         })
     }
@@ -877,12 +877,12 @@ impl PrePoolKernel {
         &mut self,
         hash: &Byte32,
         next: Entry,
-        next_version: EntryVersion,
+        next_revision: EntryRevision,
         next_arrival: Arrival,
         mode: ReplacementMode,
     ) -> Result<(), PrePoolError> {
         let next = StoredEntry::prepare(next, self.limits)?;
-        let plan = self.plan_entry_replacement(hash, &next, mode, next_version, next_arrival)?;
+        let plan = self.plan_entry_replacement(hash, &next, mode, next_revision, next_arrival)?;
         // Planning holds the exclusive kernel borrow and completes every
         // fallible predicate above. Move the validated primary into Apply
         // instead of deep-cloning its dependency and observation sets into
@@ -902,7 +902,7 @@ impl PrePoolKernel {
         for (lane, len) in plan.queue_lengths.into_entries() {
             self.queues.get_mut(lane).set_len(len);
         }
-        self.next_version = plan.next_version;
+        self.next_revision = plan.next_revision;
         self.next_arrival = plan.next_arrival;
         self.apply_active_plan(plan.active);
         self.refresh_owner_runnable(old_source.into());
@@ -982,16 +982,16 @@ impl PrePoolKernel {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         let mut desired = MutationSet::default();
-        for (_, entry) in self.unavailable_replacements(&parents, &mut version_cursor)? {
+        for (_, entry) in self.unavailable_replacements(&parents, &mut revision_cursor)? {
             desired.set_entry(entry);
         }
         for hash in present {
             desired.set_remove(hash);
         }
         let prepared =
-            self.prepare_cohort(desired, version_cursor, self.next_arrival, changed_keys)?;
+            self.prepare_cohort(desired, revision_cursor, self.next_arrival, changed_keys)?;
         Ok(Some(PreparedTerminalCohort { prepared, records }))
     }
 
@@ -1026,15 +1026,19 @@ impl PrePoolKernel {
     pub(super) fn validate_location(
         &self,
         hash: &Byte32,
-        version: EntryVersion,
+        revision: EntryRevision,
         expected: PrePoolLocation,
     ) -> Result<&StoredEntry, PrePoolError> {
         let entry = self
             .entries
             .get(hash)
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?;
-        if entry.version != version {
-            return Err(PrePoolError::stale(hash.clone(), version, entry.version));
+        if entry.revision != revision {
+            return Err(PrePoolError::revision_mismatch(
+                hash.clone(),
+                revision,
+                entry.revision,
+            ));
         }
         let actual = entry.state.location();
         if actual != expected {
@@ -1045,6 +1049,20 @@ impl PrePoolKernel {
             ));
         }
         Ok(entry)
+    }
+
+    pub(super) fn validate_resolve_lease(
+        &self,
+        lease: &ResolveLease,
+    ) -> Result<&StoredEntry, PrePoolError> {
+        self.validate_location(&lease.hash, lease.revision, PrePoolLocation::ResolveLeased)
+    }
+
+    pub(super) fn validate_verify_lease(
+        &self,
+        lease: &VerifyLease,
+    ) -> Result<&StoredEntry, PrePoolError> {
+        self.validate_location(&lease.hash, lease.revision, PrePoolLocation::VerifyLeased)
     }
 
     pub(super) fn active_owner(source: PrePoolSource, state: &EntryState) -> Option<WorkOwner> {
@@ -1149,7 +1167,7 @@ impl PrePoolKernel {
         source: PrePoolSource,
         expires_at: Option<u64>,
         dependencies: BTreeSet<DependencyKey>,
-    ) -> Result<EntryVersion, PrePoolError> {
+    ) -> Result<(), PrePoolError> {
         let hash = crate::util::compact_packed(&raw.tx.hash());
         let short_id = crate::util::compact_packed(&raw.tx.proposal_short_id());
         if self.entries.contains_key(&hash) {
@@ -1165,8 +1183,8 @@ impl PrePoolKernel {
             .into_iter()
             .map(DependencyKey::into_compact)
             .collect::<BTreeSet<_>>();
-        let mut version_cursor = self.next_version;
-        let version = EntryVersion::take(&mut version_cursor)?;
+        let mut revision_cursor = self.next_revision;
+        let revision = EntryRevision::take(&mut revision_cursor)?;
         let mut arrival_cursor = self.next_arrival;
         let arrival = Arrival::take(&mut arrival_cursor)?;
         let payload_charge_bytes = raw.charge_bytes();
@@ -1174,7 +1192,7 @@ impl PrePoolKernel {
             raw: Arc::new(raw),
             source,
             state: EntryState::ResolveQueued { lane },
-            version,
+            revision,
             arrival,
             expires_at,
             payload_charge_bytes,
@@ -1191,12 +1209,12 @@ impl PrePoolKernel {
         for (lane, len) in queue_lengths.into_entries() {
             self.queues.get_mut(lane).set_len(len);
         }
-        self.next_version = version_cursor;
+        self.next_revision = revision_cursor;
         self.next_arrival = arrival_cursor;
-        Ok(version)
+        Ok(())
     }
 
-    pub(crate) fn promote_source(&mut self, hash: &Byte32) -> Result<EntryVersion, PrePoolError> {
+    pub(crate) fn promote_source(&mut self, hash: &Byte32) -> Result<(), PrePoolError> {
         let mut next = self
             .entries
             .get(hash)
@@ -1204,31 +1222,30 @@ impl PrePoolKernel {
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
             .into_draft();
         if next.source == PrePoolSource::Proposal {
-            return Ok(next.version);
+            return Ok(());
         }
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         if let EntryState::Wait(wait) = &next.state
             && wait.reason == WaitReason::Missing
         {
-            next.version = EntryVersion::take(&mut version_cursor)?;
+            next.revision = EntryRevision::take(&mut revision_cursor)?;
             next.state = EntryState::ResolveQueued {
                 lane: ResolveLane::Ordered,
             };
         }
         if let EntryState::Ready { .. } = &mut next.state {
-            next.version = EntryVersion::take(&mut version_cursor)?;
+            next.revision = EntryRevision::take(&mut revision_cursor)?;
         }
-        let version = next.version;
         self.replace_entry(
             hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             ReplacementMode::Ordinary,
         )?;
-        Ok(version)
+        Ok(())
     }
 
     pub(crate) fn replace_raw_payload(
@@ -1237,7 +1254,7 @@ impl PrePoolKernel {
         raw: PipelineRawTx,
         raw_bytes: usize,
         lane: ResolveLane,
-    ) -> Result<EntryVersion, PrePoolError> {
+    ) -> Result<(), PrePoolError> {
         let mut next = self
             .entries
             .get(hash)
@@ -1247,19 +1264,18 @@ impl PrePoolKernel {
         next.raw = Arc::new(raw);
         next.source = PrePoolSource::Proposal;
         next.expires_at = None;
-        let mut version_cursor = self.next_version;
-        next.version = EntryVersion::take(&mut version_cursor)?;
+        let mut revision_cursor = self.next_revision;
+        next.revision = EntryRevision::take(&mut revision_cursor)?;
         next.payload_charge_bytes = raw_bytes;
         next.state = EntryState::ResolveQueued { lane };
-        let version = next.version;
         self.replace_entry(
             hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             ReplacementMode::Ordinary,
         )?;
-        Ok(version)
+        Ok(())
     }
 
     pub(crate) fn checkout_resolve(
@@ -1276,25 +1292,25 @@ impl PrePoolKernel {
             return Ok(None);
         };
         let mut next = self
-            .validate_location(&key.hash, key.version, PrePoolLocation::ResolveQueued)?
+            .validate_location(&key.hash, key.revision, PrePoolLocation::ResolveQueued)?
             .clone()
             .into_draft();
-        let mut version_cursor = self.next_version;
-        let version = EntryVersion::take(&mut version_cursor)?;
-        next.version = version;
+        let mut revision_cursor = self.next_revision;
+        let revision = EntryRevision::take(&mut revision_cursor)?;
+        next.revision = revision;
         next.state = EntryState::ResolveLeased;
         let payload = Arc::clone(&next.raw);
         self.replace_entry(
             &key.hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             ReplacementMode::Checkout(WorkCapability::Any),
         )?;
         Ok(Some(ResolveLease {
             hash: key.hash,
             lane,
-            version,
+            revision,
             payload,
         }))
     }
@@ -1303,7 +1319,7 @@ impl PrePoolKernel {
         &mut self,
         lease: &ResolveLease,
     ) -> Result<TerminalRecord, PrePoolError> {
-        self.validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?;
+        self.validate_resolve_lease(lease)?;
         self.remove_unavailable_entry(&lease.hash)
     }
 
@@ -1311,7 +1327,7 @@ impl PrePoolKernel {
         &mut self,
         lease: &VerifyLease,
     ) -> Result<TerminalRecord, PrePoolError> {
-        self.validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?;
+        self.validate_verify_lease(lease)?;
         self.remove_unavailable_entry(&lease.hash)
     }
 
@@ -1322,32 +1338,28 @@ impl PrePoolKernel {
         charge_bytes: usize,
         schedule: VerifySchedule,
         discovered_dependencies: BTreeSet<DependencyKey>,
-    ) -> Result<EntryVersion, PrePoolError> {
-        let mut next = self
-            .validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?
-            .clone()
-            .into_draft();
+    ) -> Result<(), PrePoolError> {
+        let mut next = self.validate_resolve_lease(lease)?.clone().into_draft();
         next.dependencies.extend(
             discovered_dependencies
                 .into_iter()
                 .map(DependencyKey::into_compact),
         );
-        let mut version_cursor = self.next_version;
-        next.version = EntryVersion::take(&mut version_cursor)?;
+        let mut revision_cursor = self.next_revision;
+        next.revision = EntryRevision::take(&mut revision_cursor)?;
         next.payload_charge_bytes = charge_bytes;
         next.state = EntryState::VerifyQueued {
             payload: Arc::new(resolved),
             schedule,
         };
-        let version = next.version;
         self.replace_entry(
             &lease.hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             ReplacementMode::Ordinary,
         )?;
-        Ok(version)
+        Ok(())
     }
 
     pub(crate) fn checkout_verify(
@@ -1359,7 +1371,7 @@ impl PrePoolKernel {
             return Ok(None);
         };
         let mut next = self
-            .validate_location(&key.hash, key.version, PrePoolLocation::VerifyQueued)?
+            .validate_location(&key.hash, key.revision, PrePoolLocation::VerifyQueued)?
             .clone()
             .into_draft();
         let payload = match &next.state {
@@ -1370,22 +1382,22 @@ impl PrePoolKernel {
                 ));
             }
         };
-        let mut version_cursor = self.next_version;
-        let version = EntryVersion::take(&mut version_cursor)?;
-        next.version = version;
+        let mut revision_cursor = self.next_revision;
+        let revision = EntryRevision::take(&mut revision_cursor)?;
+        next.revision = revision;
         next.state = EntryState::VerifyLeased {
             payload: Arc::clone(&payload),
         };
         self.replace_entry(
             &key.hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             ReplacementMode::Checkout(capability),
         )?;
         Ok(Some(VerifyLease {
             hash: key.hash,
-            version,
+            revision,
             payload,
         }))
     }
@@ -1395,11 +1407,8 @@ impl PrePoolKernel {
         lease: &VerifyLease,
         mut verified: PipelineVerifiedTx,
         charge_bytes: usize,
-    ) -> Result<EntryVersion, PrePoolError> {
-        let mut next = self
-            .validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?
-            .clone()
-            .into_draft();
+    ) -> Result<(), PrePoolError> {
+        let mut next = self.validate_verify_lease(lease)?.clone().into_draft();
         let candidate_hash = crate::util::compact_packed(&verified.candidate.tx.hash());
         if candidate_hash != lease.hash {
             return Err(PrePoolError::primary_key_mismatch(
@@ -1418,13 +1427,13 @@ impl PrePoolKernel {
         }
         // Promotion may race with verification, but Ready is published only
         // by this transition. Bind the payload to the source owned by this
-        // exact version instead of relying on a separate, immediately stale
+        // exact revision instead of relying on a separate, immediately stale
         // read in the worker.
         verified.candidate.source = next.raw.authoritative_source(next.source);
         let inputs = ReadyInputs::new(inputs, self.limits.max_inputs_per_ready)?;
-        let mut version_cursor = self.next_version;
-        let version = EntryVersion::take(&mut version_cursor)?;
-        next.version = version;
+        let mut revision_cursor = self.next_revision;
+        let revision = EntryRevision::take(&mut revision_cursor)?;
+        next.revision = revision;
         next.payload_charge_bytes = charge_bytes;
         next.state = EntryState::Ready {
             payload: Arc::new(verified),
@@ -1433,11 +1442,11 @@ impl PrePoolKernel {
         self.replace_entry(
             &lease.hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             ReplacementMode::Ordinary,
         )?;
-        Ok(version)
+        Ok(())
     }
 
     pub(crate) fn force_terminalize(
@@ -1472,7 +1481,7 @@ impl PrePoolKernel {
             .filter(|deadline| {
                 self.entries
                     .get(&deadline.hash)
-                    .is_some_and(|entry| entry.version == deadline.version)
+                    .is_some_and(|entry| entry.revision == deadline.revision)
             })
             .take(limit)
             .map(|deadline| deadline.hash.clone())

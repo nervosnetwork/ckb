@@ -15,7 +15,7 @@ use std::{
 type TxId = u16;
 type DependencyKey = u16;
 type InputId = u16;
-type Version = u128;
+type Revision = u128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum StateTag {
@@ -82,7 +82,7 @@ impl State {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
-    version: Version,
+    revision: Revision,
     source: Source,
     raw_bytes: usize,
     state: State,
@@ -121,7 +121,7 @@ impl Entry {
             serialized_size,
             arrival,
             id,
-            version: self.version,
+            revision: self.revision,
         })
     }
 }
@@ -133,7 +133,7 @@ struct ReadyKey {
     serialized_size: u32,
     arrival: u64,
     id: TxId,
-    version: Version,
+    revision: Revision,
 }
 
 impl Ord for ReadyKey {
@@ -146,7 +146,7 @@ impl Ord for ReadyKey {
             .then_with(|| self.fee.cmp(&other.fee))
             .then_with(|| other.arrival.cmp(&self.arrival))
             .then_with(|| other.id.cmp(&self.id))
-            .then_with(|| self.version.cmp(&other.version))
+            .then_with(|| self.revision.cmp(&other.revision))
     }
 }
 
@@ -158,10 +158,10 @@ impl PartialOrd for ReadyKey {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Derived {
-    resolve_queue: BTreeSet<(u8, TxId, Version)>,
-    verify_queue: BTreeSet<(u8, TxId, Version)>,
-    waiting_by_key: BTreeMap<DependencyKey, BTreeSet<(TxId, Version)>>,
-    resolved_by_key: BTreeMap<DependencyKey, BTreeSet<(TxId, Version)>>,
+    resolve_queue: BTreeSet<(u8, TxId, Revision)>,
+    verify_queue: BTreeSet<(u8, TxId, Revision)>,
+    waiting_by_key: BTreeMap<DependencyKey, BTreeSet<(TxId, Revision)>>,
+    resolved_by_key: BTreeMap<DependencyKey, BTreeSet<(TxId, Revision)>>,
     ready: BTreeSet<ReadyKey>,
     ready_by_input: BTreeMap<InputId, BTreeSet<ReadyKey>>,
     charge: usize,
@@ -170,7 +170,7 @@ struct Derived {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Lease {
     id: TxId,
-    version: Version,
+    revision: Revision,
     stage: StateTag,
 }
 
@@ -189,8 +189,8 @@ struct Model {
     accepted: BTreeSet<TxId>,
     dependency_epochs: BTreeMap<DependencyKey, u64>,
     derived: Derived,
-    issued_versions: BTreeSet<Version>,
-    next_version: Version,
+    issued_revisions: BTreeSet<Revision>,
+    next_revision: Revision,
     resident_limit: usize,
 }
 
@@ -201,31 +201,31 @@ impl Model {
             accepted: BTreeSet::new(),
             dependency_epochs: BTreeMap::new(),
             derived: Derived::default(),
-            issued_versions: BTreeSet::new(),
-            next_version: 1,
+            issued_revisions: BTreeSet::new(),
+            next_revision: 1,
             resident_limit,
         }
     }
 
-    fn issue_version(&mut self) -> Version {
-        let version = self.next_version;
-        self.next_version = self
-            .next_version
+    fn issue_revision(&mut self) -> Revision {
+        let revision = self.next_revision;
+        self.next_revision = self
+            .next_revision
             .checked_add(1)
-            .expect("model version exhausted");
-        assert!(self.issued_versions.insert(version));
-        version
+            .expect("model revision exhausted");
+        assert!(self.issued_revisions.insert(revision));
+        revision
     }
 
-    fn replace_state(&mut self, id: TxId, state: State) -> Version {
-        let version = self.issue_version();
+    fn replace_state(&mut self, id: TxId, state: State) -> Revision {
+        let revision = self.issue_revision();
         let entry = self.entries.get_mut(&id).unwrap();
-        entry.version = version;
+        entry.revision = revision;
         entry.state = state;
-        version
+        revision
     }
 
-    fn complete_state(&mut self, id: TxId, state: State) -> PlanOutcome<Version> {
+    fn complete_state(&mut self, id: TxId, state: State) -> PlanOutcome<Revision> {
         let old_charge = self.entries[&id].charge();
         let mut prospective = self.entries[&id].clone();
         prospective.state = state.clone();
@@ -239,9 +239,9 @@ impl Model {
             self.refresh_and_assert();
             return PlanOutcome::Backpressure;
         }
-        let version = self.replace_state(id, state);
+        let revision = self.replace_state(id, state);
         self.refresh_and_assert();
-        PlanOutcome::Apply(version)
+        PlanOutcome::Apply(revision)
     }
 
     fn rebuild(&self) -> Derived {
@@ -253,7 +253,7 @@ impl Model {
                 State::ResolveQueued => {
                     rebuilt
                         .resolve_queue
-                        .insert((owner_class, *id, entry.version));
+                        .insert((owner_class, *id, entry.revision));
                 }
                 State::ResolveLeased => {}
                 State::Wait { keys, .. } => {
@@ -262,19 +262,19 @@ impl Model {
                             .waiting_by_key
                             .entry(*key)
                             .or_default()
-                            .insert((*id, entry.version));
+                            .insert((*id, entry.revision));
                     }
                 }
                 State::VerifyQueued { dependencies } => {
                     rebuilt
                         .verify_queue
-                        .insert((owner_class, *id, entry.version));
+                        .insert((owner_class, *id, entry.revision));
                     for key in dependencies {
                         rebuilt
                             .resolved_by_key
                             .entry(*key)
                             .or_default()
-                            .insert((*id, entry.version));
+                            .insert((*id, entry.revision));
                     }
                 }
                 State::VerifyLeased { dependencies } => {
@@ -283,7 +283,7 @@ impl Model {
                             .resolved_by_key
                             .entry(*key)
                             .or_default()
-                            .insert((*id, entry.version));
+                            .insert((*id, entry.revision));
                     }
                 }
                 State::Ready {
@@ -296,7 +296,7 @@ impl Model {
                             .resolved_by_key
                             .entry(*key)
                             .or_default()
-                            .insert((*id, entry.version));
+                            .insert((*id, entry.revision));
                     }
                     let rank = entry.ready_key(*id).unwrap();
                     rebuilt.ready.insert(rank);
@@ -326,12 +326,12 @@ impl Model {
             self.entries.len(),
             self.entries
                 .values()
-                .map(|e| e.version)
+                .map(|e| e.revision)
                 .collect::<BTreeSet<_>>()
                 .len()
         );
         for entry in self.entries.values() {
-            assert!(self.issued_versions.contains(&entry.version));
+            assert!(self.issued_revisions.contains(&entry.revision));
             match &entry.state {
                 State::Wait {
                     keys,
@@ -371,7 +371,7 @@ impl Model {
         source: Source,
         raw_bytes: usize,
         state: State,
-    ) -> PlanOutcome<Version> {
+    ) -> PlanOutcome<Revision> {
         if self.accepted.contains(&id) {
             return PlanOutcome::Reject;
         }
@@ -379,7 +379,7 @@ impl Model {
             return PlanOutcome::Stale;
         }
         let entry = Entry {
-            version: self.next_version,
+            revision: self.next_revision,
             source,
             raw_bytes,
             state,
@@ -387,22 +387,22 @@ impl Model {
         if self.derived.charge.saturating_add(entry.charge()) > self.resident_limit {
             return PlanOutcome::Backpressure;
         }
-        let version = self.issue_version();
-        let entry = Entry { version, ..entry };
+        let revision = self.issue_revision();
+        let entry = Entry { revision, ..entry };
         self.entries.insert(id, entry);
         self.refresh_and_assert();
-        PlanOutcome::Apply(version)
+        PlanOutcome::Apply(revision)
     }
 
-    fn admit(&mut self, id: TxId, source: Source, raw_bytes: usize) -> PlanOutcome<Version> {
+    fn admit(&mut self, id: TxId, source: Source, raw_bytes: usize) -> PlanOutcome<Revision> {
         self.insert(id, source, raw_bytes, State::ResolveQueued)
     }
 
-    fn retain_recovery(&mut self, id: TxId) -> PlanOutcome<Version> {
+    fn retain_recovery(&mut self, id: TxId) -> PlanOutcome<Revision> {
         self.insert(id, Source::ChainRecovery, 100, State::ResolveQueued)
     }
 
-    fn promote(&mut self, id: TxId, different_witness: bool) -> PlanOutcome<Version> {
+    fn promote(&mut self, id: TxId, different_witness: bool) -> PlanOutcome<Revision> {
         let Some(entry) = self.entries.get_mut(&id) else {
             return PlanOutcome::Stale;
         };
@@ -410,18 +410,18 @@ impl Model {
             return PlanOutcome::Stale;
         }
         if different_witness {
-            let version = self.issue_version();
+            let revision = self.issue_revision();
             let entry = self.entries.get_mut(&id).unwrap();
             entry.source = Source::Proposal;
-            entry.version = version;
+            entry.revision = revision;
             entry.state = State::ResolveQueued;
             self.refresh_and_assert();
-            PlanOutcome::Apply(version)
+            PlanOutcome::Apply(revision)
         } else {
             entry.source = Source::Proposal;
-            let version = entry.version;
+            let revision = entry.revision;
             self.refresh_and_assert();
-            PlanOutcome::Apply(version)
+            PlanOutcome::Apply(revision)
         }
     }
 
@@ -432,18 +432,18 @@ impl Model {
         if !matches!(entry.state, State::ResolveQueued) {
             return PlanOutcome::Stale;
         }
-        let version = self.replace_state(id, State::ResolveLeased);
+        let revision = self.replace_state(id, State::ResolveLeased);
         self.refresh_and_assert();
         PlanOutcome::Apply(Lease {
             id,
-            version,
+            revision,
             stage: StateTag::ResolveLeased,
         })
     }
 
-    fn complete_resolve(&mut self, lease: Lease, result: ResolveResult) -> PlanOutcome<Version> {
+    fn complete_resolve(&mut self, lease: Lease, result: ResolveResult) -> PlanOutcome<Revision> {
         if self.entries.get(&lease.id).is_none_or(|entry| {
-            entry.version != lease.version || entry.state.tag() != StateTag::ResolveLeased
+            entry.revision != lease.revision || entry.state.tag() != StateTag::ResolveLeased
         }) {
             return PlanOutcome::Stale;
         }
@@ -492,23 +492,23 @@ impl Model {
             return PlanOutcome::Stale;
         };
         let dependencies = dependencies.clone();
-        let version = self.replace_state(id, State::VerifyLeased { dependencies });
+        let revision = self.replace_state(id, State::VerifyLeased { dependencies });
         self.refresh_and_assert();
         PlanOutcome::Apply(Lease {
             id,
-            version,
+            revision,
             stage: StateTag::VerifyLeased,
         })
     }
 
-    fn complete_verify(&mut self, lease: Lease, result: VerifyResult) -> PlanOutcome<Version> {
+    fn complete_verify(&mut self, lease: Lease, result: VerifyResult) -> PlanOutcome<Revision> {
         let Some(entry) = self.entries.get(&lease.id) else {
             return PlanOutcome::Stale;
         };
         let State::VerifyLeased { dependencies } = &entry.state else {
             return PlanOutcome::Stale;
         };
-        if entry.version != lease.version || lease.stage != StateTag::VerifyLeased {
+        if entry.revision != lease.revision || lease.stage != StateTag::VerifyLeased {
             return PlanOutcome::Stale;
         }
         let dependencies = dependencies.clone();
@@ -543,14 +543,14 @@ impl Model {
         self.complete_state(lease.id, state)
     }
 
-    fn accept_ready(&mut self, id: TxId, version: Version) -> PlanOutcome<()> {
+    fn accept_ready(&mut self, id: TxId, revision: Revision) -> PlanOutcome<()> {
         let Some(entry) = self.entries.get(&id) else {
             return PlanOutcome::Stale;
         };
         let Some(rank) = entry.ready_key(id) else {
             return PlanOutcome::Stale;
         };
-        if entry.version != version {
+        if entry.revision != revision {
             return PlanOutcome::Stale;
         }
         let State::Ready { inputs, .. } = &entry.state else {
@@ -715,11 +715,11 @@ fn target_model_wait_wake_and_ready_conflict_use_recomputed_views() {
     let winner = model.derived.ready.last().unwrap();
     assert_eq!(winner.id, 2);
     assert_eq!(
-        model.accept_ready(1, model.entries[&1].version),
+        model.accept_ready(1, model.entries[&1].revision),
         PlanOutcome::Stale
     );
     assert_eq!(
-        model.accept_ready(2, model.entries[&2].version),
+        model.accept_ready(2, model.entries[&2].revision),
         PlanOutcome::Apply(())
     );
     assert_eq!(model.accepted, BTreeSet::from([2]));
@@ -776,7 +776,7 @@ fn target_model_generated_commands_preserve_partition_lease_budget_and_indexes()
             }
             5 if !model.derived.ready.is_empty() => {
                 let key = *model.derived.ready.last().unwrap();
-                let _ = model.accept_ready(key.id, key.version);
+                let _ = model.accept_ready(key.id, key.revision);
             }
             6 => {
                 let _ = model.wake(rng.gen_range(0..32));
@@ -805,7 +805,7 @@ fn target_model_generated_commands_preserve_partition_lease_budget_and_indexes()
                 let id = *model.entries.keys().next().unwrap();
                 let stale = Lease {
                     id,
-                    version: 0,
+                    revision: 0,
                     stage: StateTag::ResolveLeased,
                 };
                 assert_eq!(

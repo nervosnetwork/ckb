@@ -1,7 +1,7 @@
 use super::lifecycle::{MutationSet, PreparedKernelMutation};
 use super::*;
 
-type CommitHandoffDesired = (MutationSet, EntryVersion);
+type CommitHandoffDesired = (MutationSet, EntryRevision);
 
 /// Optional accepted-victim history carried into one admission handoff.
 ///
@@ -119,7 +119,7 @@ impl PrePoolKernel {
     fn conflict_retention_entry(
         &self,
         retention: ConflictRetention,
-        version_cursor: &mut EntryVersion,
+        revision_cursor: &mut EntryRevision,
         arrival_cursor: &mut Arrival,
     ) -> Result<StoredEntry, PrePoolError> {
         let ConflictRetention {
@@ -143,7 +143,7 @@ impl PrePoolKernel {
             .into_iter()
             .map(DependencyKey::into_compact)
             .collect::<BTreeSet<_>>();
-        let version = EntryVersion::take(version_cursor)?;
+        let revision = EntryRevision::take(revision_cursor)?;
         let arrival = Arrival::take(arrival_cursor)?;
         let mut dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty());
         dependencies.extend(keys.iter().cloned());
@@ -155,7 +155,7 @@ impl PrePoolKernel {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys)?,
             }),
-            version,
+            revision,
             arrival,
             expires_at,
             payload_charge_bytes,
@@ -170,11 +170,12 @@ impl PrePoolKernel {
         &self,
         desired: &mut MutationSet,
         history: Vec<ConflictRetention>,
-        version_cursor: &mut EntryVersion,
+        revision_cursor: &mut EntryRevision,
         arrival_cursor: &mut Arrival,
     ) -> Result<(), PrePoolError> {
         for retention in history {
-            let entry = self.conflict_retention_entry(retention, version_cursor, arrival_cursor)?;
+            let entry =
+                self.conflict_retention_entry(retention, revision_cursor, arrival_cursor)?;
             desired.try_add_entry(entry)?;
         }
         Ok(())
@@ -200,9 +201,9 @@ impl PrePoolKernel {
                 .collect::<HashSet<_>>()
         });
         let unavailable = terminal_unavailable.as_ref().unwrap_or(unavailable_parents);
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         let mut desired = MutationSet::default();
-        for (_, entry) in self.unavailable_replacements(unavailable, &mut version_cursor)? {
+        for (_, entry) in self.unavailable_replacements(unavailable, &mut revision_cursor)? {
             desired.set_entry(entry);
         }
         for hash in losers {
@@ -217,9 +218,9 @@ impl PrePoolKernel {
                 continue;
             };
             let keys = Self::causal_keys(&entry);
-            let version = EntryVersion::take(&mut version_cursor)?;
+            let revision = EntryRevision::take(&mut revision_cursor)?;
             let mut next = entry.into_draft();
-            next.version = version;
+            next.revision = revision;
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys)?,
@@ -228,7 +229,7 @@ impl PrePoolKernel {
             desired.set_entry(next);
         }
         desired.set_remove(winner.clone());
-        Ok((desired, version_cursor))
+        Ok((desired, revision_cursor))
     }
 
     pub(crate) fn begin_next_commit(
@@ -269,7 +270,7 @@ impl PrePoolKernel {
     ) -> Result<&StoredEntry, PrePoolError> {
         let entry = self.validate_location(
             &candidate.rank.hash,
-            candidate.rank.version,
+            candidate.rank.revision,
             PrePoolLocation::Ready,
         )?;
         if !matches!(entry.state, EntryState::Ready { .. }) {
@@ -278,10 +279,10 @@ impl PrePoolKernel {
             ));
         }
         if entry.ready_key(&candidate.rank.hash).as_ref() != Some(&candidate.rank) {
-            return Err(PrePoolError::stale(
+            return Err(PrePoolError::revision_mismatch(
                 candidate.rank.hash.clone(),
-                candidate.rank.version,
-                entry.version,
+                candidate.rank.revision,
+                entry.revision,
             ));
         }
         Ok(entry)
@@ -297,13 +298,13 @@ impl PrePoolKernel {
         )?;
         let parents = HashSet::from([candidate.rank.hash.clone()]);
         let dependency_changes = self.dependency_keys_for_parents(&parents);
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         let mut desired = MutationSet::default();
-        for (_, entry) in self.unavailable_replacements(&parents, &mut version_cursor)? {
+        for (_, entry) in self.unavailable_replacements(&parents, &mut revision_cursor)? {
             desired.set_entry(entry);
         }
         desired.set_remove(candidate.rank.hash.clone());
-        let cohort = self.compile_cohort(desired, version_cursor, self.next_arrival)?;
+        let cohort = self.compile_cohort(desired, revision_cursor, self.next_arrival)?;
         let prepared = self.seal_cohort(cohort, dependency_changes)?;
         Ok(FailedCommitPlan { prepared, record })
     }
@@ -322,8 +323,8 @@ impl PrePoolKernel {
         if disposition.retains() {
             let keys = Self::causal_keys(entry);
             let mut next = entry.clone().into_draft();
-            let mut next_version = self.next_version;
-            next.version = EntryVersion::take(&mut next_version)?;
+            let mut next_revision = self.next_revision;
+            next.revision = EntryRevision::take(&mut next_revision)?;
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys)?,
@@ -331,7 +332,7 @@ impl PrePoolKernel {
             let next = StoredEntry::prepare(next, self.limits)?;
             let mut desired = MutationSet::default();
             desired.set_entry(next);
-            match self.compile_cohort(desired, next_version, self.next_arrival) {
+            match self.compile_cohort(desired, next_revision, self.next_arrival) {
                 Ok(cohort) => {
                     let prepared = self.seal_cohort(cohort, std::iter::empty())?;
                     return Ok(FailedCommitPlan { prepared, record });
@@ -402,34 +403,34 @@ impl PrePoolKernel {
             });
         }
 
-        let (desired, version_cursor) = self.commit_handoff_desired(
+        let (desired, revision_cursor) = self.commit_handoff_desired(
             unavailable_parents,
             &losers,
             &candidate.rank.hash,
             ConflictDisposition::Retain,
         )?;
         let mut optional = desired;
-        let mut optional_version = version_cursor;
+        let mut optional_revision = revision_cursor;
         let mut optional_arrival = self.next_arrival;
         let (cohort, terminalized_losers) = match self
             .extend_optional_history(
                 &mut optional,
                 history,
-                &mut optional_version,
+                &mut optional_revision,
                 &mut optional_arrival,
             )
-            .and_then(|()| self.compile_cohort(optional, optional_version, optional_arrival))
+            .and_then(|()| self.compile_cohort(optional, optional_revision, optional_arrival))
         {
             Ok(cohort) => (cohort, false),
             Err(error) if error.is_optional_retention_rejection() => {
-                let (fallback, fallback_version) = self.commit_handoff_desired(
+                let (fallback, fallback_revision) = self.commit_handoff_desired(
                     unavailable_parents,
                     &losers,
                     &candidate.rank.hash,
                     ConflictDisposition::Terminalize,
                 )?;
                 (
-                    self.compile_cohort(fallback, fallback_version, self.next_arrival)?,
+                    self.compile_cohort(fallback, fallback_revision, self.next_arrival)?,
                     true,
                 )
             }
@@ -469,9 +470,11 @@ impl PrePoolKernel {
             .iter()
             .filter_map(|hash| self.terminal_record(hash))
             .collect();
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         let mut desired = MutationSet::default();
-        for (_, entry) in self.unavailable_replacements(unavailable_parents, &mut version_cursor)? {
+        for (_, entry) in
+            self.unavailable_replacements(unavailable_parents, &mut revision_cursor)?
+        {
             desired.set_entry(entry);
         }
         for hash in hashes {
@@ -479,20 +482,20 @@ impl PrePoolKernel {
         }
         let fallback = desired.clone();
         let mut optional = desired;
-        let mut optional_version = version_cursor;
+        let mut optional_revision = revision_cursor;
         let mut optional_arrival = self.next_arrival;
         let cohort = match self
             .extend_optional_history(
                 &mut optional,
                 history,
-                &mut optional_version,
+                &mut optional_revision,
                 &mut optional_arrival,
             )
-            .and_then(|()| self.compile_cohort(optional, optional_version, optional_arrival))
+            .and_then(|()| self.compile_cohort(optional, optional_revision, optional_arrival))
         {
             Ok(cohort) => cohort,
             Err(error) if error.is_optional_retention_rejection() => {
-                self.compile_cohort(fallback, version_cursor, self.next_arrival)?
+                self.compile_cohort(fallback, revision_cursor, self.next_arrival)?
             }
             Err(error) => return Err(error),
         };

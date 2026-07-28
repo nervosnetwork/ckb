@@ -16,10 +16,11 @@
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/service/workers.rs"
       ],
-      "required_behavior": "An admitted transaction has one full-hash PrePoolKernel entry, one of the frozen six locations and one globally non-reused version until an atomic handoff transfers sole authority to TxPool.",
+      "required_behavior": "An admitted transaction has one full-hash PrePoolKernel entry, one of the frozen six locations and one globally non-reused revision for its exact primary state and derived indexes until an atomic handoff transfers sole authority to TxPool. Resolve and Verify settlement accept only their corresponding typed lease; callers cannot construct a raw revision/location pair.",
       "hostile_case": "A stale worker, duplicate admission, failed transition or ABA remove/readmit race must not create two owners, resurrect an old payload or silently erase the current owner.",
       "reviewer_questions": [
         "Does every transition consume exactly the state and lease it proves current?",
+        "Can any worker settlement accept a caller-assembled hash/revision/location tuple instead of a typed ResolveLease or VerifyLease?",
         "Are every queue, deadline, dependency and conflict structure derived indexes rather than payload owners?",
         "Does failure restore the old owner or publish one explicit terminal outcome?"
       ],
@@ -34,7 +35,7 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/pool.rs"
       ],
-      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching versioned kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
+      "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching revision-bound kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
       "hostile_case": "Concurrent commits, stale leases, rejected RBF, capacity failure, accepted-duplicate acknowledgement racing clear/reorg, or a structural defect must not expose a pool/kernel ownership gap, strand Ready work, or publish success for an absent/unapplied owner.",
       "reviewer_questions": [
         "Is every final fee/conflict decision recomputed under the pool write guard?",
@@ -170,12 +171,12 @@
         "sync/src/relayer/mod.rs",
         "sync/src/types/mod.rs"
       ],
-      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. Immutable ingress attribution survives trusted source promotion, and VerifyLeased-to-Ready binds the current scheduling source inside the same versioned transition instead of publishing a separately sampled worker value. The ban marker is expiring but cannot evict an unexpired revocation fence, post-admission checks remove already queued ingress and the non-copyable Ready commit session rechecks the same fence before Accepted planning while exclusively borrowing kernel authority through Plan/Apply. Banning that ingress therefore removes every matching owner that is still in PrePool in bounded slices, but never rolls back an Accepted transaction whose commit linearized first. A matching Reject releases both relayer known and pending projections so the same valid transaction can be requested from another peer. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
+      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. Immutable ingress attribution survives trusted source promotion, and VerifyLeased-to-Ready binds the current scheduling source inside the same revision transition instead of publishing a separately sampled worker value. The ban marker is expiring but cannot evict an unexpired revocation fence, post-admission checks remove already queued ingress and the non-copyable Ready commit session rechecks the same fence before Accepted planning while exclusively borrowing kernel authority through Plan/Apply. Banning that ingress therefore removes every matching owner that is still in PrePool in bounded slices, but never rolls back an Accepted transaction whose commit linearized first. A matching Reject releases both relayer known and pending projections so the same valid transaction can be requested from another peer. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
       "hostile_case": "An already queued, active, Ready or source-promoted malicious-peer transaction must not cross a concurrent ban into Accepted, escape revocation, pin an active slot, retain a budget/index/lease ghost, resurrect through a late lease, remain permanently pinned in the relayer known filter or turn a typed malformed input into fail-stop or an ineligible relay reject.",
       "reviewer_questions": [
         "Does administrative removal make every outstanding lease stale atomically?",
         "Are mutable scheduling source and immutable ingress attribution modeled separately, with every derived index and budget cleaned from the authoritative removal plan?",
-        "Does VerifyLeased-to-Ready derive its scheduling source inside the same versioned kernel transition, without a check-then-publish read?",
+        "Does VerifyLeased-to-Ready derive its scheduling source inside the same revision transition, without a check-then-publish read?",
         "Does Ready selection return a non-copyable session whose exclusive kernel borrow survives until accepted or rejected Plan/Apply?",
         "Do both sides of the admission race recheck the same non-evicting ban marker: immediately after new ownership and in the final Ready Plan before Accepted Apply?",
         "Does the cross-crate Reject projection make the same transaction requestable from another peer while leaving Accepted state untouched?",

@@ -10,14 +10,11 @@ impl PrePoolKernel {
     /// Preserve a rejected leased/ready owner as conflict history without an
     /// observable remove/re-admit gap. The same checked replacement accounts
     /// the conflict-history quota before changing any primary/index state.
-    pub(crate) fn park_conflict_at(
-        &mut self,
-        hash: &Byte32,
-        version: EntryVersion,
-        expected: PrePoolLocation,
-    ) -> Result<TerminalRecord, PrePoolError> {
+    fn park_validated_conflict(&mut self, hash: &Byte32) -> Result<TerminalRecord, PrePoolError> {
         let (keys, record) = {
-            let old = self.validate_location(hash, version, expected)?;
+            let old = self.entries.get(hash).ok_or_else(|| {
+                PrePoolError::ProjectionInconsistent("validated lease lost its primary")
+            })?;
             (
                 Self::causal_keys(old),
                 TerminalRecord {
@@ -34,17 +31,31 @@ impl PrePoolKernel {
     /// Conflict history is optional armor, not an executable prerequisite.
     /// A full history partition deterministically terminalizes the rejected
     /// owner; only a structural defect may escape this boundary.
-    pub(crate) fn park_conflict_or_terminalize(
+    pub(crate) fn park_resolve_conflict_or_terminalize(
         &mut self,
-        hash: &Byte32,
-        version: EntryVersion,
-        expected: PrePoolLocation,
+        lease: &ResolveLease,
     ) -> Result<TerminalRecord, PrePoolError> {
-        match self.park_conflict_at(hash, version, expected) {
+        self.validate_resolve_lease(lease)?;
+        match self.park_validated_conflict(&lease.hash) {
             Ok(record) => Ok(record),
             Err(error) if error.is_capacity_rejection() => {
-                self.validate_location(hash, version, expected)?;
-                self.remove_unavailable_entry(hash)
+                self.validate_resolve_lease(lease)?;
+                self.remove_unavailable_entry(&lease.hash)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(crate) fn park_verify_conflict_or_terminalize(
+        &mut self,
+        lease: &VerifyLease,
+    ) -> Result<TerminalRecord, PrePoolError> {
+        self.validate_verify_lease(lease)?;
+        match self.park_validated_conflict(&lease.hash) {
+            Ok(record) => Ok(record),
+            Err(error) if error.is_capacity_rejection() => {
+                self.validate_verify_lease(lease)?;
+                self.remove_unavailable_entry(&lease.hash)
             }
             Err(error) => Err(error),
         }
@@ -70,7 +81,7 @@ impl PrePoolKernel {
         reason: WaitReason,
         keys: BTreeSet<DependencyKey>,
         charge_bytes: Option<usize>,
-    ) -> Result<EntryVersion, PrePoolError> {
+    ) -> Result<(), PrePoolError> {
         let keys = keys
             .into_iter()
             .map(DependencyKey::into_compact)
@@ -81,8 +92,8 @@ impl PrePoolKernel {
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
             .into_draft();
-        let mut version_cursor = self.next_version;
-        next.version = EntryVersion::take(&mut version_cursor)?;
+        let mut revision_cursor = self.next_revision;
+        next.revision = EntryRevision::take(&mut revision_cursor)?;
         next.dependencies.extend(keys.iter().cloned());
         if let Some(charge_bytes) = charge_bytes {
             next.payload_charge_bytes = charge_bytes;
@@ -91,47 +102,42 @@ impl PrePoolKernel {
             reason,
             observed: self.observed_dependencies(keys)?,
         });
-        let version = next.version;
         self.replace_entry(
             hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             super::lifecycle::ReplacementMode::Ordinary,
         )?;
-        Ok(version)
+        Ok(())
     }
 
     pub(super) fn move_to_resolve(
         &mut self,
         hash: &Byte32,
         lane: ResolveLane,
-    ) -> Result<EntryVersion, PrePoolError> {
+    ) -> Result<(), PrePoolError> {
         let mut next = self
             .entries
             .get(hash)
             .cloned()
             .ok_or_else(|| PrePoolError::Missing(hash.clone()))?
             .into_draft();
-        let mut version_cursor = self.next_version;
-        next.version = EntryVersion::take(&mut version_cursor)?;
+        let mut revision_cursor = self.next_revision;
+        next.revision = EntryRevision::take(&mut revision_cursor)?;
         next.state = EntryState::ResolveQueued { lane };
-        let version = next.version;
         self.replace_entry(
             hash,
             next,
-            version_cursor,
+            revision_cursor,
             self.next_arrival,
             super::lifecycle::ReplacementMode::Ordinary,
         )?;
-        Ok(version)
+        Ok(())
     }
 
-    pub(crate) fn requeue_resolve(
-        &mut self,
-        lease: &ResolveLease,
-    ) -> Result<EntryVersion, PrePoolError> {
-        self.validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?;
+    pub(crate) fn requeue_resolve(&mut self, lease: &ResolveLease) -> Result<(), PrePoolError> {
+        self.validate_resolve_lease(lease)?;
         self.move_to_resolve(&lease.hash, lease.lane)
     }
 
@@ -139,8 +145,8 @@ impl PrePoolKernel {
         &mut self,
         lease: &ResolveLease,
         keys: BTreeSet<DependencyKey>,
-    ) -> Result<EntryVersion, PrePoolError> {
-        self.validate_location(&lease.hash, lease.version, PrePoolLocation::ResolveLeased)?;
+    ) -> Result<(), PrePoolError> {
+        self.validate_resolve_lease(lease)?;
         self.move_to_wait(&lease.hash, WaitReason::Missing, keys, None)
     }
 
@@ -148,16 +154,13 @@ impl PrePoolKernel {
         &mut self,
         lease: &VerifyLease,
         keys: BTreeSet<DependencyKey>,
-    ) -> Result<(EntryVersion, PrePoolSource), PrePoolError> {
-        let source = self
-            .validate_location(&lease.hash, lease.version, PrePoolLocation::VerifyLeased)?
-            .source;
-        let version = if keys.is_empty() {
-            self.move_to_resolve(&lease.hash, ResolveLane::Ordered)?
+    ) -> Result<(), PrePoolError> {
+        self.validate_verify_lease(lease)?;
+        if keys.is_empty() {
+            self.move_to_resolve(&lease.hash, ResolveLane::Ordered)
         } else {
-            self.move_to_wait(&lease.hash, WaitReason::Missing, keys, None)?
-        };
-        Ok((version, source))
+            self.move_to_wait(&lease.hash, WaitReason::Missing, keys, None)
+        }
     }
 
     /// Return the exact dependency levels observed by consumers of `parents`.
@@ -295,7 +298,7 @@ impl PrePoolKernel {
                 .checked_add(1)
                 .ok_or(PrePoolError::CounterExhausted)?;
             let should_wake = self.entries.get(&edge.hash).is_some_and(|entry| {
-                entry.version == edge.version
+                entry.revision == edge.revision
                     && match &entry.state {
                         EntryState::Wait(wait) => wait
                             .observed
@@ -309,15 +312,15 @@ impl PrePoolKernel {
                     PrePoolError::ProjectionInconsistent("wake edge lost its validated primary"),
                 )?;
                 let mut next = old.into_draft();
-                let mut next_version = self.next_version;
-                next.version = EntryVersion::take(&mut next_version)?;
+                let mut next_revision = self.next_revision;
+                next.revision = EntryRevision::take(&mut next_revision)?;
                 next.state = EntryState::ResolveQueued {
                     lane: ResolveLane::Ordered,
                 };
                 match self.replace_entry(
                     &edge.hash,
                     next,
-                    next_version,
+                    next_revision,
                     self.next_arrival,
                     super::lifecycle::ReplacementMode::Ordinary,
                 ) {
@@ -347,7 +350,7 @@ impl PrePoolKernel {
     pub(super) fn unavailable_replacements(
         &self,
         parents: &HashSet<Byte32>,
-        version_cursor: &mut EntryVersion,
+        revision_cursor: &mut EntryRevision,
     ) -> Result<Vec<(Byte32, StoredEntry)>, PrePoolError> {
         let mut affected = BTreeSet::new();
         for parent in parents {
@@ -372,9 +375,9 @@ impl PrePoolKernel {
             if let EntryState::Wait(wait) = &entry.state {
                 keys.extend(wait.observed.keys().cloned());
             }
-            let version = EntryVersion::take(version_cursor)?;
+            let revision = EntryRevision::take(revision_cursor)?;
             let mut next = entry.into_draft();
-            next.version = version;
+            next.revision = revision;
             next.dependencies.extend(keys.iter().cloned());
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Missing,
@@ -397,12 +400,14 @@ impl PrePoolKernel {
     ) -> Result<PreparedKernelMutation<'_>, PrePoolError> {
         let mut changed_keys = self.dependency_keys_for_parents(unavailable_parents);
         changed_keys.extend(available);
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         let mut desired = MutationSet::default();
-        for (_, entry) in self.unavailable_replacements(unavailable_parents, &mut version_cursor)? {
+        for (_, entry) in
+            self.unavailable_replacements(unavailable_parents, &mut revision_cursor)?
+        {
             desired.set_entry(entry);
         }
-        self.prepare_cohort(desired, version_cursor, self.next_arrival, changed_keys)
+        self.prepare_cohort(desired, revision_cursor, self.next_arrival, changed_keys)
     }
 
     pub(crate) fn retain_conflict(
@@ -433,8 +438,8 @@ impl PrePoolKernel {
                 next.raw = Arc::new(raw);
                 next.expires_at = None;
             }
-            let mut version_cursor = self.next_version;
-            next.version = EntryVersion::take(&mut version_cursor)?;
+            let mut revision_cursor = self.next_revision;
+            next.revision = EntryRevision::take(&mut revision_cursor)?;
             next.dependencies.extend(keys.iter().cloned());
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
@@ -443,7 +448,7 @@ impl PrePoolKernel {
             self.replace_entry(
                 &hash,
                 next,
-                version_cursor,
+                revision_cursor,
                 self.next_arrival,
                 super::lifecycle::ReplacementMode::Ordinary,
             )?;
@@ -457,8 +462,8 @@ impl PrePoolKernel {
                 existing_hash.clone(),
             ));
         }
-        let mut version_cursor = self.next_version;
-        let version = EntryVersion::take(&mut version_cursor)?;
+        let mut revision_cursor = self.next_revision;
+        let revision = EntryRevision::take(&mut revision_cursor)?;
         let mut arrival_cursor = self.next_arrival;
         let arrival = Arrival::take(&mut arrival_cursor)?;
         let mut dependencies = conflict_dependency_keys(&raw.tx, std::iter::empty());
@@ -471,7 +476,7 @@ impl PrePoolKernel {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys)?,
             }),
-            version,
+            revision,
             arrival,
             expires_at,
             payload_charge_bytes,
@@ -488,7 +493,7 @@ impl PrePoolKernel {
         for (lane, len) in queue_lengths.into_entries() {
             self.queues.get_mut(lane).set_len(len);
         }
-        self.next_version = version_cursor;
+        self.next_revision = revision_cursor;
         self.next_arrival = arrival_cursor;
         Ok((true, Vec::new()))
     }

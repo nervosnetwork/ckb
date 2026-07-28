@@ -8,7 +8,6 @@ pub(crate) struct PrePoolView {
     pub(crate) location: PrePoolLocation,
     pub(crate) source: PrePoolSource,
     pub(crate) dependencies: BTreeSet<Byte32>,
-    pub(crate) version: EntryVersion,
     pub(crate) charge_bytes: usize,
 }
 
@@ -22,7 +21,6 @@ impl PrePoolKernel {
                 .iter()
                 .map(DependencyKey::parent_hash)
                 .collect(),
-            version: entry.version,
             charge_bytes: entry.charge_bytes(),
         })
     }
@@ -151,7 +149,7 @@ impl PrePoolKernel {
         resolved: ResolvedTx,
         charge_bytes: usize,
         schedule: VerifySchedule,
-    ) -> Result<EntryVersion, PrePoolError> {
+    ) -> Result<(), PrePoolError> {
         self.complete_resolve(lease, resolved, charge_bytes, schedule, BTreeSet::new())
     }
 
@@ -170,8 +168,8 @@ impl PrePoolKernel {
         let mut peer_usage = HashMap::<_, Residency>::new();
         let mut active_work = 0usize;
         let mut active_by_owner = HashMap::<WorkOwner, usize>::new();
-        let mut versions = HashSet::new();
-        let mut max_version = None::<EntryVersion>;
+        let mut revisions = HashSet::new();
+        let mut max_revision = None::<EntryRevision>;
         let mut max_arrival = None::<Arrival>;
 
         for (hash, entry) in &self.entries {
@@ -189,10 +187,11 @@ impl PrePoolKernel {
             if entry.charge_bytes() != self.independently_expected_charge(entry)? {
                 return Err("entry charge is not a closed projection of primary state".to_string());
             }
-            if !versions.insert(entry.version) {
-                return Err("live entries share a global version".to_string());
+            if !revisions.insert(entry.revision) {
+                return Err("live entries share a global revision".to_string());
             }
-            max_version = Some(max_version.map_or(entry.version, |value| value.max(entry.version)));
+            max_revision =
+                Some(max_revision.map_or(entry.revision, |value| value.max(entry.revision)));
             max_arrival = Some(max_arrival.map_or(entry.arrival, |value| value.max(entry.arrival)));
             if by_short_id.insert(entry.short_id(), hash.clone()).is_some() {
                 return Err("two full hashes occupy one short-id slot".to_string());
@@ -222,7 +221,7 @@ impl PrePoolKernel {
             if let EntryState::Wait(wait) = &entry.state {
                 let edge = WaitEdge {
                     hash: hash.clone(),
-                    version: entry.version,
+                    revision: entry.revision,
                 };
                 for key in wait.observed.keys() {
                     waiters.entry(key.clone()).or_default().insert(edge.clone());
@@ -230,7 +229,7 @@ impl PrePoolKernel {
             }
             if let EntryState::Ready { payload, inputs } = &entry.state {
                 let rank = entry.ready_key_for(hash, payload);
-                if rank.hash != *hash || rank.version != entry.version {
+                if rank.hash != *hash || rank.revision != entry.revision {
                     return Err("ready rank does not identify its primary owner".to_string());
                 }
                 ready.insert(rank.clone());
@@ -329,8 +328,8 @@ impl PrePoolKernel {
         }) {
             return Err("availability epoch outlives every waiter and dirty cursor".to_string());
         }
-        if max_version.is_some_and(|version| self.next_version <= version) {
-            return Err("next version can alias a live entry".to_string());
+        if max_revision.is_some_and(|revision| self.next_revision <= revision) {
+            return Err("next revision can alias a live entry".to_string());
         }
         if max_arrival.is_some_and(|arrival| self.next_arrival <= arrival) {
             return Err("next arrival can alias a live entry".to_string());

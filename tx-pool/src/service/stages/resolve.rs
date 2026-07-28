@@ -74,11 +74,7 @@ impl TxPoolService {
                     disposition,
                     crate::component::pre_pool::ConflictDisposition::Retain
                 ) {
-                    kernel.park_conflict_or_terminalize(
-                        &lease.hash,
-                        lease.version,
-                        crate::component::pre_pool::PrePoolLocation::ResolveLeased,
-                    )
+                    kernel.park_resolve_conflict_or_terminalize(lease)
                 } else {
                     kernel.terminalize_resolve(lease)
                 }
@@ -140,7 +136,7 @@ impl TxPoolService {
                         resolved_dependencies,
                     )
                 }) {
-                    Ok(_version) => {}
+                    Ok(()) => {}
                     Err(PrePoolError::Stale(_)) => {}
                     Err(PrePoolError::Public(error)) => {
                         let reject = crate::component::pre_pool::pre_pool_reject(error);

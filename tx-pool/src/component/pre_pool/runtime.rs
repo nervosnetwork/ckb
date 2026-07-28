@@ -418,12 +418,12 @@ impl PrePoolKernel {
         let mut prepared = PrePoolKernel {
             generation: PrePoolGeneration::new(),
             limits: self.limits,
-            next_version: self.next_version,
+            next_revision: self.next_revision,
             next_arrival: self.next_arrival,
         };
         let value = prepare(&mut prepared)?;
         let retired = std::mem::replace(&mut self.generation, prepared.generation);
-        self.next_version = prepared.next_version;
+        self.next_revision = prepared.next_revision;
         self.next_arrival = prepared.next_arrival;
         Ok((value, retired))
     }

@@ -36,12 +36,12 @@ flowchart TB
     end
 
     subgraph PrePool["Authority 1: PrePoolKernel"]
-        Primary["One full-hash primary entry<br/>one of six locations + version + charge"]
+        Primary["One full-hash primary entry<br/>one of six locations + revision + charge"]
         Indexes["Derived identity/accounting indexes<br/>queues, wait edges, deadlines, ready order"]
         Primary -. "derives" .-> Indexes
     end
 
-    Workers["Resolve / verify workers<br/>versioned borrow; no payload ownership"]
+    Workers["Resolve / verify workers<br/>typed revision-bound lease; no payload ownership"]
     Admission["AdmissionPlan<br/>read-only proof + single-use total Apply<br/>not an owner"]
 
     subgraph Accepted["Authority 2: TxPool"]
@@ -212,9 +212,9 @@ stateDiagram-v2
     end note
 ```
 
-Every worker completion must present the full hash, exact version and expected
-leased location. A stale arrow therefore becomes a typed no-op instead of an
-implicit state transition.
+Every worker completion must present the correct lease type, full hash and
+exact entry revision. A stale arrow therefore becomes a typed no-op instead of
+an implicit state transition; no caller can manufacture a raw location tag.
 
 The entry owns:
 
@@ -261,13 +261,14 @@ Derived projections own no transaction payload:
 | full transaction hash | primary ownership, accepted membership, lease owner |
 | witness hash (`wtx_hash`) | `TxVerificationCacheKey`; verification results cannot alias witness variants |
 | proposal short ID | collision-aware index and consensus proposal protocol only |
-| entry version (`u128`) | process-global, non-reused ABA token for leases and derived-index identities |
+| entry revision (`u128`) | process-global, non-reused identity for one exact primary state and its derived indexes |
 | pipeline epoch | administrative clear/reorg invalidation, not per-entry identity |
 
 A short-ID collision is backpressure/rejection, never proof of duplicate
 ownership. Cache accesses construct `TxVerificationCacheKey::from_transaction`.
-A stale completion must match full hash, exact version and expected location
-before it can mutate the primary.
+A stale completion must present the correct typed lease, full hash and exact
+revision before it can mutate the primary. Callers cannot supply a raw
+revision/location pair.
 
 ## 6. State transitions
 
@@ -277,12 +278,12 @@ The public transition family is closed:
 |---|---|---|
 | Nowhere | admit Remote/Proposal/Recovery | ResolveQueued |
 | retained location | trusted same-hash promotion | same semantic phase or ResolveQueued for a new trusted witness |
-| ResolveQueued | checkout exact queue head | ResolveLeased(new version) |
-| ResolveLeased | resolved | VerifyQueued(new version) |
+| ResolveQueued | checkout exact queue head | ResolveLeased(new revision) |
+| ResolveLeased | resolved | VerifyQueued(new revision) |
 | ResolveLeased | exact dependency unavailable | Wait(Missing/Conflict) |
 | Wait | all observed keys available | ResolveQueued |
-| VerifyQueued | checkout exact queue head | VerifyLeased(new version) |
-| VerifyLeased | verified and fee-gated | Ready(new version) |
+| VerifyQueued | checkout exact queue head | VerifyLeased(new revision) |
+| VerifyLeased | verified and fee-gated | Ready(new revision) |
 | VerifyLeased | snapshot/parent stale | ResolveQueued or Wait |
 | Ready | selected commit handoff | accepted or bounded Conflict wait/history |
 | any retained location | reject/remove/expiry/peer removal/clear | Nowhere |
@@ -327,10 +328,10 @@ Ready selection uses one total `ReadyKey`, strongest last:
 3. absolute fee;
 4. earlier arrival;
 5. smaller full hash;
-6. process-global entry version.
+6. process-global entry revision.
 
 The reverse comparisons for arrival/hash are intentional because the driver
-selects the greatest key. Version is globally unique, so a later transaction-
+selects the greatest key. Revision is globally unique, so a later transaction-
 size comparison would be unreachable rather than an additional ordering rule.
 There is deliberately no time-dependent aging: source and fee preference are
 stable, Remote residency remains deadline/budget bounded, and only bounded
@@ -344,14 +345,14 @@ without evidence that this explicit trade-off is unacceptable.
 
 `ReadyCommitSession<'_>` is a non-copyable capability that exclusively borrows
 the kernel from selection through accepted or rejected Plan/Apply. Its private
-candidate records the selected entry's hash, version, rank, payload and
+candidate records the selected entry's hash, revision, rank, payload and
 immutable ingress peer. While the session exists, Rust prevents expiry,
 verification publication or another commit selection from mutating the same
 authority; while a returned Plan exists, it reborrows the session until Apply
 or drop. Stale commit tickets are therefore not a runtime outcome.
 
 The session rechecks the immutable ingress peer captured from that exact Ready
-version. An expiring, non-evicting peer-ban marker is the revocation
+revision. An expiring, non-evicting peer-ban marker is the revocation
 linearization point: new remote admission rechecks it immediately after taking
 kernel ownership, and Ready planning rechecks it before building the Accepted
 mutation. Marker cardinality is coupled to the network's existing unexpired
@@ -436,7 +437,7 @@ sequenceDiagram
     alt Reject / Stale / Backpressure
         P-->>D: typed outcome; release guard; original state unchanged
     else accepted plan is complete
-        D->>K: acquire kernel and prepare exact versioned handoff
+        D->>K: acquire kernel and prepare exact revision-bound handoff
         D->>J: acquire innermost journal guard and test exact batch
         Note over P,J: Fixed nesting TxPool → PrePoolKernel → EffectJournal<br/>No await or foreign endpoint; bounded snapshot reads are Plan-only
         alt exact journal region is Full
@@ -641,7 +642,7 @@ Block assembler authority is intentionally asymmetric:
 Clear advances the administrative epoch, takes the accepted guard, swaps the
 entire pre-pool generation in O(1), installs a generation reset, releases the
 guard and only then destroys retired payloads. Stale workers cannot mutate the
-new generation because versions never repeat.
+new generation because entry revisions never repeat.
 
 Explicit save serializes accepted plus retained recovery-relevant transactions
 in dependency order. Graceful shutdown persists only after supervised state
@@ -792,7 +793,7 @@ A new stage or policy is acceptable only if it answers these questions:
 3. Can it be encoded inside an existing state payload/reason/source rather
    than a seventh location?
 4. What exact byte, entry, active and graph bounds apply before retention?
-5. What versioned command consumes it, and what are all legal outcomes?
+5. What typed revision-bound command consumes it, and what are all legal outcomes?
 6. Does it alter accepted membership? If so, where is immutable Plan and total
    Apply?
 7. Which stable effects must be appended with Apply?

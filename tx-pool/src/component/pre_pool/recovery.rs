@@ -23,7 +23,7 @@ impl PrePoolKernel {
             ));
         }
         let mut probe = Self::new(self.limits);
-        probe.next_version = self.next_version;
+        probe.next_revision = self.next_revision;
         probe.next_arrival = self.next_arrival;
         let mut selected = Vec::new();
         for tx in txs {
@@ -57,7 +57,7 @@ impl PrePoolKernel {
 
         let retained = txs.len();
         let mut hashes = HashSet::with_capacity(retained);
-        let mut version_cursor = self.next_version;
+        let mut revision_cursor = self.next_revision;
         let mut arrival_cursor = self.next_arrival;
         let mut planned = MutationSet::default();
         let mut planned_count = 0usize;
@@ -68,7 +68,7 @@ impl PrePoolKernel {
                 continue;
             }
             let old_arrival = self.entries.get(&hash).map(|old| old.arrival);
-            let version = EntryVersion::take(&mut version_cursor)?;
+            let revision = EntryRevision::take(&mut revision_cursor)?;
             let arrival = if let Some(arrival) = old_arrival {
                 arrival
             } else {
@@ -86,7 +86,7 @@ impl PrePoolKernel {
                 state: EntryState::ResolveQueued {
                     lane: ResolveLane::Ordered,
                 },
-                version,
+                revision,
                 arrival,
                 expires_at: None,
                 payload_charge_bytes,
@@ -99,7 +99,7 @@ impl PrePoolKernel {
                 .ok_or(PrePoolError::ResidencyChargeOverflow)?;
         }
         let prepared =
-            self.prepare_cohort(planned, version_cursor, arrival_cursor, std::iter::empty())?;
+            self.prepare_cohort(planned, revision_cursor, arrival_cursor, std::iter::empty())?;
         prepared.apply();
         Ok(planned_count)
     }

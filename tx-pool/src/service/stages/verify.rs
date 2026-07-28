@@ -63,11 +63,7 @@ impl TxPoolService {
                     disposition,
                     crate::component::pre_pool::ConflictDisposition::Retain
                 ) {
-                    kernel.park_conflict_or_terminalize(
-                        &lease.hash,
-                        lease.version,
-                        crate::component::pre_pool::PrePoolLocation::VerifyLeased,
-                    )
+                    kernel.park_verify_conflict_or_terminalize(lease)
                 } else {
                     kernel.terminalize_verify(lease)
                 }
@@ -107,7 +103,7 @@ impl TxPoolService {
             match self.pipeline.kernel.mutate_authoritative(|kernel| {
                 kernel.verification_retry_resolution(&lease, std::collections::BTreeSet::new())
             }) {
-                Ok(_) => {}
+                Ok(()) => {}
                 Err(error) if error.is_stale_lease() => {}
                 Err(error) => self.fail_tx_pool_generation(
                     "stale verify requeue invariant failed",
@@ -247,7 +243,7 @@ impl TxPoolService {
             // consumer, so verify tasks do not contend on the accepted-pool
             // write boundary merely to discover that another driver drained
             // the queue first.
-            Ok(_version) => {}
+            Ok(()) => {}
             Err(PrePoolError::Stale(_)) => {}
             Err(PrePoolError::Public(error)) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
