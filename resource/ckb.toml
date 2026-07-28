@@ -33,6 +33,9 @@ log_to_file = true # {{
 log_to_stdout = true # {{
 # _ => log_to_stdout = {log_to_stdout}
 # }}
+# Split run.log into time-windowed files. Possible values: "never", "hourly", "daily".
+# When set to "hourly", files are named like run.2026-03-10-20.log (UTC).
+log_file_split = "never"
 
 [sentry]
 # set to blank to disable sentry error collection

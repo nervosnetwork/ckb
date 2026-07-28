@@ -42,6 +42,9 @@ pub struct Config {
     /// Output the log records of the main logger into the stdout or not.
     #[serde(default = "default_values::log_to_stdout")]
     pub log_to_stdout: bool,
+    /// Split the log file of the main logger by a time window.
+    #[serde(default)]
+    pub log_file_split: LogFileSplit,
     /// An optional bool to control whether or not emit [Sentry Breadcrumbs].
     ///
     /// if the value is `None`, not emit [Sentry Breadcrumbs].
@@ -51,6 +54,26 @@ pub struct Config {
     /// Add extra loggers.
     #[serde(default)]
     pub extra: HashMap<String, ExtraLoggerConfig>,
+}
+
+/// The splitting strategy for the main log file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogFileSplit {
+    /// Keep writing all records into the configured log file.
+    #[default]
+    Never,
+    /// Write records into one log file per UTC hour.
+    Hourly,
+    /// Write records into one log file per UTC day.
+    Daily,
+}
+
+impl LogFileSplit {
+    /// Returns whether this strategy writes to split files.
+    pub const fn is_enabled(self) -> bool {
+        !matches!(self, LogFileSplit::Never)
+    }
 }
 
 /// The configuration of an extra CKB logger.
@@ -75,6 +98,7 @@ impl Default for Config {
             log_dir: Default::default(),
             log_to_file: default_values::log_to_file(),
             log_to_stdout: default_values::log_to_stdout(),
+            log_file_split: LogFileSplit::default(),
             emit_sentry_breadcrumbs: None,
             extra: Default::default(),
         }

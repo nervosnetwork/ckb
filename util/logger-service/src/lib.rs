@@ -7,6 +7,7 @@ use env_logger::filter::{Builder, Filter};
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
 use regex::Regex;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -16,7 +17,7 @@ use time::{
     format_description::{self, FormatItem},
 };
 
-use ckb_logger_config::Config;
+use ckb_logger_config::{Config, LogFileSplit};
 use ckb_util::{Mutex, RwLock, strings};
 use yansi::Paint;
 
@@ -36,6 +37,7 @@ enum Message {
         target: String,
         date: String,
         original_message: String,
+        timestamp: OffsetDateTime,
     },
     UpdateMainLogger {
         filter: Option<Filter>,
@@ -64,7 +66,9 @@ pub struct Logger {
 
 struct MainLogger {
     file_path: PathBuf,
+    current_file_path: PathBuf,
     file: Option<fs::File>,
+    file_split: LogFileSplit,
     to_stdout: bool,
     to_file: bool,
     color: bool,
@@ -125,12 +129,15 @@ impl Logger {
             log_dir,
             log_to_file,
             log_to_stdout,
+            log_file_split,
             ..
         } = config;
         let mut main_logger = {
             let file_path = log_dir.join(file);
+            let current_file_path =
+                Self::log_file_path(&file_path, log_file_split, OffsetDateTime::now_utc());
             let file = if log_to_file {
-                match Self::open_log_file(&file_path) {
+                match Self::open_log_file(&current_file_path) {
                     Err(err) => {
                         eprintln!("Error: {err}");
                         process::exit(1);
@@ -142,7 +149,9 @@ impl Logger {
             };
             MainLogger {
                 file_path,
+                current_file_path,
                 file,
+                file_split: log_file_split,
                 to_stdout: log_to_stdout,
                 to_file: log_to_file,
                 color,
@@ -206,6 +215,7 @@ impl Logger {
                             target,
                             date,
                             original_message,
+                            timestamp,
                         }) => {
                             let removed_color = if (is_match
                                 && (!main_logger.color || main_logger.to_file))
@@ -232,11 +242,22 @@ impl Logger {
                                     };
                                     println!("{output}");
                                 }
-                                if main_logger.to_file
-                                    && let Some(mut file) = main_logger.file.as_ref()
-                                {
-                                    let _ = file.write_all(removed_color.as_bytes());
-                                    let _ = file.write_all(b"\n");
+                                if main_logger.to_file {
+                                    let file_path = Self::log_file_path(
+                                        &main_logger.file_path,
+                                        main_logger.file_split,
+                                        timestamp,
+                                    );
+                                    if file_path != main_logger.current_file_path
+                                        || main_logger.file.is_none()
+                                    {
+                                        main_logger.file = Self::open_log_file(&file_path).ok();
+                                        main_logger.current_file_path = file_path;
+                                    }
+                                    if let Some(mut file) = main_logger.file.as_ref() {
+                                        let _ = file.write_all(removed_color.as_bytes());
+                                        let _ = file.write_all(b"\n");
+                                    }
                                 };
                             }
                             for name in extras {
@@ -263,8 +284,13 @@ impl Logger {
                                 main_logger.to_file = to_file;
                                 if main_logger.to_file {
                                     if main_logger.file.is_none() {
-                                        main_logger.file =
-                                            Self::open_log_file(&main_logger.file_path).ok();
+                                        let file_path = Self::log_file_path(
+                                            &main_logger.file_path,
+                                            main_logger.file_split,
+                                            OffsetDateTime::now_utc(),
+                                        );
+                                        main_logger.file = Self::open_log_file(&file_path).ok();
+                                        main_logger.current_file_path = file_path;
                                     }
                                 } else {
                                     main_logger.file = None;
@@ -323,6 +349,50 @@ impl Logger {
                     err
                 )
             })
+    }
+
+    fn log_file_path(
+        file_path: &Path,
+        log_file_split: LogFileSplit,
+        timestamp: OffsetDateTime,
+    ) -> PathBuf {
+        match log_file_split {
+            LogFileSplit::Never => file_path.to_path_buf(),
+            LogFileSplit::Hourly => {
+                let suffix = format!(
+                    "{:04}-{:02}-{:02}-{:02}",
+                    timestamp.year(),
+                    u8::from(timestamp.month()),
+                    timestamp.day(),
+                    timestamp.hour()
+                );
+                Self::with_log_file_suffix(file_path, &suffix)
+            }
+            LogFileSplit::Daily => {
+                let suffix = format!(
+                    "{:04}-{:02}-{:02}",
+                    timestamp.year(),
+                    u8::from(timestamp.month()),
+                    timestamp.day()
+                );
+                Self::with_log_file_suffix(file_path, &suffix)
+            }
+        }
+    }
+
+    fn with_log_file_suffix(file_path: &Path, suffix: &str) -> PathBuf {
+        let mut split_file_name = file_path
+            .file_stem()
+            .map(OsString::from)
+            .or_else(|| file_path.file_name().map(OsString::from))
+            .unwrap_or_else(|| OsString::from("ckb"));
+        split_file_name.push(".");
+        split_file_name.push(suffix);
+        if let Some(extension) = file_path.extension() {
+            split_file_name.push(".");
+            split_file_name.push(extension);
+        }
+        file_path.with_file_name(split_file_name)
     }
 
     fn build_filter(filter_str: &str) -> Filter {
@@ -458,6 +528,7 @@ impl Log for Logger {
                     target: record.target().to_string(),
                     date: dt,
                     original_message: format!("{}", record.args()),
+                    timestamp: utc,
                 });
             }
         }
@@ -580,6 +651,7 @@ pub fn init_for_test(filter: &str) -> Result<LoggerInitGuard, SetLoggerError> {
         color: true,
         log_to_stdout: true,
         log_to_file: false,
+        log_file_split: LogFileSplit::Never,
 
         emit_sentry_breadcrumbs: None,
         file: Default::default(),

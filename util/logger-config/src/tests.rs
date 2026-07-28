@@ -1,4 +1,4 @@
-use crate::{Config, ExtraLoggerConfig};
+use crate::{Config, ExtraLoggerConfig, LogFileSplit};
 
 fn update_extra_logger(config: &mut Config, name: &str, filter: &str) {
     let value = ExtraLoggerConfig {
@@ -31,5 +31,13 @@ fn test_extra_loggers() {
         update_extra_logger(&mut config, "ckb_trace", "off,ckb=trace");
         config
     };
+    assert_eq!(config, expected);
+}
+
+#[test]
+fn test_log_file_split() {
+    let config: Config = toml::from_str(r#"log_file_split = "hourly""#).unwrap();
+    let mut expected = Config::default();
+    expected.log_file_split = LogFileSplit::Hourly;
     assert_eq!(config, expected);
 }
