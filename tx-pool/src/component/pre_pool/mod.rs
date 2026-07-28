@@ -883,10 +883,7 @@ pub(in crate::component::pre_pool) struct Entry {
     arrival: Arrival,
     expires_at: Option<u64>,
     payload_charge_bytes: usize,
-    /// Dependency knowledge survives ordinary lifecycle revisions unchanged.
-    /// Copy-on-write keeps those revisions cheap while preserving one owned,
-    /// immutable set per distinct dependency frontier.
-    dependencies: Arc<BTreeSet<DependencyKey>>,
+    dependencies: BTreeSet<DependencyKey>,
 }
 
 impl Entry {

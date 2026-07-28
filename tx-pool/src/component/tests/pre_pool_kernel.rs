@@ -171,55 +171,6 @@ fn stage_ready(
         .unwrap();
 }
 
-#[test]
-fn state_only_revisions_share_one_dependency_frontier() {
-    let mut kernel = PrePoolKernel::new(limits());
-    let tx = transaction(201);
-    let source = TxSource::Remote {
-        cycles: 0,
-        peer: PeerIndex::from(201),
-    };
-    admit(
-        &mut kernel,
-        tx.clone(),
-        source,
-        ResolveLane::Ingress,
-        Some(100),
-    )
-    .unwrap();
-    let frontier = kernel.dependency_snapshot(&tx.hash()).unwrap();
-
-    let resolve = kernel
-        .checkout_resolve(ResolveLane::Ingress)
-        .unwrap()
-        .unwrap();
-    assert!(Arc::ptr_eq(
-        &frontier,
-        &kernel.dependency_snapshot(&tx.hash()).unwrap()
-    ));
-    let resolved = resolved(tx.clone(), source, 1_000);
-    let charge = resolved.resident_size;
-    kernel
-        .complete_raw(&resolve, resolved, charge, VerifySchedule::default())
-        .unwrap();
-    assert!(Arc::ptr_eq(
-        &frontier,
-        &kernel.dependency_snapshot(&tx.hash()).unwrap()
-    ));
-
-    let verify = kernel
-        .checkout_verify(WorkCapability::Any)
-        .unwrap()
-        .unwrap();
-    let (verified, charge) = verified_for(&verify, 1_000);
-    kernel.complete_verify(&verify, verified, charge).unwrap();
-    assert!(Arc::ptr_eq(
-        &frontier,
-        &kernel.dependency_snapshot(&tx.hash()).unwrap()
-    ));
-    kernel.audit().unwrap();
-}
-
 fn commit_ready(kernel: &mut PrePoolKernel) -> CommitSettlement {
     let mut session = kernel.begin_next_commit().unwrap().unwrap();
     let plan = session

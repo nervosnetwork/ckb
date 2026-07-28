@@ -90,7 +90,7 @@ impl PrePoolKernel {
                 arrival,
                 expires_at: None,
                 payload_charge_bytes,
-                dependencies: Arc::new(dependencies),
+                dependencies,
             };
             let next = StoredEntry::prepare(next, self.limits)?;
             planned.set_entry(next);

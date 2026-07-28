@@ -2,7 +2,6 @@ use super::*;
 use crate::resolved_tx::ResolvedTx;
 use std::collections::BTreeSet;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub(crate) struct PrePoolView {
@@ -13,15 +12,6 @@ pub(crate) struct PrePoolView {
 }
 
 impl PrePoolKernel {
-    pub(crate) fn dependency_snapshot(
-        &self,
-        hash: &Byte32,
-    ) -> Option<Arc<BTreeSet<DependencyKey>>> {
-        self.entries
-            .get(hash)
-            .map(|entry| Arc::clone(&entry.dependencies))
-    }
-
     pub(crate) fn view(&self, hash: &Byte32) -> Option<PrePoolView> {
         self.entries.get(hash).map(|entry| PrePoolView {
             location: entry.state.location(),
