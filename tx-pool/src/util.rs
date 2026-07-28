@@ -167,22 +167,18 @@ pub(crate) async fn verify_rtx(
             .map(|_| *completed)
             .map_err(Reject::Verification)
     } else if let Some(command_rx) = command_rx {
-        // Transaction verification can be CPU-heavy (script VM). Run the verifier on
-        // the blocking pool so it doesn't starve the async runtime.
-        let mut command_rx = command_rx.clone();
-        let rtx_for_verifier = Arc::clone(&rtx);
-        block_in_place(|| {
-            Handle::current().block_on(async move {
-                ContextualTransactionVerifier::new(
-                    rtx_for_verifier,
-                    consensus,
-                    data_loader,
-                    Arc::clone(&tx_env),
-                )
-                .verify_with_pause(max_tx_verify_cycles, &mut command_rx)
-                .await
-            })
-        })
+        // The resumable verifier already executes each VM scheduler in its
+        // own Tokio task. Wrapping this parent future in `block_in_place` and
+        // synchronously blocking on the same runtime does not offload VM work;
+        // it only forces a compensating runtime thread for every verification.
+        ContextualTransactionVerifier::new(
+            Arc::clone(&rtx),
+            consensus,
+            data_loader,
+            Arc::clone(&tx_env),
+        )
+        .verify_with_pause(max_tx_verify_cycles, command_rx)
+        .await
         .and_then(|result| {
             verify_dao_script_size(&snapshot, rtx)?;
             Ok(result)
