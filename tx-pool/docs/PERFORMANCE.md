@@ -154,9 +154,10 @@ python3 tx-pool/scripts/profile.py capture \
   --peers 4 --workers 8 --size 200 --warm-pool-size 50
 ```
 
-Re-analysis never samples or runs code. It verifies every recorded artifact
-size/SHA and rewrites the deterministic summary from the raw profile, symbol
-sidecar and recorded target window:
+Re-analysis never samples or runs the target binary. It requires the exact
+recorded benchmark/analyzer source, verifies every recorded artifact size/SHA,
+and rewrites the deterministic summary from the raw profile, symbol sidecar,
+span log and recorded target windows:
 
 ```bash
 python3 tx-pool/scripts/profile.py analyze \

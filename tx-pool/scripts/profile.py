@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import datetime
+import decimal
 import gzip
 import hashlib
 import json
@@ -35,6 +36,18 @@ PROFILE_FEATURES = ("internal", "profiling")
 PROFILE_SCHEMA_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 2
 SUMMARY_SCHEMA_VERSION = 1
+SPAN_CLOSE_RE = re.compile(
+    r"^(?P<timestamp>\S+)\s+.*?\s"
+    r"(?P<context>tx_pool\.[^ ]*): ckb_tx_pool_profile: close "
+    r"time\.busy=(?P<busy>[0-9.]+)(?P<busy_unit>ns|µs|ms|s) "
+    r"time\.idle=(?P<idle>[0-9.]+)(?P<idle_unit>ns|µs|ms|s)$"
+)
+NANOS_PER_UNIT = {
+    "ns": decimal.Decimal(1),
+    "µs": decimal.Decimal(1_000),
+    "ms": decimal.Decimal(1_000_000),
+    "s": decimal.Decimal(1_000_000_000),
+}
 
 
 class ProfileError(RuntimeError):
@@ -742,6 +755,82 @@ def ranked(counter: Counter[str], total: int, limit: int = 100) -> list[dict[str
     ]
 
 
+def timestamp_nanos(value: str) -> int:
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ProfileError(f"span log timestamp is invalid: {value}") from error
+    if parsed.tzinfo is None:
+        raise ProfileError(f"span log timestamp has no timezone: {value}")
+    epoch = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+    elapsed = parsed.astimezone(datetime.timezone.utc) - epoch
+    return (
+        (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000
+        + elapsed.microseconds * 1_000
+    )
+
+
+def duration_nanos(value: str, unit: str) -> int:
+    try:
+        return int(decimal.Decimal(value) * NANOS_PER_UNIT[unit])
+    except (decimal.InvalidOperation, KeyError) as error:
+        raise ProfileError(f"span duration is invalid: {value}{unit}") from error
+
+
+def analyze_span_log(manifest: dict[str, Any], path: Path) -> dict[str, Any]:
+    span_capture = manifest.get("span_capture")
+    if not isinstance(span_capture, dict) or not isinstance(span_capture.get("window"), dict):
+        raise ProfileError("profile manifest has no span-capture window")
+    window = span_capture["window"]
+    start = window.get("start_unix_nanos")
+    end = window.get("end_unix_nanos")
+    if not isinstance(start, int) or not isinstance(end, int) or start >= end:
+        raise ProfileError("span-capture window is invalid")
+    totals: dict[str, dict[str, int]] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ProfileError(f"cannot read span artifact {path}: {error}") from error
+    selected = 0
+    for line in lines:
+        match = SPAN_CLOSE_RE.fullmatch(line)
+        if match is None:
+            continue
+        closed_at = timestamp_nanos(match.group("timestamp"))
+        if not start <= closed_at <= end:
+            continue
+        name = match.group("context").rsplit(":", 1)[-1]
+        current = totals.setdefault(
+            name,
+            {
+                "close_count": 0,
+                "reported_busy_nanos": 0,
+                "reported_idle_nanos": 0,
+                "max_reported_busy_nanos": 0,
+                "max_reported_idle_nanos": 0,
+            },
+        )
+        busy = duration_nanos(match.group("busy"), match.group("busy_unit"))
+        idle = duration_nanos(match.group("idle"), match.group("idle_unit"))
+        current["close_count"] += 1
+        current["reported_busy_nanos"] += busy
+        current["reported_idle_nanos"] += idle
+        current["max_reported_busy_nanos"] = max(current["max_reported_busy_nanos"], busy)
+        current["max_reported_idle_nanos"] = max(current["max_reported_idle_nanos"], idle)
+        selected += 1
+    if selected == 0:
+        raise ProfileError("span artifact contains no close records in its target window")
+    return {
+        "window": window,
+        "selected_close_records": selected,
+        "spans": [dict(name=name, **totals[name]) for name in sorted(totals)],
+        "measurement_caveat": (
+            "close counts are deterministic control-flow evidence; reported busy/idle values "
+            "come from the separately instrumented execution and are not benchmark timing"
+        ),
+    }
+
+
 def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -855,6 +944,7 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
         "threads": thread_summaries,
         "top_leaf_symbols": top_leaf,
         "top_inclusive_symbols": ranked(inclusive, total_samples),
+        "span_capture": analyze_span_log(manifest, paths["spans"]),
     }
 
 
@@ -863,6 +953,15 @@ def analyze_manifest(manifest_path: Path) -> Path:
     manifest = read_json(absolute)
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         raise ProfileError("profile manifest schema version is unsupported")
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, dict):
+        raise ProfileError("profile manifest has no input identity")
+    current_harness = files_sha256([BENCHMARK_SOURCE, SCRIPT_SOURCE])
+    if inputs.get("harness_sha256") != current_harness:
+        raise ProfileError(
+            "profile manifest belongs to a different benchmark/analyzer source; "
+            "check out its recorded revision before re-analysis"
+        )
     summary_path = Path(manifest.get("summary_path", ""))
     if not summary_path.is_absolute():
         raise ProfileError("profile manifest summary path is not absolute")
