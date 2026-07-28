@@ -317,10 +317,24 @@ not expose `xctrace`, so no Instruments result is claimed.
 | A3 | A second state-local projection Apply path intended to reduce projection maintenance. | Controlled dependency A/B was effectively neutral (four-scenario geometric mean about `+0.38%`; parent-first about `-0.23%`) while adding roughly 60 production lines and a second mutation implementation. | Fully reverted. The extra proof surface was not justified. |
 | A6-M2 | Skip `FairQueue` head remove/insert when an owner's runnable flag is unchanged. | The mechanism was redundant and 272 unit tests passed, but a focused 8-pair 4-peer/8-worker cold always-success A/B was neutral (`-0.07%` paired throughput, 3.34% ratio spread). An earlier four-scenario run was too noisy to admit a conclusion. | Fully reverted in `d98f9955c`. Six production lines without measurable value do not justify another scheduler branch. |
 | A6-M1 | Apply common entry projections as old/new deltas instead of complete detach/attach. | Both variants passed 271 unit tests and strict Clippy. Per-parent set difference regressed the focused 8-pair contention scenario by `0.51%`; a smaller whole-dependency equality gate was neutral at `+0.02%` with 3.21% ratio spread. | Fully reverted in `08de209fd` and `b488288ee`. The existing complete transition is smaller and easier to audit; measured data does not justify 62 additional production lines. |
+| A6-M5 | Share immutable dependency frontiers across lifecycle revisions through `Arc<BTreeSet<_>>` copy-on-write. | Direct tests proved allocation sharing through Resolve/Verify/Ready and all focused projection/model tests passed, but the same 8-pair contention scenario regressed by `0.73%` with 3.19% ratio spread. Atomic reference-count and indirection cost outweighed small-set cloning. | Fully reverted in `721bdbbd2`. Semantic sharing alone is not a reason to add shared ownership on this hot path. |
 
 This rejection is an architectural constraint: projection performance should
 be improved by changing the canonical representation or proven update set, not
 by maintaining parallel Apply implementations.
+
+The A6 evidence gate retained no production change. Three independently
+plausible forms of critical-section mechanical reduction were neutral or
+slower under the workload that showed the strongest mutex attribution. That is
+a useful convergence result: complete projection transitions and owned small
+dependency sets remain simpler and at least as fast as the alternatives tested.
+It also rejects widening the commit lock epoch, adding dirty-lane state or
+building a second resident DAG without new adversarial evidence. Moving fresh
+ingress materialization outside the lock is also not admitted: without a new
+reservation owner it makes duplicate spam pay full preparation, while a
+reservation would enlarge the state machine merely to move bounded work.
+Future work must first identify a different material cost; it must not combine
+these discarded mechanisms and hope their noise becomes a gain.
 
 ## A4 preliminary signal
 
