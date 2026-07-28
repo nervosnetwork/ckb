@@ -1362,6 +1362,44 @@ impl PrePoolKernel {
         Ok(())
     }
 
+    pub(crate) fn complete_resolve_and_checkout(
+        &mut self,
+        lease: &ResolveLease,
+        resolved: ResolvedTx,
+        charge_bytes: usize,
+        schedule: VerifySchedule,
+        discovered_dependencies: BTreeSet<DependencyKey>,
+    ) -> Result<AppliedContinuation<ResolveLease>, PrePoolError> {
+        self.complete_resolve(
+            lease,
+            resolved,
+            charge_bytes,
+            schedule,
+            discovered_dependencies,
+        )?;
+        Ok(AppliedContinuation::from_checkout(
+            self.checkout_resolve(lease.lane),
+        ))
+    }
+
+    pub(crate) fn complete_resolve_without_checkout(
+        &mut self,
+        lease: &ResolveLease,
+        resolved: ResolvedTx,
+        charge_bytes: usize,
+        schedule: VerifySchedule,
+        discovered_dependencies: BTreeSet<DependencyKey>,
+    ) -> Result<AppliedContinuation<ResolveLease>, PrePoolError> {
+        self.complete_resolve(
+            lease,
+            resolved,
+            charge_bytes,
+            schedule,
+            discovered_dependencies,
+        )?;
+        Ok(AppliedContinuation::yielded())
+    }
+
     pub(crate) fn checkout_verify(
         &mut self,
         capability: WorkCapability,
@@ -1398,6 +1436,7 @@ impl PrePoolKernel {
         Ok(Some(VerifyLease {
             hash: key.hash,
             revision,
+            capability,
             payload,
         }))
     }
@@ -1447,6 +1486,28 @@ impl PrePoolKernel {
             ReplacementMode::Ordinary,
         )?;
         Ok(())
+    }
+
+    pub(crate) fn complete_verify_and_checkout(
+        &mut self,
+        lease: &VerifyLease,
+        verified: PipelineVerifiedTx,
+        charge_bytes: usize,
+    ) -> Result<AppliedContinuation<VerifyLease>, PrePoolError> {
+        self.complete_verify(lease, verified, charge_bytes)?;
+        Ok(AppliedContinuation::from_checkout(
+            self.checkout_verify(lease.capability),
+        ))
+    }
+
+    pub(crate) fn complete_verify_without_checkout(
+        &mut self,
+        lease: &VerifyLease,
+        verified: PipelineVerifiedTx,
+        charge_bytes: usize,
+    ) -> Result<AppliedContinuation<VerifyLease>, PrePoolError> {
+        self.complete_verify(lease, verified, charge_bytes)?;
+        Ok(AppliedContinuation::yielded())
     }
 
     pub(crate) fn force_terminalize(

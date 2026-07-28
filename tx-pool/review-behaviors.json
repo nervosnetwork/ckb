@@ -143,16 +143,17 @@
         "tx-pool/src/service/builder.rs",
         "tx-pool/src/service/stages/runner.rs"
       ],
-      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart.",
-      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work nor create a respawn loop.",
+      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart. A successful Resolve or Verify completion may check out only the next same-lane lease inside the same kernel mutation; VerifyLease carries the checkout capability so completion cannot widen it. The applied-completion type keeps a later checkout fault distinct from completion failure, and pause, cancellation or command loss completes at most that already-owned continuation without checking out another.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work, drop an already checked-out continuation nor create a respawn loop.",
       "reviewer_questions": [
         "Does notification mean at least one worker of this capability can execute now?",
         "Can a consumed wake be reconstructed from authoritative state after subscribe or a typed job failure?",
         "Does any internal worker use panic plus catch_unwind as control flow instead of a typed result?",
-        "Does cancellation stop checkout before another self-sustaining wake loop begins?"
+        "Can a completion continuation cross a stage/lane, hide whether Apply succeeded, or bypass the capability-aware fair queue?",
+        "Does pause, cancellation or command loss finish at most the already checked-out continuation and prevent another checkout?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker)/)'",
-      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses)/)'",
+      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; successful completion reuses one kernel acquisition for a same-lane checkout; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
     },
     {
       "id": "TP-ADMIN-001",
@@ -336,15 +337,17 @@
       "title": "Bounded attacker-controlled work",
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/queue.rs",
+        "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/component/pre_pool/commit.rs",
+        "tx-pool/src/service/stages/runner.rs",
         "tx-pool/src/benchmark.rs",
         "tx-pool/scripts/benchmark.py"
       ],
-      "required_behavior": "Owner-head scheduling, victim selection and conflict probing stop at maintained bounds independent of unrelated population; benchmark comparisons use fingerprinted paired revisions and reject noisy samples.",
+      "required_behavior": "Owner-head scheduling, victim selection and conflict probing stop at maintained bounds independent of unrelated population. Successful Resolve and Verify completion can reuse its kernel acquisition for one capability-compatible same-lane checkout without crossing a stage or adding scheduler state. Benchmark comparisons use fingerprinted paired revisions and reject noisy samples.",
       "hostile_case": "A capped peer prefix, stronger suffix or large independent population must not turn one admission/checkout into an O(pool) scan; a noisy or mismatched harness must not claim a performance win.",
       "reviewer_questions": [
         "Is operation count bounded by owners/cohort/config rather than resident transaction count?",
-        "Did the change add allocation, lock, task, scan or mutable projection to a hot path?",
+        "Did the change add allocation, lock, task, scan or mutable projection to a hot path, or can an existing acquisition safely carry the next same-lane lease?",
         "Before accepting benchmark evidence, are revision, binary, config, repetitions and spread comparable?"
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|randomized_public_transitions)/)'",
@@ -416,6 +419,10 @@
     {"test": "expiry_batch_is_bounded_without_a_ready_prefix_scan", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "large_owner_head_does_not_hide_its_small_cycle_work", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "worker_exits_when_command_channel_dropped", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "pause_finishes_one_checked_out_continuation_without_dropping_it", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T10", "T11"]},
+    {"test": "command_close_finishes_one_checked_out_continuation_then_exits", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T10", "T11"]},
+    {"test": "cancellation_finishes_one_checked_out_continuation_without_dropping_it", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T10", "T11"]},
+    {"test": "verify_continuation_uses_the_checked_out_worker_capability", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11"]},
     {"test": "panicked_state_worker_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "service_cancellation_is_scoped_under_process_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T4", "T7"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
@@ -509,6 +516,7 @@
     {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
+    {"test": "successful_stage_completion_checks_out_same_lane_without_projection_drift", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "descendants_cache_members_stay_within_budget", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "controller_dependent_secp_chain_reverse", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]}
   ],
@@ -638,6 +646,15 @@
       "invariants": ["T1", "T2", "T4", "T7", "T10", "T11"],
       "unit_anchors": ["resolve_job_registers_complete_unknown_outpoint_frontier", "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "journal_sequence_is_total_apply_order"],
       "boundary": "A child with three unavailable direct parents installs one exact Wait owner and atomically requests the complete currently missing parent frontier, so RelayV3 accepts every reverse-order parent and the whole graph converges without polling or an inferred orphan store."
+    },
+    {
+      "id": "same-lane-relay-continuation",
+      "behavior_ids": ["TP-DEP-001", "TP-WORKER-001", "TP-PERF-001"],
+      "path": "test/src/specs/tx_pool/txs_relay_order.rs",
+      "anchor": "TxsRelayOrder",
+      "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"],
+      "unit_anchors": ["successful_stage_completion_checks_out_same_lane_without_projection_drift", "verify_continuation_uses_the_checked_out_worker_capability", "cancellation_finishes_one_checked_out_continuation_without_dropping_it"],
+      "boundary": "Ten dependent transactions submitted to one node traverse RelayV3 and the receiving node's pre-pool Resolve/Verify workers; after relay, every transaction remains observable in exactly one pending-or-orphan pool class, while unit evidence pins same-lane checkout, worker capability, and cancellation semantics."
     },
     {
       "id": "local-test-rpc-direct",

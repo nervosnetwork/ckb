@@ -10,6 +10,7 @@ mechanism.
 | Document | Purpose |
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | Normative ownership, state, Plan/Apply, locking, effects, failure model, residual risks and release conditions. |
+| [Performance design and evidence](docs/PERFORMANCE.md) | Optimization constraints, retained/rejected designs, profiling evidence and fixed acceptance plan. |
 | [Test-driven review guide](docs/REVIEW_GUIDE.md) | Stable behaviors, hostile cases, source navigation and executable evidence. |
 | [Validation and machine contracts](docs/VALIDATION.md) | JSON/TXT responsibilities, maintenance commands, generated artifacts and CI rules. |
 | [Benchmark protocol](docs/BENCHMARK.md) | Controlled, fingerprinted performance A/B methodology. |

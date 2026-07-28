@@ -319,6 +319,27 @@ has a queue with a fair turn; runnable heads are derived from global and
 per-owner active limits. A large-cycle verify item cannot hide eligible
 small-cycle work from a constrained worker.
 
+After a successful Resolve or Verify completion, the worker may check out the
+next lease from the same lane inside that completion's kernel mutation. This is
+same-acquisition lease continuation, not a second scheduler: the existing fair queue and active
+limits still select the lease, Verify preserves the worker's capability, and a
+continuation never crosses Resolve to Verify. The capability is sealed into
+`VerifyLease` at checkout rather than supplied again by completion. The result
+type distinguishes
+"completion applied, no next lease" from a post-Apply checkout fault, so a
+caller cannot roll back or settle the completed lease after ownership already
+moved.
+
+Only completion and checkout share the short kernel critical section. The
+worker releases it before Resolve/Verify computation and never holds it across
+an `await`.
+
+Pause, cancellation and command-channel loss are checked before accepting the
+continuation for normal processing. If one lease was already checked out, the
+worker completes exactly that lease in final mode without another checkout.
+This bounds stop latency without dropping an owned lease or creating a
+self-sustaining wake loop.
+
 ### 7.2 Ready order
 
 Ready selection uses one total `ReadyKey`, strongest last:
@@ -771,6 +792,8 @@ Correctness structure is also the intended performance structure:
 - one serialized commit driver instead of competing commit owners;
 - worker checkout itself proves whether a level-triggered queue is empty;
   there is no separate check-then-pop lock pair;
+- successful Resolve/Verify completion can carry one same-lane checkout from
+  the same kernel acquisition, without a new queue, owner or cross-stage path;
 - accepted reads remain behind the existing `RwLock`, not a global actor;
 - no foreign/mutable I/O or payload destruction under authority locks;
 - same-tip resolved chain provenance removes normal duplicate liveness reads;

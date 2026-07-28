@@ -110,6 +110,26 @@ fn resolved(tx: TransactionView, source: TxSource, fee: u64) -> ResolvedTx {
     }
 }
 
+fn verified_for(lease: &VerifyLease, fee: u64) -> (PipelineVerifiedTx, usize) {
+    let candidate = (*lease.payload).clone().into_pool_candidate();
+    let charge = candidate
+        .resident_size
+        .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
+        .unwrap();
+    (
+        PipelineVerifiedTx {
+            candidate,
+            completed: Completed {
+                cycles: 0,
+                fee: Capacity::shannons(fee),
+            },
+            verify_cache_hit: false,
+            started_at: Instant::now(),
+        },
+        charge,
+    )
+}
+
 fn stage_ready(
     kernel: &mut PrePoolKernel,
     tx: TransactionView,
@@ -225,6 +245,178 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
     plan.apply();
     assert_eq!(kernel.len(), 0);
     assert_eq!(kernel.total_usage(), Residency::default());
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn successful_stage_completion_checks_out_same_lane_without_projection_drift() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let first = transaction(121);
+    let second = transaction(122);
+    let first_source = TxSource::Remote {
+        cycles: 0,
+        peer: 121.into(),
+    };
+    let second_source = TxSource::Remote {
+        cycles: 0,
+        peer: 122.into(),
+    };
+    for (tx, source) in [
+        (first.clone(), first_source),
+        (second.clone(), second_source),
+    ] {
+        admit(&mut kernel, tx, source, ResolveLane::Ingress, Some(100)).unwrap();
+    }
+
+    let raw = kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    let raw_tx = raw.payload.tx.clone();
+    let raw_source = if raw.hash == first.hash() {
+        first_source
+    } else {
+        second_source
+    };
+    let resolved_entry = resolved(raw_tx, raw_source, 10);
+    let resolved_charge = resolved_entry.resident_size;
+    let next_raw = kernel
+        .complete_resolve_and_checkout(
+            &raw,
+            resolved_entry,
+            resolved_charge,
+            VerifySchedule::default(),
+            BTreeSet::new(),
+        )
+        .unwrap()
+        .into_checkout()
+        .unwrap()
+        .unwrap();
+    assert_ne!(next_raw.hash, raw.hash);
+    kernel.audit().unwrap();
+
+    let next_tx = next_raw.payload.tx.clone();
+    let next_source = if next_raw.hash == first.hash() {
+        first_source
+    } else {
+        second_source
+    };
+    let next_resolved = resolved(next_tx, next_source, 11);
+    let next_charge = next_resolved.resident_size;
+    kernel
+        .complete_raw(
+            &next_raw,
+            next_resolved,
+            next_charge,
+            VerifySchedule::default(),
+        )
+        .unwrap();
+
+    let verify = kernel
+        .checkout_verify(WorkCapability::Any)
+        .unwrap()
+        .unwrap();
+    let candidate = (*verify.payload).clone().into_pool_candidate();
+    let verified_charge = candidate
+        .resident_size
+        .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
+        .unwrap();
+    let next_verify = kernel
+        .complete_verify_and_checkout(
+            &verify,
+            PipelineVerifiedTx {
+                candidate,
+                completed: Completed {
+                    cycles: 0,
+                    fee: Capacity::shannons(10),
+                },
+                verify_cache_hit: false,
+                started_at: Instant::now(),
+            },
+            verified_charge,
+        )
+        .unwrap()
+        .into_checkout()
+        .unwrap()
+        .unwrap();
+    assert_ne!(next_verify.hash, verify.hash);
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn verify_continuation_uses_the_checked_out_worker_capability() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let small = transaction(123);
+    let large = transaction(124);
+    let cases = [
+        (
+            small.clone(),
+            TxSource::Remote {
+                cycles: 0,
+                peer: 123.into(),
+            },
+            false,
+        ),
+        (
+            large.clone(),
+            TxSource::Remote {
+                cycles: 0,
+                peer: 124.into(),
+            },
+            true,
+        ),
+    ];
+    for (tx, source, _) in &cases {
+        admit(
+            &mut kernel,
+            tx.clone(),
+            *source,
+            ResolveLane::Ingress,
+            Some(100),
+        )
+        .unwrap();
+    }
+    for _ in &cases {
+        let raw = kernel
+            .checkout_resolve(ResolveLane::Ingress)
+            .unwrap()
+            .unwrap();
+        let (_, source, is_large_cycle) = cases
+            .iter()
+            .find(|(tx, _, _)| tx.hash() == raw.hash)
+            .unwrap();
+        let resolved = resolved(raw.payload.tx.clone(), *source, 10);
+        let charge = resolved.resident_size;
+        kernel
+            .complete_raw(
+                &raw,
+                resolved,
+                charge,
+                VerifySchedule::new(0, *is_large_cycle),
+            )
+            .unwrap();
+    }
+
+    let small_lease = kernel
+        .checkout_verify(WorkCapability::SmallCycleOnly)
+        .unwrap()
+        .unwrap();
+    assert_eq!(small_lease.hash, small.hash());
+    let (verified, charge) = verified_for(&small_lease, 10);
+    assert!(
+        kernel
+            .complete_verify_and_checkout(&small_lease, verified, charge)
+            .unwrap()
+            .into_checkout()
+            .unwrap()
+            .is_none(),
+        "a small-cycle continuation must not consume large-cycle work"
+    );
+    let large_lease = kernel
+        .checkout_verify(WorkCapability::Any)
+        .unwrap()
+        .unwrap();
+    assert_eq!(large_lease.hash, large.hash());
     kernel.audit().unwrap();
 }
 

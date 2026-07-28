@@ -1,9 +1,9 @@
-use super::runner::{JobHandler, WorkerRunner};
+use super::runner::{ContinuationMode, JobHandler, WorkerRunner};
 use crate::component::entry::TxEntry;
 use crate::component::pre_pool::PipelineVerifiedTx;
 use crate::component::pre_pool::{
-    DependencyKey, PrePoolError, PrePoolFault, PrePoolPublicError, PrePoolRejection, PrePoolSource,
-    VerifyLease, WorkCapability,
+    DependencyKey, PrePoolError, PrePoolPublicError, PrePoolRejection, PrePoolSource, VerifyLease,
+    WorkCapability,
 };
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
@@ -77,20 +77,28 @@ impl TxPoolService {
         lease: VerifyLease,
         command_rx: &mut watch::Receiver<ChunkCommand>,
     ) {
+        self.process_pipeline_verify_lease_inner(lease, command_rx, ContinuationMode::Final)
+            .await;
+    }
+
+    async fn process_pipeline_verify_lease_inner(
+        &self,
+        lease: VerifyLease,
+        command_rx: &mut watch::Receiver<ChunkCommand>,
+        continuation: ContinuationMode,
+    ) -> Option<VerifyLease> {
         let authority = self.pipeline.kernel.read(|kernel| {
             kernel
                 .source_by_hash(&lease.hash)
                 .zip(kernel.raw_by_hash(&lease.hash))
         });
-        let Some((current_source, raw)) = authority else {
-            return;
-        };
+        let (current_source, raw) = authority?;
         let source = raw.authoritative_source(current_source);
         let epoch = raw.admitted_epoch;
         if !self.is_pipeline_epoch_current(epoch) || self.is_recently_banned(source) {
             self.settle_pipeline_verify_failure(&lease, VerifyFailure::Invalidated)
                 .await;
-            return;
+            return None;
         }
 
         // Queued resolved work is deliberately snapshot-free. Pin a database
@@ -110,7 +118,7 @@ impl TxPoolService {
                     &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
                 ),
             }
-            return;
+            return None;
         }
 
         let mut resolved = (*lease.payload).clone();
@@ -163,7 +171,7 @@ impl TxPoolService {
                                     VerifyFailure::Rejected(reject),
                                 )
                                 .await;
-                                return;
+                                return None;
                             }
                         }
                     }
@@ -173,7 +181,7 @@ impl TxPoolService {
                             VerifyFailure::Rejected(first_reject),
                         )
                         .await;
-                        return;
+                        return None;
                     }
                 }
             }
@@ -207,14 +215,14 @@ impl TxPoolService {
             Err(crate::component::pool_map::PoolMutationPlanningError::Policy(reject)) => {
                 self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
-                return;
+                return None;
             }
             Err(crate::component::pool_map::PoolMutationPlanningError::Fault(error)) => {
                 self.fail_tx_pool_generation(
                     "RBF verification precheck projection failed",
                     &crate::process::TxPoolGenerationFault::AcceptedPool(error),
                 );
-                return;
+                return None;
             }
         }
 
@@ -230,37 +238,54 @@ impl TxPoolService {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
                 self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
-                return;
+                return None;
             }
         };
 
         match self
             .pipeline
             .kernel
-            .mutate_authoritative(|kernel| kernel.complete_verify(&lease, verified, charge_bytes))
-        {
+            .mutate_authoritative(|kernel| match continuation {
+                ContinuationMode::Permit => {
+                    kernel.complete_verify_and_checkout(&lease, verified, charge_bytes)
+                }
+                ContinuationMode::Final => {
+                    kernel.complete_verify_without_checkout(&lease, verified, charge_bytes)
+                }
+            }) {
             // Ready is level-triggered. The single commit worker is its only
             // consumer, so verify tasks do not contend on the accepted-pool
             // write boundary merely to discover that another driver drained
             // the queue first.
-            Ok(()) => {}
-            Err(PrePoolError::Stale(_)) => {}
+            Ok(applied) => super::finish_continuation(
+                self,
+                applied,
+                "post-verify continuation checkout failed",
+            ),
+            Err(PrePoolError::Stale(_)) => None,
             Err(PrePoolError::Public(error)) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
                 self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
+                None
             }
-            Err(PrePoolError::Duplicate(hash)) => self.fail_tx_pool_generation(
-                "verification completion produced a duplicate entry",
-                &crate::process::TxPoolGenerationFault::PrePool(
-                    PrePoolFault::UnexpectedTransitionDuplicate(hash),
-                ),
-            ),
-            Err(PrePoolError::Fault(fault)) => self.fail_tx_pool_generation(
-                "verification completion invariant failed",
-                &crate::process::TxPoolGenerationFault::PrePool(fault),
-            ),
+            Err(error @ (PrePoolError::Duplicate(_) | PrePoolError::Fault(_))) => {
+                self.fail_tx_pool_generation(
+                    "verification completion invariant failed",
+                    &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                );
+                None
+            }
         }
+    }
+
+    async fn process_pipeline_verify_lease_continuing(
+        &self,
+        lease: VerifyLease,
+        command_rx: &mut watch::Receiver<ChunkCommand>,
+    ) -> Option<VerifyLease> {
+        self.process_pipeline_verify_lease_inner(lease, command_rx, ContinuationMode::Permit)
+            .await
     }
 }
 
@@ -296,7 +321,13 @@ impl JobHandler for VerifyHandler {
         }
     }
 
-    async fn process_one(&mut self, work: VerifyLease) {
+    async fn process_one(&mut self, work: VerifyLease) -> Option<VerifyLease> {
+        self.service
+            .process_pipeline_verify_lease_continuing(work, &mut self.command_rx)
+            .await
+    }
+
+    async fn process_final(&mut self, work: VerifyLease) {
         self.service
             .process_pipeline_verify_lease(work, &mut self.command_rx)
             .await;

@@ -329,6 +329,10 @@ impl PrePool {
         self.failed.load(Ordering::Acquire)
     }
 
+    pub(crate) fn is_shutdown(&self) -> bool {
+        self.shutdown.is_cancelled()
+    }
+
     pub(crate) fn queue_is_empty(&self, lane: WorkLane) -> bool {
         self.read(|state| state.queue_len(lane) == 0)
     }

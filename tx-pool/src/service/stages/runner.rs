@@ -12,6 +12,12 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::{Notify, watch};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ContinuationMode {
+    Permit,
+    Final,
+}
+
 /// Stage-specific callbacks used by [`WorkerRunner`].
 ///
 /// All methods return `impl Future + Send` explicitly so the runner can be
@@ -32,8 +38,13 @@ pub(crate) trait JobHandler: Clone + Send + Sync + 'static {
     /// Returning `None` means the worker should go back to waiting.
     fn pop_one(&mut self) -> impl Future<Output = Option<Self::Job>> + Send;
 
-    /// Process a single popped job to completion.
-    fn process_one(&mut self, job: Self::Job) -> impl Future<Output = ()> + Send;
+    /// Process a single popped job and optionally return a same-lane lease
+    /// already checked out by the completion transition.
+    fn process_one(&mut self, job: Self::Job) -> impl Future<Output = Option<Self::Job>> + Send;
+
+    /// Finish one lease without checking out another. The separate return type
+    /// makes it impossible for pause/cancel drain logic to drop a continuation.
+    fn process_final(&mut self, job: Self::Job) -> impl Future<Output = ()> + Send;
 
     /// The next time this stage has time-based work (e.g. a delayed job
     /// becoming due). The default returns `None`, meaning the stage only
@@ -125,10 +136,24 @@ impl<H: JobHandler> WorkerRunner<H> {
             if self.status != ChunkCommand::Resume {
                 return;
             }
-            let Some(job) = self.handler.pop_one().await else {
+            let Some(mut job) = self.handler.pop_one().await else {
                 return;
             };
-            self.handler.process_one(job).await;
+            loop {
+                let Some(next) = self.handler.process_one(job).await else {
+                    break;
+                };
+                let command_closed = self.command_rx.has_changed().is_err();
+                self.refresh_status();
+                if command_closed
+                    || self.exit_signal.is_cancelled()
+                    || self.status != ChunkCommand::Resume
+                {
+                    self.handler.process_final(next).await;
+                    return;
+                }
+                job = next;
+            }
         }
     }
 }

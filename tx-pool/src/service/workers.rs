@@ -27,7 +27,16 @@ pub(crate) async fn run_pre_check_worker_loop(service: TxPoolService) {
             .wait_resolve(crate::component::pre_pool::ResolveLane::Ingress)
             .await
         {
-            Ok(Some(lease)) => service.process_pipeline_raw_lease(lease).await,
+            Ok(Some(mut lease)) => loop {
+                if service.pipeline.kernel.is_shutdown() {
+                    service.process_pipeline_raw_lease(lease).await;
+                    break;
+                }
+                let Some(next) = service.process_pipeline_raw_lease_continuing(lease).await else {
+                    break;
+                };
+                lease = next;
+            },
             Ok(None) => break,
             Err(error) => {
                 service.fail_tx_pool_generation(

@@ -668,7 +668,28 @@ pub(crate) struct ResolveLease {
 pub(crate) struct VerifyLease {
     pub(crate) hash: Byte32,
     revision: EntryRevision,
+    /// Sealed at checkout so a completion cannot widen the worker's queue view.
+    capability: WorkCapability,
     pub(crate) payload: Arc<ResolvedTx>,
+}
+
+/// Proof that stage completion applied before the optional same-lane checkout.
+/// A checkout error therefore cannot be mistaken for a completion failure and
+/// must never roll back or settle the now-stale completed lease.
+pub(crate) struct AppliedContinuation<T>(Result<Option<T>, PrePoolError>);
+
+impl<T> AppliedContinuation<T> {
+    fn from_checkout(result: Result<Option<T>, PrePoolError>) -> Self {
+        Self(result)
+    }
+
+    fn yielded() -> Self {
+        Self(Ok(None))
+    }
+
+    pub(crate) fn into_checkout(self) -> Result<Option<T>, PrePoolError> {
+        self.0
+    }
 }
 
 struct ReadyCommitCandidate {
