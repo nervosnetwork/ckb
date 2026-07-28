@@ -982,7 +982,9 @@ impl NetworkService {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            service_builder = service_builder.upnp(config.upnp);
+            service_builder = service_builder
+                .upnp(config.upnp)
+                .quic_config(p2p::quic::config::QuicConfig::default());
 
             // set proxy and onion config
 
@@ -1077,6 +1079,11 @@ impl NetworkService {
                     }
 
                     match find_type(multi_addr) {
+                        // This loop only installs TCP socket transformers. QUIC
+                        // owns its UDP endpoint and is configured through
+                        // `quic_config`, so QUIC listen addresses are skipped
+                        // here.
+                        TransportType::QuicV1 => continue,
                         TransportType::Tcp => {
                             // only bind once
                             if matches!(init, BindType::Tcp) {
@@ -1133,13 +1140,30 @@ impl NetworkService {
             Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
         if config.outbound_peer_service_enabled() {
-            let outbound_peer_service = OutboundPeerService::new(
-                Arc::clone(&network_state),
-                p2p_service.control().to_owned().into(),
-                Duration::from_secs(config.connect_outbound_interval_secs),
-                transport_type,
-            );
-            bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
+            // Spawn one outbound peer service per distinct transport type we are
+            // able to dial. The `transport_type` argument is always included (it
+            // is the caller's "primary" transport, defaulting to TCP), and any
+            // additional transports configured through `listen_addresses` (e.g.
+            // QUIC) are added so that outbound dialing is not limited to a single
+            // transport.
+            let mut transport_types: Vec<TransportType> = vec![transport_type];
+            #[cfg(not(target_family = "wasm"))]
+            for addr in &config.listen_addresses {
+                let ty = find_type(addr);
+                if !transport_types.contains(&ty) {
+                    transport_types.push(ty);
+                }
+            }
+
+            for ty in transport_types {
+                let outbound_peer_service = OutboundPeerService::new(
+                    Arc::clone(&network_state),
+                    p2p_service.control().to_owned().into(),
+                    Duration::from_secs(config.connect_outbound_interval_secs),
+                    ty,
+                );
+                bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
+            }
         };
 
         #[cfg(feature = "with_dns_seeding")]
@@ -1649,6 +1673,8 @@ pub enum TransportType {
     Ws,
     /// Wss only on wasm
     Wss,
+    /// QUIC V1
+    QuicV1,
 }
 
 #[allow(dead_code)]
@@ -1658,7 +1684,29 @@ pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
     iter.find_map(|proto| match proto {
         Protocol::Ws => Some(TransportType::Ws),
         Protocol::Wss => Some(TransportType::Wss),
+        Protocol::QuicV1 => Some(TransportType::QuicV1),
         _ => None,
     })
     .unwrap_or(TransportType::Tcp)
+}
+
+#[cfg(test)]
+mod transport_type_tests {
+    use super::{TransportType, find_type};
+    use p2p::multiaddr::Multiaddr;
+
+    #[test]
+    fn find_transport_type() {
+        let cases = [
+            ("/ip4/127.0.0.1/tcp/8115", TransportType::Tcp),
+            ("/ip4/127.0.0.1/tcp/8115/ws", TransportType::Ws),
+            ("/ip4/127.0.0.1/tcp/8115/wss", TransportType::Wss),
+            ("/ip4/127.0.0.1/udp/8116/quic-v1", TransportType::QuicV1),
+        ];
+
+        for (raw_addr, expected) in cases {
+            let addr: Multiaddr = raw_addr.parse().expect("valid multiaddr");
+            assert_eq!(find_type(&addr), expected);
+        }
+    }
 }

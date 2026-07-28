@@ -112,6 +112,40 @@ fn net_service_start(
     required_flags: Flags,
     self_flags: Flags,
 ) -> Node {
+    net_service_start_with_listen(
+        name,
+        enable_discovery_push,
+        required_flags,
+        self_flags,
+        "/ip4/127.0.0.1/tcp/0".parse().unwrap(),
+        false,
+    )
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn net_service_start_quic(
+    name: String,
+    required_flags: Flags,
+    self_flags: Flags,
+) -> Node {
+    net_service_start_with_listen(
+        name,
+        true,
+        required_flags,
+        self_flags,
+        "/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap(),
+        true,
+    )
+}
+
+fn net_service_start_with_listen(
+    name: String,
+    enable_discovery_push: bool,
+    required_flags: Flags,
+    self_flags: Flags,
+    listen: Multiaddr,
+    enable_quic: bool,
+) -> Node {
     let tmp_dir = tempdir().expect("create tempdir failed");
     let config = NetworkConfig {
         max_peers: 19,
@@ -214,13 +248,23 @@ fn net_service_start(
         .insert_protocol(disconnect_message_meta)
         .insert_protocol(feeler_meta);
 
-    let mut p2p_service = service_builder
+    let service_builder = service_builder
         .handshake_type(network_state.local_private_key().clone().into())
         .upnp(config.upnp)
-        .forever(true)
-        .build(EventHandler {
-            network_state: Arc::clone(&network_state),
-        });
+        .forever(true);
+
+    #[cfg(not(target_family = "wasm"))]
+    let service_builder = if enable_quic {
+        service_builder.quic_config(p2p::quic::config::QuicConfig::default())
+    } else {
+        service_builder
+    };
+    #[cfg(target_family = "wasm")]
+    let _ = enable_quic;
+
+    let mut p2p_service = service_builder.build(EventHandler {
+        network_state: Arc::clone(&network_state),
+    });
 
     let peer_id = network_state.local_peer_id().clone();
 
@@ -238,10 +282,7 @@ fn net_service_start(
             .unwrap()
     });
     rt.spawn(async move {
-        let mut listen_addr = p2p_service
-            .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-            .await
-            .unwrap();
+        let mut listen_addr = p2p_service.listen(listen).await.unwrap();
         listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
         addr_sender.send(listen_addr).unwrap();
         p2p_service.run().await
@@ -308,6 +349,66 @@ fn test_identify_rejects_dns_loopback_listen_addr() {
 
     assert!(!is_remote_listen_addr_allowed(&addr, true));
     assert!(!is_remote_listen_addr_allowed(&addr, false));
+}
+
+#[test]
+fn test_identify_accepts_quic_listen_addr() {
+    let public_addr: Multiaddr = "/ip4/8.8.8.8/udp/8116/quic-v1".parse().unwrap();
+    assert!(is_remote_listen_addr_allowed(&public_addr, true));
+
+    let loopback_addr: Multiaddr = "/ip4/127.0.0.1/udp/8116/quic-v1".parse().unwrap();
+    assert!(!is_remote_listen_addr_allowed(&loopback_addr, true));
+    assert!(is_remote_listen_addr_allowed(&loopback_addr, false));
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn test_quic_connect_behavior() {
+    let node1 = net_service_start_quic(
+        "/test/1".to_string(),
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start_quic(
+        "/test/1".to_string(),
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+
+    // sanity check: both nodes are actually listening on a QUIC address
+    assert!(
+        matches!(
+            crate::network::find_type(&node2.listen_addr),
+            crate::network::TransportType::QuicV1
+        ),
+        "node2 should listen on a QUIC address, got {}",
+        node2.listen_addr
+    );
+
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 1);
+
+    // the established session should be over QUIC on both ends
+    let session_addr = node1
+        .network_state
+        .peer_registry
+        .read()
+        .peers()
+        .get(&node1.connected_sessions()[0])
+        .map(|peer| peer.connected_addr.clone())
+        .unwrap();
+    assert!(
+        matches!(
+            crate::network::find_type(&session_addr),
+            crate::network::TransportType::QuicV1
+        ),
+        "session should be established over QUIC, got {session_addr}"
+    );
 }
 
 #[test]

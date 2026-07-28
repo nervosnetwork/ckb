@@ -53,10 +53,16 @@ impl OutboundPeerService {
         }
     }
 
-    fn dial_feeler(&mut self) {
-        let now_ms = unix_time_as_millis();
-        let filter = |peer_addr: &AddrInfo| match self.transport_type {
-            TransportType::Tcp => true,
+    /// Whether the given peer address is dialable by this service's transport.
+    ///
+    /// A QUIC address always carries an explicit `quic-v1` protocol component,
+    /// so it is only matched by the QUIC service. TCP therefore explicitly
+    /// excludes QUIC addresses to avoid multiple outbound services fighting over
+    /// the same peer when both TCP and QUIC services are running.
+    fn addr_matches_transport(transport_type: TransportType, peer_addr: &AddrInfo) -> bool {
+        let is_quic = peer_addr.addr.iter().any(|p| matches!(p, Protocol::QuicV1));
+        match transport_type {
+            TransportType::Tcp => !is_quic,
             TransportType::Ws => peer_addr
                 .addr
                 .iter()
@@ -65,7 +71,27 @@ impl OutboundPeerService {
                 .addr
                 .iter()
                 .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_))),
-        };
+            TransportType::QuicV1 => is_quic,
+        }
+    }
+
+    /// Complete a bare peer address with the transport-specific protocol
+    /// component so that p2p dials it over the intended transport. QUIC and TCP
+    /// addresses already carry their transport information, so nothing is added.
+    fn complete_dial_addr(transport_type: TransportType, mut addr: Multiaddr) -> Multiaddr {
+        match transport_type {
+            TransportType::Tcp | TransportType::QuicV1 => (),
+            TransportType::Ws => addr.push(Protocol::Ws),
+            TransportType::Wss => addr.push(Protocol::Wss),
+        }
+        addr
+    }
+
+    fn dial_feeler(&mut self) {
+        let now_ms = unix_time_as_millis();
+        let transport_type = self.transport_type;
+        let filter =
+            |peer_addr: &AddrInfo| Self::addr_matches_transport(transport_type, peer_addr);
         let attempt_peers = self.network_state.with_peer_store_mut(|peer_store| {
             let paddrs = peer_store.fetch_addrs_to_feeler(FEELER_CONNECTION_COUNT, filter);
             for paddr in paddrs.iter() {
@@ -83,15 +109,11 @@ impl OutboundPeerService {
             attempt_peers,
         );
 
-        for mut addr in attempt_peers.into_iter().map(|info| info.addr) {
-            self.network_state.dial_feeler(&self.p2p_control, {
-                match &self.transport_type {
-                    TransportType::Tcp => (),
-                    TransportType::Ws => addr.push(Protocol::Ws),
-                    TransportType::Wss => addr.push(Protocol::Wss),
-                }
-                addr
-            });
+        for addr in attempt_peers.into_iter().map(|info| info.addr) {
+            self.network_state.dial_feeler(
+                &self.p2p_control,
+                Self::complete_dial_addr(self.transport_type, addr),
+            );
         }
     }
 
@@ -108,17 +130,9 @@ impl OutboundPeerService {
 
         let target = &self.network_state.required_flags;
 
-        let filter = |peer_addr: &AddrInfo| match self.transport_type {
-            TransportType::Tcp => true,
-            TransportType::Ws => peer_addr
-                .addr
-                .iter()
-                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Tcp(_))),
-            TransportType::Wss => peer_addr
-                .addr
-                .iter()
-                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_))),
-        };
+        let transport_type = self.transport_type;
+        let filter =
+            |peer_addr: &AddrInfo| Self::addr_matches_transport(transport_type, peer_addr);
 
         let f = |peer_store: &mut PeerStore, number: usize, now_ms: u64| -> Vec<AddrInfo> {
             let paddrs = peer_store.fetch_addrs_to_attempt(number, *target, filter);
@@ -171,28 +185,20 @@ impl OutboundPeerService {
             Box::new(attempt_peers.into_iter().map(|info| info.addr))
         };
 
-        for mut addr in peers {
-            self.network_state.dial_identify(&self.p2p_control, {
-                match &self.transport_type {
-                    TransportType::Tcp => (),
-                    TransportType::Ws => addr.push(Protocol::Ws),
-                    TransportType::Wss => addr.push(Protocol::Wss),
-                }
-                addr
-            });
+        for addr in peers {
+            self.network_state.dial_identify(
+                &self.p2p_control,
+                Self::complete_dial_addr(self.transport_type, addr),
+            );
         }
     }
 
     fn try_dial_whitelist(&self) {
-        for mut addr in self.network_state.config.whitelist_peers() {
-            self.network_state.dial_identify(&self.p2p_control, {
-                match &self.transport_type {
-                    TransportType::Tcp => (),
-                    TransportType::Ws => addr.push(Protocol::Ws),
-                    TransportType::Wss => addr.push(Protocol::Wss),
-                }
-                addr
-            });
+        for addr in self.network_state.config.whitelist_peers() {
+            self.network_state.dial_identify(
+                &self.p2p_control,
+                Self::complete_dial_addr(self.transport_type, addr),
+            );
         }
     }
 

@@ -11,7 +11,7 @@ use p2p::{
     multiaddr::{Multiaddr, Protocol},
     service::TargetProtocol,
     traits::ServiceProtocol,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr, multiaddr_to_udp_socketaddr},
 };
 
 mod protocol;
@@ -30,7 +30,9 @@ const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
 pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
-    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+    if let Some(socket_addr) =
+        multiaddr_to_socketaddr(addr).or_else(|| multiaddr_to_udp_socketaddr(addr))
+    {
         !global_ip_only || is_reachable(socket_addr.ip())
     } else {
         addr.iter()
