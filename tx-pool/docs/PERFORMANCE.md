@@ -316,6 +316,7 @@ not expose `xctrace`, so no Instruments result is claimed.
 |---|---|---|---|
 | A3 | A second state-local projection Apply path intended to reduce projection maintenance. | Controlled dependency A/B was effectively neutral (four-scenario geometric mean about `+0.38%`; parent-first about `-0.23%`) while adding roughly 60 production lines and a second mutation implementation. | Fully reverted. The extra proof surface was not justified. |
 | A6-M2 | Skip `FairQueue` head remove/insert when an owner's runnable flag is unchanged. | The mechanism was redundant and 272 unit tests passed, but a focused 8-pair 4-peer/8-worker cold always-success A/B was neutral (`-0.07%` paired throughput, 3.34% ratio spread). An earlier four-scenario run was too noisy to admit a conclusion. | Fully reverted in `d98f9955c`. Six production lines without measurable value do not justify another scheduler branch. |
+| A6-M1 | Apply common entry projections as old/new deltas instead of complete detach/attach. | Both variants passed 271 unit tests and strict Clippy. Per-parent set difference regressed the focused 8-pair contention scenario by `0.51%`; a smaller whole-dependency equality gate was neutral at `+0.02%` with 3.21% ratio spread. | Fully reverted in `08de209fd` and `b488288ee`. The existing complete transition is smaller and easier to audit; measured data does not justify 62 additional production lines. |
 
 This rejection is an architectural constraint: projection performance should
 be improved by changing the canonical representation or proven update set, not
