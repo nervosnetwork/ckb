@@ -159,7 +159,7 @@ impl PrePoolKernel {
             arrival,
             expires_at,
             payload_charge_bytes,
-            dependencies,
+            dependencies: Arc::new(dependencies),
         };
         let entry = StoredEntry::prepare(entry, self.limits)?;
         self.validate_entry_shape(&hash, &entry)?;

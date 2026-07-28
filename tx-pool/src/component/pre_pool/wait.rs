@@ -4,7 +4,7 @@ use super::*;
 
 impl PrePoolKernel {
     pub(super) fn causal_keys(entry: &Entry) -> BTreeSet<DependencyKey> {
-        entry.dependencies.clone()
+        entry.dependencies.as_ref().clone()
     }
 
     /// Preserve a rejected leased/ready owner as conflict history without an
@@ -94,7 +94,9 @@ impl PrePoolKernel {
             .into_draft();
         let mut revision_cursor = self.next_revision;
         next.revision = EntryRevision::take(&mut revision_cursor)?;
-        next.dependencies.extend(keys.iter().cloned());
+        if !keys.is_subset(&next.dependencies) {
+            Arc::make_mut(&mut next.dependencies).extend(keys.iter().cloned());
+        }
         if let Some(charge_bytes) = charge_bytes {
             next.payload_charge_bytes = charge_bytes;
         }
@@ -378,7 +380,9 @@ impl PrePoolKernel {
             let revision = EntryRevision::take(revision_cursor)?;
             let mut next = entry.into_draft();
             next.revision = revision;
-            next.dependencies.extend(keys.iter().cloned());
+            if !keys.is_subset(&next.dependencies) {
+                Arc::make_mut(&mut next.dependencies).extend(keys.iter().cloned());
+            }
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Missing,
                 observed: self.observed_dependencies(keys)?,
@@ -440,7 +444,9 @@ impl PrePoolKernel {
             }
             let mut revision_cursor = self.next_revision;
             next.revision = EntryRevision::take(&mut revision_cursor)?;
-            next.dependencies.extend(keys.iter().cloned());
+            if !keys.is_subset(&next.dependencies) {
+                Arc::make_mut(&mut next.dependencies).extend(keys.iter().cloned());
+            }
             next.state = EntryState::Wait(WaitState {
                 reason: WaitReason::Conflict,
                 observed: self.observed_dependencies(keys)?,
@@ -480,7 +486,7 @@ impl PrePoolKernel {
             arrival,
             expires_at,
             payload_charge_bytes,
-            dependencies,
+            dependencies: Arc::new(dependencies),
         };
         let entry = StoredEntry::prepare(entry, self.limits)?;
         self.validate_entry_shape(&hash, &entry)?;

@@ -1196,7 +1196,7 @@ impl PrePoolKernel {
             arrival,
             expires_at,
             payload_charge_bytes,
-            dependencies,
+            dependencies: Arc::new(dependencies),
         };
         let entry = StoredEntry::prepare(entry, self.limits)?;
         self.validate_entry_shape(&hash, &entry)?;
@@ -1340,11 +1340,13 @@ impl PrePoolKernel {
         discovered_dependencies: BTreeSet<DependencyKey>,
     ) -> Result<(), PrePoolError> {
         let mut next = self.validate_resolve_lease(lease)?.clone().into_draft();
-        next.dependencies.extend(
-            discovered_dependencies
-                .into_iter()
-                .map(DependencyKey::into_compact),
-        );
+        if !discovered_dependencies.is_empty() {
+            Arc::make_mut(&mut next.dependencies).extend(
+                discovered_dependencies
+                    .into_iter()
+                    .map(DependencyKey::into_compact),
+            );
+        }
         let mut revision_cursor = self.next_revision;
         next.revision = EntryRevision::take(&mut revision_cursor)?;
         next.payload_charge_bytes = charge_bytes;
