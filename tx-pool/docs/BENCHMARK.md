@@ -33,6 +33,9 @@ python3 tx-pool/scripts/benchmark.py --quick --runs 4 \
 # override the post-build thermal settling interval when needed
 python3 tx-pool/scripts/benchmark.py --quick --cooldown-seconds 10
 
+# override the thermal settling interval between paired measurements
+python3 tx-pool/scripts/benchmark.py --quick --paired-cooldown-seconds 15
+
 # full matrix (~1 hour)
 python3 tx-pool/scripts/benchmark.py --full
 
@@ -224,6 +227,26 @@ independent batches and 20-transaction dependent chains improve
 signal-to-noise without expanding the scenario matrix. Do not reduce this
 sampling budget without clean paired evidence that the 4% noise gate remains
 reliable. Medium/full modes remain the release gates.
+
+Medium mode is the quantitative release tier and uses 80 samples, an 8-second
+warm-up and a 25-second measurement window. Full mode uses 100 samples, a
+10-second warm-up and a 30-second measurement window across the complete
+peer/worker/size matrix. Thus each tier increases evidence in a distinct way:
+quick narrows the matrix, medium strengthens the estimator, and full combines
+the strongest estimator with the broadest matrix.
+
+Paired A/B sleeps for 10 seconds between every fixed-binary measurement by
+default. This is separate from the post-build cooldown and is part of the
+comparison fingerprint. CPU-bound secp batches can otherwise heat the host
+monotonically so the second side of a pair measures thermal history instead of
+code. Set `--paired-cooldown-seconds 0` only for a non-gating diagnostic; a
+release record must still satisfy the paired-ratio spread gate.
+
+Before recording a scenario, paired A/B also runs one unrecorded full pilot on
+each side. The short generic preflight establishes code-page residency, while
+the scenario pilot establishes the sustained CPU state that a secp batch
+requires. Pilot results never enter the median or spread calculation; their
+count and the `scenario-pilot-alternating-v3` schedule are fingerprinted.
 
 Measured completion is event-driven: the pending callback increments an atomic counter and wakes a `Notify` waiter only after the pool transition is stable. No 1 ms polling timer or `get_tx_pool_info` request runs in the measured path.
 

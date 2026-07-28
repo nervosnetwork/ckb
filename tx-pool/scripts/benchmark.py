@@ -128,6 +128,16 @@ def parse_args() -> argparse.Namespace:
             "and before measurement (default: 15)"
         ),
     )
+    parser.add_argument(
+        "--paired-cooldown-seconds",
+        type=float,
+        default=10.0,
+        help=(
+            "idle interval between fixed-binary measurements in paired A/B "
+            "mode, preventing sustained CPU workloads from biasing the "
+            "second side through thermal drift (default: 10)"
+        ),
+    )
     args = parser.parse_args()
     if args.baseline_worktree and args.compare_json:
         parser.error("--baseline-worktree and --compare-json are mutually exclusive")
@@ -155,6 +165,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-run-spread-percent must be positive")
     if args.cooldown_seconds < 0:
         parser.error("--cooldown-seconds cannot be negative")
+    if args.paired_cooldown_seconds < 0:
+        parser.error("--paired-cooldown-seconds cannot be negative")
     return args
 
 
@@ -575,6 +587,8 @@ def environment_metadata(
         "benchmark_target_dir": str(bench_target_dir(workspace_root)),
         "benchmark_filter": ARGS.benchmark_filter,
         "cooldown_seconds": ARGS.cooldown_seconds,
+        "paired_cooldown_seconds": ARGS.paired_cooldown_seconds,
+        "paired_pilot_pairs": 1,
         "benchmark_build_fingerprint": benchmark_build_fingerprint(workspace_root),
     }
     if prepared is not None:
@@ -739,6 +753,8 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         "benchmark_harness_sha256",
         "benchmark_build_fingerprint",
         "cooldown_seconds",
+        "paired_cooldown_seconds",
+        "paired_pilot_pairs",
     ):
         if baseline.get(field) != current.get(field):
             mismatches.append(
@@ -899,7 +915,38 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
 
     baseline_runs: List[Dict[ResultKey, Result]] = [{} for _ in range(ARGS.runs)]
     candidate_runs: List[Dict[ResultKey, Result]] = [{} for _ in range(ARGS.runs)]
+    measurement_count = len(baseline_scenarios) * ARGS.runs * 2
+    completed_measurements = 0
+    if ARGS.paired_cooldown_seconds > 0:
+        print(
+            "\n>>> cooling down for "
+            f"{ARGS.paired_cooldown_seconds:g}s between paired measurements",
+            flush=True,
+        )
     for scenario in baseline_scenarios:
+        # A one-second generic preflight is sufficient for code-page residency,
+        # but not for the sustained CPU state of a secp measurement. Run one
+        # unrecorded full pair per exact scenario so the first recorded side
+        # does not pay a unique DVFS/thermal ramp.
+        for label, root, prepared in (
+            ("baseline pilot", baseline_root, baseline_binary),
+            ("candidate pilot", WORKSPACE_ROOT, candidate_binary),
+        ):
+            result = parse_output(
+                run_benchmark_binary(
+                    0,
+                    root,
+                    prepared,
+                    label,
+                    benchmark_filter=scenario,
+                )
+            )
+            if len(result) != 1:
+                raise RuntimeError(
+                    f"paired pilot selected {len(result)} results: {scenario}"
+                )
+            if ARGS.paired_cooldown_seconds > 0:
+                time.sleep(ARGS.paired_cooldown_seconds)
         for run_index in range(ARGS.runs):
             run = run_index + 1
             pair = [
@@ -943,6 +990,12 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
                     names = ", ".join(sorted(format_key(key) for key in duplicate))
                     raise RuntimeError(f"duplicate paired benchmark result: {names}")
                 destination.update(result)
+                completed_measurements += 1
+                if (
+                    completed_measurements < measurement_count
+                    and ARGS.paired_cooldown_seconds > 0
+                ):
+                    time.sleep(ARGS.paired_cooldown_seconds)
     verify_prepared_binary(baseline_binary, "baseline")
     verify_prepared_binary(candidate_binary, "candidate")
 
@@ -968,8 +1021,8 @@ def run_paired_worktrees(baseline_root: Path) -> bool:
         }
     baseline_record["paired_execution"] = True
     candidate_record["paired_execution"] = True
-    baseline_record["paired_schedule"] = "scenario-blocked-alternating-v2"
-    candidate_record["paired_schedule"] = "scenario-blocked-alternating-v2"
+    baseline_record["paired_schedule"] = "scenario-pilot-alternating-v3"
+    candidate_record["paired_schedule"] = "scenario-pilot-alternating-v3"
     candidate_record["paired_ratio_samples"] = {
         format_key(key): values for key, values in paired_samples.items()
     }

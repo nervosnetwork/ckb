@@ -1706,15 +1706,14 @@ fn bench(c: &mut Criterion) {
         group.warm_up_time(Duration::from_secs(5));
         group.measurement_time(Duration::from_secs(15));
     } else if full {
-        group.sample_size(50);
-        group.warm_up_time(Duration::from_secs(5));
-        group.measurement_time(Duration::from_secs(15));
+        group.sample_size(100);
+        group.warm_up_time(Duration::from_secs(10));
+        group.measurement_time(Duration::from_secs(30));
     } else {
-        // Default (medium) matrix: larger sample size and explicit timing for
-        // tighter confidence intervals on regression detection.
-        group.sample_size(30);
-        group.warm_up_time(Duration::from_secs(3));
-        group.measurement_time(Duration::from_secs(10));
+        // Default (medium) matrix is the quantitative release tier.
+        group.sample_size(80);
+        group.warm_up_time(Duration::from_secs(8));
+        group.measurement_time(Duration::from_secs(25));
     }
 
     // Dependent txs are bottlenecked by chain-serialized orphan recovery, so
