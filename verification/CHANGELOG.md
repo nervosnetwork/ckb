@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-verification-v1.1.1...ckb-verification-v1.2.0) - 2026-07-28
+
+### Added
+
+- *(script)* remove the code that suspend and resume the scheduler via a fully suspended state (#5262) (by @mohanson)
+
+### Changed
+
+- cargo fmt --all (#5255) (by @eval-exec)
+
+### Fixed
+
+- add dao output data mismatch verification (#5285) (by @chenyukang)
+- Fix some public security issues (#5219) (by @Officeyutong)
+
+### Contributors
+
+- @chenyukang
+- @mohanson
+- @Officeyutong
+- @eval-exec
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-verification-v1.1.0...ckb-verification-v1.1.1) - 2026-06-08
 
 ### Changed
