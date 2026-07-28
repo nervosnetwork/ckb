@@ -953,6 +953,117 @@ enum TxType {
     DependentSecp,
 }
 
+#[cfg(feature = "profiling")]
+#[derive(Clone, Copy, Debug)]
+enum ProfilePoolState {
+    Cold,
+    Warm,
+}
+
+#[cfg(feature = "profiling")]
+#[derive(Clone, Copy, Debug)]
+enum ProfileDependencyOrder {
+    ParentFirst,
+    ChildFirst,
+}
+
+#[cfg(feature = "profiling")]
+#[derive(Clone, Copy, Debug)]
+struct ProfileScenario {
+    tx_type: TxType,
+    pool_state: ProfilePoolState,
+    dependency_order: ProfileDependencyOrder,
+    peers: std::num::NonZeroUsize,
+    workers: std::num::NonZeroUsize,
+    size: std::num::NonZeroUsize,
+    warm_pool_size: usize,
+}
+
+#[cfg(feature = "profiling")]
+impl ProfileScenario {
+    fn from_env() -> Result<Option<Self>, String> {
+        fn required(name: &str) -> Result<String, String> {
+            std::env::var(name).map_err(|error| format!("{name} is required: {error}"))
+        }
+
+        fn nonzero(name: &str) -> Result<std::num::NonZeroUsize, String> {
+            let value = required(name)?
+                .parse::<usize>()
+                .map_err(|error| format!("{name} must be an integer: {error}"))?;
+            std::num::NonZeroUsize::new(value)
+                .ok_or_else(|| format!("{name} must be greater than zero"))
+        }
+
+        let tx_type = match std::env::var("TX_POOL_PROFILE_TX_TYPE") {
+            Err(std::env::VarError::NotPresent) => return Ok(None),
+            Err(error) => return Err(format!("TX_POOL_PROFILE_TX_TYPE is invalid: {error}")),
+            Ok(value) => match value.as_str() {
+                "always_success" => TxType::AlwaysSuccess,
+                "secp256k1" => TxType::Secp256k1,
+                "dependent_always_success" => TxType::DependentAlwaysSuccess,
+                "dependent_secp" => TxType::DependentSecp,
+                _ => return Err(format!("unsupported TX_POOL_PROFILE_TX_TYPE: {value}")),
+            },
+        };
+        let pool_state = match required("TX_POOL_PROFILE_POOL_STATE")?.as_str() {
+            "cold" => ProfilePoolState::Cold,
+            "warm" => ProfilePoolState::Warm,
+            value => return Err(format!("unsupported TX_POOL_PROFILE_POOL_STATE: {value}")),
+        };
+        let dependency_order = match required("TX_POOL_PROFILE_DEPENDENCY_ORDER")?.as_str() {
+            "parent_first" => ProfileDependencyOrder::ParentFirst,
+            "child_first" => ProfileDependencyOrder::ChildFirst,
+            value => {
+                return Err(format!(
+                    "unsupported TX_POOL_PROFILE_DEPENDENCY_ORDER: {value}"
+                ));
+            }
+        };
+        if !tx_type.is_dependent() && matches!(dependency_order, ProfileDependencyOrder::ChildFirst)
+        {
+            return Err("child_first order requires a dependent transaction type".to_string());
+        }
+        let warm_pool_size = required("TX_POOL_PROFILE_WARM_POOL_SIZE")?
+            .parse::<usize>()
+            .map_err(|error| {
+                format!("TX_POOL_PROFILE_WARM_POOL_SIZE must be an integer: {error}")
+            })?;
+        let scenario = Self {
+            tx_type,
+            pool_state,
+            dependency_order,
+            peers: nonzero("TX_POOL_PROFILE_PEERS")?,
+            workers: nonzero("TX_POOL_PROFILE_WORKERS")?,
+            size: nonzero("TX_POOL_PROFILE_SIZE")?,
+            warm_pool_size,
+        };
+        scenario
+            .warm_pool_size
+            .checked_add(scenario.size.get())
+            .ok_or_else(|| "profile transaction population overflows usize".to_string())?;
+        Ok(Some(scenario))
+    }
+
+    fn name(self) -> String {
+        format!(
+            "{}_{}_{}_{}peer_{}worker_{}_warm{}",
+            self.tx_type.as_str(),
+            match self.pool_state {
+                ProfilePoolState::Cold => "cold",
+                ProfilePoolState::Warm => "warm",
+            },
+            match self.dependency_order {
+                ProfileDependencyOrder::ParentFirst => "parent_first",
+                ProfileDependencyOrder::ChildFirst => "child_first",
+            },
+            self.peers,
+            self.workers,
+            self.size,
+            self.warm_pool_size,
+        )
+    }
+}
+
 impl TxType {
     fn as_str(self) -> &'static str {
         match self {
@@ -1056,6 +1167,48 @@ impl BenchData {
 // Submit and wait
 // ---------------------------------------------------------------------------
 
+async fn submit_and_wait_inner(
+    controller: &crate::TxPoolController,
+    completion: &BenchCompletion,
+    txs: Arc<Vec<TransactionView>>,
+    cycles: Arc<Vec<u64>>,
+    target_pending: usize,
+    submitters: usize,
+) {
+    // Split into per-submitter ranges.  Each spawned task gets a cheap
+    // Arc clone and indexes directly into the shared Vec, avoiding a
+    // full Vec clone per submitter.
+    let chunk_size = if submitters == 0 || txs.is_empty() {
+        txs.len()
+    } else {
+        txs.len().div_ceil(submitters)
+    };
+    let ranges: Vec<(usize, usize)> = (0..txs.len())
+        .step_by(chunk_size.max(1))
+        .map(|start| (start, (start + chunk_size).min(txs.len())))
+        .collect();
+
+    let mut handles = Vec::with_capacity(ranges.len());
+    for (submitter, (start, end)) in ranges.into_iter().enumerate() {
+        let controller = controller.clone();
+        let txs = Arc::clone(&txs);
+        let cycles = Arc::clone(&cycles);
+        let peer = (submitter + 1).into();
+        handles.push(tokio::spawn(async move {
+            for i in start..end {
+                controller
+                    .submit_remote_tx(txs[i].clone(), cycles[i], peer)
+                    .await
+                    .expect("submit remote tx");
+            }
+        }));
+    }
+    for handle in handles {
+        handle.await.expect("submitter");
+    }
+    completion.wait_for(target_pending).await;
+}
+
 fn submit_and_wait(
     runtime: &tokio::runtime::Runtime,
     controller: &crate::TxPoolController,
@@ -1065,40 +1218,145 @@ fn submit_and_wait(
     target_pending: usize,
     submitters: usize,
 ) {
-    runtime.block_on(async {
-        // Split into per-submitter ranges.  Each spawned task gets a cheap
-        // Arc clone and indexes directly into the shared Vec, avoiding a
-        // full Vec clone per submitter.
-        let chunk_size = if submitters == 0 || txs.is_empty() {
-            txs.len()
-        } else {
-            txs.len().div_ceil(submitters)
-        };
-        let ranges: Vec<(usize, usize)> = (0..txs.len())
-            .step_by(chunk_size.max(1))
-            .map(|start| (start, (start + chunk_size).min(txs.len())))
-            .collect();
+    runtime.block_on(submit_and_wait_inner(
+        controller,
+        completion,
+        txs,
+        cycles,
+        target_pending,
+        submitters,
+    ))
+}
 
-        let mut handles = Vec::with_capacity(ranges.len());
-        for (submitter, (start, end)) in ranges.into_iter().enumerate() {
-            let controller = controller.clone();
-            let txs = Arc::clone(&txs);
-            let cycles = Arc::clone(&cycles);
-            let peer = (submitter + 1).into();
-            handles.push(tokio::spawn(async move {
-                for i in start..end {
-                    controller
-                        .submit_remote_tx(txs[i].clone(), cycles[i], peer)
-                        .await
-                        .expect("submit remote tx");
-                }
-            }));
+#[cfg(feature = "profiling")]
+fn unix_nanos() -> Result<u64, String> {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("system clock precedes UNIX_EPOCH: {error}"))?;
+    u64::try_from(elapsed.as_nanos())
+        .map_err(|_| "system timestamp does not fit in u64 nanoseconds".to_string())
+}
+
+#[cfg(feature = "profiling")]
+fn init_profile_span_log() -> Result<(), String> {
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::filter::FilterFn;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let path = match std::env::var("TX_POOL_PROFILE_TRACE_PATH") {
+        Ok(path) => path,
+        Err(std::env::VarError::NotPresent) => return Ok(()),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err("TX_POOL_PROFILE_TRACE_PATH is not valid Unicode".to_string());
         }
-        for h in handles {
-            h.await.expect("submitter");
-        }
-        completion.wait_for(target_pending).await;
-    })
+    };
+    let output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| format!("cannot create profile span log {path}: {error}"))?;
+    let filter = FilterFn::new(|metadata| metadata.target() == "ckb_tx_pool_profile");
+    let layer = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+        .with_writer(std::sync::Arc::new(output))
+        .with_filter(filter);
+    tracing_subscriber::registry()
+        .with(layer)
+        .try_init()
+        .map_err(|error| format!("cannot install profile span subscriber: {error}"))
+}
+
+#[cfg(feature = "profiling")]
+fn submit_and_wait_profiled(
+    runtime: &tokio::runtime::Runtime,
+    controller: &crate::TxPoolController,
+    completion: &BenchCompletion,
+    txs: Arc<Vec<TransactionView>>,
+    cycles: Arc<Vec<u64>>,
+    target_pending: usize,
+    submitters: usize,
+) -> Result<(u64, u64), String> {
+    let start_unix_nanos = unix_nanos()?;
+    runtime.block_on(submit_and_wait_inner(
+        controller,
+        completion,
+        txs,
+        cycles,
+        target_pending,
+        submitters,
+    ));
+    let end_unix_nanos = unix_nanos()?;
+    Ok((start_unix_nanos, end_unix_nanos))
+}
+
+#[cfg(feature = "profiling")]
+fn run_profile_scenario(scenario: ProfileScenario) -> Result<(), String> {
+    init_profile_span_log()?;
+    let executor = Arc::new(BenchExecutor::new());
+    let data = BenchData::new(
+        scenario.tx_type,
+        scenario.size.get(),
+        scenario.warm_pool_size,
+        Arc::clone(&executor),
+    );
+    let handle = data.shared.start_controller(scenario.workers.get());
+    let prefill =
+        matches!(scenario.pool_state, ProfilePoolState::Warm) || scenario.tx_type.is_dependent();
+    if prefill && scenario.warm_pool_size > 0 {
+        let (warm_txs, warm_cycles) = data.warm();
+        let warm_submitters = if matches!(scenario.pool_state, ProfilePoolState::Cold) {
+            1
+        } else {
+            scenario.peers.get()
+        };
+        submit_and_wait(
+            &executor.runtime,
+            &handle.controller,
+            &handle.completion,
+            warm_txs,
+            warm_cycles,
+            scenario.warm_pool_size,
+            warm_submitters,
+        );
+    }
+
+    let (mut target_txs, mut target_cycles) = data.target(scenario.size.get());
+    if matches!(
+        scenario.dependency_order,
+        ProfileDependencyOrder::ChildFirst
+    ) {
+        Arc::make_mut(&mut target_txs).reverse();
+        Arc::make_mut(&mut target_cycles).reverse();
+    }
+    let target_pending = scenario
+        .size
+        .get()
+        .checked_add(if prefill { scenario.warm_pool_size } else { 0 })
+        .ok_or_else(|| "profile target pending count overflows usize".to_string())?;
+    let (start_unix_nanos, end_unix_nanos) = submit_and_wait_profiled(
+        &executor.runtime,
+        &handle.controller,
+        &handle.completion,
+        target_txs,
+        target_cycles,
+        target_pending,
+        scenario.peers.get(),
+    )?;
+    let record = serde_json::json!({
+        "schema_version": 1,
+        "scenario": scenario.name(),
+        "start_unix_nanos": start_unix_nanos,
+        "end_unix_nanos": end_unix_nanos,
+        "elapsed_nanos": end_unix_nanos.saturating_sub(start_unix_nanos),
+    });
+    println!("TX_POOL_PROFILE_WINDOW {record}");
+    drop(handle);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,6 +1605,22 @@ fn register_warm_bench(
 // ---------------------------------------------------------------------------
 
 fn bench(c: &mut Criterion) {
+    #[cfg(feature = "profiling")]
+    match ProfileScenario::from_env() {
+        Ok(Some(scenario)) => {
+            if let Err(error) = run_profile_scenario(scenario) {
+                eprintln!("tx-pool profile scenario failed: {error}");
+                std::process::exit(2);
+            }
+            return;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("invalid tx-pool profile scenario: {error}");
+            std::process::exit(2);
+        }
+    }
+
     let mode = "pipeline";
 
     let matrix = bench_matrix();

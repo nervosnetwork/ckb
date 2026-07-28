@@ -25,6 +25,9 @@ ckb-build-info.workspace = true
 ckb-build-info.workspace = true
 ckb-bin.workspace = true
 console-subscriber = { workspace = true, optional = true }
+humantime = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["net", "rt", "time"], optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
 winreg = "0.55"
@@ -233,6 +236,7 @@ fs2 = "0.4.3"
 futures = "0.3"
 futures-util = "0.3.21"
 golomb-coded-set = "0.2.0"
+humantime = "2.3"
 governor = { version = "0.10", default-features = false, features = [
   "std",
   "jitter",
@@ -306,6 +310,8 @@ tokio = "1.35.0"
 tokio-util = "0.7.8"
 toml = "0.5"
 torut = "0.2.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
 tower-http = "0.6"
 ubyte = "0.10"
 url = "2.2.2"
@@ -335,7 +341,11 @@ default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]
-profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
+profiling = [
+  "tikv-jemallocator/profiling",
+  "ckb-bin/profiling",
+  "tracing-subscriber",
+]
 portable = ["ckb-bin/portable"]
 march-native = ["ckb-bin/march-native"]
-tokio-trace = ["console-subscriber"]
+tokio-trace = ["console-subscriber", "humantime", "tokio", "tracing-subscriber"]

@@ -310,6 +310,13 @@ state constructors and a prepared authority transaction prevent them on legal
 paths; a pre-Apply consistency failure is a typed system fault, never an
 assertion inside Apply and never a peer/RPC rejection.
 
+`validate_entry_projection` is the production pre-Apply check for each changed
+primary's existing derived memberships. It is bounded by that entry's own
+edges, not a full-pool reconciliation, and is retained as defense in depth
+until construction and types prove the same facts without it. Converting it to
+a debug-only check or deleting it requires an explicit architecture decision,
+replacement proof and performance evidence; it is not a mechanical cleanup.
+
 ## 7. Scheduling and progress
 
 ### 7.1 Fair work queues
@@ -806,6 +813,14 @@ gate compares clean revisions with controlled warmup/cache conditions and
 measures throughput, tail latency, RSS/allocation, lock hold time, worker
 utilization, commit, reorg and template latency. A material regression blocks
 production even if correctness tests pass.
+
+Profiling first considers mechanical work inside the existing authority
+transaction: unchanged-index detach/attach, repeated fair-owner head
+publication, unconditional lane-readiness recomputation and avoidable Plan
+cloning. Such work may be removed only when the resulting delta Apply remains
+total and `validate_entry_projection` retains equivalent coverage. Lock
+amortization comes second; another cache, batch owner or resident DAG is not an
+acceptable substitute for measured mechanical simplification.
 
 ## 17. Extensibility rules
 

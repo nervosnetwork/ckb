@@ -1343,6 +1343,15 @@ async fn publish_one(queue: &EffectJournal, endpoints: &EffectEndpoints, effect:
     }
 }
 
+#[cfg_attr(
+    feature = "profiling",
+    tracing::instrument(
+        name = "tx_pool.effects.publish",
+        target = "ckb_tx_pool_profile",
+        level = "trace",
+        skip_all
+    )
+)]
 async fn run_effect_publisher_once(
     queue: Arc<EffectJournal>,
     endpoints: EffectEndpoints,

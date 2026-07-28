@@ -341,14 +341,17 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/service/stages/runner.rs",
         "tx-pool/src/benchmark.rs",
-        "tx-pool/scripts/benchmark.py"
+        "tx-pool/scripts/benchmark.py",
+        "tx-pool/scripts/profile.py",
+        "tx-pool/docs/PERFORMANCE.md"
       ],
-      "required_behavior": "Owner-head scheduling, victim selection and conflict probing stop at maintained bounds independent of unrelated population. Successful Resolve and Verify completion can reuse its kernel acquisition for one capability-compatible same-lane checkout without crossing a stage or adding scheduler state. Benchmark comparisons use fingerprinted paired revisions and reject noisy samples.",
-      "hostile_case": "A capped peer prefix, stronger suffix or large independent population must not turn one admission/checkout into an O(pool) scan; a noisy or mismatched harness must not claim a performance win.",
+      "required_behavior": "Owner-head scheduling, victim selection and conflict probing stop at maintained bounds independent of unrelated population. Successful Resolve and Verify completion can reuse its kernel acquisition for one capability-compatible same-lane checkout without crossing a stage or adding scheduler state. Benchmark comparisons use fingerprinted paired revisions and reject noisy samples; profiling uses the same fixture and a manifest-bound submission-to-stable-callback window.",
+      "hostile_case": "A capped peer prefix, stronger suffix or large independent population must not turn one admission/checkout into an O(pool) scan; a noisy, mismatched or whole-process-only harness must not claim a performance win or attribute fixture work to target transactions.",
       "reviewer_questions": [
         "Is operation count bounded by owners/cohort/config rather than resident transaction count?",
         "Did the change add allocation, lock, task, scan or mutable projection to a hot path, or can an existing acquisition safely carry the next same-lane lease?",
-        "Before accepting benchmark evidence, are revision, binary, config, repetitions and spread comparable?"
+        "Before accepting benchmark evidence, are revision, binary, config, repetitions and spread comparable?",
+        "Does profiling crop to the emitted target window, verify its raw/symbol artifact hashes and keep sample residency separate from CPU intervals?"
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|randomized_public_transitions)/)'",
       "performance_bound": "Deterministic operation-count regressions are always required; controlled timing A/B is a separate final gate, never inferred from unit duration."

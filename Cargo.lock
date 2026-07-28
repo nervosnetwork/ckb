@@ -733,7 +733,10 @@ dependencies = [
  "ckb-bin",
  "ckb-build-info",
  "console-subscriber",
+ "humantime",
  "tikv-jemallocator",
+ "tokio",
+ "tracing-subscriber",
  "version-compare",
  "winreg",
 ]
@@ -1964,6 +1967,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

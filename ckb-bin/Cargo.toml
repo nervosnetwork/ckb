@@ -58,7 +58,11 @@ colored = "2.0"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
-profiling = ["ckb-memory-tracker/profiling", "ckb-shared/stats"]
+profiling = [
+    "ckb-memory-tracker/profiling",
+    "ckb-shared/stats",
+    "ckb-shared/profiling",
+]
 with_sentry = [
     "sentry",
     "ckb-launcher/with_sentry",

@@ -49,6 +49,8 @@ hand-maintained table.
 | `python3 tx-pool/scripts/check_test_layout.py` | Enforce test isolation, module wiring, static panic restrictions and reviewed test-only seams. | No |
 | `python3 tx-pool/scripts/check_security_manifest.py` | Discover nextest tests and validate the architecture, behavior, integration and inventory contracts. | No |
 | `python3 tx-pool/scripts/benchmark.py` | Produce fingerprinted Criterion records and controlled A/B comparisons. | Only requested benchmark artifacts |
+| `python3 tx-pool/scripts/profile.py capture ...` | Build or reuse one hashed profiling binary, capture a windowed Samply profile and emit a strict manifest plus deterministic summary. Artifacts must be outside the source tree. | Only the requested external artifact prefix |
+| `python3 tx-pool/scripts/profile.py analyze --manifest ...` | Revalidate recorded artifact hashes and regenerate the window-cropped symbol summary without executing CKB code. | The summary path owned by the manifest |
 
 ## Normal review gate
 
@@ -103,4 +105,7 @@ python3 tx-pool/scripts/check_security_manifest.py \
 Correctness tests and their duration are not performance evidence. Follow
 [`BENCHMARK.md`](BENCHMARK.md) for clean, repeated, fingerprint-matched A/B
 records. A quick run is diagnostic; only the specified controlled comparison
-can close the performance release condition.
+can close the performance release condition. Follow
+[`PERFORMANCE.md`](PERFORMANCE.md) for the profiling scenario contract, exact
+Samply/Tokio-console/cargo-instruments commands, artifact schemas and the rule
+that sampled stacks select candidates but never prove a throughput win.

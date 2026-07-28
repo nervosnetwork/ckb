@@ -81,6 +81,15 @@ impl TxPoolService {
             .await;
     }
 
+    #[cfg_attr(
+        feature = "profiling",
+        tracing::instrument(
+            name = "tx_pool.stage.verify",
+            target = "ckb_tx_pool_profile",
+            level = "trace",
+            skip_all
+        )
+    )]
     async fn process_pipeline_verify_lease_inner(
         &self,
         lease: VerifyLease,

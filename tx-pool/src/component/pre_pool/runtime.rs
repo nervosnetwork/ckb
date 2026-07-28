@@ -207,11 +207,30 @@ impl PrePool {
     }
 
     fn lock(&self) -> MutexGuard<'_, PrePoolKernel> {
+        #[cfg(feature = "profiling")]
+        let wait_span = tracing::trace_span!(
+            target: "ckb_tx_pool_profile",
+            "tx_pool.kernel.lock_wait"
+        );
+        #[cfg(feature = "profiling")]
+        let _wait_guard = wait_span.enter();
         self.state.lock()
     }
 
     pub(crate) fn read<T>(&self, inspect: impl FnOnce(&PrePoolKernel) -> T) -> T {
-        inspect(&self.lock())
+        let state = self.lock();
+        let result = {
+            #[cfg(feature = "profiling")]
+            let hold_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile",
+                "tx_pool.kernel.read_hold"
+            );
+            #[cfg(feature = "profiling")]
+            let _hold_guard = hold_span.enter();
+            inspect(&state)
+        };
+        drop(state);
+        result
     }
 
     /// The sole mutation boundary.  Transaction rejection, backpressure and
@@ -220,24 +239,35 @@ impl PrePool {
     pub(crate) fn mutate_authoritative<T>(&self, apply: impl FnOnce(&mut PrePoolKernel) -> T) -> T {
         let (result, ready, maintenance, usage) = {
             let mut state = self.lock();
-            let result = apply(&mut state);
-            let ready = (
-                state.work_is_ready(WorkLane::Ingress, WorkCapability::Any),
-                state.work_is_ready(WorkLane::Resolve, WorkCapability::Any),
-                state.work_is_ready(WorkLane::Verify, WorkCapability::Any),
-                state.work_is_ready(WorkLane::Verify, WorkCapability::SmallCycleOnly),
-                state.work_is_ready(WorkLane::Commit, WorkCapability::Any),
-            );
-            let usage = crate::metrics::KernelUsage {
-                total_entries: state.total_usage.entries,
-                total_bytes: state.total_usage.bytes,
-                remote_entries: state.remote_usage.entries,
-                remote_bytes: state.remote_usage.bytes,
-                conflict_entries: state.conflict_usage.entries,
-                conflict_bytes: state.conflict_usage.bytes,
-                active_work: state.active_work,
+            let applied = {
+                #[cfg(feature = "profiling")]
+                let hold_span = tracing::trace_span!(
+                    target: "ckb_tx_pool_profile",
+                    "tx_pool.kernel.mutate_hold"
+                );
+                #[cfg(feature = "profiling")]
+                let _hold_guard = hold_span.enter();
+                let result = apply(&mut state);
+                let ready = (
+                    state.work_is_ready(WorkLane::Ingress, WorkCapability::Any),
+                    state.work_is_ready(WorkLane::Resolve, WorkCapability::Any),
+                    state.work_is_ready(WorkLane::Verify, WorkCapability::Any),
+                    state.work_is_ready(WorkLane::Verify, WorkCapability::SmallCycleOnly),
+                    state.work_is_ready(WorkLane::Commit, WorkCapability::Any),
+                );
+                let usage = crate::metrics::KernelUsage {
+                    total_entries: state.total_usage.entries,
+                    total_bytes: state.total_usage.bytes,
+                    remote_entries: state.remote_usage.entries,
+                    remote_bytes: state.remote_usage.bytes,
+                    conflict_entries: state.conflict_usage.entries,
+                    conflict_bytes: state.conflict_usage.bytes,
+                    active_work: state.active_work,
+                };
+                (result, ready, state.wait_wake_pending(), usage)
             };
-            (result, ready, state.wait_wake_pending(), usage)
+            drop(state);
+            applied
         };
         usage.publish();
         let (ingress, resolve, verify, small_cycle, commit) = ready;

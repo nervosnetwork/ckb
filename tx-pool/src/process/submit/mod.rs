@@ -413,6 +413,15 @@ impl TxPoolService {
     /// `TxPool -> PrePoolKernel` critical section that validates and applies
     /// it. Journal backpressure holds no state authority. Returns false only
     /// after journal shutdown or a structural fault.
+    #[cfg_attr(
+        feature = "profiling",
+        tracing::instrument(
+            name = "tx_pool.commit.drive",
+            target = "ckb_tx_pool_profile",
+            level = "trace",
+            skip_all
+        )
+    )]
     pub(crate) async fn drive_pipeline_commits(&self) -> bool {
         const MAX_COMMITS_PER_DRIVE: usize = 64;
         for _ in 0..MAX_COMMITS_PER_DRIVE {

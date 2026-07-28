@@ -84,10 +84,11 @@ neutral/slower and was discarded; adding more wakes does not address the
 observed cost.
 
 Host-specific Samply profiles and symbol tables are not versioned because they
-are large and not portable. A feature-gated low-cardinality tx-pool profiling
-surface is still required so reviewers can regenerate stage/kernel attribution
-without a private harness. It must add no default-build span/subscriber work,
-must reuse bounded stage names, and must initialize fallibly rather than panic.
+are large and not portable. The committed feature-gated profiling surface lets
+reviewers regenerate stage/kernel attribution without a private harness. It
+adds no default-build span/subscriber work, uses bounded static stage names and
+initializes the optional Tokio console fallibly rather than making telemetry a
+node-startup precondition.
 
 ### Reproducibility contract
 
@@ -114,10 +115,140 @@ conditions hold:
    release-accepting. Only the controlled medium/full benchmark protocol can
    close the performance release blocker.
 
-A5 is incomplete until `tx-pool/scripts` contains the capture/analysis entry
-point and this document contains exact commands for Samply, cargo-instruments
-and tokio-console. `/private/tmp` artifacts used in the exploratory pass are
-not sufficient final evidence.
+The canonical runner is `tx-pool/scripts/profile.py`. Its one-shot mode reuses
+the exact benchmark fixture and emits one `TX_POOL_PROFILE_WINDOW` record. The
+runner asks Samply to sample the process and pre-symbolicate a sidecar, then the
+deterministic analyzer counts only samples inside that record. CPU deltas are
+counted only when both ends of their sampling interval lie inside the window;
+this prevents fixture CPU immediately before submission from leaking into the
+result. Parking samples and per-thread CPU deltas remain separate because a
+thread's leaf frame at the end of an interval is not proof of where that
+interval consumed CPU.
+
+### Reproducing a Samply profile
+
+Install Samply 0.13.1 or later, then run one scenario. Omitting `--binary`
+builds the `internal,profiling` benchmark once with locked dependencies and
+records its exact path and SHA-256:
+
+```bash
+python3 tx-pool/scripts/profile.py capture \
+  --output-prefix /private/tmp/txpool-independent-cold \
+  --tx-type always_success \
+  --pool-state cold \
+  --dependency-order parent_first \
+  --peers 1 --workers 8 --size 500 --warm-pool-size 100
+```
+
+For the remaining scenarios, read `artifacts.binary.path` from the first
+manifest and pass that unchanged path. This avoids recompilation; every new
+manifest re-hashes the binary and identifies its provenance as reused by hash:
+
+```bash
+python3 tx-pool/scripts/profile.py capture \
+  --output-prefix /private/tmp/txpool-secp-cold \
+  --binary /absolute/path/from/the/first/manifest \
+  --tx-type secp256k1 \
+  --pool-state cold \
+  --dependency-order parent_first \
+  --peers 4 --workers 8 --size 200 --warm-pool-size 50
+```
+
+Re-analysis never samples or runs code. It verifies every recorded artifact
+size/SHA and rewrites the deterministic summary from the raw profile, symbol
+sidecar and recorded target window:
+
+```bash
+python3 tx-pool/scripts/profile.py analyze \
+  --manifest /private/tmp/txpool-secp-cold.manifest.json
+```
+
+Each capture produces `.json.gz`, `.json.syms.json`, `.stdout.log`,
+`.stderr.log`, `.spans.log`, `.span.stdout.log`, `.span.stderr.log`,
+`.manifest.json` and `.summary.json`. CPU sampling and span formatting are two
+separate executions of the same SHA-verified binary and exact scenario. This
+is a load-bearing measurement boundary: emitting thousands of formatted close
+records during Samply capture would inject subscriber locking and file I/O into
+the mutex profile. The manifest records both commands and both target windows;
+the span log contains only close/busy/idle records for the seven static tx-pool
+spans, while the Samply summary is the deterministic window-cropped
+CPU/residency view from the execution with no span subscriber. Artifacts are
+refused inside the source tree
+and existing files are not replaced unless `--force` is explicit. The
+manifest binds the Git diff and untracked content, enabled
+features, binary/harness/manifests/lockfile hashes, exact command, scenario,
+sampling rate, toolchain/profiler, CPU/OS/filesystem, flags, power/thermal state
+where available and nanosecond target window. Missing identity data is an
+error, never an `unknown == unknown` match.
+
+### Tokio wake and lock observation
+
+Samply answers where process threads were sampled. Tokio console is the
+separate tool for task lifetime, poll, wake and resource behavior. Build the
+node with both observation features and Tokio's required unstable cfg, run an
+isolated node workload, then connect from another terminal:
+
+```bash
+RUSTFLAGS='--cfg tokio_unstable' \
+  cargo build --bin ckb --features profiling,tokio-trace --locked
+
+TOKIO_CONSOLE_BIND=127.0.0.1:6669 \
+TOKIO_CONSOLE_RETENTION=30s \
+TX_POOL_PROFILE_TRACE_PATH=/private/tmp/txpool-span-close.log \
+  target/debug/ckb -C /path/to/isolated-node run
+
+tokio-console http://127.0.0.1:6669
+```
+
+Tokio console intentionally consumes only Tokio runtime events; it does not
+pretend application spans are runtime tasks. The separate
+`TX_POOL_PROFILE_TRACE_PATH` layer writes close records with busy/idle timing
+for tx-pool spans only. It creates a new file and refuses an existing path so
+two runs cannot be silently mixed. The spans have only the following static
+low-cardinality names:
+`tx_pool.stage.resolve`, `tx_pool.stage.verify`, `tx_pool.commit.drive`,
+`tx_pool.effects.publish`, `tx_pool.kernel.lock_wait`,
+`tx_pool.kernel.read_hold` and `tx_pool.kernel.mutate_hold`. No transaction or
+peer identifier is attached. Kernel wait and hold are distinct, and none of
+the observed async functions holds the kernel mutex across an await.
+
+`TOKIO_CONSOLE_PUBLISH_INTERVAL` and
+`TOKIO_CONSOLE_BUFFER_CAPACITY` are optional. `TOKIO_CONSOLE_RECORD_PATH` is
+deliberately rejected: the upstream builder opens it through `expect`, so
+accepting an operator-controlled path would reintroduce panic-based telemetry.
+The publish interval and buffer capacity must both be positive because the
+upstream Tokio interval/channel constructors reject zero. An invalid
+duration/address/capacity/span path, subscriber conflict, thread
+creation failure or server error is reported without terminating the node.
+Building `tokio-trace` without `RUSTFLAGS='--cfg tokio_unstable'` is rejected at
+compile time, before the upstream runtime assertion can exist in an executable.
+The ordinary `profiling` benchmark feature does not enable the console
+subscriber.
+
+### Optional macOS cross-check
+
+`cargo-instruments` is a host-specific corroboration tool, not the canonical
+artifact format. It requires a full Xcode developer directory for `xctrace`:
+
+```bash
+xcode-select -p
+xcrun --find xctrace
+
+TX_POOL_PROFILE_TX_TYPE=always_success \
+TX_POOL_PROFILE_POOL_STATE=cold \
+TX_POOL_PROFILE_DEPENDENCY_ORDER=parent_first \
+TX_POOL_PROFILE_PEERS=1 \
+TX_POOL_PROFILE_WORKERS=8 \
+TX_POOL_PROFILE_SIZE=500 \
+TX_POOL_PROFILE_WARM_POOL_SIZE=100 \
+  cargo instruments -p ckb-tx-pool --bench pipeline \
+    --features internal,profiling --template 'Time Profiler' --no-open \
+    -- --bench --noplot --discard-baseline --color never
+```
+
+If `xcrun --find xctrace` fails, the result is unavailable rather than
+evidence. On the current development host the command-line developer tools do
+not expose `xctrace`, so no Instruments result is claimed.
 
 ## Retained changes
 
@@ -127,7 +258,7 @@ not sufficient final evidence.
 | A1 | Seal raw revisions behind typed Resolve/Verify leases. | Callers cannot assemble a hash/revision/location authority tuple; stale completion is rejected by construction. | Keeps later hot-path changes proof-carrying without lookup/defensive state. | Committed in `3376261f1`. |
 | A2 | Borrow Ready commit authority through Plan/Apply instead of cloning it. | The exclusive kernel borrow proves the Ready owner remains current until handoff or rejection. | Remove payload cloning and redundant authority reads at commit. | Committed in `30b77357c`. |
 | A4 | On successful Resolve or Verify completion, check out one next same-lane lease inside the same kernel mutation. | The fair queue still selects work; `VerifyLease` seals the original worker capability and continuation cannot cross stages. `AppliedContinuation` distinguishes completed Apply from post-Apply checkout failure. Pause, cancellation or command loss completes at most the already-owned lease in final mode. | Remove one kernel mutex acquisition and one wake/scheduler round trip per independent same-lane transaction. | Implemented; 271 unit tests, strict static gates and direct RelayV3 integration evidence pass; final performance acceptance remains. |
-| A5 | Feature-gated low-cardinality stage/kernel profiling points and reproducible capture instructions. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. | Preserve future attribution and wake/lock analysis without temporary source patches. | Design frozen; implementation pending. |
+| A5 | Feature-gated low-cardinality stage/kernel profiling points, fallible Tokio-console setup and a reproducible windowed Samply capture/analyzer. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. Strict manifests and boundary-aware CPU accounting prevent attribution drift. | Preserve future attribution and wake/lock analysis without temporary source patches. | Implemented; correctness/static gates and final architecture review remain before checkpoint. |
 
 ## Rejected change
 
@@ -160,11 +291,15 @@ cross-stage shortcut.
 The order is fixed. A failed stage returns to design review rather than gaining
 a compensating patch.
 
-1. Add A5's feature-gated, observation-only profiling surface, committed
-   capture/analyzer entry point, artifact manifest and exact reproduction
-   instructions without changing the default binary.
-2. Run all `ckb-tx-pool` nextest tests, production Clippy/static panic gates,
+1. Run all `ckb-tx-pool` nextest tests, production Clippy/static panic gates,
    documentation and security-manifest validators.
+2. Use the retained profiling surface to cover the CKB-semantic independent,
+   secp, pool-state, peer-count and both dependency-order dimensions; retain
+   only optimization candidates supported by more than one observation mode.
+   The first candidate family is A6: eliminate demonstrably repeated mechanical
+   work inside the existing authority transaction (unchanged-index churn,
+   repeated owner-head publication, unconditional lane readiness and avoidable
+   Plan cloning) before considering another batch, cache or resident graph.
 3. Run the complete managed tx-pool-related process-test universe through
    `make integration`; classify any failure as product defect, obsolete test or
    environment failure before changing code.
@@ -187,3 +322,6 @@ a compensating patch.
   capability semantics?
 - Is the claimed gain supported by comparable binaries and low-spread paired
   measurements rather than unit-test duration?
+- Does every hot-path change have target-window sampling, span timing or a
+  deterministic operation-count reason, with parking residency kept distinct
+  from CPU consumption?
