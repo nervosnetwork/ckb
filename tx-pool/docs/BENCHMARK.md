@@ -215,14 +215,15 @@ Dependent chains are measured in both directions because they exercise different
 
 ### Criterion sampling
 
-Quick mode uses the narrow one-peer/one-worker-count matrix with 30 flat
-samples, a 3-second warm-up, and a 10-second measurement window. The sampling
-budget is deliberately large enough for quick's 2% diagnostic threshold; a
-shorter 20-sample/8-second window proved unable to satisfy the unchanged 4%
-paired-noise gate on an otherwise controlled host. Its larger 100-transaction
+Quick mode uses the narrow one-peer/one-worker-count matrix with 50 flat
+samples, a 5-second warm-up, and a 15-second measurement window. It shares the
+medium mode's per-scenario sampling discipline because quick's 2% diagnostic
+threshold requires the same estimator quality; quick saves time by narrowing
+the matrix, not by accepting weaker samples. Its larger 100-transaction
 independent batches and 20-transaction dependent chains improve
-signal-to-noise without expanding the scenario matrix. Medium/full modes
-remain the release gates.
+signal-to-noise without expanding the scenario matrix. Do not reduce this
+sampling budget without clean paired evidence that the 4% noise gate remains
+reliable. Medium/full modes remain the release gates.
 
 Measured completion is event-driven: the pending callback increments an atomic counter and wakes a `Notify` waiter only after the pool transition is stable. No 1 ms polling timer or `get_tx_pool_info` request runs in the measured path.
 
