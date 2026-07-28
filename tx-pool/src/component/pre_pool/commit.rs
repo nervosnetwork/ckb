@@ -32,13 +32,13 @@ impl ConflictRetention {
     }
 }
 
-/// Read-only pre-pool half of a Ready-to-accepted admission.
-pub(crate) struct ReadyCommitPlan<'authority> {
+/// Read-only pre-pool half of a pipeline-to-accepted admission.
+pub(crate) struct PipelineCommitPlan<'authority> {
     prepared: PreparedKernelMutation<'authority>,
     settlement: CommitSettlement,
 }
 
-impl ReadyCommitPlan<'_> {
+impl PipelineCommitPlan<'_> {
     pub(crate) fn settlement(&self) -> &CommitSettlement {
         &self.settlement
     }
@@ -64,7 +64,7 @@ impl ExternalCommitPlan<'_> {
     }
 }
 
-/// Read-only terminal settlement for a Ready candidate rejected by the final
+/// Read-only terminal settlement for a pipeline candidate rejected by the final
 /// accepted-pool plan.  Applying this value cannot discover a new capacity,
 /// identity or location error.
 pub(crate) struct FailedCommitPlan<'authority> {
@@ -83,7 +83,7 @@ impl FailedCommitPlan<'_> {
     }
 }
 
-impl ReadyCommitSession<'_> {
+impl<Origin: CommitSessionOrigin> CommitSession<'_, Origin> {
     pub(crate) fn payload(&self) -> &Arc<PipelineVerifiedTx> {
         &self.candidate.payload
     }
@@ -100,13 +100,13 @@ impl ReadyCommitSession<'_> {
             .plan_failed_commit(&self.candidate, disposition)
     }
 
-    pub(crate) fn plan_ready(
+    pub(crate) fn plan_commit(
         &mut self,
         unavailable_parents: &HashSet<Byte32>,
         available_dependencies: impl IntoIterator<Item = DependencyKey>,
         history: Vec<ConflictRetention>,
-    ) -> Result<ReadyCommitPlan<'_>, PrePoolError> {
-        self.authority.plan_ready_commit(
+    ) -> Result<PipelineCommitPlan<'_>, PrePoolError> {
+        self.authority.plan_pipeline_commit(
             &self.candidate,
             unavailable_parents,
             available_dependencies,
@@ -242,7 +242,7 @@ impl PrePoolKernel {
             .entries
             .get(&rank.hash)
             .ok_or_else(|| PrePoolError::Missing(rank.hash.clone()))?;
-        let EntryState::Ready { payload, .. } = &entry.state else {
+        let EntryState::Ready { payload, inputs } = &entry.state else {
             return Err(PrePoolError::ProjectionInconsistent(
                 "ready rank points to a non-Ready primary",
             ));
@@ -253,44 +253,121 @@ impl PrePoolKernel {
                 "ready rank does not match its primary",
             ));
         }
-        let candidate = ReadyCommitCandidate {
+        let candidate = PipelineCommitCandidate {
             rank,
             payload: Arc::clone(payload),
+            inputs: inputs.clone(),
+            location: CommitCandidateLocation::Ready,
             ingress_peer: entry.raw.ingress_peer(),
         };
-        Ok(Some(ReadyCommitSession {
+        Ok(Some(CommitSession {
             authority: self,
             candidate,
+            origin: std::marker::PhantomData,
+        }))
+    }
+
+    /// Open a direct commit session for a verified owner only when it is the
+    /// canonical highest-ranked candidate at this exact kernel generation.
+    /// A lower-ranked candidate remains representable solely by publishing it
+    /// as Ready through the ordinary completion transition.
+    pub(crate) fn begin_verified_commit(
+        &mut self,
+        lease: &VerifyLease,
+        mut verified: PipelineVerifiedTx,
+    ) -> Result<Option<VerifiedCommitSession<'_>>, PrePoolError> {
+        let entry = self.validate_verify_lease(lease)?;
+        let candidate_hash = crate::util::compact_packed(&verified.candidate.tx.hash());
+        if candidate_hash != lease.hash {
+            return Err(PrePoolError::primary_key_mismatch(
+                lease.hash.clone(),
+                candidate_hash,
+            ));
+        }
+        // The verified payload exists only under this exclusive kernel borrow
+        // until it either moves into accepted-pool ownership or is published
+        // as Ready. Prove its exact transient growth against the same total,
+        // remote and per-peer budgets without installing another state or
+        // charging Ready indexes that are never allocated.
+        let charge_bytes = verified
+            .pre_pool_payload_charge()
+            .map_err(PrePoolError::Public)?;
+        let mut charged = entry.clone().into_draft();
+        charged.payload_charge_bytes = charge_bytes;
+        let charged = StoredEntry::prepare(charged, self.limits)?;
+        self.plan_usage_delta(Some(entry), Some(&charged))?;
+        let inputs = verified
+            .candidate
+            .tx
+            .input_pts_iter()
+            .map(|input| crate::util::compact_packed(&input))
+            .collect::<BTreeSet<_>>();
+        if inputs.is_empty() || verified.candidate.tx_size == 0 {
+            return Err(PrePoolError::ZeroTransactionSize(lease.hash.clone()));
+        }
+        verified.candidate.source = entry.raw.authoritative_source(entry.source);
+        let inputs = ReadyInputs::new(inputs, self.limits.max_inputs_per_ready)?;
+        let rank = entry.ready_key_for(&lease.hash, &verified);
+        if self.ready.last().is_some_and(|current| current >= &rank) {
+            return Ok(None);
+        }
+        let candidate = PipelineCommitCandidate {
+            rank,
+            payload: Arc::new(verified),
+            inputs,
+            location: CommitCandidateLocation::VerifyLeased(lease.clone()),
+            ingress_peer: entry.raw.ingress_peer(),
+        };
+        Ok(Some(CommitSession {
+            authority: self,
+            candidate,
+            origin: std::marker::PhantomData,
         }))
     }
 
     fn validate_commit(
         &self,
-        candidate: &ReadyCommitCandidate,
+        candidate: &PipelineCommitCandidate,
     ) -> Result<&StoredEntry, PrePoolError> {
-        let entry = self.validate_location(
-            &candidate.rank.hash,
-            candidate.rank.revision,
-            PrePoolLocation::Ready,
-        )?;
-        if !matches!(entry.state, EntryState::Ready { .. }) {
-            return Err(PrePoolError::ProjectionInconsistent(
-                "Ready location contains a non-Ready state",
-            ));
-        }
-        if entry.ready_key(&candidate.rank.hash).as_ref() != Some(&candidate.rank) {
-            return Err(PrePoolError::revision_mismatch(
-                candidate.rank.hash.clone(),
-                candidate.rank.revision,
-                entry.revision,
-            ));
-        }
+        let entry = match &candidate.location {
+            CommitCandidateLocation::Ready => {
+                let entry = self.validate_location(
+                    &candidate.rank.hash,
+                    candidate.rank.revision,
+                    PrePoolLocation::Ready,
+                )?;
+                if !matches!(entry.state, EntryState::Ready { .. }) {
+                    return Err(PrePoolError::ProjectionInconsistent(
+                        "Ready location contains a non-Ready state",
+                    ));
+                }
+                if entry.ready_key(&candidate.rank.hash).as_ref() != Some(&candidate.rank) {
+                    return Err(PrePoolError::revision_mismatch(
+                        candidate.rank.hash.clone(),
+                        candidate.rank.revision,
+                        entry.revision,
+                    ));
+                }
+                entry
+            }
+            CommitCandidateLocation::VerifyLeased(lease) => {
+                let entry = self.validate_verify_lease(lease)?;
+                if candidate.rank.hash != lease.hash || candidate.rank.revision != lease.revision {
+                    return Err(PrePoolError::revision_mismatch(
+                        lease.hash.clone(),
+                        lease.revision,
+                        candidate.rank.revision,
+                    ));
+                }
+                entry
+            }
+        };
         Ok(entry)
     }
 
     fn plan_terminal_commit(
         &mut self,
-        candidate: &ReadyCommitCandidate,
+        candidate: &PipelineCommitCandidate,
     ) -> Result<FailedCommitPlan<'_>, PrePoolError> {
         self.validate_commit(candidate)?;
         let record = self.terminal_record(&candidate.rank.hash).ok_or(
@@ -311,7 +388,7 @@ impl PrePoolKernel {
 
     fn plan_failed_commit(
         &mut self,
-        candidate: &ReadyCommitCandidate,
+        candidate: &PipelineCommitCandidate,
         disposition: ConflictDisposition,
     ) -> Result<FailedCommitPlan<'_>, PrePoolError> {
         let entry = self.validate_commit(candidate)?;
@@ -344,26 +421,19 @@ impl PrePoolKernel {
         self.plan_terminal_commit(candidate)
     }
 
-    fn plan_ready_commit(
+    fn plan_pipeline_commit(
         &mut self,
-        candidate: &ReadyCommitCandidate,
+        candidate: &PipelineCommitCandidate,
         unavailable_parents: &HashSet<Byte32>,
         available_dependencies: impl IntoIterator<Item = DependencyKey>,
         history: Vec<ConflictRetention>,
-    ) -> Result<ReadyCommitPlan<'_>, PrePoolError> {
+    ) -> Result<PipelineCommitPlan<'_>, PrePoolError> {
         let mut dependency_changes = self.dependency_keys_for_parents(unavailable_parents);
         dependency_changes.extend(available_dependencies);
         let winner = self.validate_commit(candidate)?;
-        let (winner_inputs, winner_raw, winner_source) = match &winner.state {
-            EntryState::Ready { inputs, .. } => {
-                (inputs.clone(), Arc::clone(&winner.raw), winner.source)
-            }
-            _ => {
-                return Err(PrePoolError::ProjectionInconsistent(
-                    "validated Ready candidate contains a non-Ready state",
-                ));
-            }
-        };
+        let winner_inputs = candidate.inputs.clone();
+        let winner_raw = Arc::clone(&winner.raw);
+        let winner_source = winner.source;
         let max_losers = self
             .limits
             .max_inputs_per_ready
@@ -446,7 +516,7 @@ impl PrePoolKernel {
             raw: winner_raw,
             source: winner_source,
         };
-        Ok(ReadyCommitPlan {
+        Ok(PipelineCommitPlan {
             prepared,
             settlement: CommitSettlement {
                 winner: winner_record,

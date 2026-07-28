@@ -128,6 +128,21 @@ pub(crate) struct PipelineVerifiedTx {
     pub(crate) started_at: Instant,
 }
 
+impl PipelineVerifiedTx {
+    /// Exact payload bytes used by both a transient verified-commit session
+    /// and the persistent Ready fallback. Deriving this from the payload keeps
+    /// a caller from pairing one transaction with another transaction's
+    /// residency proof.
+    pub(crate) fn pre_pool_payload_charge(&self) -> Result<usize, PrePoolPublicError> {
+        self.candidate
+            .resident_size
+            .checked_add(std::mem::size_of::<Self>())
+            .ok_or(PrePoolPublicError::Rejected(
+                PrePoolRejection::ResidencyChargeOverflow,
+            ))
+    }
+}
+
 /// Stable asynchronous shell around [`PrePoolKernel`]. Notifications are hints;
 /// exact queue membership remains under the kernel mutex. The only service-wide
 /// failure latch records typed structural contradictions or unexpected worker

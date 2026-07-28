@@ -10,8 +10,11 @@
 pub(crate) mod rbf_commit;
 
 use crate::component::entry::TxEntry;
-use crate::component::pre_pool::{PipelineVerifiedTx, PrePoolError, PrePoolFault};
+use crate::component::pre_pool::{
+    CommitSession, CommitSessionOrigin, PipelineVerifiedTx, PrePoolError, PrePoolFault,
+};
 use crate::error::Reject;
+use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use crate::service::effects::{EffectCapacityWaitError, EffectClass, EffectJournalError};
 use crate::util::verify_rtx;
@@ -53,12 +56,64 @@ pub(crate) enum SubmissionError {
 /// Result of one read-only Plan plus atomic Apply attempt for the current
 /// highest-ranked Ready owner. No session or authority lock survives this
 /// value: a backpressured driver waits and then replans from current state.
-enum PipelineCommitStep {
+pub(crate) enum PipelineCommitStep {
     Progress,
     Idle,
     Backpressured { bytes: usize, class: EffectClass },
     Closed,
     Fault(PipelineCommitFault),
+}
+
+enum PipelineCommitApplied {
+    Committed(Result<(), rbf_commit::AdmissionApplyError>),
+    Rejected(Result<Option<ckb_network::PeerIndex>, EffectJournalError>),
+}
+
+pub(crate) enum PipelineCommitSuccess {
+    Committed(Arc<PipelineVerifiedTx>),
+    Rejected(Option<ckb_network::PeerIndex>),
+}
+
+pub(crate) enum DirectCommitDisposition {
+    Success(PipelineCommitSuccess),
+    RetryReady,
+    Fault(PipelineCommitFault),
+}
+
+pub(crate) struct PipelineCommitAttempt {
+    applied: PipelineCommitApplied,
+    effect_bytes: usize,
+    effect_class: EffectClass,
+    verified: Arc<PipelineVerifiedTx>,
+}
+
+impl PipelineCommitAttempt {
+    #[inline]
+    pub(crate) fn into_direct_disposition(self) -> DirectCommitDisposition {
+        match self.applied {
+            PipelineCommitApplied::Committed(Ok(())) => {
+                DirectCommitDisposition::Success(PipelineCommitSuccess::Committed(self.verified))
+            }
+            PipelineCommitApplied::Rejected(Ok(peer)) => {
+                DirectCommitDisposition::Success(PipelineCommitSuccess::Rejected(peer))
+            }
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                EffectJournalError::Full | EffectJournalError::Closed,
+            )))
+            | PipelineCommitApplied::Rejected(Err(
+                EffectJournalError::Full | EffectJournalError::Closed,
+            )) => DirectCommitDisposition::RetryReady,
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Pool(error))) => {
+                DirectCommitDisposition::Fault(PipelineCommitFault::Pool(error))
+            }
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                error,
+            )))
+            | PipelineCommitApplied::Rejected(Err(error)) => {
+                DirectCommitDisposition::Fault(PipelineCommitFault::Effect(error))
+            }
+        }
+    }
 }
 
 pub(crate) enum PipelineCommitFault {
@@ -82,6 +137,137 @@ impl std::fmt::Debug for PipelineCommitFault {
 }
 
 impl TxPoolService {
+    #[inline]
+    pub(crate) async fn finish_pipeline_commit_success(&self, success: PipelineCommitSuccess) {
+        match success {
+            PipelineCommitSuccess::Committed(verified) => {
+                self.post_submit_side_effects(
+                    verified.completed,
+                    verified.verify_cache_hit,
+                    &verified.candidate.tx.hash(),
+                    TxVerificationCacheKey::from_transaction(&verified.candidate.tx),
+                    false,
+                    verified.started_at,
+                )
+                .await;
+            }
+            PipelineCommitSuccess::Rejected(Some(peer)) => {
+                self.remove_banned_peer_entries(peer).await;
+            }
+            PipelineCommitSuccess::Rejected(None) => {}
+        }
+    }
+
+    pub(crate) fn apply_pipeline_commit_session<Origin: CommitSessionOrigin>(
+        &self,
+        tx_pool: &mut TxPool,
+        snapshot: Arc<Snapshot>,
+        session: &mut CommitSession<'_, Origin>,
+    ) -> Result<PipelineCommitAttempt, PipelineCommitFault> {
+        let verified = Arc::clone(session.payload());
+        let entry = TxEntry::new_with_resident_size(
+            Arc::clone(&verified.candidate.rtx),
+            verified.completed.cycles,
+            verified.candidate.fee,
+            verified.candidate.tx_size,
+            verified.candidate.resident_size,
+        );
+        match self.plan_pipeline_admission(
+            tx_pool,
+            session,
+            snapshot,
+            verified.candidate.pre_resolve_tip.clone(),
+            entry.clone(),
+            verified.candidate.epoch,
+        ) {
+            Ok(plan) => {
+                let effect_bytes = plan.effect_bytes();
+                let effect_class = plan.effect_class();
+                Ok(PipelineCommitAttempt {
+                    applied: PipelineCommitApplied::Committed(self.apply_admission_plan(plan)),
+                    effect_bytes,
+                    effect_class,
+                    verified,
+                })
+            }
+            Err(error) => {
+                let reject = match error {
+                    rbf_commit::PipelineAdmissionPlanningError::IngressRevoked => None,
+                    rbf_commit::PipelineAdmissionPlanningError::Admission(
+                        rbf_commit::AdmissionPlanningError::Policy(reject),
+                    ) => Some(reject),
+                    rbf_commit::PipelineAdmissionPlanningError::Admission(
+                        rbf_commit::AdmissionPlanningError::Kernel(error),
+                    ) => return Err(PipelineCommitFault::Kernel(error)),
+                    rbf_commit::PipelineAdmissionPlanningError::Admission(
+                        rbf_commit::AdmissionPlanningError::Pool(error),
+                    ) => return Err(PipelineCommitFault::Pool(error)),
+                    rbf_commit::PipelineAdmissionPlanningError::Admission(
+                        rbf_commit::AdmissionPlanningError::Effect(error),
+                    ) => return Err(PipelineCommitFault::EffectBuild(error)),
+                };
+                let cause = match reject.as_ref() {
+                    Some(reject) => rbf_commit::UnacceptedPipelineCause::Policy(reject),
+                    None => rbf_commit::UnacceptedPipelineCause::IngressRevoked,
+                };
+                let plan = self
+                    .plan_unaccepted_admission(tx_pool, session, &entry, cause)
+                    .map_err(PipelineCommitFault::Kernel)?;
+                let effect_bytes = plan.effect_bytes();
+                let effect_class = plan.effect_class();
+                Ok(PipelineCommitAttempt {
+                    applied: PipelineCommitApplied::Rejected(self.apply_failed_admission(plan)),
+                    effect_bytes,
+                    effect_class,
+                    verified,
+                })
+            }
+        }
+    }
+
+    pub(crate) async fn finish_pipeline_commit_attempt(
+        &self,
+        attempt: PipelineCommitAttempt,
+    ) -> PipelineCommitStep {
+        let verified = attempt.verified;
+        match attempt.applied {
+            PipelineCommitApplied::Committed(Ok(())) => {
+                self.finish_pipeline_commit_success(PipelineCommitSuccess::Committed(verified))
+                    .await;
+                PipelineCommitStep::Progress
+            }
+            PipelineCommitApplied::Rejected(Ok(banned_peer)) => {
+                self.finish_pipeline_commit_success(PipelineCommitSuccess::Rejected(banned_peer))
+                    .await;
+                PipelineCommitStep::Progress
+            }
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                EffectJournalError::Full,
+            )))
+            | PipelineCommitApplied::Rejected(Err(EffectJournalError::Full)) => {
+                PipelineCommitStep::Backpressured {
+                    bytes: attempt.effect_bytes,
+                    class: attempt.effect_class,
+                }
+            }
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                EffectJournalError::Closed,
+            )))
+            | PipelineCommitApplied::Rejected(Err(EffectJournalError::Closed)) => {
+                PipelineCommitStep::Closed
+            }
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Pool(error))) => {
+                PipelineCommitStep::Fault(PipelineCommitFault::Pool(error))
+            }
+            PipelineCommitApplied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
+                error,
+            )))
+            | PipelineCommitApplied::Rejected(Err(error)) => {
+                PipelineCommitStep::Fault(PipelineCommitFault::Effect(error))
+            }
+        }
+    }
+
     pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
         let key = TxVerificationCacheKey::from_transaction(tx);
         let guard = self.aux.txs_verify_cache.read().await;
@@ -466,17 +652,6 @@ impl TxPoolService {
         let mut tx_pool = self.pool.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
 
-        enum Applied {
-            Committed(Result<(), rbf_commit::AdmissionApplyError>),
-            Rejected(Result<Option<ckb_network::PeerIndex>, EffectJournalError>),
-        }
-        struct Attempt {
-            applied: Applied,
-            effect_bytes: usize,
-            effect_class: EffectClass,
-            verified: Arc<PipelineVerifiedTx>,
-        }
-
         let attempt = self.pipeline.kernel.mutate_authoritative(|kernel| {
             // The session exclusively borrows the kernel from selection until
             // its accepted or rejected Plan is applied. No independent ticket
@@ -488,68 +663,8 @@ impl TxPoolService {
             else {
                 return Ok(None);
             };
-            let verified = Arc::clone(session.payload());
-            let entry = TxEntry::new_with_resident_size(
-                Arc::clone(&verified.candidate.rtx),
-                verified.completed.cycles,
-                verified.candidate.fee,
-                verified.candidate.tx_size,
-                verified.candidate.resident_size,
-            );
-            match self.plan_ready_admission(
-                &mut tx_pool,
-                &mut session,
-                snapshot,
-                verified.candidate.pre_resolve_tip.clone(),
-                entry.clone(),
-                verified.candidate.epoch,
-            ) {
-                Ok(plan) => {
-                    let effect_bytes = plan.effect_bytes();
-                    let effect_class = plan.effect_class();
-                    Ok(Some(Attempt {
-                        applied: Applied::Committed(self.apply_admission_plan(plan)),
-                        effect_bytes,
-                        effect_class,
-                        verified,
-                    }))
-                }
-                Err(error) => {
-                    let reject = match error {
-                        rbf_commit::ReadyAdmissionPlanningError::IngressRevoked => None,
-                        rbf_commit::ReadyAdmissionPlanningError::Admission(
-                            rbf_commit::AdmissionPlanningError::Policy(reject),
-                        ) => Some(reject),
-                        rbf_commit::ReadyAdmissionPlanningError::Admission(
-                            rbf_commit::AdmissionPlanningError::Kernel(error),
-                        ) => return Err(PipelineCommitFault::Kernel(error)),
-                        rbf_commit::ReadyAdmissionPlanningError::Admission(
-                            rbf_commit::AdmissionPlanningError::Pool(error),
-                        ) => return Err(PipelineCommitFault::Pool(error)),
-                        rbf_commit::ReadyAdmissionPlanningError::Admission(
-                            rbf_commit::AdmissionPlanningError::Effect(error),
-                        ) => return Err(PipelineCommitFault::EffectBuild(error)),
-                    };
-                    let cause = match reject.as_ref() {
-                        Some(reject) => rbf_commit::UnacceptedReadyCause::Policy(reject),
-                        None => rbf_commit::UnacceptedReadyCause::IngressRevoked,
-                    };
-                    let plan =
-                        match self.plan_unaccepted_admission(&tx_pool, &mut session, &entry, cause)
-                        {
-                            Ok(plan) => plan,
-                            Err(error) => return Err(PipelineCommitFault::Kernel(error)),
-                        };
-                    let effect_bytes = plan.effect_bytes();
-                    let effect_class = plan.effect_class();
-                    Ok(Some(Attempt {
-                        applied: Applied::Rejected(self.apply_failed_admission(plan)),
-                        effect_bytes,
-                        effect_class,
-                        verified,
-                    }))
-                }
-            }
+            self.apply_pipeline_commit_session(&mut tx_pool, snapshot, &mut session)
+                .map(Some)
         });
 
         let attempt = match attempt {
@@ -557,51 +672,8 @@ impl TxPoolService {
             Ok(None) => return PipelineCommitStep::Idle,
             Err(error) => return PipelineCommitStep::Fault(error),
         };
-        let verified = attempt.verified;
-
-        match attempt.applied {
-            Applied::Committed(Ok(())) => {
-                drop(tx_pool);
-                self.post_submit_side_effects(
-                    verified.completed,
-                    verified.verify_cache_hit,
-                    &verified.candidate.tx.hash(),
-                    TxVerificationCacheKey::from_transaction(&verified.candidate.tx),
-                    false,
-                    verified.started_at,
-                )
-                .await;
-                PipelineCommitStep::Progress
-            }
-            Applied::Rejected(Ok(banned_peer)) => {
-                drop(tx_pool);
-                if let Some(peer) = banned_peer {
-                    self.remove_banned_peer_entries(peer).await;
-                }
-                PipelineCommitStep::Progress
-            }
-            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
-                EffectJournalError::Full,
-            )))
-            | Applied::Rejected(Err(EffectJournalError::Full)) => {
-                drop(tx_pool);
-                PipelineCommitStep::Backpressured {
-                    bytes: attempt.effect_bytes,
-                    class: attempt.effect_class,
-                }
-            }
-            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(
-                EffectJournalError::Closed,
-            )))
-            | Applied::Rejected(Err(EffectJournalError::Closed)) => PipelineCommitStep::Closed,
-            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Pool(error))) => {
-                PipelineCommitStep::Fault(PipelineCommitFault::Pool(error))
-            }
-            Applied::Committed(Err(rbf_commit::AdmissionApplyError::Journal(error)))
-            | Applied::Rejected(Err(error)) => {
-                PipelineCommitStep::Fault(PipelineCommitFault::Effect(error))
-            }
-        }
+        drop(tx_pool);
+        self.finish_pipeline_commit_attempt(attempt).await
     }
     pub(crate) async fn test_accept_tx_core(
         &self,

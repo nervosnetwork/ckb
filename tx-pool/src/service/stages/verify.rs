@@ -1,10 +1,10 @@
 use super::runner::{ContinuationMode, JobHandler, WorkerRunner};
 use crate::component::entry::TxEntry;
-use crate::component::pre_pool::PipelineVerifiedTx;
 use crate::component::pre_pool::{
-    DependencyKey, PrePoolError, PrePoolPublicError, PrePoolRejection, PrePoolSource, VerifyLease,
-    WorkCapability,
+    AppliedContinuation, DependencyKey, PipelineVerifiedTx, PrePoolError, PrePoolKernel,
+    PrePoolSource, VerifyLease, WorkCapability,
 };
+use crate::process::submit::{DirectCommitDisposition, PipelineCommitFault, PipelineCommitSuccess};
 use crate::service::TxPoolService;
 use crate::service::pipeline_ops::ParentWaitOutcome;
 use ckb_async_runtime::Handle;
@@ -31,6 +31,37 @@ struct VerifyHandler {
 enum VerifyFailure {
     Rejected(crate::error::Reject),
     Invalidated,
+}
+
+enum VerifiedFinalize {
+    Published(AppliedContinuation<VerifyLease>),
+    Direct {
+        success: PipelineCommitSuccess,
+        next: Result<Option<VerifyLease>, PrePoolError>,
+    },
+}
+
+enum VerifiedFinalizeError {
+    PrePool(PrePoolError),
+    Commit(PipelineCommitFault),
+}
+
+#[inline]
+fn publish_verified_completion(
+    kernel: &mut PrePoolKernel,
+    lease: &VerifyLease,
+    verified: PipelineVerifiedTx,
+    charge_bytes: usize,
+    continuation: ContinuationMode,
+) -> Result<AppliedContinuation<VerifyLease>, PrePoolError> {
+    match continuation {
+        ContinuationMode::Permit => {
+            kernel.complete_verify_and_checkout(lease, verified, charge_bytes)
+        }
+        ContinuationMode::Final => {
+            kernel.complete_verify_without_checkout(lease, verified, charge_bytes)
+        }
+    }
 }
 
 impl TxPoolService {
@@ -235,13 +266,7 @@ impl TxPoolService {
             }
         }
 
-        let charge_bytes = match verified
-            .candidate
-            .resident_size
-            .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
-            .ok_or(PrePoolPublicError::Rejected(
-                PrePoolRejection::ResidencyChargeOverflow,
-            )) {
+        let charge_bytes = match verified.pre_pool_payload_charge() {
             Ok(charge) => charge,
             Err(error) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
@@ -251,37 +276,95 @@ impl TxPoolService {
             }
         };
 
-        match self
-            .pipeline
-            .kernel
-            .mutate_authoritative(|kernel| match continuation {
-                ContinuationMode::Permit => {
-                    kernel.complete_verify_and_checkout(&lease, verified, charge_bytes)
+        let mut tx_pool = self.pool.tx_pool.write().await;
+        let snapshot = tx_pool.cloned_snapshot();
+        let finalized = self.pipeline.kernel.mutate_authoritative(|kernel| {
+            let Some(mut session) = kernel
+                .begin_verified_commit(&lease, verified.clone())
+                .map_err(VerifiedFinalizeError::PrePool)?
+            else {
+                let published = publish_verified_completion(
+                    kernel,
+                    &lease,
+                    verified,
+                    charge_bytes,
+                    continuation,
+                )
+                .map_err(VerifiedFinalizeError::PrePool)?;
+                return Ok(VerifiedFinalize::Published(published));
+            };
+
+            let attempt = self
+                .apply_pipeline_commit_session(&mut tx_pool, snapshot, &mut session)
+                .map_err(VerifiedFinalizeError::Commit)?;
+            drop(session);
+            match attempt.into_direct_disposition() {
+                DirectCommitDisposition::RetryReady => {
+                    let published = publish_verified_completion(
+                        kernel,
+                        &lease,
+                        verified,
+                        charge_bytes,
+                        continuation,
+                    )
+                    .map_err(VerifiedFinalizeError::PrePool)?;
+                    Ok(VerifiedFinalize::Published(published))
                 }
-                ContinuationMode::Final => {
-                    kernel.complete_verify_without_checkout(&lease, verified, charge_bytes)
+                DirectCommitDisposition::Fault(error) => Err(VerifiedFinalizeError::Commit(error)),
+                DirectCommitDisposition::Success(success) => {
+                    let next = if matches!(continuation, ContinuationMode::Permit) {
+                        kernel.checkout_verify(lease.capability())
+                    } else {
+                        Ok(None)
+                    };
+                    Ok(VerifiedFinalize::Direct { success, next })
                 }
-            }) {
-            // Ready is level-triggered. The single commit worker is its only
-            // consumer, so verify tasks do not contend on the accepted-pool
-            // write boundary merely to discover that another driver drained
-            // the queue first.
-            Ok(applied) => super::finish_continuation(
+            }
+        });
+        drop(tx_pool);
+
+        match finalized {
+            Ok(VerifiedFinalize::Published(applied)) => super::finish_continuation(
                 self,
                 applied,
                 "post-verify continuation checkout failed",
             ),
-            Err(PrePoolError::Stale(_)) => None,
-            Err(PrePoolError::Public(error)) => {
+            Ok(VerifiedFinalize::Direct { success, next }) => {
+                let next = match next {
+                    Ok(next) => next,
+                    Err(error) => {
+                        self.fail_tx_pool_generation(
+                            "post-direct-commit continuation checkout failed",
+                            &crate::process::TxPoolGenerationFault::PrePool(
+                                error.into_unexpected_fault(),
+                            ),
+                        );
+                        return None;
+                    }
+                };
+                self.finish_pipeline_commit_success(success).await;
+                next
+            }
+            Err(VerifiedFinalizeError::PrePool(PrePoolError::Stale(_))) => None,
+            Err(VerifiedFinalizeError::PrePool(PrePoolError::Public(error))) => {
                 let reject = crate::component::pre_pool::pre_pool_reject(error);
                 self.settle_pipeline_verify_failure(&lease, VerifyFailure::Rejected(reject))
                     .await;
                 None
             }
-            Err(error @ (PrePoolError::Duplicate(_) | PrePoolError::Fault(_))) => {
+            Err(VerifiedFinalizeError::PrePool(
+                error @ (PrePoolError::Duplicate(_) | PrePoolError::Fault(_)),
+            )) => {
                 self.fail_tx_pool_generation(
                     "verification completion invariant failed",
                     &crate::process::TxPoolGenerationFault::PrePool(error.into_unexpected_fault()),
+                );
+                None
+            }
+            Err(VerifiedFinalizeError::Commit(error)) => {
+                self.fail_tx_pool_generation(
+                    "direct pipeline commit planning failed",
+                    &crate::process::TxPoolGenerationFault::Commit(error),
                 );
                 None
             }

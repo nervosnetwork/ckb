@@ -13,7 +13,9 @@ mod runtime;
 mod stored_entry;
 mod wait;
 
-pub(crate) use commit::{ConflictRetention, ExternalCommitPlan, FailedCommitPlan, ReadyCommitPlan};
+pub(crate) use commit::{
+    ConflictRetention, ExternalCommitPlan, FailedCommitPlan, PipelineCommitPlan,
+};
 
 #[cfg(test)]
 #[path = "../tests/pre_pool_test_support.rs"]
@@ -682,6 +684,12 @@ pub(crate) struct VerifyLease {
     pub(crate) payload: Arc<ResolvedTx>,
 }
 
+impl VerifyLease {
+    pub(crate) fn capability(&self) -> WorkCapability {
+        self.capability
+    }
+}
+
 /// Proof that stage completion applied before the optional same-lane checkout.
 /// A checkout error therefore cannot be mistaken for a completion failure and
 /// must never roll back or settle the now-stale completed lease.
@@ -701,25 +709,50 @@ impl<T> AppliedContinuation<T> {
     }
 }
 
-struct ReadyCommitCandidate {
+enum CommitCandidateLocation {
+    Ready,
+    VerifyLeased(VerifyLease),
+}
+
+struct PipelineCommitCandidate {
     rank: ReadyKey,
     payload: Arc<PipelineVerifiedTx>,
+    inputs: ReadyInputs,
+    location: CommitCandidateLocation,
     /// Immutable remote origin captured with the exact Ready revision. A
     /// source promotion may change scheduling priority, but a ban fence that
     /// linearized before final Plan must still revoke this owner.
     ingress_peer: Option<PeerIndex>,
 }
 
-/// Exclusive capability for planning the currently selected Ready owner.
+/// Exclusive capability for planning the currently selected pipeline owner.
 ///
 /// The borrowed kernel is intentionally private. While this value exists,
 /// callers can inspect the immutable candidate and build exactly one of the
-/// Ready handoff plans, but cannot mutate or select from the authority through
+/// pipeline handoff plans, but cannot mutate or select from the authority through
 /// another path. A returned plan reborrows the session until Apply or drop.
-pub(crate) struct ReadyCommitSession<'authority> {
-    authority: &'authority mut PrePoolKernel,
-    candidate: ReadyCommitCandidate,
+mod commit_session_origin {
+    pub trait Sealed {}
 }
+
+pub(crate) trait CommitSessionOrigin: commit_session_origin::Sealed {}
+
+pub(crate) struct ReadyCommitOrigin;
+pub(crate) struct VerifiedCommitOrigin;
+
+impl CommitSessionOrigin for ReadyCommitOrigin {}
+impl CommitSessionOrigin for VerifiedCommitOrigin {}
+impl commit_session_origin::Sealed for ReadyCommitOrigin {}
+impl commit_session_origin::Sealed for VerifiedCommitOrigin {}
+
+pub(crate) struct CommitSession<'authority, Origin: CommitSessionOrigin> {
+    authority: &'authority mut PrePoolKernel,
+    candidate: PipelineCommitCandidate,
+    origin: std::marker::PhantomData<Origin>,
+}
+
+pub(crate) type ReadyCommitSession<'authority> = CommitSession<'authority, ReadyCommitOrigin>;
+pub(crate) type VerifiedCommitSession<'authority> = CommitSession<'authority, VerifiedCommitOrigin>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TerminalRecord {

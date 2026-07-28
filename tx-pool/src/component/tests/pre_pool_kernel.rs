@@ -171,10 +171,32 @@ fn stage_ready(
         .unwrap();
 }
 
+fn stage_verify_leased(
+    kernel: &mut PrePoolKernel,
+    tx: TransactionView,
+    source: TxSource,
+    fee: u64,
+) -> (VerifyLease, PipelineVerifiedTx, usize) {
+    let lane = ResolveLane::Ingress;
+    admit(kernel, tx.clone(), source, lane, None).unwrap();
+    let raw = kernel.checkout_resolve(lane).unwrap().unwrap();
+    let resolved = resolved(tx, source, fee);
+    let resident_size = resolved.resident_size;
+    kernel
+        .complete_raw(&raw, resolved, resident_size, VerifySchedule::default())
+        .unwrap();
+    let lease = kernel
+        .checkout_verify(WorkCapability::Any)
+        .unwrap()
+        .unwrap();
+    let (verified, charge) = verified_for(&lease, fee);
+    (lease, verified, charge)
+}
+
 fn commit_ready(kernel: &mut PrePoolKernel) -> CommitSettlement {
     let mut session = kernel.begin_next_commit().unwrap().unwrap();
     let plan = session
-        .plan_ready(&HashSet::new(), Vec::<DependencyKey>::new(), Vec::new())
+        .plan_commit(&HashSet::new(), Vec::<DependencyKey>::new(), Vec::new())
         .unwrap();
     let settlement = plan.settlement().clone();
     plan.apply();
@@ -1258,7 +1280,7 @@ fn multi_input_conflict_union_respects_the_global_commit_bound() {
     stage_ready(&mut kernel, winner, TxSource::Proposal, None, 10_000_000);
 
     let mut session = kernel.begin_next_commit().unwrap().unwrap();
-    let Err(error) = session.plan_ready(&HashSet::new(), std::iter::empty(), Vec::new()) else {
+    let Err(error) = session.plan_commit(&HashSet::new(), std::iter::empty(), Vec::new()) else {
         panic!("an over-bound conflict cohort must not produce an apply capability");
     };
     assert_eq!(
@@ -1300,6 +1322,90 @@ fn commit_session_selects_the_current_highest_rank() {
     assert_eq!(
         kernel.view(&earlier.hash()).unwrap().location,
         PrePoolLocation::Ready
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn verified_commit_session_commits_the_canonical_leased_owner_without_ready_publication() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let tx = transaction(0xd5);
+    let (lease, verified, _charge) =
+        stage_verify_leased(&mut kernel, tx.clone(), TxSource::Proposal, 10_000);
+
+    let mut session = kernel
+        .begin_verified_commit(&lease, verified)
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.payload().candidate.tx.hash(), tx.hash());
+    let plan = session
+        .plan_commit(&HashSet::new(), std::iter::empty(), Vec::new())
+        .unwrap();
+    assert_eq!(plan.settlement().winner.hash, tx.hash());
+    plan.apply();
+
+    assert!(!kernel.contains_hash(&tx.hash()));
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn verified_commit_session_defers_to_a_stronger_ready_owner() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let stronger = transaction(0xd6);
+    stage_ready(
+        &mut kernel,
+        stronger.clone(),
+        TxSource::Proposal,
+        None,
+        100_000,
+    );
+    let weaker = transaction(0xd7);
+    let (lease, verified, charge) =
+        stage_verify_leased(&mut kernel, weaker.clone(), TxSource::Proposal, 1_000);
+
+    assert!(
+        kernel
+            .begin_verified_commit(&lease, verified.clone())
+            .unwrap()
+            .is_none(),
+        "a leased candidate cannot bypass a stronger published Ready owner"
+    );
+    kernel.complete_verify(&lease, verified, charge).unwrap();
+    let session = kernel.begin_next_commit().unwrap().unwrap();
+    assert_eq!(session.payload().candidate.tx.hash(), stronger.hash());
+    drop(session);
+    assert_eq!(
+        kernel.view(&weaker.hash()).unwrap().location,
+        PrePoolLocation::Ready
+    );
+    kernel.audit().unwrap();
+}
+
+#[test]
+fn verified_commit_session_uses_the_existing_ready_conflict_cohort() {
+    let mut kernel = PrePoolKernel::new(limits());
+    let parent = Byte32::new([0xd8; 32]);
+    let loser = build_tx(vec![(&parent, 0)], 1);
+    stage_ready(&mut kernel, loser.clone(), TxSource::Proposal, None, 1_000);
+    let winner = build_tx(vec![(&parent, 0)], 2);
+    let (lease, verified, _charge) =
+        stage_verify_leased(&mut kernel, winner.clone(), TxSource::Proposal, 100_000);
+
+    let mut session = kernel
+        .begin_verified_commit(&lease, verified)
+        .unwrap()
+        .unwrap();
+    let plan = session
+        .plan_commit(&HashSet::new(), std::iter::empty(), Vec::new())
+        .unwrap();
+    assert_eq!(plan.settlement().superseded.len(), 1);
+    assert_eq!(plan.settlement().superseded[0].hash, loser.hash());
+    plan.apply();
+
+    assert!(!kernel.contains_hash(&winner.hash()));
+    assert_eq!(
+        kernel.view(&loser.hash()).unwrap().location,
+        PrePoolLocation::Wait(WaitReason::Conflict)
     );
     kernel.audit().unwrap();
 }
@@ -1431,7 +1537,7 @@ fn optional_commit_history_cannot_veto_the_ready_winner() {
 
     let mut session = kernel.begin_next_commit().unwrap().unwrap();
     let plan = session
-        .plan_ready(&HashSet::new(), Vec::<DependencyKey>::new(), vec![history])
+        .plan_commit(&HashSet::new(), Vec::<DependencyKey>::new(), vec![history])
         .expect("duplicate optional history must fall back to the winner-only cohort");
     plan.apply();
     drop(session);

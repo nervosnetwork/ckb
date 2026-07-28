@@ -460,6 +460,75 @@ async fn remote_effect_backpressure_does_not_block_later_proposal() {
     h.cancel.cancel();
 }
 
+/// A verified-commit session is only an opportunistic folding of the existing
+/// Ready handoff. If the exact effect batch cannot be reserved, neither pool
+/// nor kernel Apply runs and the same owner is published as Ready for the
+/// level-triggered commit worker to retry after capacity becomes available.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn verified_commit_effect_backpressure_falls_back_to_ready() {
+    use crate::component::pre_pool::{PrePoolLocation, ResolveLane, WorkCapability};
+    use crate::service::TxVerificationResult;
+    use crate::service::effects::{EffectBatch, EffectClass, EffectJournal, TxPoolEffect};
+    use crate::service::tests::support::{WorkerSet, harness};
+    use ckb_types::packed::Byte32;
+
+    let mut h = harness(1).workers(WorkerSet::None).build();
+    let effects = Arc::new(EffectJournal::new_partitioned(1, 128, 1, 256, 1, 128).unwrap());
+    let occupied = EffectBatch::new(vec![TxPoolEffect::Relay(TxVerificationResult::Reject {
+        tx_hash: Byte32::new([0x9d; 32]),
+    })])
+    .unwrap();
+    effects
+        .try_apply(Some(occupied), EffectClass::Remote, || ())
+        .unwrap();
+    h.service.relay.effects = effects;
+
+    let tx = build_tx(&h.out_points[0], 4_000);
+    let hash = tx.hash();
+    let cycles = measured_cycles(&h.service, tx.clone()).await;
+    submit_remote(&h.service, tx, cycles, 25.into())
+        .await
+        .unwrap();
+    let raw = h
+        .service
+        .pipeline
+        .kernel
+        .checkout_resolve(ResolveLane::Ingress)
+        .unwrap()
+        .unwrap();
+    h.service.process_pipeline_raw_lease(raw).await;
+    let verify = h
+        .service
+        .pipeline
+        .kernel
+        .mutate(|kernel| kernel.checkout_verify(WorkCapability::Any))
+        .unwrap()
+        .unwrap();
+    let mut chunk_rx = h.chunk_rx.clone();
+    h.service
+        .process_pipeline_verify_lease(verify, &mut chunk_rx)
+        .await;
+
+    assert_eq!(
+        h.service
+            .pipeline
+            .kernel
+            .read(|kernel| kernel.view(&hash).unwrap().location),
+        PrePoolLocation::Ready
+    );
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool_by_hash(&hash)
+            .is_none()
+    );
+    assert!(!h.service.pipeline.kernel.has_failed());
+    h.cancel.cancel();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn duplicate_unverified_remote_owner_is_not_acknowledged_as_accepted() {
     use crate::service::tests::support::{WorkerSet, harness};
@@ -505,6 +574,7 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     let h = harness(1).workers(WorkerSet::None).build();
     let tx = build_tx(&h.out_points[0], 4_000);
     let hash = tx.hash();
+    let id = tx.proposal_short_id();
     let peer = ckb_network::PeerIndex::from(7);
     h.service
         .submit_remote_tx(tx.clone(), TxSource::Remote { cycles: 0, peer })
@@ -566,16 +636,16 @@ async fn proposal_promotes_active_remote_owner_without_restarting_lease() {
     h.service
         .process_pipeline_verify_lease(verify, &mut chunk_rx)
         .await;
-    let ready_source = h.service.pipeline.kernel.mutate(|kernel| {
-        let session = kernel.begin_next_commit().unwrap().unwrap();
-        session.payload().candidate.source
-    });
-    assert_eq!(
-        ready_source,
-        TxSource::Proposal,
-        "verification completion must bind Ready to the source owned by its atomic transition"
+    assert!(
+        h.service
+            .pool
+            .tx_pool
+            .read()
+            .await
+            .get_tx_from_pool(&id)
+            .is_some(),
+        "verification completion must commit under the promoted authority"
     );
-    assert!(h.service.drive_pipeline_commits().await);
     let relayed = tokio::time::timeout(Duration::from_secs(1), async {
         loop {
             if let Ok(result) = h.relay_rx.try_recv() {

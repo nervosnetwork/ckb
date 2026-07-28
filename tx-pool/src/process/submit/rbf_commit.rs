@@ -12,8 +12,8 @@ use crate::component::pool_map::{
     RemovalCause, Status,
 };
 use crate::component::pre_pool::{
-    ConflictRetention, DependencyKey, ExternalCommitPlan, PipelineRawTx, PrePoolError,
-    PrePoolFault, PrePoolKernel, PrePoolSource, ReadyCommitPlan, ReadyCommitSession,
+    CommitSession, CommitSessionOrigin, ConflictRetention, DependencyKey, ExternalCommitPlan,
+    PipelineCommitPlan, PipelineRawTx, PrePoolError, PrePoolFault, PrePoolKernel, PrePoolSource,
 };
 use crate::error::Reject;
 use crate::pool::TxPool;
@@ -40,7 +40,7 @@ use crate::process::{get_tx_status, status_to_verify_env};
 mod test_support;
 
 enum AdmissionHandoff<'authority> {
-    Ready(ReadyCommitPlan<'authority>),
+    Pipeline(PipelineCommitPlan<'authority>),
     External(ExternalCommitPlan<'authority>),
 }
 
@@ -54,23 +54,23 @@ pub(crate) enum AdmissionPlanningError {
     Effect(EffectBuildError),
 }
 
-/// Ready planning has one additional administrative outcome that external
+/// Pipeline planning has one additional administrative outcome that external
 /// Local/Recovery admission cannot produce. Keeping it outside
 /// `AdmissionPlanningError` makes direct submission exhaustively free of a
 /// fictitious peer-revocation branch.
-pub(crate) enum ReadyAdmissionPlanningError {
+pub(crate) enum PipelineAdmissionPlanningError {
     IngressRevoked,
     Admission(AdmissionPlanningError),
 }
 
-impl From<AdmissionPlanningError> for ReadyAdmissionPlanningError {
+impl From<AdmissionPlanningError> for PipelineAdmissionPlanningError {
     fn from(error: AdmissionPlanningError) -> Self {
         Self::Admission(error)
     }
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum UnacceptedReadyCause<'a> {
+pub(crate) enum UnacceptedPipelineCause<'a> {
     Policy(&'a Reject),
     IngressRevoked,
 }
@@ -430,20 +430,20 @@ impl TxPoolService {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn plan_ready_admission<'authority, 'pool>(
+    pub(crate) fn plan_pipeline_admission<'authority, 'pool, Origin: CommitSessionOrigin>(
         &self,
         tx_pool: &'pool mut TxPool,
-        session: &'authority mut ReadyCommitSession<'_>,
+        session: &'authority mut CommitSession<'_, Origin>,
         snapshot: Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         epoch: u64,
-    ) -> Result<AdmissionPlan<'authority, 'pool>, ReadyAdmissionPlanningError> {
+    ) -> Result<AdmissionPlan<'authority, 'pool>, PipelineAdmissionPlanningError> {
         if session
             .ingress_peer()
             .is_some_and(|peer| self.relay.banned_peers.contains(peer))
         {
-            return Err(ReadyAdmissionPlanningError::IngressRevoked);
+            return Err(PipelineAdmissionPlanningError::IngressRevoked);
         }
         let pool = self.prepare_pool_mutation(tx_pool, &snapshot, pre_resolve_tip, &entry)?;
         let plan = pool.decision();
@@ -451,7 +451,7 @@ impl TxPoolService {
         let available = self.planned_available_dependencies(pool.pool(), &snapshot, &entry, plan);
         let history = self.planned_replacement_history(plan, epoch);
         let handoff = session
-            .plan_ready(&unavailable, available, history)
+            .plan_commit(&unavailable, available, history)
             .map_err(AdmissionPlanningError::from_ready_handoff)?;
         let settlement = handoff.settlement();
         // Source promotion changes the authoritative pre-pool owner without
@@ -488,7 +488,7 @@ impl TxPoolService {
             .map_err(AdmissionPlanningError::from)?;
         Ok(AdmissionPlan {
             pool,
-            handoff: AdmissionHandoff::Ready(handoff),
+            handoff: AdmissionHandoff::Pipeline(handoff),
             effects,
             effect_class,
             block_assembler_statuses,
@@ -514,7 +514,7 @@ impl TxPoolService {
             .try_apply_checked(effects, effect_class, || {
                 pool.apply()?;
                 match handoff {
-                    AdmissionHandoff::Ready(plan) => plan.apply(),
+                    AdmissionHandoff::Pipeline(plan) => plan.apply(),
                     AdmissionHandoff::External(plan) => plan.apply(),
                 }
                 for status in block_assembler_statuses {
@@ -526,16 +526,16 @@ impl TxPoolService {
         applied.map_err(AdmissionApplyError::Pool)
     }
 
-    pub(crate) fn plan_unaccepted_admission<'authority>(
+    pub(crate) fn plan_unaccepted_admission<'authority, Origin: CommitSessionOrigin>(
         &self,
         tx_pool: &TxPool,
-        session: &'authority mut ReadyCommitSession<'_>,
+        session: &'authority mut CommitSession<'_, Origin>,
         entry: &TxEntry,
-        cause: UnacceptedReadyCause<'_>,
+        cause: UnacceptedPipelineCause<'_>,
     ) -> Result<FailedAdmissionPlan<'authority>, PrePoolFault> {
         let reject = match cause {
-            UnacceptedReadyCause::Policy(reject) => Some(reject),
-            UnacceptedReadyCause::IngressRevoked => None,
+            UnacceptedPipelineCause::Policy(reject) => Some(reject),
+            UnacceptedPipelineCause::IngressRevoked => None,
         };
         let disposition = if reject.is_some_and(|reject| {
             matches!(
@@ -557,13 +557,13 @@ impl TxPoolService {
         let record = terminal.record();
         let (effects, peer_ban) = self.pipeline_outcome_effects(record, reject);
         let effect_class = match cause {
-            UnacceptedReadyCause::IngressRevoked => EffectClass::Remote,
-            UnacceptedReadyCause::Policy(_)
+            UnacceptedPipelineCause::IngressRevoked => EffectClass::Remote,
+            UnacceptedPipelineCause::Policy(_)
                 if matches!(record.source, PrePoolSource::Remote(_)) =>
             {
                 EffectClass::Remote
             }
-            UnacceptedReadyCause::Policy(_) => EffectClass::Trusted,
+            UnacceptedPipelineCause::Policy(_) => EffectClass::Trusted,
         };
         Ok(FailedAdmissionPlan {
             terminal,
