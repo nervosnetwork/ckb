@@ -617,20 +617,20 @@ impl PoolMap {
 
         let mut iter = evict_candidates.iter();
         while ancestors_count > self.max_ancestors_count {
-            if let Some(next_id) = iter.next() {
-                let removed = self.remove_entry_and_descendants(next_id);
-                for removed_id in removed.iter().map(|entry| entry.proposal_short_id()) {
-                    parents.remove(&removed_id);
-                }
-                ancestors_count = self
-                    .links
-                    .calc_relation_ids(parents.clone(), Relation::Parents)
-                    .len()
-                    + 1;
-                evicted.extend(removed);
-            } else {
+            let Some(next_id) = iter.next() else {
                 break;
+            };
+
+            let removed = self.remove_entry_and_descendants(next_id);
+            for removed_id in removed.iter().map(|entry| entry.proposal_short_id()) {
+                parents.remove(&removed_id);
             }
+            ancestors_count = self
+                .links
+                .calc_relation_ids(parents.clone(), Relation::Parents)
+                .len()
+                + 1;
+            evicted.extend(removed);
         }
 
         // some txs in `parents` are removed, now `ancestors` need to re-caculate,
