@@ -315,6 +315,7 @@ not expose `xctrace`, so no Instruments result is claimed.
 | ID | Candidate | Result | Decision |
 |---|---|---|---|
 | A3 | A second state-local projection Apply path intended to reduce projection maintenance. | Controlled dependency A/B was effectively neutral (four-scenario geometric mean about `+0.38%`; parent-first about `-0.23%`) while adding roughly 60 production lines and a second mutation implementation. | Fully reverted. The extra proof surface was not justified. |
+| A6-M2 | Skip `FairQueue` head remove/insert when an owner's runnable flag is unchanged. | The mechanism was redundant and 272 unit tests passed, but a focused 8-pair 4-peer/8-worker cold always-success A/B was neutral (`-0.07%` paired throughput, 3.34% ratio spread). An earlier four-scenario run was too noisy to admit a conclusion. | Fully reverted in `d98f9955c`. Six production lines without measurable value do not justify another scheduler branch. |
 
 This rejection is an architectural constraint: projection performance should
 be improved by changing the canonical representation or proven update set, not
