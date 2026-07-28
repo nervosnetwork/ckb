@@ -740,9 +740,7 @@ impl PrePoolKernel {
         // identity, ingress, dependency and expiry projections below instead
         // publish only their exact old/new difference. They remain derived
         // from the same StoredEntry primary and never become another owner.
-        // A replacement is keyed by the validated transaction hash, so its
-        // proposal short ID is unchanged by construction.
-        if old.is_none() {
+        if old.is_none_or(|old| old.short_id() != next.short_id()) {
             self.by_short_id.insert(next.short_id(), hash.clone());
         }
         let old_peer = old.and_then(|entry| entry.raw.ingress_peer());
@@ -755,15 +753,14 @@ impl PrePoolKernel {
                 .or_default()
                 .insert(hash.clone());
         }
-        let dependencies_unchanged =
-            old.is_some_and(|entry| entry.dependencies == next.dependencies);
-        if !dependencies_unchanged {
-            for parent in next.parent_hashes() {
-                self.by_parent
-                    .entry(parent)
-                    .or_default()
-                    .insert(hash.clone());
+        for parent in next.parent_hashes() {
+            if old.is_some_and(|entry| entry.has_parent(&parent)) {
+                continue;
             }
+            self.by_parent
+                .entry(parent)
+                .or_default()
+                .insert(hash.clone());
         }
         let old_deadline = old.and_then(|entry| Self::deadline_key(hash, entry));
         let next_deadline = Self::deadline_key(hash, next);
@@ -835,7 +832,9 @@ impl PrePoolKernel {
         old: &StoredEntry,
         next: Option<&StoredEntry>,
     ) {
-        if next.is_none() && self.by_short_id.get(&old.short_id()) == Some(hash) {
+        if next.is_none_or(|next| old.short_id() != next.short_id())
+            && self.by_short_id.get(&old.short_id()) == Some(hash)
+        {
             self.by_short_id.remove(&old.short_id());
         }
         let old_peer = old.raw.ingress_peer();
@@ -851,17 +850,16 @@ impl PrePoolKernel {
                 self.by_ingress_peer.remove(&peer);
             }
         }
-        let dependencies_unchanged =
-            next.is_some_and(|entry| old.dependencies == entry.dependencies);
-        if !dependencies_unchanged {
-            for parent in old.parent_hashes() {
-                let empty = self.by_parent.get_mut(&parent).is_none_or(|children| {
-                    children.remove(hash);
-                    children.is_empty()
-                });
-                if empty {
-                    self.by_parent.remove(&parent);
-                }
+        for parent in old.parent_hashes() {
+            if next.is_some_and(|entry| entry.has_parent(&parent)) {
+                continue;
+            }
+            let empty = self.by_parent.get_mut(&parent).is_none_or(|children| {
+                children.remove(hash);
+                children.is_empty()
+            });
+            if empty {
+                self.by_parent.remove(&parent);
             }
         }
         let old_deadline = Self::deadline_key(hash, old);
