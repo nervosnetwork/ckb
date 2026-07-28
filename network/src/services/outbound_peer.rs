@@ -90,8 +90,7 @@ impl OutboundPeerService {
     fn dial_feeler(&mut self) {
         let now_ms = unix_time_as_millis();
         let transport_type = self.transport_type;
-        let filter =
-            |peer_addr: &AddrInfo| Self::addr_matches_transport(transport_type, peer_addr);
+        let filter = |peer_addr: &AddrInfo| Self::addr_matches_transport(transport_type, peer_addr);
         let attempt_peers = self.network_state.with_peer_store_mut(|peer_store| {
             let paddrs = peer_store.fetch_addrs_to_feeler(FEELER_CONNECTION_COUNT, filter);
             for paddr in paddrs.iter() {
@@ -131,8 +130,7 @@ impl OutboundPeerService {
         let target = &self.network_state.required_flags;
 
         let transport_type = self.transport_type;
-        let filter =
-            |peer_addr: &AddrInfo| Self::addr_matches_transport(transport_type, peer_addr);
+        let filter = |peer_addr: &AddrInfo| Self::addr_matches_transport(transport_type, peer_addr);
 
         let f = |peer_store: &mut PeerStore, number: usize, now_ms: u64| -> Vec<AddrInfo> {
             let paddrs = peer_store.fetch_addrs_to_attempt(number, *target, filter);

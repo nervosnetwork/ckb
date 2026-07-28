@@ -123,11 +123,7 @@ fn net_service_start(
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn net_service_start_quic(
-    name: String,
-    required_flags: Flags,
-    self_flags: Flags,
-) -> Node {
+fn net_service_start_quic(name: String, required_flags: Flags, self_flags: Flags) -> Node {
     net_service_start_with_listen(
         name,
         true,
