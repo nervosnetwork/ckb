@@ -731,7 +731,7 @@ def stack_frames(thread: dict[str, Any], stack_index: int) -> list[int]:
     return frames
 
 
-def ranked(counter: Counter[str], total: int, limit: int = 30) -> list[dict[str, Any]]:
+def ranked(counter: Counter[str], total: int, limit: int = 100) -> list[dict[str, Any]]:
     return [
         {
             "symbol": symbol,
