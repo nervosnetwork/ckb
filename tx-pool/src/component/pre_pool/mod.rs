@@ -891,17 +891,6 @@ impl Entry {
         ParentHashes::new(&self.dependencies)
     }
 
-    /// Query the canonical dependency set without materializing a second
-    /// parent set. Both cell and header edges project to `by_parent`.
-    fn has_parent(&self, parent: &Byte32) -> bool {
-        let lower = DependencyKey::Cell(OutPoint::new(parent.clone(), 0));
-        self.dependencies.range(lower..).next().is_some_and(
-            |key| matches!(key, DependencyKey::Cell(out_point) if out_point.tx_hash() == *parent),
-        ) || self
-            .dependencies
-            .contains(&DependencyKey::Header(parent.clone()))
-    }
-
     fn short_id(&self) -> ProposalShortId {
         self.raw.tx.proposal_short_id()
     }
