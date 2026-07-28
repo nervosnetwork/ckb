@@ -104,11 +104,21 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help=(
-            "maximum allowed throughput noise across repetitions (max-min "
-            "spread for independent records; maximum deviation from the "
-            "median ratio for paired records); a noisier record is invalid "
-            "for --fail-on-regression (default: 4 for quick diagnostics, "
-            "5 for medium/full)"
+            "maximum max-min throughput spread across repetitions for "
+            "independent records; a noisier record is invalid for "
+            "--fail-on-regression (default: 4 for quick diagnostics, 5 for "
+            "medium/full; paired records use --max-paired-mad-percent)"
+        ),
+    )
+    parser.add_argument(
+        "--max-paired-mad-percent",
+        type=float,
+        default=None,
+        help=(
+            "maximum relative median absolute deviation of adjacent A/B "
+            "throughput ratios; a noisier paired record is invalid for "
+            "--fail-on-regression (default: 2 for quick diagnostics, "
+            "1.5 for medium/full)"
         ),
     )
     parser.add_argument(
@@ -148,21 +158,26 @@ def parse_args() -> argparse.Namespace:
             "--fail-on-regression requires --compare-json or --baseline-worktree"
         )
     if args.fail_on_regression and args.baseline_worktree:
-        if args.runs < 4 or args.runs % 2 != 0:
+        if args.runs < 6 or args.runs % 2 != 0:
             parser.error(
                 "strict paired worktree comparison requires an even --runs "
-                "value of at least 4 so A/B execution order is balanced"
+                "value of at least 6 so A/B execution order is balanced and "
+                "the median remains robust to two isolated outliers"
             )
     if args.regression_threshold_percent is None:
         args.regression_threshold_percent = 2.0 if args.quick else 0.0
     if args.max_run_spread_percent is None:
         args.max_run_spread_percent = 4.0 if args.quick else 5.0
+    if args.max_paired_mad_percent is None:
+        args.max_paired_mad_percent = 2.0 if args.quick else 1.5
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.regression_threshold_percent < 0:
         parser.error("--regression-threshold-percent cannot be negative")
     if args.max_run_spread_percent <= 0:
         parser.error("--max-run-spread-percent must be positive")
+    if args.max_paired_mad_percent <= 0:
+        parser.error("--max-paired-mad-percent must be positive")
     if args.cooldown_seconds < 0:
         parser.error("--cooldown-seconds cannot be negative")
     if args.paired_cooldown_seconds < 0:
@@ -589,6 +604,8 @@ def environment_metadata(
         "cooldown_seconds": ARGS.cooldown_seconds,
         "paired_cooldown_seconds": ARGS.paired_cooldown_seconds,
         "paired_pilot_pairs": 1,
+        "paired_stability_metric": "relative-mad-v1",
+        "max_paired_mad_percent": ARGS.max_paired_mad_percent,
         "benchmark_build_fingerprint": benchmark_build_fingerprint(workspace_root),
     }
     if prepared is not None:
@@ -663,13 +680,14 @@ def relative_run_spread(values: List[float]) -> float:
     return (max(values) - min(values)) / median * 100.0
 
 
-def relative_median_deviation(values: List[float]) -> float:
+def relative_median_absolute_deviation(values: List[float]) -> float:
     if not values:
         raise RuntimeError("benchmark record has no paired ratio samples")
     median = statistics.median(values)
     if median <= 0:
         raise RuntimeError("benchmark paired ratio median must be positive")
-    return max(abs(value - median) for value in values) / median * 100.0
+    absolute_deviations = [abs(value - median) for value in values]
+    return statistics.median(absolute_deviations) / median * 100.0
 
 
 def validate_run_stability(record: Dict, label: str) -> None:
@@ -706,13 +724,14 @@ def validate_paired_stability(record: Dict) -> None:
                 f"paired record has incomplete ratio samples for {scenario}: "
                 f"{len(throughputs)} != {record.get('runs')}"
             )
-        deviation = relative_median_deviation(throughputs)
-        if deviation > ARGS.max_run_spread_percent:
+        deviation = relative_median_absolute_deviation(throughputs)
+        if deviation > ARGS.max_paired_mad_percent:
             unstable.append(f"{scenario}={deviation:.2f}%")
     if unstable:
         raise RuntimeError(
-            "paired benchmark ratios deviate too far from their median "
-            f"(limit={ARGS.max_run_spread_percent:.2f}%): " + ", ".join(unstable)
+            "paired benchmark ratio MAD is too large for a release decision "
+            f"(limit={ARGS.max_paired_mad_percent:.2f}%): "
+            + ", ".join(unstable)
         )
 
 
@@ -755,6 +774,8 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
         "cooldown_seconds",
         "paired_cooldown_seconds",
         "paired_pilot_pairs",
+        "paired_stability_metric",
+        "max_paired_mad_percent",
     ):
         if baseline.get(field) != current.get(field):
             mismatches.append(
@@ -780,7 +801,7 @@ def validate_comparison_environment(baseline: Dict, current: Dict) -> None:
                 )
         baseline_runs = int(baseline.get("runs", 1))
         current_runs = int(current.get("runs", 1))
-        minimum_runs = 4 if current_paired else 3
+        minimum_runs = 6 if current_paired else 3
         if baseline_runs < minimum_runs or current_runs < minimum_runs:
             raise RuntimeError(
                 f"--fail-on-regression requires at least {minimum_runs} complete runs "

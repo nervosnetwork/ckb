@@ -1698,22 +1698,21 @@ fn bench(c: &mut Criterion) {
         group.warm_up_time(Duration::from_secs(1));
         group.measurement_time(Duration::from_secs(1));
     } else if quick {
-        // Keep the matrix narrow, but collect enough work per scenario to
-        // amortize scheduler jitter. This remains much faster than medium
-        // because it has one peer/worker combination instead of four.
-        group.sample_size(50);
+        // Keep each process short enough for several independent A/B pairs
+        // while retaining enough flat samples for focused diagnosis.
+        group.sample_size(30);
         group.sampling_mode(SamplingMode::Flat);
-        group.warm_up_time(Duration::from_secs(5));
-        group.measurement_time(Duration::from_secs(15));
+        group.warm_up_time(Duration::from_secs(3));
+        group.measurement_time(Duration::from_secs(10));
     } else if full {
         group.sample_size(100);
         group.warm_up_time(Duration::from_secs(10));
         group.measurement_time(Duration::from_secs(30));
     } else {
         // Default (medium) matrix is the quantitative release tier.
-        group.sample_size(80);
-        group.warm_up_time(Duration::from_secs(8));
-        group.measurement_time(Duration::from_secs(25));
+        group.sample_size(60);
+        group.warm_up_time(Duration::from_secs(6));
+        group.measurement_time(Duration::from_secs(20));
     }
 
     // Dependent txs are bottlenecked by chain-serialized orphan recovery, so

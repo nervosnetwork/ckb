@@ -23,7 +23,7 @@ python3 tx-pool/scripts/benchmark.py --quick
 python3 tx-pool/scripts/benchmark.py --quick --filter always_success_100
 
 # preferred quick A/B: pair each exact scenario adjacently
-python3 tx-pool/scripts/benchmark.py --quick --runs 4 \
+python3 tx-pool/scripts/benchmark.py --quick --runs 6 \
   --filter always_success_100 \
   --baseline-worktree /tmp/ckb-txpool-bench-baseline \
   --save-baseline-json /tmp/tx-pool-baseline.json \
@@ -98,9 +98,11 @@ output, while rendering reports adds CPU work between scenarios.
 Every report includes the max-min throughput spread across complete runs. With
 `--fail-on-regression`, either side exceeding
 `--max-run-spread-percent` is rejected as an invalid/noisy measurement rather
-than mislabeled as a code regression. Quick diagnostics default to a 4% spread
-ceiling and a 2% regression threshold; medium/full retain the 5% spread ceiling
-and strict 0% architectural gate. `--filter` runs only matching benchmark IDs,
+than mislabeled as a code regression. Quick diagnostics default to a 4%
+independent-run spread ceiling, a 2% paired ratio MAD ceiling and a 2%
+regression threshold; medium/full retain the 5% independent-run spread ceiling,
+a 1.5% paired ratio MAD ceiling and the strict 0% architectural gate. `--filter`
+runs only matching benchmark IDs,
 which is useful for a fast follow-up on a suspicious workload. Quick remains a
 development diagnostic; medium/full repeated records are the architectural
 acceptance evidence. Strict records must also come from clean tracked trees,
@@ -116,13 +118,14 @@ so a secp-heavy scenario cannot perturb later repetitions of a lightweight
 scenario. It reverses side order on every second repetition. This prevents a
 slow host-frequency drift from being misclassified as a code delta and avoids
 giving either revision a privileged time slot. A strict paired gate
-therefore requires an even repetition count of at least four; an odd number
+therefore requires an even repetition count of at least six; an odd number
 would give one revision more first-run slots. Paired mode evaluates the median
-of each adjacent candidate/baseline ratio and bounds every ratio's relative
-deviation from that median; it does not double-count symmetric
-above/below-median movement as a max-minus-min range. Each worktree still uses
-its isolated Cargo target, and both records retain independent commit/dirty
-metadata plus the common harness fingerprint.
+of each adjacent candidate/baseline ratio and bounds the ratios' relative
+median absolute deviation (MAD). Unlike a maximum-deviation rule, MAD does not
+give one isolated host-scheduling outlier veto power; six balanced pairs keep
+the median valid even if two isolated samples are contaminated. Each worktree
+still uses its isolated Cargo target, and both records retain independent
+commit/dirty metadata plus the common harness fingerprint.
 
 ## Matrices
 
@@ -218,18 +221,18 @@ Dependent chains are measured in both directions because they exercise different
 
 ### Criterion sampling
 
-Quick mode uses the narrow one-peer/one-worker-count matrix with 50 flat
-samples, a 5-second warm-up, and a 15-second measurement window. It shares the
-medium mode's per-scenario sampling discipline because quick's 2% diagnostic
-threshold requires the same estimator quality; quick saves time by narrowing
-the matrix, not by accepting weaker samples. Its larger 100-transaction
+Quick mode uses the narrow one-peer/one-worker-count matrix with 30 flat
+samples, a 3-second warm-up, and a 10-second measurement window. Strict paired
+use spends the saved time on at least six independent, balanced process pairs;
+that is more effective against scheduler and thermal outliers than extending
+one process measurement. Its larger 100-transaction
 independent batches and 20-transaction dependent chains improve
 signal-to-noise without expanding the scenario matrix. Do not reduce this
-sampling budget without clean paired evidence that the 4% noise gate remains
+sampling budget without clean paired evidence that the MAD gate remains
 reliable. Medium/full modes remain the release gates.
 
-Medium mode is the quantitative release tier and uses 80 samples, an 8-second
-warm-up and a 25-second measurement window. Full mode uses 100 samples, a
+Medium mode is the quantitative release tier and uses 60 samples, a 6-second
+warm-up and a 20-second measurement window. Full mode uses 100 samples, a
 10-second warm-up and a 30-second measurement window across the complete
 peer/worker/size matrix. Thus each tier increases evidence in a distinct way:
 quick narrows the matrix, medium strengthens the estimator, and full combines
@@ -240,7 +243,7 @@ default. This is separate from the post-build cooldown and is part of the
 comparison fingerprint. CPU-bound secp batches can otherwise heat the host
 monotonically so the second side of a pair measures thermal history instead of
 code. Set `--paired-cooldown-seconds 0` only for a non-gating diagnostic; a
-release record must still satisfy the paired-ratio spread gate.
+release record must still satisfy the paired-ratio MAD gate.
 
 Before recording a scenario, paired A/B also runs one unrecorded full pilot on
 each side. The short generic preflight establishes code-page residency, while
