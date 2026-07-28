@@ -369,6 +369,14 @@ cross-stage shortcut.
 
 ## Remaining acceptance plan
 
+The final correctness gate before performance acceptance is complete at
+`f68c9a247`: 272/272 `ckb-tx-pool` nextest cases, strict Clippy and the
+format/documentation/review/layout/security validators pass. The managed
+integration registry was expanded to its complete 150-spec command and run
+serially through `make integration`; all 150 specs passed in 864.9 seconds.
+This evidence covers the whole tx-pool impact registry, not only
+`test/src/specs/tx_pool`.
+
 The order is fixed. A failed stage returns to design review rather than gaining
 a compensating patch.
 
@@ -383,7 +391,8 @@ a compensating patch.
    Plan cloning) before considering another batch, cache or resident graph.
 3. Run the complete managed tx-pool-related process-test universe through
    `make integration`; classify any failure as product defect, obsolete test or
-   environment failure before changing code.
+   environment failure before changing code. **Complete: 150/150 passed at
+   `f68c9a247`.**
 4. Freeze final candidate binaries and run the controlled quick/medium protocol
    in [`BENCHMARK.md`](BENCHMARK.md).
 5. Compare the final candidate with both the pre-optimization checkpoint and
