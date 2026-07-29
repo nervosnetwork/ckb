@@ -263,12 +263,7 @@ impl TorConnection {
             tokio::select! {
                 biased;
                 result = &mut self.disconnect_rx => return result.is_ok(),
-                line = self.line_rx.recv() => {
-                    if line.is_none() {
-                        // The reader dropped its sender, which only happens when
-                        // the stream hit EOF or an error: the connection is gone.
-                        return true;
-                    }
+                Some(_) = self.line_rx.recv() => {
                     // Discard the unsolicited control line.
                 }
             }
