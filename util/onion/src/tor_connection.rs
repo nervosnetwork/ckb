@@ -13,6 +13,10 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
+// Bound completed control lines waiting for a consumer. The socket reader
+// applies backpressure when this queue is full.
+const CONTROL_LINE_CHANNEL_CAPACITY: usize = 256;
+
 /// Tor control protocol status codes.
 ///
 /// See <https://spec.torproject.org/control-spec/replies.html> for the full table.
@@ -205,7 +209,7 @@ impl Response {
 
 pub struct TorConnection {
     write: OwnedWriteHalf,
-    line_rx: mpsc::UnboundedReceiver<String>,
+    line_rx: mpsc::Receiver<String>,
     disconnect_rx: oneshot::Receiver<()>,
 }
 
@@ -215,7 +219,7 @@ impl TorConnection {
     /// terminates, a value is sent on an internal disconnect channel.
     pub(crate) fn connect(stream: TcpStream, handle: Handle) -> Self {
         let (read, write) = stream.into_split();
-        let (line_tx, line_rx) = mpsc::unbounded_channel();
+        let (line_tx, line_rx) = mpsc::channel(CONTROL_LINE_CHANNEL_CAPACITY);
         let (disconnect_tx, disconnect_rx) = oneshot::channel();
 
         handle.spawn(async move {
@@ -231,7 +235,7 @@ impl TorConnection {
                             line.pop();
                         }
                         let taken_line = std::mem::take(&mut line);
-                        if line_tx.send(taken_line).is_err() {
+                        if line_tx.send(taken_line).await.is_err() {
                             break;
                         }
                     }
@@ -250,8 +254,25 @@ impl TorConnection {
     }
 
     /// Wait for the underlying TCP connection to close.
-    pub async fn wait_for_disconnect(self) -> bool {
-        self.disconnect_rx.await.is_ok()
+    ///
+    /// While waiting, any control lines the background reader keeps producing
+    /// are drained and discarded. This lets the bounded reader keep progressing
+    /// until it observes EOF or an I/O error.
+    pub async fn wait_for_disconnect(mut self) -> bool {
+        loop {
+            tokio::select! {
+                biased;
+                result = &mut self.disconnect_rx => return result.is_ok(),
+                line = self.line_rx.recv() => {
+                    if line.is_none() {
+                        // The reader dropped its sender, which only happens when
+                        // the stream hit EOF or an error: the connection is gone.
+                        return true;
+                    }
+                    // Discard the unsolicited control line.
+                }
+            }
+        }
     }
 
     /// Load protocol information from the Tor controller.
@@ -695,6 +716,25 @@ fn unquote_string_to_string(s: impl AsRef<[u8]>) -> Result<String, ConnError> {
 mod tests {
     use super::*;
 
+    async fn connect_test_pair() -> (tokio::net::TcpStream, TorConnection) {
+        let handle = Handle::new(tokio::runtime::Handle::current(), None);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (server, _) = listener.accept().await.unwrap();
+        (client, TorConnection::connect(server, handle))
+    }
+
+    async fn assert_disconnects_within(conn: TorConnection, timeout: std::time::Duration) {
+        let disconnected = tokio::time::timeout(timeout, conn.wait_for_disconnect())
+            .await
+            .expect("wait_for_disconnect did not complete within timeout");
+        assert!(
+            disconnected,
+            "expected the connection to be reported closed"
+        );
+    }
+
     #[test]
     fn test_quote_unquote() {
         let s = b"hello world";
@@ -811,5 +851,36 @@ mod tests {
 
         let lines = vec!["AUTHCHALLENGE SERVERHASH=abcd".to_string()];
         assert!(parse_auth_challenge_response(&lines).is_err());
+    }
+
+    // Drain a control connection whose endpoint fills the bounded control-line
+    // channel and then closes. `wait_for_disconnect` must keep consuming those
+    // lines so the reader can observe and report the close.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_for_disconnect_drains_lines_until_close() {
+        let (mut client, conn) = connect_test_pair().await;
+
+        // Send one more line than the bounded channel can hold, then close the
+        // socket. `wait_for_disconnect` must drain the channel so the reader can
+        // observe EOF and signal the disconnect.
+        let writer = tokio::spawn(async move {
+            let line = b"650 ASYNC line nobody requested\r\n";
+            for _ in 0..=CONTROL_LINE_CHANNEL_CAPACITY {
+                client.write_all(line).await.unwrap();
+            }
+            client.flush().await.unwrap();
+            let _ = client.shutdown().await;
+        });
+
+        assert_disconnects_within(conn, std::time::Duration::from_secs(15)).await;
+        writer.await.unwrap();
+    }
+
+    // With no data at all, a clean close must still be detected as a disconnect.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_for_disconnect_detects_bare_close() {
+        let (client, conn) = connect_test_pair().await;
+        drop(client);
+        assert_disconnects_within(conn, std::time::Duration::from_secs(5)).await;
     }
 }
