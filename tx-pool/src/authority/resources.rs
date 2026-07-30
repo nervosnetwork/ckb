@@ -562,10 +562,10 @@ impl ResourceLedger {
                     }
                 }
                 (OwnedTx::Accepted(entry), ChargeRecord::Accepted(resources)) => {
-                    if entry.verified.payload().serialized_bytes() != resources.serialized_bytes
-                        || entry.verified.payload().resolved_resident_bytes()
+                    if entry.proof.payload().serialized_bytes() != resources.serialized_bytes
+                        || entry.proof.payload().resolved_resident_bytes()
                             > resources.resident_bytes
-                        || entry.verified.metrics().cost
+                        || entry.proof.metrics().cost
                             != (AcceptedCost {
                                 serialized_bytes: resources.serialized_bytes,
                                 resident_bytes: resources.resident_bytes,

@@ -196,7 +196,7 @@ impl DependencyMaintenanceTicket {
                 if self.scope == DirtyScope::AllConsumers
                     && self
                         .last_definitive_loss
-                        .is_some_and(|loss| entry.verified.dependency_cut() < loss)
+                        .is_some_and(|loss| entry.proof.dependency_cut() < loss)
                 {
                     return Err(DependencyError::SurvivingAcceptedConsumer);
                 }
@@ -259,7 +259,7 @@ impl DependencySlot {
                 };
                 (entry.dependencies().clone(), waiting)
             }
-            OwnedTx::Accepted(entry) => (entry.verified.payload().dependencies().clone(), None),
+            OwnedTx::Accepted(entry) => (entry.proof.payload().dependencies().clone(), None),
         };
         if waiting.as_ref().is_some_and(|observed| {
             observed

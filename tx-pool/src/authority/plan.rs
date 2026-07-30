@@ -1,6 +1,7 @@
 mod membership;
 mod settlement;
 
+use super::chain::{AcceptedProof, FinalAdmissionReceipt, FinalAdmissionWork, ValidationRulesId};
 use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
     DependencyEvent, DependencyFrontier, DependencySnapshot,
@@ -20,10 +21,11 @@ use super::scheduler::{
 };
 use super::state::{
     AcceptedEntry, AcceptedStatus, AdmissionBasis, AdmissionClass, ApplySequence, Arrival,
-    AuthorityClocks, ChainEpoch, ComputeAttribution, ComputeGrant, ComputedOutcome, DependencyCut,
-    DependencyKey, DependencyOrigin, EntryVersion, IngressAttribution, KnownDependencies, OwnedTx,
-    PayloadBlame, PreAcceptedEntry, PreAcceptedPhase, ProposalId, QueuedWork, RawTxHash,
-    RejectionKind, TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
+    AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputedOutcome,
+    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, IngressAttribution,
+    KnownDependencies, OwnedTx, PayloadBlame, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase,
+    ProposalId, QueuedWork, RawTxHash, RejectionKind, TxIdentity, TxRecord, ValidatedAdmission,
+    WaitCondition,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
 pub(in crate::authority) use membership::IndependentCoupling;
@@ -50,7 +52,7 @@ pub(super) enum OwnerPhaseSnapshot {
     },
     Accepted {
         status: AcceptedStatus,
-        verified: super::state::VerifiedFacts,
+        proof: AcceptedProof,
         dependencies: KnownDependencies,
     },
 }
@@ -69,7 +71,8 @@ pub(super) struct OwnerSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct AuthoritySnapshot {
-    chain_epoch: ChainEpoch,
+    generation: PoolGeneration,
+    chain_view: ChainViewId,
     entries: HashMap<RawTxHash, OwnerSnapshot>,
     by_proposal: HashMap<ProposalId, RawTxHash>,
     resources: ResourceSnapshot,
@@ -82,7 +85,8 @@ pub(super) struct AuthoritySnapshot {
 
 #[derive(Debug)]
 pub(super) struct TxPoolAuthority {
-    chain_epoch: ChainEpoch,
+    generation: PoolGeneration,
+    chain_view: ChainViewId,
     entries: HashMap<RawTxHash, OwnedTx>,
     by_proposal: HashMap<ProposalId, RawTxHash>,
     resources: ResourceLedger,
@@ -109,7 +113,8 @@ impl TxPoolAuthority {
 
     fn assemble(limits: ResourceLimits, verify_order: VerifyOrder, effects: EffectLog) -> Self {
         Self {
-            chain_epoch: ChainEpoch(0),
+            generation: PoolGeneration(0),
+            chain_view: ChainViewId::initial(),
             entries: HashMap::new(),
             by_proposal: HashMap::new(),
             resources: ResourceLedger::new(limits),
@@ -194,8 +199,16 @@ impl TxPoolAuthority {
         self.membership.children(hash)
     }
 
-    pub(super) fn chain_epoch(&self) -> ChainEpoch {
-        self.chain_epoch
+    pub(super) fn chain_revision(&self) -> ChainRevision {
+        self.chain_view.revision()
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        &self.chain_view
+    }
+
+    pub(super) fn generation(&self) -> PoolGeneration {
+        self.generation
     }
 
     pub(super) fn clocks(&self) -> AuthorityClocks {
@@ -218,8 +231,8 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
-    pub(super) fn force_chain_epoch(&mut self, epoch: ChainEpoch) {
-        self.chain_epoch = epoch;
+    pub(super) fn force_chain_view(&mut self, view: ChainViewId) {
+        self.chain_view = view;
     }
 
     #[cfg(test)]
@@ -241,8 +254,8 @@ impl TxPoolAuthority {
                     },
                     OwnedTx::Accepted(entry) => OwnerPhaseSnapshot::Accepted {
                         status: entry.status,
-                        verified: entry.verified.clone(),
-                        dependencies: entry.verified.payload().dependencies().clone(),
+                        proof: entry.proof.clone(),
+                        dependencies: entry.proof.payload().dependencies().clone(),
                     },
                 };
                 (
@@ -261,7 +274,8 @@ impl TxPoolAuthority {
             })
             .collect();
         AuthoritySnapshot {
-            chain_epoch: self.chain_epoch,
+            generation: self.generation,
+            chain_view: self.chain_view.clone(),
             entries,
             by_proposal: self.by_proposal.clone(),
             resources: self.resources.snapshot(),
@@ -313,7 +327,7 @@ pub(super) enum StalePlan {
     Missing,
     Version,
     Phase,
-    ChainEpoch,
+    ChainRevision,
     Lease,
     Dependency,
     EffectLease,
@@ -885,24 +899,68 @@ impl TxPoolAuthority {
     fn validate_acceptance_evidence(
         &self,
         preaccepted: &PreAcceptedEntry,
-        verified: &super::state::VerifiedFacts,
+        receipt: &FinalAdmissionReceipt,
     ) -> Result<(), PlanError> {
-        if verified.chain_epoch() != self.chain_epoch {
-            return Err(PlanError::Stale(StalePlan::ChainEpoch));
+        if receipt.view() != &self.chain_view {
+            return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
-        if verified.witness() != &preaccepted.record.identity.witness
-            || verified.payload().identity() != &preaccepted.record.identity
+        let proof = receipt.proof();
+        if receipt.key() != &preaccepted.record.identity.raw
+            || proof.payload().identity() != &preaccepted.record.identity
+            || !proof.is_for(&self.chain_view)
         {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
-        let dependencies = verified.payload().dependencies();
+        let dependencies = proof.payload().dependencies();
         if !self
             .dependencies
-            .proof_is_current(dependencies, verified.dependency_cut())
+            .proof_is_current(dependencies, proof.dependency_cut())
         {
             return Err(PlanError::Stale(StalePlan::Dependency));
         }
         Ok(())
+    }
+
+    pub(super) fn final_admission_work(
+        &self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+    ) -> Result<FinalAdmissionWork, PlanError> {
+        let existing = self
+            .entries
+            .get(key)
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if existing.record().version != expected {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(verified)) =
+            &preaccepted.phase
+        else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        Ok(FinalAdmissionWork::new(
+            key.clone(),
+            expected,
+            self.chain_view.clone(),
+            verified.clone(),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(super) fn independent_candidate_for_foundation(
+        &self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        status: AcceptedStatus,
+    ) -> Result<IndependentCandidate, PlanError> {
+        let receipt = self
+            .final_admission_work(key, expected)?
+            .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
+        Ok(IndependentCandidate::new(receipt))
     }
 
     fn plan_membership_dependency_delta(
@@ -1105,10 +1163,23 @@ impl TxPoolAuthority {
         expected: EntryVersion,
         status: AcceptedStatus,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        let receipt = self
+            .final_admission_work(key, expected)?
+            .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
+        self.plan_accept(receipt)
+    }
+
+    fn plan_accept(
+        &mut self,
+        receipt: FinalAdmissionReceipt,
+    ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
+        let key = receipt.key().clone();
+        let expected = receipt.expected();
         let existing = self
             .entries
-            .get(key)
+            .get(&key)
             .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
         if existing.record().version != expected {
@@ -1117,12 +1188,15 @@ impl TxPoolAuthority {
         let OwnedTx::PreAccepted(preaccepted) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
-        let PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(verified)) =
-            &preaccepted.phase
-        else {
+        if !matches!(
+            &preaccepted.phase,
+            PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(_))
+        ) {
             return Err(PlanError::Stale(StalePlan::Phase));
-        };
-        self.validate_acceptance_evidence(preaccepted, verified)?;
+        }
+        self.validate_acceptance_evidence(preaccepted, &receipt)?;
+        let status = receipt.status();
+        let proof = receipt.into_proof();
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -1135,13 +1209,13 @@ impl TxPoolAuthority {
         let accepted = AcceptedEntry {
             record,
             status,
-            verified: verified.clone(),
+            proof,
         };
         let PreparedMembership {
             removals,
             resource,
             projection,
-        } = self.prepare_membership(key, preaccepted, &accepted)?;
+        } = self.prepare_membership(&key, preaccepted, &accepted)?;
         let retired = retired_buffer(removals.len())?;
         let after = OwnedTx::Accepted(accepted);
         let scheduler = self
@@ -1755,8 +1829,8 @@ impl TxPoolAuthority {
                 hash: key.clone(),
                 version,
                 lease,
-                chain_epoch: self.chain_epoch,
             },
+            chain_view: self.chain_view.clone(),
             dependency_cut,
             permit,
             grant,
@@ -1774,6 +1848,7 @@ impl TxPoolAuthority {
             .with_foundation_phase(
                 PreAcceptedPhase::Computing(super::state::ActiveWork {
                     lease,
+                    chain_view: self.chain_view.clone(),
                     permit,
                     grant,
                     attribution,
@@ -1806,10 +1881,6 @@ impl TxPoolAuthority {
     /// successful Plan is intentionally not exposed as a droppable value:
     /// doing so could destroy the only lease completion while the authority
     /// still retained `Computing`.
-    #[expect(
-        clippy::result_large_err,
-        reason = "the error must return the move-only lease token; boxing could allocate while reporting allocation backpressure, and the committed handoff already fixes the Result footprint"
-    )]
     pub(super) fn apply_settlement(
         &mut self,
         settlement: ComputeSettlement,
@@ -1833,9 +1904,6 @@ impl TxPoolAuthority {
         if existing.record().version != token.version {
             return Err(PlanError::Stale(StalePlan::Version));
         }
-        if self.chain_epoch != token.chain_epoch {
-            return Err(PlanError::Stale(StalePlan::ChainEpoch));
-        }
         let OwnedTx::PreAccepted(preaccepted) = existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
@@ -1845,10 +1913,11 @@ impl TxPoolAuthority {
         if active.lease != token.lease {
             return Err(PlanError::Stale(StalePlan::Lease));
         }
-        // The compact settlement capability carries only the identity, ABA,
-        // and chain fences needed after compute. Permit, grant, and dependency
-        // cut remain authoritative in the matching `ActiveWork`; sealed
-        // receipts cannot be manufactured outside the checked-out capability.
+        // Entry version and lease decide completion authority. Chain identity
+        // decides only whether the resulting proof may be retained: a tip
+        // change cannot invalidate the sole capability able to release this
+        // Computing owner and its active charge.
+        let chain_state_is_current = self.chain_view.has_same_chain_state(&active.chain_view);
         let dependency_cut = active.dependency_cut;
         let raw_charge = preaccepted.original_charge();
         let base_proof_is_current = self
@@ -1862,8 +1931,8 @@ impl TxPoolAuthority {
                     if resolved.payload().identity() != &preaccepted.record.identity {
                         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                     }
-                    if resolved.chain_epoch() != token.chain_epoch {
-                        return Err(PlanError::Stale(StalePlan::ChainEpoch));
+                    if resolved.chain_view() != &active.chain_view {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                     }
                     if resolved.dependency_cut() != dependency_cut {
                         return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
@@ -1888,12 +1957,14 @@ impl TxPoolAuthority {
                 }
                 SettlementNext::Waiting(missing) => {
                     let dependencies = missing.dependencies().clone();
-                    if self.dependencies.missing_result_is_current(
-                        preaccepted.dependencies(),
-                        &dependencies,
-                        missing.missing(),
-                        dependency_cut,
-                    ) {
+                    if chain_state_is_current
+                        && self.dependencies.missing_result_is_current(
+                            preaccepted.dependencies(),
+                            &dependencies,
+                            missing.missing(),
+                            dependency_cut,
+                        )
+                    {
                         if self.missing_resolution_disposition(
                             preaccepted.record.class,
                             missing.missing(),
@@ -1930,8 +2001,8 @@ impl TxPoolAuthority {
                     {
                         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                     }
-                    if verified.chain_epoch() != token.chain_epoch {
-                        return Err(PlanError::Stale(StalePlan::ChainEpoch));
+                    if verified.chain_view() != &active.chain_view {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                     }
                     if verified.dependency_cut() != dependency_cut {
                         return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
@@ -1953,6 +2024,11 @@ impl TxPoolAuthority {
                     } else {
                         (PreAcceptedPhase::Queued(QueuedWork::Resolve), raw_charge)
                     }
+                }
+                SettlementNext::Computed(ComputedOutcome::Rejected(_))
+                    if !chain_state_is_current =>
+                {
+                    (PreAcceptedPhase::Queued(QueuedWork::Resolve), raw_charge)
                 }
                 SettlementNext::Computed(outcome) => {
                     (PreAcceptedPhase::Computed(outcome), raw_charge)

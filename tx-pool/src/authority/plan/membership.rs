@@ -105,12 +105,12 @@ pub(in crate::authority) struct DescendantAggregate {
 
 impl DescendantAggregate {
     fn one(entry: &AcceptedEntry) -> Self {
-        let cost = entry.verified.metrics().cost;
+        let cost = entry.proof.metrics().cost;
         Self {
             entries: 1,
             serialized_bytes: cost.serialized_bytes,
             cycles: cost.cycles,
-            fee: entry.verified.metrics().fee,
+            fee: entry.proof.metrics().fee,
         }
     }
 
@@ -156,9 +156,9 @@ impl EvictionOrderKey {
             serialized_bytes,
             cycles,
             ..
-        } = entry.verified.metrics().cost;
+        } = entry.proof.metrics().cost;
         let self_rate = FeeRate::calculate(
-            entry.verified.metrics().fee,
+            entry.proof.metrics().fee,
             get_transaction_weight(serialized_bytes, cycles),
         );
         let descendants_rate = FeeRate::calculate(
@@ -686,19 +686,19 @@ impl TxPoolAuthority {
                 super::AuthorityFault::CounterExhausted,
             ))?;
 
-        let footprint = &candidate.verified.payload().footprint;
+        let footprint = &candidate.proof.payload().footprint;
         let mut removal_inputs = 0usize;
         let mut removal_dependencies = 0usize;
         let mut removal_causal_edges = 0usize;
         for planned in removals {
             let entry = self.accepted_entry(&planned.hash)?;
             removal_inputs = removal_inputs
-                .checked_add(entry.verified.payload().footprint.inputs().len())
+                .checked_add(entry.proof.payload().footprint.inputs().len())
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
             removal_dependencies = removal_dependencies
-                .checked_add(entry.verified.payload().footprint.dependencies().len())
+                .checked_add(entry.proof.payload().footprint.dependencies().len())
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
@@ -758,7 +758,7 @@ impl TxPoolAuthority {
         for planned in removals {
             let removal = &planned.hash;
             let entry = self.accepted_entry(removal)?;
-            for input in entry.verified.payload().footprint.inputs() {
+            for input in entry.proof.payload().footprint.inputs() {
                 if self.membership.spender(input) != Some(removal) {
                     return Err(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
@@ -766,7 +766,7 @@ impl TxPoolAuthority {
                 }
                 spender_after.insert(input.clone(), None);
             }
-            for dependency in entry.verified.payload().footprint.dependencies() {
+            for dependency in entry.proof.payload().footprint.dependencies() {
                 let readers = self.membership.dependency_readers(dependency).ok_or(
                     super::PlanError::Fault(super::AuthorityFault::MembershipProjection),
                 )?;
@@ -1238,7 +1238,7 @@ impl TxPoolAuthority {
         candidate: &AcceptedEntry,
         removed: &HashSet<RawTxHash>,
     ) -> Result<HashSet<RawTxHash>, super::PlanError> {
-        let footprint = &candidate.verified.payload().footprint;
+        let footprint = &candidate.proof.payload().footprint;
         let mut parents = HashSet::new();
         parents
             .try_reserve(footprint.edge_count())
@@ -1282,8 +1282,8 @@ impl TxPoolAuthority {
         // This is the final membership proof, not another liveness query.
         // Every input must carry positive same-epoch chain evidence, name an
         // exact surviving pool output, or be released by this RBF Plan.
-        for input in candidate.verified.payload().footprint.inputs() {
-            if candidate.verified.payload().is_chain_input(input)
+        for input in candidate.proof.payload().footprint.inputs() {
+            if candidate.proof.is_chain_input(input)
                 || self
                     .membership
                     .spender(input)

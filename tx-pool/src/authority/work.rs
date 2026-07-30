@@ -1,9 +1,10 @@
+use super::chain::{CellLocationReceipt, ValidationRulesId, VerificationContextReceipt};
 use super::resources::AcceptedCost;
 use super::state::{
-    CandidateMetrics, ChainEpoch, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
-    DependencyKey, DependencySetError, EntryVersion, InputEvidenceError, KnownDependencies,
-    MissingDependencies, QueuedWork, RawTxHash, RejectionKind, ResolvedFacts, ResolvedPayload,
-    TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
+    CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
+    DependencyKey, DependencySetError, EntryVersion, FoundationResolution, InputEvidenceError,
+    KnownDependencies, MissingDependencies, QueuedWork, RawTxHash, RejectionKind, ResolvedFacts,
+    ResolvedPayload, TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use ckb_types::core::TransactionView;
 use ckb_types::{core::Capacity, packed::OutPoint};
@@ -14,20 +15,20 @@ pub(super) struct SettlementToken {
     pub(super) hash: RawTxHash,
     pub(super) version: EntryVersion,
     pub(super) lease: ComputeLeaseId,
-    pub(super) chain_epoch: ChainEpoch,
 }
 
 #[derive(Debug)]
 pub(super) struct LeaseToken {
     pub(super) settlement: SettlementToken,
+    pub(super) chain_view: ChainViewId,
     pub(super) dependency_cut: DependencyCut,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
 }
 
 impl LeaseToken {
-    fn chain_epoch(&self) -> ChainEpoch {
-        self.settlement.chain_epoch
+    fn chain_view(&self) -> &ChainViewId {
+        &self.chain_view
     }
 
     fn settle(self, next: SettlementNext) -> ComputeSettlement {
@@ -128,6 +129,7 @@ pub(super) enum ResolutionReceiptError {
 pub(super) enum VerificationReceiptError {
     TransactionMismatch,
     ResidentBelowResolved,
+    ContextMismatch,
 }
 
 #[derive(Debug)]
@@ -265,21 +267,32 @@ fn build_resolved_payload(
     token: &LeaseToken,
     tx: &TransactionView,
     evidence: ResolutionEvidence,
-) -> Result<Option<(ResolvedPayload, VerifyCycleClass)>, ResolutionReceiptError> {
+) -> Result<Option<(ResolvedPayload, CellLocationReceipt, VerifyCycleClass)>, ResolutionReceiptError>
+{
     if evidence.resident_bytes > token.grant.max_resident_bytes {
         return Ok(None);
     }
-    let verify_class = evidence.verify_class;
+    let ResolutionEvidence {
+        expanded_dependencies,
+        chain_inputs,
+        fee,
+        resident_bytes,
+        verify_class,
+    } = evidence;
     match ResolvedPayload::from_resolution(
         ResolutionSeal(()),
         tx,
-        evidence.expanded_dependencies,
+        expanded_dependencies,
         token.grant.max_edges,
-        evidence.fee,
-        evidence.resident_bytes,
-        evidence.chain_inputs,
+        fee,
+        resident_bytes,
     ) {
-        Ok(payload) => Ok(Some((payload, verify_class))),
+        Ok(payload) => {
+            let location =
+                CellLocationReceipt::from_resolution(token.chain_view(), &payload, chain_inputs)
+                    .map_err(ResolutionReceiptError::InvalidEvidence)?;
+            Ok(Some((payload, location, verify_class)))
+        }
         Err(
             InputEvidenceError::Footprint(super::state::FootprintError::TooManyEdges)
             | InputEvidenceError::DependencySet(DependencySetError::TooMany),
@@ -297,6 +310,7 @@ fn verified(
     resolved: ResolvedFacts,
     accepted_resident_bytes: usize,
     cycles: u64,
+    rules: ValidationRulesId,
 ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
     if !payload_matches(&tx, resolved.payload()) {
         return Err(ReceiptFailure::new(
@@ -316,21 +330,32 @@ fn verified(
     {
         return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
     }
-    let identity = TxIdentity::from_transaction(&tx);
     let metrics = CandidateMetrics {
         fee: resolved.payload().fee(),
         cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
     };
-    let (chain_epoch, dependency_cut, payload, _) =
+    let (dependency_cut, content, location, _) =
         resolved.into_verification_parts(VerificationSeal(()));
+    let context = match VerificationContextReceipt::refresh_for_foundation(
+        token.chain_view().clone(),
+        location,
+        rules,
+    ) {
+        Ok(context) => context,
+        Err(_) => {
+            return Err(ReceiptFailure::new(
+                token,
+                VerificationReceiptError::ContextMismatch,
+            ));
+        }
+    };
     Ok(
         token.settle(SettlementNext::Computed(ComputedOutcome::Verified(
             VerifiedFacts::from_verification(
                 VerificationSeal(()),
-                identity.witness,
-                chain_epoch,
                 dependency_cut,
-                payload,
+                content,
+                context,
                 metrics,
             ),
         ))),
@@ -359,12 +384,13 @@ impl ResolveWork {
     ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
         let next = match build_resolved_payload(&self.token, &self.tx, evidence) {
             Err(error) => return Err(ReceiptFailure::new(self.token, error)),
-            Ok(Some((payload, verify_class))) => {
+            Ok(Some((payload, location, verify_class))) => {
                 SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
                     ResolutionSeal(()),
-                    self.token.chain_epoch(),
+                    self.token.chain_view().clone(),
                     self.token.dependency_cut,
                     Arc::new(payload),
+                    location,
                     verify_class,
                 ))
             }
@@ -376,17 +402,18 @@ impl ResolveWork {
     #[cfg(test)]
     pub(super) fn yield_verify(
         self,
-        payload: ResolvedPayload,
+        resolution: FoundationResolution,
     ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
-        self.yield_verify_as(payload, VerifyCycleClass::Small)
+        self.yield_verify_as(resolution, VerifyCycleClass::Small)
     }
 
     #[cfg(test)]
     pub(super) fn yield_verify_as(
         self,
-        payload: ResolvedPayload,
+        resolution: FoundationResolution,
         verify_class: VerifyCycleClass,
     ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+        let (payload, location) = resolution.into_parts();
         if !payload_matches(&self.tx, &payload) {
             return Err(ReceiptFailure::new(
                 self.token,
@@ -396,9 +423,10 @@ impl ResolveWork {
         let next = if resolved_within_grant(self.token.grant, &payload) {
             SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
                 ResolutionSeal(()),
-                self.token.chain_epoch(),
+                self.token.chain_view().clone(),
                 self.token.dependency_cut,
                 Arc::new(payload),
+                location,
                 verify_class,
             ))
         } else {
@@ -446,18 +474,19 @@ impl ContinuousResolveWork {
             Ok(payload) => payload,
             Err(error) => return Err(ReceiptFailure::new(self.token, error)),
         };
-        let Some((payload, verify_class)) = payload else {
+        let Some((payload, location, verify_class)) = payload else {
             return Ok(ContinuousResolution::Settle(
                 self.token
                     .settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)),
             ));
         };
-        let chain_epoch = self.token.chain_epoch();
+        let chain_view = self.token.chain_view().clone();
         let resolved = ResolvedFacts::from_resolution(
             ResolutionSeal(()),
-            chain_epoch,
+            chain_view,
             self.token.dependency_cut,
             Arc::new(payload),
+            location,
             verify_class,
         );
         if self.capability.permits(verify_class) {
@@ -476,17 +505,18 @@ impl ContinuousResolveWork {
     #[cfg(test)]
     pub(super) fn into_verify(
         self,
-        payload: ResolvedPayload,
+        resolution: FoundationResolution,
     ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
-        self.into_verify_as(payload, VerifyCycleClass::Small)
+        self.into_verify_as(resolution, VerifyCycleClass::Small)
     }
 
     #[cfg(test)]
     pub(super) fn into_verify_as(
         self,
-        payload: ResolvedPayload,
+        resolution: FoundationResolution,
         verify_class: VerifyCycleClass,
     ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
+        let (payload, location) = resolution.into_parts();
         if !payload_matches(&self.tx, &payload) {
             return Err(ReceiptFailure::new(
                 self.token,
@@ -499,12 +529,13 @@ impl ContinuousResolveWork {
                     .settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)),
             ));
         }
-        let chain_epoch = self.token.chain_epoch();
+        let chain_view = self.token.chain_view().clone();
         let resolved = ResolvedFacts::from_resolution(
             ResolutionSeal(()),
-            chain_epoch,
+            chain_view,
             self.token.dependency_cut,
             Arc::new(payload),
+            location,
             verify_class,
         );
         if self.capability.permits(verify_class) {
@@ -540,12 +571,26 @@ impl VerifyWork {
         accepted_resident_bytes: usize,
         cycles: u64,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
+        self.verified_under(
+            accepted_resident_bytes,
+            cycles,
+            ValidationRulesId::FOUNDATION,
+        )
+    }
+
+    pub(super) fn verified_under(
+        self,
+        accepted_resident_bytes: usize,
+        cycles: u64,
+        rules: ValidationRulesId,
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         verified(
             self.token,
             self.tx,
             self.resolved,
             accepted_resident_bytes,
             cycles,
+            rules,
         )
     }
 
@@ -565,12 +610,26 @@ impl ContinuousVerifyWork {
         accepted_resident_bytes: usize,
         cycles: u64,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
+        self.verified_under(
+            accepted_resident_bytes,
+            cycles,
+            ValidationRulesId::FOUNDATION,
+        )
+    }
+
+    pub(super) fn verified_under(
+        self,
+        accepted_resident_bytes: usize,
+        cycles: u64,
+        rules: ValidationRulesId,
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         verified(
             self.token,
             self.tx,
             self.resolved,
             accepted_resident_bytes,
             cycles,
+            rules,
         )
     }
 

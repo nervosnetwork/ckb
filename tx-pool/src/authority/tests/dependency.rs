@@ -1,11 +1,8 @@
 use super::super::{
-    plan::{
-        CommittedChanges, IndependentCandidate, PlanError, SettlementBatch, StalePlan,
-        TxPoolAuthority,
-    },
+    plan::{CommittedChanges, PlanError, SettlementBatch, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
-        AcceptedStatus, ChainEpoch, ComputedOutcome, DependencyKey, EntryVersion, OwnedTx,
+        AcceptedStatus, ComputedOutcome, DependencyKey, EntryVersion, OwnedTx, PoolGeneration,
         PreAcceptedPhase, ProposalContextId, QueuedWork, RawTxHash, RejectionKind, ResolvedPayload,
         TxIdentity, ValidatedAdmission, VerifyCapability, WorkPermit,
     },
@@ -361,13 +358,13 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
             OutPoint::new(parent_tx.hash(), 0),
         );
         let parent_admission = if recovery {
-            ValidatedAdmission::recovery(parent_tx.clone(), ChainEpoch(1))
+            ValidatedAdmission::recovery(parent_tx.clone(), PoolGeneration(1))
         } else {
             ValidatedAdmission::proposal(parent_tx.clone(), ProposalContextId(1))
         }
         .expect("trusted parent admission is valid");
         let child_admission = if recovery {
-            ValidatedAdmission::recovery(child_tx.clone(), ChainEpoch(1))
+            ValidatedAdmission::recovery(child_tx.clone(), PoolGeneration(1))
         } else {
             ValidatedAdmission::proposal(child_tx.clone(), ProposalContextId(1))
         }
@@ -493,16 +490,20 @@ fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
             .expect("parent terminalization publishes loss"),
     );
     let batch = SettlementBatch::new(vec![
-        IndependentCandidate::new(
-            child.clone(),
-            owner_version(&authority, &child),
-            AcceptedStatus::Pending,
-        ),
-        IndependentCandidate::new(
-            unrelated.clone(),
-            owner_version(&authority, &unrelated),
-            AcceptedStatus::Pending,
-        ),
+        authority
+            .independent_candidate_for_foundation(
+                &child,
+                owner_version(&authority, &child),
+                AcceptedStatus::Pending,
+            )
+            .expect("child candidate has current final evidence"),
+        authority
+            .independent_candidate_for_foundation(
+                &unrelated,
+                owner_version(&authority, &unrelated),
+                AcceptedStatus::Pending,
+            )
+            .expect("unrelated candidate has current final evidence"),
     ])
     .expect("two distinct candidates form a bounded batch");
     let before = authority.normalized_snapshot();

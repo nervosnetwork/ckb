@@ -75,7 +75,7 @@ fn classify(
 ) -> Result<Option<IndependentCoupling>, PlanError> {
     for (index, change) in changes.iter().enumerate() {
         validate_owner(authority, change)?;
-        let footprint = &change.after.verified.payload().footprint;
+        let footprint = &change.after.proof.payload().footprint;
 
         for input in footprint.inputs() {
             if authority.membership.spender(input).is_some() {
@@ -101,7 +101,7 @@ fn classify(
             {
                 return Ok(Some(IndependentCoupling::CohortCausalEdge(producer)));
             }
-            if !change.after.verified.payload().is_chain_input(input) {
+            if !change.after.proof.is_chain_input(input) {
                 return Ok(Some(IndependentCoupling::InputNotChainBacked(
                     input.clone(),
                 )));
@@ -158,7 +158,7 @@ fn validate_owner(
         || after.record.blame != before.record.blame
         || after.record.class != before.record.class
         || after.record.arrival != before.record.arrival
-        || after.verified.chain_epoch() != authority.chain_epoch
+        || after.proof.chain_revision() != authority.chain_revision()
     {
         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
     }
@@ -197,9 +197,9 @@ fn first_shared_input(
     left: &IndependentMembershipChange,
     right: &IndependentMembershipChange,
 ) -> Option<OutPoint> {
-    let right_inputs = right.after.verified.payload().footprint.inputs();
+    let right_inputs = right.after.proof.payload().footprint.inputs();
     left.after
-        .verified
+        .proof
         .payload()
         .footprint
         .inputs()
@@ -212,8 +212,8 @@ fn first_conditional_edge(
     left: &IndependentMembershipChange,
     right: &IndependentMembershipChange,
 ) -> Option<OutPoint> {
-    let left_footprint = &left.after.verified.payload().footprint;
-    let right_footprint = &right.after.verified.payload().footprint;
+    let left_footprint = &left.after.proof.payload().footprint;
+    let right_footprint = &right.after.proof.payload().footprint;
     left_footprint
         .inputs()
         .iter()
@@ -266,7 +266,7 @@ fn prepare_projection(
     let (total_inputs, total_dependencies) = changes
         .iter()
         .try_fold((0usize, 0usize), |(inputs, dependencies), change| {
-            let footprint = &change.after.verified.payload().footprint;
+            let footprint = &change.after.proof.payload().footprint;
             Some((
                 inputs.checked_add(footprint.inputs().len())?,
                 dependencies.checked_add(footprint.dependencies().len())?,
@@ -309,7 +309,7 @@ fn prepare_projection(
     dependency_reader_insertions.extend(changes.iter().flat_map(|change| {
         change
             .after
-            .verified
+            .proof
             .payload()
             .footprint
             .dependencies()
@@ -333,7 +333,7 @@ fn prepare_projection(
         spender_changes.extend(
             change
                 .after
-                .verified
+                .proof
                 .payload()
                 .footprint
                 .inputs()

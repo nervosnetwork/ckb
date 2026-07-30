@@ -1,3 +1,7 @@
+use super::chain::{
+    AcceptedProof, CellContentReceipt, CellLocationReceipt, ScriptReceipt, ValidationRulesId,
+    VerificationContextReceipt,
+};
 use super::resources::{AcceptedCost, AcceptedResources, ChargeRecord, ResourceVector};
 use ckb_network::PeerIndex;
 use ckb_types::{
@@ -22,7 +26,53 @@ pub(super) struct EntryVersion(pub(super) u128);
 pub(super) struct ComputeLeaseId(pub(super) u128);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct ChainEpoch(pub(super) u64);
+pub(super) struct ChainRevision(pub(super) u64);
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct PoolGeneration(pub(super) u64);
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct ChainTipHash(pub(super) Byte32);
+
+/// Exact authority view used for chain-plan OCC. `revision` distinguishes a
+/// T -> T' -> T event sequence; `tip` identifies the immutable chain state
+/// whose positive cell evidence may be reused.
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct ChainViewIdentity {
+    revision: ChainRevision,
+    tip: ChainTipHash,
+}
+
+/// Cheap immutable identity shared by work and proof receipts. A chain
+/// transition allocates one identity; per-entry/work clones do not duplicate
+/// the 32-byte tip hash.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(super) struct ChainViewId(Arc<ChainViewIdentity>);
+
+impl ChainViewId {
+    pub(super) fn new(revision: ChainRevision, tip: Byte32) -> Self {
+        Self(Arc::new(ChainViewIdentity {
+            revision,
+            tip: ChainTipHash(tip),
+        }))
+    }
+
+    pub(super) fn initial() -> Self {
+        Self::new(ChainRevision(0), Byte32::zero())
+    }
+
+    pub(super) fn revision(&self) -> ChainRevision {
+        self.0.revision
+    }
+
+    pub(super) fn tip(&self) -> &ChainTipHash {
+        &self.0.tip
+    }
+
+    pub(super) fn has_same_chain_state(&self, other: &Self) -> bool {
+        self.0.tip == other.0.tip
+    }
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ApplySequence(pub(super) u128);
@@ -86,7 +136,7 @@ pub(super) struct ProposalLease {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RecoveryLease {
-    pub(super) epoch: ChainEpoch,
+    pub(super) generation: PoolGeneration,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -360,7 +410,6 @@ pub(super) struct ResolvedPayload {
     fee: Capacity,
     serialized_bytes: usize,
     resolved_resident_bytes: usize,
-    chain_inputs: Vec<OutPoint>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -372,9 +421,8 @@ pub(super) enum InputEvidenceError {
 }
 
 impl ResolvedPayload {
-    /// Constructs one resolution fact from the exact transaction. Positive
-    /// chain inputs and expanded dependencies cannot be paired with a second
-    /// transaction identity.
+    /// Constructs immutable content facts from the exact transaction.
+    /// Tip-bound input roles are sealed separately in `CellLocationReceipt`.
     pub(super) fn from_resolution(
         _seal: super::work::ResolutionSeal,
         tx: &TransactionView,
@@ -382,7 +430,6 @@ impl ResolvedPayload {
         max_edges: usize,
         fee: Capacity,
         resolved_resident_bytes: usize,
-        chain_inputs: Vec<OutPoint>,
     ) -> Result<Self, InputEvidenceError> {
         Self::from_transaction_parts(
             tx,
@@ -390,7 +437,6 @@ impl ResolvedPayload {
             max_edges,
             fee,
             resolved_resident_bytes,
-            chain_inputs,
         )
     }
 
@@ -402,15 +448,17 @@ impl ResolvedPayload {
         fee: Capacity,
         resolved_resident_bytes: usize,
         chain_inputs: Vec<OutPoint>,
-    ) -> Result<Self, InputEvidenceError> {
-        Self::from_transaction_parts(
+    ) -> Result<FoundationResolution, InputEvidenceError> {
+        let payload = Self::from_transaction_parts(
             tx,
             expanded_dependencies,
             max_edges,
             fee,
             resolved_resident_bytes,
-            chain_inputs,
-        )
+        )?;
+        let location =
+            CellLocationReceipt::from_resolution(&ChainViewId::initial(), &payload, chain_inputs)?;
+        Ok(FoundationResolution { payload, location })
     }
 
     fn from_transaction_parts(
@@ -419,7 +467,6 @@ impl ResolvedPayload {
         max_edges: usize,
         fee: Capacity,
         resolved_resident_bytes: usize,
-        mut chain_inputs: Vec<OutPoint>,
     ) -> Result<Self, InputEvidenceError> {
         let footprint = ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
             .map_err(InputEvidenceError::Footprint)?;
@@ -429,14 +476,6 @@ impl ResolvedPayload {
         if resolved_resident_bytes < serialized_bytes {
             return Err(InputEvidenceError::ResidentBelowSerialized);
         }
-        chain_inputs.sort_unstable();
-        chain_inputs.dedup();
-        if chain_inputs
-            .iter()
-            .any(|input| footprint.inputs.binary_search(input).is_err())
-        {
-            return Err(InputEvidenceError::NotAnInput);
-        }
         Ok(Self {
             identity: TxIdentity::from_transaction(tx),
             footprint,
@@ -444,12 +483,7 @@ impl ResolvedPayload {
             fee,
             serialized_bytes,
             resolved_resident_bytes,
-            chain_inputs,
         })
-    }
-
-    pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
-        self.chain_inputs.binary_search(input).is_ok()
     }
 
     pub(super) fn identity(&self) -> &TxIdentity {
@@ -473,56 +507,108 @@ impl ResolvedPayload {
     }
 }
 
+/// Test-only complete resolution fixture. Production builds create the same
+/// pair only by consuming checked-out ResolveWork.
+#[cfg(test)]
+pub(super) struct FoundationResolution {
+    payload: ResolvedPayload,
+    location: CellLocationReceipt,
+}
+
+#[cfg(test)]
+impl FoundationResolution {
+    pub(super) fn into_parts(self) -> (ResolvedPayload, CellLocationReceipt) {
+        (self.payload, self.location)
+    }
+
+    pub(super) fn into_payload(self) -> ResolvedPayload {
+        self.payload
+    }
+
+    pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
+        self.location.is_chain_input(input)
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for FoundationResolution {
+    type Target = ResolvedPayload;
+
+    fn deref(&self) -> &Self::Target {
+        &self.payload
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedFacts {
-    chain_epoch: ChainEpoch,
+    chain_view: ChainViewId,
     dependency_cut: DependencyCut,
-    payload: Arc<ResolvedPayload>,
+    content: CellContentReceipt,
+    location: CellLocationReceipt,
     verify_class: VerifyCycleClass,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct VerifiedFacts {
-    witness: WitnessTxHash,
-    chain_epoch: ChainEpoch,
     dependency_cut: DependencyCut,
-    payload: Arc<ResolvedPayload>,
+    content: CellContentReceipt,
+    context: VerificationContextReceipt,
+    script: ScriptReceipt,
     metrics: CandidateMetrics,
 }
 
 impl ResolvedFacts {
     pub(super) fn from_resolution(
         _seal: super::work::ResolutionSeal,
-        chain_epoch: ChainEpoch,
+        chain_view: ChainViewId,
         dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
+        location: CellLocationReceipt,
         verify_class: VerifyCycleClass,
     ) -> Self {
         Self {
-            chain_epoch,
+            chain_view,
             dependency_cut,
-            payload,
+            content: CellContentReceipt::from_resolution(payload),
+            location,
             verify_class,
         }
     }
 
     #[cfg(test)]
     pub(super) fn for_foundation(
-        chain_epoch: ChainEpoch,
+        chain_revision: ChainRevision,
         dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         verify_class: VerifyCycleClass,
     ) -> Self {
-        Self {
-            chain_epoch,
+        Self::for_foundation_view(
+            ChainViewId::new(chain_revision, Byte32::zero()),
             dependency_cut,
             payload,
+            verify_class,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation_view(
+        chain_view: ChainViewId,
+        dependency_cut: DependencyCut,
+        payload: Arc<ResolvedPayload>,
+        verify_class: VerifyCycleClass,
+    ) -> Self {
+        let location = CellLocationReceipt::empty_for_foundation(&chain_view);
+        Self {
+            chain_view,
+            dependency_cut,
+            content: CellContentReceipt::from_resolution(payload),
+            location,
             verify_class,
         }
     }
 
-    pub(super) fn chain_epoch(&self) -> ChainEpoch {
-        self.chain_epoch
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        &self.chain_view
     }
 
     pub(super) fn dependency_cut(&self) -> DependencyCut {
@@ -530,7 +616,7 @@ impl ResolvedFacts {
     }
 
     pub(super) fn payload(&self) -> &ResolvedPayload {
-        &self.payload
+        self.content.payload()
     }
 
     pub(super) fn verify_class(&self) -> VerifyCycleClass {
@@ -541,15 +627,15 @@ impl ResolvedFacts {
         self,
         _seal: super::work::VerificationSeal,
     ) -> (
-        ChainEpoch,
         DependencyCut,
-        Arc<ResolvedPayload>,
+        CellContentReceipt,
+        CellLocationReceipt,
         VerifyCycleClass,
     ) {
         (
-            self.chain_epoch,
             self.dependency_cut,
-            self.payload,
+            self.content,
+            self.location,
             self.verify_class,
         )
     }
@@ -558,44 +644,60 @@ impl ResolvedFacts {
 impl VerifiedFacts {
     pub(super) fn from_verification(
         _seal: super::work::VerificationSeal,
-        witness: WitnessTxHash,
-        chain_epoch: ChainEpoch,
         dependency_cut: DependencyCut,
-        payload: Arc<ResolvedPayload>,
+        content: CellContentReceipt,
+        context: VerificationContextReceipt,
         metrics: CandidateMetrics,
     ) -> Self {
+        let rules = context.rules();
         Self {
-            witness,
-            chain_epoch,
             dependency_cut,
-            payload,
+            content,
+            context,
+            script: ScriptReceipt::from_verification(rules),
             metrics,
         }
     }
 
     #[cfg(test)]
     pub(super) fn for_foundation(
-        witness: WitnessTxHash,
-        chain_epoch: ChainEpoch,
+        chain_revision: ChainRevision,
         dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         metrics: CandidateMetrics,
     ) -> Self {
-        Self {
-            witness,
-            chain_epoch,
+        Self::for_foundation_view(
+            ChainViewId::new(chain_revision, Byte32::zero()),
             dependency_cut,
             payload,
+            metrics,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation_view(
+        chain_view: ChainViewId,
+        dependency_cut: DependencyCut,
+        payload: Arc<ResolvedPayload>,
+        metrics: CandidateMetrics,
+    ) -> Self {
+        let rules = ValidationRulesId::FOUNDATION;
+        let context = VerificationContextReceipt::empty_for_foundation(chain_view, rules);
+        Self {
+            dependency_cut,
+            content: CellContentReceipt::from_resolution(payload),
+            context,
+            script: ScriptReceipt::from_verification(rules),
             metrics,
         }
     }
 
     pub(super) fn witness(&self) -> &WitnessTxHash {
-        &self.witness
+        &self.payload().identity().witness
     }
 
-    pub(super) fn chain_epoch(&self) -> ChainEpoch {
-        self.chain_epoch
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.context.view()
     }
 
     pub(super) fn dependency_cut(&self) -> DependencyCut {
@@ -603,11 +705,30 @@ impl VerifiedFacts {
     }
 
     pub(super) fn payload(&self) -> &ResolvedPayload {
-        &self.payload
+        self.content.payload()
     }
 
     pub(super) fn metrics(&self) -> &CandidateMetrics {
         &self.metrics
+    }
+
+    pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
+        self.context.is_chain_input(input)
+    }
+
+    pub(super) fn context_is_for(&self, view: &ChainViewId) -> bool {
+        self.context.is_for(view)
+    }
+
+    pub(super) fn verification_context(&self) -> &VerificationContextReceipt {
+        &self.context
+    }
+
+    pub(super) fn with_context(self, context: VerificationContextReceipt) -> Option<Self> {
+        if !self.script.is_reusable_under(context.rules()) {
+            return None;
+        }
+        Some(Self { context, ..self })
     }
 }
 
@@ -655,6 +776,7 @@ pub(super) enum QueuedWork {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ActiveWork {
     pub(super) lease: ComputeLeaseId,
+    pub(super) chain_view: ChainViewId,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
     pub(super) attribution: ComputeAttribution,
@@ -808,7 +930,7 @@ pub(super) struct PreAcceptedEntry {
 pub(super) struct AcceptedEntry {
     pub(super) record: TxRecord,
     pub(super) status: AcceptedStatus,
-    pub(super) verified: VerifiedFacts,
+    pub(super) proof: AcceptedProof,
 }
 
 #[derive(Clone, Debug)]
@@ -876,7 +998,7 @@ impl PreAcceptedEntry {
 
 impl AcceptedEntry {
     pub(super) fn charge_record(&self) -> ChargeRecord {
-        ChargeRecord::Accepted(AcceptedResources::one(self.verified.metrics().cost))
+        ChargeRecord::Accepted(AcceptedResources::one(self.proof.metrics().cost))
     }
 }
 
@@ -949,13 +1071,13 @@ impl ValidatedAdmission {
 
     pub(super) fn recovery(
         tx: TransactionView,
-        epoch: ChainEpoch,
+        generation: PoolGeneration,
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
             IngressAttribution::Trusted,
             PayloadBlame::None,
-            AdmissionClass::Recovery(RecoveryLease { epoch }),
+            AdmissionClass::Recovery(RecoveryLease { generation }),
         )
     }
 

@@ -74,11 +74,11 @@ pub(super) fn complete_removals(
     for removal in &removals {
         let entry = authority.accepted_entry(&removal.hash)?;
         projected_resources = projected_resources
-            .checked_sub(AcceptedResources::one(entry.verified.metrics().cost))
+            .checked_sub(AcceptedResources::one(entry.proof.metrics().cost))
             .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
     }
     projected_resources = projected_resources
-        .checked_add(AcceptedResources::one(candidate.verified.metrics().cost))
+        .checked_add(AcceptedResources::one(candidate.proof.metrics().cost))
         .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
 
     if removals.is_empty()
@@ -176,7 +176,7 @@ pub(super) fn complete_removals(
         for hash in &closure {
             let entry = authority.accepted_entry(hash)?;
             projected_resources = projected_resources
-                .checked_sub(AcceptedResources::one(entry.verified.metrics().cost))
+                .checked_sub(AcceptedResources::one(entry.proof.metrics().cost))
                 .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
         }
         virtual_projection.remove_virtual_keys(&closure);

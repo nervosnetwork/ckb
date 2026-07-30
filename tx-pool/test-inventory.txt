@@ -1,4 +1,9 @@
 [unit]
+authority::tests::chain::uak_chain_tip_not_revision_controls_negative_evidence_freshness
+authority::tests::chain::uak_final_admission_receipt_is_stale_after_chain_view_aba
+authority::tests::chain::uak_final_admission_refreshes_stale_verification_context
+authority::tests::chain::uak_final_admission_rejects_a_changed_validation_ruleset
+authority::tests::chain::uak_matching_completion_settles_and_refreshes_across_chain_view_change
 authority::tests::dependency::uak_availability_does_not_invalidate_positive_dependency_evidence
 authority::tests::dependency::uak_batch_acceptance_cannot_bypass_dependency_cut
 authority::tests::dependency::uak_canonical_dependency_index_does_not_discount_ingress_edges
@@ -67,7 +72,6 @@ authority::tests::foundation::uak_invalid_compute_receipt_retains_the_only_lease
 authority::tests::foundation::uak_late_parent_cannot_bypass_the_descendant_ancestor_bound
 authority::tests::foundation::uak_late_parent_component_bound_fails_before_authority_mutation
 authority::tests::foundation::uak_membership_projects_one_spender_and_one_causal_graph
-authority::tests::foundation::uak_membership_rejects_stale_verified_chain_evidence
 authority::tests::foundation::uak_missing_settlement_registers_exact_level_wait
 authority::tests::foundation::uak_nested_late_child_fanout_is_sliced_by_the_same_component_bound
 authority::tests::foundation::uak_payload_variant_is_not_misclassified_as_duplicate
@@ -93,7 +97,7 @@ authority::tests::foundation::uak_short_id_collision_cannot_alias_primary_identi
 authority::tests::foundation::uak_small_cycle_capability_never_checks_out_large_verify_work
 authority::tests::foundation::uak_small_cycle_frontier_finds_work_behind_same_owner_large_head
 authority::tests::foundation::uak_stale_lease_is_mutation_free_across_aba
-authority::tests::foundation::uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch
+authority::tests::foundation::uak_stale_lease_is_mutation_free_after_chain_view_change
 authority::tests::foundation::uak_stale_membership_plan_is_semantically_mutation_free
 authority::tests::foundation::uak_status_reconcile_updates_count_and_eviction_projection_once
 authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together

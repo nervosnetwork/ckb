@@ -4,33 +4,24 @@ use super::{
     next_sequence, next_version,
 };
 use crate::authority::{
+    chain::FinalAdmissionReceipt,
     effect::EffectDelta,
     plan::membership::{
         IndependentCoupling, IndependentMembershipChange, IndependentMembershipOutcome,
         PreparedIndependentMembership, prepare_independent_membership,
     },
     scheduler::{MAX_READY_BATCH, ReadyKey},
-    state::{AcceptedEntry, AcceptedStatus, EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash},
+    state::{AcceptedEntry, OwnedTx, PreAcceptedPhase, RawTxHash},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct IndependentCandidate {
-    key: RawTxHash,
-    expected: EntryVersion,
-    status: AcceptedStatus,
+    receipt: FinalAdmissionReceipt,
 }
 
 impl IndependentCandidate {
-    pub(in crate::authority) fn new(
-        key: RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-    ) -> Self {
-        Self {
-            key,
-            expected,
-            status,
-        }
+    pub(in crate::authority) fn new(receipt: FinalAdmissionReceipt) -> Self {
+        Self { receipt }
     }
 }
 
@@ -60,9 +51,11 @@ impl SettlementBatch {
             if candidates
                 .iter()
                 .skip(index + 1)
-                .any(|other| other.key == candidate.key)
+                .any(|other| other.receipt.key() == candidate.receipt.key())
             {
-                return Err(CandidateBatchError::Duplicate(candidate.key.clone()));
+                return Err(CandidateBatchError::Duplicate(
+                    candidate.receipt.key().clone(),
+                ));
             }
         }
         Ok(Self(candidates))
@@ -84,7 +77,7 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
 }
 
 struct CandidateFact {
-    request: IndependentCandidate,
+    receipt: FinalAdmissionReceipt,
     before: crate::authority::state::PreAcceptedEntry,
     rank: ReadyKey,
 }
@@ -100,30 +93,36 @@ impl TxPoolAuthority {
             .try_reserve(batch.0.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         for request in &batch.0 {
+            let key = request.receipt.key().clone();
+            let expected = request.receipt.expected();
             let owner = self
                 .entries
-                .get(&request.key)
+                .get(&key)
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
-            if owner.record().version != request.expected {
+            if owner.record().version != expected {
                 return Err(PlanError::Stale(StalePlan::Version));
             }
             let OwnedTx::PreAccepted(before) = owner else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
-            let PreAcceptedPhase::Computed(super::super::state::ComputedOutcome::Verified(
-                verified,
-            )) = &before.phase
+            let PreAcceptedPhase::Computed(super::super::state::ComputedOutcome::Verified(_)) =
+                &before.phase
             else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
-            self.validate_acceptance_evidence(before, verified)?;
+            self.validate_acceptance_evidence(before, &request.receipt)?;
             facts.push(CandidateFact {
-                request: request.clone(),
+                receipt: request.receipt.clone(),
                 before: before.clone(),
                 rank: ReadyKey::from_computed(before)?,
             });
         }
         facts.sort_unstable_by(|left, right| right.rank.cmp(&left.rank));
+        let strongest_receipt = facts
+            .first()
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
+            .receipt
+            .clone();
 
         let mut clocks = self.clocks;
         let mut changes = Vec::new();
@@ -135,12 +134,12 @@ impl TxPoolAuthority {
             .try_reserve(facts.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         for fact in facts {
-            let PreAcceptedPhase::Computed(super::super::state::ComputedOutcome::Verified(
-                verified,
-            )) = &fact.before.phase
-            else {
+            if !matches!(
+                &fact.before.phase,
+                PreAcceptedPhase::Computed(super::super::state::ComputedOutcome::Verified(_))
+            ) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-            };
+            }
             let version = clocks.next_version;
             let sequence = clocks.next_sequence;
             clocks = AuthorityClocks {
@@ -150,17 +149,18 @@ impl TxPoolAuthority {
             };
             let mut record = fact.before.record.clone();
             record.version = version;
+            let status = fact.receipt.status();
             let after = AcceptedEntry {
                 record,
-                status: fact.request.status,
-                verified: verified.clone(),
+                status,
+                proof: fact.receipt.into_proof(),
             };
             committed.push(CommittedChange {
                 sequence,
-                changed: fact.request.key.clone(),
+                changed: fact.before.record.identity.raw.clone(),
             });
             changes.push(IndependentMembershipChange {
-                key: fact.request.key,
+                key: fact.before.record.identity.raw.clone(),
                 before: fact.before,
                 after,
             });
@@ -172,13 +172,10 @@ impl TxPoolAuthority {
         } = match prepare_independent_membership(self, &changes)? {
             IndependentMembershipOutcome::Prepared(prepared) => prepared,
             IndependentMembershipOutcome::Coupled(reason) => {
-                let first = changes
-                    .first()
-                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-                let key = first.key.clone();
-                let expected = first.before.record.version;
-                let status = first.after.status;
-                let plan = self.plan_accept_for_foundation(&key, expected, status)?;
+                // Coupling changes only the membership planner. Preserve the
+                // exact proof issued by final validation instead of creating
+                // a second proof-construction path at the handoff boundary.
+                let plan = self.plan_accept(strongest_receipt)?;
                 return Ok(SettlementPlan::CoupledComponent { reason, plan });
             }
         };

@@ -10,7 +10,7 @@ pub(super) fn replacement_removals(
     authority: &TxPoolAuthority,
     candidate: &AcceptedEntry,
 ) -> Result<Vec<RawTxHash>, PlanError> {
-    let footprint = &candidate.verified.payload().footprint;
+    let footprint = &candidate.proof.payload().footprint;
     let mut direct = BTreeSet::new();
     let mut first_conflict = None;
     for input in footprint.inputs() {
@@ -59,7 +59,7 @@ fn validate_no_new_unconfirmed_inputs(
         total
             .checked_add(
                 accepted_entry(authority, hash)?
-                    .verified
+                    .proof
                     .payload()
                     .footprint
                     .inputs()
@@ -72,10 +72,10 @@ fn validate_no_new_unconfirmed_inputs(
         .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
     for hash in direct {
         let entry = accepted_entry(authority, hash)?;
-        replaced_inputs.extend(entry.verified.payload().footprint.inputs().iter().cloned());
+        replaced_inputs.extend(entry.proof.payload().footprint.inputs().iter().cloned());
     }
-    for input in candidate.verified.payload().footprint.inputs() {
-        if !replaced_inputs.contains(input) && !candidate.verified.payload().is_chain_input(input) {
+    for input in candidate.proof.payload().footprint.inputs() {
+        if !replaced_inputs.contains(input) && !candidate.proof.is_chain_input(input) {
             return Err(PlanError::Membership(
                 MembershipReject::NewUnconfirmedInput(input.clone()),
             ));
@@ -100,7 +100,7 @@ fn validate_descendant_overlap(
             .filter(|hash| !direct.contains(*hash))
             .cloned(),
     );
-    for input in candidate.verified.payload().footprint.inputs() {
+    for input in candidate.proof.payload().footprint.inputs() {
         if descendants.contains(&RawTxHash(input.tx_hash())) {
             return Err(PlanError::Membership(
                 MembershipReject::InputFromDescendant(input.clone()),
@@ -110,9 +110,9 @@ fn validate_descendant_overlap(
 
     let mut parents = HashSet::new();
     parents
-        .try_reserve(candidate.verified.payload().footprint.inputs().len())
+        .try_reserve(candidate.proof.payload().footprint.inputs().len())
         .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
-    for input in candidate.verified.payload().footprint.inputs() {
+    for input in candidate.proof.payload().footprint.inputs() {
         let parent = RawTxHash(input.tx_hash());
         if authority
             .entries
@@ -177,7 +177,7 @@ fn validate_no_victim_dependencies(
     candidate: &AcceptedEntry,
     removal_set: &HashSet<RawTxHash>,
 ) -> Result<(), PlanError> {
-    for dependency in candidate.verified.payload().footprint.dependencies() {
+    for dependency in candidate.proof.payload().footprint.dependencies() {
         if removal_set.contains(&RawTxHash(dependency.tx_hash())) {
             return Err(PlanError::Membership(MembershipReject::DependencyOnVictim(
                 dependency.clone(),
@@ -194,16 +194,16 @@ fn validate_replacement_fee(
     minimum_rate: ckb_types::core::FeeRate,
 ) -> Result<(), PlanError> {
     let replaced_fee = removals.iter().try_fold(Capacity::zero(), |sum, hash| {
-        let fee = accepted_entry(authority, hash)?.verified.metrics().fee;
+        let fee = accepted_entry(authority, hash)?.proof.metrics().fee;
         sum.safe_add(fee)
             .map_err(|_| PlanError::Membership(MembershipReject::ReplacementFeeOverflow))
     })?;
-    let serialized_bytes = u64::try_from(candidate.verified.metrics().cost.serialized_bytes)
+    let serialized_bytes = u64::try_from(candidate.proof.metrics().cost.serialized_bytes)
         .map_err(|_| PlanError::Membership(MembershipReject::ReplacementFeeOverflow))?;
     let required = replaced_fee
         .safe_add(minimum_rate.fee(serialized_bytes))
         .map_err(|_| PlanError::Membership(MembershipReject::ReplacementFeeOverflow))?;
-    let actual = candidate.verified.metrics().fee;
+    let actual = candidate.proof.metrics().fee;
     if actual < required {
         return Err(PlanError::Membership(
             MembershipReject::InsufficientReplacementFee { actual, required },

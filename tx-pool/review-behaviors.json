@@ -33,7 +33,9 @@
       "change_surfaces": [
         "tx-pool/src/process/submit",
         "tx-pool/src/component/pre_pool/commit.rs",
-        "tx-pool/src/pool.rs"
+        "tx-pool/src/pool.rs",
+        "tx-pool/src/authority/chain.rs",
+        "tx-pool/src/authority/plan/settlement.rs"
       ],
       "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching revision-bound kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. A verified lease may fold its otherwise adjacent Ready handoff into that same sealed CommitSession only when its prospective ReadyKey is stronger than every published Ready owner and its exact transient payload charge fits the existing budgets; every Plan, ban fence, rejection and effect path remains shared. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
       "hostile_case": "Concurrent commits, a stronger Ready owner, stale leases, rejected RBF, transient verified-payload growth, journal backpressure, accepted-duplicate acknowledgement racing clear/reorg, or a structural defect must not expose a pool/kernel ownership gap, strand Ready work, bypass ordering/budgets, or publish success for an absent/unapplied owner.",
@@ -45,7 +47,7 @@
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence|uak_final_admission|uak_matching_completion)/)'",
       "performance_bound": "Reuse the existing pool sequencer and fold only the adjacent verified/Ready ceremony; do not add a normal-path recovery lock, second admission implementation, commit queue or population-sized reconciliation."
     },
     {
@@ -75,7 +77,9 @@
         "tx-pool/src/resolved_tx.rs",
         "tx-pool/src/component/links.rs",
         "tx-pool/src/pool_cell.rs",
-        "tx-pool/src/component/tx_selector.rs"
+        "tx-pool/src/component/tx_selector.rs",
+        "tx-pool/src/authority/chain.rs",
+        "tx-pool/src/authority/dependency.rs"
       ],
       "required_behavior": "Raw, resolved and accepted exact dependency keys—including the complete direct missing-cell frontier, headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection.",
       "hostile_case": "A cell provider reporting only its first miss, late-discovered parents, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, make RelayV3 reject an unrequested parent, lose its wake edge or let a template commit an invalid order.",
@@ -84,7 +88,7 @@
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_chain_tip_not_revision)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
@@ -214,7 +218,9 @@
         "tx-pool/src/process/reorg.rs",
         "tx-pool/src/component/pre_pool/recovery.rs",
         "tx-pool/src/service.rs",
-        "tx-pool/src/service/pipeline_ops.rs"
+        "tx-pool/src/service/pipeline_ops.rs",
+        "tx-pool/src/authority/chain.rs",
+        "tx-pool/src/authority/state.rs"
       ],
       "required_behavior": "One chain-authoritative reorg phase switches snapshot/membership once, combines detached transactions with the complete bounded accepted descendant closure of detached producers, installs one charged parent-first Recovery-source plan in the ordinary six-state kernel, and journals the immediate reset plus level-triggered template generations.",
       "hostile_case": "A late accepted child, startup zombie reconcile, over-budget or over-fanout descendant closure, duplicate/colliding detached roots, clear/save races or a stale/failed full-template rebuild must not replay chain mutation, expose a parentless accepted suffix or unowned payload interval, retain transaction-bearing blocks outside the kernel, cross a missing parent prefix or publish stale uncles/template state.",
@@ -224,7 +230,7 @@
         "Are accepted descendants planned before startup zombie reconciliation, retained parent-first, and reset as one ephemeral generation when the complete bounded closure cannot fit?",
         "Are duplicate/collision handling, full/witness identity, non-reused versions and clear epoch ordering exact?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale)/)'",
       "performance_bound": "The single graph traversal/transfer stops at fixed mutation and recovery bounds and uses one generation reset beyond them; no recovery lock, replay worker, duplicate accepted traversal or full-block payload owner remains."
     },
     {
@@ -389,6 +395,9 @@
     {"test": "tx_pool_same_tip_resolution_evidence_skips_chain_revalidation", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
     {"test": "tx_pool_resolution_evidence_yields_to_pool_spends_and_tip_changes", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
     {"test": "tx_pool_resolution_evidence_requires_chain_provenance", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
+    {"test": "uak_final_admission_refreshes_stale_verification_context", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
+    {"test": "uak_final_admission_rejects_a_changed_validation_ruleset", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
+    {"test": "uak_matching_completion_settles_and_refreshes_across_chain_view_change", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T11"]},
 
     {"test": "same_commit_wakes_prior_conflict_but_not_its_new_victim", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
 
@@ -409,6 +418,7 @@
     {"test": "dense_conditional_scc_uses_bounded_fallback_and_keeps_strongest", "behavior_id": "TP-DEP-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
     {"test": "over_budget_dep_entry_does_not_censor_independent_suffix", "behavior_id": "TP-DEP-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
     {"test": "terminalized_superseded_parent_wakes_its_trusted_child", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11", "T12", "T13"]},
+    {"test": "uak_chain_tip_not_revision_controls_negative_evidence_freshness", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T9", "T11"]},
 
     {"test": "full_conflict_history_terminalizes_rejected_owner_without_panicking", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T11"]},
     {"test": "remote_peer_order_cannot_hijack_an_existing_conflict_owner", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
@@ -481,6 +491,7 @@
     {"test": "accepted_reorg_recovery_plan_reports_over_bound_fanout", "behavior_id": "TP-REORG-001", "invariants": ["T3", "T8", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "reorg_replays_detached_parent_with_accepted_descendant_closure", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_final_admission_receipt_is_stale_after_chain_view_aba", "behavior_id": "TP-REORG-001", "invariants": ["T6", "T9"]},
 
     {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["T7", "T9", "T10", "T12", "T13"]},

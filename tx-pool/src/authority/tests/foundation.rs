@@ -1,9 +1,10 @@
+use super::super::chain::AcceptedProof;
 use super::super::effect::{CommittedEffect, EffectPolicy};
 use super::super::plan::{
     AuthorityFault, Backpressure, CandidateBatchError, CommittedChange, CommittedChanges,
-    CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCandidate,
-    IndependentCoupling, MembershipReject, MembershipSnapshot, PlanError, PreparedApply,
-    RemovalCause, SettlementBatch, SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
+    CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCoupling, MembershipReject,
+    MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch, SettlementPlan,
+    StalePlan, StatusCounts, TxPoolAuthority,
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
@@ -12,12 +13,13 @@ use super::super::resources::{
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedEntry, AcceptedStatus, ActiveWork, AdmissionClass, ApplySequence, CandidateMetrics,
-    ChainEpoch, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
-    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, IngressAttribution,
-    InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx, PayloadBlame,
-    PreAcceptedPhase, ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind,
-    ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability,
-    VerifyCycleClass, WaitCondition, WorkPermit,
+    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome,
+    DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
+    FoundationResolution, IngressAttribution, InputEvidenceError, KnownDependencies,
+    ObservedDependencies, OwnedTx, PayloadBlame, PoolGeneration, PreAcceptedPhase,
+    ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind, ResolvedPayload,
+    TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass,
+    WaitCondition, WorkPermit,
 };
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
@@ -128,11 +130,11 @@ fn observed(epoch: u64) -> ObservedDependencies {
     .expect("fixture dependency set is non-empty")
 }
 
-fn missing_keys() -> Vec<DependencyKey> {
+pub(super) fn missing_keys() -> Vec<DependencyKey> {
     vec![DependencyKey::Cell(OutPoint::default())]
 }
 
-fn admit_remote(
+pub(super) fn admit_remote(
     authority: &mut TxPoolAuthority,
     nonce: u64,
     peer: usize,
@@ -239,7 +241,7 @@ fn only_committed_change(committed: &CommittedDelta) -> &CommittedChange {
 
 fn continue_fixture_verify(
     resolve: ContinuousResolveWork,
-    payload: ResolvedPayload,
+    payload: FoundationResolution,
 ) -> (ContinuousVerifyWork, usize) {
     let accepted_resident_bytes = payload.serialized_bytes();
     let ContinuousResolution::Verify(verify) = resolve
@@ -279,14 +281,14 @@ fn add_accepted(left: AcceptedResources, right: AcceptedResources) -> AcceptedRe
     )
 }
 
-fn resolved_payload(tx: &TransactionView) -> ResolvedPayload {
+pub(super) fn resolved_payload(tx: &TransactionView) -> FoundationResolution {
     resolved_payload_with_deps(tx, Vec::new())
 }
 
 fn resolved_payload_with_deps(
     tx: &TransactionView,
     expanded_dependencies: Vec<OutPoint>,
-) -> ResolvedPayload {
+) -> FoundationResolution {
     resolved_payload_with_facts(tx, expanded_dependencies, Vec::new(), Capacity::shannons(1))
 }
 
@@ -295,7 +297,7 @@ fn resolved_payload_with_facts(
     expanded_dependencies: Vec<OutPoint>,
     chain_inputs: Vec<OutPoint>,
     fee: Capacity,
-) -> ResolvedPayload {
+) -> FoundationResolution {
     let bytes = tx.data().total_size();
     ResolvedPayload::for_foundation(tx, expanded_dependencies, 64, fee, bytes, chain_inputs)
         .expect("fixture chain evidence is a subset of inputs")
@@ -317,7 +319,7 @@ fn accept_remote_transaction_with_payload(
     transaction: TransactionView,
     peer: usize,
     status: AcceptedStatus,
-    payload: ResolvedPayload,
+    payload: FoundationResolution,
 ) -> super::super::state::RawTxHash {
     let hash = verify_remote_transaction_with_payload(authority, transaction, peer, payload);
     let version = owner_version(authority, &hash);
@@ -343,7 +345,7 @@ fn verify_remote_transaction_with_payload(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
     peer: usize,
-    payload: ResolvedPayload,
+    payload: FoundationResolution,
 ) -> super::super::state::RawTxHash {
     let admission = ValidatedAdmission::remote(transaction, PeerIndex::from(peer))
         .expect("fixture admission is valid");
@@ -405,16 +407,21 @@ fn independent_fixture(count: usize) -> (TxPoolAuthority, Vec<RawTxHash>) {
     (authority, hashes)
 }
 
-fn independent_batch(authority: &TxPoolAuthority, hashes: &[RawTxHash]) -> SettlementBatch {
+pub(super) fn independent_batch(
+    authority: &TxPoolAuthority,
+    hashes: &[RawTxHash],
+) -> SettlementBatch {
     SettlementBatch::new(
         hashes
             .iter()
             .map(|hash| {
-                IndependentCandidate::new(
-                    hash.clone(),
-                    owner_version(authority, hash),
-                    AcceptedStatus::Pending,
-                )
+                authority
+                    .independent_candidate_for_foundation(
+                        hash,
+                        owner_version(authority, hash),
+                        AcceptedStatus::Pending,
+                    )
+                    .expect("fixture candidate has current final evidence")
             })
             .collect(),
     )
@@ -429,7 +436,7 @@ fn coupled_reason_and_drop(plan: SettlementPlan<'_>) -> IndependentCoupling {
     reason
 }
 
-fn assert_resource_reference(authority: &TxPoolAuthority) {
+pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
     let mut charges = HashMap::new();
     let mut preaccepted = ResourceVector::default();
     let mut remote = ResourceVector::default();
@@ -512,25 +519,25 @@ fn assert_membership_reference(authority: &TxPoolAuthority) {
                 counts.proposed = counts.proposed.checked_add(1).expect("fixture count fits")
             }
         }
-        for input in entry.verified.payload().footprint.inputs() {
+        for input in entry.proof.payload().footprint.inputs() {
             assert!(
                 spenders.insert(input.clone(), (*hash).clone()).is_none(),
                 "accepted input has one spender"
             );
         }
-        for dependency in entry.verified.payload().footprint.dependencies() {
+        for dependency in entry.proof.payload().footprint.dependencies() {
             dependency_readers
                 .entry(dependency.clone())
                 .or_default()
                 .insert((*hash).clone());
         }
         for out_point in entry
-            .verified
+            .proof
             .payload()
             .footprint
             .inputs()
             .iter()
-            .chain(entry.verified.payload().footprint.dependencies())
+            .chain(entry.proof.payload().footprint.dependencies())
         {
             let parent = super::super::state::RawTxHash(out_point.tx_hash());
             if !accepted.contains_key(&parent) {
@@ -560,7 +567,7 @@ fn assert_membership_reference(authority: &TxPoolAuthority) {
             let entry = accepted
                 .get(&descendant)
                 .expect("accepted descendant has a primary entry");
-            let cost = entry.verified.metrics().cost;
+            let cost = entry.proof.metrics().cost;
             aggregate.entries = aggregate
                 .entries
                 .checked_add(1)
@@ -575,7 +582,7 @@ fn assert_membership_reference(authority: &TxPoolAuthority) {
                 .expect("fixture aggregate cycles fit");
             aggregate.fee = aggregate
                 .fee
-                .safe_add(entry.verified.metrics().fee)
+                .safe_add(entry.proof.metrics().fee)
                 .expect("fixture aggregate fee fits");
             frontier.extend(
                 children
@@ -586,9 +593,9 @@ fn assert_membership_reference(authority: &TxPoolAuthority) {
             );
         }
         descendant_aggregates.insert((*root).clone(), aggregate);
-        let cost = root_entry.verified.metrics().cost;
+        let cost = root_entry.proof.metrics().cost;
         let self_rate = FeeRate::calculate(
-            root_entry.verified.metrics().fee,
+            root_entry.proof.metrics().fee,
             get_transaction_weight(cost.serialized_bytes, cost.cycles),
         );
         let descendants_rate = FeeRate::calculate(
@@ -774,7 +781,7 @@ fn uak_short_id_collision_cannot_alias_primary_identity() {
 fn uak_stale_membership_plan_is_semantically_mutation_free() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let admission =
-        ValidatedAdmission::recovery(tx(5), ChainEpoch(1)).expect("fixture admission is valid");
+        ValidatedAdmission::recovery(tx(5), PoolGeneration(1)).expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -860,12 +867,12 @@ fn uak_terminal_outcome_and_effect_commit_together() {
 #[test]
 fn uak_all_four_preaccepted_phases_are_closed_variants() {
     let transaction = tx(0);
-    let witness = TxIdentity::from_transaction(&transaction).witness;
     let bytes = transaction.data().total_size();
     let phases = [
         PreAcceptedPhase::Queued(QueuedWork::Resolve),
         PreAcceptedPhase::Computing(ActiveWork {
             lease: ComputeLeaseId(1),
+            chain_view: ChainViewId::initial(),
             permit: WorkPermit::ResolveThenVerify(VerifyCapability::Any),
             grant: ComputeGrant {
                 max_resident_bytes: bytes,
@@ -877,10 +884,9 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
         }),
         PreAcceptedPhase::Waiting(WaitCondition::Missing(observed(1))),
         PreAcceptedPhase::Computed(ComputedOutcome::Verified(VerifiedFacts::for_foundation(
-            witness,
-            ChainEpoch(0),
+            ChainRevision(0),
             DependencyCut(ApplySequence(1)),
-            Arc::new(resolved_payload(&transaction)),
+            Arc::new(resolved_payload(&transaction).into_payload()),
             CandidateMetrics {
                 fee: Capacity::shannons(1),
                 cost: AcceptedCost::new(bytes, bytes, 0),
@@ -914,7 +920,9 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     );
     assert_eq!(record.blame, PayloadBlame::Peer(PeerIndex::from(17)));
     assert_eq!(record.arrival.0, 0);
-    assert_eq!(authority.chain_epoch(), ChainEpoch(0));
+    assert_eq!(authority.chain_revision(), ChainRevision(0));
+    assert_eq!(authority.chain_view(), &ChainViewId::initial());
+    assert_eq!(authority.generation(), PoolGeneration(0));
     assert_eq!(authority.resources().remote().entries, 1);
     assert_eq!(authority.clocks().next_lease, ComputeLeaseId(1));
     let declared_dependencies = match owner {
@@ -927,9 +935,9 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         DependencyKey::Header(Byte32::zero()),
     ];
     let resolved = super::super::state::ResolvedFacts::for_foundation(
-        ChainEpoch(0),
+        ChainRevision(0),
         DependencyCut(ApplySequence(1)),
-        Arc::new(resolved_payload(&tx(0))),
+        Arc::new(resolved_payload(&tx(0)).into_payload()),
         VerifyCycleClass::Small,
     );
     let observed =
@@ -939,6 +947,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
         PreAcceptedPhase::Computing(ActiveWork {
             lease: ComputeLeaseId(2),
+            chain_view: ChainViewId::initial(),
             permit: WorkPermit::ResolveOnly,
             grant: ComputeGrant {
                 max_resident_bytes: 1,
@@ -950,6 +959,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         }),
         PreAcceptedPhase::Computing(ActiveWork {
             lease: ComputeLeaseId(3),
+            chain_view: ChainViewId::initial(),
             permit: WorkPermit::VerifyOnly(VerifyCapability::Any),
             grant: ComputeGrant {
                 max_resident_bytes: 1,
@@ -969,10 +979,9 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let verified_transaction = Arc::clone(&owner.record().tx);
     let verified_bytes = verified_transaction.data().total_size();
     let verified = VerifiedFacts::for_foundation(
-        owner.record().identity.witness.clone(),
-        ChainEpoch(0),
+        ChainRevision(0),
         DependencyCut(ApplySequence(1)),
-        Arc::new(resolved_payload(&verified_transaction)),
+        Arc::new(resolved_payload(&verified_transaction).into_payload()),
         CandidateMetrics {
             fee: Capacity::shannons(1),
             cost: AcceptedCost::new(verified_bytes, verified_bytes, 0),
@@ -989,7 +998,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         OwnedTx::PreAccepted(entry) => OwnedTx::Accepted(AcceptedEntry {
             record: entry.record,
             status: AcceptedStatus::Gap,
-            verified,
+            proof: AcceptedProof::for_foundation(verified, AcceptedStatus::Gap),
         }),
         OwnedTx::Accepted(_) => unreachable!("fixture starts preaccepted"),
     };
@@ -1046,7 +1055,7 @@ fn uak_expanded_footprint_is_canonical_bounded_and_role_aware() {
     )
     .expect("fixture chain evidence names one exact input");
     assert!(payload.is_chain_input(&input));
-    assert_eq!(
+    assert!(matches!(
         ResolvedPayload::for_foundation(
             &transaction,
             vec![dependency],
@@ -1056,7 +1065,7 @@ fn uak_expanded_footprint_is_canonical_bounded_and_role_aware() {
             vec![OutPoint::new(Byte32::new([4; 32]), 0)],
         ),
         Err(InputEvidenceError::NotAnInput)
-    );
+    ));
 
     let duplicate_input = TransactionBuilder::default()
         .input(CellInput::new(input.clone(), 0))
@@ -1223,23 +1232,21 @@ fn uak_independent_batch_shape_is_non_empty_unique_and_bounded_by_type() {
         Err(CandidateBatchError::Empty)
     );
 
-    let candidates = (0u64..9)
-        .map(|nonce| {
-            IndependentCandidate::new(
-                RawTxHash(tx(300 + nonce).hash()),
-                EntryVersion(nonce as u128 + 1),
-                AcceptedStatus::Pending,
-            )
-        })
-        .collect();
+    let (authority, hashes) = independent_fixture(1);
+    let hash = hashes.first().expect("fixture has one candidate").clone();
+    let candidate = authority
+        .independent_candidate_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            AcceptedStatus::Pending,
+        )
+        .expect("fixture candidate has current final evidence");
+    let candidates = (0..9).map(|_| candidate.clone()).collect();
     assert_eq!(
         SettlementBatch::new(candidates),
         Err(CandidateBatchError::TooLarge { limit: 8 })
     );
 
-    let hash = RawTxHash(tx(310).hash());
-    let candidate =
-        IndependentCandidate::new(hash.clone(), EntryVersion(1), AcceptedStatus::Pending);
     assert_eq!(
         SettlementBatch::new(vec![candidate.clone(), candidate]),
         Err(CandidateBatchError::Duplicate(hash))
@@ -3206,24 +3213,6 @@ fn uak_accepted_owner_cannot_bypass_membership_removal() {
 }
 
 #[test]
-fn uak_membership_rejects_stale_verified_chain_evidence() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let candidate = verify_remote_transaction(&mut authority, tx(66), 66, Vec::new());
-    authority.force_chain_epoch(ChainEpoch(1));
-    let before = authority.normalized_snapshot();
-    let version = owner_version(&authority, &candidate);
-
-    assert_eq!(
-        authority
-            .plan_accept_for_foundation(&candidate, version, AcceptedStatus::Pending)
-            .err(),
-        Some(PlanError::Stale(StalePlan::ChainEpoch))
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-    assert_resource_reference(&authority);
-}
-
-#[test]
 fn uak_resource_limit_failure_preserves_every_observable_fact() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     for nonce in [8, 9] {
@@ -3450,7 +3439,6 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
         hash: settlement.token.hash.clone(),
         version: settlement.token.version,
         lease: settlement.token.lease,
-        chain_epoch: settlement.token.chain_epoch,
     };
     apply_without_work(
         authority
@@ -4047,51 +4035,8 @@ fn uak_continuation_yield_returns_one_queued_owner() {
 }
 
 #[test]
-fn uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch() {
+fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 15, 34);
-    let version = owner_version(&authority, &hash);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            version,
-            WorkPermit::ResolveThenVerify(VerifyCapability::Any),
-        )
-        .expect("continuous checkout plans")
-        .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
-        panic!("continuous permit returns continuous resolve work");
-    };
-    let payload = resolved_payload(resolve.transaction());
-    let (verify, _) = continue_fixture_verify(resolve, payload);
-    let settlement = verify.internal_failure();
-    let forged_epoch = ComputeSettlement {
-        token: SettlementToken {
-            hash: settlement.token.hash.clone(),
-            version: settlement.token.version,
-            lease: settlement.token.lease,
-            chain_epoch: settlement.token.chain_epoch,
-        },
-        next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
-    };
-    authority.force_chain_epoch(ChainEpoch(1));
-    let before = authority.normalized_snapshot();
-    let stale_epoch = authority
-        .apply_settlement(forged_epoch)
-        .expect_err("a forged chain epoch is stale");
-    assert_eq!(
-        stale_epoch.error(),
-        &PlanError::Stale(StalePlan::ChainEpoch)
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-    authority.force_chain_epoch(ChainEpoch(0));
-    apply_without_work(
-        authority
-            .apply_settlement(settlement)
-            .expect("the genuine lease remains available after the forged stale receipt"),
-    );
-
     let second_hash = admit_remote(&mut authority, 16, 35);
     let version = owner_version(&authority, &second_hash);
     let second_checkout = authority
@@ -4112,12 +4057,12 @@ fn uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch() {
     let settlement = verify
         .verified(accepted_resident_bytes, 0)
         .expect("fixture verification metrics are valid");
+    authority.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::new([16; 32])));
     let forged = ComputeSettlement {
         token: SettlementToken {
             hash: settlement.token.hash.clone(),
             version: settlement.token.version,
             lease: ComputeLeaseId(u128::MAX),
-            chain_epoch: settlement.token.chain_epoch,
         },
         next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
     };
@@ -4419,7 +4364,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
             .plan_admission(proposal_admission)
             .expect("proposal admission plans"),
     );
-    let recovery_admission = ValidatedAdmission::recovery(tx(612), ChainEpoch(1))
+    let recovery_admission = ValidatedAdmission::recovery(tx(612), PoolGeneration(1))
         .expect("fixture recovery admission is valid");
     let recovery = recovery_admission.identity.raw.clone();
     apply_without_work(
@@ -4595,7 +4540,7 @@ fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
     const COMPUTE_BYTES: usize = 256;
     let proposal = ValidatedAdmission::proposal(tx(613), ProposalContextId(1))
         .expect("fixture proposal admission is valid");
-    let recovery = ValidatedAdmission::recovery(tx(614), ChainEpoch(0))
+    let recovery = ValidatedAdmission::recovery(tx(614), PoolGeneration(0))
         .expect("fixture recovery admission is valid");
     let remote = ValidatedAdmission::remote(tx(615), PeerIndex::from(66))
         .expect("fixture remote admission is valid");
