@@ -1,12 +1,12 @@
-use super::resources::{ChargeRecord, ResourceVector};
+use super::resources::{AcceptedCost, AcceptedResources, ChargeRecord, ResourceVector};
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::TransactionView,
+    core::{Capacity, TransactionView},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use std::sync::Arc;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct RawTxHash(pub(super) Byte32);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -112,15 +112,135 @@ pub(super) enum DependencyKey {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ExpandedFootprint {
+    inputs: Vec<OutPoint>,
+    dependencies: Vec<OutPoint>,
+    header_dependencies: Vec<Byte32>,
+    edge_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FootprintError {
+    DuplicateInput,
+    TooManyEdges,
+    Arithmetic,
+}
+
+impl ExpandedFootprint {
+    pub(super) fn from_transaction(
+        tx: &TransactionView,
+        mut expanded_dependencies: Vec<OutPoint>,
+        max_edges: usize,
+    ) -> Result<Self, FootprintError> {
+        let mut inputs = tx.input_pts_iter().collect::<Vec<_>>();
+        let input_count = inputs.len();
+        inputs.sort_unstable();
+        inputs.dedup();
+        if inputs.len() != input_count {
+            return Err(FootprintError::DuplicateInput);
+        }
+
+        expanded_dependencies.extend(
+            tx.cell_deps()
+                .into_iter()
+                .map(|dependency| dependency.out_point()),
+        );
+        expanded_dependencies.sort_unstable();
+        expanded_dependencies.dedup();
+        expanded_dependencies.retain(|dependency| inputs.binary_search(dependency).is_err());
+        let mut header_dependencies = tx.header_deps().into_iter().collect::<Vec<_>>();
+        header_dependencies.sort_unstable();
+        header_dependencies.dedup();
+        let edge_count = inputs
+            .len()
+            .checked_add(expanded_dependencies.len())
+            .and_then(|count| count.checked_add(header_dependencies.len()))
+            .ok_or(FootprintError::Arithmetic)?;
+        if edge_count > max_edges {
+            return Err(FootprintError::TooManyEdges);
+        }
+        Ok(Self {
+            inputs,
+            dependencies: expanded_dependencies,
+            header_dependencies,
+            edge_count,
+        })
+    }
+
+    pub(super) fn inputs(&self) -> &[OutPoint] {
+        &self.inputs
+    }
+
+    pub(super) fn dependencies(&self) -> &[OutPoint] {
+        &self.dependencies
+    }
+
+    pub(super) fn header_dependencies(&self) -> &[Byte32] {
+        &self.header_dependencies
+    }
+
+    pub(super) fn edge_count(&self) -> usize {
+        self.edge_count
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct CandidateMetrics {
+    pub(super) fee: Capacity,
+    pub(super) cost: AcceptedCost,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ResolvedPayload {
+    pub(super) footprint: ExpandedFootprint,
+    pub(super) metrics: CandidateMetrics,
+    chain_inputs: Vec<OutPoint>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InputEvidenceError {
+    NotAnInput,
+}
+
+impl ResolvedPayload {
+    /// Captures positive chain-input evidence from the same snapshot that
+    /// produced `footprint`. Pool-produced inputs are intentionally absent.
+    pub(super) fn new(
+        footprint: ExpandedFootprint,
+        metrics: CandidateMetrics,
+        mut chain_inputs: Vec<OutPoint>,
+    ) -> Result<Self, InputEvidenceError> {
+        chain_inputs.sort_unstable();
+        chain_inputs.dedup();
+        if chain_inputs
+            .iter()
+            .any(|input| footprint.inputs.binary_search(input).is_err())
+        {
+            return Err(InputEvidenceError::NotAnInput);
+        }
+        Ok(Self {
+            footprint,
+            metrics,
+            chain_inputs,
+        })
+    }
+
+    pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
+        self.chain_inputs.binary_search(input).is_ok()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedFacts {
     pub(super) chain_epoch: ChainEpoch,
-    pub(super) dependency_count: usize,
+    pub(super) payload: Arc<ResolvedPayload>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct VerifiedFacts {
     pub(super) witness: WitnessTxHash,
     pub(super) chain_epoch: ChainEpoch,
+    pub(super) payload: Arc<ResolvedPayload>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,7 +320,7 @@ pub(super) enum PreAcceptedPhase {
     Computed(ComputedOutcome),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum AcceptedStatus {
     Pending,
     Gap,
@@ -216,25 +336,45 @@ pub(super) struct TxRecord {
     pub(super) class: AdmissionClass,
     pub(super) version: EntryVersion,
     pub(super) arrival: Arrival,
-    pub(super) charge: ResourceVector,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct PreAcceptedEntry {
     pub(super) record: TxRecord,
     pub(super) phase: PreAcceptedPhase,
+    pub(super) charge: ResourceVector,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct AcceptedEntry {
     pub(super) record: TxRecord,
     pub(super) status: AcceptedStatus,
+    pub(super) verified: VerifiedFacts,
 }
 
 #[derive(Clone, Debug)]
 pub(super) enum OwnedTx {
     PreAccepted(PreAcceptedEntry),
     Accepted(AcceptedEntry),
+}
+
+impl PreAcceptedEntry {
+    pub(super) fn charge_record(&self) -> ChargeRecord {
+        ChargeRecord::PreAccepted {
+            resources: self.charge,
+            // A trust/context promotion must never erase the peer-origin
+            // DoS charge. Accepted membership deliberately changes to a
+            // distinct global pool charge instead of hand-clearing peer
+            // counters.
+            peer: self.record.ingress.peer(),
+        }
+    }
+}
+
+impl AcceptedEntry {
+    pub(super) fn charge_record(&self) -> ChargeRecord {
+        ChargeRecord::Accepted(AcceptedResources::one(self.verified.payload.metrics.cost))
+    }
 }
 
 impl OwnedTx {
@@ -246,12 +386,16 @@ impl OwnedTx {
     }
 
     pub(super) fn charge_record(&self) -> ChargeRecord {
-        ChargeRecord {
-            resources: self.record().charge,
-            // A trust/context promotion must never erase the peer-origin DoS
-            // charge. Ingress is immutable; AdmissionClass is intentionally
-            // allowed to change while the same owner continues computing.
-            peer: self.record().ingress.peer(),
+        match self {
+            Self::PreAccepted(entry) => entry.charge_record(),
+            Self::Accepted(entry) => entry.charge_record(),
+        }
+    }
+
+    pub(super) fn preaccepted_charge(&self) -> Option<ResourceVector> {
+        match self {
+            Self::PreAccepted(entry) => Some(entry.charge),
+            Self::Accepted(_) => None,
         }
     }
 }

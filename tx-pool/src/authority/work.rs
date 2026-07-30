@@ -1,7 +1,7 @@
 use super::state::{
-    ChainEpoch, ComputeLeaseId, ComputedOutcome, EntryVersion, ObservedDependencies,
-    PreAcceptedPhase, QueuedWork, RawTxHash, RejectionKind, ResolvedFacts, TxIdentity,
-    VerifiedFacts, WaitCondition, WorkPermit,
+    ChainEpoch, ComputeLeaseId, ComputedOutcome, EntryVersion, ObservedDependencies, QueuedWork,
+    RawTxHash, RejectionKind, ResolvedFacts, ResolvedPayload, TxIdentity, VerifiedFacts,
+    WaitCondition, WorkPermit,
 };
 use ckb_types::core::TransactionView;
 use std::sync::Arc;
@@ -49,6 +49,11 @@ pub(super) enum CheckedOutWork {
     Verify(VerifyWork),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WorkPermitMismatch {
+    Incompatible,
+}
+
 #[derive(Debug)]
 pub(super) enum SettlementNext {
     QueuedVerify(ResolvedFacts),
@@ -63,10 +68,11 @@ pub(super) struct ComputeSettlement {
     pub(super) next: SettlementNext,
 }
 
-fn verified(identity: &TxIdentity, epoch: ChainEpoch) -> ComputedOutcome {
+fn verified(identity: &TxIdentity, resolved: ResolvedFacts) -> ComputedOutcome {
     ComputedOutcome::Verified(VerifiedFacts {
         witness: identity.witness.clone(),
-        chain_epoch: epoch,
+        chain_epoch: resolved.chain_epoch,
+        payload: resolved.payload,
     })
 }
 
@@ -82,10 +88,10 @@ impl ResolveWork {
         }
     }
 
-    pub(super) fn yield_verify(self, dependency_count: usize) -> ComputeSettlement {
+    pub(super) fn yield_verify(self, payload: ResolvedPayload) -> ComputeSettlement {
         let resolved = ResolvedFacts {
             chain_epoch: self.token.chain_epoch,
-            dependency_count,
+            payload: Arc::new(payload),
         };
         ComputeSettlement {
             token: self.token,
@@ -102,6 +108,10 @@ impl ResolveWork {
 }
 
 impl ContinuousResolveWork {
+    pub(super) fn transaction(&self) -> &TransactionView {
+        &self.tx
+    }
+
     pub(super) fn missing(self, dependencies: ObservedDependencies) -> ComputeSettlement {
         ComputeSettlement {
             token: self.token,
@@ -109,10 +119,10 @@ impl ContinuousResolveWork {
         }
     }
 
-    pub(super) fn into_verify(self, dependency_count: usize) -> ContinuousVerifyWork {
+    pub(super) fn into_verify(self, payload: ResolvedPayload) -> ContinuousVerifyWork {
         let resolved = ResolvedFacts {
             chain_epoch: self.token.chain_epoch,
-            dependency_count,
+            payload: Arc::new(payload),
         };
         ContinuousVerifyWork {
             token: self.token,
@@ -132,9 +142,8 @@ impl ContinuousResolveWork {
 impl VerifyWork {
     pub(super) fn verified(self) -> ComputeSettlement {
         let identity = TxIdentity::from_transaction(&self.tx);
-        let epoch = self.resolved.chain_epoch;
         ComputeSettlement {
-            next: SettlementNext::Computed(verified(&identity, epoch)),
+            next: SettlementNext::Computed(verified(&identity, self.resolved)),
             token: self.token,
         }
     }
@@ -157,9 +166,8 @@ impl VerifyWork {
 impl ContinuousVerifyWork {
     pub(super) fn verified(self) -> ComputeSettlement {
         let identity = TxIdentity::from_transaction(&self.tx);
-        let epoch = self.resolved.chain_epoch;
         ComputeSettlement {
-            next: SettlementNext::Computed(verified(&identity, epoch)),
+            next: SettlementNext::Computed(verified(&identity, self.resolved)),
             token: self.token,
         }
     }
@@ -184,7 +192,7 @@ impl CheckedOutWork {
         token: LeaseToken,
         tx: Arc<TransactionView>,
         queued: QueuedWork,
-    ) -> Result<Self, PreAcceptedPhase> {
+    ) -> Result<Self, WorkPermitMismatch> {
         match (token.permit, queued) {
             (WorkPermit::ResolveOnly, QueuedWork::Resolve) => {
                 Ok(Self::Resolve(ResolveWork { token, tx }))
@@ -199,7 +207,7 @@ impl CheckedOutWork {
                     resolved,
                 }))
             }
-            (_, queued) => Err(PreAcceptedPhase::Queued(queued)),
+            _ => Err(WorkPermitMismatch::Incompatible),
         }
     }
 }

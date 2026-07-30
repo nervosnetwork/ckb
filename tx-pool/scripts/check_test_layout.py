@@ -83,7 +83,11 @@ def is_test_source(path: Path, roots: tuple[Path, ...], files: set[Path]) -> boo
 def expected_module_target(source: Path, module: str, module_path: str | None) -> Path:
     if module_path is not None:
         return (source.parent / module_path).resolve()
-    base = source.parent if source.name == "mod.rs" else source.parent / source.stem
+    base = (
+        source.parent
+        if source.name in {"lib.rs", "main.rs", "mod.rs"}
+        else source.parent / source.stem
+    )
     direct = base / f"{module}.rs"
     nested = base / module / "mod.rs"
     if direct.exists():

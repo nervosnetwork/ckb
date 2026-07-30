@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "allowed_test_roots": [
+    "tx-pool/src/authority",
     "tx-pool/src/tests",
     "tx-pool/src/block_assembler/tests",
     "tx-pool/src/component/tests",
@@ -9,6 +10,7 @@
   ],
   "allowed_test_files": [],
   "module_wiring": [
+    {"file": "tx-pool/src/lib.rs", "module": "authority"},
     {"file": "tx-pool/src/benchmark.rs", "module": "debug_tests", "path": "tests/benchmark_debug.rs"},
     {"file": "tx-pool/src/block_assembler/candidate_uncles.rs", "module": "tests", "path": "tests/candidate_uncles.rs"},
     {"file": "tx-pool/src/block_assembler/notify.rs", "module": "tests", "path": "tests/notify.rs"},
@@ -53,7 +55,7 @@
     "tx-pool/src/component/pre_pool/runtime.rs": 1,
     "tx-pool/src/component/recent_reject.rs": 1,
     "tx-pool/src/component/tx_selector.rs": 1,
-    "tx-pool/src/lib.rs": 1,
+    "tx-pool/src/lib.rs": 2,
     "tx-pool/src/persisted.rs": 1,
     "tx-pool/src/process/classify.rs": 3,
     "tx-pool/src/process/post_process.rs": 1,
