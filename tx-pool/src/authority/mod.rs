@@ -7,6 +7,7 @@
 
 mod plan;
 mod resources;
+mod scheduler;
 mod state;
 mod work;
 

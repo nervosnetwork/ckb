@@ -192,24 +192,77 @@ pub(super) struct CandidateMetrics {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedPayload {
+    identity: TxIdentity,
     pub(super) footprint: ExpandedFootprint,
-    pub(super) metrics: CandidateMetrics,
+    fee: Capacity,
+    serialized_bytes: usize,
+    resolved_resident_bytes: usize,
     chain_inputs: Vec<OutPoint>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum InputEvidenceError {
+    Footprint(FootprintError),
     NotAnInput,
+    ResidentBelowSerialized,
 }
 
 impl ResolvedPayload {
-    /// Captures positive chain-input evidence from the same snapshot that
-    /// produced `footprint`. Pool-produced inputs are intentionally absent.
-    pub(super) fn new(
-        footprint: ExpandedFootprint,
-        metrics: CandidateMetrics,
+    /// Constructs one resolution fact from the exact transaction. Positive
+    /// chain inputs and expanded dependencies cannot be paired with a second
+    /// transaction identity.
+    pub(super) fn from_resolution(
+        _seal: super::work::ResolutionSeal,
+        tx: &TransactionView,
+        expanded_dependencies: Vec<OutPoint>,
+        max_edges: usize,
+        fee: Capacity,
+        resolved_resident_bytes: usize,
+        chain_inputs: Vec<OutPoint>,
+    ) -> Result<Self, InputEvidenceError> {
+        Self::from_transaction_parts(
+            tx,
+            expanded_dependencies,
+            max_edges,
+            fee,
+            resolved_resident_bytes,
+            chain_inputs,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation(
+        tx: &TransactionView,
+        expanded_dependencies: Vec<OutPoint>,
+        max_edges: usize,
+        fee: Capacity,
+        resolved_resident_bytes: usize,
+        chain_inputs: Vec<OutPoint>,
+    ) -> Result<Self, InputEvidenceError> {
+        Self::from_transaction_parts(
+            tx,
+            expanded_dependencies,
+            max_edges,
+            fee,
+            resolved_resident_bytes,
+            chain_inputs,
+        )
+    }
+
+    fn from_transaction_parts(
+        tx: &TransactionView,
+        expanded_dependencies: Vec<OutPoint>,
+        max_edges: usize,
+        fee: Capacity,
+        resolved_resident_bytes: usize,
         mut chain_inputs: Vec<OutPoint>,
     ) -> Result<Self, InputEvidenceError> {
+        let footprint = ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
+            .map_err(InputEvidenceError::Footprint)?;
+        let serialized_bytes = tx.data().total_size();
+        if resolved_resident_bytes < serialized_bytes {
+            return Err(InputEvidenceError::ResidentBelowSerialized);
+        }
         chain_inputs.sort_unstable();
         chain_inputs.dedup();
         if chain_inputs
@@ -219,8 +272,11 @@ impl ResolvedPayload {
             return Err(InputEvidenceError::NotAnInput);
         }
         Ok(Self {
+            identity: TxIdentity::from_transaction(tx),
             footprint,
-            metrics,
+            fee,
+            serialized_bytes,
+            resolved_resident_bytes,
             chain_inputs,
         })
     }
@@ -228,26 +284,167 @@ impl ResolvedPayload {
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.chain_inputs.binary_search(input).is_ok()
     }
+
+    pub(super) fn identity(&self) -> &TxIdentity {
+        &self.identity
+    }
+
+    pub(super) fn fee(&self) -> Capacity {
+        self.fee
+    }
+
+    pub(super) fn serialized_bytes(&self) -> usize {
+        self.serialized_bytes
+    }
+
+    pub(super) fn resolved_resident_bytes(&self) -> usize {
+        self.resolved_resident_bytes
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedFacts {
-    pub(super) chain_epoch: ChainEpoch,
-    pub(super) payload: Arc<ResolvedPayload>,
+    chain_epoch: ChainEpoch,
+    payload: Arc<ResolvedPayload>,
+    verify_class: VerifyCycleClass,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct VerifiedFacts {
-    pub(super) witness: WitnessTxHash,
-    pub(super) chain_epoch: ChainEpoch,
-    pub(super) payload: Arc<ResolvedPayload>,
+    witness: WitnessTxHash,
+    chain_epoch: ChainEpoch,
+    payload: Arc<ResolvedPayload>,
+    metrics: CandidateMetrics,
+}
+
+impl ResolvedFacts {
+    pub(super) fn from_resolution(
+        _seal: super::work::ResolutionSeal,
+        chain_epoch: ChainEpoch,
+        payload: Arc<ResolvedPayload>,
+        verify_class: VerifyCycleClass,
+    ) -> Self {
+        Self {
+            chain_epoch,
+            payload,
+            verify_class,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation(
+        chain_epoch: ChainEpoch,
+        payload: Arc<ResolvedPayload>,
+        verify_class: VerifyCycleClass,
+    ) -> Self {
+        Self {
+            chain_epoch,
+            payload,
+            verify_class,
+        }
+    }
+
+    pub(super) fn chain_epoch(&self) -> ChainEpoch {
+        self.chain_epoch
+    }
+
+    pub(super) fn payload(&self) -> &ResolvedPayload {
+        &self.payload
+    }
+
+    pub(super) fn verify_class(&self) -> VerifyCycleClass {
+        self.verify_class
+    }
+
+    pub(super) fn into_verification_parts(
+        self,
+        _seal: super::work::VerificationSeal,
+    ) -> (ChainEpoch, Arc<ResolvedPayload>, VerifyCycleClass) {
+        (self.chain_epoch, self.payload, self.verify_class)
+    }
+}
+
+impl VerifiedFacts {
+    pub(super) fn from_verification(
+        _seal: super::work::VerificationSeal,
+        witness: WitnessTxHash,
+        chain_epoch: ChainEpoch,
+        payload: Arc<ResolvedPayload>,
+        metrics: CandidateMetrics,
+    ) -> Self {
+        Self {
+            witness,
+            chain_epoch,
+            payload,
+            metrics,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation(
+        witness: WitnessTxHash,
+        chain_epoch: ChainEpoch,
+        payload: Arc<ResolvedPayload>,
+        metrics: CandidateMetrics,
+    ) -> Self {
+        Self {
+            witness,
+            chain_epoch,
+            payload,
+            metrics,
+        }
+    }
+
+    pub(super) fn witness(&self) -> &WitnessTxHash {
+        &self.witness
+    }
+
+    pub(super) fn chain_epoch(&self) -> ChainEpoch {
+        self.chain_epoch
+    }
+
+    pub(super) fn payload(&self) -> &ResolvedPayload {
+        &self.payload
+    }
+
+    pub(super) fn metrics(&self) -> &CandidateMetrics {
+        &self.metrics
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum VerifyCycleClass {
+    #[default]
+    Small,
+    Large,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum VerifyCapability {
+    Any,
+    SmallCycleOnly,
+}
+
+impl VerifyCapability {
+    pub(super) fn permits(self, class: VerifyCycleClass) -> bool {
+        match self {
+            Self::Any => true,
+            Self::SmallCycleOnly => class == VerifyCycleClass::Small,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WorkPermit {
     ResolveOnly,
-    VerifyOnly,
-    ResolveThenVerify,
+    VerifyOnly(VerifyCapability),
+    ResolveThenVerify(VerifyCapability),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ComputeGrant {
+    pub(super) max_resident_bytes: usize,
+    pub(super) max_edges: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -260,6 +457,7 @@ pub(super) enum QueuedWork {
 pub(super) struct ActiveWork {
     pub(super) lease: ComputeLeaseId,
     pub(super) permit: WorkPermit,
+    pub(super) grant: ComputeGrant,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -342,6 +540,7 @@ pub(super) struct TxRecord {
 pub(super) struct PreAcceptedEntry {
     pub(super) record: TxRecord,
     pub(super) phase: PreAcceptedPhase,
+    pub(super) raw_charge: ResourceVector,
     pub(super) charge: ResourceVector,
 }
 
@@ -373,7 +572,7 @@ impl PreAcceptedEntry {
 
 impl AcceptedEntry {
     pub(super) fn charge_record(&self) -> ChargeRecord {
-        ChargeRecord::Accepted(AcceptedResources::one(self.verified.payload.metrics.cost))
+        ChargeRecord::Accepted(AcceptedResources::one(self.verified.metrics().cost))
     }
 }
 
@@ -414,48 +613,43 @@ pub(super) struct ValidatedAdmission {
 pub(super) enum AdmissionValidationError {
     EmptyTransaction,
     AttributionMismatch,
+    ResourceArithmetic,
 }
 
 impl ValidatedAdmission {
     pub(super) fn remote(
         tx: TransactionView,
         peer: PeerIndex,
-        edges: usize,
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
             IngressAttribution::Peer(peer),
             PayloadBlame::Peer(peer),
             AdmissionClass::Remote(RemoteLease { peer }),
-            edges,
         )
     }
 
     pub(super) fn proposal(
         tx: TransactionView,
         context: ProposalContextId,
-        edges: usize,
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
             IngressAttribution::Trusted,
             PayloadBlame::None,
             AdmissionClass::Proposal(ProposalLease { context }),
-            edges,
         )
     }
 
     pub(super) fn recovery(
         tx: TransactionView,
         epoch: ChainEpoch,
-        edges: usize,
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
             IngressAttribution::Trusted,
             PayloadBlame::None,
             AdmissionClass::Recovery(RecoveryLease { epoch }),
-            edges,
         )
     }
 
@@ -464,7 +658,6 @@ impl ValidatedAdmission {
         ingress: IngressAttribution,
         blame: PayloadBlame,
         class: AdmissionClass,
-        edges: usize,
     ) -> Result<Self, AdmissionValidationError> {
         let bytes = tx.data().total_size();
         if bytes == 0 {
@@ -482,6 +675,12 @@ impl ValidatedAdmission {
         if source_peer != ingress_peer || source_peer != blame_peer {
             return Err(AdmissionValidationError::AttributionMismatch);
         }
+        let edges = tx
+            .inputs()
+            .len()
+            .checked_add(tx.cell_deps().len())
+            .and_then(|count| count.checked_add(tx.header_deps().len()))
+            .ok_or(AdmissionValidationError::ResourceArithmetic)?;
         let charge = ResourceVector::new(1, bytes, edges, 0);
         Ok(Self {
             identity: TxIdentity::from_transaction(&tx),

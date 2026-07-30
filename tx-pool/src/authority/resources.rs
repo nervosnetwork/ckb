@@ -128,10 +128,92 @@ impl AcceptedResources {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ResourceLimits {
-    pub(super) preaccepted: ResourceVector,
-    pub(super) remote: ResourceVector,
-    pub(super) per_peer: ResourceVector,
-    pub(super) accepted: AcceptedResources,
+    preaccepted: ResourceVector,
+    remote: ResourceVector,
+    per_peer: ResourceVector,
+    accepted: AcceptedResources,
+    compute: ComputeLimits,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResourceConfigError {
+    LimitHierarchy,
+    IndivisibleComputeGrant,
+}
+
+impl ResourceLimits {
+    pub(super) fn new(
+        preaccepted: ResourceVector,
+        remote: ResourceVector,
+        per_peer: ResourceVector,
+        accepted: AcceptedResources,
+        compute: ComputeLimits,
+    ) -> Result<Self, ResourceConfigError> {
+        if !remote.fits(preaccepted) || !per_peer.fits(remote) {
+            return Err(ResourceConfigError::LimitHierarchy);
+        }
+        let largest_grant = ResourceVector::new(
+            1,
+            compute
+                .resolved_resident_bytes
+                .max(compute.accepted_resident_bytes),
+            compute.expanded_edges,
+            1,
+        );
+        if !largest_grant.fits(preaccepted)
+            || !largest_grant.fits(remote)
+            || !largest_grant.fits(per_peer)
+        {
+            return Err(ResourceConfigError::IndivisibleComputeGrant);
+        }
+        Ok(Self {
+            preaccepted,
+            remote,
+            per_peer,
+            accepted,
+            compute,
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_accepted_for_foundation(mut self, accepted: AcceptedResources) -> Self {
+        self.accepted = accepted;
+        self
+    }
+}
+
+/// Per-lease upper bounds reserved before attacker-shaped resolve/verify
+/// facts can become retained authority state.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ComputeLimits {
+    resolved_resident_bytes: usize,
+    accepted_resident_bytes: usize,
+    expanded_edges: usize,
+}
+
+impl ComputeLimits {
+    pub(super) const fn new(
+        resolved_resident_bytes: usize,
+        accepted_resident_bytes: usize,
+        expanded_edges: usize,
+    ) -> Self {
+        Self {
+            resolved_resident_bytes,
+            accepted_resident_bytes,
+            expanded_edges,
+        }
+    }
+
+    pub(super) fn reservation_for(self, permit: super::state::WorkPermit) -> (usize, usize) {
+        let resident_bytes = match permit {
+            super::state::WorkPermit::ResolveOnly => self.resolved_resident_bytes,
+            super::state::WorkPermit::VerifyOnly(_) => self.accepted_resident_bytes,
+            super::state::WorkPermit::ResolveThenVerify(_) => self
+                .resolved_resident_bytes
+                .max(self.accepted_resident_bytes),
+        };
+        (resident_bytes, self.expanded_edges)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -241,6 +323,10 @@ impl ResourceLedger {
 
     pub(super) fn accepted_fits(&self, projected: AcceptedResources) -> bool {
         projected.fits(self.limits.accepted)
+    }
+
+    pub(super) fn compute_limits(&self) -> ComputeLimits {
+        self.limits.compute
     }
 
     pub(super) fn snapshot(&self) -> ResourceSnapshot {

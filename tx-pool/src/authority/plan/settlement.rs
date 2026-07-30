@@ -8,14 +8,9 @@ use crate::authority::{
         IndependentCoupling, IndependentMembershipChange, IndependentMembershipOutcome,
         PreparedIndependentMembership, prepare_independent_membership,
     },
-    state::{
-        AcceptedEntry, AcceptedStatus, AdmissionClass, EntryVersion, OwnedTx, PreAcceptedPhase,
-        RawTxHash,
-    },
+    scheduler::{MAX_READY_BATCH, ReadyKey},
+    state::{AcceptedEntry, AcceptedStatus, EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash},
 };
-use std::cmp::Ordering;
-
-const MAX_INDEPENDENT_RUN: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct IndependentCandidate {
@@ -55,9 +50,9 @@ impl SettlementBatch {
         if candidates.is_empty() {
             return Err(CandidateBatchError::Empty);
         }
-        if candidates.len() > MAX_INDEPENDENT_RUN {
+        if candidates.len() > MAX_READY_BATCH {
             return Err(CandidateBatchError::TooLarge {
-                limit: MAX_INDEPENDENT_RUN,
+                limit: MAX_READY_BATCH,
             });
         }
         for (index, candidate) in candidates.iter().enumerate() {
@@ -87,42 +82,10 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CanonicalReadyKey {
-    source_class: u8,
-    fee: u64,
-    serialized_bytes: u64,
-    arrival: super::Arrival,
-    hash: RawTxHash,
-    version: EntryVersion,
-}
-
-impl Ord for CanonicalReadyKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Both factors originate as u64, so either cross-product is exact in
-        // u128. A larger key is the stronger Ready owner.
-        let left_rate = u128::from(self.fee) * u128::from(other.serialized_bytes);
-        let right_rate = u128::from(other.fee) * u128::from(self.serialized_bytes);
-        self.source_class
-            .cmp(&other.source_class)
-            .then_with(|| left_rate.cmp(&right_rate))
-            .then_with(|| self.fee.cmp(&other.fee))
-            .then_with(|| other.arrival.cmp(&self.arrival))
-            .then_with(|| other.hash.cmp(&self.hash))
-            .then_with(|| self.version.cmp(&other.version))
-    }
-}
-
-impl PartialOrd for CanonicalReadyKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 struct CandidateFact {
     request: IndependentCandidate,
     before: crate::authority::state::PreAcceptedEntry,
-    rank: CanonicalReadyKey,
+    rank: ReadyKey,
 }
 
 impl TxPoolAuthority {
@@ -151,30 +114,13 @@ impl TxPoolAuthority {
             else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
-            if verified.chain_epoch != self.chain_epoch {
+            if verified.chain_epoch() != self.chain_epoch {
                 return Err(PlanError::Stale(StalePlan::ChainEpoch));
             }
-            let serialized_bytes = u64::try_from(verified.payload.metrics.cost.serialized_bytes)
-                .map_err(|_| PlanError::Fault(AuthorityFault::ResourceProjection))?;
-            if serialized_bytes == 0 {
-                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
-            }
-            let source_class = match before.record.class {
-                AdmissionClass::Remote(_) => 0,
-                AdmissionClass::Proposal(_) => 1,
-                AdmissionClass::Recovery(_) => 2,
-            };
             facts.push(CandidateFact {
                 request: request.clone(),
                 before: before.clone(),
-                rank: CanonicalReadyKey {
-                    source_class,
-                    fee: verified.payload.metrics.fee.as_u64(),
-                    serialized_bytes,
-                    arrival: before.record.arrival,
-                    hash: request.key.clone(),
-                    version: request.expected,
-                },
+                rank: ReadyKey::from_computed(before)?,
             });
         }
         facts.sort_unstable_by(|left, right| right.rank.cmp(&left.rank));
@@ -244,12 +190,18 @@ impl TxPoolAuthority {
             key: change.key,
             after: OwnedTx::Accepted(change.after),
         }));
+        let scheduler = self.scheduler.plan_batch(
+            updates
+                .iter()
+                .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+        )?;
         Ok(SettlementPlan::IndependentRun(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Independent(IndependentDelta {
                 updates,
                 resource,
                 projection,
+                scheduler,
                 clocks,
                 committed,
             }),
