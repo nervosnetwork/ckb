@@ -58,6 +58,8 @@
 //! unexpected unwind from being followed by persistence of an unaudited
 //! generation; it does not catch, repair, or restart state.
 
+#[cfg(test)]
+mod authority;
 #[cfg(feature = "internal")]
 #[allow(
     clippy::arithmetic_side_effects,
