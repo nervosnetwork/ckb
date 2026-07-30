@@ -252,7 +252,9 @@ fn prepare_resources(
             | ResourceError::RemoteLimit
             | ResourceError::PeerLimit(_)
             | ResourceError::ExistingChargeMismatch
-            | ResourceError::DuplicateChange,
+            | ResourceError::DuplicateChange
+            | ResourceError::ComputeEnvelope
+            | ResourceError::AttributionMismatch,
         ) => Err(PlanError::Fault(AuthorityFault::ResourceProjection)),
     }
 }

@@ -11,8 +11,8 @@ use super::effect::{
     EffectSettlement, EffectSnapshot,
 };
 use super::resources::{
-    ChargeRecord, ResourceBatchPlan, ResourceError, ResourceLedger, ResourceLimits, ResourcePlan,
-    ResourceSnapshot, ResourceVector,
+    ActiveWorkAvailability, ChargeRecord, ResourceBatchPlan, ResourceError, ResourceLedger,
+    ResourceLimits, ResourcePlan, ResourceSnapshot, ResourceVector,
 };
 use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
@@ -20,10 +20,10 @@ use super::scheduler::{
 };
 use super::state::{
     AcceptedEntry, AcceptedStatus, AdmissionBasis, AdmissionClass, ApplySequence, Arrival,
-    AuthorityClocks, ChainEpoch, ComputeGrant, ComputedOutcome, DependencyCut, DependencyKey,
-    DependencyOrigin, EntryVersion, IngressAttribution, KnownDependencies, OwnedTx, PayloadBlame,
-    PreAcceptedEntry, PreAcceptedPhase, ProposalId, QueuedWork, RawTxHash, RejectionKind,
-    TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
+    AuthorityClocks, ChainEpoch, ComputeAttribution, ComputeGrant, ComputedOutcome, DependencyCut,
+    DependencyKey, DependencyOrigin, EntryVersion, IngressAttribution, KnownDependencies, OwnedTx,
+    PayloadBlame, PreAcceptedEntry, PreAcceptedPhase, ProposalId, QueuedWork, RawTxHash,
+    RejectionKind, TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
 pub(in crate::authority) use membership::IndependentCoupling;
@@ -281,6 +281,7 @@ impl TxPoolAuthority {
                     && self.by_proposal.get(&owner.record().identity.proposal) == Some(hash)
                     && &owner.record().identity.raw == hash
             })
+            && self.resources.semantically_matches(&self.entries)
             && self.scheduler.semantically_matches(&self.entries)
             && self.dependencies.semantically_matches(&self.entries)
             && self
@@ -301,6 +302,8 @@ pub(super) enum Backpressure {
     RemoteResources,
     PeerResources,
     AcceptedResources,
+    ComputeResources,
+    ActiveWorkDrain,
     EffectCapacity,
     Allocation,
 }
@@ -337,6 +340,49 @@ pub(super) enum PlanError {
     EffectClosed,
 }
 
+/// A compute settlement that could not be committed still owns the exact
+/// lease capability. Callers may turn it into a deterministic cancellation,
+/// or discard it only after proving the reported error makes the lease stale.
+#[derive(Debug)]
+#[must_use = "a failed compute settlement still owns the active lease capability"]
+pub(super) struct ComputeSettlementFailure {
+    error: PlanError,
+    token: SettlementToken,
+}
+
+impl ComputeSettlementFailure {
+    pub(super) fn error(&self) -> &PlanError {
+        &self.error
+    }
+
+    pub(super) fn into_cancellation(self) -> ComputeSettlement {
+        ComputeSettlement {
+            token: self.token,
+            next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+        }
+    }
+}
+
+/// Effect settlement has the same linear handoff rule as compute: planning
+/// failure must return the publisher capability instead of silently leaving
+/// an active effect without its only completion.
+#[derive(Debug)]
+#[must_use = "a failed effect settlement still owns the active effect capability"]
+pub(super) struct EffectSettlementFailure {
+    error: PlanError,
+    settlement: EffectSettlement,
+}
+
+impl EffectSettlementFailure {
+    pub(super) fn error(&self) -> &PlanError {
+        &self.error
+    }
+
+    pub(super) fn into_settlement(self) -> EffectSettlement {
+        self.settlement
+    }
+}
+
 impl From<ResourceError> for PlanError {
     fn from(error: ResourceError) -> Self {
         match error {
@@ -344,10 +390,11 @@ impl From<ResourceError> for PlanError {
             ResourceError::RemoteLimit => Self::Backpressure(Backpressure::RemoteResources),
             ResourceError::PeerLimit(_) => Self::Backpressure(Backpressure::PeerResources),
             ResourceError::AcceptedLimit => Self::Backpressure(Backpressure::AcceptedResources),
+            ResourceError::ComputeEnvelope => Self::Backpressure(Backpressure::ComputeResources),
             ResourceError::Allocation => Self::Backpressure(Backpressure::Allocation),
-            ResourceError::Arithmetic | ResourceError::ExistingChargeMismatch => {
-                Self::Fault(AuthorityFault::ResourceProjection)
-            }
+            ResourceError::Arithmetic
+            | ResourceError::ExistingChargeMismatch
+            | ResourceError::AttributionMismatch => Self::Fault(AuthorityFault::ResourceProjection),
             ResourceError::DuplicateChange => Self::Fault(AuthorityFault::ResourceProjection),
         }
     }
@@ -520,6 +567,42 @@ struct CheckoutReservation {
     resources: ResourcePlan,
     grant: ComputeGrant,
     after_charge: ResourceVector,
+}
+
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing the move-only reservation would add a hot-path checkout allocation"
+)]
+enum CheckoutResource {
+    Reserved(CheckoutReservation),
+    SkipOwner,
+    Stop,
+}
+
+struct CheckoutSearch {
+    selected: Option<(CheckoutTicket, CheckoutReservation)>,
+    #[cfg(test)]
+    probes: usize,
+}
+
+struct DependencyLossKeys {
+    keys: Vec<DependencyKey>,
+    #[cfg(test)]
+    work: DependencyLossWork,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct DependencyLossWork {
+    pub(super) output_keys: usize,
+    pub(super) indexed_origin_keys: usize,
+}
+
+#[cfg(test)]
+impl DependencyLossWork {
+    pub(super) fn total(self) -> Option<usize> {
+        self.output_keys.checked_add(self.indexed_origin_keys)
+    }
 }
 
 struct MembershipDelta {
@@ -861,31 +944,78 @@ impl TxPoolAuthority {
         parents: impl IntoIterator<Item = &'entry OwnedTx>,
         sequence: ApplySequence,
     ) -> Result<DependencyControlDelta, PlanError> {
-        let mut keys = Vec::new();
-        for parent in parents {
-            let record = parent.record();
-            let output_count = record.tx.data().raw().outputs().len();
-            keys.try_reserve(output_count)
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-            keys.extend(record.tx.output_pts().into_iter().map(DependencyKey::Cell));
-            self.dependencies.extend_keys_for_origin(
-                &DependencyOrigin::Transaction(record.identity.raw.clone()),
-                &mut keys,
-            )?;
-        }
+        let loss = self.collect_dependency_loss_keys(parents)?;
         Ok(self
             .dependencies
             .plan_event(
-                keys,
+                loss.keys,
                 DependencyEvent::DefinitiveLoss(DependencyCut(sequence)),
             )?
             .unwrap_or_default())
+    }
+
+    fn collect_dependency_loss_keys<'entry>(
+        &self,
+        parents: impl IntoIterator<Item = &'entry OwnedTx>,
+    ) -> Result<DependencyLossKeys, PlanError> {
+        let mut keys = Vec::new();
+        #[cfg(test)]
+        let mut work = DependencyLossWork::default();
+        for parent in parents {
+            let record = parent.record();
+            let output_count = record.tx.data().raw().outputs().len();
+            let origin = DependencyOrigin::Transaction(record.identity.raw.clone());
+            let origin_keys = self.dependencies.keys_for_origin(&origin);
+            let origin_count = origin_keys.map_or(0, |keys| keys.len());
+            let additional = output_count
+                .checked_add(origin_count)
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+            keys.try_reserve(additional)
+                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+            keys.extend(record.tx.output_pts().into_iter().map(DependencyKey::Cell));
+            if let Some(origin_keys) = origin_keys {
+                keys.extend(origin_keys.iter().cloned());
+            }
+            #[cfg(test)]
+            {
+                work.output_keys = work
+                    .output_keys
+                    .checked_add(output_count)
+                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+                work.indexed_origin_keys = work
+                    .indexed_origin_keys
+                    .checked_add(origin_count)
+                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+            }
+        }
+        Ok(DependencyLossKeys {
+            keys,
+            #[cfg(test)]
+            work,
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn dependency_loss_work_for_foundation(
+        &self,
+        parents: &[RawTxHash],
+    ) -> Result<DependencyLossWork, PlanError> {
+        let parents = parents
+            .iter()
+            .map(|hash| {
+                self.entries
+                    .get(hash)
+                    .ok_or(PlanError::Stale(StalePlan::Missing))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self.collect_dependency_loss_keys(parents)?.work)
     }
 
     pub(super) fn plan_admission(
         &mut self,
         admission: ValidatedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        self.resources.validate_admission(admission.charge)?;
         let key = admission.identity.raw.clone();
         if let Some(existing) = self.entries.get(&key).cloned() {
             return self.plan_existing_admission(key, existing, admission);
@@ -1143,8 +1273,11 @@ impl TxPoolAuthority {
         if existing.record().version != expected {
             return Err(PlanError::Stale(StalePlan::Version));
         }
-        if !matches!(existing, OwnedTx::PreAccepted(_)) {
+        let OwnedTx::PreAccepted(preaccepted) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        if matches!(preaccepted.phase, PreAcceptedPhase::Computing(_)) {
+            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
         }
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -1169,6 +1302,7 @@ impl TxPoolAuthority {
                 dependency: dependency_control,
                 effect,
             },
+            None,
         )
     }
 
@@ -1208,18 +1342,32 @@ impl TxPoolAuthority {
             .map(Some)
     }
 
-    pub(super) fn plan_effect_settlement_for_foundation(
+    pub(super) fn apply_effect_settlement_for_foundation(
         &mut self,
         settlement: EffectSettlement,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let effect = self.effects.plan_settlement(settlement)?;
+    ) -> Result<CommittedDelta, EffectSettlementFailure> {
+        let effect = match self.effects.plan_settlement(&settlement) {
+            Ok(effect) => effect,
+            Err(error) => {
+                return Err(EffectSettlementFailure {
+                    error: error.into(),
+                    settlement,
+                });
+            }
+        };
         let sequence = self.clocks.next_sequence;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+        match self.prepare_effect_only(effect, sequence, CommittedHandoff::None) {
+            Ok(plan) => Ok(plan.apply()),
+            Err(error) => Err(EffectSettlementFailure { error, settlement }),
+        }
     }
 
     pub(super) fn plan_effect_close_for_foundation(
         &mut self,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        if self.resources.preaccepted().active_work != 0 {
+            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+        }
         let effect = self.effects.plan_close()?;
         let sequence = self.clocks.next_sequence;
         self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
@@ -1347,6 +1495,13 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
+    pub(super) fn dependency_maintenance_observation_for_foundation(
+        &self,
+    ) -> Result<Option<(DependencyKey, Option<RawTxHash>)>, PlanError> {
+        Ok(self.dependencies.next_maintenance_observation()?)
+    }
+
+    #[cfg(test)]
     pub(super) fn plan_checkout_for_foundation(
         &mut self,
         key: &RawTxHash,
@@ -1362,9 +1517,46 @@ impl TxPoolAuthority {
         &mut self,
         permit: super::state::WorkPermit,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let search = self.search_checkout(permit)?;
+        self.prepare_checkout_search(search, permit)
+    }
+
+    #[cfg(test)]
+    pub(super) fn plan_checkout_next_with_probe_count_for_foundation(
+        &mut self,
+        permit: super::state::WorkPermit,
+    ) -> Result<(Option<PreparedApply<'_>>, usize), PlanError> {
+        let search = self.search_checkout(permit)?;
+        let probes = search.probes;
+        let plan = self.prepare_checkout_search(search, permit)?;
+        Ok((plan, probes))
+    }
+
+    fn search_checkout(
+        &mut self,
+        permit: super::state::WorkPermit,
+    ) -> Result<CheckoutSearch, PlanError> {
+        match self
+            .resources
+            .active_work_availability(ComputeAttribution::Trusted)?
+        {
+            ActiveWorkAvailability::Available => {}
+            ActiveWorkAvailability::PreAcceptedExhausted => {
+                return Ok(CheckoutSearch {
+                    selected: None,
+                    #[cfg(test)]
+                    probes: 0,
+                });
+            }
+            ActiveWorkAvailability::RemoteExhausted | ActiveWorkAvailability::PeerExhausted(_) => {
+                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
+            }
+        }
         let owner_count = self.scheduler.owner_count(permit);
         let mut cursor = None;
         let mut selected = None;
+        #[cfg(test)]
+        let mut probes = 0usize;
         for _ in 0..owner_count {
             let ticket = match cursor {
                 Some(owner) => self.scheduler.next_queued_after(permit, Some(owner)),
@@ -1373,15 +1565,35 @@ impl TxPoolAuthority {
             let Some(ticket) = ticket else {
                 break;
             };
-            cursor = Some(ticket.owner());
-            if let Some(reservation) =
-                self.plan_checkout_resources(ticket.hash(), ticket.version(), permit)?
+            #[cfg(test)]
             {
-                selected = Some((ticket, reservation));
-                break;
+                probes = probes
+                    .checked_add(1)
+                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+            }
+            cursor = Some(ticket.owner());
+            match self.plan_checkout_resources(ticket.hash(), ticket.version(), permit)? {
+                CheckoutResource::Reserved(reservation) => {
+                    selected = Some((ticket, reservation));
+                    break;
+                }
+                CheckoutResource::SkipOwner => {}
+                CheckoutResource::Stop => break,
             }
         }
-        let Some((ticket, reservation)) = selected else {
+        Ok(CheckoutSearch {
+            selected,
+            #[cfg(test)]
+            probes,
+        })
+    }
+
+    fn prepare_checkout_search(
+        &mut self,
+        search: CheckoutSearch,
+        permit: super::state::WorkPermit,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let Some((ticket, reservation)) = search.selected else {
             return Ok(None);
         };
         let key = ticket.hash().clone();
@@ -1403,7 +1615,7 @@ impl TxPoolAuthority {
         key: &RawTxHash,
         expected: EntryVersion,
         permit: super::state::WorkPermit,
-    ) -> Result<Option<CheckoutReservation>, PlanError> {
+    ) -> Result<CheckoutResource, PlanError> {
         let existing = self
             .entries
             .get(key)
@@ -1414,28 +1626,40 @@ impl TxPoolAuthority {
         let OwnedTx::PreAccepted(preaccepted) = existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
+        let attribution = preaccepted.record.class.compute_attribution();
+        match self.resources.active_work_availability(attribution)? {
+            ActiveWorkAvailability::Available => {}
+            ActiveWorkAvailability::PeerExhausted(_) => {
+                return Ok(CheckoutResource::SkipOwner);
+            }
+            ActiveWorkAvailability::PreAcceptedExhausted
+            | ActiveWorkAvailability::RemoteExhausted => {
+                return Ok(CheckoutResource::Stop);
+            }
+        }
         let (grant, after_charge) = self.checkout_projection(preaccepted, permit)?;
         let expected_charge = existing.charge_record();
         let after_record = ChargeRecord::PreAccepted {
             resources: after_charge,
-            peer: preaccepted.record.ingress.peer(),
+            residency_peer: preaccepted.record.ingress.peer(),
+            compute_peer: attribution.peer(),
         };
-        match self
+        let resources = self
             .resources
             .plan_replace(key.clone(), Some(expected_charge), Some(after_record))
-        {
-            Ok(resources) => Ok(Some(CheckoutReservation {
-                resources,
-                grant,
-                after_charge,
-            })),
-            Err(
+            .map_err(|error| match error {
                 ResourceError::PreAcceptedLimit
                 | ResourceError::PeerLimit(_)
-                | ResourceError::RemoteLimit,
-            ) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+                | ResourceError::RemoteLimit => {
+                    PlanError::Fault(AuthorityFault::ResourceProjection)
+                }
+                error => error.into(),
+            })?;
+        Ok(CheckoutResource::Reserved(CheckoutReservation {
+            resources,
+            grant,
+            after_charge,
+        }))
     }
 
     fn checkout_projection(
@@ -1461,15 +1685,22 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Dependency));
         }
 
-        let (reserved_bytes, reserved_edges) =
+        let (max_resident_bytes, max_edges) =
             self.resources.compute_limits().reservation_for(permit);
         let grant = ComputeGrant {
-            max_resident_bytes: preaccepted.charge.bytes.max(reserved_bytes),
-            max_edges: preaccepted.charge.edges.max(reserved_edges),
+            max_resident_bytes,
+            max_edges,
         };
-        let mut charge = preaccepted.charge;
-        charge.bytes = grant.max_resident_bytes;
-        charge.edges = grant.max_edges;
+        if let QueuedWork::Verify(resolved) = queued
+            && (resolved.payload().resolved_resident_bytes() > grant.max_resident_bytes
+                || resolved.payload().footprint.edge_count() > grant.max_edges)
+        {
+            return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
+        }
+        let mut charge = preaccepted.retained_charge(
+            preaccepted.original_charge().bytes,
+            preaccepted.dependencies(),
+        );
         charge.active_work = charge
             .active_work
             .checked_add(1)
@@ -1538,12 +1769,14 @@ impl TxPoolAuthority {
         )
         .map_err(|_| PlanError::Stale(StalePlan::Phase))?;
         let active_dependencies = preaccepted.dependencies().clone();
+        let attribution = preaccepted.record.class.compute_attribution();
         let after = existing
             .with_foundation_phase(
                 PreAcceptedPhase::Computing(super::state::ActiveWork {
                     lease,
                     permit,
                     grant,
+                    attribution,
                     dependency_cut,
                     dependencies: active_dependencies,
                 }),
@@ -1569,11 +1802,30 @@ impl TxPoolAuthority {
         )
     }
 
-    pub(super) fn plan_settlement(
+    /// Consume a move-only compute completion in one atomic command. A
+    /// successful Plan is intentionally not exposed as a droppable value:
+    /// doing so could destroy the only lease completion while the authority
+    /// still retained `Computing`.
+    #[expect(
+        clippy::result_large_err,
+        reason = "the error must return the move-only lease token; boxing could allocate while reporting allocation backpressure, and the committed handoff already fixes the Result footprint"
+    )]
+    pub(super) fn apply_settlement(
         &mut self,
         settlement: ComputeSettlement,
-    ) -> Result<PreparedApply<'_>, PlanError> {
+    ) -> Result<CommittedDelta, ComputeSettlementFailure> {
         let ComputeSettlement { token, next } = settlement;
+        match self.prepare_settlement(&token, next) {
+            Ok(plan) => Ok(plan.apply()),
+            Err(error) => Err(ComputeSettlementFailure { error, token }),
+        }
+    }
+
+    fn prepare_settlement<'a>(
+        &'a mut self,
+        token: &SettlementToken,
+        next: SettlementNext,
+    ) -> Result<PreparedApply<'a>, PlanError> {
         let existing = self
             .entries
             .get(&token.hash)
@@ -1707,9 +1959,53 @@ impl TxPoolAuthority {
                 }
             }
         };
-        if preaccepted.charge.active_work != 1 || !retained_charge.fits(preaccepted.charge) {
+        let grant_ceiling = ResourceVector::new(
+            1,
+            active.grant.max_resident_bytes,
+            active.grant.max_edges,
+            0,
+        );
+        if preaccepted.charge.active_work != 1 || !retained_charge.fits(grant_ceiling) {
             return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
         }
+        let expected_charge = existing.charge_record();
+        let desired_charge = ChargeRecord::PreAccepted {
+            resources: retained_charge,
+            residency_peer: preaccepted.record.ingress.peer(),
+            compute_peer: None,
+        };
+        let (phase, retained_charge, resource) = match self.resources.plan_replace(
+            token.hash.clone(),
+            Some(expected_charge),
+            Some(desired_charge),
+        ) {
+            Ok(resource) => (phase, retained_charge, resource),
+            Err(
+                ResourceError::PreAcceptedLimit
+                | ResourceError::RemoteLimit
+                | ResourceError::PeerLimit(_),
+            ) => {
+                let fallback_charge = ChargeRecord::PreAccepted {
+                    resources: raw_charge,
+                    residency_peer: preaccepted.record.ingress.peer(),
+                    compute_peer: None,
+                };
+                let resource = self
+                    .resources
+                    .plan_replace(
+                        token.hash.clone(),
+                        Some(expected_charge),
+                        Some(fallback_charge),
+                    )
+                    .map_err(|_| PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                (
+                    PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied),
+                    raw_charge,
+                    resource,
+                )
+            }
+            Err(error) => return Err(error.into()),
+        };
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let after = existing
@@ -1720,15 +2016,16 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        self.prepare_entry_delta(
+        self.prepare_entry_delta_with_preplanned_resource(
             EntryTransition {
-                key: token.hash,
+                key: token.hash.clone(),
                 before: Some(existing.clone()),
                 after: Some(after),
             },
             clocks,
             sequence,
             None,
+            resource,
         )
     }
 
@@ -1745,6 +2042,25 @@ impl TxPoolAuthority {
             sequence,
             handoff,
             TransitionControls::default(),
+            None,
+        )
+    }
+
+    fn prepare_entry_delta_with_preplanned_resource(
+        &mut self,
+        transition: EntryTransition,
+        clocks: AuthorityClocks,
+        sequence: ApplySequence,
+        handoff: Option<WorkHandoff>,
+        resource: ResourcePlan,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.prepare_entry_delta_with_controls(
+            transition,
+            clocks,
+            sequence,
+            handoff,
+            TransitionControls::default(),
+            Some(resource),
         )
     }
 
@@ -1765,6 +2081,7 @@ impl TxPoolAuthority {
                 dependency: dependency_control,
                 effect: EffectDelta::default(),
             },
+            None,
         )
     }
 
@@ -1775,6 +2092,7 @@ impl TxPoolAuthority {
         sequence: ApplySequence,
         handoff: Option<WorkHandoff>,
         controls: TransitionControls,
+        explicit_resources: Option<ResourcePlan>,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
         let EntryTransition {
@@ -1782,7 +2100,7 @@ impl TxPoolAuthority {
             before: expected,
             after,
         } = transition;
-        let (work, checkout, preplanned_resources) = match handoff {
+        let (work, checkout, checkout_resources) = match handoff {
             Some(WorkHandoff {
                 work,
                 origin:
@@ -1797,6 +2115,13 @@ impl TxPoolAuthority {
                 origin: CheckoutOrigin::Foundation,
             }) => (Some(work), None, None),
             None => (None, None, None),
+        };
+        let preplanned_resources = match (checkout_resources, explicit_resources) {
+            (Some(_), Some(_)) => {
+                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
+            }
+            (Some(resources), None) | (None, Some(resources)) => Some(resources),
+            (None, None) => None,
         };
         let expected_charge = expected.as_ref().map(OwnedTx::charge_record);
         let after_charge = after.as_ref().map(OwnedTx::charge_record);

@@ -4,15 +4,17 @@ use super::super::{
         EffectLease, EffectLimits, EffectPolicy, EffectPublication,
     },
     plan::{
-        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, PlanError, PreparedApply,
-        StalePlan, TxPoolAuthority,
+        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, PlanError, StalePlan,
+        TxPoolAuthority,
     },
     state::{
         AcceptedStatus, ApplySequence, ComputedOutcome, OwnedTx, PreAcceptedPhase, RejectionKind,
-        ValidatedAdmission,
+        ValidatedAdmission, WorkPermit,
     },
 };
-use super::foundation::{limits, owner_version, tx, verify_remote_transaction};
+use super::foundation::{
+    FixtureCommit, limits, owner_version, take_resolve_work, tx, verify_remote_transaction,
+};
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
 use std::sync::Arc;
@@ -76,8 +78,8 @@ fn accepted_publication(
         .expect("fixture effect is bounded")
 }
 
-fn apply_without_handoff(plan: PreparedApply<'_>) -> CommittedDelta {
-    let committed = plan.apply();
+fn apply_without_handoff(commit: impl FixtureCommit) -> CommittedDelta {
+    let committed = commit.into_committed();
     assert!(committed.handoff_is_none());
     committed
 }
@@ -244,17 +246,28 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let unrelated_lease = checkout(&mut unrelated_authority);
     assert_eq!(unrelated_lease.sequence(), expected_sequence);
     let before_stale = authority.normalized_snapshot();
-    assert_eq!(
-        authority
-            .plan_effect_settlement_for_foundation(unrelated_lease.retain())
-            .err(),
-        Some(PlanError::Stale(StalePlan::EffectLease))
-    );
+    let stale = authority
+        .apply_effect_settlement_for_foundation(unrelated_lease.retain())
+        .expect_err("an unrelated effect lease is stale");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::EffectLease));
     assert_eq!(authority.normalized_snapshot(), before_stale);
+
+    let resumable_sequence = authority.clocks().next_sequence;
+    authority.force_next_sequence(ApplySequence(u128::MAX));
+    let before_exhaustion = authority.normalized_snapshot();
+    let exhausted = authority
+        .apply_effect_settlement_for_foundation(lease.retain())
+        .expect_err("counter exhaustion cannot consume the publisher capability");
+    assert_eq!(
+        exhausted.error(),
+        &PlanError::Fault(AuthorityFault::CounterExhausted)
+    );
+    assert_eq!(authority.normalized_snapshot(), before_exhaustion);
+    authority.force_next_sequence(resumable_sequence);
 
     let retained = apply_without_handoff(
         authority
-            .plan_effect_settlement_for_foundation(lease.retain())
+            .apply_effect_settlement_for_foundation(exhausted.into_settlement())
             .expect("the exact lease can be retained"),
     );
     assert_eq!(retained.retired_effect_len(), 0);
@@ -266,7 +279,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let lease = checkout(&mut authority);
     let published = apply_without_handoff(
         authority
-            .plan_effect_settlement_for_foundation(lease.published())
+            .apply_effect_settlement_for_foundation(lease.published())
             .expect("the exact lease publishes"),
     );
     assert_eq!(published.retired_effect_len(), 1);
@@ -282,7 +295,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let lease = checkout(&mut authority);
     let disposed = apply_without_handoff(
         authority
-            .plan_effect_settlement_for_foundation(lease.circuit_disposed())
+            .apply_effect_settlement_for_foundation(lease.circuit_disposed())
             .expect("the endpoint circuit can dispose committed detail"),
     );
     assert_eq!(disposed.retired_effect_len(), 1);
@@ -385,7 +398,7 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     assert!(third_sequence > second_sequence);
     let retained = apply_without_handoff(
         authority
-            .plan_effect_settlement_for_foundation(old_active.retain())
+            .apply_effect_settlement_for_foundation(old_active.retain())
             .expect("old reset lease settles"),
     );
     assert_eq!(retained.retired_effect_len(), 1);
@@ -404,7 +417,7 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     ));
     drop(apply_without_handoff(
         authority
-            .plan_effect_settlement_for_foundation(newest.published())
+            .apply_effect_settlement_for_foundation(newest.published())
             .expect("latest reset publishes"),
     ));
     assert!(authority.primary_projection_consistent());
@@ -450,10 +463,50 @@ fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
         let lease = checkout(&mut authority);
         drop(apply_without_handoff(
             authority
-                .plan_effect_settlement_for_foundation(lease.published())
+                .apply_effect_settlement_for_foundation(lease.published())
                 .expect("already committed effects drain after close"),
         ));
     }
     assert!(authority.effects_closed_and_drained_for_foundation());
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_effect_close_requires_every_compute_capability_to_settle() {
+    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
+    let admission = ValidatedAdmission::remote(tx(752), PeerIndex::from(76))
+        .expect("fixture admission is valid");
+    let hash = admission.identity.raw.clone();
+    drop(apply_without_handoff(
+        authority
+            .plan_admission(admission)
+            .expect("fixture admission plans"),
+    ));
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("compute checkout plans")
+            .apply(),
+    );
+
+    let before = authority.normalized_snapshot();
+    assert_eq!(
+        authority.plan_effect_close_for_foundation().err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+
+    drop(apply_without_handoff(
+        authority
+            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .expect("the unique live lease settles before close"),
+    ));
+    drop(apply_without_handoff(
+        authority
+            .plan_effect_close_for_foundation()
+            .expect("drained compute permits close"),
+    ));
+    assert!(authority.effect_observation_for_foundation().closed);
     assert!(authority.primary_projection_consistent());
 }

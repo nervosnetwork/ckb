@@ -127,7 +127,7 @@ pub(super) enum ResolutionReceiptError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum VerificationReceiptError {
     TransactionMismatch,
-    ResidentBelowSerialized,
+    ResidentBelowResolved,
 }
 
 #[derive(Debug)]
@@ -305,10 +305,10 @@ fn verified(
         ));
     }
     let serialized_bytes = resolved.payload().serialized_bytes();
-    if accepted_resident_bytes < serialized_bytes {
+    if accepted_resident_bytes < resolved.payload().resolved_resident_bytes() {
         return Err(ReceiptFailure::new(
             token,
-            VerificationReceiptError::ResidentBelowSerialized,
+            VerificationReceiptError::ResidentBelowResolved,
         ));
     }
     if accepted_resident_bytes > token.grant.max_resident_bytes

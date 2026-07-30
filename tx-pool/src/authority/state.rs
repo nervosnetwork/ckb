@@ -103,6 +103,30 @@ impl AdmissionClass {
             Self::Proposal(_) | Self::Recovery(_) => None,
         }
     }
+
+    pub(super) fn compute_attribution(self) -> ComputeAttribution {
+        match self {
+            Self::Remote(lease) => ComputeAttribution::Peer(lease.peer),
+            Self::Proposal(_) | Self::Recovery(_) => ComputeAttribution::Trusted,
+        }
+    }
+}
+
+/// Attribution for one transient compute capability. Retained transaction
+/// residency remains charged to immutable ingress independently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ComputeAttribution {
+    Trusted,
+    Peer(PeerIndex),
+}
+
+impl ComputeAttribution {
+    pub(super) fn peer(self) -> Option<PeerIndex> {
+        match self {
+            Self::Trusted => None,
+            Self::Peer(peer) => Some(peer),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -633,6 +657,7 @@ pub(super) struct ActiveWork {
     pub(super) lease: ComputeLeaseId,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
+    pub(super) attribution: ComputeAttribution,
     pub(super) dependency_cut: DependencyCut,
     pub(super) dependencies: KnownDependencies,
 }
@@ -831,13 +856,20 @@ impl PreAcceptedEntry {
     }
 
     pub(super) fn charge_record(&self) -> ChargeRecord {
+        let compute_peer = match &self.phase {
+            PreAcceptedPhase::Computing(active) => active.attribution.peer(),
+            PreAcceptedPhase::Queued(_)
+            | PreAcceptedPhase::Waiting(_)
+            | PreAcceptedPhase::Computed(_) => None,
+        };
         ChargeRecord::PreAccepted {
             resources: self.charge,
             // A trust/context promotion must never erase the peer-origin
             // DoS charge. Accepted membership deliberately changes to a
             // distinct global pool charge instead of hand-clearing peer
             // counters.
-            peer: self.record.ingress.peer(),
+            residency_peer: self.record.ingress.peer(),
+            compute_peer,
         }
     }
 }

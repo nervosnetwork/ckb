@@ -590,7 +590,9 @@ impl TxPoolAuthority {
                     | ResourceError::PeerLimit(_)
                     | ResourceError::AcceptedLimit
                     | ResourceError::ExistingChargeMismatch
-                    | ResourceError::DuplicateChange => {
+                    | ResourceError::DuplicateChange
+                    | ResourceError::ComputeEnvelope
+                    | ResourceError::AttributionMismatch => {
                         super::PlanError::Fault(super::AuthorityFault::ResourceProjection)
                     }
                 })?;

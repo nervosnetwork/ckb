@@ -286,19 +286,11 @@ impl DependencyFrontier {
         ObservedDependencies::from_missing(missing, retained, dependency_cut)
     }
 
-    pub(super) fn extend_keys_for_origin(
+    pub(super) fn keys_for_origin(
         &self,
         origin: &DependencyOrigin,
-        target: &mut Vec<DependencyKey>,
-    ) -> Result<(), DependencyError> {
-        let Some(keys) = self.keys_by_origin.get(origin) else {
-            return Ok(());
-        };
-        target
-            .try_reserve(keys.len())
-            .map_err(|_| DependencyError::Allocation)?;
-        target.extend(keys.iter().cloned());
-        Ok(())
+    ) -> Option<&BTreeSet<DependencyKey>> {
+        self.keys_by_origin.get(origin)
     }
 
     pub(super) fn proof_is_current(
@@ -445,6 +437,15 @@ impl DependencyFrontier {
                 .and_then(|level| level.last_definitive_loss),
             expected: dirty,
         }))
+    }
+
+    #[cfg(test)]
+    pub(super) fn next_maintenance_observation(
+        &self,
+    ) -> Result<Option<(DependencyKey, Option<RawTxHash>)>, DependencyError> {
+        Ok(self
+            .next_maintenance()?
+            .map(|ticket| (ticket.key, ticket.hash)))
     }
 
     fn next_dirty_key(&self) -> Option<&DependencyKey> {
@@ -808,6 +809,11 @@ impl DependencyFrontier {
             let Ok(slot) = DependencySlot::from_owner(owner) else {
                 return false;
             };
+            if let OwnedTx::PreAccepted(entry) = owner
+                && entry.dependencies().len() > entry.charge.edges
+            {
+                return false;
+            }
             expected.attach(&slot);
         }
         self.consumers == expected.consumers

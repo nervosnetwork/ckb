@@ -1,4 +1,6 @@
-use super::state::RawTxHash;
+use super::state::{ComputeAttribution, RawTxHash};
+#[cfg(test)]
+use super::state::{OwnedTx, PreAcceptedPhase, QueuedWork};
 use ckb_network::PeerIndex;
 use std::collections::{HashMap, HashSet};
 
@@ -138,7 +140,9 @@ pub(super) struct ResourceLimits {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ResourceConfigError {
     LimitHierarchy,
-    IndivisibleComputeGrant,
+    MissingComputeCapacity,
+    NonMonotonicComputeEnvelope,
+    TransientComputeOverflow,
 }
 
 impl ResourceLimits {
@@ -152,19 +156,21 @@ impl ResourceLimits {
         if !remote.fits(preaccepted) || !per_peer.fits(remote) {
             return Err(ResourceConfigError::LimitHierarchy);
         }
-        let largest_grant = ResourceVector::new(
-            1,
-            compute
-                .resolved_resident_bytes
-                .max(compute.accepted_resident_bytes),
-            compute.expanded_edges,
-            1,
-        );
-        if !largest_grant.fits(preaccepted)
-            || !largest_grant.fits(remote)
-            || !largest_grant.fits(per_peer)
+        if compute.resolved_resident_bytes == 0
+            || compute.accepted_resident_bytes == 0
+            || (preaccepted.entries != 0 && preaccepted.active_work == 0)
+            || (remote.entries != 0 && remote.active_work == 0)
+            || (per_peer.entries != 0 && per_peer.active_work == 0)
         {
-            return Err(ResourceConfigError::IndivisibleComputeGrant);
+            return Err(ResourceConfigError::MissingComputeCapacity);
+        }
+        if compute.accepted_resident_bytes < compute.resolved_resident_bytes {
+            return Err(ResourceConfigError::NonMonotonicComputeEnvelope);
+        }
+        for retained in [preaccepted, remote, per_peer] {
+            compute
+                .checked_physical_ceiling(retained)
+                .ok_or(ResourceConfigError::TransientComputeOverflow)?;
         }
         Ok(Self {
             preaccepted,
@@ -184,7 +190,7 @@ impl ResourceLimits {
 
 /// Per-lease upper bounds reserved before attacker-shaped resolve/verify
 /// facts can become retained authority state.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ComputeLimits {
     resolved_resident_bytes: usize,
     accepted_resident_bytes: usize,
@@ -214,23 +220,79 @@ impl ComputeLimits {
         };
         (resident_bytes, self.expanded_edges)
     }
+
+    fn admits(self, resources: ResourceVector) -> bool {
+        resources.entries == 1
+            && resources.active_work == 0
+            && resources.bytes <= self.resolved_resident_bytes
+            && resources.bytes <= self.accepted_resident_bytes
+            && resources.edges <= self.expanded_edges
+    }
+
+    fn checked_physical_ceiling(self, retained: ResourceVector) -> Option<(usize, usize)> {
+        let max_resident_bytes = self
+            .resolved_resident_bytes
+            .max(self.accepted_resident_bytes);
+        let transient_bytes = retained.active_work.checked_mul(max_resident_bytes)?;
+        let transient_edges = retained.active_work.checked_mul(self.expanded_edges)?;
+        Some((
+            retained.bytes.checked_add(transient_bytes)?,
+            retained.edges.checked_add(transient_edges)?,
+        ))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ChargeRecord {
     PreAccepted {
         resources: ResourceVector,
-        peer: Option<PeerIndex>,
+        residency_peer: Option<PeerIndex>,
+        compute_peer: Option<PeerIndex>,
     },
     Accepted(AcceptedResources),
 }
 
 impl ChargeRecord {
-    fn preaccepted(self) -> Option<(ResourceVector, Option<PeerIndex>)> {
+    fn preaccepted(self) -> Option<ResourceVector> {
         match self {
-            Self::PreAccepted { resources, peer } => Some((resources, peer)),
+            Self::PreAccepted { resources, .. } => Some(resources),
             Self::Accepted(_) => None,
         }
+    }
+
+    fn peer_preaccepted(self) -> Result<Option<(PeerIndex, ResourceVector)>, ResourceError> {
+        let Self::PreAccepted {
+            resources,
+            residency_peer,
+            compute_peer,
+        } = self
+        else {
+            return Ok(None);
+        };
+        let Some(peer) = residency_peer else {
+            return if compute_peer.is_none() {
+                Ok(None)
+            } else {
+                Err(ResourceError::AttributionMismatch)
+            };
+        };
+        if compute_peer.is_some_and(|compute_peer| compute_peer != peer) {
+            return Err(ResourceError::AttributionMismatch);
+        }
+        let active_work = if compute_peer == Some(peer) {
+            resources.active_work
+        } else {
+            0
+        };
+        Ok(Some((
+            peer,
+            ResourceVector::new(
+                resources.entries,
+                resources.bytes,
+                resources.edges,
+                active_work,
+            ),
+        )))
     }
 
     fn accepted(self) -> Option<AcceptedResources> {
@@ -259,7 +321,20 @@ pub(super) enum ResourceError {
     AcceptedLimit,
     ExistingChargeMismatch,
     DuplicateChange,
+    ComputeEnvelope,
+    AttributionMismatch,
     Allocation,
+}
+
+/// Whether one more checked-out worker can consume the single active-work
+/// slot charged by every compute grant. This is a projection of the existing
+/// ledger, not another scheduler state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ActiveWorkAvailability {
+    Available,
+    PreAcceptedExhausted,
+    RemoteExhausted,
+    PeerExhausted(PeerIndex),
 }
 
 #[derive(Debug)]
@@ -329,6 +404,47 @@ impl ResourceLedger {
         self.limits.compute
     }
 
+    pub(super) fn validate_admission(
+        &self,
+        resources: ResourceVector,
+    ) -> Result<(), ResourceError> {
+        if self.limits.compute.admits(resources) {
+            Ok(())
+        } else {
+            Err(ResourceError::ComputeEnvelope)
+        }
+    }
+
+    pub(super) fn active_work_availability(
+        &self,
+        attribution: ComputeAttribution,
+    ) -> Result<ActiveWorkAvailability, ResourceError> {
+        let available = |used: usize, limit: usize| match used.cmp(&limit) {
+            std::cmp::Ordering::Less => Ok(true),
+            std::cmp::Ordering::Equal => Ok(false),
+            std::cmp::Ordering::Greater => Err(ResourceError::Arithmetic),
+        };
+        if !available(
+            self.preaccepted.active_work,
+            self.limits.preaccepted.active_work,
+        )? {
+            return Ok(ActiveWorkAvailability::PreAcceptedExhausted);
+        }
+        let Some(peer) = attribution.peer() else {
+            return Ok(ActiveWorkAvailability::Available);
+        };
+        if !available(self.remote.active_work, self.limits.remote.active_work)? {
+            return Ok(ActiveWorkAvailability::RemoteExhausted);
+        }
+        if !available(
+            self.peer(peer).active_work,
+            self.limits.per_peer.active_work,
+        )? {
+            return Ok(ActiveWorkAvailability::PeerExhausted(peer));
+        }
+        Ok(ActiveWorkAvailability::Available)
+    }
+
     pub(super) fn snapshot(&self) -> ResourceSnapshot {
         ResourceSnapshot {
             charges: self.charges.clone(),
@@ -343,6 +459,139 @@ impl ResourceLedger {
         self.charges.len()
     }
 
+    #[cfg(test)]
+    pub(super) fn semantically_matches(&self, entries: &HashMap<RawTxHash, OwnedTx>) -> bool {
+        let mut expected = ResourceSnapshot {
+            charges: HashMap::new(),
+            preaccepted: ResourceVector::default(),
+            remote: ResourceVector::default(),
+            peers: HashMap::new(),
+            accepted: AcceptedResources::default(),
+        };
+        for (hash, owner) in entries {
+            let charge = owner.charge_record();
+            if expected.charges.insert(hash.clone(), charge).is_some() {
+                return false;
+            }
+            match (owner, charge) {
+                (
+                    OwnedTx::PreAccepted(entry),
+                    ChargeRecord::PreAccepted {
+                        resources,
+                        residency_peer,
+                        compute_peer,
+                    },
+                ) => {
+                    let exact_resources = match &entry.phase {
+                        PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => entry
+                            .retained_charge(
+                                resolved.payload().resolved_resident_bytes(),
+                                resolved.payload().dependencies(),
+                            ),
+                        PreAcceptedPhase::Computing(active) => {
+                            let (max_resident_bytes, max_edges) =
+                                self.limits.compute.reservation_for(active.permit);
+                            if active.grant.max_resident_bytes != max_resident_bytes
+                                || active.grant.max_edges != max_edges
+                            {
+                                return false;
+                            }
+                            let mut exact = entry.retained_charge(
+                                entry.original_charge().bytes,
+                                &active.dependencies,
+                            );
+                            exact.active_work = 1;
+                            exact
+                        }
+                        PreAcceptedPhase::Waiting(waiting) => {
+                            let dependencies = match waiting {
+                                super::state::WaitCondition::Missing(observed)
+                                | super::state::WaitCondition::Conflict(observed) => {
+                                    observed.retained()
+                                }
+                            };
+                            entry.retained_charge(entry.original_charge().bytes, dependencies)
+                        }
+                        PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(
+                            verified,
+                        )) => {
+                            if verified.payload().resolved_resident_bytes()
+                                > verified.metrics().cost.resident_bytes
+                            {
+                                return false;
+                            }
+                            entry.retained_charge(
+                                verified.metrics().cost.resident_bytes,
+                                verified.payload().dependencies(),
+                            )
+                        }
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve)
+                        | PreAcceptedPhase::Computed(_) => entry.original_charge(),
+                    };
+                    if resources != exact_resources {
+                        return false;
+                    }
+                    let expected_compute_peer = match &entry.phase {
+                        PreAcceptedPhase::Computing(active) => active.attribution.peer(),
+                        PreAcceptedPhase::Queued(_)
+                        | PreAcceptedPhase::Waiting(_)
+                        | PreAcceptedPhase::Computed(_) => None,
+                    };
+                    if residency_peer != entry.record.ingress.peer()
+                        || compute_peer != expected_compute_peer
+                    {
+                        return false;
+                    }
+                    let Some(preaccepted) = expected.preaccepted.checked_add(resources) else {
+                        return false;
+                    };
+                    expected.preaccepted = preaccepted;
+                    let Ok(peer_charge) = charge.peer_preaccepted() else {
+                        return false;
+                    };
+                    if let Some((peer, peer_resources)) = peer_charge {
+                        let Some(remote) = expected.remote.checked_add(peer_resources) else {
+                            return false;
+                        };
+                        expected.remote = remote;
+                        let usage = expected.peers.entry(peer).or_default();
+                        let Some(next) = usage.checked_add(peer_resources) else {
+                            return false;
+                        };
+                        *usage = next;
+                    }
+                }
+                (OwnedTx::Accepted(entry), ChargeRecord::Accepted(resources)) => {
+                    if entry.verified.payload().serialized_bytes() != resources.serialized_bytes
+                        || entry.verified.payload().resolved_resident_bytes()
+                            > resources.resident_bytes
+                        || entry.verified.metrics().cost
+                            != (AcceptedCost {
+                                serialized_bytes: resources.serialized_bytes,
+                                resident_bytes: resources.resident_bytes,
+                                cycles: resources.cycles,
+                            })
+                    {
+                        return false;
+                    }
+                    let Some(accepted) = expected.accepted.checked_add(resources) else {
+                        return false;
+                    };
+                    expected.accepted = accepted;
+                }
+                _ => return false,
+            }
+        }
+        expected == self.snapshot()
+            && self.preaccepted.fits(self.limits.preaccepted)
+            && self.remote.fits(self.limits.remote)
+            && self
+                .peers
+                .values()
+                .all(|usage| usage.fits(self.limits.per_peer))
+            && self.accepted.fits(self.limits.accepted)
+    }
+
     pub(super) fn plan_replace(
         &mut self,
         key: RawTxHash,
@@ -355,27 +604,35 @@ impl ResourceLedger {
 
         let old_preaccepted = expected.and_then(ChargeRecord::preaccepted);
         let new_preaccepted = after.and_then(ChargeRecord::preaccepted);
+        let old_peer_charge = expected
+            .map(ChargeRecord::peer_preaccepted)
+            .transpose()?
+            .flatten();
+        let new_peer_charge = after
+            .map(ChargeRecord::peer_preaccepted)
+            .transpose()?
+            .flatten();
         let mut preaccepted = self.preaccepted;
         let mut remote = self.remote;
-        if let Some((resources, peer)) = old_preaccepted {
+        if let Some(resources) = old_preaccepted {
             preaccepted = preaccepted
                 .checked_sub(resources)
                 .ok_or(ResourceError::Arithmetic)?;
-            if peer.is_some() {
-                remote = remote
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
         }
-        if let Some((resources, peer)) = new_preaccepted {
+        if let Some((_, resources)) = old_peer_charge {
+            remote = remote
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = new_preaccepted {
             preaccepted = preaccepted
                 .checked_add(resources)
                 .ok_or(ResourceError::Arithmetic)?;
-            if peer.is_some() {
-                remote = remote
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
+        }
+        if let Some((_, resources)) = new_peer_charge {
+            remote = remote
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
         }
         if !preaccepted.fits(self.limits.preaccepted) {
             return Err(ResourceError::PreAcceptedLimit);
@@ -384,21 +641,21 @@ impl ResourceLedger {
             return Err(ResourceError::RemoteLimit);
         }
 
-        let old_peer = old_preaccepted.and_then(|(_, peer)| peer);
-        let new_peer = new_preaccepted.and_then(|(_, peer)| peer);
+        let old_peer = old_peer_charge.map(|(peer, _)| peer);
+        let new_peer = new_peer_charge.map(|(peer, _)| peer);
         let project_peer = |peer: PeerIndex| {
             let mut usage = self.peer(peer);
             if old_peer == Some(peer) {
-                let resources = old_preaccepted
-                    .map(|(resources, _)| resources)
+                let resources = old_peer_charge
+                    .map(|(_, resources)| resources)
                     .ok_or(ResourceError::Arithmetic)?;
                 usage = usage
                     .checked_sub(resources)
                     .ok_or(ResourceError::Arithmetic)?;
             }
             if new_peer == Some(peer) {
-                let resources = new_preaccepted
-                    .map(|(resources, _)| resources)
+                let resources = new_peer_charge
+                    .map(|(_, resources)| resources)
                     .ok_or(ResourceError::Arithmetic)?;
                 usage = usage
                     .checked_add(resources)
@@ -494,19 +751,23 @@ impl ResourceLedger {
         // cannot overflow only because its freeing member appeared later in
         // the input vector.
         for (_, expected, _) in &changes {
-            if let Some((resources, peer)) = expected.and_then(ChargeRecord::preaccepted) {
+            if let Some(resources) = expected.and_then(ChargeRecord::preaccepted) {
                 preaccepted = preaccepted
                     .checked_sub(resources)
                     .ok_or(ResourceError::Arithmetic)?;
-                if let Some(peer) = peer {
-                    remote = remote
-                        .checked_sub(resources)
-                        .ok_or(ResourceError::Arithmetic)?;
-                    let usage = peer_updates.entry(peer).or_insert_with(|| self.peer(peer));
-                    *usage = usage
-                        .checked_sub(resources)
-                        .ok_or(ResourceError::Arithmetic)?;
-                }
+            }
+            if let Some((peer, resources)) = expected
+                .map(ChargeRecord::peer_preaccepted)
+                .transpose()?
+                .flatten()
+            {
+                remote = remote
+                    .checked_sub(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+                let usage = peer_updates.entry(peer).or_insert_with(|| self.peer(peer));
+                *usage = usage
+                    .checked_sub(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
             }
             if let Some(resources) = expected.and_then(ChargeRecord::accepted) {
                 accepted = accepted
@@ -515,19 +776,23 @@ impl ResourceLedger {
             }
         }
         for (_, _, after) in &changes {
-            if let Some((resources, peer)) = after.and_then(ChargeRecord::preaccepted) {
+            if let Some(resources) = after.and_then(ChargeRecord::preaccepted) {
                 preaccepted = preaccepted
                     .checked_add(resources)
                     .ok_or(ResourceError::Arithmetic)?;
-                if let Some(peer) = peer {
-                    remote = remote
-                        .checked_add(resources)
-                        .ok_or(ResourceError::Arithmetic)?;
-                    let usage = peer_updates.entry(peer).or_insert_with(|| self.peer(peer));
-                    *usage = usage
-                        .checked_add(resources)
-                        .ok_or(ResourceError::Arithmetic)?;
-                }
+            }
+            if let Some((peer, resources)) = after
+                .map(ChargeRecord::peer_preaccepted)
+                .transpose()?
+                .flatten()
+            {
+                remote = remote
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+                let usage = peer_updates.entry(peer).or_insert_with(|| self.peer(peer));
+                *usage = usage
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
             }
             if let Some(resources) = after.and_then(ChargeRecord::accepted) {
                 accepted = accepted

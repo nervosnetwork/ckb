@@ -658,7 +658,7 @@ impl EffectLog {
 
     pub(super) fn plan_settlement(
         &self,
-        settlement: EffectSettlement,
+        settlement: &EffectSettlement,
     ) -> Result<EffectDelta, EffectError> {
         let active = self.active.as_ref().ok_or(EffectError::StaleLease)?;
         if active.sequence != settlement.token.sequence

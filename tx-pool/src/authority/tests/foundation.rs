@@ -12,16 +12,17 @@ use super::super::resources::{
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedEntry, AcceptedStatus, ActiveWork, AdmissionClass, ApplySequence, CandidateMetrics,
-    ChainEpoch, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut, DependencyKey,
-    EntryVersion, ExpandedFootprint, FootprintError, IngressAttribution, InputEvidenceError,
-    KnownDependencies, ObservedDependencies, OwnedTx, PayloadBlame, PreAcceptedPhase,
-    ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind, ResolvedPayload,
-    TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass,
-    WaitCondition, WorkPermit,
+    ChainEpoch, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
+    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, IngressAttribution,
+    InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx, PayloadBlame,
+    PreAcceptedPhase, ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind,
+    ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability,
+    VerifyCycleClass, WaitCondition, WorkPermit,
 };
 use super::super::work::{
-    CheckedOutWork, ContinuousResolution, ContinuousResolveWork, ContinuousVerifyWork,
-    ResolutionEvidence, ResolutionReceiptError, ResolveWork, VerificationReceiptError,
+    CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
+    ContinuousVerifyWork, ResolutionEvidence, ResolutionReceiptError, ResolveWork, SettlementNext,
+    SettlementToken, VerificationReceiptError,
 };
 use ckb_network::PeerIndex;
 use ckb_types::{
@@ -47,7 +48,7 @@ pub(super) fn limits() -> ResourceLimits {
 }
 
 #[test]
-fn uak_resource_configuration_rejects_invalid_hierarchy_and_indivisible_grant() {
+fn uak_resource_configuration_rejects_invalid_hierarchy_and_transient_bounds() {
     assert!(matches!(
         ResourceLimits::new(
             ResourceVector::new(1, 1024, 8, 1),
@@ -62,12 +63,57 @@ fn uak_resource_configuration_rejects_invalid_hierarchy_and_indivisible_grant() 
         ResourceLimits::new(
             ResourceVector::new(1, 1024, 8, 1),
             ResourceVector::new(1, 1024, 8, 1),
-            ResourceVector::new(1, 256, 8, 1),
+            ResourceVector::new(1, 256, 8, 0),
             AcceptedResources::new(1, 1024, 1024, 1),
             ComputeLimits::new(512, 512, 4),
         ),
-        Err(ResourceConfigError::IndivisibleComputeGrant)
+        Err(ResourceConfigError::MissingComputeCapacity)
     ));
+    assert!(matches!(
+        ResourceLimits::new(
+            ResourceVector::new(1, 1024, 8, 1),
+            ResourceVector::new(1, 1024, 8, 1),
+            ResourceVector::new(1, 1024, 8, 1),
+            AcceptedResources::new(1, 1024, 1024, 1),
+            ComputeLimits::new(513, 512, 4),
+        ),
+        Err(ResourceConfigError::NonMonotonicComputeEnvelope)
+    ));
+    assert!(matches!(
+        ResourceLimits::new(
+            ResourceVector::new(1, usize::MAX, 8, 1),
+            ResourceVector::new(1, usize::MAX, 8, 1),
+            ResourceVector::new(1, usize::MAX, 8, 1),
+            AcceptedResources::new(1, 1024, 1024, 1),
+            ComputeLimits::new(1, 1, 4),
+        ),
+        Err(ResourceConfigError::TransientComputeOverflow)
+    ));
+}
+
+#[test]
+fn uak_admission_must_fit_the_static_compute_envelope() {
+    let constrained = ResourceLimits::new(
+        ResourceVector::new(4, 4096, 32, 2),
+        ResourceVector::new(4, 4096, 32, 2),
+        ResourceVector::new(4, 4096, 32, 2),
+        AcceptedResources::new(4, 4096, 4096, 64),
+        ComputeLimits::new(64, 64, 8),
+    )
+    .expect("the fixed envelope has a checked physical ceiling");
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    let oversized = TransactionBuilder::default()
+        .output(CellOutput::default())
+        .output_data(Bytes::from(vec![0; 128]).pack())
+        .build();
+    let admission = ValidatedAdmission::remote(oversized, PeerIndex::from(1))
+        .expect("the transaction itself has valid ingress facts");
+    let before = authority.normalized_snapshot();
+    assert_eq!(
+        authority.plan_admission(admission).err(),
+        Some(PlanError::Backpressure(Backpressure::ComputeResources))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
 }
 
 pub(super) fn tx(nonce: u64) -> ckb_types::core::TransactionView {
@@ -126,7 +172,7 @@ fn queue_remote_for_verify(
     let payload = resolved_payload_with_facts(&transaction, Vec::new(), Vec::new(), fee);
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 resolve
                     .yield_verify(payload)
                     .expect("fixture payload belongs to resolve work"),
@@ -147,12 +193,28 @@ pub(super) fn owner_version(
         .version
 }
 
-pub(super) fn apply_without_work(plan: PreparedApply<'_>) {
-    let _ = apply_committed_without_work(plan);
+pub(super) trait FixtureCommit {
+    fn into_committed(self) -> CommittedDelta;
 }
 
-fn apply_committed_without_work(plan: PreparedApply<'_>) -> CommittedDelta {
-    let committed = plan.apply();
+impl FixtureCommit for PreparedApply<'_> {
+    fn into_committed(self) -> CommittedDelta {
+        self.apply()
+    }
+}
+
+impl FixtureCommit for CommittedDelta {
+    fn into_committed(self) -> CommittedDelta {
+        self
+    }
+}
+
+pub(super) fn apply_without_work(commit: impl FixtureCommit) {
+    let _ = apply_committed_without_work(commit);
+}
+
+fn apply_committed_without_work(commit: impl FixtureCommit) -> CommittedDelta {
+    let committed = commit.into_committed();
     assert!(
         committed.handoff_is_none(),
         "transition unexpectedly issued work"
@@ -160,7 +222,7 @@ fn apply_committed_without_work(plan: PreparedApply<'_>) -> CommittedDelta {
     committed
 }
 
-fn take_resolve_work(committed: CommittedDelta) -> (RawTxHash, ResolveWork) {
+pub(super) fn take_resolve_work(committed: CommittedDelta) -> (RawTxHash, ResolveWork) {
     let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
         panic!("resolve-only checkout returns resolve work");
     };
@@ -307,7 +369,7 @@ fn verify_remote_transaction_with_payload(
     let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 verify
                     .verified(accepted_resident_bytes, 0)
                     .expect("fixture verification metrics are valid"),
@@ -377,12 +439,29 @@ fn assert_resource_reference(authority: &TxPoolAuthority) {
         let charge = owner.charge_record();
         assert!(charges.insert(hash.clone(), charge).is_none());
         match charge {
-            ChargeRecord::PreAccepted { resources, peer } => {
+            ChargeRecord::PreAccepted {
+                resources,
+                residency_peer,
+                compute_peer,
+            } => {
                 preaccepted = add_resources(preaccepted, resources);
-                if let Some(peer) = peer {
-                    remote = add_resources(remote, resources);
+                if let Some(peer) = residency_peer {
+                    assert!(compute_peer.is_none() || compute_peer == Some(peer));
+                    let peer_resources = ResourceVector::new(
+                        resources.entries,
+                        resources.bytes,
+                        resources.edges,
+                        if compute_peer == Some(peer) {
+                            resources.active_work
+                        } else {
+                            0
+                        },
+                    );
+                    remote = add_resources(remote, peer_resources);
                     let usage = peers.entry(peer).or_default();
-                    *usage = add_resources(*usage, resources);
+                    *usage = add_resources(*usage, peer_resources);
+                } else {
+                    assert!(compute_peer.is_none());
                 }
             }
             ChargeRecord::Accepted(resources) => {
@@ -632,7 +711,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
 
     apply_without_work(
         authority
-            .plan_settlement(resolve.rejected(RejectionKind::Policy))
+            .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("promotion does not invalidate the active compute lease"),
     );
 }
@@ -770,9 +849,8 @@ fn uak_terminal_outcome_and_effect_commit_together() {
             if Arc::ptr_eq(tx, &retained_tx) && *reason == RejectionKind::Policy
     ));
     let published = authority
-        .plan_effect_settlement_for_foundation(lease.published())
-        .expect("published effect settles")
-        .apply();
+        .apply_effect_settlement_for_foundation(lease.published())
+        .expect("published effect settles");
     assert_eq!(published.retired_effect_len(), 1);
     assert_eq!(Arc::strong_count(&retained_tx), 2);
     drop(published);
@@ -793,6 +871,7 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
                 max_resident_bytes: bytes,
                 max_edges: 0,
             },
+            attribution: ComputeAttribution::Trusted,
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: KnownDependencies::default(),
         }),
@@ -865,6 +944,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
                 max_resident_bytes: 1,
                 max_edges: 1,
             },
+            attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies.clone(),
         }),
@@ -875,6 +955,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
                 max_resident_bytes: 1,
                 max_edges: 1,
             },
+            attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies,
         }),
@@ -1257,30 +1338,34 @@ fn uak_popular_dependency_appends_sparse_reader_edges() {
 
 #[test]
 fn uak_resource_batch_is_a_commutative_set_transition() {
-    let unbounded = ResourceVector::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX);
+    let bound = usize::MAX / 8;
+    let unbounded = ResourceVector::new(bound, bound, bound, 1);
     let mut ledger = ResourceLedger::new(
         ResourceLimits::new(
             unbounded,
             unbounded,
             unbounded,
-            AcceptedResources::new(usize::MAX, usize::MAX, usize::MAX, u64::MAX),
-            ComputeLimits::new(usize::MAX, usize::MAX, usize::MAX),
+            AcceptedResources::new(bound, bound, bound, u64::MAX),
+            ComputeLimits::new(1, 1, 1),
         )
-        .expect("unbounded fixture admits one indivisible grant"),
+        .expect("large finite fixture has a checked transient ceiling"),
     );
     let first = RawTxHash(tx(480).hash());
     let second = RawTxHash(tx(481).hash());
     let first_before = ChargeRecord::PreAccepted {
-        resources: ResourceVector::new(1, usize::MAX - 1, 0, 0),
-        peer: None,
+        resources: ResourceVector::new(1, bound - 1, 0, 0),
+        residency_peer: None,
+        compute_peer: None,
     };
     let second_before = ChargeRecord::PreAccepted {
         resources: ResourceVector::new(1, 1, 0, 0),
-        peer: None,
+        residency_peer: None,
+        compute_peer: None,
     };
     let first_after = ChargeRecord::PreAccepted {
-        resources: ResourceVector::new(1, usize::MAX, 0, 0),
-        peer: None,
+        resources: ResourceVector::new(1, bound, 0, 0),
+        residency_peer: None,
+        compute_peer: None,
     };
     let first_plan = ledger
         .plan_replace(first.clone(), None, Some(first_before))
@@ -1299,10 +1384,7 @@ fn uak_resource_batch_is_a_commutative_set_transition() {
         .expect("net-neutral batch does not depend on caller order");
     ledger.apply_batch(plan);
     let snapshot = ledger.snapshot();
-    assert_eq!(
-        snapshot.preaccepted,
-        ResourceVector::new(1, usize::MAX, 0, 0)
-    );
+    assert_eq!(snapshot.preaccepted, ResourceVector::new(1, bound, 0, 0));
     assert_eq!(snapshot.charges.len(), 1);
     assert_eq!(snapshot.charges.get(&first), Some(&first_after));
     assert!(!snapshot.charges.contains_key(&second));
@@ -3169,6 +3251,49 @@ fn uak_resource_limit_failure_preserves_every_observable_fact() {
 }
 
 #[test]
+fn uak_resource_reference_rejects_ghost_overcharge() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = admit_remote(&mut authority, 626, 74);
+    let entries = authority
+        .entries_for_reference()
+        .iter()
+        .map(|(hash, owner)| (hash.clone(), owner.clone()))
+        .collect::<HashMap<_, _>>();
+    let exact = entries
+        .get(&hash)
+        .expect("fixture owner exists")
+        .charge_record();
+    let ChargeRecord::PreAccepted {
+        resources,
+        residency_peer,
+        compute_peer,
+    } = exact
+    else {
+        panic!("fixture owner is preaccepted");
+    };
+    let inflated = ChargeRecord::PreAccepted {
+        resources: ResourceVector::new(
+            resources.entries,
+            resources.bytes.checked_add(1).expect("fixture fits"),
+            resources.edges,
+            resources.active_work,
+        ),
+        residency_peer,
+        compute_peer,
+    };
+    let mut ledger = ResourceLedger::new(limits());
+    let plan = ledger
+        .plan_replace(hash, None, Some(inflated))
+        .expect("inflated fixture still fits the configured ceiling");
+    ledger.apply(plan);
+
+    assert!(
+        !ledger.semantically_matches(&entries),
+        "a normalized rebuild must reject both undercharge and ghost overcharge"
+    );
+}
+
+#[test]
 fn uak_counter_exhaustion_is_typed_and_mutation_free() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     authority.force_next_sequence(ApplySequence(u128::MAX));
@@ -3185,6 +3310,49 @@ fn uak_counter_exhaustion_is_typed_and_mutation_free() {
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_settlement_failure_returns_a_cancellation_capability() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = admit_remote(&mut authority, 111, 22);
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("fixture checkout plans")
+            .apply(),
+    );
+    let settlement = work.rejected(RejectionKind::Policy);
+    let resumable_sequence = authority.clocks().next_sequence;
+    authority.force_next_sequence(ApplySequence(u128::MAX));
+    let before = authority.normalized_snapshot();
+
+    let exhausted = authority
+        .apply_settlement(settlement)
+        .expect_err("counter exhaustion cannot consume the compute capability");
+    assert_eq!(
+        exhausted.error(),
+        &PlanError::Fault(AuthorityFault::CounterExhausted)
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+
+    authority.force_next_sequence(resumable_sequence);
+    apply_without_work(
+        authority
+            .apply_settlement(exhausted.into_cancellation())
+            .expect("returned capability deterministically releases the lease"),
+    );
+    assert_eq!(authority.resources().preaccepted().active_work, 0);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                entry.phase,
+                PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure)
+            )
+    ));
+    assert_resource_reference(&authority);
 }
 
 #[test]
@@ -3240,7 +3408,7 @@ fn uak_active_work_backpressure_is_precomputed_and_mutation_free() {
 
     apply_without_work(
         authority
-            .plan_settlement(resolve.rejected(RejectionKind::Policy))
+            .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("live lease still settles after peer backpressure"),
     );
 }
@@ -3268,10 +3436,32 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
     };
 
     let active_version = owner_version(&authority, &hash);
-    apply_without_work(
+    let before_active_removal = authority.normalized_snapshot();
+    assert_eq!(
         authority
             .plan_terminalize_for_foundation(&hash, active_version)
-            .expect("first incarnation terminalizes"),
+            .err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    assert_eq!(authority.normalized_snapshot(), before_active_removal);
+
+    let settlement = resolve.rejected(RejectionKind::Policy);
+    let stale_token = SettlementToken {
+        hash: settlement.token.hash.clone(),
+        version: settlement.token.version,
+        lease: settlement.token.lease,
+        chain_epoch: settlement.token.chain_epoch,
+    };
+    apply_without_work(
+        authority
+            .apply_settlement(settlement)
+            .expect("the active incarnation settles before retirement"),
+    );
+    let settled_version = owner_version(&authority, &hash);
+    apply_without_work(
+        authority
+            .plan_terminalize_for_foundation(&hash, settled_version)
+            .expect("the settled incarnation terminalizes"),
     );
     apply_without_work(
         authority
@@ -3282,12 +3472,13 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
             .expect("same raw hash obtains a fresh incarnation"),
     );
     let before_stale = authority.normalized_snapshot();
-    assert_eq!(
-        authority
-            .plan_settlement(resolve.rejected(RejectionKind::Policy))
-            .err(),
-        Some(PlanError::Stale(StalePlan::Version))
-    );
+    let stale = authority
+        .apply_settlement(ComputeSettlement {
+            token: stale_token,
+            next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+        })
+        .expect_err("the retired incarnation cannot settle its successor");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
     assert_eq!(authority.normalized_snapshot(), before_stale);
     assert_eq!(
         authority
@@ -3304,6 +3495,10 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
 fn uak_checkout_is_move_only_and_exactly_charged() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 12, 31);
+    let queued_charge = authority
+        .entry(&hash)
+        .and_then(OwnedTx::preaccepted_charge)
+        .expect("queued owner has an exact retained charge");
     let version = owner_version(&authority, &hash);
     let checkout = authority
         .plan_checkout_for_foundation(
@@ -3316,7 +3511,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     assert_eq!(only_committed_change(&checkout).sequence, ApplySequence(2));
     assert_eq!(
         authority.resources().preaccepted(),
-        ResourceVector::new(1, 4 * 1024, 16, 1)
+        ResourceVector::new(1, queued_charge.bytes, queued_charge.edges, 1)
     );
     assert!(authority.primary_projection_consistent());
     let before_local_continuation = authority.normalized_snapshot();
@@ -3334,7 +3529,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         .expect("fixture verification metrics are valid");
     apply_without_work(
         authority
-            .plan_settlement(settlement)
+            .apply_settlement(settlement)
             .expect("current continuous lease settles"),
     );
     let retained = authority
@@ -3371,7 +3566,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
 }
 
 #[test]
-fn uak_compute_growth_requires_a_precharged_grant() {
+fn uak_compute_growth_requires_an_authority_issued_grant() {
     let mut resolve_authority = TxPoolAuthority::for_foundation(limits());
     let resolve_hash = admit_remote(&mut resolve_authority, 540, 54);
     let raw_charge = resolve_authority
@@ -3413,7 +3608,7 @@ fn uak_compute_growth_requires_a_precharged_grant() {
     };
     apply_without_work(
         resolve_authority
-            .plan_settlement(denied)
+            .apply_settlement(denied)
             .expect("budget denial releases the active grant"),
     );
     assert!(matches!(
@@ -3446,7 +3641,7 @@ fn uak_compute_growth_requires_a_precharged_grant() {
         .expect("oversized verified residency is a typed budget outcome");
     apply_without_work(
         verify_authority
-            .plan_settlement(denied)
+            .apply_settlement(denied)
             .expect("verified budget denial releases the active grant"),
     );
     assert!(matches!(
@@ -3485,7 +3680,7 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
     );
     apply_without_work(
         authority
-            .plan_settlement(failure.into_settlement())
+            .apply_settlement(failure.into_settlement())
             .expect("invalid resolve receipt settles its exact lease"),
     );
 
@@ -3514,11 +3709,11 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
         .expect_err("accepted residency cannot be smaller than serialization");
     assert_eq!(
         failure.error(),
-        &VerificationReceiptError::ResidentBelowSerialized
+        &VerificationReceiptError::ResidentBelowResolved
     );
     apply_without_work(
         authority
-            .plan_settlement(failure.into_settlement())
+            .apply_settlement(failure.into_settlement())
             .expect("invalid verify receipt settles its exact lease"),
     );
 
@@ -3533,6 +3728,73 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
         ));
     }
     assert!(authority.primary_projection_consistent());
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_verified_residency_cannot_undercharge_retained_resolution() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(625);
+    let hash = admit_remote(&mut authority, 625, 73);
+    let version = owner_version(&authority, &hash);
+    let (_, resolve) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("resolve checkout plans")
+            .apply(),
+    );
+    let serialized_bytes = transaction.data().total_size();
+    let resolved_resident_bytes = serialized_bytes
+        .checked_add(64)
+        .expect("fixture residency fits usize");
+    let resolved = resolve
+        .resolved(ResolutionEvidence::new(
+            Vec::new(),
+            Vec::new(),
+            Capacity::shannons(1),
+            resolved_resident_bytes,
+            VerifyCycleClass::Small,
+        ))
+        .expect("resolution evidence is valid");
+    apply_without_work(
+        authority
+            .apply_settlement(resolved)
+            .expect("resolved payload is retained for verification"),
+    );
+
+    let version = owner_version(&authority, &hash);
+    let committed = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            version,
+            WorkPermit::VerifyOnly(VerifyCapability::Any),
+        )
+        .expect("verify checkout plans")
+        .apply();
+    let CheckedOutWork::Verify(verify) = committed.into_work().expect("verify work exists") else {
+        panic!("verify permit returns verify work");
+    };
+    let failure = verify
+        .verified(serialized_bytes, 0)
+        .expect_err("accepted residency cannot undercharge retained resolution");
+    assert_eq!(
+        failure.error(),
+        &VerificationReceiptError::ResidentBelowResolved
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(failure.into_settlement())
+            .expect("invalid verify receipt settles its exact lease"),
+    );
+
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                entry.phase,
+                PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure)
+            ) && entry.charge == entry.original_charge()
+    ));
     assert_resource_reference(&authority);
 }
 
@@ -3559,7 +3821,7 @@ fn uak_resolve_to_verify_continuation_changes_no_authority_state() {
     assert_eq!(authority.normalized_snapshot(), before);
     apply_without_work(
         authority
-            .plan_settlement(verify.internal_failure())
+            .apply_settlement(verify.internal_failure())
             .expect("continuous lease remains current"),
     );
     assert_resource_reference(&authority);
@@ -3586,7 +3848,7 @@ fn uak_verified_settlement_has_one_ready_projection() {
     let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 verify
                     .verified(accepted_resident_bytes, 0)
                     .expect("fixture verification metrics are valid"),
@@ -3636,7 +3898,7 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
     };
     apply_without_work(
         queued
-            .plan_settlement(
+            .apply_settlement(
                 resolve
                     .missing(missing_keys())
                     .expect("fixture missing keys are non-empty and bounded"),
@@ -3665,7 +3927,7 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
     };
     apply_without_work(
         rejected
-            .plan_settlement(resolve.rejected(RejectionKind::Policy))
+            .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("rejection settlement plans"),
     );
     let rejected_version = owner_version(&rejected, &rejected_hash);
@@ -3697,7 +3959,7 @@ fn uak_missing_settlement_registers_exact_level_wait() {
     assert_eq!(resolve.transaction().hash(), hash.0);
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 resolve
                     .missing(missing_keys())
                     .expect("fixture missing keys are non-empty and bounded"),
@@ -3740,7 +4002,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
     );
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 resolve
                     .resolved(evidence)
                     .expect("fixture resolution evidence is valid"),
@@ -3768,7 +4030,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
     };
     apply_without_work(
         authority
-            .plan_settlement(verify.rejected(RejectionKind::Verification))
+            .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("verification rejection settles"),
     );
     assert!(matches!(
@@ -3804,13 +4066,31 @@ fn uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch() {
     let payload = resolved_payload(resolve.transaction());
     let (verify, _) = continue_fixture_verify(resolve, payload);
     let settlement = verify.internal_failure();
+    let forged_epoch = ComputeSettlement {
+        token: SettlementToken {
+            hash: settlement.token.hash.clone(),
+            version: settlement.token.version,
+            lease: settlement.token.lease,
+            chain_epoch: settlement.token.chain_epoch,
+        },
+        next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+    };
     authority.force_chain_epoch(ChainEpoch(1));
     let before = authority.normalized_snapshot();
+    let stale_epoch = authority
+        .apply_settlement(forged_epoch)
+        .expect_err("a forged chain epoch is stale");
     assert_eq!(
-        authority.plan_settlement(settlement).err(),
-        Some(PlanError::Stale(StalePlan::ChainEpoch))
+        stale_epoch.error(),
+        &PlanError::Stale(StalePlan::ChainEpoch)
     );
     assert_eq!(authority.normalized_snapshot(), before);
+    authority.force_chain_epoch(ChainEpoch(0));
+    apply_without_work(
+        authority
+            .apply_settlement(settlement)
+            .expect("the genuine lease remains available after the forged stale receipt"),
+    );
 
     let second_hash = admit_remote(&mut authority, 16, 35);
     let version = owner_version(&authority, &second_hash);
@@ -3829,16 +4109,30 @@ fn uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch() {
     };
     let payload = resolved_payload(second.transaction());
     let (verify, accepted_resident_bytes) = continue_fixture_verify(second, payload);
-    let mut forged = verify
+    let settlement = verify
         .verified(accepted_resident_bytes, 0)
         .expect("fixture verification metrics are valid");
-    forged.token.lease = ComputeLeaseId(u128::MAX);
+    let forged = ComputeSettlement {
+        token: SettlementToken {
+            hash: settlement.token.hash.clone(),
+            version: settlement.token.version,
+            lease: ComputeLeaseId(u128::MAX),
+            chain_epoch: settlement.token.chain_epoch,
+        },
+        next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+    };
     let before_forged = authority.normalized_snapshot();
-    assert_eq!(
-        authority.plan_settlement(forged).err(),
-        Some(PlanError::Stale(StalePlan::Lease))
-    );
+    let stale_lease = authority
+        .apply_settlement(forged)
+        .expect_err("a forged compute lease is stale");
+    assert_eq!(stale_lease.error(), &PlanError::Stale(StalePlan::Lease));
     assert_eq!(authority.normalized_snapshot(), before_forged);
+    apply_without_work(
+        authority
+            .apply_settlement(settlement)
+            .expect("the genuine lease remains available after the forged token"),
+    );
+    assert_resource_reference(&authority);
 }
 
 #[test]
@@ -3858,7 +4152,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(resolve.rejected(RejectionKind::Policy))
+            .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("resolve rejection settles"),
     );
 
@@ -3874,7 +4168,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(resolve.internal_failure())
+            .apply_settlement(resolve.internal_failure())
             .expect("resolve worker failure settles"),
     );
 
@@ -3896,7 +4190,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 continuous
                     .missing(missing_keys())
                     .expect("fixture missing keys are non-empty and bounded"),
@@ -3917,7 +4211,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     let accepted_resident_bytes = payload.serialized_bytes();
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 resolve
                     .yield_verify(payload)
                     .expect("fixture payload belongs to the checked-out transaction"),
@@ -3938,7 +4232,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 verify
                     .verified(accepted_resident_bytes, 0)
                     .expect("fixture verification metrics are valid"),
@@ -3980,7 +4274,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(resolve.internal_failure())
+            .apply_settlement(resolve.internal_failure())
             .expect("continuous resolve worker failure settles"),
     );
 
@@ -3996,7 +4290,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     let payload = resolved_payload(resolve.transaction());
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 resolve
                     .yield_verify(payload)
                     .expect("fixture payload belongs to the checked-out transaction"),
@@ -4017,7 +4311,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(verify.internal_failure())
+            .apply_settlement(verify.internal_failure())
             .expect("verify worker failure settles"),
     );
 
@@ -4039,7 +4333,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     let (verify, _) = continue_fixture_verify(resolve, payload);
     apply_without_work(
         authority
-            .plan_settlement(verify.rejected(RejectionKind::Verification))
+            .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("continuous verification rejection settles"),
     );
     assert!(authority.primary_projection_consistent());
@@ -4070,7 +4364,7 @@ fn uak_fair_frontier_is_a_derived_non_owning_projection() {
 
     apply_without_work(
         authority
-            .plan_settlement(work.rejected(RejectionKind::Policy))
+            .apply_settlement(work.rejected(RejectionKind::Policy))
             .expect("selected lease settles"),
     );
     assert!(authority.primary_projection_consistent());
@@ -4101,7 +4395,7 @@ fn uak_fair_frontier_round_robins_owners_only_after_apply() {
         assert_eq!(&selected, expected);
         apply_without_work(
             authority
-                .plan_settlement(work.rejected(RejectionKind::Policy))
+                .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("selected lease settles"),
         );
     }
@@ -4145,7 +4439,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
         assert_eq!(&selected, expected);
         apply_without_work(
             authority
-                .plan_settlement(work.rejected(RejectionKind::Policy))
+                .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("trusted work settles"),
         );
     }
@@ -4169,7 +4463,7 @@ fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
     assert_eq!(selected, peer_a_first);
     apply_without_work(
         authority
-            .plan_settlement(peer_a_work.rejected(RejectionKind::Policy))
+            .apply_settlement(peer_a_work.rejected(RejectionKind::Policy))
             .expect("peer A work settles"),
     );
 
@@ -4191,7 +4485,7 @@ fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
     assert_eq!(selected, trusted);
     apply_without_work(
         authority
-            .plan_settlement(trusted_work.rejected(RejectionKind::Policy))
+            .apply_settlement(trusted_work.rejected(RejectionKind::Policy))
             .expect("trusted work settles"),
     );
 
@@ -4205,7 +4499,7 @@ fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
     assert_eq!(selected, peer_b);
     apply_without_work(
         authority
-            .plan_settlement(peer_b_work.rejected(RejectionKind::Policy))
+            .apply_settlement(peer_b_work.rejected(RejectionKind::Policy))
             .expect("peer B work settles"),
     );
     assert!(authority.primary_projection_consistent());
@@ -4237,7 +4531,7 @@ fn uak_verify_frontier_preserves_the_configured_arrival_or_fee_order() {
         );
         apply_without_work(
             authority
-                .plan_settlement(work.rejected(RejectionKind::Policy))
+                .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("selected verify work settles"),
         );
         assert!(authority.primary_projection_consistent());
@@ -4289,7 +4583,7 @@ fn uak_fair_frontier_skips_saturated_peer_without_blocking_new_peer() {
     for work in [peer_a_work, peer_b_work, peer_c_work] {
         apply_without_work(
             authority
-                .plan_settlement(work.rejected(RejectionKind::Policy))
+                .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("active lease settles"),
         );
     }
@@ -4297,109 +4591,301 @@ fn uak_fair_frontier_skips_saturated_peer_without_blocking_new_peer() {
 }
 
 #[test]
-fn uak_fair_frontier_enumerates_each_owner_once_past_unrunnable_trusted_work() {
+fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
     const COMPUTE_BYTES: usize = 256;
-    let large_tx = |nonce: u32| {
-        TransactionBuilder::default()
-            .version(nonce)
-            .output(CellOutput::default())
-            .output_data(Bytes::from(vec![0; COMPUTE_BYTES * 2]).pack())
-            .build()
-    };
-    let trusted_admission = ValidatedAdmission::proposal(tx(613), ProposalContextId(1))
+    let proposal = ValidatedAdmission::proposal(tx(613), ProposalContextId(1))
         .expect("fixture proposal admission is valid");
-    let peer_a_active_admission = ValidatedAdmission::remote(large_tx(614), PeerIndex::from(66))
+    let recovery = ValidatedAdmission::recovery(tx(614), ChainEpoch(0))
+        .expect("fixture recovery admission is valid");
+    let remote = ValidatedAdmission::remote(tx(615), PeerIndex::from(66))
         .expect("fixture remote admission is valid");
-    let peer_a_waiting_admission = ValidatedAdmission::remote(large_tx(615), PeerIndex::from(66))
-        .expect("fixture remote admission is valid");
-    let peer_b_admission = ValidatedAdmission::remote(large_tx(616), PeerIndex::from(67))
-        .expect("fixture remote admission is valid");
-    assert!(trusted_admission.charge.bytes < COMPUTE_BYTES);
-    assert!(
-        [
-            peer_a_active_admission.charge,
-            peer_a_waiting_admission.charge,
-            peer_b_admission.charge,
-        ]
+    let total = [proposal.charge, recovery.charge, remote.charge]
         .into_iter()
-        .all(|charge| charge.bytes >= COMPUTE_BYTES)
-    );
-    let total = [
-        trusted_admission.charge,
-        peer_a_active_admission.charge,
-        peer_a_waiting_admission.charge,
-        peer_b_admission.charge,
-    ]
-    .into_iter()
-    .reduce(add_resources)
-    .expect("fixture has admissions");
-    let remote = [
-        peer_a_active_admission.charge,
-        peer_a_waiting_admission.charge,
-        peer_b_admission.charge,
-    ]
-    .into_iter()
-    .reduce(add_resources)
-    .expect("fixture has remote admissions");
-    let peer_a_limit = add_resources(
-        peer_a_active_admission.charge,
-        peer_a_waiting_admission.charge,
-    );
+        .reduce(add_resources)
+        .expect("fixture has admissions");
     let constrained = ResourceLimits::new(
-        ResourceVector::new(total.entries, total.bytes, total.edges, 4),
-        ResourceVector::new(remote.entries, remote.bytes, remote.edges, 3),
+        ResourceVector::new(total.entries, total.bytes, total.edges, 3),
         ResourceVector::new(
-            peer_a_limit.entries,
-            peer_a_limit.bytes,
-            peer_a_limit.edges,
+            remote.charge.entries,
+            remote.charge.bytes,
+            remote.charge.edges,
+            1,
+        ),
+        ResourceVector::new(
+            remote.charge.entries,
+            remote.charge.bytes,
+            remote.charge.edges,
             1,
         ),
         AcceptedResources::new(8, 64 * 1024, 64 * 1024, 64),
         ComputeLimits::new(COMPUTE_BYTES, COMPUTE_BYTES, 0),
     )
-    .expect("fixture limits admit one indivisible grant");
+    .expect("retained and transient partitions have a checked combined ceiling");
     let mut authority = TxPoolAuthority::for_foundation(constrained);
-    let trusted = trusted_admission.identity.raw.clone();
-    let peer_a_active = peer_a_active_admission.identity.raw.clone();
-    let peer_b = peer_b_admission.identity.raw.clone();
-    for admission in [
-        trusted_admission,
-        peer_a_active_admission,
-        peer_a_waiting_admission,
-        peer_b_admission,
-    ] {
+    let proposal_hash = proposal.identity.raw.clone();
+    let recovery_hash = recovery.identity.raw.clone();
+    for admission in [proposal, recovery, remote] {
         apply_without_work(
             authority
                 .plan_admission(admission)
-                .expect("bounded fixture admission plans"),
+                .expect("the retained partition fills exactly"),
         );
     }
 
-    let peer_a_version = owner_version(&authority, &peer_a_active);
-    let (_, peer_a_work) = take_resolve_work(
-        authority
-            .plan_checkout_for_foundation(&peer_a_active, peer_a_version, WorkPermit::ResolveOnly)
-            .expect("manual foundation checkout saturates peer A")
-            .apply(),
-    );
+    let (first, first_probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("a free transient slot makes the trusted head runnable");
+    assert_eq!(first_probes, 1);
+    let (selected, first_work) = take_resolve_work(first.expect("trusted work exists").apply());
+    assert_eq!(selected, recovery_hash);
 
-    let (selected, peer_b_work) = take_resolve_work(
-        authority
-            .plan_checkout_next(WorkPermit::ResolveOnly)
-            .expect("candidate-local limits are ordinary unavailability")
-            .expect("the complete owner ring reaches peer B")
-            .apply(),
-    );
-    assert_eq!(selected, peer_b);
-    assert!(authority.entry(&trusted).is_some());
+    let (second, second_probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("the next transaction in the same trusted owner remains visible");
+    assert_eq!(second_probes, 1);
+    let (selected, second_work) =
+        take_resolve_work(second.expect("second trusted work exists").apply());
+    assert_eq!(selected, proposal_hash);
 
-    for work in [peer_a_work, peer_b_work] {
+    for work in [first_work, second_work] {
         apply_without_work(
             authority
-                .plan_settlement(work.rejected(RejectionKind::Policy))
-                .expect("active lease settles"),
+                .apply_settlement(work.rejected(RejectionKind::Policy))
+                .expect("every trusted lease settles"),
         );
     }
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_proposal_promotion_separates_peer_residency_from_trusted_compute() {
+    let peer = PeerIndex::from(68);
+    let active_admission =
+        ValidatedAdmission::remote(tx(617), peer).expect("active remote fixture is valid");
+    let promoted_admission =
+        ValidatedAdmission::remote(tx(618), peer).expect("promoted remote fixture is valid");
+    let trusted_admission = ValidatedAdmission::proposal(tx(619), ProposalContextId(2))
+        .expect("trusted proposal fixture is valid");
+    let remote = add_resources(active_admission.charge, promoted_admission.charge);
+    let total = add_resources(remote, trusted_admission.charge);
+    let constrained = ResourceLimits::new(
+        ResourceVector::new(total.entries, total.bytes, total.edges, 3),
+        ResourceVector::new(remote.entries, remote.bytes, remote.edges, 1),
+        ResourceVector::new(remote.entries, remote.bytes, remote.edges, 1),
+        AcceptedResources::new(8, 64 * 1024, 64 * 1024, 64),
+        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
+    )
+    .expect("peer residency and transient compute have independent hard bounds");
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    let active_hash = active_admission.identity.raw.clone();
+    let promoted_hash = promoted_admission.identity.raw.clone();
+    for admission in [active_admission, promoted_admission, trusted_admission] {
+        apply_without_work(
+            authority
+                .plan_admission(admission)
+                .expect("fixture admission fits"),
+        );
+    }
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(tx(618), ProposalContextId(3))
+                    .expect("proposal promotion carries chain provenance"),
+            )
+            .expect("promotion changes policy without erasing ingress"),
+    );
+
+    let active_version = owner_version(&authority, &active_hash);
+    let (_, remote_work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&active_hash, active_version, WorkPermit::ResolveOnly)
+            .expect("the peer consumes its only remote compute slot")
+            .apply(),
+    );
+    assert_eq!(authority.resources().remote().active_work, 1);
+    assert_eq!(authority.resources().peer(peer).active_work, 1);
+
+    let (plan, probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("proposal compute is authorized by its current priority lease");
+    assert_eq!(probes, 1);
+    let (selected, promoted_work) =
+        take_resolve_work(plan.expect("promoted trusted work is runnable").apply());
+    assert_eq!(selected, promoted_hash);
+    assert_eq!(authority.resources().preaccepted().active_work, 2);
+    assert_eq!(authority.resources().remote().active_work, 1);
+    assert_eq!(authority.resources().peer(peer).active_work, 1);
+
+    for work in [remote_work, promoted_work] {
+        apply_without_work(
+            authority
+                .apply_settlement(work.rejected(RejectionKind::Policy))
+                .expect("both capability attributions settle exactly once"),
+        );
+    }
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
+    const BLOCKED_PEERS: usize = 8;
+    let constrained = ResourceLimits::new(
+        ResourceVector::new(32, 512 * 1024, 512, BLOCKED_PEERS + 1),
+        ResourceVector::new(32, 512 * 1024, 512, BLOCKED_PEERS + 1),
+        ResourceVector::new(4, 32 * 1024, 32, 1),
+        AcceptedResources::new(32, 512 * 1024, 512 * 1024, 512),
+        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
+    )
+    .expect("fixture admits every indivisible worker grant");
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    let mut active_hashes = Vec::new();
+    for offset in 0..BLOCKED_PEERS {
+        let peer = 700 + offset;
+        active_hashes.push(admit_remote(&mut authority, 800 + offset as u64 * 2, peer));
+        let _queued = admit_remote(&mut authority, 801 + offset as u64 * 2, peer);
+    }
+    let final_peer = admit_remote(&mut authority, 900, 700 + BLOCKED_PEERS);
+
+    let mut active_work = Vec::new();
+    for hash in active_hashes {
+        let version = owner_version(&authority, &hash);
+        let (_, work) = take_resolve_work(
+            authority
+                .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+                .expect("manual checkout consumes the peer's one active slot")
+                .apply(),
+        );
+        active_work.push(work);
+    }
+
+    let (plan, probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("bounded owner-head search plans");
+    assert_eq!(probes, BLOCKED_PEERS + 1);
+    let (selected, final_work) = take_resolve_work(
+        plan.expect("the final unsaturated peer remains runnable")
+            .apply(),
+    );
+    assert_eq!(selected, final_peer);
+
+    let (plan, probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("global active-work exhaustion is ordinary backpressure");
+    assert!(plan.is_none());
+    assert_eq!(
+        probes, 0,
+        "the authoritative global slot gate stops before owner enumeration"
+    );
+
+    active_work.push(final_work);
+    for work in active_work {
+        apply_without_work(
+            authority
+                .apply_settlement(work.rejected(RejectionKind::Policy))
+                .expect("every active lease settles exactly once"),
+        );
+    }
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
+    let admission = ValidatedAdmission::remote(tx(1_000), PeerIndex::from(900))
+        .expect("capacity fixture admission is valid");
+    let raw_charge = admission.charge;
+    let compute_bytes = raw_charge
+        .bytes
+        .checked_add(64)
+        .expect("fixture compute envelope is finite");
+    let constrained = ResourceLimits::new(
+        ResourceVector::new(1, raw_charge.bytes, raw_charge.edges, 1),
+        ResourceVector::new(1, raw_charge.bytes, raw_charge.edges, 1),
+        ResourceVector::new(1, raw_charge.bytes, raw_charge.edges, 1),
+        AcceptedResources::new(1, compute_bytes, compute_bytes, 1),
+        ComputeLimits::new(compute_bytes, compute_bytes, raw_charge.edges),
+    )
+    .expect("the full retained partition has one separate transient slot");
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("raw residency fills the retained partition exactly"),
+    );
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_next(WorkPermit::ResolveOnly)
+            .expect("checkout is independent of retained byte fullness")
+            .expect("the active slot is free")
+            .apply(),
+    );
+    let evidence = ResolutionEvidence::new(
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1),
+        raw_charge.bytes + 1,
+        VerifyCycleClass::Small,
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(
+                work.resolved(evidence)
+                    .expect("the result fits its transient grant"),
+            )
+            .expect("retained growth denial is a total settlement"),
+    );
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
+                && entry.charge == raw_charge
+    ));
+    assert_eq!(authority.resources().preaccepted(), raw_charge);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_idle_peer_cardinality_does_not_expand_checkout_probe_work() {
+    const OWNERS: usize = 64;
+    let admissions = (0..OWNERS)
+        .map(|offset| {
+            ValidatedAdmission::remote(tx(1_100 + offset as u64), PeerIndex::from(1_000 + offset))
+                .expect("owner-cardinality fixture admission is valid")
+        })
+        .collect::<Vec<_>>();
+    let total = admissions
+        .iter()
+        .map(|admission| admission.charge)
+        .reduce(add_resources)
+        .expect("fixture has owners");
+    let one = admissions[0].charge;
+    let constrained = ResourceLimits::new(
+        ResourceVector::new(total.entries, total.bytes, total.edges, 1),
+        ResourceVector::new(total.entries, total.bytes, total.edges, 1),
+        ResourceVector::new(one.entries, one.bytes, one.edges, 1),
+        AcceptedResources::new(OWNERS, total.bytes, total.bytes, 1),
+        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
+    )
+    .expect("idle owners share one statically bounded active slot");
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    for admission in admissions {
+        apply_without_work(
+            authority
+                .plan_admission(admission)
+                .expect("every owner fits the retained partition"),
+        );
+    }
+    let (plan, probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("an idle owner head is constructively runnable");
+    assert_eq!(probes, 1);
+    let (_, work) = take_resolve_work(plan.expect("one owner is selected").apply());
+    apply_without_work(
+        authority
+            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .expect("selected lease settles"),
+    );
     assert!(authority.primary_projection_consistent());
 }
 
@@ -4465,7 +4951,7 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
     assert_eq!(authority.normalized_snapshot(), before_continuation);
     apply_without_work(
         authority
-            .plan_settlement(yielded)
+            .apply_settlement(yielded)
             .expect("large verification yields one queued owner"),
     );
 
@@ -4488,7 +4974,7 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
     };
     apply_without_work(
         authority
-            .plan_settlement(verify.rejected(RejectionKind::Verification))
+            .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("large verification lease settles"),
     );
     assert!(matches!(
@@ -4520,7 +5006,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
     );
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 large_resolve
                     .yield_verify_as(large_payload, VerifyCycleClass::Large)
                     .expect("large fixture payload matches"),
@@ -4543,7 +5029,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
     );
     apply_without_work(
         authority
-            .plan_settlement(
+            .apply_settlement(
                 small_resolve
                     .yield_verify(small_payload)
                     .expect("small fixture payload matches"),
@@ -4566,7 +5052,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
     assert_eq!(selected, small_hash);
     apply_without_work(
         authority
-            .plan_settlement(small_verify.rejected(RejectionKind::Verification))
+            .apply_settlement(small_verify.rejected(RejectionKind::Verification))
             .expect("small lease settles"),
     );
 
@@ -4585,7 +5071,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
     );
     apply_without_work(
         authority
-            .plan_settlement(large_verify.rejected(RejectionKind::Verification))
+            .apply_settlement(large_verify.rejected(RejectionKind::Verification))
             .expect("large lease settles"),
     );
     assert!(authority.primary_projection_consistent());
@@ -4607,7 +5093,7 @@ fn uak_runner_cancellation_settles_one_exact_lease_before_exit() {
         .cancelled();
     apply_without_work(
         authority
-            .plan_settlement(cancellation)
+            .apply_settlement(cancellation)
             .expect("current cancellation receipt settles"),
     );
     assert_eq!(authority.resources().preaccepted().active_work, 0);
