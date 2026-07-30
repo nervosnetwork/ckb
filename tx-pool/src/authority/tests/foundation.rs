@@ -1,3 +1,4 @@
+use super::super::effect::{CommittedEffect, EffectPolicy};
 use super::super::plan::{
     AuthorityFault, Backpressure, CandidateBatchError, CommittedChange, CommittedChanges,
     CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCandidate,
@@ -34,7 +35,7 @@ use ckb_types::{
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-fn limits() -> ResourceLimits {
+pub(super) fn limits() -> ResourceLimits {
     ResourceLimits::new(
         ResourceVector::new(8, 64 * 1024, 64, 8),
         ResourceVector::new(4, 32 * 1024, 32, 4),
@@ -69,7 +70,7 @@ fn uak_resource_configuration_rejects_invalid_hierarchy_and_indivisible_grant() 
     ));
 }
 
-fn tx(nonce: u64) -> ckb_types::core::TransactionView {
+pub(super) fn tx(nonce: u64) -> ckb_types::core::TransactionView {
     TransactionBuilder::default().version(nonce as u32).build()
 }
 
@@ -135,7 +136,7 @@ fn queue_remote_for_verify(
     hash
 }
 
-fn owner_version(
+pub(super) fn owner_version(
     authority: &TxPoolAuthority,
     hash: &super::super::state::RawTxHash,
 ) -> EntryVersion {
@@ -146,21 +147,21 @@ fn owner_version(
         .version
 }
 
-fn apply_without_work(plan: PreparedApply<'_>) {
+pub(super) fn apply_without_work(plan: PreparedApply<'_>) {
     let _ = apply_committed_without_work(plan);
 }
 
 fn apply_committed_without_work(plan: PreparedApply<'_>) -> CommittedDelta {
     let committed = plan.apply();
     assert!(
-        committed.work.is_none(),
+        committed.handoff_is_none(),
         "transition unexpectedly issued work"
     );
     committed
 }
 
 fn take_resolve_work(committed: CommittedDelta) -> (RawTxHash, ResolveWork) {
-    let CheckedOutWork::Resolve(work) = committed.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
         panic!("resolve-only checkout returns resolve work");
     };
     let hash = TxIdentity::from_transaction(work.transaction()).raw;
@@ -266,7 +267,7 @@ fn accept_remote_transaction_with_payload(
     hash
 }
 
-fn verify_remote_transaction(
+pub(super) fn verify_remote_transaction(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
     peer: usize,
@@ -299,7 +300,8 @@ fn verify_remote_transaction_with_payload(
         )
         .expect("fixture checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
@@ -556,7 +558,7 @@ fn uak_remote_admission_owns_and_charges_once() {
         .apply();
 
     assert_eq!(only_committed_change(&delta).changed, hash);
-    assert!(delta.work.is_none());
+    assert!(delta.handoff_is_none());
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
     assert!(authority.primary_projection_consistent());
@@ -591,7 +593,8 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
         )
         .expect("remote resolve checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
 
@@ -726,19 +729,53 @@ fn uak_terminal_outcome_and_effect_commit_together() {
         .expect("owner exists")
         .record()
         .version;
+    let publication = authority
+        .effect_publication_for_foundation(
+            EffectPolicy::Trusted,
+            vec![CommittedEffect::Rejected {
+                tx: Arc::clone(&retained_tx),
+                reason: RejectionKind::Policy,
+            }],
+        )
+        .expect("fixture effect is bounded");
     let terminal = authority
-        .plan_terminalize_for_foundation(&hash, version)
+        .plan_terminalize_with_effect_for_foundation(&hash, version, &publication)
         .expect("terminal plan is complete")
         .apply();
 
     assert_eq!(only_committed_change(&terminal).changed, hash);
-    assert!(terminal.work.is_none());
+    assert!(terminal.handoff_is_none());
     assert_eq!(authority.owner_count(), 0);
     assert_eq!(authority.charged_count(), 0);
     assert!(authority.primary_projection_consistent());
     assert_eq!(terminal.retired_len(), 1);
-    assert_eq!(Arc::strong_count(&retained_tx), 2);
+    assert_eq!(terminal.retired_effect_len(), 0);
+    assert_eq!(Arc::strong_count(&retained_tx), 3);
     drop(terminal);
+    drop(publication);
+    assert_eq!(Arc::strong_count(&retained_tx), 2);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("effect checkout plans")
+        .expect("committed effect is available")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("effect checkout returns the only lease");
+    assert_eq!(lease.effects().len(), 1);
+    assert!(matches!(
+        &lease.effects()[0],
+        CommittedEffect::Rejected { tx, reason }
+            if Arc::ptr_eq(tx, &retained_tx) && *reason == RejectionKind::Policy
+    ));
+    let published = authority
+        .plan_effect_settlement_for_foundation(lease.published())
+        .expect("published effect settles")
+        .apply();
+    assert_eq!(published.retired_effect_len(), 1);
+    assert_eq!(Arc::strong_count(&retained_tx), 2);
+    drop(published);
     assert_eq!(Arc::strong_count(&retained_tx), 1);
 }
 
@@ -3185,7 +3222,8 @@ fn uak_active_work_backpressure_is_precomputed_and_mutation_free() {
         .plan_checkout_for_foundation(&first, version, WorkPermit::ResolveOnly)
         .expect("first peer work grant fits")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
+    else {
         panic!("resolve-only permit returns resolve work");
     };
 
@@ -3224,7 +3262,8 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("first incarnation checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
+    else {
         panic!("resolve-only permit returns resolve work");
     };
 
@@ -3281,8 +3320,9 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     );
     assert!(authority.primary_projection_consistent());
     let before_local_continuation = authority.normalized_snapshot();
-    let CheckedOutWork::ContinuousResolve(resolve) =
-        checkout.work.expect("checkout returns one work capability")
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout
+        .into_work()
+        .expect("checkout returns one work capability")
     else {
         panic!("continuous permit returns continuous resolve work");
     };
@@ -3347,7 +3387,8 @@ fn uak_compute_growth_requires_a_precharged_grant() {
         )
         .expect("bounded resolve grant is available")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     assert_eq!(
@@ -3394,7 +3435,8 @@ fn uak_compute_growth_requires_a_precharged_grant() {
         )
         .expect("bounded continuous grant is available")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -3459,7 +3501,7 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
         )
         .expect("verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = committed.work.expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = committed.into_work().expect("verify work exists") else {
         panic!("verify permit returns verify work");
     };
     let underreported = verify_tx
@@ -3507,7 +3549,8 @@ fn uak_resolve_to_verify_continuation_changes_no_authority_state() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let before = authority.normalized_snapshot();
@@ -3535,7 +3578,8 @@ fn uak_verified_settlement_has_one_ready_projection() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -3587,7 +3631,7 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
         .plan_checkout_for_foundation(&queued_hash, queued_version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
         panic!("resolve-only permit returns resolve work");
     };
     apply_without_work(
@@ -3616,7 +3660,7 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
         .plan_checkout_for_foundation(&rejected_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
         panic!("resolve-only permit returns resolve work");
     };
     apply_without_work(
@@ -3646,7 +3690,8 @@ fn uak_missing_settlement_registers_exact_level_wait() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
+    else {
         panic!("resolve-only permit returns resolve work");
     };
     assert_eq!(resolve.transaction().hash(), hash.0);
@@ -3680,7 +3725,8 @@ fn uak_continuation_yield_returns_one_queued_owner() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
+    else {
         panic!("resolve-only permit returns resolve work");
     };
     let resident_bytes = resolve.transaction().data().total_size();
@@ -3716,7 +3762,8 @@ fn uak_continuation_yield_returns_one_queued_owner() {
         )
         .expect("queued verify accepts verify-only permit")
         .apply();
-    let CheckedOutWork::Verify(verify) = verify_checkout.work.expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = verify_checkout.into_work().expect("verify work exists")
+    else {
         panic!("verify-only permit returns verify work");
     };
     apply_without_work(
@@ -3750,7 +3797,8 @@ fn uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -3775,7 +3823,7 @@ fn uak_stale_lease_is_mutation_free_across_chain_epoch_and_token_mismatch() {
         .expect("second checkout plans")
         .apply();
     let CheckedOutWork::ContinuousResolve(second) =
-        second_checkout.work.expect("second work exists")
+        second_checkout.into_work().expect("second work exists")
     else {
         panic!("continuous permit returns continuous resolve work");
     };
@@ -3803,7 +3851,8 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&resolve_reject_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = resolve_checkout.work.expect("resolve work exists")
+    let CheckedOutWork::Resolve(resolve) =
+        resolve_checkout.into_work().expect("resolve work exists")
     else {
         panic!("resolve-only permit returns resolve work");
     };
@@ -3819,7 +3868,8 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&resolve_failure_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
+    else {
         panic!("resolve-only permit returns resolve work");
     };
     apply_without_work(
@@ -3838,8 +3888,9 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(continuous) =
-        continuous_checkout.work.expect("continuous work exists")
+    let CheckedOutWork::ContinuousResolve(continuous) = continuous_checkout
+        .into_work()
+        .expect("continuous work exists")
     else {
         panic!("continuous permit returns continuous resolve work");
     };
@@ -3859,7 +3910,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&verify_success_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = first.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = first.into_work().expect("resolve work exists") else {
         panic!("resolve-only permit returns resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -3882,7 +3933,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = second.work.expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = second.into_work().expect("verify work exists") else {
         panic!("verify-only permit returns verify work");
     };
     apply_without_work(
@@ -3923,7 +3974,8 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     apply_without_work(
@@ -3938,7 +3990,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&verify_failure_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
         panic!("resolve-only permit returns resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -3960,7 +4012,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("work exists") else {
         panic!("verify-only permit returns verify work");
     };
     apply_without_work(
@@ -3979,7 +4031,8 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -4161,7 +4214,7 @@ fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
 #[test]
 fn uak_verify_frontier_preserves_the_configured_arrival_or_fee_order() {
     for order in [VerifyOrder::Arrival, VerifyOrder::FeeRate] {
-        let mut authority = TxPoolAuthority::new(limits(), order);
+        let mut authority = TxPoolAuthority::for_foundation_with_order(limits(), order);
         let earlier = queue_remote_for_verify(&mut authority, tx(621), 70, Capacity::shannons(1));
         let later = queue_remote_for_verify(&mut authority, tx(622), 70, Capacity::shannons(1_000));
         let expected = match order {
@@ -4174,7 +4227,8 @@ fn uak_verify_frontier_preserves_the_configured_arrival_or_fee_order() {
             .expect("configured verify selection is valid")
             .expect("verify work is queued")
             .apply();
-        let CheckedOutWork::Verify(work) = committed.work.expect("verify work exists") else {
+        let CheckedOutWork::Verify(work) = committed.into_work().expect("verify work exists")
+        else {
             panic!("verify permit returns verify work");
         };
         assert_eq!(
@@ -4396,7 +4450,8 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
         .expect("resolve frontier is valid")
         .expect("resolve work is available")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -4428,7 +4483,7 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
         .expect("general frontier lookup is valid")
         .expect("general worker can consume large verification")
         .apply();
-    let CheckedOutWork::Verify(verify) = checkout.work.expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
         panic!("verify-only permit returns verify work");
     };
     apply_without_work(
@@ -4502,7 +4557,8 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
             .expect("small frontier lookup is valid")
             .expect("small work is not hidden by the large head")
             .apply();
-        let CheckedOutWork::Verify(work) = committed.work.expect("verify work exists") else {
+        let CheckedOutWork::Verify(work) = committed.into_work().expect("verify work exists")
+        else {
             panic!("verify-only permit returns verify work");
         };
         (TxIdentity::from_transaction(work.transaction()).raw, work)
@@ -4519,7 +4575,8 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
         .expect("general frontier lookup is valid")
         .expect("large work remains")
         .apply();
-    let CheckedOutWork::Verify(large_verify) = committed.work.expect("verify work exists") else {
+    let CheckedOutWork::Verify(large_verify) = committed.into_work().expect("verify work exists")
+    else {
         panic!("verify-only permit returns verify work");
     };
     assert_eq!(
@@ -4545,7 +4602,7 @@ fn uak_runner_cancellation_settles_one_exact_lease_before_exit() {
         .apply();
     assert_eq!(authority.resources().preaccepted().active_work, 1);
     let cancellation = checkout
-        .work
+        .into_work()
         .expect("checked-out capability exists")
         .cancelled();
     apply_without_work(

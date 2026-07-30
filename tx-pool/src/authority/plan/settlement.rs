@@ -1,9 +1,10 @@
 use super::{
-    AuthorityClocks, AuthorityDelta, AuthorityFault, CommittedChange, IndependentDelta,
-    IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority, next_sequence,
-    next_version,
+    AuthorityClocks, AuthorityDelta, AuthorityFault, CommittedChange, CommittedHandoff,
+    IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
+    next_sequence, next_version,
 };
 use crate::authority::{
+    effect::EffectDelta,
     plan::membership::{
         IndependentCoupling, IndependentMembershipChange, IndependentMembershipOutcome,
         PreparedIndependentMembership, prepare_independent_membership,
@@ -93,6 +94,7 @@ impl TxPoolAuthority {
         &mut self,
         batch: &SettlementBatch,
     ) -> Result<SettlementPlan<'_>, PlanError> {
+        self.effects.ensure_open()?;
         let mut facts = Vec::new();
         facts
             .try_reserve(batch.0.len())
@@ -206,10 +208,11 @@ impl TxPoolAuthority {
                 projection,
                 scheduler,
                 dependency,
+                effect: EffectDelta::default(),
                 clocks,
                 committed,
             }),
-            work: None,
+            handoff: CommittedHandoff::None,
         }))
     }
 }

@@ -48,7 +48,7 @@ fn input_transaction(version: u32, input: OutPoint) -> TransactionView {
 fn apply_without_work(plan: PreparedApply<'_>) -> CommittedChanges {
     let committed = plan.apply();
     assert!(
-        committed.work.is_none(),
+        committed.handoff_is_none(),
         "transition issued unexpected work"
     );
     committed.changes
@@ -84,7 +84,7 @@ fn checkout_resolve(
         )
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(work) = committed.work.expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
         panic!("resolve-only capability returned another work type");
     };
     work
@@ -99,7 +99,8 @@ fn checkout_continuous(authority: &mut TxPoolAuthority, hash: &RawTxHash) -> Con
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(work) = committed.work.expect("work exists") else {
+    let CheckedOutWork::ContinuousResolve(work) = committed.into_work().expect("work exists")
+    else {
         panic!("continuous capability returned another work type");
     };
     work

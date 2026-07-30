@@ -6,6 +6,7 @@
 //! proven before any runtime path is switched.
 
 mod dependency;
+mod effect;
 mod plan;
 mod resources;
 mod scheduler;

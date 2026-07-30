@@ -5,6 +5,11 @@ use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
     DependencyEvent, DependencyFrontier, DependencySnapshot,
 };
+use super::effect::{
+    CommittedEffect, EffectBatch, EffectBuildError, EffectConfigError, EffectDelta, EffectError,
+    EffectLease, EffectLimits, EffectLog, EffectObservation, EffectPolicy, EffectPublication,
+    EffectSettlement, EffectSnapshot,
+};
 use super::resources::{
     ChargeRecord, ResourceBatchPlan, ResourceError, ResourceLedger, ResourceLimits, ResourcePlan,
     ResourceSnapshot, ResourceVector,
@@ -71,6 +76,7 @@ pub(super) struct AuthoritySnapshot {
     membership: MembershipSnapshot,
     scheduler: SchedulerSnapshot,
     dependencies: DependencySnapshot,
+    effects: EffectSnapshot,
     clocks: AuthorityClocks,
 }
 
@@ -83,12 +89,25 @@ pub(super) struct TxPoolAuthority {
     membership: MembershipProjection,
     scheduler: FairFrontier,
     dependencies: DependencyFrontier,
+    effects: EffectLog,
     membership_config: MembershipConfig,
     clocks: AuthorityClocks,
 }
 
 impl TxPoolAuthority {
-    pub(super) fn new(limits: ResourceLimits, verify_order: VerifyOrder) -> Self {
+    pub(super) fn new(
+        limits: ResourceLimits,
+        verify_order: VerifyOrder,
+        effect_limits: EffectLimits,
+    ) -> Result<Self, AuthorityConfigError> {
+        Ok(Self::assemble(
+            limits,
+            verify_order,
+            EffectLog::new(effect_limits).map_err(AuthorityConfigError::Effect)?,
+        ))
+    }
+
+    fn assemble(limits: ResourceLimits, verify_order: VerifyOrder, effects: EffectLog) -> Self {
         Self {
             chain_epoch: ChainEpoch(0),
             entries: HashMap::new(),
@@ -97,6 +116,7 @@ impl TxPoolAuthority {
             membership: MembershipProjection::default(),
             scheduler: FairFrontier::new(verify_order),
             dependencies: DependencyFrontier::default(),
+            effects,
             membership_config: MembershipConfig::testing_default(),
             clocks: AuthorityClocks::first(),
         }
@@ -114,7 +134,23 @@ impl TxPoolAuthority {
 
     #[cfg(test)]
     pub(super) fn for_foundation(limits: ResourceLimits) -> Self {
-        Self::new(limits, VerifyOrder::Arrival)
+        Self::assemble(limits, VerifyOrder::Arrival, EffectLog::for_foundation())
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation_with_order(
+        limits: ResourceLimits,
+        verify_order: VerifyOrder,
+    ) -> Self {
+        Self::assemble(limits, verify_order, EffectLog::for_foundation())
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation_with_effect_limits(
+        limits: ResourceLimits,
+        effect_limits: EffectLimits,
+    ) -> Result<Self, AuthorityConfigError> {
+        Self::new(limits, VerifyOrder::Arrival, effect_limits)
     }
 
     pub(super) fn entry(&self, hash: &RawTxHash) -> Option<&OwnedTx> {
@@ -232,6 +268,7 @@ impl TxPoolAuthority {
             membership: self.membership.snapshot(),
             scheduler: self.scheduler.snapshot(),
             dependencies: self.dependencies.snapshot(),
+            effects: self.effects.snapshot(),
             clocks: self.clocks,
         }
     }
@@ -246,7 +283,15 @@ impl TxPoolAuthority {
             })
             && self.scheduler.semantically_matches(&self.entries)
             && self.dependencies.semantically_matches(&self.entries)
+            && self
+                .effects
+                .semantically_consistent(self.clocks.next_sequence)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AuthorityConfigError {
+    Effect(EffectConfigError),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,6 +301,7 @@ pub(super) enum Backpressure {
     RemoteResources,
     PeerResources,
     AcceptedResources,
+    EffectCapacity,
     Allocation,
 }
 
@@ -267,6 +313,7 @@ pub(super) enum StalePlan {
     ChainEpoch,
     Lease,
     Dependency,
+    EffectLease,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,6 +323,7 @@ pub(super) enum AuthorityFault {
     MembershipProjection,
     SchedulerProjection,
     DependencyProjection,
+    EffectProjection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -286,6 +334,7 @@ pub(super) enum PlanError {
     Backpressure(Backpressure),
     Stale(StalePlan),
     Fault(AuthorityFault),
+    EffectClosed,
 }
 
 impl From<ResourceError> for PlanError {
@@ -322,6 +371,17 @@ impl From<DependencyError> for PlanError {
     }
 }
 
+impl From<EffectError> for PlanError {
+    fn from(error: EffectError) -> Self {
+        match error {
+            EffectError::Full => Self::Backpressure(Backpressure::EffectCapacity),
+            EffectError::Closed => Self::EffectClosed,
+            EffectError::StaleLease => Self::Stale(StalePlan::EffectLease),
+            EffectError::Projection => Self::Fault(AuthorityFault::EffectProjection),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CommittedChange {
     pub(super) sequence: ApplySequence,
@@ -333,15 +393,25 @@ pub(super) enum CommittedChanges {
     One(CommittedChange),
     IndependentRun(Vec<CommittedChange>),
     DependencyControl(ApplySequence),
+    EffectControl(ApplySequence),
+}
+
+#[derive(Debug, Default)]
+pub(super) enum CommittedHandoff {
+    #[default]
+    None,
+    Compute(CheckedOutWork),
+    Effect(EffectLease),
 }
 
 #[derive(Debug)]
 #[must_use = "a committed delta contains the only post-Apply work/effect handoff"]
 pub(super) struct CommittedDelta {
     pub(super) changes: CommittedChanges,
-    pub(super) work: Option<CheckedOutWork>,
+    pub(super) handoff: CommittedHandoff,
     pub(super) removals: Vec<MembershipRemoval>,
     retired: Vec<OwnedTx>,
+    retired_effect: Option<Arc<EffectBatch>>,
 }
 
 enum EntryRetirement {
@@ -353,6 +423,54 @@ impl CommittedDelta {
     pub(in crate::authority) fn retired_len(&self) -> usize {
         self.retired.len()
     }
+
+    pub(in crate::authority) fn handoff_is_none(&self) -> bool {
+        matches!(self.handoff, CommittedHandoff::None)
+    }
+
+    /// Move compute work out while retaining every retirement carrier in this
+    /// delta. Runtime callers must keep the delta alive until the authority
+    /// guard has opened, then let its retired payloads fall out of scope.
+    pub(in crate::authority) fn take_work(&mut self) -> Option<CheckedOutWork> {
+        let handoff = std::mem::take(&mut self.handoff);
+        match handoff {
+            CommittedHandoff::Compute(work) => Some(work),
+            other => {
+                self.handoff = other;
+                None
+            }
+        }
+    }
+
+    /// Test fixtures own no runtime authority guard, so they may consume the
+    /// complete delta for concise capability extraction. This API is absent
+    /// from production builds; production must retain the retirement carrier.
+    #[cfg(test)]
+    pub(in crate::authority) fn into_work(mut self) -> Option<CheckedOutWork> {
+        self.take_work()
+    }
+
+    /// Move the publisher capability out without destroying retired effect or
+    /// transaction payloads under the future authority guard.
+    pub(in crate::authority) fn take_effect_lease(&mut self) -> Option<EffectLease> {
+        let handoff = std::mem::take(&mut self.handoff);
+        match handoff {
+            CommittedHandoff::Effect(lease) => Some(lease),
+            other => {
+                self.handoff = other;
+                None
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn into_effect_lease(mut self) -> Option<EffectLease> {
+        self.take_effect_lease()
+    }
+
+    pub(in crate::authority) fn retired_effect_len(&self) -> usize {
+        usize::from(self.retired_effect.is_some())
+    }
 }
 
 struct EntryDelta {
@@ -363,6 +481,7 @@ struct EntryDelta {
     resource: ResourcePlan,
     scheduler: SchedulerDelta,
     dependency: DependencyDelta,
+    effect: EffectDelta,
     clocks: AuthorityClocks,
     sequence: ApplySequence,
 }
@@ -371,6 +490,12 @@ struct EntryTransition {
     key: RawTxHash,
     before: Option<OwnedTx>,
     after: Option<OwnedTx>,
+}
+
+#[derive(Default)]
+struct TransitionControls {
+    dependency: DependencyControlDelta,
+    effect: EffectDelta,
 }
 
 struct WorkHandoff {
@@ -405,6 +530,7 @@ struct MembershipDelta {
     projection: ProjectionDelta,
     scheduler: SchedulerDelta,
     dependency: DependencyBatchDelta,
+    effect: EffectDelta,
     retired: Vec<OwnedTx>,
     clocks: AuthorityClocks,
     committed: CommittedChanges,
@@ -421,6 +547,7 @@ struct IndependentDelta {
     projection: ProjectionDelta,
     scheduler: SchedulerBatchDelta,
     dependency: DependencyBatchDelta,
+    effect: EffectDelta,
     clocks: AuthorityClocks,
     committed: Vec<CommittedChange>,
 }
@@ -431,11 +558,18 @@ struct DependencyOnlyDelta {
     sequence: ApplySequence,
 }
 
+struct EffectOnlyDelta {
+    effect: EffectDelta,
+    clocks: AuthorityClocks,
+    sequence: ApplySequence,
+}
+
 enum AuthorityDelta {
     Entry(EntryDelta),
     Membership(MembershipDelta),
     Independent(IndependentDelta),
     Dependency(DependencyOnlyDelta),
+    Effect(EffectOnlyDelta),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -448,7 +582,7 @@ enum MissingResolutionDisposition {
 pub(super) struct PreparedApply<'authority> {
     authority: &'authority mut TxPoolAuthority,
     delta: AuthorityDelta,
-    work: Option<CheckedOutWork>,
+    handoff: CommittedHandoff,
 }
 
 impl PreparedApply<'_> {
@@ -456,20 +590,21 @@ impl PreparedApply<'_> {
         let Self {
             authority,
             delta,
-            work,
+            handoff,
         } = self;
         match delta {
-            AuthorityDelta::Entry(delta) => Self::apply_entry(authority, delta, work),
+            AuthorityDelta::Entry(delta) => Self::apply_entry(authority, delta, handoff),
             AuthorityDelta::Membership(delta) => Self::apply_membership(authority, delta),
             AuthorityDelta::Independent(delta) => Self::apply_independent(authority, delta),
             AuthorityDelta::Dependency(delta) => Self::apply_dependency(authority, delta),
+            AuthorityDelta::Effect(delta) => Self::apply_effect(authority, delta, handoff),
         }
     }
 
     fn apply_entry(
         authority: &mut TxPoolAuthority,
         delta: EntryDelta,
-        work: Option<CheckedOutWork>,
+        handoff: CommittedHandoff,
     ) -> CommittedDelta {
         if let Some(proposal) = delta.old_proposal {
             authority.by_proposal.remove(&proposal);
@@ -496,15 +631,17 @@ impl PreparedApply<'_> {
         authority.resources.apply(delta.resource);
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply(delta.dependency);
+        let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::One(CommittedChange {
                 sequence: delta.sequence,
                 changed: delta.key,
             }),
-            work,
+            handoff,
             removals: Vec::new(),
             retired,
+            retired_effect,
         }
     }
 
@@ -529,12 +666,14 @@ impl PreparedApply<'_> {
         authority.membership.apply(delta.projection);
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
+        let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: delta.committed,
-            work: None,
+            handoff: CommittedHandoff::None,
             removals: delta.removals,
             retired,
+            retired_effect,
         }
     }
 
@@ -551,12 +690,14 @@ impl PreparedApply<'_> {
         authority.membership.apply(delta.projection);
         authority.scheduler.apply_batch(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
+        let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::IndependentRun(delta.committed),
-            work: None,
+            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired: Vec::new(),
+            retired_effect,
         }
     }
 
@@ -568,9 +709,26 @@ impl PreparedApply<'_> {
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::DependencyControl(delta.sequence),
-            work: None,
+            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired: Vec::new(),
+            retired_effect: None,
+        }
+    }
+
+    fn apply_effect(
+        authority: &mut TxPoolAuthority,
+        delta: EffectOnlyDelta,
+        handoff: CommittedHandoff,
+    ) -> CommittedDelta {
+        let retired_effect = authority.effects.apply(delta.effect);
+        authority.clocks = delta.clocks;
+        CommittedDelta {
+            changes: CommittedChanges::EffectControl(delta.sequence),
+            handoff,
+            removals: Vec::new(),
+            retired: Vec::new(),
+            retired_effect,
         }
     }
 }
@@ -817,6 +975,7 @@ impl TxPoolAuthority {
         expected: EntryVersion,
         status: AcceptedStatus,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        self.effects.ensure_open()?;
         let existing = self
             .entries
             .get(key)
@@ -870,6 +1029,7 @@ impl TxPoolAuthority {
                 projection,
                 scheduler,
                 dependency,
+                effect: EffectDelta::default(),
                 retired,
                 clocks,
                 committed: CommittedChanges::One(CommittedChange {
@@ -877,7 +1037,7 @@ impl TxPoolAuthority {
                     changed: key.clone(),
                 }),
             }),
-            work: None,
+            handoff: CommittedHandoff::None,
         })
     }
 
@@ -887,6 +1047,7 @@ impl TxPoolAuthority {
         expected: EntryVersion,
         status: AcceptedStatus,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        self.effects.ensure_open()?;
         let existing = self
             .entries
             .get(key)
@@ -939,6 +1100,7 @@ impl TxPoolAuthority {
                 projection,
                 scheduler,
                 dependency,
+                effect: EffectDelta::default(),
                 retired,
                 clocks,
                 committed: CommittedChanges::One(CommittedChange {
@@ -946,7 +1108,7 @@ impl TxPoolAuthority {
                     changed: key.clone(),
                 }),
             }),
-            work: None,
+            handoff: CommittedHandoff::None,
         })
     }
 
@@ -955,9 +1117,28 @@ impl TxPoolAuthority {
         key: &RawTxHash,
         expected: EntryVersion,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_terminalize_with_publication(key, expected, None)
+    }
+
+    pub(super) fn plan_terminalize_with_effect_for_foundation(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        publication: &EffectPublication,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_terminalize_with_publication(key, expected, Some(publication))
+    }
+
+    fn plan_terminalize_with_publication(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        publication: Option<&EffectPublication>,
+    ) -> Result<PreparedApply<'_>, PlanError> {
         let existing = self
             .entries
             .get(key)
+            .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
         if existing.record().version != expected {
             return Err(PlanError::Stale(StalePlan::Version));
@@ -970,24 +1151,114 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        let dependency_control = self.plan_dependency_loss(std::iter::once(existing), sequence)?;
-        self.prepare_entry_delta_with_dependency(
+        let dependency_control = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
+        let effect = publication.map_or_else(
+            || Ok(EffectDelta::default()),
+            |publication| self.effects.plan_publication(publication, sequence),
+        )?;
+        self.prepare_entry_delta_with_controls(
             EntryTransition {
                 key: key.clone(),
-                before: Some(existing.clone()),
+                before: Some(existing),
                 after: None,
             },
             clocks,
             sequence,
             None,
-            dependency_control,
+            TransitionControls {
+                dependency: dependency_control,
+                effect,
+            },
         )
+    }
+
+    pub(super) fn effect_publication_for_foundation(
+        &self,
+        policy: EffectPolicy,
+        effects: Vec<CommittedEffect>,
+    ) -> Result<EffectPublication, EffectBuildError> {
+        self.effects.build_publication(policy, effects)
+    }
+
+    pub(super) fn plan_effect_publication_for_foundation(
+        &mut self,
+        publication: &EffectPublication,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let sequence = self.clocks.next_sequence;
+        let effect = self.effects.plan_publication(publication, sequence)?;
+        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+    }
+
+    pub(super) fn plan_generation_reset_for_foundation(
+        &mut self,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let sequence = self.clocks.next_sequence;
+        let effect = self.effects.plan_generation_reset(sequence)?;
+        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+    }
+
+    pub(super) fn plan_effect_checkout_for_foundation(
+        &mut self,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let Some((effect, lease)) = self.effects.plan_checkout()? else {
+            return Ok(None);
+        };
+        let sequence = self.clocks.next_sequence;
+        self.prepare_effect_only(effect, sequence, CommittedHandoff::Effect(lease))
+            .map(Some)
+    }
+
+    pub(super) fn plan_effect_settlement_for_foundation(
+        &mut self,
+        settlement: EffectSettlement,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let effect = self.effects.plan_settlement(settlement)?;
+        let sequence = self.clocks.next_sequence;
+        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+    }
+
+    pub(super) fn plan_effect_close_for_foundation(
+        &mut self,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let effect = self.effects.plan_close()?;
+        let sequence = self.clocks.next_sequence;
+        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+    }
+
+    pub(super) fn effects_closed_and_drained_for_foundation(&self) -> bool {
+        self.effects.is_closed_and_drained()
+    }
+
+    pub(super) fn effect_observation_for_foundation(&self) -> EffectObservation {
+        self.effects.observation()
+    }
+
+    fn prepare_effect_only(
+        &mut self,
+        effect: EffectDelta,
+        sequence: ApplySequence,
+        handoff: CommittedHandoff,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let clocks = AuthorityClocks {
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Effect(EffectOnlyDelta {
+                effect,
+                clocks,
+                sequence,
+            }),
+            handoff,
+        })
     }
 
     pub(super) fn plan_dependency_availability_for_foundation(
         &mut self,
         keys: Vec<DependencyKey>,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        self.effects.ensure_open()?;
         let sequence = self.clocks.next_sequence;
         let Some(control) = self
             .dependencies
@@ -1006,13 +1277,14 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            work: None,
+            handoff: CommittedHandoff::None,
         }))
     }
 
     pub(super) fn plan_dependency_maintenance_for_foundation(
         &mut self,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        self.effects.ensure_open()?;
         let Some(ticket) = self.dependencies.next_maintenance()? else {
             return Ok(None);
         };
@@ -1033,7 +1305,7 @@ impl TxPoolAuthority {
                     clocks,
                     sequence,
                 }),
-                work: None,
+                handoff: CommittedHandoff::None,
             }));
         }
 
@@ -1467,12 +1739,12 @@ impl TxPoolAuthority {
         sequence: ApplySequence,
         handoff: Option<WorkHandoff>,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        self.prepare_entry_delta_with_dependency(
+        self.prepare_entry_delta_with_controls(
             transition,
             clocks,
             sequence,
             handoff,
-            DependencyControlDelta::default(),
+            TransitionControls::default(),
         )
     }
 
@@ -1484,6 +1756,27 @@ impl TxPoolAuthority {
         handoff: Option<WorkHandoff>,
         dependency_control: DependencyControlDelta,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        self.prepare_entry_delta_with_controls(
+            transition,
+            clocks,
+            sequence,
+            handoff,
+            TransitionControls {
+                dependency: dependency_control,
+                effect: EffectDelta::default(),
+            },
+        )
+    }
+
+    fn prepare_entry_delta_with_controls(
+        &mut self,
+        transition: EntryTransition,
+        clocks: AuthorityClocks,
+        sequence: ApplySequence,
+        handoff: Option<WorkHandoff>,
+        controls: TransitionControls,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.effects.ensure_open()?;
         let EntryTransition {
             key,
             before: expected,
@@ -1535,7 +1828,9 @@ impl TxPoolAuthority {
         let dependency = self
             .dependencies
             .plan_replace(expected.as_ref(), after.as_ref())?
-            .with_control(dependency_control);
+            .with_control(controls.dependency);
+        let effect = controls.effect;
+        let handoff = work.map_or(CommittedHandoff::None, CommittedHandoff::Compute);
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Entry(EntryDelta {
@@ -1546,10 +1841,11 @@ impl TxPoolAuthority {
                 resource,
                 scheduler,
                 dependency,
+                effect,
                 clocks,
                 sequence,
             }),
-            work,
+            handoff,
         })
     }
 }
