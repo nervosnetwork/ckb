@@ -5,6 +5,7 @@
 //! uses project transaction identities and Rust ownership so the target API is
 //! proven before any runtime path is switched.
 
+mod dependency;
 mod plan;
 mod resources;
 mod scheduler;

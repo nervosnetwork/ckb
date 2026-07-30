@@ -11,9 +11,9 @@ use super::super::resources::{
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedEntry, AcceptedStatus, ActiveWork, AdmissionClass, ApplySequence, CandidateMetrics,
-    ChainEpoch, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyEpoch, DependencyKey,
+    ChainEpoch, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut, DependencyKey,
     EntryVersion, ExpandedFootprint, FootprintError, IngressAttribution, InputEvidenceError,
-    ObservedDependencies, ObservedDependency, OwnedTx, PayloadBlame, PreAcceptedPhase,
+    KnownDependencies, ObservedDependencies, OwnedTx, PayloadBlame, PreAcceptedPhase,
     ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind, ResolvedPayload,
     TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass,
     WaitCondition, WorkPermit,
@@ -74,11 +74,15 @@ fn tx(nonce: u64) -> ckb_types::core::TransactionView {
 }
 
 fn observed(epoch: u64) -> ObservedDependencies {
-    ObservedDependencies::new(vec![ObservedDependency {
-        key: DependencyKey::Cell(OutPoint::default()),
-        epoch: DependencyEpoch(epoch),
-    }])
+    ObservedDependencies::for_foundation(
+        vec![DependencyKey::Cell(OutPoint::default())],
+        DependencyCut(ApplySequence(u128::from(epoch))),
+    )
     .expect("fixture dependency set is non-empty")
+}
+
+fn missing_keys() -> Vec<DependencyKey> {
+    vec![DependencyKey::Cell(OutPoint::default())]
 }
 
 fn admit_remote(
@@ -560,8 +564,8 @@ fn uak_remote_admission_owns_and_charges_once() {
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Queued(_))
-                && entry.raw_charge == ResourceVector::new(1, expected_bytes, 3, 0)
-                && entry.charge == entry.raw_charge
+                && entry.original_charge() == ResourceVector::new(1, expected_bytes, 3, 0)
+                && entry.charge == entry.original_charge()
     ));
 }
 
@@ -752,11 +756,14 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
                 max_resident_bytes: bytes,
                 max_edges: 0,
             },
+            dependency_cut: DependencyCut(ApplySequence(1)),
+            dependencies: KnownDependencies::default(),
         }),
         PreAcceptedPhase::Waiting(WaitCondition::Missing(observed(1))),
         PreAcceptedPhase::Computed(ComputedOutcome::Verified(VerifiedFacts::for_foundation(
             witness,
             ChainEpoch(0),
+            DependencyCut(ApplySequence(1)),
             Arc::new(resolved_payload(&transaction)),
             CandidateMetrics {
                 fee: Capacity::shannons(1),
@@ -794,24 +801,24 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     assert_eq!(authority.chain_epoch(), ChainEpoch(0));
     assert_eq!(authority.resources().remote().entries, 1);
     assert_eq!(authority.clocks().next_lease, ComputeLeaseId(1));
+    let declared_dependencies = match owner {
+        OwnedTx::PreAccepted(entry) => entry.basis.dependencies().clone(),
+        OwnedTx::Accepted(_) => unreachable!("fixture starts preaccepted"),
+    };
 
     let observed_values = vec![
-        ObservedDependency {
-            key: DependencyKey::Cell(OutPoint::default()),
-            epoch: DependencyEpoch(1),
-        },
-        ObservedDependency {
-            key: DependencyKey::Header(Byte32::zero()),
-            epoch: DependencyEpoch(2),
-        },
+        DependencyKey::Cell(OutPoint::default()),
+        DependencyKey::Header(Byte32::zero()),
     ];
     let resolved = super::super::state::ResolvedFacts::for_foundation(
         ChainEpoch(0),
+        DependencyCut(ApplySequence(1)),
         Arc::new(resolved_payload(&tx(0))),
         VerifyCycleClass::Small,
     );
     let observed =
-        ObservedDependencies::new(observed_values).expect("fixture dependency set is non-empty");
+        ObservedDependencies::for_foundation(observed_values, DependencyCut(ApplySequence(1)))
+            .expect("fixture dependency set is non-empty");
     let variants = [
         PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
         PreAcceptedPhase::Computing(ActiveWork {
@@ -821,6 +828,8 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
                 max_resident_bytes: 1,
                 max_edges: 1,
             },
+            dependency_cut: DependencyCut(ApplySequence(1)),
+            dependencies: declared_dependencies.clone(),
         }),
         PreAcceptedPhase::Computing(ActiveWork {
             lease: ComputeLeaseId(3),
@@ -829,6 +838,8 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
                 max_resident_bytes: 1,
                 max_edges: 1,
             },
+            dependency_cut: DependencyCut(ApplySequence(1)),
+            dependencies: declared_dependencies,
         }),
         PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)),
         PreAcceptedPhase::Computed(ComputedOutcome::Rejected(RejectionKind::Verification)),
@@ -842,6 +853,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let verified = VerifiedFacts::for_foundation(
         owner.record().identity.witness.clone(),
         ChainEpoch(0),
+        DependencyCut(ApplySequence(1)),
         Arc::new(resolved_payload(&verified_transaction)),
         CandidateMetrics {
             fee: Capacity::shannons(1),
@@ -3399,7 +3411,7 @@ fn uak_compute_growth_requires_a_precharged_grant() {
         verify_authority.entry(&verify_hash),
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
-                && entry.charge == entry.raw_charge
+                && entry.charge == entry.original_charge()
     ));
     assert_resource_reference(&verify_authority);
 }
@@ -3431,7 +3443,7 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
     );
     apply_without_work(
         authority
-            .plan_settlement((*failure).into_settlement())
+            .plan_settlement(failure.into_settlement())
             .expect("invalid resolve receipt settles its exact lease"),
     );
 
@@ -3464,7 +3476,7 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
     );
     apply_without_work(
         authority
-            .plan_settlement((*failure).into_settlement())
+            .plan_settlement(failure.into_settlement())
             .expect("invalid verify receipt settles its exact lease"),
     );
 
@@ -3580,7 +3592,11 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
     };
     apply_without_work(
         queued
-            .plan_settlement(resolve.missing(observed(11)))
+            .plan_settlement(
+                resolve
+                    .missing(missing_keys())
+                    .expect("fixture missing keys are non-empty and bounded"),
+            )
             .expect("missing settlement plans"),
     );
     let waiting_version = owner_version(&queued, &queued_hash);
@@ -3636,7 +3652,11 @@ fn uak_missing_settlement_registers_exact_level_wait() {
     assert_eq!(resolve.transaction().hash(), hash.0);
     apply_without_work(
         authority
-            .plan_settlement(resolve.missing(observed(4)))
+            .plan_settlement(
+                resolve
+                    .missing(missing_keys())
+                    .expect("fixture missing keys are non-empty and bounded"),
+            )
             .expect("missing settlement plans"),
     );
     assert!(matches!(
@@ -3825,7 +3845,11 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     };
     apply_without_work(
         authority
-            .plan_settlement(continuous.missing(observed(9)))
+            .plan_settlement(
+                continuous
+                    .missing(missing_keys())
+                    .expect("fixture missing keys are non-empty and bounded"),
+            )
             .expect("continuous missing settles"),
     );
 

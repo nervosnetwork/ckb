@@ -114,9 +114,7 @@ impl TxPoolAuthority {
             else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
-            if verified.chain_epoch() != self.chain_epoch {
-                return Err(PlanError::Stale(StalePlan::ChainEpoch));
-            }
+            self.validate_acceptance_evidence(before, verified)?;
             facts.push(CandidateFact {
                 request: request.clone(),
                 before: before.clone(),
@@ -195,6 +193,11 @@ impl TxPoolAuthority {
                 .iter()
                 .map(|update| (self.entries.get(&update.key), Some(&update.after))),
         )?;
+        let dependency = self.dependencies.plan_replacements(
+            updates
+                .iter()
+                .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+        )?;
         Ok(SettlementPlan::IndependentRun(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Independent(IndependentDelta {
@@ -202,6 +205,7 @@ impl TxPoolAuthority {
                 resource,
                 projection,
                 scheduler,
+                dependency,
                 clocks,
                 committed,
             }),

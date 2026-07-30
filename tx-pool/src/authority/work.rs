@@ -1,22 +1,41 @@
 use super::resources::AcceptedCost;
 use super::state::{
-    CandidateMetrics, ChainEpoch, ComputeGrant, ComputeLeaseId, ComputedOutcome, EntryVersion,
-    InputEvidenceError, ObservedDependencies, QueuedWork, RawTxHash, RejectionKind, ResolvedFacts,
-    ResolvedPayload, TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WaitCondition,
-    WorkPermit,
+    CandidateMetrics, ChainEpoch, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
+    DependencyKey, DependencySetError, EntryVersion, InputEvidenceError, KnownDependencies,
+    MissingDependencies, QueuedWork, RawTxHash, RejectionKind, ResolvedFacts, ResolvedPayload,
+    TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use ckb_types::core::TransactionView;
 use ckb_types::{core::Capacity, packed::OutPoint};
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub(super) struct LeaseToken {
+pub(super) struct SettlementToken {
     pub(super) hash: RawTxHash,
     pub(super) version: EntryVersion,
     pub(super) lease: ComputeLeaseId,
     pub(super) chain_epoch: ChainEpoch,
+}
+
+#[derive(Debug)]
+pub(super) struct LeaseToken {
+    pub(super) settlement: SettlementToken,
+    pub(super) dependency_cut: DependencyCut,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
+}
+
+impl LeaseToken {
+    fn chain_epoch(&self) -> ChainEpoch {
+        self.settlement.chain_epoch
+    }
+
+    fn settle(self, next: SettlementNext) -> ComputeSettlement {
+        ComputeSettlement {
+            token: self.settlement,
+            next,
+        }
+    }
 }
 
 /// Constructor capability for `ResolvedPayload`. Its field is private to this
@@ -59,12 +78,14 @@ impl ResolutionEvidence {
 pub(super) struct ResolveWork {
     token: LeaseToken,
     tx: Arc<TransactionView>,
+    declared_dependencies: KnownDependencies,
 }
 
 #[derive(Debug)]
 pub(super) struct ContinuousResolveWork {
     token: LeaseToken,
     tx: Arc<TransactionView>,
+    declared_dependencies: KnownDependencies,
     capability: VerifyCapability,
 }
 
@@ -99,6 +120,8 @@ pub(super) enum WorkPermitMismatch {
 pub(super) enum ResolutionReceiptError {
     TransactionMismatch,
     InvalidEvidence(InputEvidenceError),
+    EmptyDependencies,
+    DependencyAllocation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,15 +134,15 @@ pub(super) enum VerificationReceiptError {
 #[must_use = "a rejected compute receipt still owns the exact lease settlement"]
 pub(super) struct ReceiptFailure<E> {
     error: E,
-    settlement: ComputeSettlement,
+    token: SettlementToken,
 }
 
 impl<E> ReceiptFailure<E> {
-    fn new(token: LeaseToken, error: E) -> Box<Self> {
-        Box::new(Self {
+    fn new(token: LeaseToken, error: E) -> Self {
+        Self {
             error,
-            settlement: internal_failure(token),
-        })
+            token: token.settlement,
+        }
     }
 
     pub(super) fn error(&self) -> &E {
@@ -127,7 +150,10 @@ impl<E> ReceiptFailure<E> {
     }
 
     pub(super) fn into_settlement(self) -> ComputeSettlement {
-        self.settlement
+        ComputeSettlement {
+            token: self.token,
+            next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+        }
     }
 }
 
@@ -140,22 +166,90 @@ pub(super) enum ContinuousResolution {
 #[derive(Debug)]
 pub(super) enum SettlementNext {
     QueuedVerify(ResolvedFacts),
-    Waiting(WaitCondition),
+    Waiting(MissingResolution),
     Computed(ComputedOutcome),
+}
+
+#[derive(Debug)]
+pub(super) struct MissingResolution {
+    missing: MissingDependencies,
+    dependencies: KnownDependencies,
+}
+
+impl MissingResolution {
+    pub(super) fn missing(&self) -> &MissingDependencies {
+        &self.missing
+    }
+
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        &self.dependencies
+    }
 }
 
 #[derive(Debug)]
 #[must_use = "a settlement must be planned and applied or explicitly discarded as stale"]
 pub(super) struct ComputeSettlement {
-    pub(super) token: LeaseToken,
+    pub(super) token: SettlementToken,
     pub(super) next: SettlementNext,
 }
 
 fn internal_failure(token: LeaseToken) -> ComputeSettlement {
-    ComputeSettlement {
-        token,
-        next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
-    }
+    token.settle(SettlementNext::Computed(ComputedOutcome::InternalFailure))
+}
+
+fn missing_settlement(
+    token: LeaseToken,
+    declared_dependencies: KnownDependencies,
+    keys: Vec<DependencyKey>,
+) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+    let missing = match MissingDependencies::new(keys, token.grant.max_edges) {
+        Ok(missing) => missing,
+        Err(DependencySetError::TooMany) => {
+            return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
+        }
+        Err(DependencySetError::Empty) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::EmptyDependencies,
+            ));
+        }
+        Err(DependencySetError::Allocation) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::DependencyAllocation,
+            ));
+        }
+        Err(DependencySetError::Arithmetic) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::InvalidEvidence(InputEvidenceError::DependencySet(
+                    DependencySetError::Arithmetic,
+                )),
+            ));
+        }
+    };
+    let dependencies = match declared_dependencies.with_missing(&missing, token.grant.max_edges) {
+        Ok(dependencies) => dependencies,
+        Err(DependencySetError::TooMany) => {
+            return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
+        }
+        Err(DependencySetError::Allocation) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::DependencyAllocation,
+            ));
+        }
+        Err(error @ (DependencySetError::Empty | DependencySetError::Arithmetic)) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::InvalidEvidence(InputEvidenceError::DependencySet(error)),
+            ));
+        }
+    };
+    Ok(token.settle(SettlementNext::Waiting(MissingResolution {
+        missing,
+        dependencies,
+    })))
 }
 
 fn payload_matches(tx: &TransactionView, payload: &ResolvedPayload) -> bool {
@@ -186,7 +280,13 @@ fn build_resolved_payload(
         evidence.chain_inputs,
     ) {
         Ok(payload) => Ok(Some((payload, verify_class))),
-        Err(InputEvidenceError::Footprint(super::state::FootprintError::TooManyEdges)) => Ok(None),
+        Err(
+            InputEvidenceError::Footprint(super::state::FootprintError::TooManyEdges)
+            | InputEvidenceError::DependencySet(DependencySetError::TooMany),
+        ) => Ok(None),
+        Err(InputEvidenceError::DependencySet(DependencySetError::Allocation)) => {
+            Err(ResolutionReceiptError::DependencyAllocation)
+        }
         Err(error) => Err(ResolutionReceiptError::InvalidEvidence(error)),
     }
 }
@@ -197,7 +297,7 @@ fn verified(
     resolved: ResolvedFacts,
     accepted_resident_bytes: usize,
     cycles: u64,
-) -> Result<ComputeSettlement, Box<ReceiptFailure<VerificationReceiptError>>> {
+) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
     if !payload_matches(&tx, resolved.payload()) {
         return Err(ReceiptFailure::new(
             token,
@@ -214,29 +314,27 @@ fn verified(
     if accepted_resident_bytes > token.grant.max_resident_bytes
         || resolved.payload().footprint.edge_count() > token.grant.max_edges
     {
-        return Ok(ComputeSettlement {
-            token,
-            next: SettlementNext::Computed(ComputedOutcome::BudgetDenied),
-        });
+        return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
     }
     let identity = TxIdentity::from_transaction(&tx);
     let metrics = CandidateMetrics {
         fee: resolved.payload().fee(),
         cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
     };
-    let (chain_epoch, payload, _) = resolved.into_verification_parts(VerificationSeal(()));
-    Ok(ComputeSettlement {
-        next: SettlementNext::Computed(ComputedOutcome::Verified(
+    let (chain_epoch, dependency_cut, payload, _) =
+        resolved.into_verification_parts(VerificationSeal(()));
+    Ok(
+        token.settle(SettlementNext::Computed(ComputedOutcome::Verified(
             VerifiedFacts::from_verification(
                 VerificationSeal(()),
                 identity.witness,
                 chain_epoch,
+                dependency_cut,
                 payload,
                 metrics,
             ),
-        )),
-        token,
-    })
+        ))),
+    )
 }
 
 impl ResolveWork {
@@ -244,11 +342,11 @@ impl ResolveWork {
         &self.tx
     }
 
-    pub(super) fn missing(self, dependencies: ObservedDependencies) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: SettlementNext::Waiting(WaitCondition::Missing(dependencies)),
-        }
+    pub(super) fn missing(
+        self,
+        keys: Vec<DependencyKey>,
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+        missing_settlement(self.token, self.declared_dependencies, keys)
     }
 
     pub(super) fn resolution_grant(&self) -> ComputeGrant {
@@ -258,30 +356,28 @@ impl ResolveWork {
     pub(super) fn resolved(
         self,
         evidence: ResolutionEvidence,
-    ) -> Result<ComputeSettlement, Box<ReceiptFailure<ResolutionReceiptError>>> {
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
         let next = match build_resolved_payload(&self.token, &self.tx, evidence) {
             Err(error) => return Err(ReceiptFailure::new(self.token, error)),
             Ok(Some((payload, verify_class))) => {
                 SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
                     ResolutionSeal(()),
-                    self.token.chain_epoch,
+                    self.token.chain_epoch(),
+                    self.token.dependency_cut,
                     Arc::new(payload),
                     verify_class,
                 ))
             }
             Ok(None) => SettlementNext::Computed(ComputedOutcome::BudgetDenied),
         };
-        Ok(ComputeSettlement {
-            token: self.token,
-            next,
-        })
+        Ok(self.token.settle(next))
     }
 
     #[cfg(test)]
     pub(super) fn yield_verify(
         self,
         payload: ResolvedPayload,
-    ) -> Result<ComputeSettlement, Box<ReceiptFailure<ResolutionReceiptError>>> {
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
         self.yield_verify_as(payload, VerifyCycleClass::Small)
     }
 
@@ -290,7 +386,7 @@ impl ResolveWork {
         self,
         payload: ResolvedPayload,
         verify_class: VerifyCycleClass,
-    ) -> Result<ComputeSettlement, Box<ReceiptFailure<ResolutionReceiptError>>> {
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
         if !payload_matches(&self.tx, &payload) {
             return Err(ReceiptFailure::new(
                 self.token,
@@ -300,24 +396,20 @@ impl ResolveWork {
         let next = if resolved_within_grant(self.token.grant, &payload) {
             SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
                 ResolutionSeal(()),
-                self.token.chain_epoch,
+                self.token.chain_epoch(),
+                self.token.dependency_cut,
                 Arc::new(payload),
                 verify_class,
             ))
         } else {
             SettlementNext::Computed(ComputedOutcome::BudgetDenied)
         };
-        Ok(ComputeSettlement {
-            token: self.token,
-            next,
-        })
+        Ok(self.token.settle(next))
     }
 
     pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: SettlementNext::Computed(ComputedOutcome::Rejected(reason)),
-        }
+        self.token
+            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -330,11 +422,16 @@ impl ContinuousResolveWork {
         &self.tx
     }
 
-    pub(super) fn missing(self, dependencies: ObservedDependencies) -> ComputeSettlement {
-        ComputeSettlement {
+    pub(super) fn missing(
+        self,
+        keys: Vec<DependencyKey>,
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+        ResolveWork {
             token: self.token,
-            next: SettlementNext::Waiting(WaitCondition::Missing(dependencies)),
+            tx: self.tx,
+            declared_dependencies: self.declared_dependencies,
         }
+        .missing(keys)
     }
 
     pub(super) fn resolution_grant(&self) -> ComputeGrant {
@@ -344,21 +441,22 @@ impl ContinuousResolveWork {
     pub(super) fn resolved(
         self,
         evidence: ResolutionEvidence,
-    ) -> Result<ContinuousResolution, Box<ReceiptFailure<ResolutionReceiptError>>> {
+    ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
         let payload = match build_resolved_payload(&self.token, &self.tx, evidence) {
             Ok(payload) => payload,
             Err(error) => return Err(ReceiptFailure::new(self.token, error)),
         };
         let Some((payload, verify_class)) = payload else {
-            return Ok(ContinuousResolution::Settle(ComputeSettlement {
-                token: self.token,
-                next: SettlementNext::Computed(ComputedOutcome::BudgetDenied),
-            }));
+            return Ok(ContinuousResolution::Settle(
+                self.token
+                    .settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)),
+            ));
         };
-        let chain_epoch = self.token.chain_epoch;
+        let chain_epoch = self.token.chain_epoch();
         let resolved = ResolvedFacts::from_resolution(
             ResolutionSeal(()),
             chain_epoch,
+            self.token.dependency_cut,
             Arc::new(payload),
             verify_class,
         );
@@ -369,10 +467,9 @@ impl ContinuousResolveWork {
                 resolved,
             }))
         } else {
-            Ok(ContinuousResolution::Settle(ComputeSettlement {
-                token: self.token,
-                next: SettlementNext::QueuedVerify(resolved),
-            }))
+            Ok(ContinuousResolution::Settle(
+                self.token.settle(SettlementNext::QueuedVerify(resolved)),
+            ))
         }
     }
 
@@ -380,7 +477,7 @@ impl ContinuousResolveWork {
     pub(super) fn into_verify(
         self,
         payload: ResolvedPayload,
-    ) -> Result<ContinuousResolution, Box<ReceiptFailure<ResolutionReceiptError>>> {
+    ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
         self.into_verify_as(payload, VerifyCycleClass::Small)
     }
 
@@ -389,7 +486,7 @@ impl ContinuousResolveWork {
         self,
         payload: ResolvedPayload,
         verify_class: VerifyCycleClass,
-    ) -> Result<ContinuousResolution, Box<ReceiptFailure<ResolutionReceiptError>>> {
+    ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
         if !payload_matches(&self.tx, &payload) {
             return Err(ReceiptFailure::new(
                 self.token,
@@ -397,15 +494,16 @@ impl ContinuousResolveWork {
             ));
         }
         if !resolved_within_grant(self.token.grant, &payload) {
-            return Ok(ContinuousResolution::Settle(ComputeSettlement {
-                token: self.token,
-                next: SettlementNext::Computed(ComputedOutcome::BudgetDenied),
-            }));
+            return Ok(ContinuousResolution::Settle(
+                self.token
+                    .settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)),
+            ));
         }
-        let chain_epoch = self.token.chain_epoch;
+        let chain_epoch = self.token.chain_epoch();
         let resolved = ResolvedFacts::from_resolution(
             ResolutionSeal(()),
             chain_epoch,
+            self.token.dependency_cut,
             Arc::new(payload),
             verify_class,
         );
@@ -416,18 +514,15 @@ impl ContinuousResolveWork {
                 resolved,
             }))
         } else {
-            Ok(ContinuousResolution::Settle(ComputeSettlement {
-                token: self.token,
-                next: SettlementNext::QueuedVerify(resolved),
-            }))
+            Ok(ContinuousResolution::Settle(
+                self.token.settle(SettlementNext::QueuedVerify(resolved)),
+            ))
         }
     }
 
     pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: SettlementNext::Computed(ComputedOutcome::Rejected(reason)),
-        }
+        self.token
+            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -444,7 +539,7 @@ impl VerifyWork {
         self,
         accepted_resident_bytes: usize,
         cycles: u64,
-    ) -> Result<ComputeSettlement, Box<ReceiptFailure<VerificationReceiptError>>> {
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         verified(
             self.token,
             self.tx,
@@ -455,10 +550,8 @@ impl VerifyWork {
     }
 
     pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: SettlementNext::Computed(ComputedOutcome::Rejected(reason)),
-        }
+        self.token
+            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -471,7 +564,7 @@ impl ContinuousVerifyWork {
         self,
         accepted_resident_bytes: usize,
         cycles: u64,
-    ) -> Result<ComputeSettlement, Box<ReceiptFailure<VerificationReceiptError>>> {
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         verified(
             self.token,
             self.tx,
@@ -486,10 +579,8 @@ impl ContinuousVerifyWork {
     }
 
     pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: SettlementNext::Computed(ComputedOutcome::Rejected(reason)),
-        }
+        self.token
+            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
     }
 }
 
@@ -510,16 +601,20 @@ impl CheckedOutWork {
     pub(super) fn new(
         token: LeaseToken,
         tx: Arc<TransactionView>,
+        declared_dependencies: KnownDependencies,
         queued: QueuedWork,
     ) -> Result<Self, WorkPermitMismatch> {
         match (token.permit, queued) {
-            (WorkPermit::ResolveOnly, QueuedWork::Resolve) => {
-                Ok(Self::Resolve(ResolveWork { token, tx }))
-            }
+            (WorkPermit::ResolveOnly, QueuedWork::Resolve) => Ok(Self::Resolve(ResolveWork {
+                token,
+                tx,
+                declared_dependencies,
+            })),
             (WorkPermit::ResolveThenVerify(capability), QueuedWork::Resolve) => {
                 Ok(Self::ContinuousResolve(ContinuousResolveWork {
                     token,
                     tx,
+                    declared_dependencies,
                     capability,
                 }))
             }

@@ -25,10 +25,10 @@ pub(super) struct ComputeLeaseId(pub(super) u128);
 pub(super) struct ChainEpoch(pub(super) u64);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct DependencyEpoch(pub(super) u64);
+pub(super) struct ApplySequence(pub(super) u128);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct ApplySequence(pub(super) u128);
+pub(super) struct DependencyCut(pub(super) ApplySequence);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Arrival(pub(super) u128);
@@ -105,10 +105,148 @@ impl AdmissionClass {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum DependencyKey {
     Cell(OutPoint),
     Header(Byte32),
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum DependencyOrigin {
+    Transaction(RawTxHash),
+    BlockHeader(Byte32),
+}
+
+impl DependencyKey {
+    pub(super) fn origin(&self) -> DependencyOrigin {
+        match self {
+            Self::Cell(out_point) => DependencyOrigin::Transaction(RawTxHash(out_point.tx_hash())),
+            Self::Header(hash) => DependencyOrigin::BlockHeader(hash.clone()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct KnownDependencies(Arc<[DependencyKey]>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DependencySetError {
+    Empty,
+    TooMany,
+    Arithmetic,
+    Allocation,
+}
+
+impl KnownDependencies {
+    fn canonicalize(
+        mut keys: Vec<DependencyKey>,
+        max: usize,
+        allow_empty: bool,
+    ) -> Result<Self, DependencySetError> {
+        keys.sort_unstable();
+        keys.dedup();
+        if !allow_empty && keys.is_empty() {
+            return Err(DependencySetError::Empty);
+        }
+        if keys.len() > max {
+            return Err(DependencySetError::TooMany);
+        }
+        Ok(Self(keys.into()))
+    }
+
+    pub(super) fn from_transaction(tx: &TransactionView) -> Result<Self, DependencySetError> {
+        let capacity = tx
+            .inputs()
+            .len()
+            .checked_add(tx.cell_deps().len())
+            .and_then(|count| count.checked_add(tx.header_deps().len()))
+            .ok_or(DependencySetError::Arithmetic)?;
+        let mut keys = Vec::new();
+        keys.try_reserve(capacity)
+            .map_err(|_| DependencySetError::Allocation)?;
+        keys.extend(tx.input_pts_iter().map(DependencyKey::Cell));
+        keys.extend(
+            tx.cell_deps()
+                .into_iter()
+                .map(|dependency| DependencyKey::Cell(dependency.out_point())),
+        );
+        keys.extend(tx.header_deps().into_iter().map(DependencyKey::Header));
+        Self::canonicalize(keys, capacity, true)
+    }
+
+    pub(super) fn from_footprint(
+        footprint: &ExpandedFootprint,
+        max: usize,
+    ) -> Result<Self, DependencySetError> {
+        let mut keys = Vec::new();
+        keys.try_reserve(footprint.edge_count())
+            .map_err(|_| DependencySetError::Allocation)?;
+        keys.extend(footprint.inputs().iter().cloned().map(DependencyKey::Cell));
+        keys.extend(
+            footprint
+                .dependencies()
+                .iter()
+                .cloned()
+                .map(DependencyKey::Cell),
+        );
+        keys.extend(
+            footprint
+                .header_dependencies()
+                .iter()
+                .cloned()
+                .map(DependencyKey::Header),
+        );
+        Self::canonicalize(keys, max, true)
+    }
+
+    pub(super) fn with_missing(
+        &self,
+        missing: &MissingDependencies,
+        max: usize,
+    ) -> Result<Self, DependencySetError> {
+        let capacity = self
+            .len()
+            .checked_add(missing.len())
+            .ok_or(DependencySetError::Arithmetic)?;
+        let mut keys = Vec::new();
+        keys.try_reserve(capacity)
+            .map_err(|_| DependencySetError::Allocation)?;
+        keys.extend(self.keys().iter().cloned());
+        keys.extend(missing.keys().iter().cloned());
+        Self::canonicalize(keys, max, true)
+    }
+
+    pub(super) fn keys(&self) -> &[DependencyKey] {
+        self.0.as_ref()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub(super) fn contains(&self, key: &DependencyKey) -> bool {
+        self.0.binary_search(key).is_ok()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct MissingDependencies(KnownDependencies);
+
+impl MissingDependencies {
+    pub(super) fn new(keys: Vec<DependencyKey>, max: usize) -> Result<Self, DependencySetError> {
+        if keys.len() > max {
+            return Err(DependencySetError::TooMany);
+        }
+        KnownDependencies::canonicalize(keys, max, false).map(Self)
+    }
+
+    pub(super) fn keys(&self) -> &[DependencyKey] {
+        self.0.keys()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,6 +332,7 @@ pub(super) struct CandidateMetrics {
 pub(super) struct ResolvedPayload {
     identity: TxIdentity,
     pub(super) footprint: ExpandedFootprint,
+    dependencies: KnownDependencies,
     fee: Capacity,
     serialized_bytes: usize,
     resolved_resident_bytes: usize,
@@ -203,6 +342,7 @@ pub(super) struct ResolvedPayload {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum InputEvidenceError {
     Footprint(FootprintError),
+    DependencySet(DependencySetError),
     NotAnInput,
     ResidentBelowSerialized,
 }
@@ -259,6 +399,8 @@ impl ResolvedPayload {
     ) -> Result<Self, InputEvidenceError> {
         let footprint = ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
             .map_err(InputEvidenceError::Footprint)?;
+        let dependencies = KnownDependencies::from_footprint(&footprint, max_edges)
+            .map_err(InputEvidenceError::DependencySet)?;
         let serialized_bytes = tx.data().total_size();
         if resolved_resident_bytes < serialized_bytes {
             return Err(InputEvidenceError::ResidentBelowSerialized);
@@ -274,6 +416,7 @@ impl ResolvedPayload {
         Ok(Self {
             identity: TxIdentity::from_transaction(tx),
             footprint,
+            dependencies,
             fee,
             serialized_bytes,
             resolved_resident_bytes,
@@ -287,6 +430,10 @@ impl ResolvedPayload {
 
     pub(super) fn identity(&self) -> &TxIdentity {
         &self.identity
+    }
+
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        &self.dependencies
     }
 
     pub(super) fn fee(&self) -> Capacity {
@@ -305,6 +452,7 @@ impl ResolvedPayload {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedFacts {
     chain_epoch: ChainEpoch,
+    dependency_cut: DependencyCut,
     payload: Arc<ResolvedPayload>,
     verify_class: VerifyCycleClass,
 }
@@ -313,6 +461,7 @@ pub(super) struct ResolvedFacts {
 pub(super) struct VerifiedFacts {
     witness: WitnessTxHash,
     chain_epoch: ChainEpoch,
+    dependency_cut: DependencyCut,
     payload: Arc<ResolvedPayload>,
     metrics: CandidateMetrics,
 }
@@ -321,11 +470,13 @@ impl ResolvedFacts {
     pub(super) fn from_resolution(
         _seal: super::work::ResolutionSeal,
         chain_epoch: ChainEpoch,
+        dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         verify_class: VerifyCycleClass,
     ) -> Self {
         Self {
             chain_epoch,
+            dependency_cut,
             payload,
             verify_class,
         }
@@ -334,11 +485,13 @@ impl ResolvedFacts {
     #[cfg(test)]
     pub(super) fn for_foundation(
         chain_epoch: ChainEpoch,
+        dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         verify_class: VerifyCycleClass,
     ) -> Self {
         Self {
             chain_epoch,
+            dependency_cut,
             payload,
             verify_class,
         }
@@ -346,6 +499,10 @@ impl ResolvedFacts {
 
     pub(super) fn chain_epoch(&self) -> ChainEpoch {
         self.chain_epoch
+    }
+
+    pub(super) fn dependency_cut(&self) -> DependencyCut {
+        self.dependency_cut
     }
 
     pub(super) fn payload(&self) -> &ResolvedPayload {
@@ -359,8 +516,18 @@ impl ResolvedFacts {
     pub(super) fn into_verification_parts(
         self,
         _seal: super::work::VerificationSeal,
-    ) -> (ChainEpoch, Arc<ResolvedPayload>, VerifyCycleClass) {
-        (self.chain_epoch, self.payload, self.verify_class)
+    ) -> (
+        ChainEpoch,
+        DependencyCut,
+        Arc<ResolvedPayload>,
+        VerifyCycleClass,
+    ) {
+        (
+            self.chain_epoch,
+            self.dependency_cut,
+            self.payload,
+            self.verify_class,
+        )
     }
 }
 
@@ -369,12 +536,14 @@ impl VerifiedFacts {
         _seal: super::work::VerificationSeal,
         witness: WitnessTxHash,
         chain_epoch: ChainEpoch,
+        dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         metrics: CandidateMetrics,
     ) -> Self {
         Self {
             witness,
             chain_epoch,
+            dependency_cut,
             payload,
             metrics,
         }
@@ -384,12 +553,14 @@ impl VerifiedFacts {
     pub(super) fn for_foundation(
         witness: WitnessTxHash,
         chain_epoch: ChainEpoch,
+        dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         metrics: CandidateMetrics,
     ) -> Self {
         Self {
             witness,
             chain_epoch,
+            dependency_cut,
             payload,
             metrics,
         }
@@ -401,6 +572,10 @@ impl VerifiedFacts {
 
     pub(super) fn chain_epoch(&self) -> ChainEpoch {
         self.chain_epoch
+    }
+
+    pub(super) fn dependency_cut(&self) -> DependencyCut {
+        self.dependency_cut
     }
 
     pub(super) fn payload(&self) -> &ResolvedPayload {
@@ -453,40 +628,73 @@ pub(super) enum QueuedWork {
     Verify(ResolvedFacts),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ActiveWork {
     pub(super) lease: ComputeLeaseId,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
+    pub(super) dependency_cut: DependencyCut,
+    pub(super) dependencies: KnownDependencies,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ObservedDependency {
-    pub(super) key: DependencyKey,
-    pub(super) epoch: DependencyEpoch,
+pub(super) struct ObservedDependencies {
+    dependency_cut: DependencyCut,
+    observed: KnownDependencies,
+    retained: KnownDependencies,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ObservedDependencies(Vec<ObservedDependency>);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DependencyObservationError {
-    Empty,
+    EmptyOrDuplicate,
 }
 
 impl ObservedDependencies {
-    pub(super) fn new(
-        dependencies: Vec<ObservedDependency>,
-    ) -> Result<Self, DependencyObservationError> {
-        if dependencies.is_empty() {
-            Err(DependencyObservationError::Empty)
-        } else {
-            Ok(Self(dependencies))
+    pub(super) fn from_missing(
+        dependencies: &MissingDependencies,
+        retained: KnownDependencies,
+        dependency_cut: DependencyCut,
+    ) -> Self {
+        Self {
+            dependency_cut,
+            observed: dependencies.0.clone(),
+            retained,
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn for_foundation(
+        dependencies: Vec<DependencyKey>,
+        dependency_cut: DependencyCut,
+    ) -> Result<Self, DependencyObservationError> {
+        let max = dependencies.len();
+        let dependencies = KnownDependencies::canonicalize(dependencies, max, false)
+            .map_err(|_| DependencyObservationError::EmptyOrDuplicate)?;
+        Ok(Self {
+            dependency_cut,
+            observed: dependencies.clone(),
+            retained: dependencies,
+        })
+    }
+
+    pub(super) fn contains(&self, key: &DependencyKey) -> bool {
+        self.observed.contains(key)
+    }
+
+    pub(super) fn keys(&self) -> impl ExactSizeIterator<Item = &DependencyKey> {
+        self.observed.keys().iter()
+    }
+
+    pub(super) fn dependency_cut(&self) -> DependencyCut {
+        self.dependency_cut
+    }
+
+    pub(super) fn retained(&self) -> &KnownDependencies {
+        &self.retained
+    }
+
     pub(super) fn len(&self) -> usize {
-        self.0.len()
+        self.observed.len()
     }
 }
 
@@ -500,6 +708,7 @@ pub(super) enum WaitCondition {
 pub(super) enum RejectionKind {
     Verification,
     Policy,
+    UnavailableDependency,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -537,10 +746,36 @@ pub(super) struct TxRecord {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct AdmissionBasis {
+    declared_dependencies: KnownDependencies,
+    original_charge: ResourceVector,
+}
+
+impl AdmissionBasis {
+    pub(super) fn new(
+        declared_dependencies: KnownDependencies,
+        original_charge: ResourceVector,
+    ) -> Self {
+        Self {
+            declared_dependencies,
+            original_charge,
+        }
+    }
+
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        &self.declared_dependencies
+    }
+
+    pub(super) fn charge(&self) -> ResourceVector {
+        self.original_charge
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct PreAcceptedEntry {
     pub(super) record: TxRecord,
+    pub(super) basis: AdmissionBasis,
     pub(super) phase: PreAcceptedPhase,
-    pub(super) raw_charge: ResourceVector,
     pub(super) charge: ResourceVector,
 }
 
@@ -558,6 +793,43 @@ pub(super) enum OwnedTx {
 }
 
 impl PreAcceptedEntry {
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        match &self.phase {
+            PreAcceptedPhase::Queued(QueuedWork::Resolve)
+            | PreAcceptedPhase::Computed(
+                ComputedOutcome::Rejected(_)
+                | ComputedOutcome::BudgetDenied
+                | ComputedOutcome::InternalFailure,
+            ) => self.basis.dependencies(),
+            PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
+                resolved.payload().dependencies()
+            }
+            PreAcceptedPhase::Computing(active) => &active.dependencies,
+            PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
+            | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => observed.retained(),
+            PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)) => {
+                verified.payload().dependencies()
+            }
+        }
+    }
+
+    pub(super) fn retained_charge(
+        &self,
+        resident_bytes: usize,
+        dependencies: &KnownDependencies,
+    ) -> ResourceVector {
+        ResourceVector::new(
+            1,
+            self.basis.charge().bytes.max(resident_bytes),
+            self.basis.charge().edges.max(dependencies.len()),
+            0,
+        )
+    }
+
+    pub(super) fn original_charge(&self) -> ResourceVector {
+        self.basis.charge()
+    }
+
     pub(super) fn charge_record(&self) -> ChargeRecord {
         ChargeRecord::PreAccepted {
             resources: self.charge,
@@ -606,6 +878,7 @@ pub(super) struct ValidatedAdmission {
     pub(super) ingress: IngressAttribution,
     pub(super) blame: PayloadBlame,
     pub(super) class: AdmissionClass,
+    pub(super) dependencies: KnownDependencies,
     pub(super) charge: ResourceVector,
 }
 
@@ -614,6 +887,7 @@ pub(super) enum AdmissionValidationError {
     EmptyTransaction,
     AttributionMismatch,
     ResourceArithmetic,
+    ResourceAllocation,
 }
 
 impl ValidatedAdmission {
@@ -675,19 +949,31 @@ impl ValidatedAdmission {
         if source_peer != ingress_peer || source_peer != blame_peer {
             return Err(AdmissionValidationError::AttributionMismatch);
         }
-        let edges = tx
+        let raw_edges = tx
             .inputs()
             .len()
             .checked_add(tx.cell_deps().len())
             .and_then(|count| count.checked_add(tx.header_deps().len()))
             .ok_or(AdmissionValidationError::ResourceArithmetic)?;
-        let charge = ResourceVector::new(1, bytes, edges, 0);
+        let dependencies =
+            KnownDependencies::from_transaction(&tx).map_err(|error| match error {
+                DependencySetError::Arithmetic => AdmissionValidationError::ResourceArithmetic,
+                DependencySetError::Allocation => AdmissionValidationError::ResourceAllocation,
+                DependencySetError::Empty | DependencySetError::TooMany => {
+                    AdmissionValidationError::ResourceArithmetic
+                }
+            })?;
+        // The reverse projection is a canonical set, but ingress accounting
+        // deliberately charges every encoded edge. Duplicate declarations do
+        // not buy an attacker extra pre-pool residency for free.
+        let charge = ResourceVector::new(1, bytes, raw_edges, 0);
         Ok(Self {
             identity: TxIdentity::from_transaction(&tx),
             tx: Arc::new(tx),
             ingress,
             blame,
             class,
+            dependencies,
             charge,
         })
     }
