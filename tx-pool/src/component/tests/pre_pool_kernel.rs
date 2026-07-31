@@ -14,7 +14,7 @@ use ckb_network::PeerIndex;
 use ckb_types::core::{Capacity, TransactionView, cell::ResolvedTransaction};
 use ckb_types::packed::{Byte32, OutPoint};
 use ckb_types::prelude::*;
-use ckb_verification::cache::Completed;
+use ckb_verification::cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
@@ -112,6 +112,8 @@ fn resolved(tx: TransactionView, source: TxSource, fee: u64) -> ResolvedTx {
 
 fn verified_for(lease: &VerifyLease, fee: u64) -> (PipelineVerifiedTx, usize) {
     let candidate = (*lease.payload).clone().into_pool_candidate();
+    let verification_cache_key =
+        TxVerificationCacheKey::from_transaction(&candidate.tx, ScriptVerificationRules::V0);
     let charge = candidate
         .resident_size
         .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
@@ -123,6 +125,7 @@ fn verified_for(lease: &VerifyLease, fee: u64) -> (PipelineVerifiedTx, usize) {
                 cycles: 0,
                 fee: Capacity::shannons(fee),
             },
+            verification_cache_key,
             verify_cache_hit: false,
             started_at: Instant::now(),
         },
@@ -150,6 +153,8 @@ fn stage_ready(
         .unwrap()
         .unwrap();
     let candidate = (*verify.payload).clone().into_pool_candidate();
+    let verification_cache_key =
+        TxVerificationCacheKey::from_transaction(&candidate.tx, ScriptVerificationRules::V0);
     let charge = candidate
         .resident_size
         .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
@@ -163,6 +168,7 @@ fn stage_ready(
                     cycles: 0,
                     fee: Capacity::shannons(fee),
                 },
+                verification_cache_key,
                 verify_cache_hit: false,
                 started_at: Instant::now(),
             },
@@ -248,6 +254,8 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
         .unwrap();
     kernel.audit().unwrap();
     let candidate = (*verify.payload).clone().into_pool_candidate();
+    let verification_cache_key =
+        TxVerificationCacheKey::from_transaction(&candidate.tx, ScriptVerificationRules::V0);
     let candidate_charge = candidate.resident_size + std::mem::size_of::<PipelineVerifiedTx>();
     kernel
         .complete_verify(
@@ -258,6 +266,7 @@ fn concrete_kernel_transitions_preserve_recomputed_projections() {
                     cycles: 1,
                     fee: Capacity::shannons(2_000),
                 },
+                verification_cache_key,
                 verify_cache_hit: false,
                 started_at: Instant::now(),
             },
@@ -344,6 +353,8 @@ fn successful_stage_completion_checks_out_same_lane_without_projection_drift() {
         .unwrap()
         .unwrap();
     let candidate = (*verify.payload).clone().into_pool_candidate();
+    let verification_cache_key =
+        TxVerificationCacheKey::from_transaction(&candidate.tx, ScriptVerificationRules::V0);
     let verified_charge = candidate
         .resident_size
         .checked_add(std::mem::size_of::<PipelineVerifiedTx>())
@@ -357,6 +368,7 @@ fn successful_stage_completion_checks_out_same_lane_without_projection_drift() {
                     cycles: 0,
                     fee: Capacity::shannons(10),
                 },
+                verification_cache_key,
                 verify_cache_hit: false,
                 started_at: Instant::now(),
             },
@@ -490,6 +502,8 @@ fn verify_completion_derives_indexes_from_the_same_payload() {
         .unwrap();
 
     let other = resolved(transaction(2), source, 2_000).into_pool_candidate();
+    let verification_cache_key =
+        TxVerificationCacheKey::from_transaction(&other.tx, ScriptVerificationRules::V0);
     let charge = other.resident_size + std::mem::size_of::<PipelineVerifiedTx>();
     let error = kernel
         .complete_verify(
@@ -500,6 +514,7 @@ fn verify_completion_derives_indexes_from_the_same_payload() {
                     cycles: 0,
                     fee: Capacity::shannons(2_000),
                 },
+                verification_cache_key,
                 verify_cache_hit: false,
                 started_at: Instant::now(),
             },

@@ -1,5 +1,3 @@
-#[cfg(test)]
-use super::chain::ValidationRulesId;
 use super::chain::{
     AcceptedProof, CellContentReceipt, CellLocationReceipt, ProposalContextReceipt, ScriptReceipt,
     VerificationContextReceipt,
@@ -12,6 +10,8 @@ use ckb_types::{
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+#[cfg(test)]
+use ckb_verification::cache::ScriptVerificationRules;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -895,7 +895,7 @@ impl VerifiedFacts {
         payload: Arc<ResolvedPayload>,
         metrics: CandidateMetrics,
     ) -> Self {
-        let rules = ValidationRulesId::FOUNDATION;
+        let rules = ScriptVerificationRules::V0;
         let context = VerificationContextReceipt::empty_for_foundation(chain_view, rules);
         Self {
             dependency_cut,

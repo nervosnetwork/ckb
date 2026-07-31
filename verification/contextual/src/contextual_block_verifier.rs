@@ -23,7 +23,7 @@ use ckb_types::{
     utilities::merkle_mountain_range::ChainRootMMR,
 };
 use ckb_verification::cache::{
-    TxVerificationCache, TxVerificationCacheKey, {CacheEntry, Completed},
+    Completed, ScriptVerificationRules, TxVerificationCache, TxVerificationCacheKey,
 };
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
@@ -348,19 +348,20 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
     fn fetched_cache(
         &self,
         rtxs: &'a [Arc<ResolvedTransaction>],
-    ) -> HashMap<TxVerificationCacheKey, CacheEntry> {
+        rules: ScriptVerificationRules,
+    ) -> HashMap<TxVerificationCacheKey, Completed> {
         let (sender, receiver) = oneshot::channel();
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
         let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
             .skip(1)
-            .map(|rtx| TxVerificationCacheKey::from_transaction(&rtx.transaction))
+            .map(|rtx| TxVerificationCacheKey::from_transaction(&rtx.transaction, rules))
             .collect();
         self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
             let ret = keys
                 .into_iter()
-                .filter_map(|key| guard.peek(&key).cloned().map(|value| (key, value)))
+                .filter_map(|key| guard.peek(&key).copied().map(|completed| (key, completed)))
                 .collect();
 
             if let Err(e) = sender.send(ret) {
@@ -387,22 +388,22 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         resolved: &'a [Arc<ResolvedTransaction>],
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&self.header));
+        let rules = ScriptVerificationRules::from_env(&self.context.consensus, &tx_env);
         // We should skip updating tx_verify_cache about the cellbase tx,
         // putting it in cache that will never be used until lru cache expires.
         let fetched_cache = if resolved.len() > 1 {
-            self.fetched_cache(resolved)
+            self.fetched_cache(resolved, rules)
         } else {
             HashMap::new()
         };
-
-        let tx_env = Arc::new(TxVerifyEnv::new_commit(&self.header));
 
         // make verifiers orthogonal
         let ret = resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let cache_key = TxVerificationCacheKey::from_transaction(&tx.transaction);
+                let cache_key = TxVerificationCacheKey::from_transaction(&tx.transaction, rules);
 
                 if let Some(completed) = fetched_cache.get(&cache_key) {
                     TimeRelativeTransactionVerifier::new(

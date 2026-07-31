@@ -13,8 +13,7 @@ use ckb_types::core::{
 use ckb_types::prelude::Entity;
 use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier, TxVerifyEnv,
-    cache::{CacheEntry, Completed},
+    TimeRelativeTransactionVerifier, TxVerifyEnv, cache::Completed,
 };
 use std::sync::Arc;
 use tokio::{runtime::Handle, sync::watch, task::block_in_place};
@@ -153,7 +152,7 @@ pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
     tx_env: Arc<TxVerifyEnv>,
-    cache_entry: &Option<CacheEntry>,
+    cache_entry: &Option<Completed>,
     max_tx_verify_cycles: Cycle,
     command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
 ) -> Result<Completed, Reject> {

@@ -242,7 +242,7 @@ impl HarnessBuilder {
             tokio::spawn(async move {
                 while let Some(update) = verify_cache_receiver.recv().await {
                     let mut guard = txs_verify_cache.write().await;
-                    guard.put(update.key, update.verified);
+                    guard.put(update.key, update.completed);
                 }
             });
         }

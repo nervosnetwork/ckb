@@ -14,17 +14,10 @@ use ckb_types::{
     core::TransactionView,
     packed::{Byte32, OutPoint},
 };
+use ckb_verification::cache::ScriptVerificationRules;
 #[cfg(test)]
 use std::collections::HashSet;
 use std::sync::Arc;
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub(super) struct ValidationRulesId(pub(super) u64);
-
-impl ValidationRulesId {
-    #[cfg(test)]
-    pub(super) const FOUNDATION: Self = Self(0);
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CellContentReceipt {
@@ -119,15 +112,15 @@ impl CellLocationReceipt {
 pub(super) struct TimeContextReceipt {
     // The enclosing VerificationContextReceipt owns the common ChainViewId,
     // so this role receipt does not duplicate it.
-    rules: ValidationRulesId,
+    rules: ScriptVerificationRules,
 }
 
 impl TimeContextReceipt {
-    pub(super) fn from_validation(rules: ValidationRulesId) -> Self {
+    pub(super) fn from_validation(rules: ScriptVerificationRules) -> Self {
         Self { rules }
     }
 
-    fn rules(&self) -> ValidationRulesId {
+    fn rules(&self) -> ScriptVerificationRules {
         self.rules
     }
 }
@@ -169,7 +162,7 @@ impl VerificationContextReceipt {
     pub(super) fn refresh_for_foundation(
         view: ChainViewId,
         previous_location: CellLocationReceipt,
-        rules: ValidationRulesId,
+        rules: ScriptVerificationRules,
     ) -> Result<Self, VerificationContextError> {
         // The harness has no snapshot validator. Retargeting here stands for
         // a completed validation, not permission to stamp old evidence fresh.
@@ -178,7 +171,7 @@ impl VerificationContextReceipt {
     }
 
     #[cfg(test)]
-    pub(super) fn empty_for_foundation(view: ChainViewId, rules: ValidationRulesId) -> Self {
+    pub(super) fn empty_for_foundation(view: ChainViewId, rules: ScriptVerificationRules) -> Self {
         Self {
             view,
             chain_inputs: Arc::from([]),
@@ -199,7 +192,7 @@ impl VerificationContextReceipt {
         self.chain_dependencies.binary_search(dependency).is_ok()
     }
 
-    pub(super) fn rules(&self) -> ValidationRulesId {
+    pub(super) fn rules(&self) -> ScriptVerificationRules {
         self.time.rules()
     }
 
@@ -208,7 +201,7 @@ impl VerificationContextReceipt {
     }
 
     #[cfg(test)]
-    fn refreshed_for_foundation(&self, view: ChainViewId, rules: ValidationRulesId) -> Self {
+    fn refreshed_for_foundation(&self, view: ChainViewId, rules: ScriptVerificationRules) -> Self {
         Self {
             view,
             chain_inputs: Arc::clone(&self.chain_inputs),
@@ -222,15 +215,15 @@ impl VerificationContextReceipt {
 pub(super) struct ScriptReceipt {
     // VerifiedFacts stores this beside the immutable payload identity, so the
     // script receipt needs only the ruleset that controls reusability.
-    rules: ValidationRulesId,
+    rules: ScriptVerificationRules,
 }
 
 impl ScriptReceipt {
-    pub(super) fn from_verification(rules: ValidationRulesId) -> Self {
+    pub(super) fn from_verification(rules: ScriptVerificationRules) -> Self {
         Self { rules }
     }
 
-    pub(super) fn is_reusable_under(&self, rules: ValidationRulesId) -> bool {
+    pub(super) fn is_reusable_under(&self, rules: ScriptVerificationRules) -> bool {
         self.rules == rules
     }
 }
@@ -358,7 +351,7 @@ impl FinalAdmissionWork {
     pub(super) fn validate_for_foundation(
         self,
         status: AcceptedStatus,
-        rules: ValidationRulesId,
+        rules: ScriptVerificationRules,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
         self.validate_with_sensitivity_for_foundation(
             status,
@@ -371,7 +364,7 @@ impl FinalAdmissionWork {
     pub(super) fn validate_context_sensitive_for_foundation(
         self,
         status: AcceptedStatus,
-        rules: ValidationRulesId,
+        rules: ScriptVerificationRules,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
         self.validate_with_sensitivity_for_foundation(
             status,
@@ -384,7 +377,7 @@ impl FinalAdmissionWork {
     fn validate_with_sensitivity_for_foundation(
         self,
         status: AcceptedStatus,
-        rules: ValidationRulesId,
+        rules: ScriptVerificationRules,
         sensitivity: AcceptedChainSensitivity,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
         let context = self

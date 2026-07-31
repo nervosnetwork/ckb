@@ -182,5 +182,5 @@ mod tests;
 /// the level-triggered conflict-cache maintenance path.
 pub(crate) struct VerifyCacheUpdate {
     pub(crate) key: TxVerificationCacheKey,
-    pub(crate) verified: ckb_verification::cache::Completed,
+    pub(crate) completed: ckb_verification::cache::Completed,
 }

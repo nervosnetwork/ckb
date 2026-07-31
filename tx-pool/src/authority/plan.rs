@@ -3,7 +3,7 @@ mod membership;
 mod settlement;
 
 #[cfg(test)]
-use super::chain::{AcceptedProof, ValidationRulesId};
+use super::chain::AcceptedProof;
 use super::chain::{FinalAdmissionReceipt, FinalAdmissionWork};
 #[cfg(test)]
 use super::dependency::DependencySnapshot;
@@ -59,6 +59,8 @@ use ckb_types::{
     core::{error::OutPointError, tx_pool::get_transaction_weight},
     prelude::Unpack,
 };
+#[cfg(test)]
+use ckb_verification::cache::ScriptVerificationRules;
 pub(in crate::authority) use membership::MembershipConfig;
 pub(in crate::authority) use membership::{
     AcceptedOrderKey, EvictionOrderKey, MembershipProjection,
@@ -1483,7 +1485,7 @@ impl TxPoolAuthority {
     ) -> Result<IndependentCandidate, PlanError> {
         let receipt = self
             .final_admission_work(key, expected)?
-            .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .validate_for_foundation(status, ScriptVerificationRules::V0)
             .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
         Ok(IndependentCandidate::new(receipt))
     }
@@ -2153,7 +2155,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let receipt = self
             .final_admission_work(key, expected)?
-            .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .validate_for_foundation(status, ScriptVerificationRules::V0)
             .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
         self.plan_accept(receipt)
     }
@@ -2167,7 +2169,7 @@ impl TxPoolAuthority {
     ) -> Result<CandidateDispositionPlan<'_>, PlanError> {
         let receipt = self
             .final_admission_work(key, expected)?
-            .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .validate_for_foundation(status, ScriptVerificationRules::V0)
             .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
         self.plan_candidate_disposition(receipt)
     }
@@ -2234,7 +2236,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let receipt = self
             .final_admission_work(key, expected)?
-            .validate_context_sensitive_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .validate_context_sensitive_for_foundation(status, ScriptVerificationRules::V0)
             .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
         self.plan_accept(receipt)
     }

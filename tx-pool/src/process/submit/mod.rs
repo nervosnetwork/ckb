@@ -22,8 +22,7 @@ use ckb_logger::{info, warn};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::TransactionView;
-use ckb_types::packed::Byte32;
-use ckb_verification::cache::{CacheEntry, Completed, TxVerificationCacheKey};
+use ckb_verification::cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
@@ -141,15 +140,23 @@ impl TxPoolService {
     pub(crate) async fn finish_pipeline_commit_success(&self, success: PipelineCommitSuccess) {
         match success {
             PipelineCommitSuccess::Committed(verified) => {
-                self.post_submit_side_effects(
-                    verified.completed,
-                    verified.verify_cache_hit,
-                    &verified.candidate.tx.hash(),
-                    TxVerificationCacheKey::from_transaction(&verified.candidate.tx),
-                    false,
-                    verified.started_at,
-                )
-                .await;
+                let (completed, cache_hit, cache_key, started_at) = match Arc::try_unwrap(verified)
+                {
+                    Ok(verified) => (
+                        verified.completed,
+                        verified.verify_cache_hit,
+                        verified.verification_cache_key,
+                        verified.started_at,
+                    ),
+                    Err(verified) => (
+                        verified.completed,
+                        verified.verify_cache_hit,
+                        verified.verification_cache_key.clone(),
+                        verified.started_at,
+                    ),
+                };
+                self.post_submit_side_effects(completed, cache_hit, cache_key, false, started_at)
+                    .await;
             }
             PipelineCommitSuccess::Rejected(Some(peer)) => {
                 self.remove_banned_peer_entries(peer).await;
@@ -268,10 +275,12 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
-        let key = TxVerificationCacheKey::from_transaction(tx);
+    pub(crate) async fn fetch_tx_verify_cache(
+        &self,
+        key: &TxVerificationCacheKey,
+    ) -> Option<Completed> {
         let guard = self.aux.txs_verify_cache.read().await;
-        guard.peek(&key).cloned()
+        guard.peek(key).copied()
     }
 
     pub(crate) async fn submit_entry(
@@ -431,10 +440,13 @@ impl TxPoolService {
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Result<crate::component::pre_pool::PipelineVerifiedTx, Reject> {
         let declared_cycles = resolved.source.cycles();
-        let verify_cache = self.fetch_tx_verify_cache(resolved.transaction()).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status_to_verify_env(resolved.status, tip_header));
+        let verification_rules = ScriptVerificationRules::from_env(&self.pool.consensus, &tx_env);
+        let verification_cache_key =
+            TxVerificationCacheKey::from_transaction(resolved.transaction(), verification_rules);
+        let verify_cache = self.fetch_tx_verify_cache(&verification_cache_key).await;
         let started_at = Instant::now();
         let verified = verify_rtx(
             snapshot,
@@ -462,6 +474,7 @@ impl TxPoolService {
         Ok(crate::component::pre_pool::PipelineVerifiedTx {
             candidate: resolved.into_pool_candidate(),
             completed: verified,
+            verification_cache_key,
             verify_cache_hit,
             started_at,
         })
@@ -474,7 +487,6 @@ impl TxPoolService {
         &self,
         verified: Completed,
         verify_cache_hit: bool,
-        _tx_hash: &Byte32,
         verify_cache_key: TxVerificationCacheKey,
         is_sync_process: bool,
         instant: Instant,
@@ -495,16 +507,24 @@ impl TxPoolService {
     /// Defer a verify-cache update to the background worker (rather than
     /// spawning a fire-and-forget task).
     pub(crate) fn defer_cache_update(&self, key: TxVerificationCacheKey, verified: Completed) {
-        let display_key = key.as_witness_hash();
-        if let Err(e) = self
-            .pipeline
-            .verify_cache_sender
-            .try_send(crate::service::VerifyCacheUpdate { key, verified })
+        if let Err(error) =
+            self.pipeline
+                .verify_cache_sender
+                .try_send(crate::service::VerifyCacheUpdate {
+                    key,
+                    completed: verified,
+                })
         {
-            warn!(
-                "failed to enqueue verify cache update for {}: {}",
-                display_key, e
-            );
+            match error {
+                tokio::sync::mpsc::error::TrySendError::Full(update) => warn!(
+                    "verify cache update queue is full for {}",
+                    update.key.witness_hash()
+                ),
+                tokio::sync::mpsc::error::TrySendError::Closed(update) => warn!(
+                    "verify cache update queue is closed for {}",
+                    update.key.witness_hash()
+                ),
+            }
         }
     }
 
@@ -524,15 +544,16 @@ impl TxPoolService {
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
         // plan_pool_mutation re-runs check_rtx + time_relative_verify against
         // the current snapshot to catch any state-dependent invalidation.
-        let tx_hash = resolved.transaction().hash();
-        let verify_cache_key = TxVerificationCacheKey::from_transaction(resolved.transaction());
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
 
-        let verify_cache = self.fetch_tx_verify_cache(resolved.transaction()).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.pool.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status_to_verify_env(resolved.status, tip_header));
+        let verification_rules = ScriptVerificationRules::from_env(&self.pool.consensus, &tx_env);
+        let verify_cache_key =
+            TxVerificationCacheKey::from_transaction(resolved.transaction(), verification_rules);
+        let verify_cache = self.fetch_tx_verify_cache(&verify_cache_key).await;
 
         let verified_ret = verify_rtx(
             snapshot,
@@ -582,7 +603,6 @@ impl TxPoolService {
                 self.post_submit_side_effects(
                     verified,
                     verify_cache.is_some(),
-                    &tx_hash,
                     verify_cache_key,
                     is_sync_process,
                     instant,
@@ -686,10 +706,12 @@ impl TxPoolService {
 
         // skip check the delay window
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
         let max_cycles = self.pool.consensus.max_block_cycles();
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status_to_verify_env(status, tip_header));
+        let verification_rules = ScriptVerificationRules::from_env(&self.pool.consensus, &tx_env);
+        let verify_cache_key = TxVerificationCacheKey::from_transaction(&tx, verification_rules);
+        let verify_cache = self.fetch_tx_verify_cache(&verify_cache_key).await;
 
         verify_rtx(
             Arc::clone(&snapshot),

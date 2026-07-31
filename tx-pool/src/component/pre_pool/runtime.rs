@@ -7,7 +7,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
 use ckb_util::{Mutex, MutexGuard};
-use ckb_verification::cache::Completed;
+use ckb_verification::cache::{Completed, TxVerificationCacheKey};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -124,6 +124,7 @@ impl PipelineRawTx {
 pub(crate) struct PipelineVerifiedTx {
     pub(crate) candidate: PoolCandidate,
     pub(crate) completed: Completed,
+    pub(crate) verification_cache_key: TxVerificationCacheKey,
     pub(crate) verify_cache_hit: bool,
     pub(crate) started_at: Instant,
 }

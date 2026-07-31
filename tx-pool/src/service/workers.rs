@@ -299,14 +299,14 @@ pub(crate) fn spawn_verify_cache_worker(
                     info!("verify-cache worker received exit signal, draining buffered updates");
                     while let Ok(update) = receiver.try_recv() {
                         let mut guard = txs_verify_cache.write().await;
-                        guard.put(update.key, update.verified);
+                        guard.put(update.key, update.completed);
                     }
                     break;
                 }
                 else => break,
             };
             let mut guard = txs_verify_cache.write().await;
-            guard.put(update.key, update.verified);
+            guard.put(update.key, update.completed);
         }
         info!("verify-cache worker exited (channel closed)");
     })

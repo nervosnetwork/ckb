@@ -387,13 +387,15 @@ pub(super) async fn verify_cycles(service: &TxPoolService, tx: TransactionView) 
     let (pre_check_ret, snapshot) = service.pre_check(&tx, tx_size).await;
     let PreCheckedTx { rtx, status, .. } =
         pre_check_ret.expect("pre_check for cycle measurement should succeed");
-    let verify_cache = service.fetch_tx_verify_cache(&tx).await;
     let max_cycles = service.pool.consensus.max_block_cycles();
     let tx_env = match status {
         Status::Pending => Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header())),
         Status::Gap => Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 0)),
         Status::Proposed => Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 1)),
     };
+    let rules = ScriptVerificationRules::from_env(&service.pool.consensus, &tx_env);
+    let cache_key = TxVerificationCacheKey::from_transaction(&tx, rules);
+    let verify_cache = service.fetch_tx_verify_cache(&cache_key).await;
     let verified = crate::util::verify_rtx(
         Arc::clone(&snapshot),
         Arc::clone(&rtx),
@@ -405,6 +407,12 @@ pub(super) async fn verify_cycles(service: &TxPoolService, tx: TransactionView) 
     .await
     .expect("verify_rtx for cycle measurement should succeed");
     verified.cycles
+}
+
+async fn current_submit_rules(service: &TxPoolService) -> ScriptVerificationRules {
+    let snapshot = service.pool.tx_pool.read().await.cloned_snapshot();
+    let tx_env = TxVerifyEnv::new_submit(snapshot.tip_header());
+    ScriptVerificationRules::from_env(&service.pool.consensus, &tx_env)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -426,15 +434,29 @@ async fn verification_cache_isolated_by_witness_hash_not_raw_hash() {
         cycles: 42,
         fee: Capacity::shannons(7),
     };
-    service
-        .aux
-        .txs_verify_cache
-        .write()
-        .await
-        .put(TxVerificationCacheKey::from_transaction(&first), cached);
+    let rules = current_submit_rules(&service).await;
+    service.aux.txs_verify_cache.write().await.put(
+        TxVerificationCacheKey::from_transaction(&first, rules),
+        cached,
+    );
 
-    assert_eq!(service.fetch_tx_verify_cache(&first).await, Some(cached));
-    assert_eq!(service.fetch_tx_verify_cache(&second).await, None);
+    let first_key = TxVerificationCacheKey::from_transaction(&first, rules);
+    assert_eq!(
+        service.fetch_tx_verify_cache(&first_key).await,
+        Some(cached)
+    );
+    let different_rules = match rules {
+        ScriptVerificationRules::V0 => ScriptVerificationRules::V1,
+        ScriptVerificationRules::V1 | ScriptVerificationRules::V2 => ScriptVerificationRules::V0,
+    };
+    let different_rules_key = TxVerificationCacheKey::from_transaction(&first, different_rules);
+    assert_eq!(
+        service.fetch_tx_verify_cache(&different_rules_key).await,
+        None,
+        "a witness-hash hit is not proof under another script ruleset"
+    );
+    let second_key = TxVerificationCacheKey::from_transaction(&second, rules);
+    assert_eq!(service.fetch_tx_verify_cache(&second_key).await, None);
     signal.cancel();
 }
 
@@ -473,18 +495,19 @@ async fn reorg_recovery_reads_cache_by_exact_witness_hash() {
     let exact_cached = exact_measured + 17;
     let wrong_variant_cached = recovered_measured + 29;
     assert!(wrong_variant_cached < MAX_TX_VERIFY_CYCLES);
+    let rules = current_submit_rules(&service).await;
 
     {
         let mut cache = service.aux.txs_verify_cache.write().await;
         cache.put(
-            TxVerificationCacheKey::from_transaction(&exact),
+            TxVerificationCacheKey::from_transaction(&exact, rules),
             Completed {
                 cycles: exact_cached,
                 fee: Capacity::shannons(0),
             },
         );
         cache.put(
-            TxVerificationCacheKey::from_transaction(&cached_variant),
+            TxVerificationCacheKey::from_transaction(&cached_variant, rules),
             Completed {
                 cycles: wrong_variant_cached,
                 fee: Capacity::shannons(0),

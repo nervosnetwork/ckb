@@ -1,7 +1,7 @@
 //! Unified tx-pool ownership, membership, scheduling and effect authority.
 //!
 //! Production entry points are introduced only through the atomic P9.7g
-//! cutover façade. Foundation-only constructors remain test-gated, so a
+//! cutover facade. Foundation-only constructors remain test-gated, so a
 //! production caller cannot stamp synthetic chain or validation evidence into
 //! an authority receipt while the runtime wiring is being completed.
 

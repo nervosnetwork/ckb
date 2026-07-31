@@ -1,5 +1,3 @@
-#[cfg(test)]
-use super::chain::ValidationRulesId;
 use super::chain::{CellLocationReceipt, TimeContextReceipt, VerificationContextReceipt};
 use super::rejection::CommittedPublicReject;
 use super::resources::AcceptedCost;
@@ -14,6 +12,8 @@ use super::state::{
 use crate::error::Reject;
 use ckb_types::core::TransactionView;
 use ckb_types::core::{Capacity, cell::ResolvedTransaction};
+#[cfg(test)]
+use ckb_verification::cache::ScriptVerificationRules;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -609,11 +609,7 @@ impl VerifyWork {
         accepted_resident_bytes: usize,
         cycles: u64,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
-        self.verified_under(
-            accepted_resident_bytes,
-            cycles,
-            ValidationRulesId::FOUNDATION,
-        )
+        self.verified_under(accepted_resident_bytes, cycles, ScriptVerificationRules::V0)
     }
 
     #[cfg(test)]
@@ -621,7 +617,7 @@ impl VerifyWork {
         self,
         accepted_resident_bytes: usize,
         cycles: u64,
-        rules: ValidationRulesId,
+        rules: ScriptVerificationRules,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         let context = match VerificationContextReceipt::refresh_for_foundation(
             self.token.chain_view().clone(),
@@ -702,11 +698,7 @@ impl ContinuousVerifyWork {
         accepted_resident_bytes: usize,
         cycles: u64,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
-        self.verified_under(
-            accepted_resident_bytes,
-            cycles,
-            ValidationRulesId::FOUNDATION,
-        )
+        self.verified_under(accepted_resident_bytes, cycles, ScriptVerificationRules::V0)
     }
 
     #[cfg(test)]
@@ -714,7 +706,7 @@ impl ContinuousVerifyWork {
         self,
         accepted_resident_bytes: usize,
         cycles: u64,
-        rules: ValidationRulesId,
+        rules: ScriptVerificationRules,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         let context = match VerificationContextReceipt::refresh_for_foundation(
             self.token.chain_view().clone(),

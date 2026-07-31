@@ -1,7 +1,7 @@
 use super::super::{
     chain::{
         ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, FinalAdmissionError,
-        ProposalWindowPosition, ValidationRulesId,
+        ProposalWindowPosition,
     },
     effect::{CommittedEffect, CommittedRejection},
     plan::{Backpressure, PlanError, StalePlan, TxPoolAuthority},
@@ -27,6 +27,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
+use ckb_verification::cache::ScriptVerificationRules;
 use std::{collections::HashSet, num::NonZeroUsize};
 
 #[test]
@@ -77,7 +78,7 @@ fn uak_final_admission_rejects_a_changed_validation_ruleset() {
         authority
             .final_admission_work(&candidate, version)
             .expect("verified owner yields final-validation work")
-            .validate_for_foundation(AcceptedStatus::Pending, ValidationRulesId(1)),
+            .validate_for_foundation(AcceptedStatus::Pending, ScriptVerificationRules::V1),
         Err(FinalAdmissionError::ScriptRulesChanged)
     );
     assert_eq!(authority.normalized_snapshot(), before);

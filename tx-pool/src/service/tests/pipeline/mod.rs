@@ -28,7 +28,7 @@ use ckb_types::{
 };
 use ckb_verification::{
     TxVerifyEnv,
-    cache::{Completed, TxVerificationCacheKey},
+    cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey},
 };
 use std::sync::Arc;
 use std::time::Duration;

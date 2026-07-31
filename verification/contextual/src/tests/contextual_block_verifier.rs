@@ -20,7 +20,10 @@ use ckb_types::{
     prelude::*,
     utilities::DIFF_TWO,
 };
-use ckb_verification::{CellbaseError, CommitError, EpochError, cache::TxVerificationCacheKey};
+use ckb_verification::{
+    CellbaseError, CommitError, EpochError, TxVerifyEnv,
+    cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey},
+};
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
@@ -83,6 +86,29 @@ fn create_transaction(
         .build()
 }
 
+fn create_cache_test_transaction(
+    parent: &Byte32,
+    always_success_script: &Script,
+    always_success_out_point: &OutPoint,
+) -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(parent.clone(), 1), 0))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(Capacity::bytes(999_000).unwrap())
+                .lock(always_success_script.clone())
+                .type_(Some(always_success_script.clone()))
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point.clone())
+                .build(),
+        )
+        .build()
+}
+
 fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
     let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
@@ -103,6 +129,7 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutputBuilder::default().build())
         .output_data(Bytes::new())
+        .witness(Bytes::new().pack())
         .build()
 }
 
@@ -142,14 +169,18 @@ fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
 #[test]
 fn disabled_script_verification_does_not_publish_cache_proof() {
     let (chain, shared, parent_tx, always_success_script, always_success_out_point) = setup_env();
-    let tx = create_transaction(
+    let tx = create_cache_test_transaction(
         &parent_tx,
         &always_success_script,
         &always_success_out_point,
     );
-    let key = TxVerificationCacheKey::from_transaction(&tx);
     let parent = shared.consensus().genesis_block().header();
-    let block = gen_block(&parent, vec![tx], vec![], vec![]);
+    let block = gen_block(&parent, vec![tx.clone()], vec![], vec![]);
+    let rules = ScriptVerificationRules::from_env(
+        shared.consensus(),
+        &TxVerifyEnv::new_commit(&block.header()),
+    );
+    let key = TxVerificationCacheKey::from_transaction(&tx, rules);
     chain
         .chain_controller()
         .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
@@ -166,6 +197,40 @@ fn disabled_script_verification_does_not_publish_cache_proof() {
         cached.is_none(),
         "assume-valid script skipping is not reusable verification proof"
     );
+}
+
+#[test]
+fn contextual_verification_does_not_reuse_cache_across_script_rules() {
+    let (chain, shared, parent_tx, always_success_script, always_success_out_point) = setup_env();
+    let tx = create_cache_test_transaction(
+        &parent_tx,
+        &always_success_script,
+        &always_success_out_point,
+    );
+    let parent = shared.consensus().genesis_block().header();
+    let block = gen_block(&parent, vec![tx.clone()], vec![], vec![]);
+    let current_rules = ScriptVerificationRules::from_env(
+        shared.consensus(),
+        &TxVerifyEnv::new_commit(&block.header()),
+    );
+    let stale_rules = match current_rules {
+        ScriptVerificationRules::V0 => ScriptVerificationRules::V1,
+        ScriptVerificationRules::V1 | ScriptVerificationRules::V2 => ScriptVerificationRules::V0,
+    };
+    let poisoned = Completed {
+        cycles: shared.consensus().max_block_cycles() + 1,
+        fee: Capacity::zero(),
+    };
+    let stale_key = TxVerificationCacheKey::from_transaction(&tx, stale_rules);
+    let cache = shared.txs_verify_cache();
+    shared.async_handle().block_on(async {
+        cache.write().await.put(stale_key, poisoned);
+    });
+
+    chain
+        .chain_controller()
+        .blocking_process_block_with_switch(Arc::new(block), Switch::ONLY_SCRIPT)
+        .expect("mismatched cache evidence must be ignored and scripts reverified");
 }
 
 #[test]
