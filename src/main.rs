@@ -10,7 +10,7 @@ fn main() {
     #[cfg(feature = "tokio-trace")]
     console_subscriber::init();
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", not(target_feature = "crt-static")))]
     check_msvc_version();
 
     let version = get_version();
@@ -19,7 +19,7 @@ fn main() {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(target_feature = "crt-static")))]
 fn check_msvc_version() {
     use winreg::RegKey;
     use winreg::enums::*;

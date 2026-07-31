@@ -287,6 +287,7 @@ impl RpcTestSuite {
         };
 
         let started = Instant::now();
+        let timeout = Duration::from_secs(60);
         loop {
             let response = self.rpc(&RpcTestRequest {
                 id: 42,
@@ -304,8 +305,9 @@ impl RpcTestSuite {
             }
 
             assert!(
-                started.elapsed() < Duration::from_secs(10),
-                "sync_state unverified tip did not reach tip: {}",
+                started.elapsed() < timeout,
+                "sync_state unverified tip did not reach tip within {:?}: {}",
+                timeout,
                 response.json(),
             );
             sleep(Duration::from_millis(100));

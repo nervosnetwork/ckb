@@ -8,7 +8,7 @@ use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
 use ckb_script::ChunkCommand;
-use ckb_script::TransactionScriptsVerifier;
+use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -102,6 +102,62 @@ impl<'a> NonContextualTransactionVerifier<'a> {
     }
 }
 
+/// Script verification that can reuse cycles from a prior successful verification.
+struct CachedScriptVerifier<DL>
+where
+    DL: Send + Sync + Clone + CellDataProvider + HeaderProvider + ExtensionProvider + 'static,
+{
+    inner: ScriptVerifier<DL>,
+    cached_cycles: Option<Cycle>,
+}
+
+impl<DL> CachedScriptVerifier<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
+    fn new(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+        cached_cycles: Option<Cycle>,
+    ) -> Self {
+        Self {
+            inner: TransactionScriptsVerifier::new(rtx, data_loader, consensus, tx_env),
+            cached_cycles,
+        }
+    }
+
+    fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
+        match self.cached_cycles {
+            Some(cycles) if cycles <= max_cycles => Ok(cycles),
+            Some(_) => Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                .unknown_source()
+                .into()),
+            None => self.inner.verify(max_cycles),
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn resumable_verify_with_signal(
+        &self,
+        max_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    ) -> Result<Cycle, Error> {
+        match self.cached_cycles {
+            Some(cycles) if cycles <= max_cycles => Ok(cycles),
+            Some(_) => Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                .unknown_source()
+                .into()),
+            None => {
+                self.inner
+                    .resumable_verify_with_signal(max_cycles, command_rx)
+                    .await
+            }
+        }
+    }
+}
+
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
@@ -115,7 +171,7 @@ where
 {
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
-    pub(crate) script: ScriptVerifier<DL>,
+    script: CachedScriptVerifier<DL>,
     pub(crate) fee_calculator: FeeCalculator<DL>,
 }
 
@@ -138,6 +194,17 @@ where
         data_loader: DL,
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
+        Self::new_with_cached_script_cycles(rtx, consensus, data_loader, tx_env, None)
+    }
+
+    /// Creates a new ContextualTransactionVerifier with optional cached script cycles.
+    pub fn new_with_cached_script_cycles(
+        rtx: Arc<ResolvedTransaction>,
+        consensus: Arc<Consensus>,
+        data_loader: DL,
+        tx_env: Arc<TxVerifyEnv>,
+        cached_script_cycles: Option<Cycle>,
+    ) -> Self {
         ContextualTransactionVerifier {
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
@@ -145,18 +212,19 @@ where
                 data_loader.clone(),
                 Arc::clone(&tx_env),
             ),
-            script: TransactionScriptsVerifier::new(
+            script: CachedScriptVerifier::new(
                 Arc::clone(&rtx),
                 data_loader.clone(),
                 Arc::clone(&consensus),
                 Arc::clone(&tx_env),
+                cached_script_cycles,
             ),
             capacity: CapacityVerifier::new(Arc::clone(&rtx), consensus.dao_type_hash()),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
         }
     }
 
-    /// Perform context-dependent verification, return a `Result` to `CacheEntry`
+    /// Perform context-dependent verification.
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
@@ -824,6 +892,7 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
     /// of the same size as corresponding deposit cells
     pub fn verify(&self) -> Result<(), Error> {
         let dao_type_hash = self.dao_type_hash();
+
         for (i, (input_meta, cell_output)) in self
             .resolved_transaction
             .resolved_inputs
@@ -866,6 +935,48 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
                 return Err((TransactionError::DaoLockSizeMismatch { index: i }).into());
             }
         }
+        self.verify_output_data(&dao_type_hash)?;
         Ok(())
+    }
+
+    fn verify_output_data(&self, dao_type_hash: &Byte32) -> Result<(), Error> {
+        let transaction = &self.resolved_transaction.transaction;
+        let outputs = transaction.outputs();
+        let outputs_data = transaction.outputs_data();
+
+        for (index, output) in outputs.into_iter().enumerate() {
+            if !cell_uses_dao_type_script(&output, dao_type_hash) {
+                continue;
+            }
+
+            let Some(output_data) = outputs_data.get(index).map(|data| data.raw_data()) else {
+                continue;
+            };
+
+            if output_data.iter().all(|b| *b == 0) {
+                continue;
+            }
+
+            if !self.same_index_input_is_dao_deposit(index, dao_type_hash) {
+                return Err((TransactionError::DaoOutputDataMismatch { index }).into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn same_index_input_is_dao_deposit(&self, index: usize, dao_type_hash: &Byte32) -> bool {
+        let Some(input_meta) = self.resolved_transaction.resolved_inputs.get(index) else {
+            return false;
+        };
+
+        if !cell_uses_dao_type_script(&input_meta.cell_output, dao_type_hash) {
+            return false;
+        }
+
+        self.data_loader
+            .load_cell_data(input_meta)
+            .map(|input_data| input_data.iter().all(|b| *b == 0))
+            .unwrap_or(false)
     }
 }

@@ -66,6 +66,7 @@ impl Spec for BootstrapCellbase {
             notify: vec![],
             notify_scripts: vec![],
             notify_timeout_millis: 800,
+            notify_auth_token: None,
         });
     }
 }

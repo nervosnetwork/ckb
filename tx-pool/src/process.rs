@@ -7,7 +7,7 @@ use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
-    check_tx_fee, check_txid_collision, is_missing_input, non_contextual_verify,
+    check_duplicate_proposal_id, check_tx_fee, is_missing_input, non_contextual_verify,
     time_relative_verify, verify_rtx,
 };
 use ckb_error::{AnyError, InternalErrorKind};
@@ -29,10 +29,13 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     TxVerifyEnv,
-    cache::{CacheEntry, Completed},
+    cache::{
+        CachedScriptCycles, Completed, FetchedTxVerificationCache, TxVerificationCacheLookup,
+        VerifyCacheKey,
+    },
 };
 use std::collections::HashSet;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -73,22 +76,25 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
+    pub(crate) async fn fetch_tx_verify_cache(
+        &self,
+        tx: &TransactionView,
+    ) -> Option<CachedScriptCycles> {
         let guard = self.txs_verify_cache.read().await;
-        guard.peek(&tx.witness_hash()).cloned()
+        guard.get_by_wtx_hash(&VerifyCacheKey::from(tx)).cloned()
     }
 
     async fn fetch_txs_verify_cache(
         &self,
         txs: impl Iterator<Item = &TransactionView>,
-    ) -> HashMap<Byte32, CacheEntry> {
+    ) -> FetchedTxVerificationCache {
         let guard = self.txs_verify_cache.read().await;
         txs.filter_map(|tx| {
-            let wtx_hash = tx.witness_hash();
+            let key = VerifyCacheKey::from(tx);
             guard
-                .peek(&wtx_hash)
+                .get_by_wtx_hash(&key)
                 .cloned()
-                .map(|value| (wtx_hash, value))
+                .map(|value| (key, value))
         })
         .collect()
     }
@@ -277,9 +283,8 @@ impl TxPoolService {
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
 
-                // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
-                // It's also not possible for RBF, reject it directly
-                check_txid_collision(tx_pool, tx)?;
+                // Transactions already represented in the pool are not RBF candidates.
+                check_duplicate_proposal_id(tx_pool, tx)?;
 
                 // Try normal path first, if double-spending check success we don't need RBF check
                 // this make sure RBF won't introduce extra performance cost for hot path
@@ -438,21 +443,20 @@ impl TxPoolService {
     }
 
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
-        let id = ProposalShortId::from_tx_hash(&tx_hash);
         {
             let mut queue = self.verify_queue.write().await;
-            if queue.remove_tx(&id).is_some() {
+            if queue.remove_tx_by_hash(&tx_hash).is_some() {
                 return true;
             }
         }
         {
             let mut orphan = self.orphan.write().await;
-            if orphan.remove_orphan_tx(&id).is_some() {
+            if orphan.remove_orphan_tx_by_hash(&tx_hash).is_some() {
                 return true;
             }
         }
         let mut tx_pool = self.tx_pool.write().await;
-        tx_pool.remove_tx(&id)
+        tx_pool.remove_tx_by_hash(&tx_hash)
     }
 
     pub(crate) async fn after_process(
@@ -581,8 +585,8 @@ impl TxPoolService {
             .collect::<Vec<_>>()
     }
 
-    pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
-        self.orphan.write().await.remove_orphan_tx(id);
+    pub(crate) async fn remove_orphan_tx_by_hash(&self, tx_hash: &Byte32) {
+        self.orphan.write().await.remove_orphan_tx_by_hash(tx_hash);
     }
 
     /// Remove all orphans which are resolved by the given transaction
@@ -601,7 +605,7 @@ impl TxPoolService {
                         orphan.tx.hash(),
                         tx.hash(),
                     );
-                    let orphan_id = orphan.tx.proposal_short_id();
+                    let orphan_hash = orphan.tx.hash();
                     match self
                         .enqueue_verify_queue(
                             orphan.tx.clone(),
@@ -611,7 +615,7 @@ impl TxPoolService {
                         .await
                     {
                         Ok(_) => {
-                            self.remove_orphan_tx(&orphan_id).await;
+                            self.remove_orphan_tx_by_hash(&orphan_hash).await;
                         }
                         Err(reject) => {
                             warn!(
@@ -626,6 +630,7 @@ impl TxPoolService {
                     ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
                     .await
                 {
+                    let orphan_hash = orphan.tx.hash();
                     match ret {
                         Ok(_) => {
                             self.send_result_to_relayer(TxVerificationResult::Ok {
@@ -637,7 +642,7 @@ impl TxPoolService {
                                 orphan.tx.hash(),
                                 tx.hash()
                             );
-                            self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                            self.remove_orphan_tx_by_hash(&orphan_hash).await;
                             orphan_queue.push_back(orphan.tx);
                         }
                         Err(reject) => {
@@ -649,7 +654,7 @@ impl TxPoolService {
                             );
 
                             if !is_missing_input(&reject) {
-                                self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                                self.remove_orphan_tx_by_hash(&orphan_hash).await;
                                 if reject.is_malformed_tx() {
                                     self.ban_malformed(orphan.peer, format!("reject {reject}"))
                                         .await;
@@ -708,7 +713,7 @@ impl TxPoolService {
         declared_cycles: Option<Cycle>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
-        let wtx_hash = tx.witness_hash();
+        let verify_cache_key = VerifyCacheKey::from(&tx);
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
 
@@ -760,7 +765,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(wtx_hash, verified);
+                guard.put(verify_cache_key, CachedScriptCycles::new(verified.cycles));
             });
         }
 
@@ -853,7 +858,9 @@ impl TxPoolService {
         self.remove_orphan_txs_by_attach(&attached).await;
         {
             let mut queue = self.verify_queue.write().await;
-            queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+            for tx in &attached {
+                queue.remove_tx_by_hash(&tx.hash());
+            }
         }
     }
 
@@ -867,28 +874,29 @@ impl TxPoolService {
         queue.add_tx(tx, is_proposal_tx, remote)
     }
 
-    async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
+    async fn remove_orphan_txs_by_attach(&self, txs: &LinkedHashSet<TransactionView>) {
         for tx in txs.iter() {
             self.process_orphan_tx(tx).await;
         }
         let mut orphan = self.orphan.write().await;
-        orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
+        orphan.remove_orphan_txs_by_hash(txs.iter().map(TransactionView::hash));
     }
 
     async fn readd_detached_tx(
         &self,
         tx_pool: &mut TxPool,
         txs: Vec<TransactionView>,
-        fetched_cache: HashMap<Byte32, CacheEntry>,
+        fetched_cache: FetchedTxVerificationCache,
     ) {
         let max_cycles = self.tx_pool_config.max_tx_verify_cycles;
         for tx in txs {
             let tx_size = tx.data().serialized_size_in_block();
             let tx_hash = tx.hash();
+            let verify_cache_key = VerifyCacheKey::from(&tx);
             if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx, false)
                 && let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size)
             {
-                let verify_cache = fetched_cache.get(&tx_hash).cloned();
+                let verify_cache = fetched_cache.get_by_wtx_hash(&verify_cache_key).cloned();
                 let snapshot = tx_pool.cloned_snapshot();
                 let tip_header = snapshot.tip_header();
                 let tx_env = Arc::new(status.with_env(tip_header));

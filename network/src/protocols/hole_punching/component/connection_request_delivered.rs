@@ -250,7 +250,8 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
                 | TransportType::Onion
                 | TransportType::Ws
                 | TransportType::Wss
-                | TransportType::Tls => None,
+                | TransportType::Tls
+                | TransportType::QuicV1 => None,
             })
             .collect::<Vec<_>>();
 

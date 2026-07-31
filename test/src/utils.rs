@@ -230,6 +230,13 @@ impl TempPathBuf {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Consumes the `TempPathBuf` and returns the underlying path without
+    /// deleting the temporary directory.
+    pub fn leak(self) -> PathBuf {
+        let mut this = std::mem::ManuallyDrop::new(self);
+        std::mem::take(&mut this.path)
+    }
 }
 
 impl Deref for TempPathBuf {
@@ -360,5 +367,25 @@ pub fn message_name(data: &Bytes) -> String {
         message.to_enum().item_name().to_string()
     } else {
         panic!("unknown message item");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::remove_dir_all;
+
+    #[test]
+    fn temp_path_buf_leak_keeps_directory() {
+        let temp = TempPathBuf::new("test", "leak");
+        let path = temp.path().to_owned();
+        let returned = temp.leak();
+        assert_eq!(returned, path);
+        assert!(
+            path.exists(),
+            "leak() should keep the temporary directory alive"
+        );
+        // Clean up manually since the test intentionally bypassed automatic cleanup.
+        remove_dir_all(&path).unwrap();
     }
 }

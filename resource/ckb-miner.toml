@@ -59,6 +59,11 @@ poll_interval = 1000
 # enable listen notify mode
 # listen = "127.0.0.1:8888"
 
+# Optional bearer token to authenticate block-template notifications.
+# Must match block_assembler.notify_auth_token in ckb.toml.
+# Must be non-empty without leading/trailing whitespace, otherwise ckb-miner refuses to start.
+# auth_token = "change-me-to-a-long-random-secret"
+
 [[miner.workers]]
 worker_type = "EaglesongSimple" # {{
 # dev => worker_type = "Dummy"

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3](https://github.com/nervosnetwork/ckb/compare/ckb-rich-indexer-v1.1.2...ckb-rich-indexer-v1.1.3) - 2026-07-28
+
+### Changed
+
+- Change break to continue in transaction input loop (#5245) (by @eval-exec)
+
+### Fixed
+
+- Rich-indexer tx-pool overlay misbinds filtered cell-query parameters and can hide live cells (by @zhangsoledad)
+- rich-indexer rollback can delete still-referenced type-script rows and hide live cells (by @zhangsoledad)
+
+### Contributors
+
+- @zhangsoledad
+- @eval-exec
+
 ## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-rich-indexer-v1.1.1...ckb-rich-indexer-v1.1.2) - 2026-06-08
 
 ### Changed

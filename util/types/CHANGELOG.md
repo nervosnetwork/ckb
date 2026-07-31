@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3](https://github.com/nervosnetwork/ckb/compare/ckb-types-v1.1.2...ckb-types-v1.1.3) - 2026-07-28
+
+### Changed
+
+- cargo fmt --all (#5255) (by @eval-exec)
+
+### Fixed
+
+- add dao output data mismatch verification (#5285) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+- @eval-exec
+
 ## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-types-v1.1.1...ckb-types-v1.1.2) - 2026-06-08
 
 ### Changed
