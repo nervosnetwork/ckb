@@ -204,13 +204,9 @@ impl Import {
                     let verify_tx = verify_tx.clone();
                     let block_number = block.number();
                     Box::new(move |verify_result: VerifyResult| match verify_result {
-                        Ok(true) => {
+                        Ok(_) => {
                             progress_bar.inc(block_size as u64);
                             let _ = verify_tx.send(Ok(block_number));
-                        }
-                        Ok(false) => {
-                            let _ = verify_tx
-                                .send(Err(format!("block {block_number} was not verified")));
                         }
                         Err(err) => {
                             eprintln!("Error verifying block: {:?}", err);
@@ -225,12 +221,8 @@ impl Import {
                     let verify_tx = verify_tx.clone();
                     let block_number = block.number();
                     Box::new(move |verify_result: VerifyResult| match verify_result {
-                        Ok(true) => {
+                        Ok(_) => {
                             let _ = verify_tx.send(Ok(block_number));
-                        }
-                        Ok(false) => {
-                            let _ = verify_tx
-                                .send(Err(format!("block {block_number} was not verified")));
                         }
                         Err(err) => {
                             eprintln!("Error verifying block: {:?}", err);
