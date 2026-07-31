@@ -1,5 +1,8 @@
 use super::super::{
-    plan::{CommittedChanges, PlanError, SettlementBatch, StalePlan, TxPoolAuthority},
+    plan::{
+        CommittedChanges, DirectAdmissionDisposition, PlanError, SettlementBatch, StalePlan,
+        TxPoolAuthority,
+    },
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
         AcceptedStatus, DependencyKey, EntryVersion, OwnedTx, PoolGeneration, PreAcceptedPhase,
@@ -8,7 +11,7 @@ use super::super::{
     },
     work::{CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork},
 };
-use super::foundation::FixtureCommit;
+use super::foundation::{FixtureCommit, direct_verified_facts};
 use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
@@ -16,7 +19,10 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 fn limits() -> ResourceLimits {
     ResourceLimits::new(
@@ -318,6 +324,55 @@ fn uak_parent_acceptance_publishes_output_availability_atomically() {
             .plan_accept_for_foundation(&parent, parent_version, AcceptedStatus::Pending)
             .expect("parent membership and availability share one Apply"),
     );
+
+    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    assert_ne!(owner_version(&authority, &child), waiting_version);
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_direct_parent_acceptance_publishes_output_availability_atomically() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = output_transaction(704);
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let key = DependencyKey::Cell(parent_output.clone());
+    let child = admit(
+        &mut authority,
+        ValidatedAdmission::remote(input_transaction(705, parent_output), PeerIndex::from(110))
+            .expect("waiting child is valid"),
+    );
+    let missing = checkout_resolve(&mut authority, &child)
+        .missing(vec![key])
+        .expect("missing output receipt is bounded");
+    apply_without_work(
+        authority
+            .apply_settlement(missing)
+            .expect("child registers its exact wait"),
+    );
+    let waiting_version = owner_version(&authority, &child);
+
+    let verified = direct_verified_facts(
+        &parent_tx,
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1_000),
+    );
+    let disposition = authority
+        .plan_direct_admission_for_foundation(
+            Arc::new(parent_tx),
+            verified,
+            AcceptedStatus::Pending,
+        )
+        .expect("direct parent membership and availability share one Plan");
+    let DirectAdmissionDisposition::Accepted(plan) = disposition else {
+        panic!("vacant direct parent must become Accepted");
+    };
+    apply_without_work(plan);
 
     assert_eq!(drain_dependency_maintenance(&mut authority), 1);
     assert_ne!(owner_version(&authority, &child), waiting_version);

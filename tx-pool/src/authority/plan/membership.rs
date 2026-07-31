@@ -671,6 +671,19 @@ impl TxPoolAuthority {
                 super::AuthorityFault::MembershipProjection,
             ));
         }
+        self.prepare_membership_candidate(hash, candidate)
+    }
+
+    /// Compile policy, eviction and accepted projections for a candidate
+    /// whose immutable validation evidence has already been sealed. Source-
+    /// specific owner checks stay in the command wrapper; RBF and capacity
+    /// policy have exactly one implementation for asynchronous and direct
+    /// admissions.
+    pub(super) fn prepare_membership_candidate(
+        &mut self,
+        hash: &RawTxHash,
+        candidate: &AcceptedEntry,
+    ) -> Result<PreparedMembership, super::PlanError> {
         let mandatory = rbf::replacement_removals(self, candidate)?;
         let EvictionPlan {
             removals: selected_removals,

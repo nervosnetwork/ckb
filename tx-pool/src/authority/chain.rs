@@ -320,13 +320,63 @@ impl AcceptedChainSensitivity {
 pub(super) struct FinalAdmissionWork {
     key: RawTxHash,
     expected: EntryVersion,
+    validation: MembershipValidationWork,
+}
+
+/// Read-only validation work for a synchronous trusted admission. Unlike
+/// [`FinalAdmissionWork`], it has no resident PreAccepted owner or version:
+/// the exact transaction and its verification facts are sealed together and
+/// membership is decided by one later authority Plan/Apply.
+#[derive(Clone, Debug)]
+pub(super) struct DirectAdmissionWork {
+    tx: Arc<TransactionView>,
+    validation: MembershipValidationWork,
+}
+
+#[derive(Clone, Debug)]
+struct MembershipValidationWork {
     view: ChainViewId,
     verified: VerifiedFacts,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum FinalAdmissionError {
+pub(super) enum AdmissionEvidenceError {
+    TransactionIdentityMismatch,
     ScriptRulesChanged,
+}
+
+pub(super) type FinalAdmissionError = AdmissionEvidenceError;
+pub(super) type DirectAdmissionError = AdmissionEvidenceError;
+
+impl MembershipValidationWork {
+    fn new(view: ChainViewId, verified: VerifiedFacts) -> Self {
+        Self { view, verified }
+    }
+
+    #[cfg(test)]
+    fn validate_for_foundation(
+        self,
+        status: AcceptedStatus,
+        rules: ScriptVerificationRules,
+        sensitivity: AcceptedChainSensitivity,
+    ) -> Result<MembershipReceipt, AdmissionEvidenceError> {
+        let context = self
+            .verified
+            .verification_context()
+            .refreshed_for_foundation(self.view, rules);
+        let verified = self
+            .verified
+            .with_context(context)
+            .ok_or(AdmissionEvidenceError::ScriptRulesChanged)?;
+        Ok(MembershipReceipt {
+            proof: AcceptedProof {
+                verified,
+                sensitivity,
+            },
+            proposal: ProposalContextReceipt::from_validation(status),
+            accepted_at: AcceptedAtMillis::FOUNDATION,
+        })
+    }
 }
 
 impl FinalAdmissionWork {
@@ -339,8 +389,7 @@ impl FinalAdmissionWork {
         Self {
             key,
             expected,
-            view,
-            verified,
+            validation: MembershipValidationWork::new(view, verified),
         }
     }
 
@@ -380,25 +429,66 @@ impl FinalAdmissionWork {
         rules: ScriptVerificationRules,
         sensitivity: AcceptedChainSensitivity,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
-        let context = self
-            .verified
-            .verification_context()
-            .refreshed_for_foundation(self.view.clone(), rules);
-        let verified = self
-            .verified
-            .with_context(context)
-            .ok_or(FinalAdmissionError::ScriptRulesChanged)?;
-        let proposal = ProposalContextReceipt::from_validation(status);
         Ok(FinalAdmissionReceipt {
             key: self.key,
             expected: self.expected,
-            proof: AcceptedProof {
-                verified,
-                sensitivity,
-            },
-            proposal,
-            accepted_at: AcceptedAtMillis::FOUNDATION,
+            membership: self
+                .validation
+                .validate_for_foundation(status, rules, sensitivity)?,
         })
+    }
+}
+
+impl DirectAdmissionWork {
+    pub(super) fn new(
+        tx: Arc<TransactionView>,
+        view: ChainViewId,
+        verified: VerifiedFacts,
+    ) -> Result<Self, DirectAdmissionError> {
+        if verified.payload().identity() != &super::state::TxIdentity::from_transaction(&tx) {
+            return Err(DirectAdmissionError::TransactionIdentityMismatch);
+        }
+        Ok(Self {
+            tx,
+            validation: MembershipValidationWork::new(view, verified),
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn validate_for_foundation(
+        self,
+        status: AcceptedStatus,
+        rules: ScriptVerificationRules,
+    ) -> Result<DirectAdmissionReceipt, DirectAdmissionError> {
+        Ok(DirectAdmissionReceipt {
+            tx: self.tx,
+            membership: self.validation.validate_for_foundation(
+                status,
+                rules,
+                AcceptedChainSensitivity::Stable,
+            )?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MembershipReceipt {
+    proof: AcceptedProof,
+    proposal: ProposalContextReceipt,
+    accepted_at: AcceptedAtMillis,
+}
+
+impl MembershipReceipt {
+    fn view(&self) -> &ChainViewId {
+        self.proof.admission_view()
+    }
+
+    fn proof(&self) -> &AcceptedProof {
+        &self.proof
+    }
+
+    fn into_parts(self) -> (AcceptedProof, ProposalContextReceipt, AcceptedAtMillis) {
+        (self.proof, self.proposal, self.accepted_at)
     }
 }
 
@@ -407,9 +497,7 @@ impl FinalAdmissionWork {
 pub(super) struct FinalAdmissionReceipt {
     key: RawTxHash,
     expected: EntryVersion,
-    proof: AcceptedProof,
-    proposal: ProposalContextReceipt,
-    accepted_at: AcceptedAtMillis,
+    membership: MembershipReceipt,
 }
 
 impl FinalAdmissionReceipt {
@@ -422,17 +510,54 @@ impl FinalAdmissionReceipt {
     }
 
     pub(super) fn view(&self) -> &ChainViewId {
-        self.proof.admission_view()
+        self.membership.view()
     }
 
     pub(super) fn proof(&self) -> &AcceptedProof {
-        &self.proof
+        self.membership.proof()
     }
 
     pub(super) fn into_membership_parts(
         self,
     ) -> (AcceptedProof, ProposalContextReceipt, AcceptedAtMillis) {
-        (self.proof, self.proposal, self.accepted_at)
+        self.membership.into_parts()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[must_use = "direct admission evidence must be applied or discarded as stale"]
+pub(super) struct DirectAdmissionReceipt {
+    tx: Arc<TransactionView>,
+    membership: MembershipReceipt,
+}
+
+impl DirectAdmissionReceipt {
+    pub(super) fn key(&self) -> &RawTxHash {
+        &self.membership.proof().payload().identity().raw
+    }
+
+    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
+        &self.tx
+    }
+
+    pub(super) fn view(&self) -> &ChainViewId {
+        self.membership.view()
+    }
+
+    pub(super) fn proof(&self) -> &AcceptedProof {
+        self.membership.proof()
+    }
+
+    pub(super) fn into_membership_parts(
+        self,
+    ) -> (
+        Arc<TransactionView>,
+        AcceptedProof,
+        ProposalContextReceipt,
+        AcceptedAtMillis,
+    ) {
+        let (proof, proposal, accepted_at) = self.membership.into_parts();
+        (self.tx, proof, proposal, accepted_at)
     }
 }
 

@@ -5,9 +5,10 @@ use super::super::effect::{
 use super::super::plan::{
     AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
     CandidateBatchError, CandidateDispositionPlan, CommittedChange, CommittedChanges,
-    CommittedDelta, ComponentLimitKind, DescendantAggregate, EvictionOrderKey, IndependentCoupling,
-    MembershipReject, MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch,
-    SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
+    CommittedDelta, ComponentLimitKind, DescendantAggregate, DirectAdmissionDisposition,
+    EvictionOrderKey, IndependentCoupling, MembershipReject, MembershipSnapshot, PlanError,
+    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, StatusCounts,
+    TxPoolAuthority,
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
@@ -15,12 +16,12 @@ use super::super::resources::{
 };
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
-    AcceptedAtMillis, AcceptedEntry, AcceptedStatus, ActiveWork, ApplySequence, CandidateMetrics,
-    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, DependencyCut,
-    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, FoundationResolution,
-    InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx, PoolGeneration,
-    PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalLease,
-    QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
+    AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
+    CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId,
+    DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
+    FoundationResolution, InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx,
+    PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId,
+    ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
     RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
     VerifyCapability, VerifyCycleClass, WorkPermit,
 };
@@ -385,6 +386,27 @@ pub(super) fn resolved_payload_with_facts(
         chain_dependencies,
     )
     .expect("fixture chain evidence is a subset of resolved cells")
+}
+
+pub(super) fn direct_verified_facts(
+    transaction: &TransactionView,
+    expanded_dependencies: Vec<OutPoint>,
+    chain_inputs: Vec<OutPoint>,
+    fee: Capacity,
+) -> VerifiedFacts {
+    let resident_bytes = transaction.data().total_size();
+    VerifiedFacts::for_foundation(
+        ChainRevision(0),
+        DependencyCut(ApplySequence(0)),
+        Arc::new(
+            resolved_payload_with_facts(transaction, expanded_dependencies, chain_inputs, fee)
+                .into_payload(),
+        ),
+        CandidateMetrics {
+            fee,
+            cost: AcceptedCost::new(resident_bytes, resident_bytes, 0),
+        },
+    )
 }
 
 pub(super) fn accept_remote_transaction(
@@ -1503,6 +1525,354 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
             .preaccepted_charge()
             .expect("replacement remains peer-resident")
     );
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = Arc::new(tx(270));
+    let hash = RawTxHash(transaction.hash());
+    let verified = direct_verified_facts(
+        &transaction,
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1_000),
+    );
+    let disposition = authority
+        .plan_direct_admission_for_foundation(
+            Arc::clone(&transaction),
+            verified,
+            AcceptedStatus::Pending,
+        )
+        .expect("a validated local transaction has one direct disposition");
+    let DirectAdmissionDisposition::Accepted(plan) = disposition else {
+        panic!("vacant local admission must acquire Accepted ownership");
+    };
+    let committed = apply_committed_without_work(plan);
+    assert_eq!(committed.retired_len(), 0);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::Accepted(entry))
+            if entry.provenance == AcceptedProvenance::Trusted
+                && entry.status() == AcceptedStatus::Pending
+                && entry.record.tx.witness_hash() == transaction.witness_hash()
+    ));
+    assert_eq!(authority.owner_count(), 1);
+    assert_eq!(
+        authority.resources().preaccepted(),
+        ResourceVector::default()
+    );
+    assert_eq!(authority.resources().accepted().entries, 1);
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("direct admission effect checkout plans")
+        .expect("direct admission publishes one outcome")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("direct admission checkout returns its effect lease");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Accepted {
+            tx,
+            status: AcceptedStatus::Pending,
+            cause: CommittedAcceptance::Admission { ingress_peer: None },
+        }] if tx.hash() == transaction.hash()
+    ));
+}
+
+#[test]
+fn uak_dropped_direct_local_plan_is_semantically_mutation_free() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = Arc::new(tx(271));
+    let verified = direct_verified_facts(
+        &transaction,
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1_000),
+    );
+    let before = authority.normalized_snapshot();
+    let disposition = authority
+        .plan_direct_admission_for_foundation(transaction, verified, AcceptedStatus::Pending)
+        .expect("direct admission plans without mutating authority state");
+    drop(disposition);
+    assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[test]
+fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let raw = tx(272);
+    let remote = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"remote-direct").pack()])
+        .build();
+    let local = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"local-direct").pack()])
+        .build();
+    let peer = PeerIndex::from(72);
+    let admission =
+        ValidatedAdmission::remote(remote, peer).expect("remote fixture admission is valid");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("remote fixture enters PreAccepted ownership"),
+    );
+    let arrival = authority
+        .entry(&hash)
+        .expect("remote owner exists")
+        .record()
+        .arrival;
+    let verified = direct_verified_facts(&local, Vec::new(), Vec::new(), Capacity::shannons(2_000));
+    let disposition = authority
+        .plan_direct_admission_for_foundation(
+            Arc::new(local.clone()),
+            verified,
+            AcceptedStatus::Pending,
+        )
+        .expect("local payload supersedes the inactive same-raw owner");
+    let DirectAdmissionDisposition::Accepted(plan) = disposition else {
+        panic!("same-raw inactive PreAccepted owner is settled by local acceptance");
+    };
+    let committed = apply_committed_without_work(plan);
+    assert_eq!(committed.retired_len(), 1);
+    let owner = authority.entry(&hash).expect("local accepted owner exists");
+    assert_eq!(owner.record().arrival, arrival);
+    assert_eq!(owner.record().tx.witness_hash(), local.witness_hash());
+    assert_eq!(owner.ingress_peer(), Some(peer));
+    assert_eq!(owner.payload_blame_peer(), None);
+    assert!(matches!(
+        owner,
+        OwnedTx::Accepted(AcceptedEntry {
+            provenance: AcceptedProvenance::Peer {
+                ingress,
+                payload: RemotePayloadOrigin::Trusted,
+            },
+            ..
+        }) if *ingress == peer
+    ));
+    assert_eq!(
+        authority.resources().preaccepted(),
+        ResourceVector::default()
+    );
+    assert_eq!(authority.resources().remote(), ResourceVector::default());
+    assert_eq!(authority.resources().peer(peer), ResourceVector::default());
+    assert_resource_reference(&authority);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("direct replacement effect checkout plans")
+        .expect("direct replacement publishes one outcome")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("direct replacement returns its effect lease");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Accepted {
+            cause: CommittedAcceptance::Admission {
+                ingress_peer: Some(effect_peer),
+            },
+            ..
+        }] if *effect_peer == peer
+    ));
+}
+
+#[test]
+fn uak_direct_local_waits_for_the_matching_remote_compute_capability() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let raw = tx(276);
+    let remote = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"remote-active-direct").pack()])
+        .build();
+    let local = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"local-active-direct").pack()])
+        .build();
+    let admission = ValidatedAdmission::remote(remote, PeerIndex::from(76))
+        .expect("active remote fixture admission is valid");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("active remote fixture enters ownership"),
+    );
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("remote owner checks out its unique capability")
+            .apply(),
+    );
+    let verified = direct_verified_facts(&local, Vec::new(), Vec::new(), Capacity::shannons(2_000));
+    let before = authority.normalized_snapshot();
+    assert_eq!(
+        authority
+            .plan_direct_admission_for_foundation(
+                Arc::new(local),
+                verified,
+                AcceptedStatus::Pending,
+            )
+            .err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    apply_without_work(
+        authority
+            .apply_settlement(work.internal_failure())
+            .expect("the unique remote capability remains settleable"),
+    );
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(273);
+    let hash = accept_remote_transaction(
+        &mut authority,
+        transaction.clone(),
+        73,
+        AcceptedStatus::Proposed,
+        Vec::new(),
+    );
+    let version = owner_version(&authority, &hash);
+    let accepted_resources = authority.resources().accepted();
+    let verified = direct_verified_facts(
+        &transaction,
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1_000),
+    );
+    let disposition = authority
+        .plan_direct_admission_for_foundation(
+            Arc::new(transaction.clone()),
+            verified,
+            AcceptedStatus::Pending,
+        )
+        .expect("an accepted raw hash has a deterministic duplicate outcome");
+    let DirectAdmissionDisposition::Duplicate(duplicate) = disposition else {
+        panic!("Accepted ownership dominates a racing direct receipt");
+    };
+    assert_eq!(duplicate.key(), &hash);
+    let (duplicate_hash, committed) = duplicate.apply();
+    assert_eq!(duplicate_hash, hash);
+    assert!(committed.handoff_is_none());
+    assert_eq!(owner_version(&authority, &hash), version);
+    assert_eq!(authority.resources().accepted(), accepted_resources);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("duplicate effect checkout plans")
+        .expect("duplicate commits one accepted relay outcome")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("duplicate checkout returns its effect lease");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Accepted {
+            status: AcceptedStatus::Proposed,
+            cause: CommittedAcceptance::Duplicate {
+                requesting_peer: None,
+            },
+            ..
+        }]
+    ));
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_direct_local_under_fee_rbf_rejects_without_touching_any_owner() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let chain_input = OutPoint::new(Byte32::new([74; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(274u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        74,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![chain_input.clone()],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let victim_version = owner_version(&authority, &victim);
+    let accepted_resources = authority.resources().accepted();
+    let replacement = TransactionBuilder::default()
+        .version(275u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let replacement_hash = RawTxHash(replacement.hash());
+    let verified = direct_verified_facts(
+        &replacement,
+        Vec::new(),
+        vec![chain_input],
+        Capacity::shannons(10_000),
+    );
+    let disposition = authority
+        .plan_direct_admission_for_foundation(
+            Arc::new(replacement.clone()),
+            verified,
+            AcceptedStatus::Pending,
+        )
+        .expect("under-fee RBF is a transaction outcome, not an authority fault");
+    let DirectAdmissionDisposition::Rejected(rejected) = disposition else {
+        panic!("replacement must pay the victim fee plus the configured increment");
+    };
+    assert!(matches!(
+        rejected.reason(),
+        MembershipReject::InsufficientReplacementFee { .. }
+    ));
+    let (reason, committed) = rejected.apply();
+    assert!(committed.handoff_is_none());
+    assert!(matches!(
+        reason,
+        MembershipReject::InsufficientReplacementFee { .. }
+    ));
+    assert!(authority.entry(&replacement_hash).is_none());
+    assert_eq!(owner_version(&authority, &victim), victim_version);
+    assert_eq!(authority.resources().accepted(), accepted_resources);
+    assert_eq!(authority.owner_count(), 1);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("direct reject effect checkout plans")
+        .expect("direct reject commits one exact outcome")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("direct reject checkout returns its effect lease");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Rejected {
+            tx,
+            audience: RejectionAudience {
+                ingress_peer: None,
+                blame_peer: None,
+            },
+            reason: CommittedRejection::Membership(
+                MembershipReject::InsufficientReplacementFee { .. }
+            ),
+        }] if tx.hash() == replacement.hash()
+    ));
+    assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 }
 

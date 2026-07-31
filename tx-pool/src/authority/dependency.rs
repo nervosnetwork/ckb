@@ -693,10 +693,11 @@ impl DependencyFrontier {
         self.plan_replacements_with_additions(changes, VacancyPolicy::ExistingOwnersOnly)
     }
 
-    /// Chain Apply is the one bulk path that can introduce detached
-    /// transactions into primary ownership. Its caller proves each added raw
-    /// hash vacant in the primary owner map before invoking this compiler.
-    pub(super) fn plan_chain_replacements<'entry>(
+    /// Compile a batch that may introduce a new primary owner. The authority
+    /// caller must prove every addition vacant in its sole owner map before
+    /// invoking this projection compiler. Chain recovery and synchronous
+    /// direct admission are the only current callers.
+    pub(super) fn plan_primary_replacements<'entry>(
         &self,
         changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
     ) -> Result<DependencyBatchDelta, DependencyError> {

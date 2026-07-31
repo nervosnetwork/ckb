@@ -1151,7 +1151,7 @@ impl TxPoolAuthority {
             .unwrap_or_default();
         let dependency = self
             .dependencies
-            .plan_chain_replacements(
+            .plan_primary_replacements(
                 changes
                     .iter()
                     .map(|change| (change.before.as_ref(), change.after.as_ref())),

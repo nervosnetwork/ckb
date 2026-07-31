@@ -4,7 +4,9 @@ mod settlement;
 
 #[cfg(test)]
 use super::chain::AcceptedProof;
-use super::chain::{FinalAdmissionReceipt, FinalAdmissionWork};
+#[cfg(test)]
+use super::chain::{AdmissionEvidenceError, DirectAdmissionWork};
+use super::chain::{DirectAdmissionReceipt, FinalAdmissionReceipt, FinalAdmissionWork};
 #[cfg(test)]
 use super::dependency::DependencySnapshot;
 use super::dependency::{
@@ -42,19 +44,22 @@ use super::scheduler::{
 use super::source::PoolTemplateVersions;
 use super::source::{AuthoritySourceVersions, SourceVersionDelta};
 #[cfg(test)]
-use super::state::{AcceptedAtMillis, AcceptedProvenance, AcceptedStatus, TxIdentity};
+use super::state::{AcceptedAtMillis, AcceptedStatus, TxIdentity};
 use super::state::{
-    AcceptedEntry, AdmissionBasis, ApplySequence, Arrival, AuthorityClocks, ChainRevision,
-    ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut, DependencyKey, DependencyOrigin,
-    EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PoolGeneration,
-    PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash,
-    RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError, TxRecord, ValidatedAdmission,
+    AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival, AuthorityClocks,
+    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut, DependencyKey,
+    DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx,
+    PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
+    QueuedWork, RawTxHash, RemoteDeadline, RemotePayloadOrigin, ReplacementHistoryEntry,
+    ReplacementHistoryError, TxRecord, ValidatedAdmission,
 };
 use super::work::{
     CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementRejection,
     SettlementToken,
 };
 use crate::error::Reject;
+#[cfg(test)]
+use ckb_types::core::TransactionView;
 use ckb_types::{
     core::{error::OutPointError, tx_pool::get_transaction_weight},
     prelude::Unpack,
@@ -709,6 +714,18 @@ enum EntryRetirement {
     Outside(Vec<OwnedTx>),
 }
 
+/// Destruction policy for the owner replaced at the candidate key.
+///
+/// Ordinary final admission shares its transaction and resolved facts with
+/// the Ready predecessor, so replacing that small shell is bounded. A direct
+/// trusted admission may replace a distinct witness payload and must carry
+/// the previous owner out of the authority guard.
+#[derive(Clone, Copy)]
+enum ChangedOwnerRetirement {
+    VacantOrSharedShellInline,
+    OutsideGuard,
+}
+
 impl CommittedDelta {
     pub(in crate::authority) fn retired_len(&self) -> usize {
         self.retired.len().saturating_add(
@@ -871,6 +888,7 @@ impl DependencyLossWork {
 struct MembershipDelta {
     changed_key: RawTxHash,
     changed_after: OwnedTx,
+    changed_retirement: ChangedOwnerRetirement,
     removals: Vec<MembershipRemoval>,
     owners: DerivedOwnerDelta,
     resource: ResourceBatchPlan,
@@ -881,6 +899,20 @@ struct MembershipDelta {
     retired: Vec<OwnedTx>,
     clocks: AuthorityClocks,
     committed: CommittedChanges,
+}
+
+/// Source-specific validation produces this immutable input; the shared
+/// membership compiler then handles RBF, capacity, projections and effects
+/// identically for asynchronous and direct admission.
+struct MembershipCompilation {
+    key: RawTxHash,
+    existing: Option<OwnedTx>,
+    accepted: AcceptedEntry,
+    prepared: PreparedMembership,
+    base_clocks: AuthorityClocks,
+    sequence: ApplySequence,
+    effect_policy: EffectPolicy,
+    changed_retirement: ChangedOwnerRetirement,
 }
 
 struct IndependentUpdate {
@@ -1046,6 +1078,48 @@ pub(super) enum CandidateDispositionPlan<'authority> {
     Rejected(PreparedCandidateRejection<'authority>),
 }
 
+/// Complete synchronous trusted-admission result. Every branch owns the one
+/// Apply that commits its externally visible outcome; the caller cannot
+/// mutate membership and publish success/rejection independently.
+#[must_use = "direct admission disposition must be applied exactly once"]
+pub(super) enum DirectAdmissionDisposition<'authority> {
+    Accepted(PreparedApply<'authority>),
+    Duplicate(PreparedDirectDuplicate<'authority>),
+    Rejected(PreparedDirectRejection<'authority>),
+}
+
+#[must_use = "direct duplicate outcome must be applied exactly once"]
+pub(super) struct PreparedDirectDuplicate<'authority> {
+    key: RawTxHash,
+    plan: PreparedApply<'authority>,
+}
+
+impl PreparedDirectDuplicate<'_> {
+    pub(super) fn key(&self) -> &RawTxHash {
+        &self.key
+    }
+
+    pub(super) fn apply(self) -> (RawTxHash, CommittedDelta) {
+        (self.key, self.plan.apply())
+    }
+}
+
+#[must_use = "direct rejection outcome must be applied exactly once"]
+pub(super) struct PreparedDirectRejection<'authority> {
+    reason: MembershipReject,
+    plan: PreparedApply<'authority>,
+}
+
+impl PreparedDirectRejection<'_> {
+    pub(super) fn reason(&self) -> &MembershipReject {
+        &self.reason
+    }
+
+    pub(super) fn apply(self) -> (MembershipReject, CommittedDelta) {
+        (self.reason, self.plan.apply())
+    }
+}
+
 /// A final candidate rejection whose public outcome is already part of the
 /// same prepared authority Apply that removes the owner and releases charge.
 /// The inner transition is private, so a caller cannot apply terminalization
@@ -1139,15 +1213,20 @@ impl PreparedApply<'_> {
                 retired.push(owner);
             }
         }
-        // The candidate's accepted owner shares its immutable transaction and
-        // resolved facts with the pre-accepted predecessor. Only removed
-        // victims can carry the last large owner, so their destruction is
-        // handed out in `retired`; replacing this small shell cannot allocate.
-        drop(
-            authority
-                .entries
-                .insert(delta.changed_key, delta.changed_after),
-        );
+        let previous = authority
+            .entries
+            .insert(delta.changed_key, delta.changed_after);
+        match delta.changed_retirement {
+            ChangedOwnerRetirement::VacantOrSharedShellInline => drop(previous),
+            ChangedOwnerRetirement::OutsideGuard => {
+                if let Some(owner) = previous {
+                    // Capacity was reserved while planning; Apply performs no
+                    // allocation and the last payload reference dies only
+                    // after the authority guard is released.
+                    retired.push(owner);
+                }
+            }
+        }
         authority.indexes.apply(delta.owners.indexes);
         authority.source_versions.apply(delta.owners.sources);
         authority.resources.apply_batch(delta.resource);
@@ -1492,7 +1571,7 @@ impl TxPoolAuthority {
 
     fn plan_membership_dependency_delta(
         &self,
-        existing: &OwnedTx,
+        existing: Option<&OwnedTx>,
         after: &OwnedTx,
         removals: &[MembershipRemoval],
         sequence: ApplySequence,
@@ -1506,7 +1585,7 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
             )
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        changes.push((Some(existing), Some(after)));
+        changes.push((existing, Some(after)));
         let mut removed_entries = Vec::new();
         removed_entries
             .try_reserve(removals.len())
@@ -1521,16 +1600,23 @@ impl TxPoolAuthority {
         }
         let lost = self.collect_dependency_loss_keys(removed_entries)?.keys;
         let mut available = match (existing, after) {
-            (OwnedTx::PreAccepted(_), OwnedTx::Accepted(_)) => {
+            (
+                None | Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)),
+                OwnedTx::Accepted(_),
+            ) => {
                 self.collect_dependency_loss_keys(std::iter::once(after))?
                     .keys
             }
-            (OwnedTx::PreAccepted(_), OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_))
+            (None, OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_))
             | (
-                OwnedTx::Accepted(_),
+                Some(OwnedTx::PreAccepted(_)),
+                OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_),
+            )
+            | (
+                Some(OwnedTx::Accepted(_)),
                 OwnedTx::PreAccepted(_) | OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_),
             )
-            | (OwnedTx::ReplacementHistory(_), _) => Vec::new(),
+            | (Some(OwnedTx::ReplacementHistory(_)), _) => Vec::new(),
         };
         if let OwnedTx::Accepted(candidate) = after {
             available.extend(self.collect_released_replacement_inputs(candidate, removals)?);
@@ -1539,7 +1625,11 @@ impl TxPoolAuthority {
             .dependencies
             .plan_events(available, lost, DependencyCut(sequence))?
             .unwrap_or_default();
-        let delta = self.dependencies.plan_replacements(changes)?;
+        let delta = if existing.is_some() {
+            self.dependencies.plan_replacements(changes)?
+        } else {
+            self.dependencies.plan_primary_replacements(changes)?
+        };
         Ok(delta.with_control(control))
     }
 
@@ -1626,7 +1716,7 @@ impl TxPoolAuthority {
     fn plan_membership_owner_derivations(
         &mut self,
         key: &RawTxHash,
-        existing: &OwnedTx,
+        existing: Option<&OwnedTx>,
         after: &OwnedTx,
         removals: &[MembershipRemoval],
         sequence: ApplySequence,
@@ -1640,16 +1730,16 @@ impl TxPoolAuthority {
             entries, indexes, ..
         } = self;
         if removals.is_empty() {
-            let indexes = indexes.plan_replace(key, Some(existing), Some(after))?;
+            let indexes = indexes.plan_replace(key, existing, Some(after))?;
             let sources = source_versions
-                .plan_replacements(std::iter::once((Some(existing), Some(after))), sequence);
+                .plan_replacements(std::iter::once((existing, Some(after))), sequence);
             return Ok(DerivedOwnerDelta { indexes, sources });
         }
         let mut changes = Vec::new();
         changes
             .try_reserve(change_capacity)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        changes.push((key, Some(existing), Some(after)));
+        changes.push((key, existing, Some(after)));
         for removal in removals {
             let removed = entries
                 .get(&removal.hash)
@@ -1768,7 +1858,7 @@ impl TxPoolAuthority {
     fn plan_membership_resources(
         &mut self,
         key: &RawTxHash,
-        before: &OwnedTx,
+        before: Option<&OwnedTx>,
         after: &OwnedTx,
         removals: &[MembershipRemoval],
     ) -> Result<ResourceBatchPlan, ResourceError> {
@@ -1782,7 +1872,7 @@ impl TxPoolAuthority {
             .map_err(|_| ResourceError::Allocation)?;
         changes.push((
             key.clone(),
-            Some(before.charge_record()),
+            before.map(OwnedTx::charge_record),
             Some(after.charge_record()),
         ));
         for removal in removals {
@@ -2242,6 +2332,177 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
+    pub(super) fn plan_direct_admission_for_foundation(
+        &mut self,
+        tx: Arc<TransactionView>,
+        verified: super::state::VerifiedFacts,
+        status: AcceptedStatus,
+    ) -> Result<DirectAdmissionDisposition<'_>, PlanError> {
+        let work = DirectAdmissionWork::new(tx, self.chain_view.clone(), verified)
+            .map_err(Self::direct_admission_evidence_error)?;
+        let receipt = work
+            .validate_for_foundation(status, ScriptVerificationRules::V0)
+            .map_err(Self::direct_admission_evidence_error)?;
+        self.plan_direct_admission(receipt)
+    }
+
+    #[cfg(test)]
+    fn direct_admission_evidence_error(error: AdmissionEvidenceError) -> PlanError {
+        match error {
+            AdmissionEvidenceError::TransactionIdentityMismatch => {
+                PlanError::Fault(AuthorityFault::MembershipProjection)
+            }
+            AdmissionEvidenceError::ScriptRulesChanged => {
+                PlanError::Stale(StalePlan::ChainRevision)
+            }
+        }
+    }
+
+    fn plan_direct_admission(
+        &mut self,
+        receipt: DirectAdmissionReceipt,
+    ) -> Result<DirectAdmissionDisposition<'_>, PlanError> {
+        self.effects.ensure_open()?;
+        let key = receipt.key().clone();
+        let existing = self.entries.get(&key).cloned();
+        if let Some(OwnedTx::Accepted(accepted)) = &existing {
+            let publication = self
+                .effects
+                .build_publication(
+                    EffectPolicy::Trusted,
+                    vec![CommittedEffect::Accepted {
+                        tx: Arc::clone(receipt.transaction()),
+                        status: accepted.status(),
+                        cause: CommittedAcceptance::Duplicate {
+                            requesting_peer: None,
+                        },
+                    }],
+                )
+                .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+            let sequence = self.clocks.next_sequence;
+            let effect = self
+                .effects
+                .plan_publication(&publication, sequence)
+                .map_err(PlanError::from)?;
+            let plan = self.prepare_effect_only(effect, sequence, CommittedHandoff::None)?;
+            return Ok(DirectAdmissionDisposition::Duplicate(
+                PreparedDirectDuplicate { key, plan },
+            ));
+        }
+        if matches!(
+            &existing,
+            Some(OwnedTx::PreAccepted(PreAcceptedEntry {
+                phase: PreAcceptedPhase::Computing(_),
+                ..
+            }))
+        ) {
+            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+        }
+        self.validate_direct_acceptance_evidence(&receipt)?;
+
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let (arrival, next_arrival) = match &existing {
+            Some(owner) => (owner.record().arrival, self.clocks.next_arrival),
+            None => (
+                self.clocks.next_arrival,
+                next_arrival(self.clocks.next_arrival)?,
+            ),
+        };
+        let base_clocks = AuthorityClocks {
+            next_version: next_version(version)?,
+            next_sequence: next_sequence(sequence)?,
+            next_arrival,
+            ..self.clocks
+        };
+        let provenance = existing.as_ref().and_then(OwnedTx::ingress_peer).map_or(
+            AcceptedProvenance::Trusted,
+            |ingress| AcceptedProvenance::Peer {
+                ingress,
+                payload: RemotePayloadOrigin::Trusted,
+            },
+        );
+        let (tx, proof, proposal, accepted_at) = receipt.into_membership_parts();
+        let accepted = AcceptedEntry {
+            record: TxRecord {
+                tx,
+                identity: proof.payload().identity().clone(),
+                version,
+                arrival,
+            },
+            provenance,
+            proof,
+            proposal,
+            accepted_at,
+        };
+        let prepared = match self.prepare_membership_candidate(&key, &accepted) {
+            Ok(prepared) => prepared,
+            Err(PlanError::Membership(reason)) => {
+                let publication = self
+                    .effects
+                    .build_publication(
+                        EffectPolicy::Trusted,
+                        vec![CommittedEffect::Rejected {
+                            tx: Arc::clone(&accepted.record.tx),
+                            audience: RejectionAudience::default(),
+                            reason: CommittedRejection::Membership(reason.clone()),
+                        }],
+                    )
+                    .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                let effect = self
+                    .effects
+                    .plan_publication(&publication, sequence)
+                    .map_err(PlanError::from)?;
+                let plan = self.prepare_effect_only(effect, sequence, CommittedHandoff::None)?;
+                return Ok(DirectAdmissionDisposition::Rejected(
+                    PreparedDirectRejection { reason, plan },
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        let retirement = if existing.is_some() {
+            ChangedOwnerRetirement::OutsideGuard
+        } else {
+            ChangedOwnerRetirement::VacantOrSharedShellInline
+        };
+        let delta = self.compile_membership_delta(MembershipCompilation {
+            key,
+            existing,
+            accepted,
+            prepared,
+            base_clocks,
+            sequence,
+            effect_policy: EffectPolicy::Trusted,
+            changed_retirement: retirement,
+        })?;
+        Ok(DirectAdmissionDisposition::Accepted(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Membership(delta),
+            handoff: CommittedHandoff::None,
+        }))
+    }
+
+    fn validate_direct_acceptance_evidence(
+        &self,
+        receipt: &DirectAdmissionReceipt,
+    ) -> Result<(), PlanError> {
+        if receipt.view() != &self.chain_view {
+            return Err(PlanError::Stale(StalePlan::ChainRevision));
+        }
+        let proof = receipt.proof();
+        if receipt.key() != &proof.payload().identity().raw || !proof.is_for(&self.chain_view) {
+            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+        }
+        if !self
+            .dependencies
+            .proof_is_current(proof.payload().dependencies(), proof.dependency_cut())
+        {
+            return Err(PlanError::Stale(StalePlan::Dependency));
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
     fn plan_accept(
         &mut self,
         receipt: FinalAdmissionReceipt,
@@ -2293,10 +2554,45 @@ impl TxPoolAuthority {
             proposal,
             accepted_at,
         };
+        let prepared = self.prepare_membership(&key, preaccepted, &accepted)?;
+        let effect_policy = if preaccepted.source.ingress_peer().is_some() {
+            EffectPolicy::Remote
+        } else {
+            EffectPolicy::Trusted
+        };
+        self.compile_membership_delta(MembershipCompilation {
+            key,
+            existing: Some(existing),
+            accepted,
+            prepared,
+            base_clocks,
+            sequence,
+            effect_policy,
+            changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
+        })
+    }
+
+    fn compile_membership_delta(
+        &mut self,
+        compilation: MembershipCompilation,
+    ) -> Result<MembershipDelta, PlanError> {
+        let MembershipCompilation {
+            key,
+            existing,
+            accepted,
+            prepared,
+            base_clocks,
+            sequence,
+            effect_policy,
+            changed_retirement,
+        } = compilation;
+        if existing.is_none() {
+            self.reserve_primary_owner_insertions(1)?;
+        }
         let PreparedMembership {
             mut removals,
             projection,
-        } = self.prepare_membership(&key, preaccepted, &accepted)?;
+        } = prepared;
         let retained_clocks = self.retain_replacement_history(
             &accepted,
             &mut removals,
@@ -2314,32 +2610,47 @@ impl TxPoolAuthority {
             removals.iter_mut().for_each(MembershipRemoval::terminalize);
         }
 
-        let effect = self.plan_admission_effects(preaccepted, &accepted, &removals, sequence)?;
+        let effect = self.plan_admission_effects(&accepted, &removals, sequence, effect_policy)?;
         let after = OwnedTx::Accepted(accepted);
         let has_history = removals.iter().any(|removal| removal.after().is_some());
-        let resource = match self.plan_membership_resources(&key, &existing, &after, &removals) {
-            Ok(resource) => resource,
-            Err(ResourceError::PreAcceptedLimit | ResourceError::ReplacementHistoryLimit)
-                if has_history =>
-            {
-                removals.iter_mut().for_each(MembershipRemoval::terminalize);
-                clocks = base_clocks;
-                self.plan_membership_resources(&key, &existing, &after, &removals)
-                    .map_err(Self::membership_resource_error)?
-            }
-            Err(error) => return Err(Self::membership_resource_error(error)),
-        };
-        let retired = retired_buffer(removals.len())?;
+        let resource =
+            match self.plan_membership_resources(&key, existing.as_ref(), &after, &removals) {
+                Ok(resource) => resource,
+                Err(ResourceError::PreAcceptedLimit | ResourceError::ReplacementHistoryLimit)
+                    if has_history =>
+                {
+                    removals.iter_mut().for_each(MembershipRemoval::terminalize);
+                    clocks = base_clocks;
+                    self.plan_membership_resources(&key, existing.as_ref(), &after, &removals)
+                        .map_err(Self::membership_resource_error)?
+                }
+                Err(error) => return Err(Self::membership_resource_error(error)),
+            };
+        let changed_retirements = usize::from(
+            existing.is_some()
+                && matches!(changed_retirement, ChangedOwnerRetirement::OutsideGuard),
+        );
+        let retired_capacity = removals
+            .len()
+            .checked_add(changed_retirements)
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let retired = retired_buffer(retired_capacity)?;
         let scheduler = self
             .scheduler
-            .plan_replace(Some(&existing), Some(&after), None)?;
+            .plan_replace(existing.as_ref(), Some(&after), None)?;
         let dependency =
-            self.plan_membership_dependency_delta(&existing, &after, &removals, sequence)?;
-        let owners =
-            self.plan_membership_owner_derivations(&key, &existing, &after, &removals, sequence)?;
+            self.plan_membership_dependency_delta(existing.as_ref(), &after, &removals, sequence)?;
+        let owners = self.plan_membership_owner_derivations(
+            &key,
+            existing.as_ref(),
+            &after,
+            &removals,
+            sequence,
+        )?;
         Ok(MembershipDelta {
             changed_key: key.clone(),
             changed_after: after,
+            changed_retirement,
             removals,
             owners,
             resource,
@@ -2358,10 +2669,10 @@ impl TxPoolAuthority {
 
     fn plan_admission_effects(
         &self,
-        before: &PreAcceptedEntry,
         accepted: &AcceptedEntry,
         removals: &[MembershipRemoval],
         sequence: ApplySequence,
+        policy: EffectPolicy,
     ) -> Result<EffectDelta, PlanError> {
         let effect_count = removals
             .len()
@@ -2375,7 +2686,7 @@ impl TxPoolAuthority {
             tx: Arc::clone(&accepted.record.tx),
             status: accepted.status(),
             cause: CommittedAcceptance::Admission {
-                ingress_peer: before.source.ingress_peer(),
+                ingress_peer: accepted.provenance.ingress_peer(),
             },
         });
         for removal in removals {
@@ -2409,11 +2720,6 @@ impl TxPoolAuthority {
                 reason,
             });
         }
-        let policy = if before.source.ingress_peer().is_some() {
-            EffectPolicy::Remote
-        } else {
-            EffectPolicy::Trusted
-        };
         let publication = self
             .effects
             .build_publication(policy, effects)
@@ -2471,15 +2777,17 @@ impl TxPoolAuthority {
         let scheduler = self
             .scheduler
             .plan_replace(Some(&existing), Some(&after), None)?;
-        let dependency = self.plan_membership_dependency_delta(&existing, &after, &[], sequence)?;
+        let dependency =
+            self.plan_membership_dependency_delta(Some(&existing), &after, &[], sequence)?;
         let owners =
-            self.plan_membership_owner_derivations(key, &existing, &after, &[], sequence)?;
+            self.plan_membership_owner_derivations(key, Some(&existing), &after, &[], sequence)?;
         let retired = Vec::new();
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(MembershipDelta {
                 changed_key: key.clone(),
                 changed_after: after,
+                changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
                 removals: Vec::new(),
                 owners,
                 resource,

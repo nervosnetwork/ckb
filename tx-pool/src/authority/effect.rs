@@ -206,6 +206,11 @@ pub(super) enum CommittedAcceptance {
     /// A candidate acquired Accepted ownership. The original ingress peer is
     /// immutable outcome evidence used by the relay acknowledgement adapter.
     Admission { ingress_peer: Option<PeerIndex> },
+    /// A trusted synchronous caller observed an already Accepted raw hash.
+    /// Membership is unchanged, but the existing product contract requires
+    /// an accepted relay result rather than a rejection. The requesting peer
+    /// is distinct from the resident owner's immutable provenance.
+    Duplicate { requesting_peer: Option<PeerIndex> },
     /// Existing Accepted ownership changed proposal status because the chain
     /// view moved. It updates template/callback projections but must not emit
     /// a fresh network admission acknowledgement.
