@@ -429,6 +429,34 @@ the primary cohort's total Apply.
 Final accepted-pool validation remains authoritative even if background
 demotion has not run yet.
 
+### 7.4 UAK replacement-history boundary
+
+The isolated Unified Authority Kernel does not encode RBF history as a source
+flag or a `Waiting(Conflict)` phase. Only a successful replacement of a
+genuinely Accepted victim can construct the private
+`OwnedTx::ReplacementHistory` location. That location owns raw transaction and
+exact dependency evidence, but has no ingress source, peer/deadline, scheduler
+lane, active-work capability or executable phase. This type split prevents an
+under-fee/failed candidate from becoming retained history and removes invalid
+source × phase combinations instead of policing them with runtime assertions.
+
+History is charged to total preacceptance and a dedicated zero-active-work
+sublimit. One membership Plan either retains the complete replacement closure
+or terminalizes the complete optional set while still accepting the winner.
+Its post-Apply dependency cut prevents same-cohort self-wake. Only after every
+dependency that is actually unavailable in the replacement's final overlay has
+a newer final availability level—or through a typed trusted Proposal lease—can
+history convert to ordinary executable preacceptance. A partial release only
+prompts a bounded re-evaluation; it cannot consume history while another
+winner still owns a blocker. The full dependency basis remains retained for
+fresh resolution, but unrelated available inputs/deps are not wake triggers.
+It remains absent from Pending,
+template and persistence projections; G5 must map it to the existing
+recent-reject/RBF-compatible query surface during the single production
+cutover, not introduce a new public RPC state. The authority's live-RPC
+projection therefore returns typed absence for this owner; that absence is
+what requires the endpoint adapter to continue to recent-reject lookup.
+
 ## 8. Resource proof
 
 Admission or transition planning accounts conservatively before retention:

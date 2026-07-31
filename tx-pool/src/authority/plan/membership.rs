@@ -10,8 +10,11 @@ pub(in crate::authority::plan) use independent::{
 
 use super::TxPoolAuthority;
 use crate::authority::{
-    resources::{AcceptedCost, ResourceBatchPlan, ResourceError},
-    state::{AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash},
+    resources::AcceptedCost,
+    state::{
+        AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash,
+        ReplacementHistoryEntry,
+    },
 };
 use crate::component::sort_key::AncestorsScoreSortKey;
 use ckb_types::{
@@ -310,15 +313,53 @@ struct SelectedRemoval {
     cause: RemovalCause,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(in crate::authority) struct MembershipRemoval {
     pub(in crate::authority) hash: RawTxHash,
     pub(in crate::authority) cause: RemovalCause,
+    /// Continuation after removal from Accepted membership. The constructor
+    /// surface admits only replacement history, so capacity eviction cannot
+    /// accidentally retain an executable or uncharged owner.
+    after: Option<OwnedTx>,
+}
+
+impl MembershipRemoval {
+    fn terminal(hash: RawTxHash, cause: RemovalCause) -> Self {
+        Self {
+            hash,
+            cause,
+            after: None,
+        }
+    }
+
+    pub(super) fn retain_replacement_history(
+        &mut self,
+        history: ReplacementHistoryEntry,
+    ) -> Result<(), super::PlanError> {
+        if self.cause != RemovalCause::Replacement || self.after.is_some() {
+            return Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ));
+        }
+        self.after = Some(OwnedTx::ReplacementHistory(history));
+        Ok(())
+    }
+
+    pub(super) fn terminalize(&mut self) {
+        self.after = None;
+    }
+
+    pub(super) fn after(&self) -> Option<&OwnedTx> {
+        self.after.as_ref()
+    }
+
+    pub(super) fn take_after(&mut self) -> Option<OwnedTx> {
+        self.after.take()
+    }
 }
 
 pub(super) struct PreparedMembership {
     pub(super) removals: Vec<MembershipRemoval>,
-    pub(super) resource: ResourceBatchPlan,
     pub(super) projection: ProjectionDelta,
 }
 
@@ -650,84 +691,19 @@ impl TxPoolAuthority {
             candidate_children,
             aggregate,
         )?;
-        let (removals, resource) =
-            self.prepare_membership_resources(hash, before, candidate, selected_removals)?;
-        Ok(PreparedMembership {
-            removals,
-            resource,
-            projection,
-        })
-    }
-
-    fn prepare_membership_resources(
-        &mut self,
-        hash: &RawTxHash,
-        before: &PreAcceptedEntry,
-        candidate: &AcceptedEntry,
-        selected_removals: Vec<SelectedRemoval>,
-    ) -> Result<(Vec<MembershipRemoval>, ResourceBatchPlan), super::PlanError> {
-        let current = self.entries.get(hash).ok_or(super::PlanError::Fault(
-            super::AuthorityFault::MembershipProjection,
-        ))?;
-        if !matches!(current, OwnedTx::PreAccepted(entry) if
-            entry.record.version == before.record.version
-                && entry.record.identity == before.record.identity)
-        {
-            return Err(super::PlanError::Fault(
-                super::AuthorityFault::MembershipProjection,
-            ));
-        }
-
-        let change_capacity =
-            selected_removals
-                .len()
-                .checked_add(1)
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::CounterExhausted,
-                ))?;
-        let mut resource_changes = Vec::new();
-        resource_changes
-            .try_reserve(change_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        resource_changes.push((
-            hash.clone(),
-            Some(before.charge_record()),
-            Some(candidate.charge_record()),
-        ));
-
         let mut removals = Vec::new();
         removals
             .try_reserve(selected_removals.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        for selected in selected_removals {
-            let victim = self.accepted_entry(&selected.hash)?;
-            resource_changes.push((selected.hash.clone(), Some(victim.charge_record()), None));
-            removals.push(MembershipRemoval {
-                hash: selected.hash,
-                cause: selected.cause,
-            });
-        }
-
-        let resource =
-            self.resources
-                .plan_batch(resource_changes)
-                .map_err(|error| match error {
-                    ResourceError::Allocation => {
-                        super::PlanError::Backpressure(super::Backpressure::Allocation)
-                    }
-                    ResourceError::Arithmetic
-                    | ResourceError::PreAcceptedLimit
-                    | ResourceError::RemoteLimit
-                    | ResourceError::PeerLimit(_)
-                    | ResourceError::AcceptedLimit
-                    | ResourceError::ExistingChargeMismatch
-                    | ResourceError::DuplicateChange
-                    | ResourceError::ComputeEnvelope
-                    | ResourceError::AttributionMismatch => {
-                        super::PlanError::Fault(super::AuthorityFault::ResourceProjection)
-                    }
-                })?;
-        Ok((removals, resource))
+        removals.extend(
+            selected_removals
+                .into_iter()
+                .map(|selected| MembershipRemoval::terminal(selected.hash, selected.cause)),
+        );
+        Ok(PreparedMembership {
+            removals,
+            projection,
+        })
     }
 
     pub(super) fn prepare_status_change(
@@ -1742,9 +1718,9 @@ impl TxPoolAuthority {
     fn accepted_entry(&self, hash: &RawTxHash) -> Result<&AcceptedEntry, super::PlanError> {
         match self.entries.get(hash) {
             Some(OwnedTx::Accepted(entry)) => Ok(entry),
-            Some(OwnedTx::PreAccepted(_)) | None => Err(super::PlanError::Fault(
-                super::AuthorityFault::MembershipProjection,
-            )),
+            Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => Err(
+                super::PlanError::Fault(super::AuthorityFault::MembershipProjection),
+            ),
         }
     }
 

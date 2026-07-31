@@ -21,7 +21,7 @@ use ckb_types::{
 struct QueryCut {
     next_sequence: u128,
     state: AuthorityReadState,
-    rpc_status: AuthorityRpcStatus,
+    rpc_status: Option<AuthorityRpcStatus>,
     pending: Vec<RawTxHash>,
     proposed: Vec<RawTxHash>,
     accepted_gap: usize,
@@ -84,7 +84,7 @@ fn uak_query_never_splices_two_authority_cuts() {
         assert_eq!(compact.len(), 1);
         assert_eq!(first.1.hash(), transaction.hash());
         assert!(
-            view.conflict_hashes()
+            view.replacement_history_hashes()
                 .expect("conflict projection is valid")
                 .is_empty()
         );
@@ -103,7 +103,7 @@ fn uak_query_never_splices_two_authority_cuts() {
         before.state,
         AuthorityReadState::Accepted(AcceptedStatus::Gap)
     );
-    assert_eq!(before.rpc_status, AuthorityRpcStatus::Pending);
+    assert_eq!(before.rpc_status, Some(AuthorityRpcStatus::Pending));
     assert_eq!(before.pending, vec![hash.clone()]);
     assert!(before.proposed.is_empty());
     assert_eq!((before.accepted_gap, before.accepted_proposed), (1, 0));
@@ -112,7 +112,7 @@ fn uak_query_never_splices_two_authority_cuts() {
         after.state,
         AuthorityReadState::Accepted(AcceptedStatus::Proposed)
     );
-    assert_eq!(after.rpc_status, AuthorityRpcStatus::Proposed);
+    assert_eq!(after.rpc_status, Some(AuthorityRpcStatus::Proposed));
     assert!(after.pending.is_empty());
     assert_eq!(after.proposed, vec![hash]);
     assert_eq!((after.accepted_gap, after.accepted_proposed), (0, 1));
@@ -138,7 +138,7 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
         entry.state(),
         AuthorityReadState::PreAccepted(PreAcceptedReadPhase::ResolveQueued)
     );
-    assert_eq!(entry.rpc_status(), AuthorityRpcStatus::Pending);
+    assert_eq!(entry.rpc_status(), Some(AuthorityRpcStatus::Pending));
     assert_eq!(entry.fee(), None);
     assert_eq!(entry.cycles(), None);
     assert_eq!(entry.accepted_at(), None);
@@ -154,7 +154,7 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
     assert_eq!(summary.queued, 1);
     assert_eq!(summary.computing, 0);
     assert_eq!(summary.waiting_missing, 0);
-    assert_eq!(summary.conflict_history, 0);
+    assert_eq!(summary.replacement_history, 0);
     assert_eq!(summary.computed, 0);
     let compact = view
         .compact_transactions(std::slice::from_ref(&proposal))

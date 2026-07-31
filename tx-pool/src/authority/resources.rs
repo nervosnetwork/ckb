@@ -133,6 +133,7 @@ pub(super) struct ResourceLimits {
     preaccepted: ResourceVector,
     remote: ResourceVector,
     per_peer: ResourceVector,
+    replacement_history: ResourceVector,
     accepted: AcceptedResources,
     compute: ComputeLimits,
 }
@@ -176,9 +177,23 @@ impl ResourceLimits {
             preaccepted,
             remote,
             per_peer,
+            // Replacement history is optional and secure-by-default. The
+            // explicit builder below enables its bounded subpartition.
+            replacement_history: ResourceVector::default(),
             accepted,
             compute,
         })
+    }
+
+    pub(super) fn with_replacement_history_limit(
+        mut self,
+        replacement_history: ResourceVector,
+    ) -> Result<Self, ResourceConfigError> {
+        if !replacement_history.fits(self.preaccepted) || replacement_history.active_work != 0 {
+            return Err(ResourceConfigError::LimitHierarchy);
+        }
+        self.replacement_history = replacement_history;
+        Ok(self)
     }
 
     #[cfg(test)]
@@ -249,14 +264,27 @@ pub(super) enum ChargeRecord {
         residency_peer: Option<PeerIndex>,
         compute_peer: Option<PeerIndex>,
     },
+    /// Trusted transient ownership of an Accepted replacement victim. It is
+    /// charged to both total preacceptance and the dedicated history
+    /// partition, and can never carry peer or active-work attribution.
+    ReplacementHistory(ResourceVector),
     Accepted(AcceptedResources),
 }
 
 impl ChargeRecord {
     fn preaccepted(self) -> Option<ResourceVector> {
         match self {
-            Self::PreAccepted { resources, .. } => Some(resources),
+            Self::PreAccepted { resources, .. } | Self::ReplacementHistory(resources) => {
+                Some(resources)
+            }
             Self::Accepted(_) => None,
+        }
+    }
+
+    fn replacement_history(self) -> Option<ResourceVector> {
+        match self {
+            Self::ReplacementHistory(resources) => Some(resources),
+            Self::PreAccepted { .. } | Self::Accepted(_) => None,
         }
     }
 
@@ -297,7 +325,7 @@ impl ChargeRecord {
 
     fn accepted(self) -> Option<AcceptedResources> {
         match self {
-            Self::PreAccepted { .. } => None,
+            Self::PreAccepted { .. } | Self::ReplacementHistory(_) => None,
             Self::Accepted(resources) => Some(resources),
         }
     }
@@ -309,6 +337,7 @@ pub(super) struct ResourceSnapshot {
     pub(super) preaccepted: ResourceVector,
     pub(super) remote: ResourceVector,
     pub(super) peers: HashMap<PeerIndex, ResourceVector>,
+    pub(super) replacement_history: ResourceVector,
     pub(super) accepted: AcceptedResources,
 }
 
@@ -318,6 +347,7 @@ pub(super) enum ResourceError {
     PreAcceptedLimit,
     RemoteLimit,
     PeerLimit(PeerIndex),
+    ReplacementHistoryLimit,
     AcceptedLimit,
     ExistingChargeMismatch,
     DuplicateChange,
@@ -343,6 +373,7 @@ pub(super) struct ResourceLedger {
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peers: HashMap<PeerIndex, ResourceVector>,
+    replacement_history: ResourceVector,
     accepted: AcceptedResources,
     limits: ResourceLimits,
 }
@@ -353,6 +384,7 @@ pub(super) struct ResourcePlan {
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peer_updates: [Option<(PeerIndex, ResourceVector)>; 2],
+    replacement_history: ResourceVector,
     accepted: AcceptedResources,
 }
 
@@ -361,6 +393,7 @@ pub(super) struct ResourceBatchPlan {
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peer_updates: HashMap<PeerIndex, ResourceVector>,
+    replacement_history: ResourceVector,
     accepted: AcceptedResources,
 }
 
@@ -371,6 +404,7 @@ impl ResourceLedger {
             preaccepted: ResourceVector::default(),
             remote: ResourceVector::default(),
             peers: HashMap::new(),
+            replacement_history: ResourceVector::default(),
             accepted: AcceptedResources::default(),
             limits,
         }
@@ -386,6 +420,10 @@ impl ResourceLedger {
 
     pub(super) fn remote(&self) -> ResourceVector {
         self.remote
+    }
+
+    pub(super) fn replacement_history(&self) -> ResourceVector {
+        self.replacement_history
     }
 
     pub(super) fn peer(&self, peer: PeerIndex) -> ResourceVector {
@@ -455,6 +493,7 @@ impl ResourceLedger {
             preaccepted: self.preaccepted,
             remote: self.remote,
             peers: self.peers.clone(),
+            replacement_history: self.replacement_history,
             accepted: self.accepted,
         }
     }
@@ -470,6 +509,7 @@ impl ResourceLedger {
             preaccepted: ResourceVector::default(),
             remote: ResourceVector::default(),
             peers: HashMap::new(),
+            replacement_history: ResourceVector::default(),
             accepted: AcceptedResources::default(),
         };
         for (hash, owner) in entries {
@@ -507,15 +547,8 @@ impl ResourceLedger {
                             exact.active_work = 1;
                             exact
                         }
-                        PreAcceptedPhase::Waiting(waiting) => {
-                            let dependencies = match waiting {
-                                super::state::WaitCondition::Missing(observed)
-                                | super::state::WaitCondition::Conflict(observed) => {
-                                    observed.retained()
-                                }
-                            };
-                            entry.retained_charge(entry.original_charge().bytes, dependencies)
-                        }
+                        PreAcceptedPhase::Waiting(observed) => entry
+                            .retained_charge(entry.original_charge().bytes, observed.retained()),
                         PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(
                             verified,
                         )) => {
@@ -569,6 +602,31 @@ impl ResourceLedger {
                         *usage = next;
                     }
                 }
+                (
+                    OwnedTx::ReplacementHistory(entry),
+                    ChargeRecord::ReplacementHistory(resources),
+                ) => {
+                    let recovery = entry.recovery_charge();
+                    if resources != entry.charge()
+                        || resources.entries != 1
+                        || resources.active_work != 0
+                        || resources.bytes
+                            != recovery.bytes.max(entry.record().tx.data().total_size())
+                        || resources.edges != recovery.edges.max(entry.dependencies().len())
+                    {
+                        return false;
+                    }
+                    let Some(preaccepted) = expected.preaccepted.checked_add(resources) else {
+                        return false;
+                    };
+                    let Some(replacement_history) =
+                        expected.replacement_history.checked_add(resources)
+                    else {
+                        return false;
+                    };
+                    expected.preaccepted = preaccepted;
+                    expected.replacement_history = replacement_history;
+                }
                 (OwnedTx::Accepted(entry), ChargeRecord::Accepted(resources)) => {
                     if entry.proof.payload().serialized_bytes() != resources.serialized_bytes
                         || entry.proof.payload().resolved_resident_bytes()
@@ -594,6 +652,9 @@ impl ResourceLedger {
             && self.preaccepted.fits(self.limits.preaccepted)
             && self.remote.fits(self.limits.remote)
             && self
+                .replacement_history
+                .fits(self.limits.replacement_history)
+            && self
                 .peers
                 .values()
                 .all(|usage| usage.fits(self.limits.per_peer))
@@ -612,6 +673,8 @@ impl ResourceLedger {
 
         let old_preaccepted = expected.and_then(ChargeRecord::preaccepted);
         let new_preaccepted = after.and_then(ChargeRecord::preaccepted);
+        let old_replacement_history = expected.and_then(ChargeRecord::replacement_history);
+        let new_replacement_history = after.and_then(ChargeRecord::replacement_history);
         let old_peer_charge = expected
             .map(ChargeRecord::peer_preaccepted)
             .transpose()?
@@ -622,6 +685,7 @@ impl ResourceLedger {
             .flatten();
         let mut preaccepted = self.preaccepted;
         let mut remote = self.remote;
+        let mut replacement_history = self.replacement_history;
         if let Some(resources) = old_preaccepted {
             preaccepted = preaccepted
                 .checked_sub(resources)
@@ -629,6 +693,11 @@ impl ResourceLedger {
         }
         if let Some((_, resources)) = old_peer_charge {
             remote = remote
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = old_replacement_history {
+            replacement_history = replacement_history
                 .checked_sub(resources)
                 .ok_or(ResourceError::Arithmetic)?;
         }
@@ -642,11 +711,19 @@ impl ResourceLedger {
                 .checked_add(resources)
                 .ok_or(ResourceError::Arithmetic)?;
         }
+        if let Some(resources) = new_replacement_history {
+            replacement_history = replacement_history
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
         if !preaccepted.fits(self.limits.preaccepted) {
             return Err(ResourceError::PreAcceptedLimit);
         }
         if !remote.fits(self.limits.remote) {
             return Err(ResourceError::RemoteLimit);
+        }
+        if !replacement_history.fits(self.limits.replacement_history) {
+            return Err(ResourceError::ReplacementHistoryLimit);
         }
 
         let old_peer = old_peer_charge.map(|(peer, _)| peer);
@@ -716,6 +793,7 @@ impl ResourceLedger {
             preaccepted,
             remote,
             peer_updates: [old_update, new_update],
+            replacement_history,
             accepted,
         })
     }
@@ -737,6 +815,7 @@ impl ResourceLedger {
             .map_err(|_| ResourceError::Allocation)?;
         let mut preaccepted = self.preaccepted;
         let mut remote = self.remote;
+        let mut replacement_history = self.replacement_history;
         let mut accepted = self.accepted;
         let mut new_charge_count = 0usize;
 
@@ -777,6 +856,11 @@ impl ResourceLedger {
                     .checked_sub(resources)
                     .ok_or(ResourceError::Arithmetic)?;
             }
+            if let Some(resources) = expected.and_then(ChargeRecord::replacement_history) {
+                replacement_history = replacement_history
+                    .checked_sub(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
             if let Some(resources) = expected.and_then(ChargeRecord::accepted) {
                 accepted = accepted
                     .checked_sub(resources)
@@ -802,6 +886,11 @@ impl ResourceLedger {
                     .checked_add(resources)
                     .ok_or(ResourceError::Arithmetic)?;
             }
+            if let Some(resources) = after.and_then(ChargeRecord::replacement_history) {
+                replacement_history = replacement_history
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
             if let Some(resources) = after.and_then(ChargeRecord::accepted) {
                 accepted = accepted
                     .checked_add(resources)
@@ -822,6 +911,9 @@ impl ResourceLedger {
         {
             return Err(ResourceError::PeerLimit(peer));
         }
+        if !replacement_history.fits(self.limits.replacement_history) {
+            return Err(ResourceError::ReplacementHistoryLimit);
+        }
         if !accepted.fits(self.limits.accepted) {
             return Err(ResourceError::AcceptedLimit);
         }
@@ -841,6 +933,7 @@ impl ResourceLedger {
             preaccepted,
             remote,
             peer_updates,
+            replacement_history,
             accepted,
         })
     }
@@ -856,6 +949,7 @@ impl ResourceLedger {
         }
         self.preaccepted = plan.preaccepted;
         self.remote = plan.remote;
+        self.replacement_history = plan.replacement_history;
         for (peer, usage) in plan.peer_updates.into_iter().flatten() {
             if usage == ResourceVector::default() {
                 self.peers.remove(&peer);
@@ -879,6 +973,7 @@ impl ResourceLedger {
         }
         self.preaccepted = plan.preaccepted;
         self.remote = plan.remote;
+        self.replacement_history = plan.replacement_history;
         for (peer, usage) in plan.peer_updates {
             if usage == ResourceVector::default() {
                 self.peers.remove(&peer);

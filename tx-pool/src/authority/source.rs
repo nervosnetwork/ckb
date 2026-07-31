@@ -235,11 +235,22 @@ impl SourceImpact {
                     Self::None
                 }
             }
-            (Some(OwnedTx::Accepted(_)), Some(OwnedTx::PreAccepted(_)) | None)
-            | (Some(OwnedTx::PreAccepted(_)) | None, Some(OwnedTx::Accepted(_))) => Self::Accepted,
+            (
+                Some(OwnedTx::Accepted(_)),
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None,
+            )
+            | (
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None,
+                Some(OwnedTx::Accepted(_)),
+            ) => Self::Accepted,
             (None, None) => Self::None,
-            (Some(OwnedTx::PreAccepted(_)), Some(OwnedTx::PreAccepted(_)) | None)
-            | (None, Some(OwnedTx::PreAccepted(_))) => Self::Owners,
+            (
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)),
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None,
+            )
+            | (None, Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_))) => {
+                Self::Owners
+            }
         }
     }
 }

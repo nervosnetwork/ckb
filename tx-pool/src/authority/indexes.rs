@@ -53,15 +53,15 @@ impl IndexFact {
         }
         let preaccepted_peer = match owner {
             OwnedTx::PreAccepted(entry) => entry.source.ingress_peer(),
-            OwnedTx::Accepted(_) => None,
+            OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => None,
         };
         let context_sensitive_accepted = match owner {
-            OwnedTx::PreAccepted(_) => false,
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => false,
             OwnedTx::Accepted(entry) => entry.proof.sensitivity().requires_reorg_revalidation(),
         };
         let active_deadline = match owner {
             OwnedTx::PreAccepted(entry) => entry.source.active_remote_deadline(),
-            OwnedTx::Accepted(_) => None,
+            OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => None,
         };
         Ok(Self {
             proposal: owner.record().identity.proposal.clone(),
@@ -673,7 +673,7 @@ impl AuthorityIndexes {
                 });
             }
             match owner {
-                OwnedTx::PreAccepted(_) => {}
+                OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {}
                 OwnedTx::Accepted(entry) => {
                     if entry.proof.sensitivity().requires_reorg_revalidation() {
                         expected.context_sensitive_accepted.insert(key.clone());

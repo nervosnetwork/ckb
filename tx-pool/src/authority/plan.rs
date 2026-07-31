@@ -27,11 +27,13 @@ use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, AdmissionBasis,
     ApplySequence, Arrival, AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution,
     ComputeGrant, ComputedOutcome, DependencyCut, DependencyKey, DependencyOrigin, EntryVersion,
-    KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase,
-    PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline,
-    TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
+    KnownDependencies, MissingDependencies, OwnedTx, PoolGeneration, PreAcceptedEntry,
+    PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RejectionKind,
+    RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError, TxIdentity, TxRecord,
+    ValidatedAdmission,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
+use ckb_types::prelude::Unpack;
 pub(in crate::authority) use membership::{
     AcceptedOrderKey, IndependentCoupling, MembershipProjection,
 };
@@ -44,7 +46,7 @@ pub(in crate::authority) use membership::{MembershipReject, RemovalCause, Status
 pub(in crate::authority) use settlement::{
     CandidateBatchError, IndependentCandidate, SettlementBatch, SettlementPlan,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -60,6 +62,10 @@ pub(super) enum OwnerPhaseSnapshot {
         proof: AcceptedProof,
         dependencies: KnownDependencies,
         accepted_at: AcceptedAtMillis,
+    },
+    ReplacementHistory {
+        dependencies: KnownDependencies,
+        observation: DependencyCut,
     },
 }
 
@@ -77,6 +83,7 @@ pub(super) struct OwnerSnapshot {
 enum OwnerSourceSnapshot {
     PreAccepted(PreAcceptedSource),
     Accepted(AcceptedProvenance),
+    ReplacementHistory,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -312,10 +319,15 @@ impl TxPoolAuthority {
                         dependencies: entry.proof.payload().dependencies().clone(),
                         accepted_at: entry.accepted_at,
                     },
+                    OwnedTx::ReplacementHistory(entry) => OwnerPhaseSnapshot::ReplacementHistory {
+                        dependencies: entry.dependencies().clone(),
+                        observation: entry.observation().dependency_cut(),
+                    },
                 };
                 let source = match owner {
                     OwnedTx::PreAccepted(entry) => OwnerSourceSnapshot::PreAccepted(entry.source),
                     OwnedTx::Accepted(entry) => OwnerSourceSnapshot::Accepted(entry.provenance),
+                    OwnedTx::ReplacementHistory(_) => OwnerSourceSnapshot::ReplacementHistory,
                 };
                 (
                     hash.clone(),
@@ -479,6 +491,9 @@ impl From<ResourceError> for PlanError {
             ResourceError::PreAcceptedLimit => Self::Backpressure(Backpressure::TotalResources),
             ResourceError::RemoteLimit => Self::Backpressure(Backpressure::RemoteResources),
             ResourceError::PeerLimit(_) => Self::Backpressure(Backpressure::PeerResources),
+            ResourceError::ReplacementHistoryLimit => {
+                Self::Fault(AuthorityFault::ResourceProjection)
+            }
             ResourceError::AcceptedLimit => Self::Backpressure(Backpressure::AcceptedResources),
             ResourceError::ComputeEnvelope => Self::Backpressure(Backpressure::ComputeResources),
             ResourceError::Allocation => Self::Backpressure(Backpressure::Allocation),
@@ -893,6 +908,16 @@ pub(super) struct PreparedApply<'authority> {
     handoff: CommittedHandoff,
 }
 
+#[cfg(test)]
+#[must_use = "candidate disposition must be applied exactly once"]
+pub(super) enum CandidateDispositionPlan<'authority> {
+    Accepted(PreparedApply<'authority>),
+    Rejected {
+        reason: MembershipReject,
+        plan: PreparedApply<'authority>,
+    },
+}
+
 impl PreparedApply<'_> {
     pub(super) fn apply(self) -> CommittedDelta {
         let Self {
@@ -952,10 +977,17 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_membership(authority: &mut TxPoolAuthority, delta: MembershipDelta) -> CommittedDelta {
+    fn apply_membership(
+        authority: &mut TxPoolAuthority,
+        mut delta: MembershipDelta,
+    ) -> CommittedDelta {
         let mut retired = delta.retired;
-        for removal in &delta.removals {
-            if let Some(owner) = authority.entries.remove(&removal.hash) {
+        for removal in &mut delta.removals {
+            let previous = match removal.take_after() {
+                Some(after) => authority.entries.insert(removal.hash.clone(), after),
+                None => authority.entries.remove(&removal.hash),
+            };
+            if let Some(owner) = previous {
                 retired.push(owner);
             }
         }
@@ -1328,24 +1360,111 @@ impl TxPoolAuthority {
                 .entries
                 .get(&removal.hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            changes.push((Some(removed), None));
+            changes.push((Some(removed), removal.after()));
             removed_entries.push(removed);
         }
         let lost = self.collect_dependency_loss_keys(removed_entries)?.keys;
-        let available = match (existing, after) {
+        let mut available = match (existing, after) {
             (OwnedTx::PreAccepted(_), OwnedTx::Accepted(_)) => {
                 self.collect_dependency_loss_keys(std::iter::once(after))?
                     .keys
             }
-            (OwnedTx::PreAccepted(_), OwnedTx::PreAccepted(_))
-            | (OwnedTx::Accepted(_), OwnedTx::PreAccepted(_) | OwnedTx::Accepted(_)) => Vec::new(),
+            (OwnedTx::PreAccepted(_), OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_))
+            | (
+                OwnedTx::Accepted(_),
+                OwnedTx::PreAccepted(_) | OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_),
+            )
+            | (OwnedTx::ReplacementHistory(_), _) => Vec::new(),
         };
+        if let OwnedTx::Accepted(candidate) = after {
+            available.extend(self.collect_released_replacement_inputs(candidate, removals)?);
+        }
         let control = self
             .dependencies
             .plan_events(available, lost, DependencyCut(sequence))?
             .unwrap_or_default();
         let delta = self.dependencies.plan_replacements(changes)?;
         Ok(delta.with_control(control))
+    }
+
+    /// Compute availability from the projected final spender/producer set.
+    /// Removal order is irrelevant: an input is published only when the new
+    /// candidate does not spend it and its backing cell survives on chain or
+    /// in Accepted membership.
+    fn collect_released_replacement_inputs(
+        &self,
+        candidate: &AcceptedEntry,
+        removals: &[MembershipRemoval],
+    ) -> Result<Vec<DependencyKey>, PlanError> {
+        let mut removed = HashSet::new();
+        removed
+            .try_reserve(removals.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        removed.extend(removals.iter().map(|removal| removal.hash.clone()));
+
+        let candidate_footprint = &candidate.proof.payload().footprint;
+        let mut candidate_inputs = HashSet::new();
+        candidate_inputs
+            .try_reserve(candidate_footprint.inputs().len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        candidate_inputs.extend(candidate_footprint.inputs().iter().cloned());
+
+        let capacity = removals.iter().try_fold(0usize, |total, removal| {
+            let victim = match self.entries.get(&removal.hash) {
+                Some(OwnedTx::Accepted(entry)) => entry,
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+            };
+            total
+                .checked_add(victim.proof.payload().footprint.inputs().len())
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
+        })?;
+        let mut available = Vec::new();
+        available
+            .try_reserve(capacity)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+
+        for removal in removals {
+            let victim = match self.entries.get(&removal.hash) {
+                Some(OwnedTx::Accepted(entry)) => entry,
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+            };
+            for input in victim.proof.payload().footprint.inputs() {
+                if candidate_inputs.contains(input) {
+                    continue;
+                }
+                let Some(spender) = self.membership.spender(input) else {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                };
+                if !removed.contains(spender) {
+                    continue;
+                }
+                let chain_backed = victim.proof.is_chain_input(input);
+                let parent = RawTxHash(input.tx_hash());
+                let surviving_pool_parent = if removed.contains(&parent) {
+                    false
+                } else {
+                    match self.entries.get(&parent) {
+                        Some(OwnedTx::Accepted(entry)) => {
+                            let index: u32 = input.index().unpack();
+                            usize::try_from(index)
+                                .ok()
+                                .is_some_and(|index| index < entry.record.tx.outputs().len())
+                        }
+                        Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                            false
+                        }
+                    }
+                };
+                if chain_backed || surviving_pool_parent {
+                    available.push(DependencyKey::Cell(input.clone()));
+                }
+            }
+        }
+        Ok(available)
     }
 
     fn plan_membership_owner_derivations(
@@ -1379,7 +1498,7 @@ impl TxPoolAuthority {
             let removed = entries
                 .get(&removal.hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            changes.push((&removal.hash, Some(removed), None));
+            changes.push((&removal.hash, Some(removed), removal.after()));
         }
         let sources = source_versions.plan_replacements(
             changes.iter().map(|(_, before, after)| (*before, *after)),
@@ -1387,6 +1506,153 @@ impl TxPoolAuthority {
         );
         let indexes = indexes.plan_replacements(changes)?;
         Ok(DerivedOwnerDelta { indexes, sources })
+    }
+
+    /// Build the optional Accepted-victim continuation as one all-or-none
+    /// cohort. Allocation pressure drops the optional history before any
+    /// authoritative mutation; structural failures remain explicit faults.
+    fn retain_replacement_history(
+        &self,
+        candidate: &AcceptedEntry,
+        removals: &mut [MembershipRemoval],
+        sequence: ApplySequence,
+        mut version: EntryVersion,
+        mut arrival: Arrival,
+    ) -> Result<Option<(EntryVersion, Arrival)>, PlanError> {
+        if !removals
+            .iter()
+            .any(|removal| removal.cause == RemovalCause::Replacement)
+        {
+            return Ok(Some((version, arrival)));
+        }
+        let mut removed = HashSet::new();
+        if removed.try_reserve(removals.len()).is_err() {
+            return Ok(None);
+        }
+        removed.extend(removals.iter().map(|removal| removal.hash.clone()));
+
+        // ExpandedFootprint canonicalizes inputs into sorted unique order, so
+        // RBF-only trigger derivation needs no second candidate-input index.
+        let candidate_inputs = candidate.proof.payload().footprint.inputs();
+        for removal in removals.iter_mut() {
+            if removal.cause != RemovalCause::Replacement {
+                continue;
+            }
+            let accepted = match self.entries.get(&removal.hash) {
+                Some(OwnedTx::Accepted(entry)) => entry,
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+            };
+            let footprint = &accepted.proof.payload().footprint;
+            let trigger_capacity = footprint
+                .inputs()
+                .len()
+                .checked_add(footprint.dependencies().len())
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+            let mut trigger_keys = Vec::new();
+            if trigger_keys.try_reserve(trigger_capacity).is_err() {
+                return Ok(None);
+            }
+            for input in footprint.inputs() {
+                let producer_removed = removed.contains(&RawTxHash(input.tx_hash()));
+                if candidate_inputs.binary_search(input).is_ok()
+                    || (producer_removed && !accepted.proof.is_chain_input(input))
+                {
+                    trigger_keys.push(DependencyKey::Cell(input.clone()));
+                }
+            }
+            for dependency in footprint.dependencies() {
+                if removed.contains(&RawTxHash(dependency.tx_hash()))
+                    && !accepted.proof.is_chain_dependency(dependency)
+                {
+                    trigger_keys.push(DependencyKey::Cell(dependency.clone()));
+                }
+            }
+            let recovery_triggers = match MissingDependencies::new(trigger_keys, trigger_capacity) {
+                Ok(triggers) => triggers,
+                Err(super::state::DependencySetError::Allocation) => return Ok(None),
+                Err(
+                    super::state::DependencySetError::Empty
+                    | super::state::DependencySetError::TooMany
+                    | super::state::DependencySetError::Arithmetic,
+                ) => return Err(PlanError::Fault(AuthorityFault::MembershipProjection)),
+            };
+            let history = match ReplacementHistoryEntry::from_accepted(
+                accepted,
+                recovery_triggers,
+                version,
+                arrival,
+                DependencyCut(sequence),
+            ) {
+                Ok(history) => history,
+                Err(ReplacementHistoryError::ResourceAllocation) => {
+                    return Ok(None);
+                }
+                Err(ReplacementHistoryError::InvalidRecoveryTrigger) => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                Err(ReplacementHistoryError::ResourceArithmetic) => {
+                    return Err(PlanError::Fault(AuthorityFault::CounterExhausted));
+                }
+            };
+            removal.retain_replacement_history(history)?;
+            version = next_version(version)?;
+            arrival = next_arrival(arrival)?;
+        }
+        Ok(Some((version, arrival)))
+    }
+
+    fn plan_membership_resources(
+        &mut self,
+        key: &RawTxHash,
+        before: &OwnedTx,
+        after: &OwnedTx,
+        removals: &[MembershipRemoval],
+    ) -> Result<ResourceBatchPlan, ResourceError> {
+        let capacity = removals
+            .len()
+            .checked_add(1)
+            .ok_or(ResourceError::Arithmetic)?;
+        let mut changes = Vec::new();
+        changes
+            .try_reserve(capacity)
+            .map_err(|_| ResourceError::Allocation)?;
+        changes.push((
+            key.clone(),
+            Some(before.charge_record()),
+            Some(after.charge_record()),
+        ));
+        for removal in removals {
+            let victim = self
+                .entries
+                .get(&removal.hash)
+                .ok_or(ResourceError::ExistingChargeMismatch)?;
+            changes.push((
+                removal.hash.clone(),
+                Some(victim.charge_record()),
+                removal.after().map(OwnedTx::charge_record),
+            ));
+        }
+        self.resources.plan_batch(changes)
+    }
+
+    fn membership_resource_error(error: ResourceError) -> PlanError {
+        match error {
+            ResourceError::Allocation => PlanError::Backpressure(Backpressure::Allocation),
+            ResourceError::Arithmetic
+            | ResourceError::PreAcceptedLimit
+            | ResourceError::RemoteLimit
+            | ResourceError::PeerLimit(_)
+            | ResourceError::ReplacementHistoryLimit
+            | ResourceError::AcceptedLimit
+            | ResourceError::ExistingChargeMismatch
+            | ResourceError::DuplicateChange
+            | ResourceError::ComputeEnvelope
+            | ResourceError::AttributionMismatch => {
+                PlanError::Fault(AuthorityFault::ResourceProjection)
+            }
+        }
     }
 
     fn plan_dependency_loss<'entry>(
@@ -1529,6 +1795,14 @@ impl TxPoolAuthority {
         existing: OwnedTx,
         admission: ValidatedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        if let OwnedTx::ReplacementHistory(history) = &existing {
+            return self.plan_replacement_history_admission(
+                key,
+                existing.clone(),
+                history.clone(),
+                admission,
+            );
+        }
         let OwnedTx::PreAccepted(entry) = &existing else {
             // Accepted ownership is by raw hash. A different witness cannot
             // replace a committed membership proof, but it is still the same
@@ -1631,6 +1905,69 @@ impl TxPoolAuthority {
         )
     }
 
+    fn plan_replacement_history_admission(
+        &mut self,
+        key: RawTxHash,
+        existing: OwnedTx,
+        history: ReplacementHistoryEntry,
+        admission: ValidatedAdmission,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let same_witness = history.record().identity.witness == admission.identity.witness;
+        let PreAcceptedSource::Proposal {
+            lease: proposal,
+            base: ProposalBase::Trusted,
+        } = admission.source
+        else {
+            return Err(if same_witness {
+                PlanError::Duplicate
+            } else {
+                PlanError::PayloadVariant
+            });
+        };
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let arrival = history.record().arrival;
+        let promoted = if same_witness {
+            let mut promoted = history.into_recovery(self.generation, version);
+            promoted.source = PreAcceptedSource::Proposal {
+                lease: proposal,
+                base: ProposalBase::Trusted,
+            };
+            promoted
+        } else {
+            PreAcceptedEntry {
+                record: TxRecord {
+                    tx: admission.tx,
+                    identity: admission.identity,
+                    version,
+                    arrival,
+                },
+                source: PreAcceptedSource::Proposal {
+                    lease: proposal,
+                    base: ProposalBase::Trusted,
+                },
+                basis: AdmissionBasis::new(admission.dependencies, admission.charge),
+                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                charge: admission.charge,
+            }
+        };
+        let clocks = AuthorityClocks {
+            next_version: next_version(version)?,
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        self.prepare_entry_delta(
+            EntryTransition {
+                key,
+                before: Some(existing),
+                after: Some(OwnedTx::PreAccepted(promoted)),
+            },
+            clocks,
+            sequence,
+            None,
+        )
+    }
+
     pub(super) fn plan_accept_for_foundation(
         &mut self,
         key: &RawTxHash,
@@ -1642,6 +1979,33 @@ impl TxPoolAuthority {
             .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
             .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
         self.plan_accept(receipt)
+    }
+
+    #[cfg(test)]
+    pub(super) fn plan_candidate_disposition_for_foundation(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        status: AcceptedStatus,
+    ) -> Result<CandidateDispositionPlan<'_>, PlanError> {
+        let receipt = self
+            .final_admission_work(key, expected)?
+            .validate_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
+        let key = receipt.key().clone();
+        let expected = receipt.expected();
+        match self.prepare_accept_delta(receipt) {
+            Ok(delta) => Ok(CandidateDispositionPlan::Accepted(PreparedApply {
+                authority: self,
+                delta: AuthorityDelta::Membership(delta),
+                handoff: CommittedHandoff::None,
+            })),
+            Err(PlanError::Membership(reason)) => {
+                let plan = self.plan_terminalize_with_publication(&key, expected, None)?;
+                Ok(CandidateDispositionPlan::Rejected { reason, plan })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     #[cfg(test)]
@@ -1662,6 +2026,18 @@ impl TxPoolAuthority {
         &mut self,
         receipt: FinalAdmissionReceipt,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        let delta = self.prepare_accept_delta(receipt)?;
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Membership(delta),
+            handoff: CommittedHandoff::None,
+        })
+    }
+
+    fn prepare_accept_delta(
+        &mut self,
+        receipt: FinalAdmissionReceipt,
+    ) -> Result<MembershipDelta, PlanError> {
         self.effects.ensure_open()?;
         let key = receipt.key().clone();
         let expected = receipt.expected();
@@ -1686,7 +2062,7 @@ impl TxPoolAuthority {
         let (proof, proposal, accepted_at) = receipt.into_membership_parts();
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
-        let clocks = AuthorityClocks {
+        let base_clocks = AuthorityClocks {
             next_version: next_version(version)?,
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
@@ -1701,12 +2077,41 @@ impl TxPoolAuthority {
             accepted_at,
         };
         let PreparedMembership {
-            removals,
-            resource,
+            mut removals,
             projection,
         } = self.prepare_membership(&key, preaccepted, &accepted)?;
-        let retired = retired_buffer(removals.len())?;
+        let retained_clocks = self.retain_replacement_history(
+            &accepted,
+            &mut removals,
+            sequence,
+            base_clocks.next_version,
+            base_clocks.next_arrival,
+        )?;
+        let mut clocks = base_clocks;
+        if let Some((next_version, next_arrival)) = retained_clocks {
+            if removals.iter().any(|removal| removal.after().is_some()) {
+                clocks.next_version = next_version;
+                clocks.next_arrival = next_arrival;
+            }
+        } else {
+            removals.iter_mut().for_each(MembershipRemoval::terminalize);
+        }
+
         let after = OwnedTx::Accepted(accepted);
+        let has_history = removals.iter().any(|removal| removal.after().is_some());
+        let resource = match self.plan_membership_resources(&key, &existing, &after, &removals) {
+            Ok(resource) => resource,
+            Err(ResourceError::PreAcceptedLimit | ResourceError::ReplacementHistoryLimit)
+                if has_history =>
+            {
+                removals.iter_mut().for_each(MembershipRemoval::terminalize);
+                clocks = base_clocks;
+                self.plan_membership_resources(&key, &existing, &after, &removals)
+                    .map_err(Self::membership_resource_error)?
+            }
+            Err(error) => return Err(Self::membership_resource_error(error)),
+        };
+        let retired = retired_buffer(removals.len())?;
         let scheduler = self
             .scheduler
             .plan_replace(Some(&existing), Some(&after), None)?;
@@ -1714,26 +2119,22 @@ impl TxPoolAuthority {
             self.plan_membership_dependency_delta(&existing, &after, &removals, sequence)?;
         let owners =
             self.plan_membership_owner_derivations(&key, &existing, &after, &removals, sequence)?;
-        Ok(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Membership(MembershipDelta {
-                changed_key: key.clone(),
-                changed_after: after,
-                removals,
-                owners,
-                resource,
-                projection,
-                scheduler,
-                dependency,
-                effect: EffectDelta::default(),
-                retired,
-                clocks,
-                committed: CommittedChanges::One(CommittedChange {
-                    sequence,
-                    changed: key.clone(),
-                }),
+        Ok(MembershipDelta {
+            changed_key: key.clone(),
+            changed_after: after,
+            removals,
+            owners,
+            resource,
+            projection,
+            scheduler,
+            dependency,
+            effect: EffectDelta::default(),
+            retired,
+            clocks,
+            committed: CommittedChanges::One(CommittedChange {
+                sequence,
+                changed: key,
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -2307,7 +2708,10 @@ impl TxPoolAuthority {
             return Ok(None);
         };
         let hash = ticket.hash().cloned();
-        let action = ticket.action(hash.as_ref().and_then(|hash| self.entries.get(hash)))?;
+        let action = ticket.action(
+            &self.dependencies,
+            hash.as_ref().and_then(|hash| self.entries.get(hash)),
+        )?;
         let control = self.dependencies.plan_maintenance(ticket)?;
         let sequence = self.clocks.next_sequence;
         match action {
@@ -2335,18 +2739,22 @@ impl TxPoolAuthority {
             .get(&hash)
             .cloned()
             .ok_or(PlanError::Fault(AuthorityFault::DependencyProjection))?;
-        let OwnedTx::PreAccepted(preaccepted) = &existing else {
-            return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
-        };
-        let charge = preaccepted.original_charge();
         let version = self.clocks.next_version;
-        let after = existing
-            .with_foundation_phase(
-                PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                version,
-                charge,
-            )
-            .map_err(PlanError::Stale)?;
+        let after = match existing.clone() {
+            OwnedTx::PreAccepted(preaccepted) => existing
+                .with_foundation_phase(
+                    PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                    version,
+                    preaccepted.original_charge(),
+                )
+                .map_err(PlanError::Stale)?,
+            OwnedTx::ReplacementHistory(history) => {
+                OwnedTx::PreAccepted(history.into_recovery(self.generation, version))
+            }
+            OwnedTx::Accepted(_) => {
+                return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+            }
+        };
         let clocks = AuthorityClocks {
             next_version: next_version(version)?,
             next_sequence: next_sequence(sequence)?,
@@ -2803,10 +3211,7 @@ impl TxPoolAuthority {
                                     dependencies,
                                     dependency_cut,
                                 );
-                                (
-                                    PreAcceptedPhase::Waiting(WaitCondition::Missing(observed)),
-                                    retained_charge,
-                                )
+                                (PreAcceptedPhase::Waiting(observed), retained_charge)
                             }
                         }
                     } else {

@@ -218,7 +218,7 @@ fn accepted_entry<'a>(
 ) -> Result<&'a AcceptedEntry, PlanError> {
     match authority.entries.get(hash) {
         Some(OwnedTx::Accepted(entry)) => Ok(entry),
-        Some(OwnedTx::PreAccepted(_)) | None => {
+        Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
             Err(PlanError::Fault(AuthorityFault::MembershipProjection))
         }
     }

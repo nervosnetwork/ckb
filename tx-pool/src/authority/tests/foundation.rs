@@ -2,10 +2,10 @@ use super::super::chain::{AcceptedProof, ProposalContextReceipt};
 use super::super::effect::{CommittedEffect, EffectPolicy};
 use super::super::plan::{
     AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
-    CandidateBatchError, CommittedChange, CommittedChanges, CommittedDelta, DescendantAggregate,
-    EvictionOrderKey, IndependentCoupling, MembershipReject, MembershipSnapshot, PlanError,
-    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, StatusCounts,
-    TxPoolAuthority,
+    CandidateBatchError, CandidateDispositionPlan, CommittedChange, CommittedChanges,
+    CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCoupling, MembershipReject,
+    MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch, SettlementPlan,
+    StalePlan, StatusCounts, TxPoolAuthority,
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
@@ -20,7 +20,7 @@ use super::super::state::{
     PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId,
     ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
     RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
-    VerifyCapability, VerifyCycleClass, WaitCondition, WorkPermit,
+    VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
@@ -49,6 +49,9 @@ pub(super) fn limits() -> ResourceLimits {
         AcceptedResources::new(8, 64 * 1024, 64 * 1024, 64),
         ComputeLimits::new(4 * 1024, 4 * 1024, 16),
     )
+    .and_then(|limits| {
+        limits.with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
+    })
     .expect("fixture limits admit one indivisible grant")
 }
 
@@ -93,6 +96,23 @@ fn uak_resource_configuration_rejects_invalid_hierarchy_and_transient_bounds() {
             ComputeLimits::new(1, 1, 4),
         ),
         Err(ResourceConfigError::TransientComputeOverflow)
+    ));
+
+    let history_base = ResourceLimits::new(
+        ResourceVector::new(2, 2048, 16, 2),
+        ResourceVector::new(2, 2048, 16, 2),
+        ResourceVector::new(1, 1024, 8, 1),
+        AcceptedResources::new(2, 2048, 2048, 2),
+        ComputeLimits::new(512, 512, 8),
+    )
+    .expect("replacement-history fixture has a valid base hierarchy");
+    assert!(matches!(
+        history_base.with_replacement_history_limit(ResourceVector::new(3, 2048, 16, 0)),
+        Err(ResourceConfigError::LimitHierarchy)
+    ));
+    assert!(matches!(
+        history_base.with_replacement_history_limit(ResourceVector::new(1, 1024, 8, 1)),
+        Err(ResourceConfigError::LimitHierarchy)
     ));
 }
 
@@ -392,7 +412,7 @@ pub(super) fn verify_remote_transaction(
     verify_remote_transaction_with_payload(authority, transaction, peer, payload)
 }
 
-fn verify_remote_transaction_with_payload(
+pub(super) fn verify_remote_transaction_with_payload(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
     peer: usize,
@@ -492,6 +512,7 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
     let mut preaccepted = ResourceVector::default();
     let mut remote = ResourceVector::default();
     let mut peers = HashMap::new();
+    let mut replacement_history = ResourceVector::default();
     let mut accepted = AcceptedResources::default();
     for (hash, owner) in authority.entries_for_reference() {
         let charge = owner.charge_record();
@@ -525,6 +546,10 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
             ChargeRecord::Accepted(resources) => {
                 accepted = add_accepted(accepted, resources);
             }
+            ChargeRecord::ReplacementHistory(resources) => {
+                preaccepted = add_resources(preaccepted, resources);
+                replacement_history = add_resources(replacement_history, resources);
+            }
         }
     }
     assert_eq!(
@@ -534,6 +559,7 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
             preaccepted,
             remote,
             peers,
+            replacement_history,
             accepted,
         }
     );
@@ -546,7 +572,7 @@ pub(super) fn assert_membership_reference(authority: &TxPoolAuthority) {
         .iter()
         .filter_map(|(hash, owner)| match owner {
             OwnedTx::Accepted(entry) => Some((hash, entry)),
-            OwnedTx::PreAccepted(_) => None,
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
         })
         .collect::<HashMap<_, _>>();
     let mut spenders = HashMap::new();
@@ -1686,7 +1712,7 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: KnownDependencies::default(),
         }),
-        PreAcceptedPhase::Waiting(WaitCondition::Missing(observed(1))),
+        PreAcceptedPhase::Waiting(observed(1)),
         PreAcceptedPhase::Computed(ComputedOutcome::Verified(VerifiedFacts::for_foundation(
             ChainRevision(0),
             DependencyCut(ApplySequence(1)),
@@ -1728,22 +1754,17 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     assert_eq!(authority.clocks().next_lease, ComputeLeaseId(1));
     let declared_dependencies = match owner {
         OwnedTx::PreAccepted(entry) => entry.basis.dependencies().clone(),
-        OwnedTx::Accepted(_) => unreachable!("fixture starts preaccepted"),
+        OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => {
+            unreachable!("fixture starts preaccepted")
+        }
     };
 
-    let observed_values = vec![
-        DependencyKey::Cell(OutPoint::default()),
-        DependencyKey::Header(Byte32::zero()),
-    ];
     let resolved = super::super::state::ResolvedFacts::for_foundation(
         ChainRevision(0),
         DependencyCut(ApplySequence(1)),
         Arc::new(resolved_payload(&tx(0)).into_payload()),
         VerifyCycleClass::Small,
     );
-    let observed =
-        ObservedDependencies::for_foundation(observed_values, DependencyCut(ApplySequence(1)))
-            .expect("fixture dependency set is non-empty");
     let variants = [
         PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
         PreAcceptedPhase::Computing(ActiveWork {
@@ -1770,12 +1791,11 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies,
         }),
-        PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)),
         PreAcceptedPhase::Computed(ComputedOutcome::Rejected(RejectionKind::Verification)),
         PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied),
         PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure),
     ];
-    assert_eq!(variants.len(), 7);
+    assert_eq!(variants.len(), 6);
 
     let verified_transaction = Arc::clone(&owner.record().tx);
     let verified_bytes = verified_transaction.data().total_size();
@@ -1803,7 +1823,9 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             proposal: ProposalContextReceipt::from_validation(AcceptedStatus::Gap),
             accepted_at: AcceptedAtMillis::FOUNDATION,
         }),
-        OwnedTx::Accepted(_) => unreachable!("fixture starts preaccepted"),
+        OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => {
+            unreachable!("fixture starts preaccepted")
+        }
     };
     assert!(matches!(
         accepted,
@@ -3508,11 +3530,13 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
         replacement_payload,
     );
     let version = owner_version(&authority, &replacement);
-    let committed = apply_committed_without_work(
-        authority
-            .plan_accept_for_foundation(&replacement, version, AcceptedStatus::Pending)
-            .expect("complete replacement closure fits one membership plan"),
-    );
+    let disposition = authority
+        .plan_candidate_disposition_for_foundation(&replacement, version, AcceptedStatus::Pending)
+        .expect("complete replacement closure has one deterministic disposition");
+    let CandidateDispositionPlan::Accepted(plan) = disposition else {
+        panic!("a sufficiently funded replacement must be accepted");
+    };
+    let committed = apply_committed_without_work(plan);
     assert_eq!(committed.removals.len(), 2);
     assert_eq!(committed.retired_len(), committed.removals.len());
     assert!(
@@ -3522,15 +3546,714 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
             .all(|removal| removal.cause == RemovalCause::Replacement)
     );
 
-    assert!(authority.entry(&victim).is_none());
-    assert!(authority.entry(&child).is_none());
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
     assert!(matches!(
         authority.entry(&replacement),
         Some(OwnedTx::Accepted(_))
     ));
     assert_eq!(authority.accepted_spender(&chain_input), Some(&replacement));
-    assert_eq!(authority.owner_count(), 1);
+    assert_eq!(authority.owner_count(), 3);
     assert_eq!(authority.resources().accepted().entries, 1);
+    assert_eq!(authority.resources().replacement_history().entries, 2);
+
+    let view = authority.read_view();
+    let mut expected_history = vec![victim.clone(), child.clone()];
+    expected_history.sort_unstable();
+    assert_eq!(
+        view.replacement_history_hashes()
+            .expect("replacement history has one coherent read projection"),
+        expected_history
+    );
+    let ids = view.pool_ids().expect("accepted pool ids remain coherent");
+    assert_eq!(ids.pending, vec![replacement.clone()]);
+    assert!(ids.proposed.is_empty());
+    let summary = view.summary().expect("history has an explicit read state");
+    assert_eq!(summary.owners, 3);
+    assert_eq!(summary.replacement_history, 2);
+    for hash in [&victim, &child] {
+        assert!(
+            view.entry_by_raw(hash)
+                .expect("replacement history remains internally queryable")
+                .rpc_status()
+                .is_none(),
+            "replacement history must not acquire a live-pool RPC status"
+        );
+    }
+    assert_eq!(summary.accepted_pending, 1);
+    assert_eq!(
+        view.capture_persistence()
+            .expect("history is excluded from restart ownership")
+            .selected_len(),
+        1
+    );
+    assert_eq!(
+        view.capture_template()
+            .expect("history is excluded from template ownership")
+            .selected_len(),
+        1
+    );
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_independent_rbf_churn_never_exceeds_replacement_history_budget() {
+    let probe_input = OutPoint::new(Byte32::new([90; 32]), 0);
+    let probe = TransactionBuilder::default()
+        .version(90u32)
+        .input(CellInput::new(probe_input, 0))
+        .build();
+    let small_history_bytes = probe
+        .data()
+        .total_size()
+        .checked_mul(4)
+        .expect("four fixture transactions fit usize");
+    let limits = ResourceLimits::new(
+        ResourceVector::new(16, 1024 * 1024, 128, 8),
+        ResourceVector::new(16, 1024 * 1024, 128, 8),
+        ResourceVector::new(2, 128 * 1024, 16, 2),
+        AcceptedResources::new(16, 1024 * 1024, 1024 * 1024, 1_000_000),
+        ComputeLimits::new(128 * 1024, 128 * 1024, 128),
+    )
+    .and_then(|limits| {
+        limits.with_replacement_history_limit(ResourceVector::new(4, small_history_bytes, 64, 0))
+    })
+    .expect("independent-RBF fixture has a valid hard history partition");
+    let mut authority = TxPoolAuthority::with_replacement(limits, FeeRate::from_u64(1_000));
+    let mut winners = Vec::new();
+
+    for offset in 0u8..6 {
+        let version = 90u32 + u32::from(offset);
+        let input = OutPoint::new(Byte32::new([90 + offset; 32]), 0);
+        let victim_tx = if offset == 3 {
+            TransactionBuilder::default()
+                .version(version)
+                .input(CellInput::new(input.clone(), 0))
+                .output(CellOutput::default())
+                .output_data(Bytes::from(vec![0; small_history_bytes + 1024]).pack())
+                .build()
+        } else {
+            TransactionBuilder::default()
+                .version(version)
+                .input(CellInput::new(input.clone(), 0))
+                .build()
+        };
+        let victim = accept_remote_transaction_with_payload(
+            &mut authority,
+            victim_tx.clone(),
+            usize::from(offset) + 90,
+            AcceptedStatus::Pending,
+            resolved_payload_with_facts(
+                &victim_tx,
+                Vec::new(),
+                vec![input.clone()],
+                Capacity::shannons(100),
+            ),
+        );
+        let replacement_tx = TransactionBuilder::default()
+            .version(version + 100)
+            .input(CellInput::new(input.clone(), 0))
+            .build();
+        let replacement = verify_remote_transaction_with_payload(
+            &mut authority,
+            replacement_tx.clone(),
+            usize::from(offset) + 190,
+            resolved_payload_with_facts(
+                &replacement_tx,
+                Vec::new(),
+                vec![input],
+                Capacity::shannons(10_000),
+            ),
+        );
+        let replacement_version = owner_version(&authority, &replacement);
+        apply_without_work(
+            authority
+                .plan_accept_for_foundation(
+                    &replacement,
+                    replacement_version,
+                    AcceptedStatus::Pending,
+                )
+                .expect("history pressure never rejects the funded winner"),
+        );
+        winners.push(replacement);
+
+        let expected_history = match offset {
+            0..=2 => usize::from(offset) + 1,
+            3 => 3,
+            _ => 4,
+        };
+        assert_eq!(
+            authority.resources().replacement_history().entries,
+            expected_history
+        );
+        if offset == 3 || offset == 5 {
+            assert!(
+                authority.entry(&victim).is_none(),
+                "the optional victim history must terminalize when its byte or entry bound is full"
+            );
+        } else {
+            assert!(matches!(
+                authority.entry(&victim),
+                Some(OwnedTx::ReplacementHistory(_))
+            ));
+        }
+        assert_resource_reference(&authority);
+    }
+
+    assert_eq!(
+        authority.resources().replacement_history(),
+        ResourceVector::new(4, small_history_bytes, 4, 0)
+    );
+    assert!(
+        winners
+            .iter()
+            .all(|winner| matches!(authority.entry(winner), Some(OwnedTx::Accepted(_))))
+    );
+}
+
+#[test]
+fn uak_replacement_history_reserves_raw_edges_until_wake() {
+    let limits = ResourceLimits::new(
+        ResourceVector::new(8, 1024 * 1024, 4, 4),
+        ResourceVector::new(8, 1024 * 1024, 4, 4),
+        ResourceVector::new(2, 128 * 1024, 4, 2),
+        AcceptedResources::new(8, 1024 * 1024, 1024 * 1024, 1_000_000),
+        ComputeLimits::new(128 * 1024, 128 * 1024, 64),
+    )
+    .and_then(|limits| {
+        limits.with_replacement_history_limit(ResourceVector::new(4, 1024 * 1024, 4, 0))
+    })
+    .expect("fixture has one exact four-edge history partition");
+    let mut authority = TxPoolAuthority::with_replacement(limits, FeeRate::from_u64(1_000));
+    let released_input = OutPoint::new(Byte32::new([91; 32]), 0);
+    let retained_input = OutPoint::new(Byte32::new([92; 32]), 0);
+
+    // CKB permits one cell to appear in different roles. The dependency
+    // frontier canonicalizes this input + cell-dep to one key, but Recovery
+    // admission still charges both encoded edges.
+    let oldest_tx = TransactionBuilder::default()
+        .version(91u32)
+        .input(CellInput::new(released_input.clone(), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(released_input.clone())
+                .build(),
+        )
+        .build();
+    let oldest = accept_remote_transaction_with_payload(
+        &mut authority,
+        oldest_tx.clone(),
+        91,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &oldest_tx,
+            Vec::new(),
+            vec![released_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let retained_tx = TransactionBuilder::default()
+        .version(92u32)
+        .input(CellInput::new(retained_input.clone(), 0))
+        .build();
+    let retained = accept_remote_transaction_with_payload(
+        &mut authority,
+        retained_tx.clone(),
+        92,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &retained_tx,
+            Vec::new(),
+            vec![retained_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+
+    let middle_tx = TransactionBuilder::default()
+        .version(93u32)
+        .input(CellInput::new(released_input.clone(), 0))
+        .input(CellInput::new(retained_input.clone(), 0))
+        .build();
+    let middle = verify_remote_transaction_with_payload(
+        &mut authority,
+        middle_tx.clone(),
+        93,
+        resolved_payload_with_facts(
+            &middle_tx,
+            Vec::new(),
+            vec![released_input.clone(), retained_input.clone()],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let middle_version = owner_version(&authority, &middle);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&middle, middle_version, AcceptedStatus::Pending)
+            .expect("the first closure fits its exact retained edge charge"),
+    );
+    assert_eq!(authority.resources().replacement_history().edges, 3);
+
+    let newest_tx = TransactionBuilder::default()
+        .version(94u32)
+        .input(CellInput::new(retained_input.clone(), 0))
+        .build();
+    let newest = verify_remote_transaction_with_payload(
+        &mut authority,
+        newest_tx.clone(),
+        94,
+        resolved_payload_with_facts(
+            &newest_tx,
+            Vec::new(),
+            vec![retained_input],
+            Capacity::shannons(20_000),
+        ),
+    );
+    let newest_version = owner_version(&authority, &newest);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&newest, newest_version, AcceptedStatus::Pending)
+            .expect("history pressure cannot reject the second funded winner"),
+    );
+
+    // The new victim would exceed the hard edge partition and is therefore
+    // terminalized. The two older histories retain exactly the charge needed
+    // for the released owner to become Recovery without capacity retry.
+    assert!(authority.entry(&middle).is_none());
+    assert!(matches!(
+        authority.entry(&retained),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert_eq!(authority.resources().replacement_history().edges, 3);
+    while let Some(plan) = authority
+        .plan_dependency_maintenance_for_foundation()
+        .expect("continuous reservation makes wakeup capacity-invariant")
+    {
+        apply_without_work(plan);
+    }
+    assert!(matches!(
+        authority.entry(&oldest),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_eq!(authority.resources().replacement_history().edges, 1);
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let conflicting_input = OutPoint::new(Byte32::new([91; 32]), 0);
+    let unrelated_input = OutPoint::new(Byte32::new([92; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(91u32)
+        .input(CellInput::new(conflicting_input.clone(), 0))
+        .input(CellInput::new(unrelated_input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        91,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![conflicting_input.clone(), unrelated_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let winner_tx = TransactionBuilder::default()
+        .version(92u32)
+        .input(CellInput::new(conflicting_input.clone(), 0))
+        .build();
+    let winner = verify_remote_transaction_with_payload(
+        &mut authority,
+        winner_tx.clone(),
+        92,
+        resolved_payload_with_facts(
+            &winner_tx,
+            Vec::new(),
+            vec![conflicting_input.clone()],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let winner_version = owner_version(&authority, &winner);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
+            .expect("the funded replacement retains its victim"),
+    );
+
+    let Some(OwnedTx::ReplacementHistory(history)) = authority.entry(&victim) else {
+        panic!("the accepted victim must become replacement history");
+    };
+    assert!(
+        history
+            .observation()
+            .contains(&DependencyKey::Cell(conflicting_input.clone()))
+    );
+    assert!(
+        !history
+            .observation()
+            .contains(&DependencyKey::Cell(unrelated_input.clone()))
+    );
+    assert!(
+        history
+            .dependencies()
+            .contains(&DependencyKey::Cell(unrelated_input.clone())),
+        "the full recovery basis remains retained even when it is not a wake trigger"
+    );
+
+    if let Some(unrelated) = authority
+        .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(unrelated_input)])
+        .expect("an unrelated chain level remains coherent")
+    {
+        apply_without_work(unrelated);
+    }
+    while let Some(plan) = authority
+        .plan_dependency_maintenance_for_foundation()
+        .expect("unrelated maintenance remains bounded")
+    {
+        apply_without_work(plan);
+    }
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let released = authority
+        .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(conflicting_input)])
+        .expect("the conflicting input availability plans")
+        .expect("the exact history trigger has an indexed waiter");
+    apply_without_work(released);
+    while let Some(plan) = authority
+        .plan_dependency_maintenance_for_foundation()
+        .expect("the exact history trigger remains coherent")
+    {
+        apply_without_work(plan);
+    }
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_replacement_history_waits_for_every_observed_blocker() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let first_input = OutPoint::new(Byte32::new([93; 32]), 0);
+    let second_input = OutPoint::new(Byte32::new([94; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(93u32)
+        .input(CellInput::new(first_input.clone(), 0))
+        .input(CellInput::new(second_input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        93,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![first_input.clone(), second_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let winner_tx = TransactionBuilder::default()
+        .version(94u32)
+        .input(CellInput::new(first_input.clone(), 0))
+        .input(CellInput::new(second_input.clone(), 0))
+        .build();
+    let winner = verify_remote_transaction_with_payload(
+        &mut authority,
+        winner_tx.clone(),
+        94,
+        resolved_payload_with_facts(
+            &winner_tx,
+            Vec::new(),
+            vec![first_input.clone(), second_input.clone()],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let winner_version = owner_version(&authority, &winner);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
+            .expect("the funded winner retains its two-input victim"),
+    );
+
+    let Some(OwnedTx::ReplacementHistory(history)) = authority.entry(&victim) else {
+        panic!("the accepted victim must become replacement history");
+    };
+    assert_eq!(history.observation().len(), 2);
+
+    let first_release = authority
+        .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(first_input)])
+        .expect("the first exact blocker has a coherent availability plan")
+        .expect("the first exact blocker has an indexed history waiter");
+    apply_without_work(first_release);
+    while let Some(plan) = authority
+        .plan_dependency_maintenance_for_foundation()
+        .expect("partial availability maintenance remains coherent")
+    {
+        apply_without_work(plan);
+    }
+    assert!(
+        matches!(
+            authority.entry(&victim),
+            Some(OwnedTx::ReplacementHistory(_))
+        ),
+        "one released input cannot consume history while another blocker remains"
+    );
+
+    let second_release = authority
+        .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(second_input)])
+        .expect("the second exact blocker has a coherent availability plan")
+        .expect("the second exact blocker has an indexed history waiter");
+    apply_without_work(second_release);
+    while let Some(plan) = authority
+        .plan_dependency_maintenance_for_foundation()
+        .expect("complete availability maintenance remains coherent")
+    {
+        apply_without_work(plan);
+    }
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let released_input = OutPoint::new(Byte32::new([81; 32]), 0);
+    let retained_input = OutPoint::new(Byte32::new([82; 32]), 0);
+
+    let oldest_tx = TransactionBuilder::default()
+        .version(81u32)
+        .input(CellInput::new(released_input.clone(), 0))
+        .build();
+    let oldest = accept_remote_transaction_with_payload(
+        &mut authority,
+        oldest_tx.clone(),
+        81,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &oldest_tx,
+            Vec::new(),
+            vec![released_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+
+    let retained_tx = TransactionBuilder::default()
+        .version(84u32)
+        .input(CellInput::new(retained_input.clone(), 0))
+        .build();
+    let retained = accept_remote_transaction_with_payload(
+        &mut authority,
+        retained_tx.clone(),
+        84,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &retained_tx,
+            Vec::new(),
+            vec![retained_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+
+    let middle_tx = TransactionBuilder::default()
+        .version(82u32)
+        .input(CellInput::new(released_input.clone(), 0))
+        .input(CellInput::new(retained_input.clone(), 0))
+        .build();
+    let middle = verify_remote_transaction_with_payload(
+        &mut authority,
+        middle_tx.clone(),
+        82,
+        resolved_payload_with_facts(
+            &middle_tx,
+            Vec::new(),
+            vec![released_input.clone(), retained_input.clone()],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let middle_version = owner_version(&authority, &middle);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&middle, middle_version, AcceptedStatus::Pending)
+            .expect("first replacement retains the accepted victim"),
+    );
+    assert!(matches!(
+        authority.entry(&oldest),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&retained),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let newest_tx = TransactionBuilder::default()
+        .version(83u32)
+        .input(CellInput::new(retained_input, 0))
+        .build();
+    let newest = verify_remote_transaction_with_payload(
+        &mut authority,
+        newest_tx.clone(),
+        83,
+        resolved_payload_with_facts(
+            &newest_tx,
+            Vec::new(),
+            Vec::new(),
+            Capacity::shannons(20_000),
+        ),
+    );
+    let newest_version = owner_version(&authority, &newest);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&newest, newest_version, AcceptedStatus::Pending)
+            .expect("second replacement releases only its projected free input"),
+    );
+
+    assert!(matches!(
+        authority.entry(&middle),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&retained),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&oldest),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let mut rounds = 0usize;
+    while let Some(plan) = authority
+        .plan_dependency_maintenance_for_foundation()
+        .expect("dependency maintenance remains coherent")
+    {
+        apply_without_work(plan);
+        rounds += 1;
+        assert!(
+            rounds <= 3,
+            "one key with two waiters has bounded maintenance"
+        );
+    }
+    assert!(matches!(
+        authority.entry(&oldest),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Recovery(lease) if lease.generation == PoolGeneration(0)
+            ) && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(matches!(
+        authority.entry(&middle),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&retained),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert_eq!(authority.resources().replacement_history().entries, 2);
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_replacement_history_requires_trusted_proposal_to_promote() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let chain_input = OutPoint::new(Byte32::new([85; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(85u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        85,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![chain_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let winner_tx = TransactionBuilder::default()
+        .version(86u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let winner = verify_remote_transaction_with_payload(
+        &mut authority,
+        winner_tx.clone(),
+        86,
+        resolved_payload_with_facts(
+            &winner_tx,
+            Vec::new(),
+            vec![chain_input],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let winner_version = owner_version(&authority, &winner);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
+            .expect("the funded winner retains its victim"),
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let remote_retry = ValidatedAdmission::remote(victim_tx.clone(), PeerIndex::from(87))
+        .expect("same-witness remote retry is valid ingress");
+    assert_eq!(
+        authority.plan_admission(remote_retry).err(),
+        Some(PlanError::Duplicate)
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let proposal = ValidatedAdmission::proposal(victim_tx, ProposalContextId(85))
+        .expect("trusted proposal retry is valid ingress");
+    apply_without_work(
+        authority
+            .plan_admission(proposal)
+            .expect("only the trusted proposal lease promotes history"),
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Proposal {
+                    base: ProposalBase::Trusted,
+                    ..
+                }
+            ) && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(matches!(
+        authority.entry(&winner),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert_eq!(authority.resources().replacement_history().entries, 0);
     assert_resource_reference(&authority);
 }
 
@@ -3611,8 +4334,14 @@ fn uak_rbf_removal_subtracts_deep_descendants_from_a_surviving_ancestor() {
     );
 
     assert_eq!(committed.removals.len(), 2);
-    assert!(authority.entry(&victim).is_none());
-    assert!(authority.entry(&child).is_none());
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
     assert!(matches!(
         authority.entry(&ancestor),
         Some(OwnedTx::Accepted(_))
@@ -3761,7 +4490,15 @@ fn uak_rbf_unions_fan_in_descendants_once_and_removes_children_first() {
     assert!(positions[&merge] < positions[&right_child]);
     assert!(positions[&left_child] < positions[&left]);
     assert!(positions[&right_child] < positions[&right]);
+    assert!(
+        committed
+            .removals
+            .iter()
+            .all(|removal| authority.entry(&removal.hash).is_none()),
+        "a five-entry closure cannot partially occupy the four-entry history partition"
+    );
     assert_eq!(authority.owner_count(), 1);
+    assert_eq!(authority.resources().replacement_history().entries, 0);
     assert!(matches!(
         authority.entry(&replacement),
         Some(OwnedTx::Accepted(_))
@@ -3770,7 +4507,7 @@ fn uak_rbf_unions_fan_in_descendants_once_and_removes_children_first() {
 }
 
 #[test]
-fn uak_failed_rbf_fee_plan_preserves_candidate_and_victims() {
+fn uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate() {
     let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
     let chain_input = OutPoint::new(Byte32::new([61; 32]), 0);
     let victim_tx = TransactionBuilder::default()
@@ -3818,14 +4555,26 @@ fn uak_failed_rbf_fee_plan_preserves_candidate_and_victims() {
         )) if actual == Capacity::shannons(1)
     ));
     assert_eq!(authority.normalized_snapshot(), before);
+
+    let disposition = authority
+        .plan_candidate_disposition_for_foundation(&replacement, version, AcceptedStatus::Pending)
+        .expect("one driver round compiles a deterministic rejection");
+    let CandidateDispositionPlan::Rejected { reason, plan } = disposition else {
+        panic!("under-fee replacement cannot be accepted");
+    };
+    assert!(matches!(
+        reason,
+        MembershipReject::InsufficientReplacementFee { actual, .. }
+            if actual == Capacity::shannons(1)
+    ));
+    let committed = apply_committed_without_work(plan);
+    assert!(committed.removals.is_empty());
     assert!(matches!(
         authority.entry(&victim),
         Some(OwnedTx::Accepted(_))
     ));
-    assert!(matches!(
-        authority.entry(&replacement),
-        Some(OwnedTx::PreAccepted(_))
-    ));
+    assert!(authority.entry(&replacement).is_none());
+    assert_eq!(authority.resources().replacement_history().entries, 0);
     assert_resource_reference(&authority);
 }
 
@@ -3929,7 +4678,11 @@ fn uak_rbf_accepts_new_input_only_with_positive_chain_evidence() {
             .expect("positive chain evidence satisfies the no-new-unconfirmed-input rule"),
     );
 
-    assert!(authority.entry(&victim).is_none());
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert_eq!(authority.resources().replacement_history().entries, 1);
     assert_eq!(
         authority.accepted_spender(&replaced_input),
         Some(&replacement)
@@ -4905,7 +5658,7 @@ fn uak_missing_settlement_registers_exact_level_wait() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(
                 &entry.phase,
-                PreAcceptedPhase::Waiting(WaitCondition::Missing(deps)) if deps.len() == 1
+                PreAcceptedPhase::Waiting(deps) if deps.len() == 1
             )
     ));
     assert_eq!(authority.resources().preaccepted().active_work, 0);
@@ -5139,7 +5892,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     assert!(matches!(
         authority.entry(&continuous_missing_hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Waiting(WaitCondition::Missing(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Waiting(_))
     ));
     assert!(matches!(
         authority.entry(&verify_success_hash),

@@ -1,7 +1,6 @@
 use super::state::{
     ComputedOutcome, DependencyCut, DependencyKey, DependencyOrigin, KnownDependencies,
     MissingDependencies, ObservedDependencies, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash,
-    WaitCondition,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -186,6 +185,7 @@ impl DependencyMaintenanceTicket {
 
     pub(super) fn action(
         &self,
+        frontier: &DependencyFrontier,
         owner: Option<&OwnedTx>,
     ) -> Result<DependencyMaintenanceAction, DependencyError> {
         let Some(hash) = &self.hash else {
@@ -211,14 +211,33 @@ impl DependencyMaintenanceTicket {
                 }
                 return Ok(DependencyMaintenanceAction::Advance);
             }
+            OwnedTx::ReplacementHistory(history) => {
+                if !history.dependencies().contains(&self.key) {
+                    return Err(DependencyError::Projection);
+                }
+                // A replacement victim may have several blockers. A level
+                // change on one blocker is only a prompt to re-evaluate the
+                // complete observed set; consuming history at the first free
+                // input would lose it if a newer winner still spent another.
+                // Every observed key was proven unavailable at the cohort cut,
+                // so only a newer final Availability level satisfies it.
+                return Ok(
+                    if history.observation().contains(&self.key)
+                        && frontier.all_observed_dependencies_available(history.observation())
+                    {
+                        DependencyMaintenanceAction::Requeue
+                    } else {
+                        DependencyMaintenanceAction::Advance
+                    },
+                );
+            }
         };
         if !entry.dependencies().contains(&self.key) {
             return Err(DependencyError::Projection);
         }
         match self.scope {
             DirtyScope::ExistingWaiters => match &entry.phase {
-                PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
-                | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => Ok(
+                PreAcceptedPhase::Waiting(observed) => Ok(
                     if observed.contains(&self.key) && observed.dependency_cut() < self.target {
                         DependencyMaintenanceAction::Requeue
                     } else {
@@ -239,8 +258,7 @@ impl DependencyMaintenanceTicket {
                     PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
                         resolved.dependency_cut() < loss
                     }
-                    PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
-                    | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => {
+                    PreAcceptedPhase::Waiting(observed) => {
                         // `AllConsumers` may represent a coalesced loss followed
                         // by a newer availability change. Non-waiting proof is
                         // invalidated only by `loss`, while a waiter must observe
@@ -271,10 +289,7 @@ impl DependencySlot {
         let (dependencies, waiting) = match owner {
             OwnedTx::PreAccepted(entry) => {
                 let waiting = match &entry.phase {
-                    PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
-                    | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => {
-                        Some(observed.clone())
-                    }
+                    PreAcceptedPhase::Waiting(observed) => Some(observed.clone()),
                     PreAcceptedPhase::Queued(_)
                     | PreAcceptedPhase::Computing(_)
                     | PreAcceptedPhase::Computed(_) => None,
@@ -282,6 +297,10 @@ impl DependencySlot {
                 (entry.dependencies().clone(), waiting)
             }
             OwnedTx::Accepted(entry) => (entry.proof.payload().dependencies().clone(), None),
+            OwnedTx::ReplacementHistory(entry) => (
+                entry.dependencies().clone(),
+                Some(entry.observation().clone()),
+            ),
         };
         if waiting.as_ref().is_some_and(|observed| {
             observed
@@ -299,6 +318,17 @@ impl DependencySlot {
 }
 
 impl DependencyFrontier {
+    fn all_observed_dependencies_available(&self, observed: &ObservedDependencies) -> bool {
+        observed.keys().all(|key| {
+            self.levels.get(key).is_some_and(|level| {
+                observed.dependency_cut() < level.last_change
+                    && level
+                        .last_definitive_loss
+                        .is_none_or(|loss| loss < level.last_change)
+            })
+        })
+    }
+
     pub(super) fn observe_missing(
         &self,
         missing: &MissingDependencies,
@@ -888,6 +918,11 @@ impl DependencyFrontier {
             };
             if let OwnedTx::PreAccepted(entry) = owner
                 && entry.dependencies().len() > entry.charge.edges
+            {
+                return false;
+            }
+            if let OwnedTx::ReplacementHistory(entry) = owner
+                && entry.dependencies().len() > entry.charge().edges
             {
                 return false;
             }

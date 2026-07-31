@@ -14,7 +14,6 @@ use super::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, ComputedOutcome,
         DependencyKey, EntryVersion, KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
         PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, RejectionKind, TxIdentity,
-        WaitCondition,
     },
 };
 use ckb_types::core::{Capacity, TransactionView};
@@ -51,7 +50,6 @@ pub(super) enum PreAcceptedReadPhase {
     VerifyQueued,
     Computing,
     WaitingMissing,
-    WaitingConflict,
     ComputedVerified,
     ComputedRejected(RejectionKind),
     ComputedBudgetDenied,
@@ -62,13 +60,13 @@ pub(super) enum PreAcceptedReadPhase {
 pub(super) enum AuthorityReadState {
     PreAccepted(PreAcceptedReadPhase),
     Accepted(AcceptedStatus),
+    ReplacementHistory,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AuthorityRpcStatus {
     Pending,
     Proposed,
-    ConflictHistory,
 }
 
 #[derive(Clone, Copy)]
@@ -109,12 +107,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
                         PreAcceptedReadPhase::VerifyQueued
                     }
                     PreAcceptedPhase::Computing(_) => PreAcceptedReadPhase::Computing,
-                    PreAcceptedPhase::Waiting(WaitCondition::Missing(_)) => {
-                        PreAcceptedReadPhase::WaitingMissing
-                    }
-                    PreAcceptedPhase::Waiting(WaitCondition::Conflict(_)) => {
-                        PreAcceptedReadPhase::WaitingConflict
-                    }
+                    PreAcceptedPhase::Waiting(_) => PreAcceptedReadPhase::WaitingMissing,
                     PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)) => {
                         PreAcceptedReadPhase::ComputedVerified
                     }
@@ -130,15 +123,22 @@ impl<'authority> AuthorityReadEntry<'authority> {
                 };
                 AuthorityReadState::PreAccepted(phase)
             }
+            OwnedTx::ReplacementHistory(_) => AuthorityReadState::ReplacementHistory,
         }
     }
 
-    pub(super) fn rpc_status(&self) -> AuthorityRpcStatus {
+    /// Project only owners that are part of the public live-pool surface.
+    ///
+    /// Replacement history is private recovery state. Returning `None` is a
+    /// load-bearing boundary: the production query adapter must continue to
+    /// the existing recent-reject lookup instead of inventing a live-pool RPC
+    /// status for a retained victim.
+    pub(super) fn rpc_status(&self) -> Option<AuthorityRpcStatus> {
         match self.state() {
-            AuthorityReadState::Accepted(AcceptedStatus::Proposed) => AuthorityRpcStatus::Proposed,
-            AuthorityReadState::PreAccepted(PreAcceptedReadPhase::WaitingConflict) => {
-                AuthorityRpcStatus::ConflictHistory
+            AuthorityReadState::Accepted(AcceptedStatus::Proposed) => {
+                Some(AuthorityRpcStatus::Proposed)
             }
+            AuthorityReadState::ReplacementHistory => None,
             AuthorityReadState::PreAccepted(
                 PreAcceptedReadPhase::ResolveQueued
                 | PreAcceptedReadPhase::VerifyQueued
@@ -150,7 +150,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
                 | PreAcceptedReadPhase::ComputedInternalFailure,
             )
             | AuthorityReadState::Accepted(AcceptedStatus::Pending | AcceptedStatus::Gap) => {
-                AuthorityRpcStatus::Pending
+                Some(AuthorityRpcStatus::Pending)
             }
         }
     }
@@ -174,6 +174,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
                     | ComputedOutcome::InternalFailure,
                 ) => None,
             },
+            OwnedTx::ReplacementHistory(_) => None,
         }
     }
 
@@ -193,13 +194,14 @@ impl<'authority> AuthorityReadEntry<'authority> {
                     | ComputedOutcome::InternalFailure,
                 ) => None,
             },
+            OwnedTx::ReplacementHistory(_) => None,
         }
     }
 
     pub(super) fn accepted_at(&self) -> Option<AcceptedAtMillis> {
         match self.owner {
             OwnedTx::Accepted(entry) => Some(entry.accepted_at),
-            OwnedTx::PreAccepted(_) => None,
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
         }
     }
 }
@@ -217,7 +219,7 @@ pub(super) struct AuthorityReadSummary {
     pub(super) queued: usize,
     pub(super) computing: usize,
     pub(super) waiting_missing: usize,
-    pub(super) conflict_history: usize,
+    pub(super) replacement_history: usize,
     pub(super) computed: usize,
     pub(super) accepted_pending: usize,
     pub(super) accepted_gap: usize,
@@ -340,25 +342,18 @@ impl<'authority> AuthorityReadView<'authority> {
         Ok(AuthorityPoolIds { pending, proposed })
     }
 
-    pub(super) fn conflict_hashes(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
-        let mut conflicts = Vec::new();
-        conflicts
+    pub(super) fn replacement_history_hashes(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
+        let mut history = Vec::new();
+        history
             .try_reserve(self.entries.len())
             .map_err(|_| AuthorityReadError::Allocation)?;
         for (hash, owner) in self.entries {
-            if matches!(
-                owner,
-                OwnedTx::PreAccepted(entry)
-                    if matches!(
-                        entry.phase,
-                        PreAcceptedPhase::Waiting(WaitCondition::Conflict(_))
-                    )
-            ) {
-                conflicts.push(hash.clone());
+            if matches!(owner, OwnedTx::ReplacementHistory(_)) {
+                history.push(hash.clone());
             }
         }
-        conflicts.sort_unstable();
-        Ok(conflicts)
+        history.sort_unstable();
+        Ok(history)
     }
 
     pub(super) fn summary(&self) -> Result<AuthorityReadSummary, AuthorityReadError> {
@@ -378,14 +373,14 @@ impl<'authority> AuthorityReadView<'authority> {
                     match &entry.phase {
                         PreAcceptedPhase::Queued(_) => increment(&mut summary.queued)?,
                         PreAcceptedPhase::Computing(_) => increment(&mut summary.computing)?,
-                        PreAcceptedPhase::Waiting(WaitCondition::Missing(_)) => {
+                        PreAcceptedPhase::Waiting(_) => {
                             increment(&mut summary.waiting_missing)?;
-                        }
-                        PreAcceptedPhase::Waiting(WaitCondition::Conflict(_)) => {
-                            increment(&mut summary.conflict_history)?;
                         }
                         PreAcceptedPhase::Computed(_) => increment(&mut summary.computed)?,
                     }
+                }
+                OwnedTx::ReplacementHistory(_) => {
+                    increment(&mut summary.replacement_history)?;
                 }
             }
         }
@@ -429,6 +424,7 @@ impl<'authority> AuthorityReadView<'authority> {
                     PersistenceParents::Recovery(entry.dependencies().clone())
                 }
                 OwnedTx::PreAccepted(_) => continue,
+                OwnedTx::ReplacementHistory(_) => continue,
             };
             selected.push(PersistenceRow {
                 hash: hash.clone(),

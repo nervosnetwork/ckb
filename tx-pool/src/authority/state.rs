@@ -1007,7 +1007,7 @@ pub(super) struct ObservedDependencies {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DependencyObservationError {
-    EmptyOrDuplicate,
+    Empty,
 }
 
 impl ObservedDependencies {
@@ -1030,7 +1030,7 @@ impl ObservedDependencies {
     ) -> Result<Self, DependencyObservationError> {
         let max = dependencies.len();
         let dependencies = KnownDependencies::canonicalize_nonempty(dependencies, max)
-            .map_err(|_| DependencyObservationError::EmptyOrDuplicate)?;
+            .map_err(|_| DependencyObservationError::Empty)?;
         Ok(Self {
             dependency_cut,
             observed: dependencies.clone(),
@@ -1059,12 +1059,6 @@ impl ObservedDependencies {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum WaitCondition {
-    Missing(ObservedDependencies),
-    Conflict(ObservedDependencies),
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RejectionKind {
     Verification,
@@ -1084,7 +1078,10 @@ pub(super) enum ComputedOutcome {
 pub(super) enum PreAcceptedPhase {
     Queued(QueuedWork),
     Computing(ActiveWork),
-    Waiting(WaitCondition),
+    /// A missing-dependency observation owned by an ordinary admission. RBF
+    /// replacement history is a distinct [`OwnedTx`] location, so the type
+    /// cannot encode a schedulable history entry or a non-history conflict.
+    Waiting(ObservedDependencies),
     Computed(ComputedOutcome),
 }
 
@@ -1147,10 +1144,36 @@ pub(super) struct AcceptedEntry {
     pub(super) accepted_at: AcceptedAtMillis,
 }
 
+/// A previously Accepted member retained by one successful RBF Apply.
+///
+/// This is deliberately not a `PreAcceptedEntry`: it has no ingress source,
+/// compute attribution, deadline, scheduler lane or executable phase. The
+/// only legal transition out is a typed promotion/recovery or removal.
+#[derive(Clone, Debug)]
+pub(super) struct ReplacementHistoryEntry {
+    record: TxRecord,
+    /// Raw ingress/recovery basis retained for a full fresh resolve.
+    basis: AdmissionBasis,
+    /// `observed` is only the projected-final unavailable trigger set;
+    /// `retained` is the complete expanded dependency proof. Keeping those
+    /// roles separate prevents unrelated chain activity from prematurely
+    /// consuming optional RBF recovery history.
+    observed: ObservedDependencies,
+    charge: ResourceVector,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReplacementHistoryError {
+    InvalidRecoveryTrigger,
+    ResourceArithmetic,
+    ResourceAllocation,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum OwnedTx {
     PreAccepted(PreAcceptedEntry),
     Accepted(AcceptedEntry),
+    ReplacementHistory(ReplacementHistoryEntry),
 }
 
 impl PreAcceptedEntry {
@@ -1166,8 +1189,7 @@ impl PreAcceptedEntry {
                 resolved.payload().dependencies()
             }
             PreAcceptedPhase::Computing(active) => &active.dependencies,
-            PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
-            | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => observed.retained(),
+            PreAcceptedPhase::Waiting(observed) => observed.retained(),
             PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)) => {
                 verified.payload().dependencies()
             }
@@ -1210,6 +1232,102 @@ impl PreAcceptedEntry {
     }
 }
 
+impl ReplacementHistoryEntry {
+    pub(super) fn from_accepted(
+        accepted: &AcceptedEntry,
+        recovery_triggers: MissingDependencies,
+        version: EntryVersion,
+        arrival: Arrival,
+        dependency_cut: DependencyCut,
+    ) -> Result<Self, ReplacementHistoryError> {
+        let tx = &accepted.record.tx;
+        let raw_edges = tx
+            .inputs()
+            .len()
+            .checked_add(tx.cell_deps().len())
+            .and_then(|count| count.checked_add(tx.header_deps().len()))
+            .ok_or(ReplacementHistoryError::ResourceArithmetic)?;
+        let declared_dependencies =
+            KnownDependencies::from_transaction(tx).map_err(|error| match error {
+                DependencySetError::Allocation => ReplacementHistoryError::ResourceAllocation,
+                DependencySetError::Empty
+                | DependencySetError::TooMany
+                | DependencySetError::Arithmetic => ReplacementHistoryError::ResourceArithmetic,
+            })?;
+        let dependencies = accepted.proof.payload().dependencies().clone();
+        if recovery_triggers
+            .keys()
+            .iter()
+            .any(|key| !dependencies.contains(key))
+        {
+            return Err(ReplacementHistoryError::InvalidRecoveryTrigger);
+        }
+        let observed = ObservedDependencies::from_missing(
+            &recovery_triggers,
+            dependencies.clone(),
+            dependency_cut,
+        );
+        let bytes = tx.data().total_size();
+        let recovery_charge = ResourceVector::new(1, bytes, raw_edges, 0);
+        let mut record = accepted.record.clone();
+        record.version = version;
+        record.arrival = arrival;
+        Ok(Self {
+            record,
+            basis: AdmissionBasis::new(declared_dependencies, recovery_charge),
+            observed,
+            // History is a continuous reservation for its later Recovery
+            // owner. CKB permits one outpoint to occur in different roles
+            // (for example input + cell-dep), while the dependency frontier
+            // canonicalizes those roles into one key. Retain the larger of
+            // the encoded and canonical edge costs so wakeup never requires
+            // an unplanned resource increase.
+            charge: ResourceVector::new(1, bytes, raw_edges.max(dependencies.len()), 0),
+        })
+    }
+
+    pub(super) fn record(&self) -> &TxRecord {
+        &self.record
+    }
+
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        self.observed.retained()
+    }
+
+    pub(super) fn observation(&self) -> &ObservedDependencies {
+        &self.observed
+    }
+
+    pub(super) fn charge(&self) -> ResourceVector {
+        self.charge
+    }
+
+    pub(super) fn recovery_charge(&self) -> ResourceVector {
+        self.basis.charge()
+    }
+
+    pub(super) fn charge_record(&self) -> ChargeRecord {
+        ChargeRecord::ReplacementHistory(self.charge)
+    }
+
+    pub(super) fn into_recovery(
+        self,
+        generation: PoolGeneration,
+        version: EntryVersion,
+    ) -> PreAcceptedEntry {
+        let charge = self.recovery_charge();
+        let mut record = self.record;
+        record.version = version;
+        PreAcceptedEntry {
+            record,
+            source: PreAcceptedSource::Recovery(RecoveryLease { generation }),
+            basis: self.basis,
+            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+            charge,
+        }
+    }
+}
+
 impl AcceptedEntry {
     pub(super) fn status(&self) -> AcceptedStatus {
         self.proposal.status()
@@ -1225,6 +1343,7 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => &entry.record,
             Self::Accepted(entry) => &entry.record,
+            Self::ReplacementHistory(entry) => entry.record(),
         }
     }
 
@@ -1232,6 +1351,7 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => entry.charge_record(),
             Self::Accepted(entry) => entry.charge_record(),
+            Self::ReplacementHistory(entry) => entry.charge_record(),
         }
     }
 
@@ -1239,6 +1359,7 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => entry.dependencies(),
             Self::Accepted(entry) => entry.proof.payload().dependencies(),
+            Self::ReplacementHistory(entry) => entry.dependencies(),
         }
     }
 
@@ -1246,6 +1367,7 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => entry.source.ingress_peer(),
             Self::Accepted(entry) => entry.provenance.ingress_peer(),
+            Self::ReplacementHistory(_) => None,
         }
     }
 
@@ -1253,13 +1375,14 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => entry.source.payload_blame_peer(),
             Self::Accepted(entry) => entry.provenance.payload_blame_peer(),
+            Self::ReplacementHistory(_) => None,
         }
     }
 
     pub(super) fn preaccepted_charge(&self) -> Option<ResourceVector> {
         match self {
             Self::PreAccepted(entry) => Some(entry.charge),
-            Self::Accepted(_) => None,
+            Self::Accepted(_) | Self::ReplacementHistory(_) => None,
         }
     }
 }

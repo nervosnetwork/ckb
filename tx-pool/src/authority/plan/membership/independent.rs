@@ -171,7 +171,10 @@ fn validate_owner(
         Some(OwnedTx::PreAccepted(current))
             if current.record.version == before.record.version
                 && current.record.identity == before.record.identity => {}
-        Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::Accepted(_)) | None => {
+        Some(OwnedTx::PreAccepted(_))
+        | Some(OwnedTx::Accepted(_))
+        | Some(OwnedTx::ReplacementHistory(_))
+        | None => {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
     }
@@ -260,6 +263,7 @@ fn prepare_resources(
             | ResourceError::PreAcceptedLimit
             | ResourceError::RemoteLimit
             | ResourceError::PeerLimit(_)
+            | ResourceError::ReplacementHistoryLimit
             | ResourceError::ExistingChargeMismatch
             | ResourceError::DuplicateChange
             | ResourceError::ComputeEnvelope

@@ -10,7 +10,7 @@ use super::super::{
         AcceptedStatus, ChainRevision, ChainViewId, ComputedOutcome, DependencyKey, OwnedTx,
         PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId,
         QueuedWork, RawTxHash, RemoteDeadline, RemotePayloadOrigin, TxIdentity, ValidatedAdmission,
-        VerifyCapability, WaitCondition, WorkPermit,
+        VerifyCapability, WorkPermit,
     },
     work::{CheckedOutWork, SettlementNext},
 };
@@ -19,10 +19,11 @@ use super::foundation::{
     admit_remote_until, apply_without_work, assert_membership_reference, assert_resource_reference,
     independent_batch, limits, missing_keys, owner_version, resolved_payload,
     resolved_payload_with_facts, tx, verify_remote_transaction,
+    verify_remote_transaction_with_payload,
 };
 use ckb_types::{
     bytes::Bytes,
-    core::{Capacity, TransactionBuilder, TransactionView},
+    core::{Capacity, FeeRate, TransactionBuilder, TransactionView},
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
@@ -108,7 +109,7 @@ fn uak_chain_tip_not_revision_controls_negative_evidence_freshness() {
     assert!(matches!(
         authority.entry(&same_tip),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Waiting(WaitCondition::Missing(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Waiting(_))
     ));
 
     let changed_tip = admit_remote(&mut authority, 70, 70);
@@ -319,6 +320,112 @@ fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) {
     {
         apply_without_work(plan);
     }
+}
+
+#[test]
+fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let chain_input = OutPoint::new(Byte32::new([67; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(541u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        541,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![chain_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let winner_tx = TransactionBuilder::default()
+        .version(542u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let winner = verify_remote_transaction_with_payload(
+        &mut authority,
+        winner_tx.clone(),
+        542,
+        resolved_payload_with_facts(
+            &winner_tx,
+            Vec::new(),
+            vec![chain_input],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let winner_version = owner_version(&authority, &winner);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
+            .expect("the funded winner retains its accepted victim"),
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let committed = ChainTransitionFacts::for_foundation(
+        next_view(67),
+        block_changes(vec![winner_tx.clone()], Vec::new()),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("winner commit facts are canonical");
+    let committed = authority
+        .chain_validation_work(committed)
+        .expect("winner commit preserves parked history")
+        .validate_for_foundation(Vec::new())
+        .expect("winner commit needs no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(committed)
+            .expect("winner commit and history preservation are one Apply"),
+    );
+    assert!(authority.entry(&winner).is_none());
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let detached = ChainTransitionFacts::for_foundation(
+        ChainViewId::new(ChainRevision(2), Byte32::new([68; 32])),
+        block_changes(Vec::new(), vec![winner_tx]),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("winner detach facts are canonical");
+    let detached = authority
+        .chain_validation_work(detached)
+        .expect("winner detach publishes its chain input availability")
+        .validate_for_foundation(Vec::new())
+        .expect("winner detach needs no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(detached)
+            .expect("newer availability coalesces behind the undrained loss"),
+    );
+    drain_dependency_maintenance(&mut authority);
+
+    assert!(matches!(
+        authority.entry(&winner),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_eq!(authority.resources().replacement_history().entries, 0);
+    assert_resource_reference(&authority);
 }
 
 fn large_chain_limits() -> ResourceLimits {
@@ -1579,7 +1686,7 @@ fn uak_preaccepted_recovery_does_not_publish_false_input_availability() {
     assert!(matches!(
         authority.entry(&waiter_hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Waiting(WaitCondition::Missing(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Waiting(_))
     ));
     assert_resource_reference(&authority);
 }

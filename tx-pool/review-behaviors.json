@@ -93,24 +93,30 @@
     },
     {
       "id": "TP-CACHE-001",
-      "title": "Conflict-history Wait ownership and wakeup",
+      "title": "Bounded conflict-history ownership and wakeup",
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/wait.rs",
         "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/component/pre_pool/stored_entry.rs",
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/pipeline_ops.rs",
-        "tx-pool/src/process/reorg.rs"
+        "tx-pool/src/process/reorg.rs",
+        "tx-pool/src/authority/state.rs",
+        "tx-pool/src/authority/plan.rs",
+        "tx-pool/src/authority/plan/membership.rs",
+        "tx-pool/src/authority/dependency.rs",
+        "tx-pool/src/authority/read.rs"
       ],
-      "required_behavior": "Historical conflicts are ordinary bounded PrePoolKernel Wait entries until an exact dependency becomes available in the post-mutation TxPool/Snapshot overlay; unchanged history observes the next dependency level, while a victim retained by the same atomic cohort is sealed at that cohort's post-Apply observation cut and cannot self-wake. Waking changes the same primary owner atomically and is version-safe, while RPC projects retained conflict history through recent-reject rather than as live Pending work.",
-      "hostile_case": "A release observed before another parent becomes live, a newly retained victim observing its own replacement release, an output created and consumed in one attached branch, duplicate metadata enrichment, remote conflict pinning or high-fanout input must not lose the only future wake, create a false wake, overwrite the root rejection, masquerade as Pending, retain epoch history without a waiter, duplicate ownership or cause unbounded pool-lock work.",
+      "required_behavior": "Historical conflicts have one bounded retained owner until every exact dependency that is unavailable in the replacement's projected final TxPool/Snapshot overlay has a newer final availability level. In the UAK, only a genuinely Accepted replacement victim can enter the dedicated ReplacementHistory owner type; it has no source, peer, deadline, scheduler lane or executable phase. The full dependency basis remains retained for fresh validation, but only final blockers are wake triggers. Unchanged history observes the next dependency level, while a victim retained by the same atomic cohort is sealed at that cohort's post-Apply observation cut and cannot self-wake. The complete replacement closure is retained or terminalized as one charged set, waking changes the same primary owner atomically and is version-safe, and RPC projects retained history through existing recent-reject/RBF semantics rather than as live Pending work.",
+      "hostile_case": "A partial release while another input remains blocked, a release observed before another parent becomes live, a newly retained victim observing its own replacement release, an unrelated chain dependency changing while the winner still owns the true conflict, an output created and consumed in one attached branch, duplicate metadata enrichment, remote conflict pinning or high-fanout input must not lose the only future wake, create a false wake, overwrite the root rejection, masquerade as Pending, retain epoch history without a waiter, duplicate ownership or cause unbounded pool-lock work.",
       "reviewer_questions": [
-        "Does Wait retain ownership until an exact dependency epoch changes?",
+        "Can only an Accepted replacement victim construct the non-executable ReplacementHistory owner, while failed/under-fee candidates remain structurally unable to acquire it?",
         "Does the cohort seal distinguish an unchanged historical waiter from a conflict victim created by that same Apply, without hand-coded call-site ordering?",
-        "Does every chain/pool availability edge re-arm a previously examined entry only when the resulting authoritative overlay makes that exact dependency available?",
-        "Are discovery, generations and fanout work bounded and fair?"
+        "Does every chain/pool availability edge re-arm a previously examined entry only after the resulting authoritative levels make every originally unavailable blocker available?",
+        "Does resource pressure drop the complete optional history set without failing the winner or publishing a partial set?",
+        "Are discovery, generations and fanout work bounded and fair, and are history owners excluded from Pending/template/persistence?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(full_conflict_history|same_commit_wakes_prior_conflict|repeated_dependency_epochs|availability_without_a_wait|dependency_availability_uses_the_authoritative_overlay|remote_conflict_history|remote_peer_order|pipeline_rejects_conflicting_double_spend)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(full_conflict_history|same_commit_wakes_prior_conflict|repeated_dependency_epochs|availability_without_a_wait|dependency_availability_uses_the_authoritative_overlay|remote_conflict_history|remote_peer_order|pipeline_rejects_conflicting_double_spend|uak_rbf_replaces_the_complete|uak_failed_rbf_fee_disposition|uak_replacement_history|uak_rbf_unions_fan_in)/)'",
       "performance_bound": "Bound history count/bytes and process indexed recovery in fixed fair slices outside population-sized scans."
     },
     {
@@ -119,6 +125,8 @@
       "change_surfaces": [
         "tx-pool/src/component/pre_pool/mod.rs",
         "tx-pool/src/component/pre_pool/runtime.rs",
+        "tx-pool/src/authority/resources.rs",
+        "tx-pool/src/authority/plan.rs",
         "tx-pool/src/service/effects.rs",
         "tx-pool/src/service/message.rs",
         "tx-pool/src/service/controller.rs",
@@ -136,7 +144,7 @@
         "Can a raw transaction Vec cross the dispatcher boundary without the relayer's count and byte proof?",
         "Can metrics influence admission or require a scan, dynamic label, extra authority lock or retained payload?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|parent_projection_deduplicates|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound|notify_tx_batch_rejects)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|parent_projection_deduplicates|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound|notify_tx_batch_rejects|uak_independent_rbf_churn|uak_replacement_history_reserves_raw_edges)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
@@ -432,6 +440,14 @@
     {"test": "availability_without_a_wait_owner_retains_no_epoch_history", "behavior_id": "TP-CACHE-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "dependency_availability_uses_the_authoritative_overlay_level", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
     {"test": "remote_conflict_history_keeps_its_bounded_residency_deadline", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
+    {"test": "uak_rbf_replaces_the_complete_descendant_closure_atomically", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T7", "T8", "T11", "T12"]},
+    {"test": "uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T3", "T5", "T6", "T7", "T8"]},
+    {"test": "uak_rbf_unions_fan_in_descendants_once_and_removes_children_first", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T7", "T8", "T11"]},
+    {"test": "uak_replacement_history_wakes_only_on_newer_projected_availability", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T11"]},
+    {"test": "uak_replacement_history_requires_trusted_proposal_to_promote", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T11"]},
+    {"test": "uak_replacement_history_survives_winner_commit_and_wakes_after_reorg", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T9", "T11"]},
+    {"test": "uak_replacement_history_observes_only_finally_unavailable_dependencies", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T8", "T11"]},
+    {"test": "uak_replacement_history_waits_for_every_observed_blocker", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T8", "T11"]},
 
     {"test": "admission_budget_failure_leaves_primary_and_views_unchanged", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
     {"test": "parent_loss_uses_the_continuous_wait_reservation_at_a_full_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
@@ -443,6 +459,8 @@
     {"test": "multi_input_conflict_union_respects_the_global_commit_bound", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "notify_tx_batch_rejects_count_before_dispatch", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8", "T10"]},
     {"test": "notify_tx_batch_rejects_bytes_before_dispatch", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8", "T10"]},
+    {"test": "uak_independent_rbf_churn_never_exceeds_replacement_history_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T5", "T6", "T8"]},
+    {"test": "uak_replacement_history_reserves_raw_edges_until_wake", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T8", "T11"]},
 
     {"test": "expiry_batch_is_bounded_without_a_ready_prefix_scan", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "large_owner_head_does_not_hide_its_small_cycle_work", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
@@ -644,7 +662,7 @@
       "path": "test/src/specs/tx_pool/orphan_tx_recovery.rs",
       "anchor": "RbfOrphanRecovery",
       "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"],
-      "unit_anchors": ["full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants"],
+      "unit_anchors": ["full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants", "uak_replacement_history_survives_winner_commit_and_wakes_after_reorg", "uak_replacement_history_wakes_only_on_newer_projected_availability", "uak_replacement_history_waits_for_every_observed_blocker"],
       "boundary": "When a replacement frees only one of two historical inputs, the node recovers exactly the newly eligible victim and retains the still-conflicting victim as rejected."
     },
     {
@@ -653,7 +671,7 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfBasic",
       "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"],
-      "unit_anchors": ["successful_replacement_does_not_recover_removed_descendants", "dependency_availability_uses_the_authoritative_overlay_level"],
+      "unit_anchors": ["successful_replacement_does_not_recover_removed_descendants", "dependency_availability_uses_the_authoritative_overlay_level", "uak_rbf_replaces_the_complete_descendant_closure_atomically", "uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate"],
       "boundary": "The node enforces the replacement fee rule, exposes the victim as RBFRejected, commits the accepted higher-fee replacement, and does not reinterpret an output created and consumed in that attached branch as an availability edge that overwrites the root rejection."
     },
     {
@@ -667,11 +685,11 @@
     },
     {
       "id": "rbf-concurrency",
-      "behavior_ids": ["TP-RBF-001"],
+      "behavior_ids": ["TP-CACHE-001", "TP-RBF-001"],
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfConcurrency",
       "invariants": ["T5", "T6"],
-      "unit_anchors": ["pipeline_rejects_conflicting_double_spend", "successful_replacement_does_not_recover_removed_descendants"],
+      "unit_anchors": ["pipeline_rejects_conflicting_double_spend", "successful_replacement_does_not_recover_removed_descendants", "uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate"],
       "boundary": "Concurrent RPC submissions for one input converge to the unique highest-fee transaction and record every losing candidate as rejected without a recovery livelock."
     },
     {
@@ -680,7 +698,7 @@
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfCyclingAttack",
       "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"],
-      "unit_anchors": ["same_commit_wakes_prior_conflict_but_not_its_new_victim", "full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants"],
+      "unit_anchors": ["same_commit_wakes_prior_conflict_but_not_its_new_victim", "full_conflict_history_terminalizes_rejected_owner_without_panicking", "successful_replacement_does_not_recover_removed_descendants", "uak_replacement_history_wakes_only_on_newer_projected_availability", "uak_rbf_unions_fan_in_descendants_once_and_removes_children_first"],
       "boundary": "A cyclic sequence of overlapping replacements recovers the pre-existing transaction whose input becomes free, while the victim retained by that same atomic replacement observes the post-Apply dependency cut and does not resurrect while its input remains consumed."
     },
     {

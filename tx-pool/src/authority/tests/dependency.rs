@@ -126,13 +126,10 @@ fn verified_settlement_with_fee(
 ) -> ComputeSettlement {
     let transaction = resolve.transaction().clone();
     let resident_bytes = transaction.data().total_size();
-    let mut chain_dependencies = expanded_dependencies.clone();
-    chain_dependencies.extend(
-        transaction
-            .cell_deps()
-            .into_iter()
-            .map(|dependency| dependency.out_point()),
-    );
+    // Every dependency fixture in this module is pool-backed. Expanded and
+    // declared dependency roles are content facts; they must not be stamped
+    // as chain-location evidence merely because resolution succeeded.
+    let chain_dependencies = Vec::new();
     let payload = ResolvedPayload::for_foundation(
         &transaction,
         expanded_dependencies,

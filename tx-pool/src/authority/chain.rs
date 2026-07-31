@@ -649,12 +649,13 @@ pub(super) enum ChainExpectedOwner {
         source: PreAcceptedSource,
     },
     Accepted(EntryVersion),
+    ReplacementHistory(EntryVersion),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ChainRemovalCause {
     Committed,
-    Conflict,
+    ChainConflict,
     Recovery,
     ProposalLeaseExpired,
 }
