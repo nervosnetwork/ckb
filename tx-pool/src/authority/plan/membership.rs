@@ -13,6 +13,7 @@ use crate::authority::{
     resources::{AcceptedCost, ResourceBatchPlan, ResourceError},
     state::{AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash},
 };
+use crate::component::sort_key::AncestorsScoreSortKey;
 use ckb_types::{
     core::{Capacity, FeeRate, tx_pool::get_transaction_weight},
     packed::OutPoint,
@@ -92,9 +93,41 @@ pub(in crate::authority) struct MembershipProjection {
     dependency_readers: HashMap<OutPoint, HashSet<RawTxHash>>,
     parents: HashMap<RawTxHash, HashSet<RawTxHash>>,
     children: HashMap<RawTxHash, HashSet<RawTxHash>>,
+    ancestor_aggregates: HashMap<RawTxHash, AncestorAggregate>,
     descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
+    accepted_order: BTreeSet<AcceptedOrderKey>,
     eviction_order: BTreeSet<EvictionOrderKey>,
     counts: StatusCounts,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) struct AncestorAggregate {
+    pub(in crate::authority) entries: usize,
+    pub(in crate::authority) serialized_bytes: usize,
+    pub(in crate::authority) cycles: u64,
+    pub(in crate::authority) fee: Capacity,
+}
+
+impl AncestorAggregate {
+    fn one(entry: &AcceptedEntry) -> Self {
+        let cost = entry.proof.metrics().cost;
+        Self {
+            entries: 1,
+            serialized_bytes: cost.serialized_bytes,
+            cycles: cost.cycles,
+            fee: entry.proof.metrics().fee,
+        }
+    }
+
+    fn checked_add_entry(self, entry: &AcceptedEntry) -> Option<Self> {
+        let cost = entry.proof.metrics().cost;
+        Some(Self {
+            entries: self.entries.checked_add(1)?,
+            serialized_bytes: self.serialized_bytes.checked_add(cost.serialized_bytes)?,
+            cycles: self.cycles.checked_add(cost.cycles)?,
+            fee: self.fee.safe_add(entry.proof.metrics().fee).ok()?,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -143,6 +176,57 @@ impl DescendantAggregate {
     }
 }
 
+/// Canonical accepted-package order shared by template selection and RPC
+/// troubleshooting. It is a payload-free derived index: membership Plan
+/// computes it from exact ancestor aggregates and Apply publishes it with the
+/// owner/relation change that made the aggregate true.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) struct AcceptedOrderKey {
+    score: AncestorsScoreSortKey,
+    arrival: Arrival,
+    hash: RawTxHash,
+}
+
+impl AcceptedOrderKey {
+    pub(in crate::authority) fn new(entry: &AcceptedEntry, aggregate: AncestorAggregate) -> Self {
+        Self {
+            score: AncestorsScoreSortKey {
+                fee: entry.proof.metrics().fee,
+                weight: get_transaction_weight(
+                    entry.proof.metrics().cost.serialized_bytes,
+                    entry.proof.metrics().cost.cycles,
+                ),
+                ancestors_fee: aggregate.fee,
+                ancestors_weight: get_transaction_weight(
+                    aggregate.serialized_bytes,
+                    aggregate.cycles,
+                ),
+            },
+            arrival: entry.record.arrival,
+            hash: entry.record.identity.raw.clone(),
+        }
+    }
+
+    pub(in crate::authority) fn hash(&self) -> &RawTxHash {
+        &self.hash
+    }
+}
+
+impl Ord for AcceptedOrderKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score
+            .cmp(&other.score)
+            .then_with(|| other.arrival.cmp(&self.arrival))
+            .then_with(|| other.hash.cmp(&self.hash))
+    }
+}
+
+impl PartialOrd for AcceptedOrderKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::authority) struct EvictionOrderKey {
     pub(in crate::authority) status: AcceptedStatus,
@@ -184,7 +268,9 @@ pub(in crate::authority) struct MembershipSnapshot {
     pub(in crate::authority) dependency_readers: HashMap<OutPoint, HashSet<RawTxHash>>,
     pub(in crate::authority) parents: HashMap<RawTxHash, HashSet<RawTxHash>>,
     pub(in crate::authority) children: HashMap<RawTxHash, HashSet<RawTxHash>>,
+    pub(in crate::authority) ancestor_aggregates: HashMap<RawTxHash, AncestorAggregate>,
     pub(in crate::authority) descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
+    pub(in crate::authority) accepted_order: BTreeSet<AcceptedOrderKey>,
     pub(in crate::authority) eviction_order: BTreeSet<EvictionOrderKey>,
     pub(in crate::authority) counts: StatusCounts,
 }
@@ -209,6 +295,7 @@ pub(in crate::authority) enum MembershipReject {
     CandidateEvicted,
     CausalCycle(RawTxHash),
     MissingInputEvidence(OutPoint),
+    MissingDependencyEvidence(OutPoint),
     MissingPoolOutput(OutPoint),
 }
 
@@ -354,7 +441,10 @@ pub(super) struct ProjectionDelta {
     spender_changes: Vec<(OutPoint, Option<RawTxHash>)>,
     dependency_changes: Vec<DependencyRelationChange>,
     causal_changes: Vec<CausalRelationChange>,
+    ancestor_changes: Vec<(RawTxHash, Option<AncestorAggregate>)>,
     aggregate_changes: Vec<(RawTxHash, Option<DescendantAggregate>)>,
+    accepted_order_removals: Vec<AcceptedOrderKey>,
+    accepted_order_insertions: Vec<AcceptedOrderKey>,
     eviction_removals: Vec<EvictionOrderKey>,
     eviction_insertions: Vec<EvictionOrderKey>,
     counts: StatusCounts,
@@ -362,8 +452,17 @@ pub(super) struct ProjectionDelta {
 
 struct AggregateDelta {
     changes: Vec<(RawTxHash, Option<DescendantAggregate>)>,
+    ancestor_changes: Vec<(RawTxHash, Option<AncestorAggregate>)>,
+    accepted_order_removals: Vec<AcceptedOrderKey>,
+    accepted_order_insertions: Vec<AcceptedOrderKey>,
     eviction_removals: Vec<EvictionOrderKey>,
     eviction_insertions: Vec<EvictionOrderKey>,
+}
+
+struct AncestorDelta {
+    changes: Vec<(RawTxHash, Option<AncestorAggregate>)>,
+    order_removals: Vec<AcceptedOrderKey>,
+    order_insertions: Vec<AcceptedOrderKey>,
 }
 
 struct EvictionPlan {
@@ -390,6 +489,22 @@ impl MembershipProjection {
         self.parents.get(hash)
     }
 
+    pub(in crate::authority) fn accepted_order(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &AcceptedOrderKey> {
+        self.accepted_order.iter()
+    }
+
+    pub(in crate::authority) fn eviction_order_for(
+        &self,
+        hash: &RawTxHash,
+        entry: &AcceptedEntry,
+    ) -> Option<EvictionOrderKey> {
+        let aggregate = self.descendant_aggregates.get(hash).copied()?;
+        let key = EvictionOrderKey::new(entry, aggregate);
+        self.eviction_order.contains(&key).then_some(key)
+    }
+
     pub(super) fn children(&self, hash: &RawTxHash) -> Option<&HashSet<RawTxHash>> {
         self.children.get(hash)
     }
@@ -401,7 +516,9 @@ impl MembershipProjection {
             dependency_readers: self.dependency_readers.clone(),
             parents: self.parents.clone(),
             children: self.children.clone(),
+            ancestor_aggregates: self.ancestor_aggregates.clone(),
             descendant_aggregates: self.descendant_aggregates.clone(),
+            accepted_order: self.accepted_order.clone(),
             eviction_order: self.eviction_order.clone(),
             counts: self.counts,
         }
@@ -466,6 +583,16 @@ impl MembershipProjection {
                 }
             }
         }
+        for (hash, aggregate) in delta.ancestor_changes {
+            match aggregate {
+                Some(aggregate) => {
+                    self.ancestor_aggregates.insert(hash, aggregate);
+                }
+                None => {
+                    self.ancestor_aggregates.remove(&hash);
+                }
+            }
+        }
         for (hash, aggregate) in delta.aggregate_changes {
             match aggregate {
                 Some(aggregate) => {
@@ -475,6 +602,12 @@ impl MembershipProjection {
                     self.descendant_aggregates.remove(&hash);
                 }
             }
+        }
+        for key in delta.accepted_order_removals {
+            self.accepted_order.remove(&key);
+        }
+        for key in delta.accepted_order_insertions {
+            self.accepted_order.insert(key);
         }
         for key in delta.eviction_removals {
             self.eviction_order.remove(&key);
@@ -647,7 +780,10 @@ impl TxPoolAuthority {
             spender_changes: Vec::new(),
             dependency_changes: Vec::new(),
             causal_changes: Vec::new(),
+            ancestor_changes: Vec::new(),
             aggregate_changes: Vec::new(),
+            accepted_order_removals: Vec::new(),
+            accepted_order_insertions: Vec::new(),
             eviction_removals,
             eviction_insertions,
             counts,
@@ -679,6 +815,7 @@ impl TxPoolAuthority {
                 super::AuthorityFault::MembershipProjection,
             ));
         }
+        let ancestor = self.prepare_chain_ancestor_delta(removals, &removed)?;
 
         let mut counts = self.membership.counts;
         let mut relation_capacity = 0usize;
@@ -997,10 +1134,151 @@ impl TxPoolAuthority {
             spender_changes,
             dependency_changes,
             causal_changes,
+            ancestor_changes: ancestor.changes,
             aggregate_changes,
+            accepted_order_removals: ancestor.order_removals,
+            accepted_order_insertions: ancestor.order_insertions,
             eviction_removals,
             eviction_insertions,
             counts,
+        })
+    }
+
+    /// Recompute only accepted descendants whose package score can change
+    /// when accepted ancestors leave on a chain cut. This work is inherent in
+    /// exact CPFP ordering: every affected survivor can acquire a different
+    /// winner relation. It runs in Plan, and Apply receives only replacement
+    /// aggregates and ordered keys.
+    fn prepare_chain_ancestor_delta(
+        &self,
+        removals: &BTreeSet<RawTxHash>,
+        removed: &HashSet<RawTxHash>,
+    ) -> Result<AncestorDelta, super::PlanError> {
+        let mut visited = HashSet::new();
+        visited
+            .try_reserve(removals.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut affected = HashSet::new();
+        let mut frontier = VecDeque::new();
+        frontier
+            .try_reserve(removals.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        frontier.extend(removals.iter().cloned());
+        while let Some(hash) = frontier.pop_front() {
+            if visited.contains(&hash) {
+                continue;
+            }
+            visited
+                .try_reserve(1)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            visited.insert(hash.clone());
+            let children = self
+                .membership
+                .children(&hash)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            frontier
+                .try_reserve(children.len())
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            for child in children {
+                frontier.push_back(child.clone());
+                if !removals.contains(child) && !affected.contains(child) {
+                    affected.try_reserve(1).map_err(|_| {
+                        super::PlanError::Backpressure(super::Backpressure::Allocation)
+                    })?;
+                    affected.insert(child.clone());
+                }
+            }
+        }
+
+        let change_capacity =
+            removals
+                .len()
+                .checked_add(affected.len())
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
+        let mut changes = Vec::new();
+        changes
+            .try_reserve(change_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut order_removals = Vec::new();
+        order_removals
+            .try_reserve(change_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut order_insertions = Vec::new();
+        order_insertions
+            .try_reserve(affected.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+
+        for hash in removals {
+            let entry = self.accepted_entry(hash)?;
+            let aggregate = self
+                .membership
+                .ancestor_aggregates
+                .get(hash)
+                .copied()
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let key = AcceptedOrderKey::new(entry, aggregate);
+            if !self.membership.accepted_order.contains(&key) {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            changes.push((hash.clone(), None));
+            order_removals.push(key);
+        }
+
+        let mut ordered_affected = Vec::new();
+        ordered_affected
+            .try_reserve(affected.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        ordered_affected.extend(affected);
+        ordered_affected.sort_unstable();
+        for hash in ordered_affected {
+            let entry = self.accepted_entry(&hash)?;
+            let before = self
+                .membership
+                .ancestor_aggregates
+                .get(&hash)
+                .copied()
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let before_key = AcceptedOrderKey::new(entry, before);
+            if !self.membership.accepted_order.contains(&before_key) {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            let parents = self
+                .membership
+                .parents(&hash)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let ancestors = self.collect_surviving_ancestors(parents, removed)?;
+            let mut after = AncestorAggregate::one(entry);
+            for ancestor in ancestors {
+                after = after
+                    .checked_add_entry(self.accepted_entry(&ancestor)?)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
+            }
+            changes.push((hash.clone(), Some(after)));
+            order_removals.push(before_key);
+            order_insertions.push(AcceptedOrderKey::new(entry, after));
+        }
+        order_removals.sort_unstable();
+        order_insertions.sort_unstable();
+        Ok(AncestorDelta {
+            changes,
+            order_removals,
+            order_insertions,
         })
     }
 
@@ -1238,6 +1516,10 @@ impl TxPoolAuthority {
             .try_reserve(1)
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         self.membership
+            .ancestor_aggregates
+            .try_reserve(1)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.membership
             .descendant_aggregates
             .try_reserve(1)
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
@@ -1280,7 +1562,10 @@ impl TxPoolAuthority {
             spender_changes,
             dependency_changes,
             causal_changes,
+            ancestor_changes: aggregate.ancestor_changes,
             aggregate_changes: aggregate.changes,
+            accepted_order_removals: aggregate.accepted_order_removals,
+            accepted_order_insertions: aggregate.accepted_order_insertions,
             eviction_removals: aggregate.eviction_removals,
             eviction_insertions: aggregate.eviction_insertions,
             counts,
@@ -1644,6 +1929,28 @@ impl TxPoolAuthority {
                     MembershipReject::MissingInputEvidence(input.clone()),
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_candidate_dependency_evidence(
+        &self,
+        candidate: &AcceptedEntry,
+        removed: &HashSet<RawTxHash>,
+    ) -> Result<(), super::PlanError> {
+        // A resolved dependency is either positive chain evidence from the
+        // final validation view or an exact surviving Accepted output. This
+        // closes the resolver boundary: PreAccepted outputs can never become
+        // causal membership merely because a future resolver exposed them.
+        for dependency in candidate.proof.payload().footprint.dependencies() {
+            if candidate.proof.is_chain_dependency(dependency)
+                || self.surviving_pool_parent(dependency, removed)?.is_some()
+            {
+                continue;
+            }
+            return Err(super::PlanError::Membership(
+                MembershipReject::MissingDependencyEvidence(dependency.clone()),
+            ));
         }
         Ok(())
     }

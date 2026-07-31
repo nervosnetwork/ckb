@@ -15,6 +15,7 @@ mod resources;
 mod scheduler;
 mod source;
 mod state;
+mod template;
 mod work;
 
 #[cfg(test)]

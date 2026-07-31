@@ -1,6 +1,6 @@
 use super::{
-    AggregateDelta, DescendantAggregate, EvictionOrderKey, EvictionPlan, MembershipReject,
-    RemovalCause, SelectedRemoval,
+    AcceptedOrderKey, AggregateDelta, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
+    EvictionPlan, MembershipReject, RemovalCause, SelectedRemoval,
 };
 use crate::authority::{
     plan::{AuthorityFault, Backpressure, PlanError, TxPoolAuthority},
@@ -33,6 +33,7 @@ pub(super) fn complete_removals(
     }
 
     authority.validate_candidate_input_evidence(candidate, &removed)?;
+    authority.validate_candidate_dependency_evidence(candidate, &removed)?;
     let candidate_parents = authority.candidate_parents(candidate, &removed)?;
     let candidate_ancestors = authority.candidate_ancestors(&candidate_parents, &removed)?;
     let mut candidate_children = authority.candidate_children(candidate, &removed)?;
@@ -87,11 +88,22 @@ pub(super) fn complete_removals(
         && authority.resources.accepted_fits(projected_resources)
     {
         let candidate_aggregate = DescendantAggregate::one(candidate);
+        let candidate_ancestors = AncestorAggregate::one(candidate);
         let mut changes = Vec::new();
         changes
             .try_reserve(1)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         changes.push((candidate_hash.clone(), Some(candidate_aggregate)));
+        let mut ancestor_changes = Vec::new();
+        ancestor_changes
+            .try_reserve(1)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        ancestor_changes.push((candidate_hash.clone(), Some(candidate_ancestors)));
+        let mut accepted_order_insertions = Vec::new();
+        accepted_order_insertions
+            .try_reserve(1)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        accepted_order_insertions.push(AcceptedOrderKey::new(candidate, candidate_ancestors));
         let mut eviction_insertions = Vec::new();
         eviction_insertions
             .try_reserve(1)
@@ -103,6 +115,9 @@ pub(super) fn complete_removals(
             candidate_children,
             aggregate: AggregateDelta {
                 changes,
+                ancestor_changes,
+                accepted_order_removals: Vec::new(),
+                accepted_order_insertions,
                 eviction_removals: Vec::new(),
                 eviction_insertions,
             },
@@ -206,6 +221,7 @@ struct VirtualProjection<'candidate> {
     candidate_descendants: Vec<RawTxHash>,
     candidate_active: bool,
     aggregate_after: HashMap<RawTxHash, DescendantAggregate>,
+    ancestor_after: HashMap<RawTxHash, AncestorAggregate>,
     virtual_keys: HashMap<RawTxHash, EvictionOrderKey>,
     virtual_order: BTreeSet<EvictionOrderKey>,
 }
@@ -225,6 +241,7 @@ impl<'candidate> VirtualProjection<'candidate> {
             candidate_descendants,
             candidate_active: false,
             aggregate_after: HashMap::new(),
+            ancestor_after: HashMap::new(),
             virtual_keys: HashMap::new(),
             virtual_order: BTreeSet::new(),
         }
@@ -319,6 +336,22 @@ impl<'candidate> VirtualProjection<'candidate> {
                 return Err(PlanError::Membership(MembershipReject::TooManyAncestors));
             }
             let descendant_entry = authority.accepted_entry(descendant)?;
+            let mut ancestor_after = authority
+                .membership
+                .ancestor_aggregates
+                .get(descendant)
+                .copied()
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            let expected_current_count = existing_ancestors
+                .len()
+                .checked_add(1)
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+            if ancestor_after.entries != expected_current_count {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            }
+            ancestor_after = ancestor_after
+                .checked_add_entry(self.candidate)
+                .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
             for ancestor in self.candidate_ancestors {
                 if existing_ancestors.contains(ancestor) {
                     continue;
@@ -330,7 +363,15 @@ impl<'candidate> VirtualProjection<'candidate> {
                 *projected = projected
                     .checked_add_entry(descendant_entry)
                     .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
+                ancestor_after = ancestor_after
+                    .checked_add_entry(authority.accepted_entry(ancestor)?)
+                    .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
             }
+            self.ancestor_after
+                .try_reserve(1)
+                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+            self.ancestor_after
+                .insert(descendant.clone(), ancestor_after);
         }
         for ancestor in self.candidate_ancestors {
             self.refresh_existing_key(authority, ancestor)?;
@@ -346,6 +387,17 @@ impl<'candidate> VirtualProjection<'candidate> {
         }
         self.aggregate_after
             .insert(self.candidate_hash.clone(), aggregate);
+        let mut ancestor_aggregate = AncestorAggregate::one(self.candidate);
+        for ancestor in self.candidate_ancestors {
+            ancestor_aggregate = ancestor_aggregate
+                .checked_add_entry(authority.accepted_entry(ancestor)?)
+                .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
+        }
+        self.ancestor_after
+            .try_reserve(1)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        self.ancestor_after
+            .insert(self.candidate_hash.clone(), ancestor_aggregate);
         self.set_key(EvictionOrderKey::new(self.candidate, aggregate))?;
         self.candidate_active = true;
         Ok(())
@@ -406,6 +458,7 @@ impl<'candidate> VirtualProjection<'candidate> {
     fn remove_virtual_keys(&mut self, removals: &[RawTxHash]) {
         for hash in removals {
             self.aggregate_after.remove(hash);
+            self.ancestor_after.remove(hash);
             if let Some(key) = self.virtual_keys.remove(hash) {
                 self.virtual_order.remove(&key);
             }
@@ -456,6 +509,67 @@ impl<'candidate> VirtualProjection<'candidate> {
         );
         changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
 
+        let ancestor_capacity = removals
+            .len()
+            .checked_add(self.ancestor_after.len())
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let mut ancestor_changes = Vec::new();
+        ancestor_changes
+            .try_reserve(ancestor_capacity)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        ancestor_changes.extend(removals.iter().map(|removal| (removal.hash.clone(), None)));
+        ancestor_changes.extend(
+            self.ancestor_after
+                .iter()
+                .map(|(hash, aggregate)| (hash.clone(), Some(*aggregate))),
+        );
+        ancestor_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+        let mut accepted_order_removals = Vec::new();
+        accepted_order_removals
+            .try_reserve(ancestor_capacity)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for removal in removals {
+            let entry = authority.accepted_entry(&removal.hash)?;
+            let aggregate = authority
+                .membership
+                .ancestor_aggregates
+                .get(&removal.hash)
+                .copied()
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            let key = AcceptedOrderKey::new(entry, aggregate);
+            if !authority.membership.accepted_order.contains(&key) {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            }
+            accepted_order_removals.push(key);
+        }
+        let mut accepted_order_insertions = Vec::new();
+        accepted_order_insertions
+            .try_reserve(self.ancestor_after.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for (hash, aggregate) in &self.ancestor_after {
+            let entry = if hash == candidate_hash {
+                self.candidate
+            } else {
+                let entry = authority.accepted_entry(hash)?;
+                let before = authority
+                    .membership
+                    .ancestor_aggregates
+                    .get(hash)
+                    .copied()
+                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+                let key = AcceptedOrderKey::new(entry, before);
+                if !authority.membership.accepted_order.contains(&key) {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                accepted_order_removals.push(key);
+                entry
+            };
+            accepted_order_insertions.push(AcceptedOrderKey::new(entry, *aggregate));
+        }
+        accepted_order_removals.sort_unstable();
+        accepted_order_insertions.sort_unstable();
+
         let mut eviction_removals = Vec::new();
         eviction_removals
             .try_reserve(change_capacity)
@@ -500,6 +614,9 @@ impl<'candidate> VirtualProjection<'candidate> {
         eviction_insertions.extend(self.virtual_order);
         Ok(AggregateDelta {
             changes,
+            ancestor_changes,
+            accepted_order_removals,
+            accepted_order_insertions,
             eviction_removals,
             eviction_insertions,
         })

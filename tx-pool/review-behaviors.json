@@ -88,7 +88,7 @@
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_chain_tip_not_revision)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
@@ -158,7 +158,7 @@
         "Can a completion continuation cross a stage/lane, hide whether Apply succeeded, or bypass the capability-aware fair queue?",
         "Does pause, cancellation or command loss finish at most the already checked-out continuation and prevent another checkout?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses|uak_stale_dependency_head)/)'",
       "performance_bound": "Readiness checks inspect bounded owner heads/caps only; successful completion reuses one kernel acquisition for a same-lane checkout; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
     },
     {
@@ -230,7 +230,7 @@
         "Are accepted descendants planned before startup zombie reconciliation, retained parent-first, and reset as one ephemeral generation when the complete bounded closure cannot fit?",
         "Are duplicate/collision handling, full/witness identity, non-reused versions and clear epoch ordering exact?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale|uak_recovery_admission_requires)/)'",
       "performance_bound": "The single graph traversal/transfer stops at fixed mutation and recovery bounds and uses one generation reset beyond them; no recovery lock, replay worker, duplicate accepted traversal or full-block payload owner remains."
     },
     {
@@ -319,7 +319,7 @@
         "Can any configured notification script accumulate live owned children in proportion to template update rate?",
         "Does HTTP notification remain cancellable and bounded by visible trusted configuration rather than transaction ownership?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle|uak_template|uak_accepted_timestamp)/)'",
       "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."
     },
     {
@@ -423,6 +423,9 @@
     {"test": "terminalized_superseded_parent_wakes_its_trusted_child", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11", "T12", "T13"]},
     {"test": "uak_chain_tip_not_revision_controls_negative_evidence_freshness", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T9", "T11"]},
     {"test": "uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T9", "T11", "T13"]},
+    {"test": "uak_coupled_membership_requires_exact_positive_input_evidence", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T11"]},
+    {"test": "uak_template_orders_selected_dependency_reader_before_spender", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11", "T12", "T13"]},
+    {"test": "uak_template_sheds_conditional_cycles_deterministically", "behavior_id": "TP-DEP-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
 
     {"test": "full_conflict_history_terminalizes_rejected_owner_without_panicking", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T11"]},
     {"test": "remote_peer_order_cannot_hijack_an_existing_conflict_owner", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
@@ -452,6 +455,7 @@
     {"test": "panicked_state_worker_makes_shutdown_ineligible_for_persistence", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "service_cancellation_is_scoped_under_process_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T4", "T7"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
+    {"test": "uak_stale_dependency_head_cannot_abort_unrelated_checkout", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T4", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "banned_peer_fence_never_evicts_an_unexpired_marker", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T8"]},
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
@@ -503,6 +507,7 @@
     {"test": "uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "uak_chain_proposal_demotion_preserves_active_remote_compute_capability", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T11"]},
     {"test": "uak_chain_receipt_detects_same_version_proposal_source_refresh", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
+    {"test": "uak_recovery_admission_requires_the_current_generation_capability", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
 
     {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["T7", "T9", "T10", "T12", "T13"]},
@@ -541,6 +546,17 @@
     {"test": "full_rebuild_reissues_every_optimistic_delta_generation", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "commit_and_removal_journal_block_assembler_delta", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T12", "T13"]},
     {"test": "one_configured_script_owns_at_most_one_live_process_slot", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T8", "T10", "T13"]},
+    {"test": "uak_accepted_timestamp_is_part_of_the_immutable_source_cut", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T2", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_apply_advances_exact_template_source_versions", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T1", "T2", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_chain_commit_updates_only_affected_template_package_scores", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_recovered_tree_has_normal_template_proposal_path", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T4", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_counter_exhaustion_is_typed_and_mutation_free", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_dependency_budget_cannot_censor_later_independent_work", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_read_receipt_shares_order_and_complete_resolved_payload", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T1", "T2", "T3", "T4", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_template_receipts_repair_overwrite_and_delayed_delta", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T9", "T10", "T12", "T13"]},
+    {"test": "uak_dropped_reset_build_remains_level_triggered_until_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T7", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_requested_reset_fences_an_older_full_before_reset_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_template_cycle_fallback_preserves_descendant_aware_strength", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
 
     {"test": "short_id_collision_is_backpressure_not_aliasing", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T8"]},
     {"test": "full_hash_lookup_does_not_alias_a_proposal_short_id_collision", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T6"]},

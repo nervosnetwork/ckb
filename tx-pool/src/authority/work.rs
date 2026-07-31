@@ -7,7 +7,7 @@ use super::state::{
     ResolvedPayload, TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use ckb_types::core::TransactionView;
-use ckb_types::{core::Capacity, packed::OutPoint};
+use ckb_types::core::{Capacity, cell::ResolvedTransaction};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -50,8 +50,7 @@ pub(super) struct VerificationSeal(());
 
 #[derive(Debug)]
 pub(super) struct ResolutionEvidence {
-    expanded_dependencies: Vec<OutPoint>,
-    chain_inputs: Vec<OutPoint>,
+    resolved: Arc<ResolvedTransaction>,
     fee: Capacity,
     resident_bytes: usize,
     verify_class: VerifyCycleClass,
@@ -59,15 +58,13 @@ pub(super) struct ResolutionEvidence {
 
 impl ResolutionEvidence {
     pub(super) fn new(
-        expanded_dependencies: Vec<OutPoint>,
-        chain_inputs: Vec<OutPoint>,
+        resolved: Arc<ResolvedTransaction>,
         fee: Capacity,
         resident_bytes: usize,
         verify_class: VerifyCycleClass,
     ) -> Self {
         Self {
-            expanded_dependencies,
-            chain_inputs,
+            resolved,
             fee,
             resident_bytes,
             verify_class,
@@ -273,24 +270,26 @@ fn build_resolved_payload(
         return Ok(None);
     }
     let ResolutionEvidence {
-        expanded_dependencies,
-        chain_inputs,
+        resolved,
         fee,
         resident_bytes,
         verify_class,
     } = evidence;
+    if &resolved.transaction != tx {
+        return Err(ResolutionReceiptError::TransactionMismatch);
+    }
     match ResolvedPayload::from_resolution(
         ResolutionSeal(()),
-        tx,
-        expanded_dependencies,
+        resolved,
         token.grant.max_edges,
         fee,
         resident_bytes,
     ) {
         Ok(payload) => {
-            let location =
-                CellLocationReceipt::from_resolution(token.chain_view(), &payload, chain_inputs)
-                    .map_err(ResolutionReceiptError::InvalidEvidence)?;
+            // `token.chain_view` and the resolved metadata were captured by
+            // the same checked-out resolve operation. Do not split this
+            // provenance when wiring the production resolver in G5.
+            let location = CellLocationReceipt::from_resolution(token.chain_view(), &payload);
             Ok(Some((payload, location, verify_class)))
         }
         Err(

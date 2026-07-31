@@ -1,10 +1,11 @@
 use super::super::chain::{AcceptedProof, ProposalContextReceipt};
 use super::super::effect::{CommittedEffect, EffectPolicy};
 use super::super::plan::{
-    AdminCause, AuthorityFault, Backpressure, CandidateBatchError, CommittedChange,
-    CommittedChanges, CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCoupling,
-    MembershipReject, MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch,
-    SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
+    AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
+    CandidateBatchError, CommittedChange, CommittedChanges, CommittedDelta, DescendantAggregate,
+    EvictionOrderKey, IndependentCoupling, MembershipReject, MembershipSnapshot, PlanError,
+    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, StatusCounts,
+    TxPoolAuthority,
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
@@ -30,7 +31,8 @@ use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        Capacity, FeeRate, TransactionBuilder, TransactionView, tx_pool::get_transaction_weight,
+        Capacity, FeeRate, TransactionBuilder, TransactionView, cell::ResolvedTransaction,
+        tx_pool::get_transaction_weight,
     },
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
@@ -306,6 +308,20 @@ pub(super) fn resolved_payload(tx: &TransactionView) -> FoundationResolution {
     resolved_payload_with_deps(tx, Vec::new())
 }
 
+fn resolution_evidence(
+    tx: &TransactionView,
+    fee: Capacity,
+    resident_bytes: usize,
+    verify_class: VerifyCycleClass,
+) -> ResolutionEvidence {
+    ResolutionEvidence::new(
+        Arc::new(ResolvedTransaction::dummy_resolve(tx.clone())),
+        fee,
+        resident_bytes,
+        verify_class,
+    )
+}
+
 fn resolved_payload_with_deps(
     tx: &TransactionView,
     expanded_dependencies: Vec<OutPoint>,
@@ -320,8 +336,22 @@ pub(super) fn resolved_payload_with_facts(
     fee: Capacity,
 ) -> FoundationResolution {
     let bytes = tx.data().total_size();
-    ResolvedPayload::for_foundation(tx, expanded_dependencies, 64, fee, bytes, chain_inputs)
-        .expect("fixture chain evidence is a subset of inputs")
+    let mut chain_dependencies = expanded_dependencies.clone();
+    chain_dependencies.extend(
+        tx.cell_deps()
+            .into_iter()
+            .map(|dependency| dependency.out_point()),
+    );
+    ResolvedPayload::for_foundation(
+        tx,
+        expanded_dependencies,
+        64,
+        fee,
+        bytes,
+        chain_inputs,
+        chain_dependencies,
+    )
+    .expect("fixture chain evidence is a subset of resolved cells")
 }
 
 pub(super) fn accept_remote_transaction(
@@ -575,9 +605,49 @@ pub(super) fn assert_membership_reference(authority: &TxPoolAuthority) {
         }
     }
 
+    let mut ancestor_aggregates = HashMap::new();
     let mut descendant_aggregates = HashMap::new();
+    let mut accepted_order = BTreeSet::new();
     let mut eviction_order = BTreeSet::new();
     for (root, root_entry) in &accepted {
+        let mut ancestor_aggregate = AncestorAggregate::default();
+        let mut visited = HashSet::new();
+        let mut frontier = VecDeque::from([(*root).clone()]);
+        while let Some(ancestor) = frontier.pop_front() {
+            if !visited.insert(ancestor.clone()) {
+                continue;
+            }
+            let entry = accepted
+                .get(&ancestor)
+                .expect("accepted ancestor has a primary entry");
+            let cost = entry.proof.metrics().cost;
+            ancestor_aggregate.entries = ancestor_aggregate
+                .entries
+                .checked_add(1)
+                .expect("fixture ancestor count fits");
+            ancestor_aggregate.serialized_bytes = ancestor_aggregate
+                .serialized_bytes
+                .checked_add(cost.serialized_bytes)
+                .expect("fixture ancestor size fits");
+            ancestor_aggregate.cycles = ancestor_aggregate
+                .cycles
+                .checked_add(cost.cycles)
+                .expect("fixture ancestor cycles fit");
+            ancestor_aggregate.fee = ancestor_aggregate
+                .fee
+                .safe_add(entry.proof.metrics().fee)
+                .expect("fixture ancestor fee fits");
+            frontier.extend(
+                parents
+                    .get(&ancestor)
+                    .expect("accepted ancestor has a parent row")
+                    .iter()
+                    .cloned(),
+            );
+        }
+        ancestor_aggregates.insert((*root).clone(), ancestor_aggregate);
+        accepted_order.insert(AcceptedOrderKey::new(root_entry, ancestor_aggregate));
+
         let mut aggregate = DescendantAggregate::default();
         let mut visited = HashSet::new();
         let mut frontier = VecDeque::from([(*root).clone()]);
@@ -639,7 +709,9 @@ pub(super) fn assert_membership_reference(authority: &TxPoolAuthority) {
             dependency_readers,
             parents,
             children,
+            ancestor_aggregates,
             descendant_aggregates,
+            accepted_order,
             eviction_order,
             counts,
         }
@@ -676,6 +748,20 @@ fn uak_remote_admission_owns_and_charges_once() {
                 && entry.original_charge() == ResourceVector::new(1, expected_bytes, 3, 0)
                 && entry.charge == entry.original_charge()
     ));
+}
+
+#[test]
+fn uak_recovery_admission_requires_the_current_generation_capability() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let stale = ValidatedAdmission::recovery(tx(1_701), PoolGeneration(1))
+        .expect("fixture recovery payload is structurally valid");
+    let before = authority.normalized_snapshot();
+    assert_eq!(
+        authority.plan_admission(stale).err(),
+        Some(PlanError::Stale(StalePlan::Generation))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.primary_projection_consistent());
 }
 
 #[test]
@@ -768,6 +854,33 @@ fn uak_source_versions_ignore_preaccepted_work_and_track_accepted_facts() {
         "status-only mutation must not invalidate accepted-content work"
     );
     assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_accepted_timestamp_is_part_of_the_immutable_source_cut() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = accept_remote_transaction(
+        &mut authority,
+        tx(1_708),
+        708,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let before = authority
+        .entry(&hash)
+        .cloned()
+        .expect("fixture accepted owner exists");
+    let OwnedTx::Accepted(mut changed) = before.clone() else {
+        panic!("fixture owner is accepted");
+    };
+    changed.accepted_at = AcceptedAtMillis(1);
+    assert!(
+        super::super::source::replacement_changes_accepted_source_for_foundation(
+            &before,
+            &OwnedTx::Accepted(changed),
+        ),
+        "future accepted metadata changes cannot degrade to status-only publication"
+    );
 }
 
 #[test]
@@ -1472,7 +1585,7 @@ fn uak_short_id_collision_cannot_alias_primary_identity() {
 fn uak_stale_membership_plan_is_semantically_mutation_free() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let admission =
-        ValidatedAdmission::recovery(tx(5), PoolGeneration(1)).expect("fixture admission is valid");
+        ValidatedAdmission::recovery(tx(5), PoolGeneration(0)).expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -1739,9 +1852,11 @@ fn uak_expanded_footprint_is_canonical_bounded_and_role_aware() {
         Capacity::shannons(1),
         resident_bytes,
         vec![input.clone()],
+        vec![dependency.clone()],
     )
     .expect("fixture chain evidence names one exact input");
     assert!(payload.is_chain_input(&input));
+    assert!(payload.is_chain_dependency(&dependency));
     assert!(matches!(
         ResolvedPayload::for_foundation(
             &transaction,
@@ -1750,6 +1865,7 @@ fn uak_expanded_footprint_is_canonical_bounded_and_role_aware() {
             Capacity::shannons(1),
             resident_bytes,
             vec![OutPoint::new(Byte32::new([4; 32]), 0)],
+            Vec::new(),
         ),
         Err(InputEvidenceError::NotAnInput)
     ));
@@ -2512,6 +2628,60 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
         Some(PlanError::Membership(MembershipReject::MissingPoolOutput(
             nonexistent_dependency
         )))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+
+    // A resolver is not allowed to turn an output owned only by PreAccepted
+    // work into final dependency evidence. The final membership proof seals
+    // that boundary even if an upstream resolver regresses in the future.
+    let preaccepted_parent_tx = TransactionBuilder::default()
+        .version(246u32)
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let preaccepted_parent =
+        ValidatedAdmission::remote(preaccepted_parent_tx.clone(), PeerIndex::from(246usize))
+            .expect("fixture parent admission is valid");
+    apply_without_work(
+        authority
+            .plan_admission(preaccepted_parent)
+            .expect("fixture parent enters PreAccepted ownership"),
+    );
+    let unsupported_dependency = OutPoint::new(preaccepted_parent_tx.hash(), 0);
+    let unsupported_tx = TransactionBuilder::default()
+        .version(247u32)
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(unsupported_dependency.clone())
+                .build(),
+        )
+        .build();
+    let unsupported_bytes = unsupported_tx.data().total_size();
+    let unsupported_payload = ResolvedPayload::for_foundation(
+        &unsupported_tx,
+        Vec::new(),
+        64,
+        Capacity::shannons(1_000),
+        unsupported_bytes,
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("fixture deliberately carries no chain dependency evidence");
+    let unsupported = verify_remote_transaction_with_payload(
+        &mut authority,
+        unsupported_tx,
+        247,
+        unsupported_payload,
+    );
+    let before = authority.normalized_snapshot();
+    let batch = independent_batch(&authority, &[unsupported]);
+    assert_eq!(
+        authority.plan_settlement_for_foundation(&batch).err(),
+        Some(PlanError::Membership(
+            MembershipReject::MissingDependencyEvidence(unsupported_dependency)
+        ))
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
@@ -4359,9 +4529,8 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
             max_edges: 16,
         }
     );
-    let oversized = ResolutionEvidence::new(
-        Vec::new(),
-        Vec::new(),
+    let oversized = resolution_evidence(
+        resolve.transaction(),
         Capacity::shannons(1),
         4 * 1024 + 1,
         VerifyCycleClass::Small,
@@ -4430,19 +4599,18 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
             .expect("resolve checkout plans")
             .apply(),
     );
-    let evidence = ResolutionEvidence::new(
-        Vec::new(),
-        vec![OutPoint::default()],
+    let evidence = resolution_evidence(
+        &tx(6_230),
         Capacity::shannons(1),
         resolve.transaction().data().total_size(),
         VerifyCycleClass::Small,
     );
     let failure = resolve
         .resolved(evidence)
-        .expect_err("a non-input cannot be positive chain evidence");
+        .expect_err("resolved metadata cannot belong to another transaction");
     assert_eq!(
         failure.error(),
-        &ResolutionReceiptError::InvalidEvidence(InputEvidenceError::NotAnInput)
+        &ResolutionReceiptError::TransactionMismatch
     );
     apply_without_work(
         authority
@@ -4513,14 +4681,14 @@ fn uak_verified_residency_cannot_undercharge_retained_resolution() {
     let resolved_resident_bytes = serialized_bytes
         .checked_add(64)
         .expect("fixture residency fits usize");
+    let evidence = resolution_evidence(
+        resolve.transaction(),
+        Capacity::shannons(1),
+        resolved_resident_bytes,
+        VerifyCycleClass::Small,
+    );
     let resolved = resolve
-        .resolved(ResolutionEvidence::new(
-            Vec::new(),
-            Vec::new(),
-            Capacity::shannons(1),
-            resolved_resident_bytes,
-            VerifyCycleClass::Small,
-        ))
+        .resolved(evidence)
         .expect("resolution evidence is valid");
     apply_without_work(
         authority
@@ -4759,9 +4927,8 @@ fn uak_continuation_yield_returns_one_queued_owner() {
     };
     let resident_bytes = resolve.transaction().data().total_size();
     assert_eq!(resolve.resolution_grant().max_edges, 16);
-    let evidence = ResolutionEvidence::new(
-        Vec::new(),
-        Vec::new(),
+    let evidence = resolution_evidence(
+        resolve.transaction(),
         Capacity::shannons(1),
         resident_bytes,
         VerifyCycleClass::Small,
@@ -5142,7 +5309,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
             .plan_admission(proposal_admission)
             .expect("proposal admission plans"),
     );
-    let recovery_admission = ValidatedAdmission::recovery(tx(612), PoolGeneration(1))
+    let recovery_admission = ValidatedAdmission::recovery(tx(612), PoolGeneration(0))
         .expect("fixture recovery admission is valid");
     let recovery = recovery_admission.identity.raw.clone();
     apply_without_work(
@@ -5521,6 +5688,68 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
 }
 
 #[test]
+fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = TransactionBuilder::default()
+        .version(900u32)
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let parent_admission = ValidatedAdmission::remote(parent_tx.clone(), PeerIndex::from(900usize))
+        .expect("fixture parent admission is valid");
+    let parent = parent_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(parent_admission)
+            .expect("fixture parent enters PreAccepted ownership"),
+    );
+    let stale_input = OutPoint::new(parent_tx.hash(), 0);
+    let stale_tx = TransactionBuilder::default()
+        .version(901u32)
+        .input(CellInput::new(stale_input.clone(), 0))
+        .build();
+    let fresh_input = OutPoint::new(Byte32::new([0xd2; 32]), 0);
+    let fresh_tx = TransactionBuilder::default()
+        .version(902u32)
+        .input(CellInput::new(fresh_input, 0))
+        .build();
+    let stale =
+        queue_remote_for_verify(&mut authority, stale_tx.clone(), 901, Capacity::shannons(1));
+    let fresh = queue_remote_for_verify(&mut authority, fresh_tx, 902, Capacity::shannons(1));
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(stale_tx, ProposalContextId(901))
+                    .expect("the queued remote owner can gain trusted proposal priority"),
+            )
+            .expect("promotion moves the same queue slot to the trusted owner"),
+    );
+
+    apply_without_work(
+        authority
+            .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
+            .expect("definitive parent loss publishes a new dependency cut"),
+    );
+    let (plan, probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::VerifyOnly(
+            VerifyCapability::Any,
+        ))
+        .expect("a stale owner head is local ineligibility, not a failed round");
+    assert_eq!(probes, 2);
+    let committed = plan.expect("the unrelated owner remains runnable").apply();
+    let CheckedOutWork::Verify(work) = committed.into_work().expect("verify work exists") else {
+        panic!("verify-only capability returns verify work");
+    };
+    assert_eq!(RawTxHash(work.transaction().hash()), fresh);
+    assert!(matches!(
+        authority.entry(&stale),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
 fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
     let admission = ValidatedAdmission::remote(tx(1_000), PeerIndex::from(900))
         .expect("capacity fixture admission is valid");
@@ -5551,9 +5780,8 @@ fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
             .expect("the active slot is free")
             .apply(),
     );
-    let evidence = ResolutionEvidence::new(
-        Vec::new(),
-        Vec::new(),
+    let evidence = resolution_evidence(
+        work.transaction(),
         Capacity::shannons(1),
         raw_charge.bytes + 1,
         VerifyCycleClass::Small,

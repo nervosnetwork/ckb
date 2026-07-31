@@ -22,7 +22,7 @@ use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     SchedulerSnapshot, VerifyOrder,
 };
-use super::source::{AuthoritySourceVersions, SourceVersionDelta};
+use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, AdmissionBasis,
     ApplySequence, Arrival, AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution,
@@ -32,11 +32,13 @@ use super::state::{
     TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
+pub(in crate::authority) use membership::{
+    AcceptedOrderKey, IndependentCoupling, MembershipProjection,
+};
 #[cfg(test)]
 pub(in crate::authority) use membership::{
-    DescendantAggregate, EvictionOrderKey, MembershipSnapshot,
+    AncestorAggregate, DescendantAggregate, EvictionOrderKey, MembershipSnapshot,
 };
-pub(in crate::authority) use membership::{IndependentCoupling, MembershipProjection};
 use membership::{MembershipConfig, MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use membership::{MembershipReject, RemovalCause, StatusCounts};
 pub(in crate::authority) use settlement::{
@@ -237,6 +239,7 @@ impl TxPoolAuthority {
             &self.entries,
             &self.indexes,
             &self.membership,
+            self.source_versions.template(),
         )
     }
 
@@ -270,7 +273,15 @@ impl TxPoolAuthority {
 
     #[cfg(test)]
     pub(super) fn source_versions_for_reference(&self) -> (ApplySequence, ApplySequence) {
-        (self.source_versions.accepted, self.source_versions.status)
+        (
+            self.source_versions.accepted(),
+            self.source_versions.status(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn template_source_versions_for_reference(&self) -> PoolTemplateVersions {
+        self.source_versions.template()
     }
 
     #[cfg(test)]
@@ -545,6 +556,10 @@ pub(super) enum CommittedChanges {
 }
 
 #[derive(Debug, Default)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing the move-only compute handoff would add one allocation to every successful hot-path checkout"
+)]
 pub(super) enum CommittedHandoff {
     #[default]
     None,
@@ -704,6 +719,14 @@ enum CheckoutResource {
     Reserved(CheckoutReservation),
     SkipOwner,
     Stop,
+}
+
+enum CheckoutEligibility {
+    Ready {
+        grant: ComputeGrant,
+        after_charge: ResourceVector,
+    },
+    StaleDependency,
 }
 
 struct CheckoutSearch {
@@ -1442,6 +1465,16 @@ impl TxPoolAuthority {
         &mut self,
         admission: ValidatedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        if matches!(
+            admission.source,
+            PreAcceptedSource::Recovery(lease) if lease.generation != self.generation
+        ) {
+            // Recovery is a generation-scoped chain capability, not a trusted
+            // ingress flag. The chain receipt normally proves this cut; the
+            // authority repeats the OCC fence so no alternate caller can
+            // publish an old-generation owner.
+            return Err(PlanError::Stale(StalePlan::Generation));
+        }
         self.resources.validate_admission(admission.charge)?;
         let key = admission.identity.raw.clone();
         if let Some(existing) = self.entries.get(&key).cloned() {
@@ -1876,7 +1909,7 @@ impl TxPoolAuthority {
         Ok(DrainedGenerationReceipt {
             generation: self.generation,
             chain_view: self.chain_view.clone(),
-            owner_source: self.source_versions.owners,
+            owner_source: self.source_versions.owners(),
         })
     }
 
@@ -1907,7 +1940,7 @@ impl TxPoolAuthority {
         if receipt.chain_view != self.chain_view {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
-        if receipt.owner_source != self.source_versions.owners {
+        if receipt.owner_source != self.source_versions.owners() {
             return Err(PlanError::Stale(StalePlan::SourceVersion));
         }
         if self.resources.preaccepted().active_work != 0 {
@@ -2476,7 +2509,13 @@ impl TxPoolAuthority {
                 return Ok(CheckoutResource::Stop);
             }
         }
-        let (grant, after_charge) = self.checkout_projection(preaccepted, permit)?;
+        let (grant, after_charge) = match self.checkout_eligibility(preaccepted, permit)? {
+            CheckoutEligibility::Ready {
+                grant,
+                after_charge,
+            } => (grant, after_charge),
+            CheckoutEligibility::StaleDependency => return Ok(CheckoutResource::SkipOwner),
+        };
         let expected_charge = existing.charge_record();
         let after_record = ChargeRecord::PreAccepted {
             resources: after_charge,
@@ -2501,11 +2540,11 @@ impl TxPoolAuthority {
         }))
     }
 
-    fn checkout_projection(
+    fn checkout_eligibility(
         &self,
         preaccepted: &PreAcceptedEntry,
         permit: super::state::WorkPermit,
-    ) -> Result<(ComputeGrant, ResourceVector), PlanError> {
+    ) -> Result<CheckoutEligibility, PlanError> {
         let PreAcceptedPhase::Queued(queued) = &preaccepted.phase else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
@@ -2521,7 +2560,11 @@ impl TxPoolAuthority {
                 .dependencies
                 .proof_is_current(resolved.payload().dependencies(), resolved.dependency_cut())
         {
-            return Err(PlanError::Stale(StalePlan::Dependency));
+            // Dependency publication intentionally avoids an unbounded eager
+            // scheduler rewrite. Until bounded maintenance requeues this
+            // owner, its derived queue head is locally ineligible; it must not
+            // abort selection for unrelated owners.
+            return Ok(CheckoutEligibility::StaleDependency);
         }
 
         let (max_resident_bytes, max_edges) =
@@ -2544,7 +2587,10 @@ impl TxPoolAuthority {
             .active_work
             .checked_add(1)
             .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
-        Ok((grant, charge))
+        Ok(CheckoutEligibility::Ready {
+            grant,
+            after_charge: charge,
+        })
     }
 
     fn plan_selected_checkout(
@@ -2580,7 +2626,15 @@ impl TxPoolAuthority {
                 (reservation.grant, reservation.after_charge)
             }
             #[cfg(test)]
-            CheckoutOrigin::Foundation => self.checkout_projection(preaccepted, permit)?,
+            CheckoutOrigin::Foundation => match self.checkout_eligibility(preaccepted, permit)? {
+                CheckoutEligibility::Ready {
+                    grant,
+                    after_charge,
+                } => (grant, after_charge),
+                CheckoutEligibility::StaleDependency => {
+                    return Err(PlanError::Stale(StalePlan::Dependency));
+                }
+            },
         };
         let version = self.clocks.next_version;
         let lease = self.clocks.next_lease;

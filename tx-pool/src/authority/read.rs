@@ -5,9 +5,11 @@
 //! facts, then performs deterministic topological ordering after the authority
 //! guard has been released.
 
+use super::template::{AuthorityTemplateReadReceipt, TemplateReadError};
 use super::{
     indexes::AuthorityIndexes,
     plan::MembershipProjection,
+    source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, ComputedOutcome,
         DependencyKey, EntryVersion, KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
@@ -236,6 +238,7 @@ pub(super) struct AuthorityReadView<'authority> {
     entries: &'authority HashMap<RawTxHash, OwnedTx>,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
+    template_sources: PoolTemplateVersions,
 }
 
 impl<'authority> AuthorityReadView<'authority> {
@@ -246,6 +249,7 @@ impl<'authority> AuthorityReadView<'authority> {
         entries: &'authority HashMap<RawTxHash, OwnedTx>,
         indexes: &'authority AuthorityIndexes,
         membership: &'authority MembershipProjection,
+        template_sources: PoolTemplateVersions,
     ) -> Self {
         Self {
             cut: AuthorityReadCut {
@@ -256,6 +260,7 @@ impl<'authority> AuthorityReadView<'authority> {
             entries,
             indexes,
             membership,
+            template_sources,
         }
     }
 
@@ -436,6 +441,20 @@ impl<'authority> AuthorityReadView<'authority> {
             cut: self.cut.clone(),
             selected,
         })
+    }
+
+    /// Capture accepted payloads, relations and their exact template source
+    /// versions from this same borrowed authority cut. Sorting and template
+    /// construction happen only after the caller releases the read guard.
+    pub(super) fn capture_template(
+        &self,
+    ) -> Result<AuthorityTemplateReadReceipt, TemplateReadError> {
+        AuthorityTemplateReadReceipt::capture(
+            self.cut.clone(),
+            self.template_sources,
+            self.entries,
+            self.membership,
+        )
     }
 }
 

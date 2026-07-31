@@ -126,6 +126,13 @@ fn verified_settlement_with_fee(
 ) -> ComputeSettlement {
     let transaction = resolve.transaction().clone();
     let resident_bytes = transaction.data().total_size();
+    let mut chain_dependencies = expanded_dependencies.clone();
+    chain_dependencies.extend(
+        transaction
+            .cell_deps()
+            .into_iter()
+            .map(|dependency| dependency.out_point()),
+    );
     let payload = ResolvedPayload::for_foundation(
         &transaction,
         expanded_dependencies,
@@ -133,6 +140,7 @@ fn verified_settlement_with_fee(
         fee,
         resident_bytes,
         chain_inputs,
+        chain_dependencies,
     )
     .expect("dependency fixture resolution evidence is valid");
     let ContinuousResolution::Verify(verify) = resolve
@@ -411,13 +419,13 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
             OutPoint::new(parent_tx.hash(), 0),
         );
         let parent_admission = if recovery {
-            ValidatedAdmission::recovery(parent_tx.clone(), PoolGeneration(1))
+            ValidatedAdmission::recovery(parent_tx.clone(), PoolGeneration(0))
         } else {
             ValidatedAdmission::proposal(parent_tx.clone(), ProposalContextId(1))
         }
         .expect("trusted parent admission is valid");
         let child_admission = if recovery {
-            ValidatedAdmission::recovery(child_tx.clone(), PoolGeneration(1))
+            ValidatedAdmission::recovery(child_tx.clone(), PoolGeneration(0))
         } else {
             ValidatedAdmission::proposal(child_tx.clone(), ProposalContextId(1))
         }

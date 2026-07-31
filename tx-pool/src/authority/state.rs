@@ -5,7 +5,7 @@ use super::chain::{
 use super::resources::{AcceptedCost, AcceptedResources, ChargeRecord, ResourceVector};
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::{Capacity, TransactionView},
+    core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use std::sync::Arc;
@@ -537,6 +537,12 @@ pub(super) struct CandidateMetrics {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedPayload {
+    /// The complete resolve result is the physical payload consumed by script
+    /// verification and, after dep compaction, by block-template DAO
+    /// calculation. Keeping it in the same sealed value as the logical
+    /// footprint prevents a later template path from re-resolving or pairing
+    /// metadata with a different transaction.
+    resolved: Arc<ResolvedTransaction>,
     identity: TxIdentity,
     pub(super) footprint: ExpandedFootprint,
     dependencies: KnownDependencies,
@@ -550,6 +556,7 @@ pub(super) enum InputEvidenceError {
     Footprint(FootprintError),
     DependencySet(DependencySetError),
     NotAnInput,
+    NotADependency,
     ResidentBelowSerialized,
 }
 
@@ -558,49 +565,104 @@ impl ResolvedPayload {
     /// Tip-bound input roles are sealed separately in `CellLocationReceipt`.
     pub(super) fn from_resolution(
         _seal: super::work::ResolutionSeal,
-        tx: &TransactionView,
-        expanded_dependencies: Vec<OutPoint>,
+        resolved: Arc<ResolvedTransaction>,
         max_edges: usize,
         fee: Capacity,
         resolved_resident_bytes: usize,
     ) -> Result<Self, InputEvidenceError> {
-        Self::from_transaction_parts(
-            tx,
-            expanded_dependencies,
-            max_edges,
-            fee,
-            resolved_resident_bytes,
-        )
+        Self::from_resolved_parts(resolved, max_edges, fee, resolved_resident_bytes)
     }
 
     #[cfg(test)]
     pub(super) fn for_foundation(
         tx: &TransactionView,
-        expanded_dependencies: Vec<OutPoint>,
+        mut expanded_dependencies: Vec<OutPoint>,
         max_edges: usize,
         fee: Capacity,
         resolved_resident_bytes: usize,
         chain_inputs: Vec<OutPoint>,
+        chain_dependencies: Vec<OutPoint>,
     ) -> Result<FoundationResolution, InputEvidenceError> {
-        let payload = Self::from_transaction_parts(
-            tx,
-            expanded_dependencies,
-            max_edges,
-            fee,
-            resolved_resident_bytes,
-        )?;
-        let location =
-            CellLocationReceipt::from_resolution(&ChainViewId::initial(), &payload, chain_inputs)?;
+        let mut chain_inputs = chain_inputs;
+        chain_inputs.sort_unstable();
+        chain_inputs.dedup();
+        let mut chain_dependencies = chain_dependencies;
+        chain_dependencies.sort_unstable();
+        chain_dependencies.dedup();
+        let mut resolved = ResolvedTransaction::dummy_resolve(tx.clone());
+        if chain_inputs.iter().any(|input| {
+            resolved
+                .resolved_inputs
+                .iter()
+                .all(|cell| &cell.out_point != input)
+        }) {
+            return Err(InputEvidenceError::NotAnInput);
+        }
+        for cell in &mut resolved.resolved_inputs {
+            if chain_inputs.binary_search(&cell.out_point).is_ok() {
+                cell.transaction_info = Some(ckb_types::core::TransactionInfo::new(
+                    1,
+                    ckb_types::core::EpochNumberWithFraction::new(1, 0, 1),
+                    Byte32::zero(),
+                    1,
+                ));
+            }
+        }
+        expanded_dependencies.extend(
+            tx.cell_deps()
+                .into_iter()
+                .map(|dependency| dependency.out_point()),
+        );
+        expanded_dependencies.sort_unstable();
+        expanded_dependencies.dedup();
+        resolved.resolved_cell_deps = expanded_dependencies
+            .into_iter()
+            .map(|out_point| {
+                let mut cell = ckb_types::core::cell::CellMetaBuilder::default()
+                    .out_point(out_point)
+                    .build();
+                if chain_dependencies.binary_search(&cell.out_point).is_ok() {
+                    cell.transaction_info = Some(ckb_types::core::TransactionInfo::new(
+                        1,
+                        ckb_types::core::EpochNumberWithFraction::new(1, 0, 1),
+                        Byte32::zero(),
+                        1,
+                    ));
+                }
+                cell
+            })
+            .collect();
+        resolved.resolved_dep_groups.clear();
+        if chain_dependencies.iter().any(|dependency| {
+            resolved
+                .related_dep_out_points()
+                .all(|resolved| resolved != dependency)
+        }) {
+            return Err(InputEvidenceError::NotADependency);
+        }
+        let payload =
+            Self::from_resolved_parts(Arc::new(resolved), max_edges, fee, resolved_resident_bytes)?;
+        let location = CellLocationReceipt::from_resolution(&ChainViewId::initial(), &payload);
         Ok(FoundationResolution { payload, location })
     }
 
-    fn from_transaction_parts(
-        tx: &TransactionView,
-        expanded_dependencies: Vec<OutPoint>,
+    fn from_resolved_parts(
+        resolved: Arc<ResolvedTransaction>,
         max_edges: usize,
         fee: Capacity,
         resolved_resident_bytes: usize,
     ) -> Result<Self, InputEvidenceError> {
+        let tx = &resolved.transaction;
+        let dependency_capacity = resolved
+            .resolved_cell_deps
+            .len()
+            .checked_add(resolved.resolved_dep_groups.len())
+            .ok_or(InputEvidenceError::Footprint(FootprintError::Arithmetic))?;
+        let mut expanded_dependencies = Vec::new();
+        expanded_dependencies
+            .try_reserve(dependency_capacity)
+            .map_err(|_| InputEvidenceError::DependencySet(DependencySetError::Allocation))?;
+        expanded_dependencies.extend(resolved.related_dep_out_points().cloned());
         let footprint = ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
             .map_err(InputEvidenceError::Footprint)?;
         let dependencies = KnownDependencies::from_footprint(&footprint, max_edges)
@@ -609,8 +671,10 @@ impl ResolvedPayload {
         if resolved_resident_bytes < serialized_bytes {
             return Err(InputEvidenceError::ResidentBelowSerialized);
         }
+        let identity = TxIdentity::from_transaction(tx);
         Ok(Self {
-            identity: TxIdentity::from_transaction(tx),
+            resolved,
+            identity,
             footprint,
             dependencies,
             fee,
@@ -621,6 +685,10 @@ impl ResolvedPayload {
 
     pub(super) fn identity(&self) -> &TxIdentity {
         &self.identity
+    }
+
+    pub(super) fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
+        &self.resolved
     }
 
     pub(super) fn dependencies(&self) -> &KnownDependencies {
@@ -660,6 +728,10 @@ impl FoundationResolution {
 
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.location.is_chain_input(input)
+    }
+
+    pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
+        self.location.is_chain_dependency(dependency)
     }
 }
 
@@ -847,6 +919,10 @@ impl VerifiedFacts {
 
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.context.is_chain_input(input)
+    }
+
+    pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
+        self.context.is_chain_dependency(dependency)
     }
 
     pub(super) fn context_is_for(&self, view: &ChainViewId) -> bool {

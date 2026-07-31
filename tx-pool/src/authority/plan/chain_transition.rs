@@ -549,8 +549,8 @@ impl TxPoolAuthority {
             generation: self.generation,
             old_view: self.chain_view.clone(),
             new_view: facts.new_view,
-            accepted_source: self.source_versions.accepted,
-            status_source: self.source_versions.status,
+            accepted_source: self.source_versions.accepted(),
+            status_source: self.source_versions.status(),
             expectations,
             committed,
             removals,
@@ -820,8 +820,8 @@ impl TxPoolAuthority {
         {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
-        if receipt.accepted_source != self.source_versions.accepted
-            || receipt.status_source != self.source_versions.status
+        if receipt.accepted_source != self.source_versions.accepted()
+            || receipt.status_source != self.source_versions.status()
         {
             return Err(PlanError::Stale(StalePlan::SourceVersion));
         }
@@ -1072,7 +1072,7 @@ impl TxPoolAuthority {
                     .map(|change| (change.before.as_ref(), change.after.as_ref())),
             )?
             .with_control(control);
-        let sources = self.source_versions.plan_replacements(
+        let sources = self.source_versions.plan_chain_replacements(
             changes
                 .iter()
                 .map(|change| (change.before.as_ref(), change.after.as_ref())),

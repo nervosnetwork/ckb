@@ -7,9 +7,8 @@
 
 use super::state::{
     AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics,
-    ChainTipHash, ChainViewId, DependencyCut, EntryVersion, InputEvidenceError, PoolGeneration,
-    PreAcceptedSource, ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission,
-    VerifiedFacts,
+    ChainTipHash, ChainViewId, DependencyCut, EntryVersion, PoolGeneration, PreAcceptedSource,
+    ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
 };
 use ckb_types::{
     core::TransactionView,
@@ -46,6 +45,7 @@ pub(super) struct CellLocationReceipt {
     // lifetime of positive chain-location evidence.
     tip: ChainTipHash,
     chain_inputs: Arc<[OutPoint]>,
+    chain_dependencies: Arc<[OutPoint]>,
 }
 
 impl CellLocationReceipt {
@@ -54,26 +54,39 @@ impl CellLocationReceipt {
         Self {
             tip: view.tip().clone(),
             chain_inputs: Arc::from([]),
+            chain_dependencies: Arc::from([]),
         }
     }
 
-    pub(super) fn from_resolution(
-        view: &ChainViewId,
-        payload: &ResolvedPayload,
-        mut chain_inputs: Vec<OutPoint>,
-    ) -> Result<Self, InputEvidenceError> {
+    /// Derive tx-pool-only positive location evidence from the exact resolved
+    /// input metadata. A chain input has `transaction_info`; a pool-produced
+    /// input does not. This receipt is never used by block validation, whose
+    /// resolver and liveness rules remain independent.
+    pub(super) fn from_resolution(view: &ChainViewId, payload: &ResolvedPayload) -> Self {
+        let mut chain_inputs = payload
+            .resolved_transaction()
+            .resolved_inputs
+            .iter()
+            .filter(|cell| cell.transaction_info.is_some())
+            .map(|cell| cell.out_point.clone())
+            .collect::<Vec<_>>();
         chain_inputs.sort_unstable();
         chain_inputs.dedup();
-        if chain_inputs
+        let mut chain_dependencies = payload
+            .resolved_transaction()
+            .resolved_cell_deps
             .iter()
-            .any(|input| payload.footprint.inputs().binary_search(input).is_err())
-        {
-            return Err(InputEvidenceError::NotAnInput);
-        }
-        Ok(Self {
+            .chain(payload.resolved_transaction().resolved_dep_groups.iter())
+            .filter(|cell| cell.transaction_info.is_some())
+            .map(|cell| cell.out_point.clone())
+            .collect::<Vec<_>>();
+        chain_dependencies.sort_unstable();
+        chain_dependencies.dedup();
+        Self {
             tip: view.tip().clone(),
             chain_inputs: chain_inputs.into(),
-        })
+            chain_dependencies: chain_dependencies.into(),
+        }
     }
 
     pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
@@ -84,6 +97,10 @@ impl CellLocationReceipt {
         self.chain_inputs.binary_search(input).is_ok()
     }
 
+    pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
+        self.chain_dependencies.binary_search(dependency).is_ok()
+    }
+
     #[cfg(test)]
     fn refreshed_for_foundation(&self, view: &ChainViewId) -> Self {
         // This test-only seam represents a successful location revalidation;
@@ -91,6 +108,7 @@ impl CellLocationReceipt {
         Self {
             tip: view.tip().clone(),
             chain_inputs: Arc::clone(&self.chain_inputs),
+            chain_dependencies: Arc::clone(&self.chain_dependencies),
         }
     }
 }
@@ -119,6 +137,7 @@ impl TimeContextReceipt {
 pub(super) struct VerificationContextReceipt {
     view: ChainViewId,
     chain_inputs: Arc<[OutPoint]>,
+    chain_dependencies: Arc<[OutPoint]>,
     time: TimeContextReceipt,
 }
 
@@ -139,6 +158,7 @@ impl VerificationContextReceipt {
         Ok(Self {
             view,
             chain_inputs: location.chain_inputs,
+            chain_dependencies: location.chain_dependencies,
             time,
         })
     }
@@ -160,6 +180,7 @@ impl VerificationContextReceipt {
         Self {
             view,
             chain_inputs: Arc::from([]),
+            chain_dependencies: Arc::from([]),
             time: TimeContextReceipt::from_validation(rules),
         }
     }
@@ -170,6 +191,10 @@ impl VerificationContextReceipt {
 
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.chain_inputs.binary_search(input).is_ok()
+    }
+
+    pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
+        self.chain_dependencies.binary_search(dependency).is_ok()
     }
 
     pub(super) fn rules(&self) -> ValidationRulesId {
@@ -185,6 +210,7 @@ impl VerificationContextReceipt {
         Self {
             view,
             chain_inputs: Arc::clone(&self.chain_inputs),
+            chain_dependencies: Arc::clone(&self.chain_dependencies),
             time: TimeContextReceipt::from_validation(rules),
         }
     }
@@ -269,6 +295,10 @@ impl AcceptedProof {
 
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.verified.is_chain_input(input)
+    }
+
+    pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
+        self.verified.is_chain_dependency(dependency)
     }
 
     pub(super) fn is_for(&self, view: &ChainViewId) -> bool {

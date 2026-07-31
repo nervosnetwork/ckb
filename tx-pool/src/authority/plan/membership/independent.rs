@@ -1,6 +1,7 @@
 use super::{
-    DependencyReaderEdge, DescendantAggregate, EvictionOrderKey, PreparedCausalNode,
-    ProjectionDelta, causal_change_log, dependency_change_log,
+    AcceptedOrderKey, AncestorAggregate, DependencyReaderEdge, DescendantAggregate,
+    EvictionOrderKey, PreparedCausalNode, ProjectionDelta, causal_change_log,
+    dependency_change_log,
 };
 use crate::authority::{
     plan::{AuthorityFault, Backpressure, PlanError, TxPoolAuthority},
@@ -20,6 +21,7 @@ pub(in crate::authority::plan) struct IndependentMembershipChange {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum IndependentCoupling {
     InputNotChainBacked(OutPoint),
+    DependencyNotChainBacked(OutPoint),
     AcceptedSpender(OutPoint),
     AcceptedConditionalEdge(OutPoint),
     PoolParent(RawTxHash),
@@ -124,6 +126,11 @@ fn classify(
                 .any(|(other, candidate)| other != index && candidate.key == producer)
             {
                 return Ok(Some(IndependentCoupling::CohortCausalEdge(producer)));
+            }
+            if !change.after.proof.is_chain_dependency(dependency) {
+                return Ok(Some(IndependentCoupling::DependencyNotChainBacked(
+                    dependency.clone(),
+                )));
             }
         }
 
@@ -300,6 +307,11 @@ fn prepare_projection(
         .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
     authority
         .membership
+        .ancestor_aggregates
+        .try_reserve(changes.len())
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    authority
+        .membership
         .descendant_aggregates
         .try_reserve(changes.len())
         .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
@@ -358,18 +370,31 @@ fn prepare_projection(
     eviction_insertions
         .try_reserve(changes.len())
         .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut ancestor_changes = Vec::new();
+    ancestor_changes
+        .try_reserve(changes.len())
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut accepted_order_insertions = Vec::new();
+    accepted_order_insertions
+        .try_reserve(changes.len())
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
     for change in changes {
         let aggregate = DescendantAggregate::one(&change.after);
+        let ancestor = AncestorAggregate::one(&change.after);
         causal_node_insertions.push(PreparedCausalNode {
             hash: change.key.clone(),
             parents: HashSet::new(),
             children: HashSet::new(),
         });
+        ancestor_changes.push((change.key.clone(), Some(ancestor)));
         aggregate_changes.push((change.key.clone(), Some(aggregate)));
+        accepted_order_insertions.push(AcceptedOrderKey::new(&change.after, ancestor));
         eviction_insertions.push(EvictionOrderKey::new(&change.after, aggregate));
     }
     causal_node_insertions.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
+    ancestor_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     aggregate_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    accepted_order_insertions.sort_unstable();
     eviction_insertions.sort_unstable();
     let dependency_changes = dependency_change_log(
         Vec::new(),
@@ -384,7 +409,10 @@ fn prepare_projection(
         spender_changes,
         dependency_changes,
         causal_changes,
+        ancestor_changes,
         aggregate_changes,
+        accepted_order_removals: Vec::new(),
+        accepted_order_insertions,
         eviction_removals: Vec::new(),
         eviction_insertions,
         counts,
