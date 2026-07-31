@@ -7,7 +7,7 @@ use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{Cycle, TransactionView, tx_pool::Reject},
-    packed::ProposalShortId,
+    packed::{Byte32, ProposalShortId},
 };
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
@@ -117,6 +117,12 @@ impl VerifyQueue {
         self.inner.get_by_id(id).map(|e| &e.inner)
     }
 
+    pub fn get_tx_by_hash(&self, tx_hash: &Byte32) -> Option<&Entry> {
+        let id = ProposalShortId::from_tx_hash(tx_hash);
+        self.get_tx_by_id(&id)
+            .filter(|entry| &entry.tx.hash() == tx_hash)
+    }
+
     /// Shrink the capacity of the queue as much as possible.
     pub fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
@@ -148,6 +154,13 @@ impl VerifyQueue {
             self.shrink_to_fit();
             e.inner
         })
+    }
+
+    pub fn remove_tx_by_hash(&mut self, tx_hash: &Byte32) -> Option<Entry> {
+        let id = self
+            .get_tx_by_hash(tx_hash)
+            .map(|entry| entry.tx.proposal_short_id())?;
+        self.remove_tx(&id)
     }
 
     /// Remove multiple txs from the queue

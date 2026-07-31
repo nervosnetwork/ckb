@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-light-client-protocol-server-v1.2.1...ckb-light-client-protocol-server-v1.3.0) - 2026-07-28
+
+### Added
+
+- add bearer token authentication for miner notify mode (#5257) (by @zhangsoledad)
+
+### Changed
+
+- cargo fmt --all (#5255) (by @eval-exec)
+- Merge commit from fork (by @eval-exec)
+
+### Fixed
+
+- avoid light-client panic on frozen block body metadata (by @eval-exec)
+- prevent integer overflow in GetLastStateProof size guard (by @eval-exec)
+- reject duplicate tx hashes in GetTransactionsProof (by @eval-exec)
+
+### Contributors
+
+- @zhangsoledad
+- @eval-exec
+
 ## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-light-client-protocol-server-v1.2.0...ckb-light-client-protocol-server-v1.2.1) - 2026-06-08
 
 ### Changed

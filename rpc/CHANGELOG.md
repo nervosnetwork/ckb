@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.3...ckb-rpc-v1.3.0) - 2026-07-28
+
+### Added
+
+- add bearer token authentication for miner notify mode (#5257) (by @zhangsoledad)
+- *(rpc)* include block hash in live cell response (#5269) (by @quake)
+
+### Changed
+
+- Upgrade tentacle dependencies (#5277) (by @eval-exec)
+- skip fee statistics blocks without tx sizes (#5252) (by @chenyukang)
+
+### Fixed
+
+- Fix clippy and format issues (#5263) (by @chenyukang)
+- Fix some public security issues (#5219) (by @Officeyutong)
+- *(rpc)* reject duplicate/oversized indices in transaction proof verification (by @eval-exec)
+- *(test)* stabilize RPC test teardown (#5260) (by @chenyukang)
+
+### Contributors
+
+- @zhangsoledad
+- @eval-exec
+- @quake
+- @chenyukang
+- @Officeyutong
+
 ## [1.2.3](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.2...ckb-rpc-v1.2.3) - 2026-06-08
 
 ### Changed

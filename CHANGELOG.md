@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.208.0](https://github.com/nervosnetwork/ckb/compare/v0.207.0...v0.208.0) - 2026-07-14
+## [0.209.0](https://github.com/nervosnetwork/ckb/compare/v0.207.0...v0.209.0) - 2026-07-14
 
 ### Changed
 

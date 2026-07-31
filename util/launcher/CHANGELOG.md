@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-launcher-v1.2.1...ckb-launcher-v1.3.0) - 2026-07-28
+
+### Added
+
+- add bearer token authentication for miner notify mode (#5257) (by @zhangsoledad)
+
+### Contributors
+
+- @zhangsoledad
+
 ## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-launcher-v1.2.0...ckb-launcher-v1.2.1) - 2026-06-08
 
 ### Changed
