@@ -24,7 +24,7 @@
         "Are every queue, deadline, dependency and conflict structure derived indexes rather than payload owners?",
         "Does failure restore the old owner or publish one explicit terminal outcome?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(concrete_kernel_transitions|stale_lease_cannot_mutate|randomized_public_transitions|target_model_generated_commands)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(concrete_kernel_transitions|stale_lease_cannot_mutate|randomized_public_transitions|target_model_generated_commands|uak_query_never_splices|uak_read_view_keeps)/)'",
       "performance_bound": "No second owner map, compensating queue, global post-transition scan or extra hot-path lock."
     },
     {
@@ -250,7 +250,7 @@
         "Is PoolMap the accepted ordering authority, including expanded dependencies, while recovery metadata preserves parent-first session order?",
         "Are file bytes/counts bounded before allocation, writes temp-sync-rename atomic, and all startup payloads revalidated rather than trusted?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(save_pool_captures_complete_reorg_ownership|dependent_chain_survives_save_and_restart|dispatcher_channel_close|persisted_file_orders|persistence_v2_rejects_oversized|persistence_loader_accepts_legacy)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(save_pool_captures_complete_reorg_ownership|dependent_chain_survives_save_and_restart|dispatcher_channel_close|persisted_file_orders|persistence_v2_rejects_oversized|persistence_loader_accepts_legacy|uak_persistence_receipt|uak_dropped_persistence)/)'",
       "performance_bound": "Shutdown-only clone/sort work stays off admission paths; do not add a continuously maintained persistence projection."
     },
     {
@@ -375,6 +375,8 @@
     {"test": "stale_lease_cannot_mutate_a_removed_and_readmitted_hash", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T11"]},
     {"test": "uak_active_trusted_witness_replacement_waits_for_the_unique_completion", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
     {"test": "randomized_public_transitions_always_match_full_rebuild", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_query_never_splices_two_authority_cuts", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T9", "T10", "T12", "T13"]},
 
     {"test": "target_model_exercises_every_plan_outcome_without_partial_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["T5", "T6"]},
@@ -508,6 +510,8 @@
     {"test": "dependent_chain_survives_save_and_restart", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "persistence_v2_rejects_oversized_file_before_reading_payload", "behavior_id": "TP-PERSIST-001", "invariants": ["T3", "T8", "T9", "T10", "T12", "T13"]},
     {"test": "persistence_loader_accepts_legacy_v1_vector", "behavior_id": "TP-PERSIST-001", "invariants": ["T9", "T10", "T12", "T13"]},
+    {"test": "uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_dropped_persistence_receipt_has_no_authority_effect", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T4", "T8", "T9", "T10", "T11", "T12", "T13"]},
 
     {"test": "journal_accounting_drift_returns_typed_fault_without_partial_completion", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "authoritative_generation_swap_preserves_aba_clocks", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T9", "T10", "T11", "T12", "T13"]},

@@ -149,12 +149,13 @@ impl TxPoolAuthority {
             };
             let mut record = fact.before.record.clone();
             record.version = version;
-            let (proof, proposal) = fact.receipt.into_membership_parts();
+            let (proof, proposal, accepted_at) = fact.receipt.into_membership_parts();
             let after = AcceptedEntry {
                 record,
                 provenance: fact.before.source.accepted_provenance(),
                 proof,
                 proposal,
+                accepted_at,
             };
             committed.push(CommittedChange {
                 sequence,

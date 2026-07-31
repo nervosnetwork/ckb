@@ -6,8 +6,8 @@
 //! assemble a membership proof from unrelated booleans or snapshots.
 
 use super::state::{
-    AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics, ChainTipHash,
-    ChainViewId, DependencyCut, EntryVersion, InputEvidenceError, PoolGeneration,
+    AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics,
+    ChainTipHash, ChainViewId, DependencyCut, EntryVersion, InputEvidenceError, PoolGeneration,
     PreAcceptedSource, ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission,
     VerifiedFacts,
 };
@@ -372,6 +372,7 @@ impl FinalAdmissionWork {
                 sensitivity,
             },
             proposal,
+            accepted_at: AcceptedAtMillis::FOUNDATION,
         })
     }
 }
@@ -383,6 +384,7 @@ pub(super) struct FinalAdmissionReceipt {
     expected: EntryVersion,
     proof: AcceptedProof,
     proposal: ProposalContextReceipt,
+    accepted_at: AcceptedAtMillis,
 }
 
 impl FinalAdmissionReceipt {
@@ -402,8 +404,10 @@ impl FinalAdmissionReceipt {
         &self.proof
     }
 
-    pub(super) fn into_membership_parts(self) -> (AcceptedProof, ProposalContextReceipt) {
-        (self.proof, self.proposal)
+    pub(super) fn into_membership_parts(
+        self,
+    ) -> (AcceptedProof, ProposalContextReceipt, AcceptedAtMillis) {
+        (self.proof, self.proposal, self.accepted_at)
     }
 }
 

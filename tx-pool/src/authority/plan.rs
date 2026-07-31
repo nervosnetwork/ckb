@@ -13,6 +13,7 @@ use super::effect::{
     EffectSettlement, EffectSnapshot,
 };
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, IndexSnapshot};
+use super::read::AuthorityReadView;
 use super::resources::{
     ActiveWorkAvailability, ChargeRecord, ResourceBatchPlan, ResourceError, ResourceLedger,
     ResourceLimits, ResourcePlan, ResourceSnapshot, ResourceVector,
@@ -23,22 +24,20 @@ use super::scheduler::{
 };
 use super::source::{AuthoritySourceVersions, SourceVersionDelta};
 use super::state::{
-    AcceptedEntry, AcceptedProvenance, AcceptedStatus, AdmissionBasis, ApplySequence, Arrival,
-    AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputedOutcome,
-    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies, OwnedTx,
-    PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
-    QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, TxIdentity, TxRecord, ValidatedAdmission,
-    WaitCondition,
+    AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, AdmissionBasis,
+    ApplySequence, Arrival, AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution,
+    ComputeGrant, ComputedOutcome, DependencyCut, DependencyKey, DependencyOrigin, EntryVersion,
+    KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase,
+    PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline,
+    TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
-pub(in crate::authority) use membership::IndependentCoupling;
 #[cfg(test)]
 pub(in crate::authority) use membership::{
     DescendantAggregate, EvictionOrderKey, MembershipSnapshot,
 };
-use membership::{
-    MembershipConfig, MembershipProjection, MembershipRemoval, PreparedMembership, ProjectionDelta,
-};
+pub(in crate::authority) use membership::{IndependentCoupling, MembershipProjection};
+use membership::{MembershipConfig, MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use membership::{MembershipReject, RemovalCause, StatusCounts};
 pub(in crate::authority) use settlement::{
     CandidateBatchError, IndependentCandidate, SettlementBatch, SettlementPlan,
@@ -58,6 +57,7 @@ pub(super) enum OwnerPhaseSnapshot {
         status: AcceptedStatus,
         proof: AcceptedProof,
         dependencies: KnownDependencies,
+        accepted_at: AcceptedAtMillis,
     },
 }
 
@@ -226,6 +226,20 @@ impl TxPoolAuthority {
         self.clocks
     }
 
+    /// Borrow one immutable authority cut for every query projection. The view
+    /// exposes neither the primary owner enum nor independently captured
+    /// accepted/preaccepted collections.
+    pub(super) fn read_view(&self) -> AuthorityReadView<'_> {
+        AuthorityReadView::new(
+            self.generation,
+            self.chain_view.clone(),
+            self.clocks.next_sequence,
+            &self.entries,
+            &self.indexes,
+            &self.membership,
+        )
+    }
+
     #[cfg(test)]
     pub(super) fn entries_for_reference(&self) -> &HashMap<RawTxHash, OwnedTx> {
         &self.entries
@@ -285,6 +299,7 @@ impl TxPoolAuthority {
                         status: entry.status(),
                         proof: entry.proof.clone(),
                         dependencies: entry.proof.payload().dependencies().clone(),
+                        accepted_at: entry.accepted_at,
                     },
                 };
                 let source = match owner {
@@ -1635,7 +1650,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Phase));
         }
         self.validate_acceptance_evidence(preaccepted, &receipt)?;
-        let (proof, proposal) = receipt.into_membership_parts();
+        let (proof, proposal, accepted_at) = receipt.into_membership_parts();
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -1650,6 +1665,7 @@ impl TxPoolAuthority {
             provenance: preaccepted.source.accepted_provenance(),
             proof,
             proposal,
+            accepted_at,
         };
         let PreparedMembership {
             removals,

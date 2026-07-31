@@ -12,12 +12,12 @@ use super::super::resources::{
 };
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
-    AcceptedEntry, AcceptedStatus, ActiveWork, ApplySequence, CandidateMetrics, ChainRevision,
-    ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
-    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, FoundationResolution,
-    InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx, PoolGeneration,
-    PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalLease,
-    QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
+    AcceptedAtMillis, AcceptedEntry, AcceptedStatus, ActiveWork, ApplySequence, CandidateMetrics,
+    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome,
+    DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
+    FoundationResolution, InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx,
+    PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId,
+    ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
     RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
     VerifyCapability, VerifyCycleClass, WaitCondition, WorkPermit,
 };
@@ -1688,6 +1688,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             provenance: entry.source.accepted_provenance(),
             proof: AcceptedProof::for_foundation(verified),
             proposal: ProposalContextReceipt::from_validation(AcceptedStatus::Gap),
+            accepted_at: AcceptedAtMillis::FOUNDATION,
         }),
         OwnedTx::Accepted(_) => unreachable!("fixture starts preaccepted"),
     };

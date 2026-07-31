@@ -83,6 +83,17 @@ pub(super) struct DependencyCut(pub(super) ApplySequence);
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Arrival(pub(super) u128);
 
+/// Wall-clock metadata captured when a transaction enters accepted
+/// membership. It is observable through RPC, but never participates in pool
+/// ordering, validation, budgets or replacement policy.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct AcceptedAtMillis(pub(super) u64);
+
+impl AcceptedAtMillis {
+    #[cfg(test)]
+    pub(super) const FOUNDATION: Self = Self(0);
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TxIdentity {
     pub(super) raw: RawTxHash,
@@ -1057,6 +1068,7 @@ pub(super) struct AcceptedEntry {
     pub(super) provenance: AcceptedProvenance,
     pub(super) proof: AcceptedProof,
     pub(super) proposal: ProposalContextReceipt,
+    pub(super) accepted_at: AcceptedAtMillis,
 }
 
 #[derive(Clone, Debug)]

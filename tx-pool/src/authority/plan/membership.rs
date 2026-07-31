@@ -87,7 +87,7 @@ impl StatusCounts {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct MembershipProjection {
+pub(in crate::authority) struct MembershipProjection {
     spenders: HashMap<OutPoint, RawTxHash>,
     dependency_readers: HashMap<OutPoint, HashSet<RawTxHash>>,
     parents: HashMap<RawTxHash, HashSet<RawTxHash>>,
@@ -374,7 +374,7 @@ struct EvictionPlan {
 }
 
 impl MembershipProjection {
-    pub(super) fn counts(&self) -> StatusCounts {
+    pub(in crate::authority) fn counts(&self) -> StatusCounts {
         self.counts
     }
 
@@ -386,7 +386,7 @@ impl MembershipProjection {
         self.dependency_readers.get(dependency)
     }
 
-    pub(super) fn parents(&self, hash: &RawTxHash) -> Option<&HashSet<RawTxHash>> {
+    pub(in crate::authority) fn parents(&self, hash: &RawTxHash) -> Option<&HashSet<RawTxHash>> {
         self.parents.get(hash)
     }
 

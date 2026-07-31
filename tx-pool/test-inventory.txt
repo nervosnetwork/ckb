@@ -160,6 +160,10 @@ authority::tests::foundation::uak_trusted_witness_replacement_preserves_ingress_
 authority::tests::foundation::uak_verified_residency_cannot_undercharge_retained_resolution
 authority::tests::foundation::uak_verified_settlement_has_one_ready_projection
 authority::tests::foundation::uak_verify_frontier_preserves_the_configured_arrival_or_fee_order
+authority::tests::read::uak_dropped_persistence_receipt_has_no_authority_effect
+authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first
+authority::tests::read::uak_query_never_splices_two_authority_cuts
+authority::tests::read::uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof
 benchmark::debug_tests::controller_dependent_secp_chain_reverse
 block_assembler::candidate_uncles::tests::accepted_uncle_detaches_from_enclosing_block_backing
 block_assembler::candidate_uncles::tests::basic_insert_and_remove
