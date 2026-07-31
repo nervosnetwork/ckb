@@ -1,3 +1,4 @@
+mod chain_transition;
 mod membership;
 mod settlement;
 
@@ -11,6 +12,7 @@ use super::effect::{
     EffectLease, EffectLimits, EffectLog, EffectObservation, EffectPolicy, EffectPublication,
     EffectSettlement, EffectSnapshot,
 };
+use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, IndexSnapshot};
 use super::resources::{
     ActiveWorkAvailability, ChargeRecord, ResourceBatchPlan, ResourceError, ResourceLedger,
     ResourceLimits, ResourcePlan, ResourceSnapshot, ResourceVector,
@@ -19,13 +21,13 @@ use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     SchedulerSnapshot, VerifyOrder,
 };
+use super::source::{AuthoritySourceVersions, SourceVersionDelta};
 use super::state::{
     AcceptedEntry, AcceptedStatus, AdmissionBasis, AdmissionClass, ApplySequence, Arrival,
     AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputedOutcome,
     DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, IngressAttribution,
     KnownDependencies, OwnedTx, PayloadBlame, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase,
-    ProposalId, QueuedWork, RawTxHash, RejectionKind, TxIdentity, TxRecord, ValidatedAdmission,
-    WaitCondition,
+    QueuedWork, RawTxHash, RejectionKind, TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
 pub(in crate::authority) use membership::IndependentCoupling;
@@ -74,7 +76,8 @@ pub(super) struct AuthoritySnapshot {
     generation: PoolGeneration,
     chain_view: ChainViewId,
     entries: HashMap<RawTxHash, OwnerSnapshot>,
-    by_proposal: HashMap<ProposalId, RawTxHash>,
+    indexes: IndexSnapshot,
+    source_versions: AuthoritySourceVersions,
     resources: ResourceSnapshot,
     membership: MembershipSnapshot,
     scheduler: SchedulerSnapshot,
@@ -88,7 +91,8 @@ pub(super) struct TxPoolAuthority {
     generation: PoolGeneration,
     chain_view: ChainViewId,
     entries: HashMap<RawTxHash, OwnedTx>,
-    by_proposal: HashMap<ProposalId, RawTxHash>,
+    indexes: AuthorityIndexes,
+    source_versions: AuthoritySourceVersions,
     resources: ResourceLedger,
     membership: MembershipProjection,
     scheduler: FairFrontier,
@@ -116,7 +120,8 @@ impl TxPoolAuthority {
             generation: PoolGeneration(0),
             chain_view: ChainViewId::initial(),
             entries: HashMap::new(),
-            by_proposal: HashMap::new(),
+            indexes: AuthorityIndexes::default(),
+            source_versions: AuthoritySourceVersions::initial(),
             resources: ResourceLedger::new(limits),
             membership: MembershipProjection::default(),
             scheduler: FairFrontier::new(verify_order),
@@ -231,6 +236,24 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
+    pub(super) fn preaccepted_for_peer_for_reference(
+        &self,
+        peer: ckb_network::PeerIndex,
+    ) -> Vec<RawTxHash> {
+        let mut owners = self
+            .indexes
+            .preaccepted_for_peer(peer)
+            .map_or_else(Vec::new, |owners| owners.iter().cloned().collect());
+        owners.sort_unstable();
+        owners
+    }
+
+    #[cfg(test)]
+    pub(super) fn source_versions_for_reference(&self) -> (ApplySequence, ApplySequence) {
+        (self.source_versions.accepted, self.source_versions.status)
+    }
+
+    #[cfg(test)]
     pub(super) fn force_chain_view(&mut self, view: ChainViewId) {
         self.chain_view = view;
     }
@@ -253,7 +276,7 @@ impl TxPoolAuthority {
                         original_charge: entry.original_charge(),
                     },
                     OwnedTx::Accepted(entry) => OwnerPhaseSnapshot::Accepted {
-                        status: entry.status,
+                        status: entry.status(),
                         proof: entry.proof.clone(),
                         dependencies: entry.proof.payload().dependencies().clone(),
                     },
@@ -277,7 +300,8 @@ impl TxPoolAuthority {
             generation: self.generation,
             chain_view: self.chain_view.clone(),
             entries,
-            by_proposal: self.by_proposal.clone(),
+            indexes: self.indexes.snapshot(),
+            source_versions: self.source_versions,
             resources: self.resources.snapshot(),
             membership: self.membership.snapshot(),
             scheduler: self.scheduler.snapshot(),
@@ -289,12 +313,11 @@ impl TxPoolAuthority {
 
     pub(super) fn primary_projection_consistent(&self) -> bool {
         self.entries.len() == self.resources.charge_count()
-            && self.entries.len() == self.by_proposal.len()
             && self.entries.iter().all(|(hash, owner)| {
                 self.resources.charge(hash) == Some(owner.charge_record())
-                    && self.by_proposal.get(&owner.record().identity.proposal) == Some(hash)
                     && &owner.record().identity.raw == hash
             })
+            && self.indexes.semantically_matches(&self.entries)
             && self.resources.semantically_matches(&self.entries)
             && self.scheduler.semantically_matches(&self.entries)
             && self.dependencies.semantically_matches(&self.entries)
@@ -318,6 +341,7 @@ pub(super) enum Backpressure {
     AcceptedResources,
     ComputeResources,
     ActiveWorkDrain,
+    GenerationReplacement,
     EffectCapacity,
     Allocation,
 }
@@ -331,6 +355,8 @@ pub(super) enum StalePlan {
     Lease,
     Dependency,
     EffectLease,
+    Generation,
+    SourceVersion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -338,6 +364,7 @@ pub(super) enum AuthorityFault {
     CounterExhausted,
     ResourceProjection,
     MembershipProjection,
+    IndexProjection,
     SchedulerProjection,
     DependencyProjection,
     EffectProjection,
@@ -387,6 +414,21 @@ pub(super) struct EffectSettlementFailure {
     settlement: EffectSettlement,
 }
 
+/// Proof that the current generation has no outstanding compute capability.
+/// It is move-only and rebound against generation, chain and owner-source
+/// identity before a replacement can be planned.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct DrainedGenerationReceipt {
+    generation: PoolGeneration,
+    chain_view: ChainViewId,
+    owner_source: ApplySequence,
+}
+
+enum GenerationChainTarget {
+    Preserve,
+    Install(ChainViewId),
+}
+
 impl EffectSettlementFailure {
     pub(super) fn error(&self) -> &PlanError {
         &self.error
@@ -410,6 +452,17 @@ impl From<ResourceError> for PlanError {
             | ResourceError::ExistingChargeMismatch
             | ResourceError::AttributionMismatch => Self::Fault(AuthorityFault::ResourceProjection),
             ResourceError::DuplicateChange => Self::Fault(AuthorityFault::ResourceProjection),
+        }
+    }
+}
+
+impl From<IndexError> for PlanError {
+    fn from(error: IndexError) -> Self {
+        match error {
+            IndexError::ProposalCollision => Self::Backpressure(Backpressure::ProposalCollision),
+            IndexError::Allocation => Self::Backpressure(Backpressure::Allocation),
+            IndexError::Arithmetic => Self::Fault(AuthorityFault::CounterExhausted),
+            IndexError::Projection => Self::Fault(AuthorityFault::IndexProjection),
         }
     }
 }
@@ -455,6 +508,16 @@ pub(super) enum CommittedChanges {
     IndependentRun(Vec<CommittedChange>),
     DependencyControl(ApplySequence),
     EffectControl(ApplySequence),
+    GenerationControl(ApplySequence),
+    AdminControl {
+        sequence: ApplySequence,
+        peer: ckb_network::PeerIndex,
+    },
+    ChainControl {
+        sequence: ApplySequence,
+        view: ChainViewId,
+        changed_owners: usize,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -473,6 +536,23 @@ pub(super) struct CommittedDelta {
     pub(super) removals: Vec<MembershipRemoval>,
     retired: Vec<OwnedTx>,
     retired_effect: Option<Arc<EffectBatch>>,
+    retired_generation: Option<RetiredGeneration>,
+}
+
+#[derive(Debug)]
+struct RetiredGeneration {
+    entries: HashMap<RawTxHash, OwnedTx>,
+    _indexes: AuthorityIndexes,
+    _resources: ResourceLedger,
+    _membership: MembershipProjection,
+    _scheduler: FairFrontier,
+    _dependencies: DependencyFrontier,
+}
+
+impl RetiredGeneration {
+    fn owner_count(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 enum EntryRetirement {
@@ -482,7 +562,11 @@ enum EntryRetirement {
 
 impl CommittedDelta {
     pub(in crate::authority) fn retired_len(&self) -> usize {
-        self.retired.len()
+        self.retired.len().saturating_add(
+            self.retired_generation
+                .as_ref()
+                .map_or(0, RetiredGeneration::owner_count),
+        )
     }
 
     pub(in crate::authority) fn handoff_is_none(&self) -> bool {
@@ -536,8 +620,8 @@ impl CommittedDelta {
 
 struct EntryDelta {
     key: RawTxHash,
-    old_proposal: Option<ProposalId>,
     after: Option<OwnedTx>,
+    owners: DerivedOwnerDelta,
     retirement: EntryRetirement,
     resource: ResourcePlan,
     scheduler: SchedulerDelta,
@@ -551,6 +635,11 @@ struct EntryTransition {
     key: RawTxHash,
     before: Option<OwnedTx>,
     after: Option<OwnedTx>,
+}
+
+struct DerivedOwnerDelta {
+    indexes: IndexDelta,
+    sources: SourceVersionDelta,
 }
 
 #[derive(Default)]
@@ -623,6 +712,7 @@ struct MembershipDelta {
     changed_key: RawTxHash,
     changed_after: OwnedTx,
     removals: Vec<MembershipRemoval>,
+    owners: DerivedOwnerDelta,
     resource: ResourceBatchPlan,
     projection: ProjectionDelta,
     scheduler: SchedulerDelta,
@@ -640,6 +730,7 @@ struct IndependentUpdate {
 
 struct IndependentDelta {
     updates: Vec<IndependentUpdate>,
+    owners: DerivedOwnerDelta,
     resource: ResourceBatchPlan,
     projection: ProjectionDelta,
     scheduler: SchedulerBatchDelta,
@@ -661,12 +752,79 @@ struct EffectOnlyDelta {
     sequence: ApplySequence,
 }
 
+struct FreshGeneration {
+    entries: HashMap<RawTxHash, OwnedTx>,
+    indexes: AuthorityIndexes,
+    resources: ResourceLedger,
+    membership: MembershipProjection,
+    scheduler: FairFrontier,
+    dependencies: DependencyFrontier,
+}
+
+impl FreshGeneration {
+    fn empty(resources: &ResourceLedger, scheduler: &FairFrontier) -> Self {
+        Self {
+            entries: HashMap::new(),
+            indexes: AuthorityIndexes::default(),
+            resources: ResourceLedger::new(resources.limits()),
+            membership: MembershipProjection::default(),
+            scheduler: FairFrontier::new(scheduler.verify_order()),
+            dependencies: DependencyFrontier::default(),
+        }
+    }
+}
+
+struct GenerationDelta {
+    generation: PoolGeneration,
+    chain_view: ChainViewId,
+    fresh: FreshGeneration,
+    sources: SourceVersionDelta,
+    effect: EffectDelta,
+    clocks: AuthorityClocks,
+    sequence: ApplySequence,
+}
+
+struct AdminDelta {
+    peer: ckb_network::PeerIndex,
+    hashes: Vec<RawTxHash>,
+    owners: DerivedOwnerDelta,
+    resources: ResourceBatchPlan,
+    scheduler: SchedulerBatchDelta,
+    dependency: DependencyBatchDelta,
+    effect: EffectDelta,
+    retired: Vec<OwnedTx>,
+    clocks: AuthorityClocks,
+    sequence: ApplySequence,
+}
+
+struct ChainOwnerUpdate {
+    key: RawTxHash,
+    after: Option<OwnedTx>,
+}
+
+struct ChainDelta {
+    view: ChainViewId,
+    updates: Vec<ChainOwnerUpdate>,
+    owners: DerivedOwnerDelta,
+    resources: ResourceBatchPlan,
+    membership: ProjectionDelta,
+    scheduler: SchedulerBatchDelta,
+    dependency: DependencyBatchDelta,
+    effect: EffectDelta,
+    retired: Vec<OwnedTx>,
+    clocks: AuthorityClocks,
+    sequence: ApplySequence,
+}
+
 enum AuthorityDelta {
     Entry(EntryDelta),
     Membership(MembershipDelta),
     Independent(IndependentDelta),
     Dependency(DependencyOnlyDelta),
     Effect(EffectOnlyDelta),
+    Generation(GenerationDelta),
+    Admin(AdminDelta),
+    Chain(ChainDelta),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -695,6 +853,9 @@ impl PreparedApply<'_> {
             AuthorityDelta::Independent(delta) => Self::apply_independent(authority, delta),
             AuthorityDelta::Dependency(delta) => Self::apply_dependency(authority, delta),
             AuthorityDelta::Effect(delta) => Self::apply_effect(authority, delta, handoff),
+            AuthorityDelta::Generation(delta) => Self::apply_generation(authority, delta),
+            AuthorityDelta::Admin(delta) => Self::apply_admin(authority, delta),
+            AuthorityDelta::Chain(delta) => Self::apply_chain(authority, delta),
         }
     }
 
@@ -703,17 +864,12 @@ impl PreparedApply<'_> {
         delta: EntryDelta,
         handoff: CommittedHandoff,
     ) -> CommittedDelta {
-        if let Some(proposal) = delta.old_proposal {
-            authority.by_proposal.remove(&proposal);
-        }
         let previous = match delta.after {
-            Some(entry) => {
-                let proposal = entry.record().identity.proposal.clone();
-                authority.by_proposal.insert(proposal, delta.key.clone());
-                authority.entries.insert(delta.key.clone(), entry)
-            }
+            Some(entry) => authority.entries.insert(delta.key.clone(), entry),
             None => authority.entries.remove(&delta.key),
         };
+        authority.indexes.apply(delta.owners.indexes);
+        authority.source_versions.apply(delta.owners.sources);
         let retired = match (delta.retirement, previous) {
             (EntryRetirement::Outside(mut retired), Some(owner)) => {
                 retired.push(owner);
@@ -739,6 +895,7 @@ impl PreparedApply<'_> {
             removals: Vec::new(),
             retired,
             retired_effect,
+            retired_generation: None,
         }
     }
 
@@ -748,7 +905,6 @@ impl PreparedApply<'_> {
             if let Some(owner) = authority.entries.remove(&removal.hash) {
                 retired.push(owner);
             }
-            authority.by_proposal.remove(&removal.proposal);
         }
         // The candidate's accepted owner shares its immutable transaction and
         // resolved facts with the pre-accepted predecessor. Only removed
@@ -759,6 +915,8 @@ impl PreparedApply<'_> {
                 .entries
                 .insert(delta.changed_key, delta.changed_after),
         );
+        authority.indexes.apply(delta.owners.indexes);
+        authority.source_versions.apply(delta.owners.sources);
         authority.resources.apply_batch(delta.resource);
         authority.membership.apply(delta.projection);
         authority.scheduler.apply(delta.scheduler);
@@ -771,6 +929,7 @@ impl PreparedApply<'_> {
             removals: delta.removals,
             retired,
             retired_effect,
+            retired_generation: None,
         }
     }
 
@@ -783,6 +942,8 @@ impl PreparedApply<'_> {
             // immutable transaction and resolved facts are shared by `after`.
             drop(authority.entries.insert(update.key, update.after));
         }
+        authority.indexes.apply(delta.owners.indexes);
+        authority.source_versions.apply(delta.owners.sources);
         authority.resources.apply_batch(delta.resource);
         authority.membership.apply(delta.projection);
         authority.scheduler.apply_batch(delta.scheduler);
@@ -795,6 +956,7 @@ impl PreparedApply<'_> {
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
+            retired_generation: None,
         }
     }
 
@@ -810,6 +972,7 @@ impl PreparedApply<'_> {
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect: None,
+            retired_generation: None,
         }
     }
 
@@ -826,6 +989,101 @@ impl PreparedApply<'_> {
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
+            retired_generation: None,
+        }
+    }
+
+    fn apply_generation(authority: &mut TxPoolAuthority, delta: GenerationDelta) -> CommittedDelta {
+        let FreshGeneration {
+            entries,
+            indexes,
+            resources,
+            membership,
+            scheduler,
+            dependencies,
+        } = delta.fresh;
+        let retired_generation = RetiredGeneration {
+            entries: std::mem::replace(&mut authority.entries, entries),
+            _indexes: std::mem::replace(&mut authority.indexes, indexes),
+            _resources: std::mem::replace(&mut authority.resources, resources),
+            _membership: std::mem::replace(&mut authority.membership, membership),
+            _scheduler: std::mem::replace(&mut authority.scheduler, scheduler),
+            _dependencies: std::mem::replace(&mut authority.dependencies, dependencies),
+        };
+        authority.generation = delta.generation;
+        authority.chain_view = delta.chain_view;
+        authority.source_versions.apply(delta.sources);
+        let retired_effect = authority.effects.apply(delta.effect);
+        authority.clocks = delta.clocks;
+        CommittedDelta {
+            changes: CommittedChanges::GenerationControl(delta.sequence),
+            handoff: CommittedHandoff::None,
+            removals: Vec::new(),
+            retired: Vec::new(),
+            retired_effect,
+            retired_generation: Some(retired_generation),
+        }
+    }
+
+    fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> CommittedDelta {
+        let mut retired = delta.retired;
+        for hash in &delta.hashes {
+            if let Some(owner) = authority.entries.remove(hash) {
+                retired.push(owner);
+            }
+        }
+        authority.indexes.apply(delta.owners.indexes);
+        authority.source_versions.apply(delta.owners.sources);
+        authority.resources.apply_batch(delta.resources);
+        authority.scheduler.apply_batch(delta.scheduler);
+        authority.dependencies.apply_batch(delta.dependency);
+        let retired_effect = authority.effects.apply(delta.effect);
+        authority.clocks = delta.clocks;
+        CommittedDelta {
+            changes: CommittedChanges::AdminControl {
+                sequence: delta.sequence,
+                peer: delta.peer,
+            },
+            handoff: CommittedHandoff::None,
+            removals: Vec::new(),
+            retired,
+            retired_effect,
+            retired_generation: None,
+        }
+    }
+
+    fn apply_chain(authority: &mut TxPoolAuthority, delta: ChainDelta) -> CommittedDelta {
+        let changed_owners = delta.updates.len();
+        let mut retired = delta.retired;
+        for update in delta.updates {
+            let previous = match update.after {
+                Some(after) => authority.entries.insert(update.key, after),
+                None => authority.entries.remove(&update.key),
+            };
+            if let Some(previous) = previous {
+                retired.push(previous);
+            }
+        }
+        authority.indexes.apply(delta.owners.indexes);
+        authority.source_versions.apply(delta.owners.sources);
+        authority.resources.apply_batch(delta.resources);
+        authority.membership.apply(delta.membership);
+        authority.scheduler.apply_batch(delta.scheduler);
+        authority.dependencies.apply_batch(delta.dependency);
+        let retired_effect = authority.effects.apply(delta.effect);
+        authority.chain_view = delta.view.clone();
+        authority.clocks = delta.clocks;
+        CommittedDelta {
+            changes: CommittedChanges::ChainControl {
+                sequence: delta.sequence,
+                view: delta.view,
+                changed_owners,
+            },
+            handoff: CommittedHandoff::None,
+            removals: Vec::new(),
+            retired,
+            retired_effect,
+            retired_generation: None,
         }
     }
 }
@@ -835,6 +1093,22 @@ fn next_version(version: EntryVersion) -> Result<EntryVersion, PlanError> {
         .0
         .checked_add(1)
         .map(EntryVersion)
+        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
+}
+
+fn next_generation(generation: PoolGeneration) -> Result<PoolGeneration, PlanError> {
+    generation
+        .0
+        .checked_add(1)
+        .map(PoolGeneration)
+        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
+}
+
+fn next_chain_revision(revision: ChainRevision) -> Result<ChainRevision, PlanError> {
+    revision
+        .0
+        .checked_add(1)
+        .map(ChainRevision)
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
 }
 
@@ -992,9 +1266,62 @@ impl TxPoolAuthority {
             changes.push((Some(removed), None));
             removed_entries.push(removed);
         }
-        let control = self.plan_dependency_loss(removed_entries, sequence)?;
+        let lost = self.collect_dependency_loss_keys(removed_entries)?.keys;
+        let available = if matches!(existing, OwnedTx::PreAccepted(_))
+            && matches!(after, OwnedTx::Accepted(_))
+        {
+            self.collect_dependency_loss_keys(std::iter::once(after))?
+                .keys
+        } else {
+            Vec::new()
+        };
+        let control = self
+            .dependencies
+            .plan_events(available, lost, DependencyCut(sequence))?
+            .unwrap_or_default();
         let delta = self.dependencies.plan_replacements(changes)?;
         Ok(delta.with_control(control))
+    }
+
+    fn plan_membership_owner_derivations(
+        &mut self,
+        key: &RawTxHash,
+        existing: &OwnedTx,
+        after: &OwnedTx,
+        removals: &[MembershipRemoval],
+        sequence: ApplySequence,
+    ) -> Result<DerivedOwnerDelta, PlanError> {
+        let change_capacity = removals
+            .len()
+            .checked_add(1)
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let source_versions = self.source_versions;
+        let Self {
+            entries, indexes, ..
+        } = self;
+        if removals.is_empty() {
+            let indexes = indexes.plan_replace(key, Some(existing), Some(after))?;
+            let sources = source_versions
+                .plan_replacements(std::iter::once((Some(existing), Some(after))), sequence);
+            return Ok(DerivedOwnerDelta { indexes, sources });
+        }
+        let mut changes = Vec::new();
+        changes
+            .try_reserve(change_capacity)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        changes.push((key, Some(existing), Some(after)));
+        for removal in removals {
+            let removed = entries
+                .get(&removal.hash)
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            changes.push((&removal.hash, Some(removed), None));
+        }
+        let sources = source_versions.plan_replacements(
+            changes.iter().map(|(_, before, after)| (*before, *after)),
+            sequence,
+        );
+        let indexes = indexes.plan_replacements(changes)?;
+        Ok(DerivedOwnerDelta { indexes, sources })
     }
 
     fn plan_dependency_loss<'entry>(
@@ -1078,7 +1405,11 @@ impl TxPoolAuthority {
         if let Some(existing) = self.entries.get(&key).cloned() {
             return self.plan_existing_admission(key, existing, admission);
         }
-        if self.by_proposal.contains_key(&admission.identity.proposal) {
+        if self
+            .indexes
+            .proposal_owner(&admission.identity.proposal)
+            .is_some()
+        {
             return Err(PlanError::Backpressure(Backpressure::ProposalCollision));
         }
 
@@ -1170,6 +1501,20 @@ impl TxPoolAuthority {
         self.plan_accept(receipt)
     }
 
+    #[cfg(test)]
+    pub(super) fn plan_accept_context_sensitive_for_foundation(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        status: AcceptedStatus,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let receipt = self
+            .final_admission_work(key, expected)?
+            .validate_context_sensitive_for_foundation(status, ValidationRulesId::FOUNDATION)
+            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
+        self.plan_accept(receipt)
+    }
+
     fn plan_accept(
         &mut self,
         receipt: FinalAdmissionReceipt,
@@ -1195,8 +1540,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Phase));
         }
         self.validate_acceptance_evidence(preaccepted, &receipt)?;
-        let status = receipt.status();
-        let proof = receipt.into_proof();
+        let (proof, proposal) = receipt.into_membership_parts();
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -1208,8 +1552,8 @@ impl TxPoolAuthority {
         record.version = version;
         let accepted = AcceptedEntry {
             record,
-            status,
             proof,
+            proposal,
         };
         let PreparedMembership {
             removals,
@@ -1223,12 +1567,15 @@ impl TxPoolAuthority {
             .plan_replace(Some(&existing), Some(&after), None)?;
         let dependency =
             self.plan_membership_dependency_delta(&existing, &after, &removals, sequence)?;
+        let owners =
+            self.plan_membership_owner_derivations(&key, &existing, &after, &removals, sequence)?;
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(MembershipDelta {
                 changed_key: key.clone(),
                 changed_after: after,
                 removals,
+                owners,
                 resource,
                 projection,
                 scheduler,
@@ -1263,7 +1610,7 @@ impl TxPoolAuthority {
         let OwnedTx::Accepted(before) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
-        if before.status == status {
+        if before.status() == status {
             return Err(PlanError::Duplicate);
         }
 
@@ -1276,7 +1623,7 @@ impl TxPoolAuthority {
         };
         let mut after = before.clone();
         after.record.version = version;
-        after.status = status;
+        after.proposal = super::chain::ProposalContextReceipt::from_validation(status);
         let projection = self.prepare_status_change(key, before, &after)?;
         let after = OwnedTx::Accepted(after);
         let mut resource_changes = Vec::new();
@@ -1293,6 +1640,8 @@ impl TxPoolAuthority {
             .scheduler
             .plan_replace(Some(&existing), Some(&after), None)?;
         let dependency = self.plan_membership_dependency_delta(&existing, &after, &[], sequence)?;
+        let owners =
+            self.plan_membership_owner_derivations(key, &existing, &after, &[], sequence)?;
         let retired = Vec::new();
         Ok(PreparedApply {
             authority: self,
@@ -1300,6 +1649,7 @@ impl TxPoolAuthority {
                 changed_key: key.clone(),
                 changed_after: after,
                 removals: Vec::new(),
+                owners,
                 resource,
                 projection,
                 scheduler,
@@ -1403,6 +1753,190 @@ impl TxPoolAuthority {
         let sequence = self.clocks.next_sequence;
         let effect = self.effects.plan_generation_reset(sequence)?;
         self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+    }
+
+    pub(super) fn drained_generation_receipt_for_foundation(
+        &self,
+    ) -> Result<DrainedGenerationReceipt, PlanError> {
+        if self.resources.preaccepted().active_work != 0 {
+            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+        }
+        Ok(DrainedGenerationReceipt {
+            generation: self.generation,
+            chain_view: self.chain_view.clone(),
+            owner_source: self.source_versions.owners,
+        })
+    }
+
+    pub(super) fn plan_clear_generation_for_foundation(
+        &mut self,
+        receipt: DrainedGenerationReceipt,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_generation_replacement(receipt, GenerationChainTarget::Preserve)
+    }
+
+    pub(super) fn plan_replace_generation_chain_for_foundation(
+        &mut self,
+        receipt: DrainedGenerationReceipt,
+        chain_view: ChainViewId,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_generation_replacement(receipt, GenerationChainTarget::Install(chain_view))
+    }
+
+    fn plan_generation_replacement(
+        &mut self,
+        receipt: DrainedGenerationReceipt,
+        target: GenerationChainTarget,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.effects.ensure_open()?;
+        if receipt.generation != self.generation {
+            return Err(PlanError::Stale(StalePlan::Generation));
+        }
+        if receipt.chain_view != self.chain_view {
+            return Err(PlanError::Stale(StalePlan::ChainRevision));
+        }
+        if receipt.owner_source != self.source_versions.owners {
+            return Err(PlanError::Stale(StalePlan::SourceVersion));
+        }
+        if self.resources.preaccepted().active_work != 0 {
+            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+        }
+        let chain_view = match target {
+            GenerationChainTarget::Preserve => self.chain_view.clone(),
+            GenerationChainTarget::Install(chain_view) => {
+                if chain_view.revision() != next_chain_revision(self.chain_revision())? {
+                    return Err(PlanError::Stale(StalePlan::ChainRevision));
+                }
+                chain_view
+            }
+        };
+        let generation = next_generation(self.generation)?;
+        let sequence = self.clocks.next_sequence;
+        let clocks = AuthorityClocks {
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        let effect = self.effects.plan_generation_reset(sequence)?;
+        let sources = self.source_versions.plan_generation_replacement(sequence);
+        let fresh = FreshGeneration::empty(&self.resources, &self.scheduler);
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Generation(GenerationDelta {
+                generation,
+                chain_view,
+                fresh,
+                sources,
+                effect,
+                clocks,
+                sequence,
+            }),
+            handoff: CommittedHandoff::None,
+        })
+    }
+
+    /// Remove the complete bounded pre-accepted cohort owned by one banned
+    /// ingress peer. Accepted membership is deliberately absent from the peer
+    /// index: a commit before the external ban fence wins, while a fence-first
+    /// race reaches this transition. Active compute must first return its
+    /// unique settlement capability; it is never made stale by deletion.
+    pub(super) fn plan_peer_revocation_for_foundation(
+        &mut self,
+        peer: ckb_network::PeerIndex,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        self.effects.ensure_open()?;
+        let Some(indexed) = self.indexes.preaccepted_for_peer(peer) else {
+            return Ok(None);
+        };
+        let mut hashes = Vec::new();
+        hashes
+            .try_reserve(indexed.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        hashes.extend(indexed.iter().cloned());
+        hashes.sort_unstable();
+
+        let mut owner_refs = Vec::new();
+        owner_refs
+            .try_reserve(hashes.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for hash in &hashes {
+            let owner = self
+                .entries
+                .get(hash)
+                .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
+            let OwnedTx::PreAccepted(entry) = owner else {
+                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            };
+            if entry.record.ingress.peer() != Some(peer) {
+                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            }
+            if matches!(&entry.phase, PreAcceptedPhase::Computing(_)) {
+                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+            }
+            owner_refs.push(owner);
+        }
+
+        let sequence = self.clocks.next_sequence;
+        let clocks = AuthorityClocks {
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        let mut effects = Vec::new();
+        effects
+            .try_reserve(owner_refs.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        effects.extend(owner_refs.iter().map(|owner| CommittedEffect::PeerRevoked {
+            tx: Arc::clone(&owner.record().tx),
+            peer,
+        }));
+        let effect = self.effects.plan_critical_rebuildable(effects, sequence)?;
+
+        let mut resource_changes = Vec::new();
+        resource_changes
+            .try_reserve(hashes.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        resource_changes.extend(
+            hashes
+                .iter()
+                .zip(&owner_refs)
+                .map(|(hash, owner)| (hash.clone(), Some(owner.charge_record()), None)),
+        );
+        let resources = self.resources.plan_batch(resource_changes)?;
+        let scheduler = self
+            .scheduler
+            .plan_batch(owner_refs.iter().map(|owner| (Some(*owner), None)))?;
+        let dependency_control = self.plan_dependency_loss(owner_refs.iter().copied(), sequence)?;
+        let dependency = self
+            .dependencies
+            .plan_replacements(owner_refs.iter().map(|owner| (Some(*owner), None)))?
+            .with_control(dependency_control);
+        let sources = self.source_versions.plan_replacements(
+            owner_refs.iter().map(|owner| (Some(*owner), None)),
+            sequence,
+        );
+        let indexes = self.indexes.plan_replacements(
+            hashes
+                .iter()
+                .zip(&owner_refs)
+                .map(|(hash, owner)| (hash, Some(*owner), None)),
+        )?;
+        let owners = DerivedOwnerDelta { indexes, sources };
+        let retired = retired_buffer(hashes.len())?;
+        Ok(Some(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Admin(AdminDelta {
+                peer,
+                hashes,
+                owners,
+                resources,
+                scheduler,
+                dependency,
+                effect,
+                retired,
+                clocks,
+                sequence,
+            }),
+            handoff: CommittedHandoff::None,
+        }))
     }
 
     pub(super) fn plan_effect_checkout_for_foundation(
@@ -2201,9 +2735,6 @@ impl TxPoolAuthority {
         };
         let expected_charge = expected.as_ref().map(OwnedTx::charge_record);
         let after_charge = after.as_ref().map(OwnedTx::charge_record);
-        let old_proposal = expected
-            .as_ref()
-            .map(|entry| entry.record().identity.proposal.clone());
         let retirement = if expected.is_some() && after.is_none() {
             EntryRetirement::Outside(retired_buffer(1)?)
         } else {
@@ -2211,9 +2742,6 @@ impl TxPoolAuthority {
         };
         if after.is_some() && expected.is_none() {
             self.entries
-                .try_reserve(1)
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-            self.by_proposal
                 .try_reserve(1)
                 .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         }
@@ -2231,13 +2759,21 @@ impl TxPoolAuthority {
             .plan_replace(expected.as_ref(), after.as_ref())?
             .with_control(controls.dependency);
         let effect = controls.effect;
+        let sources = self.source_versions.plan_replacements(
+            std::iter::once((expected.as_ref(), after.as_ref())),
+            sequence,
+        );
+        let indexes = self
+            .indexes
+            .plan_replace(&key, expected.as_ref(), after.as_ref())?;
+        let owners = DerivedOwnerDelta { indexes, sources };
         let handoff = work.map_or(CommittedHandoff::None, CommittedHandoff::Compute);
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Entry(EntryDelta {
                 key,
-                old_proposal,
                 after,
+                owners,
                 retirement,
                 resource,
                 scheduler,

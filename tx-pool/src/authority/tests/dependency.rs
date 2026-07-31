@@ -272,6 +272,59 @@ fn uak_dependency_level_requeues_or_terminalizes_once() {
 }
 
 #[test]
+fn uak_parent_acceptance_publishes_output_availability_atomically() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = output_transaction(702);
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let key = DependencyKey::Cell(parent_output.clone());
+    let parent = admit(
+        &mut authority,
+        ValidatedAdmission::proposal(parent_tx, ProposalContextId(12))
+            .expect("parent proposal is valid"),
+    );
+    let child = admit(
+        &mut authority,
+        ValidatedAdmission::remote(input_transaction(703, parent_output), PeerIndex::from(109))
+            .expect("waiting child is valid"),
+    );
+    let missing = checkout_resolve(&mut authority, &child)
+        .missing(vec![key])
+        .expect("missing output receipt is bounded");
+    apply_without_work(
+        authority
+            .apply_settlement(missing)
+            .expect("child registers its exact wait"),
+    );
+    let waiting_version = owner_version(&authority, &child);
+
+    let verified = verified_settlement(
+        checkout_continuous(&mut authority, &parent),
+        Vec::new(),
+        Vec::new(),
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(verified)
+            .expect("parent verification settles"),
+    );
+    let parent_version = owner_version(&authority, &parent);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&parent, parent_version, AcceptedStatus::Pending)
+            .expect("parent membership and availability share one Apply"),
+    );
+
+    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    assert_ne!(owner_version(&authority, &child), waiting_version);
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
 fn uak_coalesced_loss_then_availability_wakes_a_post_loss_waiter() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let parent_tx = output_transaction(709);

@@ -149,11 +149,11 @@ impl TxPoolAuthority {
             };
             let mut record = fact.before.record.clone();
             record.version = version;
-            let status = fact.receipt.status();
+            let (proof, proposal) = fact.receipt.into_membership_parts();
             let after = AcceptedEntry {
                 record,
-                status,
-                proof: fact.receipt.into_proof(),
+                proof,
+                proposal,
             };
             committed.push(CommittedChange {
                 sequence,
@@ -187,20 +187,50 @@ impl TxPoolAuthority {
             key: change.key,
             after: OwnedTx::Accepted(change.after),
         }));
+        let source_sequence = committed
+            .last()
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
+            .sequence;
         let scheduler = self.scheduler.plan_batch(
             updates
                 .iter()
                 .map(|update| (self.entries.get(&update.key), Some(&update.after))),
         )?;
-        let dependency = self.dependencies.plan_replacements(
+        let dependency_control = self
+            .dependencies
+            .plan_events(
+                self.collect_dependency_loss_keys(updates.iter().map(|update| &update.after))?
+                    .keys,
+                Vec::new(),
+                super::super::state::DependencyCut(source_sequence),
+            )?
+            .unwrap_or_default();
+        let dependency = self
+            .dependencies
+            .plan_replacements(
+                updates
+                    .iter()
+                    .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+            )?
+            .with_control(dependency_control);
+        let entries = &self.entries;
+        let sources = self.source_versions.plan_replacements(
             updates
                 .iter()
-                .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+                .map(|update| (entries.get(&update.key), Some(&update.after))),
+            source_sequence,
+        );
+        let indexes = self.indexes.plan_replacements(
+            updates
+                .iter()
+                .map(|update| (&update.key, entries.get(&update.key), Some(&update.after))),
         )?;
+        let owners = super::DerivedOwnerDelta { indexes, sources };
         Ok(SettlementPlan::IndependentRun(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Independent(IndependentDelta {
                 updates,
+                owners,
                 resource,
                 projection,
                 scheduler,

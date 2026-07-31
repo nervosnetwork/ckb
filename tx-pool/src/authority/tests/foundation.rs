@@ -1,4 +1,4 @@
-use super::super::chain::AcceptedProof;
+use super::super::chain::{AcceptedProof, ProposalContextReceipt};
 use super::super::effect::{CommittedEffect, EffectPolicy};
 use super::super::plan::{
     AuthorityFault, Backpressure, CandidateBatchError, CommittedChange, CommittedChanges,
@@ -292,7 +292,7 @@ fn resolved_payload_with_deps(
     resolved_payload_with_facts(tx, expanded_dependencies, Vec::new(), Capacity::shannons(1))
 }
 
-fn resolved_payload_with_facts(
+pub(super) fn resolved_payload_with_facts(
     tx: &TransactionView,
     expanded_dependencies: Vec<OutPoint>,
     chain_inputs: Vec<OutPoint>,
@@ -303,7 +303,7 @@ fn resolved_payload_with_facts(
         .expect("fixture chain evidence is a subset of inputs")
 }
 
-fn accept_remote_transaction(
+pub(super) fn accept_remote_transaction(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
     peer: usize,
@@ -314,7 +314,7 @@ fn accept_remote_transaction(
     accept_remote_transaction_with_payload(authority, transaction, peer, status, payload)
 }
 
-fn accept_remote_transaction_with_payload(
+pub(super) fn accept_remote_transaction_with_payload(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
     peer: usize,
@@ -489,7 +489,7 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
     assert_membership_reference(authority);
 }
 
-fn assert_membership_reference(authority: &TxPoolAuthority) {
+pub(super) fn assert_membership_reference(authority: &TxPoolAuthority) {
     let accepted = authority
         .entries_for_reference()
         .iter()
@@ -508,7 +508,7 @@ fn assert_membership_reference(authority: &TxPoolAuthority) {
     let mut counts = StatusCounts::default();
 
     for (hash, entry) in &accepted {
-        match entry.status {
+        match entry.status() {
             AcceptedStatus::Pending => {
                 counts.pending = counts.pending.checked_add(1).expect("fixture count fits")
             }
@@ -603,7 +603,7 @@ fn assert_membership_reference(authority: &TxPoolAuthority) {
             get_transaction_weight(aggregate.serialized_bytes, aggregate.cycles),
         );
         eviction_order.insert(EvictionOrderKey {
-            status: root_entry.status,
+            status: root_entry.status(),
             fee_rate: self_rate.max(descendants_rate),
             descendants_count: aggregate.entries,
             arrival: root_entry.record.arrival,
@@ -655,6 +655,356 @@ fn uak_remote_admission_owns_and_charges_once() {
                 && entry.original_charge() == ResourceVector::new(1, expected_bytes, 3, 0)
                 && entry.charge == entry.original_charge()
     ));
+}
+
+#[test]
+fn uak_owner_changes_compile_proposal_and_peer_indexes_together() {
+    let peer = PeerIndex::from(702);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let queued = admit_remote(&mut authority, 1_702, 702);
+    assert_eq!(
+        authority.preaccepted_for_peer_for_reference(peer),
+        vec![queued.clone()]
+    );
+
+    let accepted = accept_remote_transaction(
+        &mut authority,
+        tx(1_703),
+        702,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    assert_eq!(
+        authority.preaccepted_for_peer_for_reference(peer),
+        vec![queued.clone()],
+        "accepted membership is no longer peer-owned pre-acceptance work"
+    );
+    assert!(matches!(
+        authority.entry(&accepted),
+        Some(OwnedTx::Accepted(_))
+    ));
+
+    let version = owner_version(&authority, &queued);
+    apply_without_work(
+        authority
+            .plan_terminalize_for_foundation(&queued, version)
+            .expect("terminalization removes the final peer-indexed owner"),
+    );
+    assert!(
+        authority
+            .preaccepted_for_peer_for_reference(peer)
+            .is_empty()
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_source_versions_ignore_preaccepted_work_and_track_accepted_facts() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    assert_eq!(
+        authority.source_versions_for_reference(),
+        (ApplySequence(0), ApplySequence(0))
+    );
+
+    let disposable = admit_remote(&mut authority, 1_704, 704);
+    assert_eq!(
+        authority.source_versions_for_reference(),
+        (ApplySequence(0), ApplySequence(0)),
+        "pre-acceptance owner changes cannot stale a ChainPlan"
+    );
+    let version = owner_version(&authority, &disposable);
+    apply_without_work(
+        authority
+            .plan_terminalize_for_foundation(&disposable, version)
+            .expect("pre-accepted terminalization plans"),
+    );
+    assert_eq!(
+        authority.source_versions_for_reference(),
+        (ApplySequence(0), ApplySequence(0))
+    );
+
+    let accepted = accept_remote_transaction(
+        &mut authority,
+        tx(1_705),
+        705,
+        AcceptedStatus::Gap,
+        Vec::new(),
+    );
+    let accepted_sources = authority.source_versions_for_reference();
+    assert_eq!(accepted_sources.0, accepted_sources.1);
+    assert_ne!(accepted_sources.0, ApplySequence(0));
+
+    let version = owner_version(&authority, &accepted);
+    let status_change = apply_committed_without_work(
+        authority
+            .plan_status_for_foundation(&accepted, version, AcceptedStatus::Pending)
+            .expect("status-only transition plans"),
+    );
+    let status_sequence = only_committed_change(&status_change).sequence;
+    assert_eq!(
+        authority.source_versions_for_reference(),
+        (accepted_sources.0, status_sequence),
+        "status-only mutation must not invalidate accepted-content work"
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_generation_swap_requires_a_current_structured_drain() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let stale_empty = authority
+        .drained_generation_receipt_for_foundation()
+        .expect("an empty generation is drained");
+    let active = admit_remote(&mut authority, 1_706, 706);
+    assert_eq!(
+        authority
+            .plan_clear_generation_for_foundation(stale_empty)
+            .err(),
+        Some(PlanError::Stale(StalePlan::SourceVersion))
+    );
+
+    let version = owner_version(&authority, &active);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&active, version, WorkPermit::ResolveOnly)
+            .expect("active fixture checks out")
+            .apply(),
+    );
+    assert_eq!(
+        authority.drained_generation_receipt_for_foundation().err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .expect("structured cancellation settles the only capability"),
+    );
+    let accepted = accept_remote_transaction(
+        &mut authority,
+        tx(1_707),
+        707,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    assert!(matches!(
+        authority.entry(&accepted),
+        Some(OwnedTx::Accepted(_))
+    ));
+
+    let before = authority.normalized_snapshot();
+    let receipt = authority
+        .drained_generation_receipt_for_foundation()
+        .expect("every compute capability has settled");
+    drop(
+        authority
+            .plan_clear_generation_for_foundation(receipt)
+            .expect("a complete generation replacement plans"),
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+
+    let old_clocks = authority.clocks();
+    let old_chain = authority.chain_view().clone();
+    let receipt = authority
+        .drained_generation_receipt_for_foundation()
+        .expect("the dropped plan retained the drain proof conditions");
+    let committed = authority
+        .plan_clear_generation_for_foundation(receipt)
+        .expect("clear replans")
+        .apply();
+    let CommittedChanges::GenerationControl(sequence) = &committed.changes else {
+        panic!("fixture expected one generation commit");
+    };
+    let sequence = *sequence;
+    assert_eq!(committed.retired_len(), 2);
+    assert_eq!(authority.owner_count(), 0);
+    assert_eq!(authority.charged_count(), 0);
+    assert_eq!(authority.generation(), PoolGeneration(1));
+    assert_eq!(authority.chain_view(), &old_chain);
+    assert_eq!(
+        authority.source_versions_for_reference(),
+        (sequence, sequence)
+    );
+    assert_eq!(authority.clocks().next_version, old_clocks.next_version);
+    assert_eq!(authority.clocks().next_lease, old_clocks.next_lease);
+    assert_eq!(authority.clocks().next_arrival, old_clocks.next_arrival);
+    assert!(authority.primary_projection_consistent());
+
+    let reset = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("reset checkout plans")
+        .expect("generation swap commits one reset")
+        .apply()
+        .into_effect_lease()
+        .expect("reset has one publisher lease");
+    assert_eq!(reset.effects(), &[CommittedEffect::GenerationReset]);
+}
+
+#[test]
+fn uak_generation_chain_replacement_requires_the_next_revision() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let wrong = ChainViewId::new(ChainRevision(2), Byte32::new([72; 32]));
+    let receipt = authority
+        .drained_generation_receipt_for_foundation()
+        .expect("empty generation is drained");
+    assert_eq!(
+        authority
+            .plan_replace_generation_chain_for_foundation(receipt, wrong)
+            .err(),
+        Some(PlanError::Stale(StalePlan::ChainRevision))
+    );
+
+    let next = ChainViewId::new(ChainRevision(1), Byte32::new([73; 32]));
+    let receipt = authority
+        .drained_generation_receipt_for_foundation()
+        .expect("failed planning did not consume authority state");
+    let committed = authority
+        .plan_replace_generation_chain_for_foundation(receipt, next.clone())
+        .expect("the next chain revision can replace a drained generation")
+        .apply();
+    assert!(matches!(
+        committed.changes,
+        CommittedChanges::GenerationControl(_)
+    ));
+    assert_eq!(authority.chain_view(), &next);
+    assert_eq!(authority.generation(), PoolGeneration(1));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
+    let banned = PeerIndex::from(708);
+    let survivor_peer = PeerIndex::from(709);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let committed = accept_remote_transaction(
+        &mut authority,
+        tx(1_710),
+        708,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let queued_tx = tx(1_708);
+    let queued = admit_remote(&mut authority, 1_708, 708);
+    let promoted_tx = tx(1_709);
+    let promoted = admit_remote(&mut authority, 1_709, 708);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(promoted_tx, ProposalContextId(8))
+                    .expect("promotion fixture is valid"),
+            )
+            .expect("promotion preserves immutable ingress"),
+    );
+    let survivor = admit_remote(&mut authority, 1_711, 709);
+
+    let revoked = authority
+        .plan_peer_revocation_for_foundation(banned)
+        .expect("bounded peer cohort plans")
+        .expect("two preaccepted owners are indexed")
+        .apply();
+    assert!(matches!(
+        &revoked.changes,
+        CommittedChanges::AdminControl { peer, .. } if *peer == banned
+    ));
+    assert_eq!(revoked.retired_len(), 2);
+    assert!(authority.entry(&queued).is_none());
+    assert!(authority.entry(&promoted).is_none());
+    assert!(matches!(
+        authority.entry(&committed),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(matches!(
+        authority.entry(&survivor),
+        Some(OwnedTx::PreAccepted(_))
+    ));
+    assert!(
+        authority
+            .preaccepted_for_peer_for_reference(banned)
+            .is_empty()
+    );
+    assert_eq!(
+        authority.resources().peer(banned),
+        ResourceVector::default()
+    );
+    assert_eq!(
+        authority.preaccepted_for_peer_for_reference(survivor_peer),
+        vec![survivor]
+    );
+
+    let effect = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("revocation effect checkout plans")
+        .expect("revocation committed one cleanup batch")
+        .apply()
+        .into_effect_lease()
+        .expect("cleanup has one publisher lease");
+    let revoked_hashes = effect
+        .effects()
+        .iter()
+        .map(|effect| match effect {
+            CommittedEffect::PeerRevoked { tx, peer } if *peer == banned => tx.hash(),
+            _ => panic!("fixture expected peer-specific cleanup detail"),
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        revoked_hashes,
+        HashSet::from([queued.0.clone(), promoted.0.clone()])
+    );
+
+    let resubmitted = ValidatedAdmission::remote(queued_tx, survivor_peer)
+        .expect("another peer may provide the same raw transaction");
+    apply_without_work(
+        authority
+            .plan_admission(resubmitted)
+            .expect("peer cleanup does not install a raw-hash tombstone"),
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_peer_revocation_drains_promoted_active_work_before_delete() {
+    let peer = PeerIndex::from(710);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_712);
+    let hash = admit_remote(&mut authority, 1_712, 710);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction, ProposalContextId(9))
+                    .expect("promotion fixture is valid"),
+            )
+            .expect("promotion plans"),
+    );
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("promoted owner checks out under trusted attribution")
+            .apply(),
+    );
+    assert_eq!(
+        authority.resources().peer(peer).active_work,
+        0,
+        "compute attribution alone cannot prove ingress drain"
+    );
+    assert_eq!(
+        authority.plan_peer_revocation_for_foundation(peer).err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    assert!(authority.entry(&hash).is_some());
+
+    apply_without_work(
+        authority
+            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .expect("the worker returns its unique settlement capability"),
+    );
+    let revoked = authority
+        .plan_peer_revocation_for_foundation(peer)
+        .expect("drained cohort plans")
+        .expect("owner remains until Apply")
+        .apply();
+    assert_eq!(revoked.retired_len(), 1);
+    assert!(authority.entry(&hash).is_none());
+    assert!(authority.primary_projection_consistent());
 }
 
 #[test]
@@ -997,17 +1347,14 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let accepted = match changed {
         OwnedTx::PreAccepted(entry) => OwnedTx::Accepted(AcceptedEntry {
             record: entry.record,
-            status: AcceptedStatus::Gap,
-            proof: AcceptedProof::for_foundation(verified, AcceptedStatus::Gap),
+            proof: AcceptedProof::for_foundation(verified),
+            proposal: ProposalContextReceipt::from_validation(AcceptedStatus::Gap),
         }),
         OwnedTx::Accepted(_) => unreachable!("fixture starts preaccepted"),
     };
     assert!(matches!(
         accepted,
-        OwnedTx::Accepted(AcceptedEntry {
-            status: AcceptedStatus::Gap,
-            ..
-        })
+        OwnedTx::Accepted(ref entry) if entry.status() == AcceptedStatus::Gap
     ));
     assert_ne!(AcceptedStatus::Proposed, AcceptedStatus::Pending);
 }
@@ -2678,6 +3025,101 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
 }
 
 #[test]
+fn uak_rbf_removal_subtracts_deep_descendants_from_a_surviving_ancestor() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let ancestor_input = OutPoint::new(Byte32::new([71; 32]), 0);
+    let conflict_input = OutPoint::new(Byte32::new([72; 32]), 0);
+    let ancestor_tx = TransactionBuilder::default()
+        .version(71u32)
+        .input(CellInput::new(ancestor_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let ancestor = accept_remote_transaction_with_payload(
+        &mut authority,
+        ancestor_tx.clone(),
+        71,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &ancestor_tx,
+            Vec::new(),
+            vec![ancestor_input],
+            Capacity::shannons(100),
+        ),
+    );
+    let victim_tx = TransactionBuilder::default()
+        .version(72u32)
+        .input(CellInput::new(OutPoint::new(ancestor_tx.hash(), 0), 0))
+        .input(CellInput::new(conflict_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        72,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![conflict_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let child_tx = TransactionBuilder::default()
+        .version(73u32)
+        .input(CellInput::new(OutPoint::new(victim_tx.hash(), 0), 0))
+        .build();
+    let child = accept_remote_transaction_with_payload(
+        &mut authority,
+        child_tx.clone(),
+        73,
+        AcceptedStatus::Gap,
+        resolved_payload_with_facts(&child_tx, Vec::new(), Vec::new(), Capacity::shannons(100)),
+    );
+    let replacement_tx = TransactionBuilder::default()
+        .version(74u32)
+        .input(CellInput::new(conflict_input.clone(), 0))
+        .build();
+    let replacement = verify_remote_transaction_with_payload(
+        &mut authority,
+        replacement_tx.clone(),
+        74,
+        resolved_payload_with_facts(
+            &replacement_tx,
+            Vec::new(),
+            vec![conflict_input],
+            Capacity::shannons(10_000),
+        ),
+    );
+
+    let version = owner_version(&authority, &replacement);
+    let committed = apply_committed_without_work(
+        authority
+            .plan_accept_for_foundation(&replacement, version, AcceptedStatus::Pending)
+            .expect("replacement removes the victim closure below a surviving ancestor"),
+    );
+
+    assert_eq!(committed.removals.len(), 2);
+    assert!(authority.entry(&victim).is_none());
+    assert!(authority.entry(&child).is_none());
+    assert!(matches!(
+        authority.entry(&ancestor),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert_eq!(
+        authority
+            .membership_snapshot_for_reference()
+            .descendant_aggregates[&ancestor]
+            .entries,
+        1,
+        "the surviving ancestor must not retain removed descendant weight"
+    );
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_rbf_unions_fan_in_descendants_once_and_removes_children_first() {
     let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
     let left_input = OutPoint::new(Byte32::new([228; 32]), 0);
@@ -3541,10 +3983,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     );
     assert!(matches!(
         authority.entry(&hash),
-        Some(OwnedTx::Accepted(AcceptedEntry {
-            status: AcceptedStatus::Proposed,
-            ..
-        }))
+        Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Proposed
     ));
     assert_eq!(authority.resources().preaccepted().entries, 0);
     assert_eq!(authority.resources().remote().entries, 0);

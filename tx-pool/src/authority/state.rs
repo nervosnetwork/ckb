@@ -1,6 +1,6 @@
 use super::chain::{
-    AcceptedProof, CellContentReceipt, CellLocationReceipt, ScriptReceipt, ValidationRulesId,
-    VerificationContextReceipt,
+    AcceptedProof, CellContentReceipt, CellLocationReceipt, ProposalContextReceipt, ScriptReceipt,
+    ValidationRulesId, VerificationContextReceipt,
 };
 use super::resources::{AcceptedCost, AcceptedResources, ChargeRecord, ResourceVector};
 use ckb_network::PeerIndex;
@@ -16,7 +16,7 @@ pub(super) struct RawTxHash(pub(super) Byte32);
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(super) struct WitnessTxHash(pub(super) Byte32);
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ProposalId(pub(super) ProposalShortId);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -929,8 +929,8 @@ pub(super) struct PreAcceptedEntry {
 #[derive(Clone, Debug)]
 pub(super) struct AcceptedEntry {
     pub(super) record: TxRecord,
-    pub(super) status: AcceptedStatus,
     pub(super) proof: AcceptedProof,
+    pub(super) proposal: ProposalContextReceipt,
 }
 
 #[derive(Clone, Debug)]
@@ -997,6 +997,10 @@ impl PreAcceptedEntry {
 }
 
 impl AcceptedEntry {
+    pub(super) fn status(&self) -> AcceptedStatus {
+        self.proposal.status()
+    }
+
     pub(super) fn charge_record(&self) -> ChargeRecord {
         ChargeRecord::Accepted(AcceptedResources::one(self.proof.metrics().cost))
     }
@@ -1014,6 +1018,13 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => entry.charge_record(),
             Self::Accepted(entry) => entry.charge_record(),
+        }
+    }
+
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        match self {
+            Self::PreAccepted(entry) => entry.dependencies(),
+            Self::Accepted(entry) => entry.proof.payload().dependencies(),
         }
     }
 

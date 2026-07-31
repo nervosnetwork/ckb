@@ -521,6 +521,10 @@ impl FairFrontier {
         }
     }
 
+    pub(super) fn verify_order(&self) -> VerifyOrder {
+        self.verify_order
+    }
+
     fn slot(&self, owner: &OwnedTx) -> Result<Option<SchedulerSlot>, SchedulerError> {
         let OwnedTx::PreAccepted(entry) = owner else {
             return Ok(None);

@@ -404,6 +404,10 @@ impl ResourceLedger {
         self.limits.compute
     }
 
+    pub(super) fn limits(&self) -> ResourceLimits {
+        self.limits
+    }
+
     pub(super) fn validate_admission(
         &self,
         resources: ResourceVector,

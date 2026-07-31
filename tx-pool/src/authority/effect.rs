@@ -1,4 +1,5 @@
 use super::state::{AcceptedStatus, ApplySequence, RejectionKind};
+use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
 use std::{collections::VecDeque, sync::Arc};
 
@@ -164,13 +165,29 @@ pub(super) enum CommittedEffect {
         tx: Arc<TransactionView>,
         reason: RejectionKind,
     },
+    /// The transaction became canonical while it still had a local owner.
+    /// This clears pending relay/callback projections without manufacturing a
+    /// pool status or a rejection record.
+    ChainCommitted {
+        tx: Arc<TransactionView>,
+    },
+    /// Administrative ingress revocation clears only the relayer's pending
+    /// projection. It is not a transaction rejection and must not populate a
+    /// raw-hash negative cache, so another peer may provide the same tx again.
+    PeerRevoked {
+        tx: Arc<TransactionView>,
+        peer: PeerIndex,
+    },
     GenerationReset,
 }
 
 impl CommittedEffect {
     fn charge_bytes(&self) -> Option<usize> {
         match self {
-            Self::Accepted { tx, .. } | Self::Rejected { tx, .. } => {
+            Self::Accepted { tx, .. }
+            | Self::Rejected { tx, .. }
+            | Self::ChainCommitted { tx }
+            | Self::PeerRevoked { tx, .. } => {
                 EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
             }
             Self::GenerationReset => Some(0),
@@ -619,6 +636,34 @@ impl EffectLog {
         self.ensure_open()?;
         self.validate_new_sequence(sequence)?;
         Ok(self.reset_delta(sequence))
+    }
+
+    /// Publish rebuildable critical detail or collapse it to the same
+    /// constant-size generation reset when either the batch shape or current
+    /// journal capacity cannot preserve every item. This is the fail-open
+    /// cleanup path used by administrative owner revocation: state removal
+    /// must not wait for ordinary effect capacity, while consumers still get
+    /// an authoritative reconciliation signal.
+    pub(super) fn plan_critical_rebuildable(
+        &self,
+        effects: Vec<CommittedEffect>,
+        sequence: ApplySequence,
+    ) -> Result<EffectDelta, EffectError> {
+        self.ensure_open()?;
+        self.validate_new_sequence(sequence)?;
+        let publication =
+            match EffectPublication::new(EffectPolicy::CriticalRebuildable, effects, self.limits) {
+                Ok(publication) => publication,
+                Err(
+                    EffectBuildError::TooMany
+                    | EffectBuildError::TooLarge
+                    | EffectBuildError::Arithmetic,
+                ) => return Ok(self.reset_delta(sequence)),
+                Err(EffectBuildError::Empty | EffectBuildError::ReservedReset) => {
+                    return Err(EffectError::Projection);
+                }
+            };
+        self.plan_publication(&publication, sequence)
     }
 
     fn reset_delta(&self, sequence: ApplySequence) -> EffectDelta {

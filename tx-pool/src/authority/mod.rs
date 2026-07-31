@@ -8,9 +8,11 @@
 mod chain;
 mod dependency;
 mod effect;
+mod indexes;
 mod plan;
 mod resources;
 mod scheduler;
+mod source;
 mod state;
 mod work;
 

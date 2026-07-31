@@ -238,11 +238,12 @@ impl<'candidate> VirtualProjection<'candidate> {
     ) -> Result<(), PlanError> {
         for removal in removals {
             let removed_entry = authority.accepted_entry(removal)?;
-            let parents = authority
-                .membership
-                .parents(removal)
-                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let mut ancestors = authority.collect_surviving_ancestors(parents, removed_after)?;
+            // Every removed descendant contributed once to each surviving
+            // ancestor's aggregate. Walk through removed intermediate nodes
+            // so a root+descendant closure subtracts the complete contribution
+            // instead of stopping at the first removed parent.
+            let mut ancestors =
+                authority.collect_surviving_ancestors_through_removals(removal, removed_after)?;
             if self.candidate_active && self.candidate_descendants.binary_search(removal).is_ok() {
                 let additional = self
                     .candidate_ancestors

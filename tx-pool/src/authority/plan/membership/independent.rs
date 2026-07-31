@@ -170,7 +170,11 @@ fn validate_owner(
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
     }
-    if authority.by_proposal.get(&before.record.identity.proposal) != Some(&change.key) {
+    if authority
+        .indexes
+        .proposal_owner(&before.record.identity.proposal)
+        != Some(&change.key)
+    {
         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
     }
     Ok(())
@@ -277,7 +281,7 @@ fn prepare_projection(
     let mut counts = authority.membership.counts;
     for change in changes {
         counts = counts
-            .checked_add(change.after.status)
+            .checked_add(change.after.status())
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
     }
 

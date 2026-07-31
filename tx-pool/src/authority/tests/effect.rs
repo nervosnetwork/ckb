@@ -13,7 +13,8 @@ use super::super::{
     },
 };
 use super::foundation::{
-    FixtureCommit, limits, owner_version, take_resolve_work, tx, verify_remote_transaction,
+    FixtureCommit, admit_remote, limits, owner_version, take_resolve_work, tx,
+    verify_remote_transaction,
 };
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
@@ -44,6 +45,27 @@ fn effect_limits(
 fn authority_with_effect_limits(effect_limits: EffectLimits) -> TxPoolAuthority {
     TxPoolAuthority::for_foundation_with_effect_limits(limits(), effect_limits)
         .expect("fixture effect storage reserves its bounded queue")
+}
+
+#[test]
+fn uak_peer_revocation_over_detail_bound_commits_a_constant_reset() {
+    let peer = PeerIndex::from(711);
+    let mut authority = authority_with_effect_limits(effect_limits(8, 2, 2, 1));
+    let first = admit_remote(&mut authority, 1_713, 711);
+    let second = admit_remote(&mut authority, 1_714, 711);
+
+    let committed = authority
+        .plan_peer_revocation_for_foundation(peer)
+        .expect("rebuildable cleanup cannot be blocked by its detail bound")
+        .expect("peer owns a bounded cohort")
+        .apply();
+    assert_eq!(committed.retired_len(), 2);
+    assert!(authority.entry(&first).is_none());
+    assert!(authority.entry(&second).is_none());
+
+    let lease = checkout(&mut authority);
+    assert_eq!(lease.effects(), &[CommittedEffect::GenerationReset]);
+    assert!(authority.primary_projection_consistent());
 }
 
 fn rejected_publication(

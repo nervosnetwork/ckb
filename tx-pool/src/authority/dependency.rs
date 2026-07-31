@@ -80,21 +80,6 @@ pub(super) enum DependencyEvent {
     DefinitiveLoss(DependencyCut),
 }
 
-impl DependencyEvent {
-    fn cut(self) -> DependencyCut {
-        match self {
-            Self::Availability(cut) | Self::DefinitiveLoss(cut) => cut,
-        }
-    }
-
-    fn scope(self) -> DirtyScope {
-        match self {
-            Self::Availability(_) => DirtyScope::ExistingWaiters,
-            Self::DefinitiveLoss(_) => DirtyScope::AllConsumers,
-        }
-    }
-}
-
 struct DependencyEventChange {
     key: DependencyKey,
     level: DependencyLevel,
@@ -147,6 +132,12 @@ pub(super) struct DependencyBatchDelta {
     removed: Vec<DependencySlot>,
     added: Vec<DependencySlot>,
     control: DependencyControlDelta,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VacancyPolicy {
+    ExistingOwnersOnly,
+    PrimaryVacancyProven,
 }
 
 #[derive(Debug, Default)]
@@ -293,6 +284,10 @@ impl DependencyFrontier {
         self.keys_by_origin.get(origin)
     }
 
+    pub(super) fn consumers_for(&self, key: &DependencyKey) -> Option<&BTreeSet<RawTxHash>> {
+        self.consumers.get(key)
+    }
+
     pub(super) fn proof_is_current(
         &self,
         dependencies: &KnownDependencies,
@@ -366,30 +361,58 @@ impl DependencyFrontier {
 
     pub(super) fn plan_event(
         &self,
-        mut keys: Vec<DependencyKey>,
+        keys: Vec<DependencyKey>,
         event: DependencyEvent,
     ) -> Result<Option<DependencyControlDelta>, DependencyError> {
-        keys.sort_unstable();
-        keys.dedup();
-        if keys.is_empty() {
+        match event {
+            DependencyEvent::Availability(cut) => self.plan_events(keys, Vec::new(), cut),
+            DependencyEvent::DefinitiveLoss(cut) => self.plan_events(Vec::new(), keys, cut),
+        }
+    }
+
+    /// Compile availability and definitive loss from one projected final
+    /// state. A key cannot be both; callers must resolve that contradiction
+    /// before publishing the level transition.
+    pub(super) fn plan_events(
+        &self,
+        mut available: Vec<DependencyKey>,
+        mut lost: Vec<DependencyKey>,
+        cut: DependencyCut,
+    ) -> Result<Option<DependencyControlDelta>, DependencyError> {
+        available.sort_unstable();
+        available.dedup();
+        lost.sort_unstable();
+        lost.dedup();
+        if available.iter().any(|key| lost.binary_search(key).is_ok()) {
+            return Err(DependencyError::Projection);
+        }
+        let change_count = available
+            .len()
+            .checked_add(lost.len())
+            .ok_or(DependencyError::Projection)?;
+        if change_count == 0 {
             return Ok(None);
         }
         let mut changes = Vec::new();
         changes
-            .try_reserve(keys.len())
+            .try_reserve(change_count)
             .map_err(|_| DependencyError::Allocation)?;
-        let cut = event.cut();
-        let scope = event.scope();
-        for key in keys {
+        for (key, definitive_loss) in available
+            .into_iter()
+            .map(|key| (key, false))
+            .chain(lost.into_iter().map(|key| (key, true)))
+        {
             let previous = self.levels.get(&key).copied();
             if previous.is_some_and(|level| level.last_change >= cut) {
                 return Err(DependencyError::Projection);
             }
-            let last_definitive_loss = match event {
-                DependencyEvent::Availability(_) => {
-                    previous.and_then(|level| level.last_definitive_loss)
-                }
-                DependencyEvent::DefinitiveLoss(cut) => Some(cut),
+            let (last_definitive_loss, scope) = if definitive_loss {
+                (Some(cut), DirtyScope::AllConsumers)
+            } else {
+                (
+                    previous.and_then(|level| level.last_definitive_loss),
+                    DirtyScope::ExistingWaiters,
+                )
             };
             changes.push(DependencyEventChange {
                 key,
@@ -613,6 +636,24 @@ impl DependencyFrontier {
         &self,
         changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
     ) -> Result<DependencyBatchDelta, DependencyError> {
+        self.plan_replacements_with_additions(changes, VacancyPolicy::ExistingOwnersOnly)
+    }
+
+    /// Chain Apply is the one bulk path that can introduce detached
+    /// transactions into primary ownership. Its caller proves each added raw
+    /// hash vacant in the primary owner map before invoking this compiler.
+    pub(super) fn plan_chain_replacements<'entry>(
+        &self,
+        changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
+    ) -> Result<DependencyBatchDelta, DependencyError> {
+        self.plan_replacements_with_additions(changes, VacancyPolicy::PrimaryVacancyProven)
+    }
+
+    fn plan_replacements_with_additions<'entry>(
+        &self,
+        changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
+        vacancy: VacancyPolicy,
+    ) -> Result<DependencyBatchDelta, DependencyError> {
         let changes = changes
             .into_iter()
             .map(|(before, after)| {
@@ -651,7 +692,8 @@ impl DependencyFrontier {
         // accidental duplicate attachment unrepresentable without scanning the
         // complete reverse index under the authority guard. A future bulk
         // admission/chain-generation API must carry its own typed vacancy proof.
-        if !added_hashes.is_subset(&removed_hashes) {
+        if vacancy == VacancyPolicy::ExistingOwnersOnly && !added_hashes.is_subset(&removed_hashes)
+        {
             return Err(DependencyError::Projection);
         }
         Ok(DependencyBatchDelta {

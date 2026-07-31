@@ -6,11 +6,15 @@
 //! assemble a membership proof from unrelated booleans or snapshots.
 
 use super::state::{
-    AcceptedStatus, CandidateMetrics, ChainTipHash, ChainViewId, DependencyCut, EntryVersion,
-    InputEvidenceError, RawTxHash, ResolvedPayload, VerifiedFacts,
+    AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics, ChainTipHash,
+    ChainViewId, DependencyCut, EntryVersion, InputEvidenceError, PoolGeneration, ProposalId,
+    RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
 };
-use ckb_types::packed::OutPoint;
-use std::sync::Arc;
+use ckb_types::{
+    core::TransactionView,
+    packed::{Byte32, OutPoint},
+};
+use std::{collections::HashSet, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(super) struct ValidationRulesId(pub(super) u64);
@@ -209,7 +213,7 @@ pub(super) struct ProposalContextReceipt {
 }
 
 impl ProposalContextReceipt {
-    fn from_validation(status: AcceptedStatus) -> Self {
+    pub(super) fn from_validation(status: AcceptedStatus) -> Self {
         Self { status }
     }
 
@@ -221,18 +225,24 @@ impl ProposalContextReceipt {
 /// Proof retained by accepted membership. Its location/proposal/time fields
 /// all come from the final validation view, while content and script work may
 /// have originated at an equivalent earlier chain state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AcceptedChainSensitivity {
+    Stable,
+    TipContext,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct AcceptedProof {
     verified: VerifiedFacts,
-    proposal: ProposalContextReceipt,
+    sensitivity: AcceptedChainSensitivity,
 }
 
 impl AcceptedProof {
     #[cfg(test)]
-    pub(super) fn for_foundation(verified: VerifiedFacts, status: AcceptedStatus) -> Self {
+    pub(super) fn for_foundation(verified: VerifiedFacts) -> Self {
         Self {
-            proposal: ProposalContextReceipt::from_validation(status),
             verified,
+            sensitivity: AcceptedChainSensitivity::Stable,
         }
     }
 
@@ -262,6 +272,10 @@ impl AcceptedProof {
 
     pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
         self.verified.context_is_for(view)
+    }
+
+    pub(super) fn sensitivity(&self) -> AcceptedChainSensitivity {
+        self.sensitivity
     }
 }
 
@@ -304,6 +318,33 @@ impl FinalAdmissionWork {
         status: AcceptedStatus,
         rules: ValidationRulesId,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
+        self.validate_with_sensitivity_for_foundation(
+            status,
+            rules,
+            AcceptedChainSensitivity::Stable,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn validate_context_sensitive_for_foundation(
+        self,
+        status: AcceptedStatus,
+        rules: ValidationRulesId,
+    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
+        self.validate_with_sensitivity_for_foundation(
+            status,
+            rules,
+            AcceptedChainSensitivity::TipContext,
+        )
+    }
+
+    #[cfg(test)]
+    fn validate_with_sensitivity_for_foundation(
+        self,
+        status: AcceptedStatus,
+        rules: ValidationRulesId,
+        sensitivity: AcceptedChainSensitivity,
+    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
         let context = self
             .verified
             .verification_context()
@@ -316,7 +357,11 @@ impl FinalAdmissionWork {
         Ok(FinalAdmissionReceipt {
             key: self.key,
             expected: self.expected,
-            proof: AcceptedProof { verified, proposal },
+            proof: AcceptedProof {
+                verified,
+                sensitivity,
+            },
+            proposal,
         })
     }
 }
@@ -327,6 +372,7 @@ pub(super) struct FinalAdmissionReceipt {
     key: RawTxHash,
     expected: EntryVersion,
     proof: AcceptedProof,
+    proposal: ProposalContextReceipt,
 }
 
 impl FinalAdmissionReceipt {
@@ -342,15 +388,431 @@ impl FinalAdmissionReceipt {
         self.proof.admission_view()
     }
 
-    pub(super) fn status(&self) -> AcceptedStatus {
-        self.proof.proposal.status()
-    }
-
     pub(super) fn proof(&self) -> &AcceptedProof {
         &self.proof
     }
 
-    pub(super) fn into_proof(self) -> AcceptedProof {
-        self.proof
+    pub(super) fn into_membership_parts(self) -> (AcceptedProof, ProposalContextReceipt) {
+        (self.proof, self.proposal)
     }
+}
+
+/// Whether the local node materializes proposal-window promotions for block
+/// construction. Demotions remain chain-correctness work in either mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ChainPackagingMode {
+    Package,
+    ObserveOnly,
+}
+
+/// Inductive validity proof for Accepted membership across one chain cut.
+/// Production construction may choose `Preserved` only after proving a
+/// monotonic extension under the same validation rules; every reorg or rules
+/// transition is conservatively `RevalidateContext`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AcceptedValidityTransition {
+    Preserved,
+    RevalidateContext,
+}
+
+impl AcceptedValidityTransition {
+    pub(super) fn requires_revalidation(self) -> bool {
+        self == Self::RevalidateContext
+    }
+}
+
+/// Final position of one proposal id in the new snapshot. This is a closed
+/// state rather than two booleans, so `proposed && gap` is unrepresentable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ProposalWindowPosition {
+    Proposed,
+    Gap,
+    Outside,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ChainFactsError {
+    DuplicateTransaction,
+    DuplicateHeader,
+    Allocation,
+}
+
+/// The block-derived half of a chain transition. Grouping these four causal
+/// fact sets keeps callers from confusing them with proposal-window inputs.
+#[derive(Debug)]
+pub(super) struct ChainBlockChanges {
+    attached: Vec<TransactionView>,
+    detached: Vec<TransactionView>,
+    attached_headers: Vec<Byte32>,
+    detached_headers: Vec<Byte32>,
+}
+
+impl ChainBlockChanges {
+    #[cfg(test)]
+    pub(super) fn for_foundation(
+        attached: Vec<TransactionView>,
+        detached: Vec<TransactionView>,
+        attached_headers: Vec<Byte32>,
+        detached_headers: Vec<Byte32>,
+    ) -> Self {
+        Self {
+            attached,
+            detached,
+            attached_headers,
+            detached_headers,
+        }
+    }
+}
+
+/// Bounded facts extracted from attached/detached blocks before taking the
+/// authority guard. The new snapshot itself is deliberately not retained.
+#[derive(Debug)]
+pub(super) struct ChainTransitionFacts {
+    pub(super) new_view: ChainViewId,
+    pub(super) attached: Vec<TransactionView>,
+    pub(super) detached: Vec<TransactionView>,
+    pub(super) relocated: Vec<RawTxHash>,
+    pub(super) attached_headers: Vec<Byte32>,
+    pub(super) detached_headers: Vec<Byte32>,
+    pub(super) changed_proposals: Vec<ProposalId>,
+    pub(super) detached_proposals: Vec<ProposalId>,
+    pub(super) accepted_validity: AcceptedValidityTransition,
+    pub(super) packaging: ChainPackagingMode,
+}
+
+impl ChainTransitionFacts {
+    #[cfg(test)]
+    pub(super) fn for_foundation(
+        new_view: ChainViewId,
+        blocks: ChainBlockChanges,
+        changed_proposals: Vec<ProposalId>,
+        detached_proposals: Vec<ProposalId>,
+        packaging: ChainPackagingMode,
+    ) -> Result<Self, ChainFactsError> {
+        let ChainBlockChanges {
+            attached,
+            detached,
+            attached_headers,
+            detached_headers,
+        } = blocks;
+        let attached = canonical_transactions(attached)?;
+        let mut attached_hashes = HashSet::new();
+        attached_hashes
+            .try_reserve(attached.len())
+            .map_err(|_| ChainFactsError::Allocation)?;
+        attached_hashes.extend(
+            attached
+                .iter()
+                .map(|transaction| RawTxHash(transaction.hash())),
+        );
+        let mut detached = canonical_transactions(detached)?;
+        let had_detached_transactions = !detached.is_empty();
+        let mut relocated = Vec::new();
+        relocated
+            .try_reserve(detached.len().min(attached_hashes.len()))
+            .map_err(|_| ChainFactsError::Allocation)?;
+        relocated.extend(
+            detached
+                .iter()
+                .map(|transaction| RawTxHash(transaction.hash()))
+                .filter(|hash| attached_hashes.contains(hash)),
+        );
+        detached.retain(|transaction| !attached_hashes.contains(&RawTxHash(transaction.hash())));
+        let attached_headers = canonical_headers(attached_headers)?;
+        let mut attached_header_set = HashSet::new();
+        attached_header_set
+            .try_reserve(attached_headers.len())
+            .map_err(|_| ChainFactsError::Allocation)?;
+        attached_header_set.extend(attached_headers.iter().cloned());
+        let mut detached_headers = canonical_headers(detached_headers)?;
+        let had_detached_headers = !detached_headers.is_empty();
+        detached_headers.retain(|header| !attached_header_set.contains(header));
+        Ok(Self {
+            new_view,
+            attached,
+            detached,
+            relocated,
+            attached_headers,
+            detached_headers,
+            changed_proposals: canonical_proposals(changed_proposals),
+            detached_proposals: canonical_proposals(detached_proposals),
+            accepted_validity: if had_detached_transactions || had_detached_headers {
+                AcceptedValidityTransition::RevalidateContext
+            } else {
+                AcceptedValidityTransition::Preserved
+            },
+            packaging,
+        })
+    }
+
+    /// Represents a rules-only context transition in the target harness.
+    /// Production obtains this classification from the same old/new snapshot
+    /// comparison that creates `new_view`; callers never pass a raw flag.
+    #[cfg(test)]
+    pub(super) fn revalidate_context_for_foundation(mut self) -> Self {
+        self.accepted_validity = AcceptedValidityTransition::RevalidateContext;
+        self
+    }
+}
+
+fn canonical_transactions(
+    mut transactions: Vec<TransactionView>,
+) -> Result<Vec<TransactionView>, ChainFactsError> {
+    // Block extraction is allowed to pass complete transaction lists; the
+    // chain authority, rather than every caller, owns the cellbase exclusion.
+    transactions.retain(|transaction| !transaction.is_cellbase());
+    transactions.sort_unstable_by_key(TransactionView::hash);
+    if transactions
+        .windows(2)
+        .any(|pair| pair[0].hash() == pair[1].hash())
+    {
+        return Err(ChainFactsError::DuplicateTransaction);
+    }
+    Ok(transactions)
+}
+
+fn canonical_headers(mut headers: Vec<Byte32>) -> Result<Vec<Byte32>, ChainFactsError> {
+    headers.sort_unstable();
+    if headers.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ChainFactsError::DuplicateHeader);
+    }
+    Ok(headers)
+}
+
+fn canonical_proposals(mut proposals: Vec<ProposalId>) -> Vec<ProposalId> {
+    proposals.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    proposals.dedup();
+    proposals
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ChainOwnerExpectation {
+    pub(super) hash: RawTxHash,
+    pub(super) expected: ChainExpectedOwner,
+}
+
+/// Exact primary-owner fact captured before lock-outside chain validation.
+/// A vacant recovery hash is evidence too: otherwise a concurrent admission
+/// could be silently overwritten when the detached transaction is installed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ChainExpectedOwner {
+    Vacant,
+    Present(EntryVersion),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ChainRemovalCause {
+    Committed,
+    Conflict,
+    Recovery,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ChainRemoval {
+    pub(super) hash: RawTxHash,
+    pub(super) cause: ChainRemovalCause,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ChainStatusSubject {
+    pub(super) hash: RawTxHash,
+    pub(super) proposal: ProposalId,
+    pub(super) before: AcceptedStatus,
+    pub(super) forced_pending: bool,
+}
+
+/// Read-only, lock-outside validation work. It carries only the bounded owner
+/// slice and immutable transactions selected under the authority cut.
+#[derive(Debug)]
+#[must_use = "chain validation work must be validated or discarded"]
+pub(super) struct ChainValidationWork {
+    pub(super) generation: PoolGeneration,
+    pub(super) old_view: ChainViewId,
+    pub(super) new_view: ChainViewId,
+    pub(super) accepted_source: ApplySequence,
+    pub(super) status_source: ApplySequence,
+    pub(super) expectations: Vec<ChainOwnerExpectation>,
+    pub(super) committed: Vec<RawTxHash>,
+    pub(super) removals: Vec<ChainRemoval>,
+    pub(super) recoveries: Vec<ChainRecoveryWork>,
+    pub(super) status_subjects: Vec<ChainStatusSubject>,
+    pub(super) available: Vec<super::state::DependencyKey>,
+    pub(super) lost: Vec<super::state::DependencyKey>,
+    pub(super) packaging: ChainPackagingMode,
+}
+
+/// Recovery validation is provenance-sensitive. A transaction taken from a
+/// detached block or Accepted membership is trusted chain-derived input;
+/// merely depending on one does not promote an unverified preaccepted owner.
+#[derive(Debug)]
+pub(super) enum ChainRecoveryWork {
+    Trusted(TransactionView),
+    RequeueExisting(RawTxHash),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ChainValidationError {
+    MissingProposalPosition,
+    UnexpectedProposalPosition,
+    DuplicateProposalPosition,
+    RecoveryAdmission(AdmissionValidationError),
+    Allocation,
+}
+
+#[derive(Debug)]
+pub(super) enum ChainRecoveryReceipt {
+    Trusted(ValidatedAdmission),
+    RequeueExisting(RawTxHash),
+}
+
+impl ChainRecoveryReceipt {
+    pub(super) fn key(&self) -> &RawTxHash {
+        match self {
+            Self::Trusted(admission) => &admission.identity.raw,
+            Self::RequeueExisting(hash) => hash,
+        }
+    }
+}
+
+impl ChainValidationWork {
+    pub(super) fn required_proposals(&self) -> Result<Vec<ProposalId>, ChainValidationError> {
+        let mut proposals = Vec::new();
+        proposals
+            .try_reserve(self.status_subjects.len())
+            .map_err(|_| ChainValidationError::Allocation)?;
+        proposals.extend(
+            self.status_subjects
+                .iter()
+                .map(|subject| subject.proposal.clone()),
+        );
+        Ok(canonical_proposals(proposals))
+    }
+
+    /// Foundation seam for a real new-snapshot validator. The supplied
+    /// positions must cover exactly the requested ids; extra or missing facts
+    /// cannot be silently ignored.
+    #[cfg(test)]
+    pub(super) fn validate_for_foundation(
+        self,
+        mut positions: Vec<(ProposalId, ProposalWindowPosition)>,
+    ) -> Result<ChainTransitionReceipt, ChainValidationError> {
+        positions.sort_unstable_by(|left, right| left.0.0.cmp(&right.0.0));
+        if positions.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(ChainValidationError::DuplicateProposalPosition);
+        }
+        let required = self.required_proposals()?;
+        if positions
+            .iter()
+            .any(|(proposal, _)| required.binary_search(proposal).is_err())
+        {
+            return Err(ChainValidationError::UnexpectedProposalPosition);
+        }
+        if required.iter().any(|proposal| {
+            positions
+                .binary_search_by(|item| item.0.cmp(proposal))
+                .is_err()
+        }) {
+            return Err(ChainValidationError::MissingProposalPosition);
+        }
+
+        let mut statuses = Vec::new();
+        statuses
+            .try_reserve(self.status_subjects.len())
+            .map_err(|_| ChainValidationError::Allocation)?;
+        for subject in self.status_subjects {
+            let position = positions
+                .binary_search_by(|item| item.0.cmp(&subject.proposal))
+                .ok()
+                .and_then(|index| positions.get(index))
+                .map(|item| item.1)
+                .ok_or(ChainValidationError::MissingProposalPosition)?;
+            let after = reconcile_proposal_status(
+                subject.before,
+                position,
+                self.packaging,
+                subject.forced_pending,
+            );
+            if after != subject.before {
+                statuses.push((subject.hash, after));
+            }
+        }
+        statuses.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+        let mut recoveries = Vec::new();
+        recoveries
+            .try_reserve(self.recoveries.len())
+            .map_err(|_| ChainValidationError::Allocation)?;
+        for recovery in self.recoveries {
+            match recovery {
+                ChainRecoveryWork::Trusted(transaction) => {
+                    recoveries.push(ChainRecoveryReceipt::Trusted(
+                        ValidatedAdmission::recovery(transaction, self.generation)
+                            .map_err(ChainValidationError::RecoveryAdmission)?,
+                    ));
+                }
+                ChainRecoveryWork::RequeueExisting(hash) => {
+                    recoveries.push(ChainRecoveryReceipt::RequeueExisting(hash));
+                }
+            }
+        }
+        Ok(ChainTransitionReceipt {
+            generation: self.generation,
+            old_view: self.old_view,
+            new_view: self.new_view,
+            accepted_source: self.accepted_source,
+            status_source: self.status_source,
+            expectations: self.expectations,
+            committed: self.committed,
+            removals: self.removals,
+            recoveries,
+            statuses,
+            available: self.available,
+            lost: self.lost,
+        })
+    }
+}
+
+fn reconcile_proposal_status(
+    before: AcceptedStatus,
+    position: ProposalWindowPosition,
+    packaging: ChainPackagingMode,
+    forced_pending: bool,
+) -> AcceptedStatus {
+    let baseline = if forced_pending {
+        AcceptedStatus::Pending
+    } else {
+        before
+    };
+    match (baseline, position, packaging) {
+        (_, ProposalWindowPosition::Proposed, ChainPackagingMode::Package) => {
+            AcceptedStatus::Proposed
+        }
+        (_, ProposalWindowPosition::Proposed, ChainPackagingMode::ObserveOnly) => baseline,
+        (AcceptedStatus::Pending, ProposalWindowPosition::Gap, ChainPackagingMode::Package)
+        | (AcceptedStatus::Proposed, ProposalWindowPosition::Gap, _) => AcceptedStatus::Gap,
+        (AcceptedStatus::Gap, ProposalWindowPosition::Gap, _)
+        | (AcceptedStatus::Pending, ProposalWindowPosition::Gap, ChainPackagingMode::ObserveOnly) => {
+            baseline
+        }
+        (_, ProposalWindowPosition::Outside, _) => AcceptedStatus::Pending,
+    }
+}
+
+/// Sealed result of validating the affected slice against one new snapshot.
+/// It is move-only: Plan either consumes it atomically or returns stale.
+#[derive(Debug)]
+#[must_use = "a chain transition receipt must be applied or discarded as stale"]
+pub(super) struct ChainTransitionReceipt {
+    pub(super) generation: PoolGeneration,
+    pub(super) old_view: ChainViewId,
+    pub(super) new_view: ChainViewId,
+    pub(super) accepted_source: ApplySequence,
+    pub(super) status_source: ApplySequence,
+    pub(super) expectations: Vec<ChainOwnerExpectation>,
+    pub(super) committed: Vec<RawTxHash>,
+    pub(super) removals: Vec<ChainRemoval>,
+    pub(super) recoveries: Vec<ChainRecoveryReceipt>,
+    pub(super) statuses: Vec<(RawTxHash, AcceptedStatus)>,
+    pub(super) available: Vec<super::state::DependencyKey>,
+    pub(super) lost: Vec<super::state::DependencyKey>,
 }

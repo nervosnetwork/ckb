@@ -11,9 +11,7 @@ pub(in crate::authority::plan) use independent::{
 use super::TxPoolAuthority;
 use crate::authority::{
     resources::{AcceptedCost, ResourceBatchPlan, ResourceError},
-    state::{
-        AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, ProposalId, RawTxHash,
-    },
+    state::{AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash},
 };
 use ckb_types::{
     core::{Capacity, FeeRate, tx_pool::get_transaction_weight},
@@ -42,6 +40,10 @@ impl MembershipConfig {
             max_component: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
             replacement: ReplacementPolicy::Disabled,
         }
+    }
+
+    pub(super) fn max_component(self) -> usize {
+        self.max_component
     }
 
     #[cfg(test)]
@@ -166,7 +168,7 @@ impl EvictionOrderKey {
             get_transaction_weight(aggregate.serialized_bytes, aggregate.cycles),
         );
         Self {
-            status: entry.status,
+            status: entry.status(),
             fee_rate: self_rate.max(descendants_rate),
             descendants_count: aggregate.entries,
             arrival: entry.record.arrival,
@@ -224,7 +226,6 @@ struct SelectedRemoval {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct MembershipRemoval {
     pub(in crate::authority) hash: RawTxHash,
-    pub(in crate::authority) proposal: ProposalId,
     pub(in crate::authority) cause: RemovalCause,
 }
 
@@ -572,7 +573,6 @@ impl TxPoolAuthority {
             resource_changes.push((selected.hash.clone(), Some(victim.charge_record()), None));
             removals.push(MembershipRemoval {
                 hash: selected.hash,
-                proposal: victim.record.identity.proposal.clone(),
                 cause: selected.cause,
             });
         }
@@ -607,7 +607,7 @@ impl TxPoolAuthority {
     ) -> Result<ProjectionDelta, super::PlanError> {
         if before.record.identity.raw != *hash
             || after.record.identity.raw != *hash
-            || before.status == after.status
+            || before.status() == after.status()
         {
             return Err(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
@@ -616,8 +616,8 @@ impl TxPoolAuthority {
         let counts = self
             .membership
             .counts
-            .checked_sub(before.status)
-            .and_then(|counts| counts.checked_add(after.status))
+            .checked_sub(before.status())
+            .and_then(|counts| counts.checked_add(after.status()))
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
             ))?;
@@ -656,6 +656,356 @@ impl TxPoolAuthority {
         })
     }
 
+    /// Compile the accepted-membership part of one chain transition from its
+    /// projected final owner set. Unlike RBF removal, committed parents may
+    /// have surviving children, so every incident causal edge is removed and
+    /// descendant aggregates subtract each removed entry through removed
+    /// intermediate ancestors.
+    pub(super) fn prepare_chain_projection(
+        &mut self,
+        removals: &BTreeSet<RawTxHash>,
+        status_changes: &HashMap<RawTxHash, AcceptedEntry>,
+    ) -> Result<ProjectionDelta, super::PlanError> {
+        if status_changes.keys().any(|hash| removals.contains(hash)) {
+            return Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ));
+        }
+        let mut removed = HashSet::new();
+        removed
+            .try_reserve(removals.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        removed.extend(removals.iter().cloned());
+        if removed.len() != removals.len() {
+            return Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ));
+        }
+
+        let mut counts = self.membership.counts;
+        let mut relation_capacity = 0usize;
+        let mut input_capacity = 0usize;
+        let mut dependency_capacity = 0usize;
+        for hash in removals {
+            let entry = self.accepted_entry(hash)?;
+            counts = counts
+                .checked_sub(entry.status())
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            input_capacity = input_capacity
+                .checked_add(entry.proof.payload().footprint.inputs().len())
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
+            dependency_capacity = dependency_capacity
+                .checked_add(entry.proof.payload().footprint.dependencies().len())
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
+            let parents = self
+                .membership
+                .parents(hash)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let children = self
+                .membership
+                .children(hash)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            relation_capacity = relation_capacity
+                .checked_add(parents.len())
+                .and_then(|count| count.checked_add(children.len()))
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
+        }
+        for (hash, after) in status_changes {
+            let before = self.accepted_entry(hash)?;
+            if before.record.identity != after.record.identity
+                || before.proof != after.proof
+                || before.proposal == after.proposal
+            {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            counts = counts
+                .checked_sub(before.status())
+                .and_then(|counts| counts.checked_add(after.status()))
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+        }
+
+        let mut spender_changes = Vec::new();
+        spender_changes
+            .try_reserve(input_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut dependency_removals = Vec::new();
+        dependency_removals
+            .try_reserve(dependency_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut causal_removals = Vec::new();
+        causal_removals
+            .try_reserve(relation_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let aggregate_capacity = removals
+            .len()
+            .checked_mul(self.membership_config.max_ancestors)
+            .map_or(self.membership_config.max_component, |capacity| {
+                capacity.min(self.membership_config.max_component)
+            });
+        let mut projected_aggregates = HashMap::new();
+        projected_aggregates
+            .try_reserve(aggregate_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+
+        for hash in removals {
+            let entry = self.accepted_entry(hash)?;
+            for input in entry.proof.payload().footprint.inputs() {
+                if self.membership.spender(input) != Some(hash) {
+                    return Err(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ));
+                }
+                spender_changes.push((input.clone(), None));
+            }
+            for dependency in entry.proof.payload().footprint.dependencies() {
+                if !self
+                    .membership
+                    .dependency_readers(dependency)
+                    .is_some_and(|readers| readers.contains(hash))
+                {
+                    return Err(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ));
+                }
+                dependency_removals.push(DependencyReaderEdge {
+                    dependency: dependency.clone(),
+                    reader: hash.clone(),
+                });
+            }
+            let parents = self
+                .membership
+                .parents(hash)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let children = self
+                .membership
+                .children(hash)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            for parent in parents {
+                if !self
+                    .membership
+                    .children(parent)
+                    .is_some_and(|children| children.contains(hash))
+                {
+                    return Err(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ));
+                }
+                causal_removals.push(CausalEdge {
+                    parent: parent.clone(),
+                    child: hash.clone(),
+                });
+            }
+            for child in children {
+                if !self
+                    .membership
+                    .parents(child)
+                    .is_some_and(|parents| parents.contains(hash))
+                {
+                    return Err(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ));
+                }
+                causal_removals.push(CausalEdge {
+                    parent: hash.clone(),
+                    child: child.clone(),
+                });
+            }
+
+            for ancestor in self.collect_surviving_ancestors_through_removals(hash, &removed)? {
+                let current = projected_aggregates.get(&ancestor).copied().or_else(|| {
+                    self.membership
+                        .descendant_aggregates
+                        .get(&ancestor)
+                        .copied()
+                });
+                let next = current
+                    .and_then(|aggregate| aggregate.checked_sub_entry(entry))
+                    .filter(|aggregate| aggregate.entries != 0)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
+                if !projected_aggregates.contains_key(&ancestor)
+                    && projected_aggregates.len() >= self.membership_config.max_component
+                {
+                    return Err(super::PlanError::Backpressure(
+                        super::Backpressure::GenerationReplacement,
+                    ));
+                }
+                projected_aggregates.insert(ancestor, next);
+            }
+        }
+
+        spender_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        dependency_removals.sort_unstable();
+        dependency_removals.dedup();
+        causal_removals.sort_unstable();
+        causal_removals.dedup();
+        let (dependency_rows, dependency_row_removals) =
+            self.prepare_dependency_edge_capacity(&dependency_removals, &[])?;
+        if !dependency_rows.is_empty() {
+            return Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ));
+        }
+        let dependency_changes = dependency_change_log(
+            dependency_removals,
+            Vec::new(),
+            Vec::new(),
+            dependency_row_removals,
+        )?;
+        let mut causal_node_removals = Vec::new();
+        causal_node_removals
+            .try_reserve(removals.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        causal_node_removals.extend(removals.iter().cloned());
+        let causal_changes = causal_change_log(
+            causal_removals,
+            Vec::new(),
+            Vec::new(),
+            causal_node_removals,
+        )?;
+
+        let eviction_capacity = removals
+            .len()
+            .checked_add(projected_aggregates.len())
+            .and_then(|count| count.checked_add(status_changes.len()))
+            .ok_or(super::PlanError::Fault(
+                super::AuthorityFault::CounterExhausted,
+            ))?;
+        let mut eviction_removals = Vec::new();
+        let mut eviction_insertions = Vec::new();
+        eviction_removals
+            .try_reserve(eviction_capacity)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        eviction_insertions
+            .try_reserve(
+                projected_aggregates
+                    .len()
+                    .checked_add(status_changes.len())
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::CounterExhausted,
+                    ))?,
+            )
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        for hash in removals {
+            let entry = self.accepted_entry(hash)?;
+            let aggregate = self
+                .membership
+                .descendant_aggregates
+                .get(hash)
+                .copied()
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let key = EvictionOrderKey::new(entry, aggregate);
+            if !self.membership.eviction_order.contains(&key) {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            eviction_removals.push(key);
+        }
+
+        let mut aggregate_changes = Vec::new();
+        aggregate_changes
+            .try_reserve(
+                removals
+                    .len()
+                    .checked_add(projected_aggregates.len())
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::CounterExhausted,
+                    ))?,
+            )
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        aggregate_changes.extend(removals.iter().cloned().map(|hash| (hash, None)));
+        for (hash, after) in status_changes {
+            if projected_aggregates.contains_key(hash) {
+                continue;
+            }
+            let before = self.accepted_entry(hash)?;
+            let aggregate = self
+                .membership
+                .descendant_aggregates
+                .get(hash)
+                .copied()
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let before_key = EvictionOrderKey::new(before, aggregate);
+            if !self.membership.eviction_order.contains(&before_key) {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            eviction_removals.push(before_key);
+            eviction_insertions.push(EvictionOrderKey::new(after, aggregate));
+        }
+        let mut ordered_aggregates = Vec::new();
+        ordered_aggregates
+            .try_reserve(projected_aggregates.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        ordered_aggregates.extend(projected_aggregates);
+        ordered_aggregates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        for (hash, after_aggregate) in ordered_aggregates {
+            let before = self.accepted_entry(&hash)?;
+            let before_aggregate = self
+                .membership
+                .descendant_aggregates
+                .get(&hash)
+                .copied()
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ))?;
+            let before_key = EvictionOrderKey::new(before, before_aggregate);
+            if !self.membership.eviction_order.contains(&before_key) {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            eviction_removals.push(before_key);
+            eviction_insertions.push(EvictionOrderKey::new(
+                status_changes.get(&hash).map_or(before, |after| after),
+                after_aggregate,
+            ));
+            aggregate_changes.push((hash, Some(after_aggregate)));
+        }
+        eviction_removals.sort_unstable();
+        eviction_removals.dedup();
+        eviction_insertions.sort_unstable();
+        eviction_insertions.dedup();
+        aggregate_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+        Ok(ProjectionDelta {
+            spender_changes,
+            dependency_changes,
+            causal_changes,
+            aggregate_changes,
+            eviction_removals,
+            eviction_insertions,
+            counts,
+        })
+    }
+
     fn prepare_projection_change(
         &mut self,
         hash: &RawTxHash,
@@ -675,13 +1025,13 @@ impl TxPoolAuthority {
             let removal = &planned.hash;
             let entry = self.accepted_entry(removal)?;
             counts = counts
-                .checked_sub(entry.status)
+                .checked_sub(entry.status())
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
         }
         counts = counts
-            .checked_add(candidate.status)
+            .checked_add(candidate.status())
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::CounterExhausted,
             ))?;
@@ -1377,6 +1727,60 @@ impl TxPoolAuthority {
                     super::AuthorityFault::MembershipProjection,
                 ))?;
             frontier.extend(parents.iter().cloned());
+        }
+        Ok(ancestors)
+    }
+
+    /// Return every surviving ancestor that previously counted `descendant`.
+    /// Unlike final-graph ancestry, aggregate subtraction must traverse
+    /// through removed intermediate nodes: each removed descendant was part
+    /// of every such ancestor's pre-transition aggregate.
+    fn collect_surviving_ancestors_through_removals(
+        &self,
+        descendant: &RawTxHash,
+        removed: &HashSet<RawTxHash>,
+    ) -> Result<HashSet<RawTxHash>, super::PlanError> {
+        let parents = self
+            .membership
+            .parents(descendant)
+            .ok_or(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ))?;
+        let mut ancestors = HashSet::new();
+        let mut visited = HashSet::new();
+        let mut frontier = VecDeque::new();
+        frontier
+            .try_reserve(parents.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        frontier.extend(parents.iter().cloned());
+        while let Some(ancestor) = frontier.pop_front() {
+            visited
+                .try_reserve(1)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            if !visited.insert(ancestor.clone()) {
+                continue;
+            }
+            if visited.len() >= self.membership_config.max_ancestors {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            }
+            if !removed.contains(&ancestor) {
+                ancestors
+                    .try_reserve(1)
+                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+                ancestors.insert(ancestor.clone());
+            }
+            let grandparents =
+                self.membership
+                    .parents(&ancestor)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
+            frontier
+                .try_reserve(grandparents.len())
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            frontier.extend(grandparents.iter().cloned());
         }
         Ok(ancestors)
     }

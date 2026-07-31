@@ -7,13 +7,21 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "unit_test_count": 383,
+    "unit_test_count": 416,
     "integration_spec_count": 150
   },
   "release_blockers": [
     {
+      "id": "UNIFIED-AUTHORITY-CUTOVER",
+      "reason": "The isolated Unified Authority Kernel is still in P9.7g/G4.2; coherent read, persistence and template receipts plus the atomic production cutover and legacy-owner deletion remain incomplete"
+    },
+    {
+      "id": "CORRECTNESS-ACCEPTANCE",
+      "reason": "P9.8 static, hostile, differential and complete managed 150-spec integration acceptance has not yet been run against the final production wiring"
+    },
+    {
       "id": "PERFORMANCE-ACCEPTANCE",
-      "reason": "Controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains the final blocking production gate"
+      "reason": "P10 controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains blocked until correctness acceptance closes"
     }
   ]
 }
