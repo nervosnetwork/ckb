@@ -1,11 +1,11 @@
 use super::{
-    AuthorityClocks, AuthorityDelta, AuthorityFault, CommittedChange, CommittedHandoff,
-    IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
-    next_sequence, next_version,
+    AuthorityClocks, AuthorityDelta, AuthorityFault, CandidateDispositionPlan, CommittedChange,
+    CommittedHandoff, IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan,
+    TxPoolAuthority, next_sequence, next_version,
 };
 use crate::authority::{
     chain::FinalAdmissionReceipt,
-    effect::EffectDelta,
+    effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
     plan::membership::{
         IndependentCoupling, IndependentMembershipChange, IndependentMembershipOutcome,
         PreparedIndependentMembership, prepare_independent_membership,
@@ -50,7 +50,7 @@ impl SettlementBatch {
         for (index, candidate) in candidates.iter().enumerate() {
             if candidates
                 .iter()
-                .skip(index + 1)
+                .skip(index.saturating_add(1))
                 .any(|other| other.receipt.key() == candidate.receipt.key())
             {
                 return Err(CandidateBatchError::Duplicate(
@@ -68,11 +68,11 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
     /// mechanical Apply.
     IndependentRun(PreparedApply<'authority>),
     /// The canonical strongest member is fully planned against the same
-    /// authority. Remaining cohort members retain their Computed owner and
+    /// authority. Remaining cohort members retain their Ready owner and
     /// are reclassified after this single coupled component commits.
     CoupledComponent {
         reason: IndependentCoupling,
-        plan: PreparedApply<'authority>,
+        disposition: CandidateDispositionPlan<'authority>,
     },
 }
 
@@ -105,16 +105,14 @@ impl TxPoolAuthority {
             let OwnedTx::PreAccepted(before) = owner else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
-            let PreAcceptedPhase::Computed(super::super::state::ComputedOutcome::Verified(_)) =
-                &before.phase
-            else {
+            let PreAcceptedPhase::Ready(_) = &before.phase else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
             self.validate_acceptance_evidence(before, &request.receipt)?;
             facts.push(CandidateFact {
                 receipt: request.receipt.clone(),
                 before: before.clone(),
-                rank: ReadyKey::from_computed(before)?,
+                rank: ReadyKey::from_ready(before)?,
             });
         }
         facts.sort_unstable_by(|left, right| right.rank.cmp(&left.rank));
@@ -134,10 +132,7 @@ impl TxPoolAuthority {
             .try_reserve(facts.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         for fact in facts {
-            if !matches!(
-                &fact.before.phase,
-                PreAcceptedPhase::Computed(super::super::state::ComputedOutcome::Verified(_))
-            ) {
+            if !matches!(&fact.before.phase, PreAcceptedPhase::Ready(_)) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
             let version = clocks.next_version;
@@ -177,10 +172,48 @@ impl TxPoolAuthority {
                 // Coupling changes only the membership planner. Preserve the
                 // exact proof issued by final validation instead of creating
                 // a second proof-construction path at the handoff boundary.
-                let plan = self.plan_accept(strongest_receipt)?;
-                return Ok(SettlementPlan::CoupledComponent { reason, plan });
+                let disposition = self.plan_candidate_disposition(strongest_receipt)?;
+                return Ok(SettlementPlan::CoupledComponent {
+                    reason,
+                    disposition,
+                });
             }
         };
+        let source_sequence = committed
+            .last()
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
+            .sequence;
+        let mut effects = Vec::new();
+        effects
+            .try_reserve(changes.len())
+            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut contains_remote = false;
+        for change in &changes {
+            let ingress_peer = change.before.source.ingress_peer();
+            contains_remote |= ingress_peer.is_some();
+            effects.push(CommittedEffect::Accepted {
+                tx: std::sync::Arc::clone(&change.after.record.tx),
+                status: change.after.status(),
+                cause: CommittedAcceptance::Admission { ingress_peer },
+            });
+        }
+        // G5's production batch builder groups candidates by effect trust
+        // class. Until that facade owns construction, a mixed foundation
+        // batch takes the least-privileged region; remote work can never
+        // consume trusted headroom merely because it commutes with a trusted
+        // candidate.
+        let policy = if contains_remote {
+            EffectPolicy::Remote
+        } else {
+            EffectPolicy::Trusted
+        };
+        let publication = self
+            .effects
+            .build_publication(policy, effects)
+            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+        let effect = self
+            .effects
+            .plan_publication(&publication, source_sequence)?;
         let mut updates = Vec::new();
         updates
             .try_reserve(changes.len())
@@ -189,10 +222,6 @@ impl TxPoolAuthority {
             key: change.key,
             after: OwnedTx::Accepted(change.after),
         }));
-        let source_sequence = committed
-            .last()
-            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
-            .sequence;
         let scheduler = self.scheduler.plan_batch(
             updates
                 .iter()
@@ -237,7 +266,7 @@ impl TxPoolAuthority {
                 projection,
                 scheduler,
                 dependency,
-                effect: EffectDelta::default(),
+                effect,
                 clocks,
                 committed,
             }),

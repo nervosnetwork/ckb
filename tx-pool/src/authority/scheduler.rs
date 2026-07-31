@@ -156,8 +156,11 @@ struct VerifyKey {
 
 impl Ord for VerifyKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        let left_rate = u128::from(self.fee) * u128::from(other.serialized_bytes);
-        let right_rate = u128::from(other.fee) * u128::from(self.serialized_bytes);
+        // Both operands originate as `u64`, so the mathematical product fits
+        // in `u128`; saturating multiplication makes that proof explicit to
+        // the production arithmetic lint without changing the ordering.
+        let left_rate = u128::from(self.fee).saturating_mul(u128::from(other.serialized_bytes));
+        let right_rate = u128::from(other.fee).saturating_mul(u128::from(self.serialized_bytes));
         let source_and_order = self
             .source
             .cmp(&other.source)
@@ -242,10 +245,8 @@ pub(super) struct ReadyKey {
 }
 
 impl ReadyKey {
-    pub(super) fn from_computed(entry: &PreAcceptedEntry) -> Result<Self, SchedulerError> {
-        let PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(verified)) =
-            &entry.phase
-        else {
+    pub(super) fn from_ready(entry: &PreAcceptedEntry) -> Result<Self, SchedulerError> {
+        let PreAcceptedPhase::Ready(verified) = &entry.phase else {
             return Err(SchedulerError::Projection);
         };
         let serialized_bytes = u64::try_from(verified.metrics().cost.serialized_bytes)
@@ -274,8 +275,8 @@ impl ReadyKey {
 
 impl Ord for ReadyKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        let left_rate = u128::from(self.fee) * u128::from(other.serialized_bytes);
-        let right_rate = u128::from(other.fee) * u128::from(self.serialized_bytes);
+        let left_rate = u128::from(self.fee).saturating_mul(u128::from(other.serialized_bytes));
+        let right_rate = u128::from(other.fee).saturating_mul(u128::from(self.serialized_bytes));
         self.source
             .cmp(&other.source)
             .then_with(|| left_rate.cmp(&right_rate))
@@ -592,16 +593,8 @@ impl FairFrontier {
                     }),
                 }
             }
-            PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(_)) => {
-                SchedulerSlot::Ready(ReadyKey::from_computed(entry)?)
-            }
-            PreAcceptedPhase::Computing(_)
-            | PreAcceptedPhase::Waiting(_)
-            | PreAcceptedPhase::Computed(
-                super::state::ComputedOutcome::Rejected(_)
-                | super::state::ComputedOutcome::BudgetDenied
-                | super::state::ComputedOutcome::InternalFailure,
-            ) => return Ok(None),
+            PreAcceptedPhase::Ready(_) => SchedulerSlot::Ready(ReadyKey::from_ready(entry)?),
+            PreAcceptedPhase::Computing(_) | PreAcceptedPhase::Waiting(_) => return Ok(None),
         };
         Ok(Some(slot))
     }

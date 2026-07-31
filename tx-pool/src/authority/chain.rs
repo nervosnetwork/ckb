@@ -14,7 +14,9 @@ use ckb_types::{
     core::TransactionView,
     packed::{Byte32, OutPoint},
 };
-use std::{collections::HashSet, sync::Arc};
+#[cfg(test)]
+use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(super) struct ValidationRulesId(pub(super) u64);
@@ -147,7 +149,7 @@ pub(super) enum VerificationContextError {
 }
 
 impl VerificationContextReceipt {
-    fn from_validation(
+    pub(super) fn from_validation(
         view: ChainViewId,
         location: CellLocationReceipt,
         time: TimeContextReceipt,
@@ -609,10 +611,10 @@ fn canonical_transactions(
     // chain authority, rather than every caller, owns the cellbase exclusion.
     transactions.retain(|transaction| !transaction.is_cellbase());
     transactions.sort_unstable_by_key(TransactionView::hash);
-    if transactions
-        .windows(2)
-        .any(|pair| pair[0].hash() == pair[1].hash())
-    {
+    if transactions.windows(2).any(|pair| match pair {
+        [left, right] => left.hash() == right.hash(),
+        _ => false,
+    }) {
         return Err(ChainFactsError::DuplicateTransaction);
     }
     Ok(transactions)
@@ -620,7 +622,10 @@ fn canonical_transactions(
 
 fn canonical_headers(mut headers: Vec<Byte32>) -> Result<Vec<Byte32>, ChainFactsError> {
     headers.sort_unstable();
-    if headers.windows(2).any(|pair| pair[0] == pair[1]) {
+    if headers.windows(2).any(|pair| match pair {
+        [left, right] => left == right,
+        _ => false,
+    }) {
         return Err(ChainFactsError::DuplicateHeader);
     }
     Ok(headers)
@@ -652,10 +657,15 @@ pub(super) enum ChainExpectedOwner {
     ReplacementHistory(EntryVersion),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ChainRemovalCause {
     Committed,
-    ChainConflict,
+    /// The canonical cell consumed by the attached chain transition. Keeping
+    /// the evidence in the cause makes a conflict removal incapable of losing
+    /// the public `Resolve(Dead(out_point))` reason before effect publication.
+    ChainConflict {
+        out_point: OutPoint,
+    },
     Recovery,
     ProposalLeaseExpired,
 }

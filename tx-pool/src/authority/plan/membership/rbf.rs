@@ -1,4 +1,4 @@
-use super::{MembershipReject, ReplacementPolicy};
+use super::{ComponentLimitKind, MembershipReject, ReplacementPolicy};
 use crate::authority::{
     plan::{AuthorityFault, PlanError, TxPoolAuthority},
     state::{AcceptedEntry, OwnedTx, RawTxHash},
@@ -37,6 +37,7 @@ pub(super) fn replacement_removals(
         &direct,
         &HashSet::new(),
         authority.membership_config.max_component,
+        ComponentLimitKind::Replacement,
     )?;
     let mut removal_set = HashSet::new();
     removal_set

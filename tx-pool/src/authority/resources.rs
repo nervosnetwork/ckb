@@ -1,15 +1,126 @@
-use super::state::{ComputeAttribution, RawTxHash};
+use super::state::{
+    ComputeAttribution, ComputeGrant, PreAcceptedEntry, RawTxHash, ValidatedAdmission,
+};
 #[cfg(test)]
 use super::state::{OwnedTx, PreAcceptedPhase, QueuedWork};
 use ckb_network::PeerIndex;
-use std::collections::{HashMap, HashSet};
+use ckb_types::core::TransactionView;
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct ResourceVector {
     pub(super) entries: usize,
+    /// Long-lived authority-owned payload and index residency.
     pub(super) bytes: usize,
     pub(super) edges: usize,
+    /// Number of move-only compute capabilities currently outside the
+    /// authority guard.
     pub(super) active_work: usize,
+    /// Bytes and edges reserved for those capabilities. These fields are
+    /// private so callers cannot create an active owner without going through
+    /// the compute-grant compiler below.
+    compute_bytes: usize,
+    compute_edges: usize,
+}
+
+/// The sole compiler from transaction/resolution evidence to retained-byte
+/// accounting.
+///
+/// `ResourceVector::bytes` is a weighted physical ceiling, not merely payload
+/// bytes. Keeping this policy beside the ledger prevents runtime callers from
+/// charging payload, entry and edge limits as three independent copies of the
+/// configured byte budget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResidencyPolicy {
+    Weighted {
+        entry_metadata_bytes: NonZeroUsize,
+        edge_metadata_bytes: NonZeroUsize,
+    },
+    #[cfg(test)]
+    PayloadOnlyFixture,
+}
+
+/// Admission evidence after the authority-owned residency policy has compiled
+/// its exact initial charge. The inner charge cannot be supplied by ingress.
+pub(super) struct ChargedAdmission {
+    admission: ValidatedAdmission,
+    charge: ResourceVector,
+}
+
+pub(super) struct ReplacementHistoryCharge {
+    payload_bytes: usize,
+    encoded_edges: usize,
+    recovery: ResourceVector,
+    retained: ResourceVector,
+}
+
+impl ReplacementHistoryCharge {
+    pub(super) fn into_parts(self) -> (usize, usize, ResourceVector, ResourceVector) {
+        (
+            self.payload_bytes,
+            self.encoded_edges,
+            self.recovery,
+            self.retained,
+        )
+    }
+}
+
+impl ChargedAdmission {
+    pub(super) fn admission(&self) -> &ValidatedAdmission {
+        &self.admission
+    }
+
+    pub(super) fn into_parts(self) -> (ValidatedAdmission, ResourceVector) {
+        (self.admission, self.charge)
+    }
+}
+
+impl ResidencyPolicy {
+    pub(super) const fn production(
+        entry_metadata_bytes: NonZeroUsize,
+        edge_metadata_bytes: NonZeroUsize,
+    ) -> Self {
+        Self::Weighted {
+            entry_metadata_bytes,
+            edge_metadata_bytes,
+        }
+    }
+
+    #[cfg(test)]
+    const fn foundation() -> Self {
+        Self::PayloadOnlyFixture
+    }
+
+    pub(super) fn charge(
+        self,
+        payload_bytes: usize,
+        encoded_edges: usize,
+        retained_payload_bytes: usize,
+        retained_edges: usize,
+    ) -> Option<ResourceVector> {
+        let edges = encoded_edges.max(retained_edges);
+        let metadata = match self {
+            Self::Weighted {
+                entry_metadata_bytes,
+                edge_metadata_bytes,
+            } => edges
+                .checked_mul(edge_metadata_bytes.get())?
+                .checked_add(entry_metadata_bytes.get())?,
+            #[cfg(test)]
+            Self::PayloadOnlyFixture => 0,
+        };
+        Some(ResourceVector::new(
+            1,
+            payload_bytes
+                .max(retained_payload_bytes)
+                .checked_add(metadata)?,
+            edges,
+            0,
+        ))
+    }
 }
 
 impl ResourceVector {
@@ -24,7 +135,62 @@ impl ResourceVector {
             bytes,
             edges,
             active_work,
+            compute_bytes: 0,
+            compute_edges: 0,
         }
+    }
+
+    /// Build one resource-domain limit from disjoint retained and compute
+    /// partitions of the same configured physical budget.
+    pub(super) fn with_compute_capacity(
+        mut self,
+        compute_bytes: usize,
+        compute_edges: usize,
+    ) -> Option<Self> {
+        self.bytes.checked_add(compute_bytes)?;
+        self.edges.checked_add(compute_edges)?;
+        self.compute_bytes = compute_bytes;
+        self.compute_edges = compute_edges;
+        Some(self)
+    }
+
+    pub(super) fn reserve_compute(mut self, grant: ComputeGrant) -> Option<Self> {
+        if self.active_work != 0 || self.compute_bytes != 0 || self.compute_edges != 0 {
+            return None;
+        }
+        self.active_work = 1;
+        self.compute_bytes = grant.max_resident_bytes;
+        self.compute_edges = grant.max_edges;
+        Some(self)
+    }
+
+    pub(super) fn without_compute(mut self) -> Self {
+        self.active_work = 0;
+        self.compute_bytes = 0;
+        self.compute_edges = 0;
+        self
+    }
+
+    fn has_compute_reservation(self) -> bool {
+        self.active_work != 0 || self.compute_bytes != 0 || self.compute_edges != 0
+    }
+
+    pub(super) fn total_bytes(self) -> Option<usize> {
+        self.bytes.checked_add(self.compute_bytes)
+    }
+
+    pub(super) fn total_edges(self) -> Option<usize> {
+        self.edges.checked_add(self.compute_edges)
+    }
+
+    #[cfg(test)]
+    pub(super) const fn compute_bytes(self) -> usize {
+        self.compute_bytes
+    }
+
+    #[cfg(test)]
+    pub(super) const fn compute_edges(self) -> usize {
+        self.compute_edges
     }
 
     pub(super) fn checked_add(self, other: Self) -> Option<Self> {
@@ -33,6 +199,8 @@ impl ResourceVector {
             bytes: self.bytes.checked_add(other.bytes)?,
             edges: self.edges.checked_add(other.edges)?,
             active_work: self.active_work.checked_add(other.active_work)?,
+            compute_bytes: self.compute_bytes.checked_add(other.compute_bytes)?,
+            compute_edges: self.compute_edges.checked_add(other.compute_edges)?,
         })
     }
 
@@ -42,6 +210,8 @@ impl ResourceVector {
             bytes: self.bytes.checked_sub(other.bytes)?,
             edges: self.edges.checked_sub(other.edges)?,
             active_work: self.active_work.checked_sub(other.active_work)?,
+            compute_bytes: self.compute_bytes.checked_sub(other.compute_bytes)?,
+            compute_edges: self.compute_edges.checked_sub(other.compute_edges)?,
         })
     }
 
@@ -50,6 +220,8 @@ impl ResourceVector {
             && self.bytes <= limit.bytes
             && self.edges <= limit.edges
             && self.active_work <= limit.active_work
+            && self.compute_bytes <= limit.compute_bytes
+            && self.compute_edges <= limit.compute_edges
     }
 }
 
@@ -136,6 +308,7 @@ pub(super) struct ResourceLimits {
     replacement_history: ResourceVector,
     accepted: AcceptedResources,
     compute: ComputeLimits,
+    residency: ResidencyPolicy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,12 +320,39 @@ pub(super) enum ResourceConfigError {
 }
 
 impl ResourceLimits {
+    #[cfg(test)]
     pub(super) fn new(
         preaccepted: ResourceVector,
         remote: ResourceVector,
         per_peer: ResourceVector,
         accepted: AcceptedResources,
         compute: ComputeLimits,
+    ) -> Result<Self, ResourceConfigError> {
+        let attach_compute_partition = |limit: ResourceVector| {
+            let (bytes, edges) = compute
+                .checked_compute_capacity(limit.active_work)
+                .ok_or(ResourceConfigError::TransientComputeOverflow)?;
+            limit
+                .with_compute_capacity(bytes, edges)
+                .ok_or(ResourceConfigError::TransientComputeOverflow)
+        };
+        Self::with_residency_policy(
+            attach_compute_partition(preaccepted)?,
+            attach_compute_partition(remote)?,
+            attach_compute_partition(per_peer)?,
+            accepted,
+            compute,
+            ResidencyPolicy::foundation(),
+        )
+    }
+
+    pub(super) fn with_residency_policy(
+        preaccepted: ResourceVector,
+        remote: ResourceVector,
+        per_peer: ResourceVector,
+        accepted: AcceptedResources,
+        compute: ComputeLimits,
+        residency: ResidencyPolicy,
     ) -> Result<Self, ResourceConfigError> {
         if !remote.fits(preaccepted) || !per_peer.fits(remote) {
             return Err(ResourceConfigError::LimitHierarchy);
@@ -168,10 +368,17 @@ impl ResourceLimits {
         if compute.accepted_resident_bytes < compute.resolved_resident_bytes {
             return Err(ResourceConfigError::NonMonotonicComputeEnvelope);
         }
-        for retained in [preaccepted, remote, per_peer] {
-            compute
-                .checked_physical_ceiling(retained)
+        for limit in [preaccepted, remote, per_peer] {
+            limit
+                .total_bytes()
+                .and_then(|_| limit.total_edges())
                 .ok_or(ResourceConfigError::TransientComputeOverflow)?;
+            if limit.active_work != 0
+                && (limit.compute_bytes < compute.max_resident_bytes()
+                    || limit.compute_edges < compute.expanded_edges())
+            {
+                return Err(ResourceConfigError::MissingComputeCapacity);
+            }
         }
         Ok(Self {
             preaccepted,
@@ -182,6 +389,7 @@ impl ResourceLimits {
             replacement_history: ResourceVector::default(),
             accepted,
             compute,
+            residency,
         })
     }
 
@@ -189,7 +397,9 @@ impl ResourceLimits {
         mut self,
         replacement_history: ResourceVector,
     ) -> Result<Self, ResourceConfigError> {
-        if !replacement_history.fits(self.preaccepted) || replacement_history.active_work != 0 {
+        if !replacement_history.fits(self.preaccepted)
+            || replacement_history.has_compute_reservation()
+        {
             return Err(ResourceConfigError::LimitHierarchy);
         }
         self.replacement_history = replacement_history;
@@ -200,6 +410,11 @@ impl ResourceLimits {
     pub(super) fn with_accepted_for_foundation(mut self, accepted: AcceptedResources) -> Self {
         self.accepted = accepted;
         self
+    }
+
+    #[cfg(test)]
+    pub(super) const fn preaccepted_limit_for_foundation(self) -> ResourceVector {
+        self.preaccepted
     }
 }
 
@@ -236,24 +451,28 @@ impl ComputeLimits {
         (resident_bytes, self.expanded_edges)
     }
 
+    fn max_resident_bytes(self) -> usize {
+        self.resolved_resident_bytes
+            .max(self.accepted_resident_bytes)
+    }
+
+    fn expanded_edges(self) -> usize {
+        self.expanded_edges
+    }
+
+    fn checked_compute_capacity(self, active_work: usize) -> Option<(usize, usize)> {
+        Some((
+            active_work.checked_mul(self.max_resident_bytes())?,
+            active_work.checked_mul(self.expanded_edges)?,
+        ))
+    }
+
     fn admits(self, resources: ResourceVector) -> bool {
         resources.entries == 1
-            && resources.active_work == 0
+            && !resources.has_compute_reservation()
             && resources.bytes <= self.resolved_resident_bytes
             && resources.bytes <= self.accepted_resident_bytes
             && resources.edges <= self.expanded_edges
-    }
-
-    fn checked_physical_ceiling(self, retained: ResourceVector) -> Option<(usize, usize)> {
-        let max_resident_bytes = self
-            .resolved_resident_bytes
-            .max(self.accepted_resident_bytes);
-        let transient_bytes = retained.active_work.checked_mul(max_resident_bytes)?;
-        let transient_edges = retained.active_work.checked_mul(self.expanded_edges)?;
-        Some((
-            retained.bytes.checked_add(transient_bytes)?,
-            retained.edges.checked_add(transient_edges)?,
-        ))
     }
 }
 
@@ -272,6 +491,35 @@ pub(super) enum ChargeRecord {
 }
 
 impl ChargeRecord {
+    fn validate(self) -> Result<(), ResourceError> {
+        match self {
+            Self::PreAccepted {
+                resources,
+                residency_peer,
+                compute_peer,
+            } => {
+                if resources.entries != 1
+                    || resources.active_work > 1
+                    || (resources.active_work == 0 && resources.has_compute_reservation())
+                    || (resources.active_work == 1 && resources.compute_bytes == 0)
+                    || compute_peer.is_some_and(|peer| Some(peer) != residency_peer)
+                    || (resources.active_work == 0 && compute_peer.is_some())
+                {
+                    return Err(ResourceError::ComputeEnvelope);
+                }
+                Ok(())
+            }
+            Self::ReplacementHistory(resources) => {
+                if resources.entries != 1 || resources.has_compute_reservation() {
+                    Err(ResourceError::ComputeEnvelope)
+                } else {
+                    Ok(())
+                }
+            }
+            Self::Accepted(_) => Ok(()),
+        }
+    }
+
     fn preaccepted(self) -> Option<ResourceVector> {
         match self {
             Self::PreAccepted { resources, .. } | Self::ReplacementHistory(resources) => {
@@ -307,20 +555,12 @@ impl ChargeRecord {
         if compute_peer.is_some_and(|compute_peer| compute_peer != peer) {
             return Err(ResourceError::AttributionMismatch);
         }
-        let active_work = if compute_peer == Some(peer) {
-            resources.active_work
+        let resources = if compute_peer == Some(peer) {
+            resources
         } else {
-            0
+            resources.without_compute()
         };
-        Ok(Some((
-            peer,
-            ResourceVector::new(
-                resources.entries,
-                resources.bytes,
-                resources.edges,
-                active_work,
-            ),
-        )))
+        Ok(Some((peer, resources)))
     }
 
     fn accepted(self) -> Option<AcceptedResources> {
@@ -442,6 +682,78 @@ impl ResourceLedger {
         self.limits.compute
     }
 
+    pub(super) fn admission_charge(
+        &self,
+        payload_bytes: usize,
+        encoded_edges: usize,
+    ) -> Result<ResourceVector, ResourceError> {
+        self.retained_charge(payload_bytes, encoded_edges, payload_bytes, encoded_edges)
+    }
+
+    pub(super) fn charge_admission(
+        &self,
+        admission: ValidatedAdmission,
+    ) -> Result<ChargedAdmission, ResourceError> {
+        let charge = self.admission_charge(admission.payload_bytes, admission.encoded_edges)?;
+        self.validate_admission(charge)?;
+        Ok(ChargedAdmission { admission, charge })
+    }
+
+    pub(super) fn retained_charge(
+        &self,
+        payload_bytes: usize,
+        encoded_edges: usize,
+        retained_payload_bytes: usize,
+        retained_edges: usize,
+    ) -> Result<ResourceVector, ResourceError> {
+        self.limits
+            .residency
+            .charge(
+                payload_bytes,
+                encoded_edges,
+                retained_payload_bytes,
+                retained_edges,
+            )
+            .ok_or(ResourceError::Arithmetic)
+    }
+
+    pub(super) fn retained_entry_charge(
+        &self,
+        entry: &PreAcceptedEntry,
+        retained_payload_bytes: usize,
+        retained_edges: usize,
+    ) -> Result<ResourceVector, ResourceError> {
+        self.retained_charge(
+            entry.basis.payload_bytes(),
+            entry.basis.encoded_edges(),
+            retained_payload_bytes,
+            retained_edges,
+        )
+    }
+
+    pub(super) fn replacement_history_charge(
+        &self,
+        tx: &TransactionView,
+        retained_edges: usize,
+    ) -> Result<ReplacementHistoryCharge, ResourceError> {
+        let payload_bytes = tx.data().total_size();
+        let encoded_edges = tx
+            .inputs()
+            .len()
+            .checked_add(tx.cell_deps().len())
+            .and_then(|count| count.checked_add(tx.header_deps().len()))
+            .ok_or(ResourceError::Arithmetic)?;
+        let recovery = self.admission_charge(payload_bytes, encoded_edges)?;
+        let retained =
+            self.retained_charge(payload_bytes, encoded_edges, payload_bytes, retained_edges)?;
+        Ok(ReplacementHistoryCharge {
+            payload_bytes,
+            encoded_edges,
+            recovery,
+            retained,
+        })
+    }
+
     pub(super) fn limits(&self) -> ResourceLimits {
         self.limits
     }
@@ -527,11 +839,16 @@ impl ResourceLedger {
                     },
                 ) => {
                     let exact_resources = match &entry.phase {
-                        PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => entry
-                            .retained_charge(
+                        PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
+                            let Ok(charge) = self.retained_entry_charge(
+                                entry,
                                 resolved.payload().resolved_resident_bytes(),
-                                resolved.payload().dependencies(),
-                            ),
+                                resolved.payload().dependencies().len(),
+                            ) else {
+                                return false;
+                            };
+                            charge
+                        }
                         PreAcceptedPhase::Computing(active) => {
                             let (max_resident_bytes, max_edges) =
                                 self.limits.compute.reservation_for(active.permit);
@@ -540,34 +857,44 @@ impl ResourceLedger {
                             {
                                 return false;
                             }
-                            let mut exact = entry.retained_charge(
-                                entry.original_charge().bytes,
-                                &active.dependencies,
-                            );
-                            exact.active_work = 1;
+                            let Ok(exact) = self.retained_entry_charge(
+                                entry,
+                                entry.basis.payload_bytes(),
+                                active.dependencies.len(),
+                            ) else {
+                                return false;
+                            };
+                            let Some(exact) = exact.reserve_compute(active.grant) else {
+                                return false;
+                            };
                             exact
                         }
-                        PreAcceptedPhase::Waiting(observed) => entry
-                            .retained_charge(entry.original_charge().bytes, observed.retained()),
-                        PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(
-                            verified,
-                        )) => {
+                        PreAcceptedPhase::Waiting(observed) => {
+                            let Ok(charge) = self.retained_entry_charge(
+                                entry,
+                                entry.basis.payload_bytes(),
+                                observed.retained().len(),
+                            ) else {
+                                return false;
+                            };
+                            charge
+                        }
+                        PreAcceptedPhase::Ready(verified) => {
                             if verified.payload().resolved_resident_bytes()
                                 > verified.metrics().cost.resident_bytes
                             {
                                 return false;
                             }
-                            entry.retained_charge(
+                            let Ok(charge) = self.retained_entry_charge(
+                                entry,
                                 verified.metrics().cost.resident_bytes,
-                                verified.payload().dependencies(),
-                            )
+                                verified.payload().dependencies().len(),
+                            ) else {
+                                return false;
+                            };
+                            charge
                         }
-                        PreAcceptedPhase::Queued(QueuedWork::Resolve)
-                        | PreAcceptedPhase::Computed(
-                            super::state::ComputedOutcome::Rejected(_)
-                            | super::state::ComputedOutcome::BudgetDenied
-                            | super::state::ComputedOutcome::InternalFailure,
-                        ) => entry.original_charge(),
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve) => entry.original_charge(),
                     };
                     if resources != exact_resources {
                         return false;
@@ -576,7 +903,7 @@ impl ResourceLedger {
                         PreAcceptedPhase::Computing(active) => active.attribution.peer(),
                         PreAcceptedPhase::Queued(_)
                         | PreAcceptedPhase::Waiting(_)
-                        | PreAcceptedPhase::Computed(_) => None,
+                        | PreAcceptedPhase::Ready(_) => None,
                     };
                     if residency_peer != entry.source.ingress_peer()
                         || compute_peer != expected_compute_peer
@@ -667,6 +994,8 @@ impl ResourceLedger {
         expected: Option<ChargeRecord>,
         after: Option<ChargeRecord>,
     ) -> Result<ResourcePlan, ResourceError> {
+        expected.map(ChargeRecord::validate).transpose()?;
+        after.map(ChargeRecord::validate).transpose()?;
         if self.charge(&key) != expected {
             return Err(ResourceError::ExistingChargeMismatch);
         }
@@ -820,6 +1149,8 @@ impl ResourceLedger {
         let mut new_charge_count = 0usize;
 
         for (key, expected, after) in &changes {
+            expected.map(ChargeRecord::validate).transpose()?;
+            after.map(ChargeRecord::validate).transpose()?;
             if !keys.insert(key.clone()) {
                 return Err(ResourceError::DuplicateChange);
             }

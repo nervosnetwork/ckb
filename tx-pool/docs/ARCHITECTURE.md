@@ -480,6 +480,15 @@ the Ready fallback consumes that identical charge. Optional conflict history
 degrades to a terminal result when its partition is full. Graph operations stop
 at explicit product/fan-out bounds before mutating.
 
+The UAK production compiler treats the configured pipeline residency limit as
+one physical envelope. It statically partitions retained ownership from exact
+per-capability compute grants; checkout charges the grant's bytes and edges in
+the same owner record, and settlement atomically exchanges or releases it.
+Increasing worker count therefore cannot multiply the physical ceiling.
+Configuration is rejected at assembly if one grant cannot hold the minimum
+weighted entry. The partition ratio is policy that may be tuned by controlled
+benchmarking; it does not introduce another lock, queue or resource authority.
+
 `NotifyTxs(Vec<TransactionView>)` is a trusted controller boundary. Each item
 still passes validation and admission accounting, but the vector itself is not
 currently proven by this module to have an upstream length bound; this remains
@@ -701,6 +710,10 @@ The recovery payload is an ordinary `PrePoolSource::Recovery` entry in one of
 the six locations. No handler-local payload, cross-await `recovery_lock`,
 `RecoveryRetained` location or replay retry owner exists. Duplicate attached
 raw hashes suppress detached witness variants; cache lookup uses witness hash.
+An attached-cell conflict carries its canonical `OutPoint` in the typed removal
+cause and committed effect. Multiple conflict paths join by deterministic
+outpoint order, preserving the existing `Resolve(Dead(outpoint))` public reason
+without reconstructing it after Apply.
 
 ### 13.2 Gap and uncle liveness
 

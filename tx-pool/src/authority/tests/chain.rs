@@ -3,16 +3,16 @@ use super::super::{
         ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, FinalAdmissionError,
         ProposalWindowPosition, ValidationRulesId,
     },
-    effect::CommittedEffect,
+    effect::{CommittedEffect, CommittedRejection},
     plan::{Backpressure, PlanError, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
-        AcceptedStatus, ChainRevision, ChainViewId, ComputedOutcome, DependencyKey, OwnedTx,
-        PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId,
-        QueuedWork, RawTxHash, RemoteDeadline, RemotePayloadOrigin, TxIdentity, ValidatedAdmission,
-        VerifyCapability, WorkPermit,
+        AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PreAcceptedPhase,
+        PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId, QueuedWork, RawTxHash,
+        RemoteDeadline, RemotePayloadOrigin, TxIdentity, ValidatedAdmission, VerifyCapability,
+        WorkPermit,
     },
-    work::{CheckedOutWork, SettlementNext},
+    work::CheckedOutWork,
 };
 use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
@@ -195,7 +195,7 @@ fn uak_matching_completion_settles_and_refreshes_across_chain_view_change() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(
                 &entry.phase,
-                PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified))
+                PreAcceptedPhase::Ready(verified)
                     if verified.chain_view() == &current_view
             )
     ));
@@ -203,7 +203,7 @@ fn uak_matching_completion_settles_and_refreshes_across_chain_view_change() {
 }
 
 #[test]
-fn uak_chain_change_requeues_contextual_rejection_but_keeps_context_free_failures() {
+fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let mut settlements = Vec::new();
     for (nonce, peer) in [(71, 71), (72, 72), (73, 73)] {
@@ -235,29 +235,26 @@ fn uak_chain_change_requeues_contextual_rejection_but_keeps_context_free_failure
     ));
 
     let (budget_hash, budget_work) = settlements.remove(0);
-    let mut budget = budget_work.internal_failure();
-    budget.next = SettlementNext::Computed(ComputedOutcome::BudgetDenied);
+    let budget = budget_work
+        .missing(vec![DependencyKey::Header(Byte32::zero()); 17])
+        .expect("over-grant missing evidence becomes a typed resource rejection");
     apply_without_work(
         authority
             .apply_settlement(budget)
             .expect("budget failure is independent of chain context"),
     );
-    assert!(matches!(
-        authority.entry(&budget_hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
-    ));
+    assert!(authority.entry(&budget_hash).is_none());
 
     let (internal_hash, internal_work) = settlements.remove(0);
     apply_without_work(
         authority
             .apply_settlement(internal_work.internal_failure())
-            .expect("internal worker failure is independent of chain context"),
+            .expect("internal worker failure releases and retries its lease"),
     );
     assert!(matches!(
         authority.entry(&internal_hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert_resource_reference(&authority);
 }
@@ -837,6 +834,75 @@ fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let smaller = OutPoint::new(Byte32::new([64; 32]), 0);
+    let larger = OutPoint::new(Byte32::new([65; 32]), 0);
+    let candidate_tx = TransactionBuilder::default()
+        .version(520u32)
+        .input(CellInput::new(larger.clone(), 0))
+        .input(CellInput::new(smaller.clone(), 0))
+        .build();
+    let admission =
+        ValidatedAdmission::remote(candidate_tx.clone(), ckb_network::PeerIndex::from(520))
+            .expect("multi-conflict fixture is valid");
+    let candidate = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("multi-conflict fixture enters preacceptance"),
+    );
+
+    // Deliberately present the larger cell first. The causal join must not
+    // leak traversal or hash-map order into the public rejection reason.
+    let attached = TransactionBuilder::default()
+        .version(521u32)
+        .input(CellInput::new(larger, 0))
+        .input(CellInput::new(smaller.clone(), 0))
+        .build();
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(64),
+        block_changes(vec![attached], Vec::new()),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("multi-conflict facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("one causal plan joins both conflict cells")
+        .validate_for_foundation(Vec::new())
+        .expect("terminal conflict needs no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("owner removal and exact conflict effect commit together"),
+    );
+    assert!(authority.entry(&candidate).is_none());
+
+    let lease = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("effect checkout plans")
+        .expect("chain conflict publishes one exact rejection")
+        .apply()
+        .into_effect_lease()
+        .expect("effect checkout returns its capability");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Rejected {
+            reason: CommittedRejection::ChainConflict { out_point },
+            ..
+        }] if out_point == &smaller
+    ));
+    apply_without_work(
+        authority
+            .apply_effect_settlement_for_foundation(lease.published())
+            .expect("published conflict effect settles"),
+    );
     assert_resource_reference(&authority);
 }
 
@@ -1506,7 +1572,7 @@ fn uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget(
     let child_admission =
         ValidatedAdmission::remote(child_tx, peer).expect("remote dependent fixture is valid");
     let child = child_admission.identity.raw.clone();
-    let charged = child_admission.charge;
+    let charged = child_admission.charge_for_foundation();
     apply_without_work(
         authority
             .plan_admission(child_admission)

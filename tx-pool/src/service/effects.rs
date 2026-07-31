@@ -37,7 +37,8 @@ pub(crate) const MAX_POOL_MUTATION_REJECT_BYTES: usize = 256;
 /// Cap the non-consensus peer-ban diagnostic included in a commit batch.
 pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
 /// Cap attacker-controlled verifier diagnostics retained for observability.
-pub(crate) const MAX_RECENT_REJECT_BYTES: usize = 1024;
+pub(crate) const MAX_RECENT_REJECT_BYTES: usize =
+    crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
 /// Conservative residency charge for the journal's hash-to-envelope
 /// projection used by immediate RPC rejection reads.
 const PENDING_REJECT_INDEX_BYTES: usize = 128;

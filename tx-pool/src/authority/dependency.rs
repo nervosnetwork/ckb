@@ -1,6 +1,6 @@
 use super::state::{
-    ComputedOutcome, DependencyCut, DependencyKey, DependencyOrigin, KnownDependencies,
-    MissingDependencies, ObservedDependencies, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash,
+    DependencyCut, DependencyKey, DependencyOrigin, KnownDependencies, MissingDependencies,
+    ObservedDependencies, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -246,7 +246,7 @@ impl DependencyMaintenanceTicket {
                 ),
                 PreAcceptedPhase::Queued(_)
                 | PreAcceptedPhase::Computing(_)
-                | PreAcceptedPhase::Computed(_) => Ok(DependencyMaintenanceAction::Advance),
+                | PreAcceptedPhase::Ready(_) => Ok(DependencyMaintenanceAction::Advance),
             },
             DirtyScope::AllConsumers => {
                 let loss = self
@@ -265,14 +265,7 @@ impl DependencyMaintenanceTicket {
                         // every later level change represented by `target`.
                         observed.dependency_cut() < self.target
                     }
-                    PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)) => {
-                        verified.dependency_cut() < loss
-                    }
-                    PreAcceptedPhase::Computed(
-                        ComputedOutcome::Rejected(_)
-                        | ComputedOutcome::BudgetDenied
-                        | ComputedOutcome::InternalFailure,
-                    ) => false,
+                    PreAcceptedPhase::Ready(verified) => verified.dependency_cut() < loss,
                 };
                 Ok(if stale {
                     DependencyMaintenanceAction::Requeue
@@ -292,7 +285,7 @@ impl DependencySlot {
                     PreAcceptedPhase::Waiting(observed) => Some(observed.clone()),
                     PreAcceptedPhase::Queued(_)
                     | PreAcceptedPhase::Computing(_)
-                    | PreAcceptedPhase::Computed(_) => None,
+                    | PreAcceptedPhase::Ready(_) => None,
                 };
                 (entry.dependencies().clone(), waiting)
             }

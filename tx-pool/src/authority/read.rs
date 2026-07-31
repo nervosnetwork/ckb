@@ -11,9 +11,9 @@ use super::{
     plan::MembershipProjection,
     source::PoolTemplateVersions,
     state::{
-        AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, ComputedOutcome,
-        DependencyKey, EntryVersion, KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
-        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, RejectionKind, TxIdentity,
+        AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
+        EntryVersion, KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
+        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, TxIdentity,
     },
 };
 use ckb_types::core::{Capacity, TransactionView};
@@ -50,10 +50,7 @@ pub(super) enum PreAcceptedReadPhase {
     VerifyQueued,
     Computing,
     WaitingMissing,
-    ComputedVerified,
-    ComputedRejected(RejectionKind),
-    ComputedBudgetDenied,
-    ComputedInternalFailure,
+    Ready,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,18 +105,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
                     }
                     PreAcceptedPhase::Computing(_) => PreAcceptedReadPhase::Computing,
                     PreAcceptedPhase::Waiting(_) => PreAcceptedReadPhase::WaitingMissing,
-                    PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)) => {
-                        PreAcceptedReadPhase::ComputedVerified
-                    }
-                    PreAcceptedPhase::Computed(ComputedOutcome::Rejected(reason)) => {
-                        PreAcceptedReadPhase::ComputedRejected(*reason)
-                    }
-                    PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied) => {
-                        PreAcceptedReadPhase::ComputedBudgetDenied
-                    }
-                    PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure) => {
-                        PreAcceptedReadPhase::ComputedInternalFailure
-                    }
+                    PreAcceptedPhase::Ready(_) => PreAcceptedReadPhase::Ready,
                 };
                 AuthorityReadState::PreAccepted(phase)
             }
@@ -144,10 +130,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
                 | PreAcceptedReadPhase::VerifyQueued
                 | PreAcceptedReadPhase::Computing
                 | PreAcceptedReadPhase::WaitingMissing
-                | PreAcceptedReadPhase::ComputedVerified
-                | PreAcceptedReadPhase::ComputedRejected(_)
-                | PreAcceptedReadPhase::ComputedBudgetDenied
-                | PreAcceptedReadPhase::ComputedInternalFailure,
+                | PreAcceptedReadPhase::Ready,
             )
             | AuthorityReadState::Accepted(AcceptedStatus::Pending | AcceptedStatus::Gap) => {
                 Some(AuthorityRpcStatus::Pending)
@@ -162,17 +145,10 @@ impl<'authority> AuthorityReadEntry<'authority> {
                 PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
                     Some(resolved.payload().fee())
                 }
-                PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)) => {
-                    Some(verified.metrics().fee)
-                }
+                PreAcceptedPhase::Ready(verified) => Some(verified.metrics().fee),
                 PreAcceptedPhase::Queued(QueuedWork::Resolve)
                 | PreAcceptedPhase::Computing(_)
-                | PreAcceptedPhase::Waiting(_)
-                | PreAcceptedPhase::Computed(
-                    ComputedOutcome::Rejected(_)
-                    | ComputedOutcome::BudgetDenied
-                    | ComputedOutcome::InternalFailure,
-                ) => None,
+                | PreAcceptedPhase::Waiting(_) => None,
             },
             OwnedTx::ReplacementHistory(_) => None,
         }
@@ -182,17 +158,10 @@ impl<'authority> AuthorityReadEntry<'authority> {
         match self.owner {
             OwnedTx::Accepted(entry) => Some(entry.proof.metrics().cost.cycles),
             OwnedTx::PreAccepted(entry) => match &entry.phase {
-                PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)) => {
-                    Some(verified.metrics().cost.cycles)
-                }
+                PreAcceptedPhase::Ready(verified) => Some(verified.metrics().cost.cycles),
                 PreAcceptedPhase::Queued(_)
                 | PreAcceptedPhase::Computing(_)
-                | PreAcceptedPhase::Waiting(_)
-                | PreAcceptedPhase::Computed(
-                    ComputedOutcome::Rejected(_)
-                    | ComputedOutcome::BudgetDenied
-                    | ComputedOutcome::InternalFailure,
-                ) => None,
+                | PreAcceptedPhase::Waiting(_) => None,
             },
             OwnedTx::ReplacementHistory(_) => None,
         }
@@ -220,7 +189,7 @@ pub(super) struct AuthorityReadSummary {
     pub(super) computing: usize,
     pub(super) waiting_missing: usize,
     pub(super) replacement_history: usize,
-    pub(super) computed: usize,
+    pub(super) ready: usize,
     pub(super) accepted_pending: usize,
     pub(super) accepted_gap: usize,
     pub(super) accepted_proposed: usize,
@@ -376,7 +345,7 @@ impl<'authority> AuthorityReadView<'authority> {
                         PreAcceptedPhase::Waiting(_) => {
                             increment(&mut summary.waiting_missing)?;
                         }
-                        PreAcceptedPhase::Computed(_) => increment(&mut summary.computed)?,
+                        PreAcceptedPhase::Ready(_) => increment(&mut summary.ready)?,
                     }
                 }
                 OwnedTx::ReplacementHistory(_) => {

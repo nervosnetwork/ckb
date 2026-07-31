@@ -1,9 +1,9 @@
-//! Test-only construction of the frozen unified authority design.
+//! Unified tx-pool ownership, membership, scheduling and effect authority.
 //!
-//! Until the atomic P9.7g cutover this module is compiled only for tests and
-//! cannot participate in production ownership or decisions. It deliberately
-//! uses project transaction identities and Rust ownership so the target API is
-//! proven before any runtime path is switched.
+//! Production entry points are introduced only through the atomic P9.7g
+//! cutover façade. Foundation-only constructors remain test-gated, so a
+//! production caller cannot stamp synthetic chain or validation evidence into
+//! an authority receipt while the runtime wiring is being completed.
 
 mod chain;
 mod dependency;
@@ -11,7 +11,9 @@ mod effect;
 mod indexes;
 mod plan;
 mod read;
+mod rejection;
 mod resources;
+pub(crate) mod runtime;
 mod scheduler;
 mod source;
 mod state;

@@ -1,11 +1,13 @@
 use super::super::chain::{AcceptedProof, ProposalContextReceipt};
-use super::super::effect::{CommittedEffect, EffectPolicy};
+use super::super::effect::{
+    CommittedAcceptance, CommittedEffect, CommittedRejection, EffectPolicy, RejectionAudience,
+};
 use super::super::plan::{
     AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
     CandidateBatchError, CandidateDispositionPlan, CommittedChange, CommittedChanges,
-    CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCoupling, MembershipReject,
-    MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch, SettlementPlan,
-    StalePlan, StatusCounts, TxPoolAuthority,
+    CommittedDelta, ComponentLimitKind, DescendantAggregate, EvictionOrderKey, IndependentCoupling,
+    MembershipReject, MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch,
+    SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
@@ -14,11 +16,11 @@ use super::super::resources::{
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedStatus, ActiveWork, ApplySequence, CandidateMetrics,
-    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome,
-    DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
-    FoundationResolution, InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx,
-    PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId,
-    ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
+    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, DependencyCut,
+    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, FoundationResolution,
+    InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx, PoolGeneration,
+    PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalLease,
+    QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
     RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
     VerifyCapability, VerifyCycleClass, WorkPermit,
 };
@@ -27,6 +29,7 @@ use super::super::work::{
     ContinuousVerifyWork, ResolutionEvidence, ResolutionReceiptError, ResolveWork, SettlementNext,
     SettlementToken, VerificationReceiptError,
 };
+use crate::error::Reject;
 use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
@@ -267,6 +270,25 @@ fn apply_committed_without_work(commit: impl FixtureCommit) -> CommittedDelta {
     committed
 }
 
+fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
+    loop {
+        let Some(checkout) = authority
+            .plan_effect_checkout_for_foundation()
+            .expect("fixture effect checkout plans")
+        else {
+            break;
+        };
+        let lease = checkout
+            .apply()
+            .into_effect_lease()
+            .expect("fixture checkout returns one effect lease");
+        let committed = authority
+            .apply_effect_settlement_for_foundation(lease.published())
+            .expect("fixture effect publication settles");
+        assert!(committed.handoff_is_none());
+    }
+}
+
 pub(super) fn take_resolve_work(committed: CommittedDelta) -> (RawTxHash, ResolveWork) {
     let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
         panic!("resolve-only checkout returns resolve work");
@@ -297,16 +319,7 @@ fn continue_fixture_verify(
 }
 
 fn add_resources(left: ResourceVector, right: ResourceVector) -> ResourceVector {
-    ResourceVector::new(
-        left.entries
-            .checked_add(right.entries)
-            .expect("fixture fits"),
-        left.bytes.checked_add(right.bytes).expect("fixture fits"),
-        left.edges.checked_add(right.edges).expect("fixture fits"),
-        left.active_work
-            .checked_add(right.active_work)
-            .expect("fixture fits"),
-    )
+    left.checked_add(right).expect("fixture fits")
 }
 
 fn add_accepted(left: AcceptedResources, right: AcceptedResources) -> AcceptedResources {
@@ -399,6 +412,11 @@ pub(super) fn accept_remote_transaction_with_payload(
             .plan_accept_for_foundation(&hash, version, status)
             .expect("fixture membership plans"),
     );
+    // Setup helpers model a healthy endpoint publisher. Tests that exercise
+    // effect backpressure or inspect a candidate's exact committed outcome
+    // build and Apply that candidate explicitly instead of inheriting stale
+    // setup effects.
+    drain_fixture_effects(authority);
     hash
 }
 
@@ -500,11 +518,32 @@ pub(super) fn independent_batch(
 }
 
 fn coupled_reason_and_drop(plan: SettlementPlan<'_>) -> IndependentCoupling {
-    let SettlementPlan::CoupledComponent { reason, plan } = plan else {
+    let SettlementPlan::CoupledComponent {
+        reason,
+        disposition,
+    } = plan
+    else {
         panic!("fixture expected a coupled settlement");
     };
-    drop(plan);
+    drop(disposition);
     reason
+}
+
+fn accepted_disposition(disposition: CandidateDispositionPlan<'_>) -> PreparedApply<'_> {
+    let CandidateDispositionPlan::Accepted(plan) = disposition else {
+        panic!("fixture candidate must be accepted");
+    };
+    plan
+}
+
+fn rejected_coupled_reason_and_drop(plan: SettlementPlan<'_>) -> MembershipReject {
+    let SettlementPlan::CoupledComponent { disposition, .. } = plan else {
+        panic!("fixture expected a coupled settlement");
+    };
+    let CandidateDispositionPlan::Rejected(rejection) = disposition else {
+        panic!("fixture candidate must be rejected");
+    };
+    rejection.reason().clone()
 }
 
 pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
@@ -526,16 +565,11 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
                 preaccepted = add_resources(preaccepted, resources);
                 if let Some(peer) = residency_peer {
                     assert!(compute_peer.is_none() || compute_peer == Some(peer));
-                    let peer_resources = ResourceVector::new(
-                        resources.entries,
-                        resources.bytes,
-                        resources.edges,
-                        if compute_peer == Some(peer) {
-                            resources.active_work
-                        } else {
-                            0
-                        },
-                    );
+                    let peer_resources = if compute_peer == Some(peer) {
+                        resources
+                    } else {
+                        resources.without_compute()
+                    };
                     remote = add_resources(remote, peer_resources);
                     let usage = peers.entry(peer).or_default();
                     *usage = add_resources(*usage, peer_resources);
@@ -936,7 +970,7 @@ fn uak_generation_swap_requires_a_current_structured_drain() {
     );
     apply_without_work(
         authority
-            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .apply_settlement(work.internal_failure())
             .expect("structured cancellation settles the only capability"),
     );
     let accepted = accept_remote_transaction(
@@ -1157,7 +1191,7 @@ fn uak_peer_revocation_drains_promoted_active_work_before_delete() {
 
     apply_without_work(
         authority
-            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .apply_settlement(work.internal_failure())
             .expect("the worker returns its unique settlement capability"),
     );
     let revoked = authority
@@ -1299,7 +1333,7 @@ fn uak_remote_expiry_skips_active_work_without_blocking_other_due_owners() {
 
     apply_without_work(
         authority
-            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .apply_settlement(work.internal_failure())
             .expect("the unique worker returns its charged capability"),
     );
     let committed = authority
@@ -1650,7 +1684,8 @@ fn uak_terminal_outcome_and_effect_commit_together() {
             EffectPolicy::Trusted,
             vec![CommittedEffect::Rejected {
                 tx: Arc::clone(&retained_tx),
-                reason: RejectionKind::Policy,
+                audience: RejectionAudience::foundation(),
+                reason: CommittedRejection::Foundation(RejectionKind::Policy),
             }],
         )
         .expect("fixture effect is bounded");
@@ -1682,8 +1717,9 @@ fn uak_terminal_outcome_and_effect_commit_together() {
     assert_eq!(lease.effects().len(), 1);
     assert!(matches!(
         &lease.effects()[0],
-        CommittedEffect::Rejected { tx, reason }
-            if Arc::ptr_eq(tx, &retained_tx) && *reason == RejectionKind::Policy
+        CommittedEffect::Rejected { tx, reason, .. }
+            if Arc::ptr_eq(tx, &retained_tx)
+                && *reason == CommittedRejection::Foundation(RejectionKind::Policy)
     ));
     let published = authority
         .apply_effect_settlement_for_foundation(lease.published())
@@ -1713,7 +1749,7 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
             dependencies: KnownDependencies::default(),
         }),
         PreAcceptedPhase::Waiting(observed(1)),
-        PreAcceptedPhase::Computed(ComputedOutcome::Verified(VerifiedFacts::for_foundation(
+        PreAcceptedPhase::Ready(VerifiedFacts::for_foundation(
             ChainRevision(0),
             DependencyCut(ApplySequence(1)),
             Arc::new(resolved_payload(&transaction).into_payload()),
@@ -1721,13 +1757,9 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
                 fee: Capacity::shannons(1),
                 cost: AcceptedCost::new(bytes, bytes, 0),
             },
-        ))),
+        )),
     ];
     assert_eq!(phases.len(), 4);
-    assert!(matches!(
-        PreAcceptedPhase::Computed(ComputedOutcome::Rejected(RejectionKind::Policy)),
-        PreAcceptedPhase::Computed(_)
-    ));
 }
 
 #[test]
@@ -1791,11 +1823,18 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies,
         }),
-        PreAcceptedPhase::Computed(ComputedOutcome::Rejected(RejectionKind::Verification)),
-        PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied),
-        PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure),
+        PreAcceptedPhase::Waiting(observed(1)),
+        PreAcceptedPhase::Ready(VerifiedFacts::for_foundation(
+            ChainRevision(0),
+            DependencyCut(ApplySequence(1)),
+            Arc::new(resolved_payload(&tx(0)).into_payload()),
+            CandidateMetrics {
+                fee: Capacity::shannons(1),
+                cost: AcceptedCost::new(1, 1, 0),
+            },
+        )),
     ];
-    assert_eq!(variants.len(), 6);
+    assert_eq!(variants.len(), 5);
 
     let verified_transaction = Arc::clone(&owner.record().tx);
     let verified_bytes = verified_transaction.data().total_size();
@@ -1810,7 +1849,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     );
     let changed = owner
         .with_foundation_phase(
-            PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified.clone())),
+            PreAcceptedPhase::Ready(verified.clone()),
             EntryVersion(9),
             owner.preaccepted_charge().expect("owner is preaccepted"),
         )
@@ -2116,9 +2155,11 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
             assert_eq!(only_committed_change(&single), expected);
         }
 
-        assert_eq!(
-            aggregate.normalized_snapshot(),
-            reference.normalized_snapshot()
+        assert!(
+            aggregate
+                .normalized_snapshot()
+                .equivalent_modulo_effect_batching(&reference.normalized_snapshot()),
+            "commuting Apply must equal its canonical single sequence apart from journal batching"
         );
         assert_resource_reference(&aggregate);
         assert_membership_reference(&aggregate);
@@ -2445,11 +2486,12 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     );
     let before = conflict.normalized_snapshot();
     let batch = independent_batch(&conflict, &[candidate]);
-    assert!(matches!(
-        conflict.plan_settlement_for_foundation(&batch),
-        Err(PlanError::Membership(MembershipReject::InputConflict(input)))
-            if input == conflicted_input
-    ));
+    let reason = rejected_coupled_reason_and_drop(
+        conflict
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
+    );
+    assert_eq!(reason, MembershipReject::InputConflict(conflicted_input));
     assert_eq!(conflict.normalized_snapshot(), before);
 
     let conditional_cell = OutPoint::new(Byte32::new([219; 32]), 0);
@@ -2579,12 +2621,12 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[candidate]);
-    assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(
-            MembershipReject::MissingInputEvidence(missing)
-        ))
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
     );
+    assert_eq!(reason, MembershipReject::MissingInputEvidence(missing));
     assert_eq!(authority.normalized_snapshot(), before);
 
     let parent_tx = TransactionBuilder::default()
@@ -2613,11 +2655,14 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[child]);
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
+    );
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(MembershipReject::MissingPoolOutput(
-            nonexistent_output
-        )))
+        reason,
+        MembershipReject::MissingPoolOutput(nonexistent_output)
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
@@ -2645,11 +2690,14 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[dependent]);
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
+    );
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(MembershipReject::MissingPoolOutput(
-            nonexistent_dependency
-        )))
+        reason,
+        MembershipReject::MissingPoolOutput(nonexistent_dependency)
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
@@ -2699,11 +2747,14 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[unsupported]);
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
+    );
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(
-            MembershipReject::MissingDependencyEvidence(unsupported_dependency)
-        ))
+        reason,
+        MembershipReject::MissingDependencyEvidence(unsupported_dependency)
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
@@ -2755,14 +2806,17 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent { reason, plan } = authority
+    let SettlementPlan::CoupledComponent {
+        reason,
+        disposition,
+    } = authority
         .plan_settlement_for_foundation(&batch)
         .expect("late parent has one bounded coupled Plan")
     else {
         panic!("late parent must not use IndependentRun");
     };
     assert_eq!(reason, IndependentCoupling::AcceptedChild(child.clone()));
-    let _ = plan.apply();
+    let _ = accepted_disposition(disposition).apply();
     assert_eq!(
         authority.accepted_children(&parent),
         Some(&HashSet::from([child.clone()]))
@@ -2785,14 +2839,17 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&grandparent));
-    let SettlementPlan::CoupledComponent { reason, plan } = authority
+    let SettlementPlan::CoupledComponent {
+        reason,
+        disposition,
+    } = authority
         .plan_settlement_for_foundation(&batch)
         .expect("late grandparent has one bounded coupled Plan")
     else {
         panic!("late grandparent must not use IndependentRun");
     };
     assert_eq!(reason, IndependentCoupling::AcceptedChild(parent.clone()));
-    let _ = plan.apply();
+    let _ = accepted_disposition(disposition).apply();
     assert_eq!(
         authority.accepted_children(&grandparent),
         Some(&HashSet::from([parent.clone()]))
@@ -2858,14 +2915,17 @@ fn uak_coupled_late_parent_deduplicates_an_existing_descendant_path() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent { reason, plan } = authority
+    let SettlementPlan::CoupledComponent {
+        reason,
+        disposition,
+    } = authority
         .plan_settlement_for_foundation(&batch)
         .expect("shared descendant path has one bounded coupled Plan")
     else {
         panic!("accepted child must route through the coupled planner");
     };
     assert_eq!(reason, IndependentCoupling::PoolParent(ancestor.clone()));
-    let _ = plan.apply();
+    let _ = accepted_disposition(disposition).apply();
 
     assert_eq!(
         authority.accepted_parents(&child),
@@ -3006,13 +3066,13 @@ fn uak_coupled_late_parent_capacity_evicts_from_the_projected_graph() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent { plan, .. } = authority
+    let SettlementPlan::CoupledComponent { disposition, .. } = authority
         .plan_settlement_for_foundation(&batch)
         .expect("late parent capacity is planned on the projected graph")
     else {
         panic!("accepted child must route through the coupled planner");
     };
-    let committed = plan.apply();
+    let committed = accepted_disposition(disposition).apply();
 
     assert_eq!(committed.removals.len(), 1);
     assert_eq!(committed.retired_len(), committed.removals.len());
@@ -3082,13 +3142,13 @@ fn uak_coupled_capacity_can_remove_a_late_child_without_stale_parent_weight() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent { plan, .. } = authority
+    let SettlementPlan::CoupledComponent { disposition, .. } = authority
         .plan_settlement_for_foundation(&batch)
         .expect("late-child eviction is compiled before Apply")
     else {
         panic!("accepted child must route through the coupled planner");
     };
-    let committed = plan.apply();
+    let committed = accepted_disposition(disposition).apply();
 
     assert_eq!(committed.removals.len(), 1);
     assert_eq!(committed.retired_len(), committed.removals.len());
@@ -3150,11 +3210,17 @@ fn uak_late_parent_component_bound_fails_before_authority_mutation() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[parent]);
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
+    );
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(MembershipReject::ComponentLimit {
+        reason,
+        MembershipReject::ComponentLimit {
+            kind: ComponentLimitKind::Mutation,
             limit: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-        }))
+        }
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
@@ -3223,11 +3289,17 @@ fn uak_nested_late_child_fanout_is_sliced_by_the_same_component_bound() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[candidate]);
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
+    );
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(MembershipReject::ComponentLimit {
+        reason,
+        MembershipReject::ComponentLimit {
+            kind: ComponentLimitKind::Mutation,
             limit: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-        }))
+        }
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
@@ -3307,10 +3379,12 @@ fn uak_late_parent_cannot_bypass_the_descendant_ancestor_bound() {
     );
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[late_parent]);
-    assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
-        Some(PlanError::Membership(MembershipReject::TooManyAncestors))
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement_for_foundation(&batch)
+            .expect("final membership rejection is a closed disposition"),
     );
+    assert_eq!(reason, MembershipReject::TooManyAncestors);
     assert_eq!(authority.normalized_snapshot(), before);
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
@@ -3339,12 +3413,14 @@ fn uak_capacity_self_eviction_is_precomputed_and_mutation_free() {
     let before = authority.normalized_snapshot();
     let version = owner_version(&authority, &second);
 
-    assert_eq!(
+    assert!(matches!(
         authority
             .plan_accept_for_foundation(&second, version, AcceptedStatus::Pending)
             .err(),
-        Some(PlanError::Membership(MembershipReject::CandidateEvicted))
-    );
+        Some(PlanError::Membership(
+            MembershipReject::CandidateEvicted { .. }
+        ))
+    ));
     assert_eq!(authority.normalized_snapshot(), before);
     assert!(matches!(
         authority.entry(&first),
@@ -3353,7 +3429,7 @@ fn uak_capacity_self_eviction_is_precomputed_and_mutation_free() {
     assert!(matches!(
         authority.entry(&second),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
     assert_resource_reference(&authority);
 }
@@ -3395,6 +3471,22 @@ fn uak_capacity_eviction_removes_one_complete_causal_component() {
     );
     let candidate =
         verify_remote_transaction_with_payload(&mut authority, candidate_tx, 69, candidate_payload);
+    let expected_eviction_rates = [&root, &child]
+        .into_iter()
+        .map(|hash| {
+            let Some(OwnedTx::Accepted(entry)) = authority.entry(hash) else {
+                panic!("capacity fixture victim must be Accepted");
+            };
+            let cost = entry.proof.metrics().cost;
+            (
+                hash.clone(),
+                FeeRate::calculate(
+                    entry.proof.metrics().fee,
+                    get_transaction_weight(cost.serialized_bytes, cost.cycles),
+                ),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let version = owner_version(&authority, &candidate);
     let committed = apply_committed_without_work(
         authority
@@ -3418,6 +3510,48 @@ fn uak_capacity_eviction_removes_one_complete_causal_component() {
     ));
     assert_eq!(authority.resources().accepted().entries, 1);
     assert_resource_reference(&authority);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("capacity outcome checkout plans")
+        .expect("membership Apply commits one complete outcome batch")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("capacity outcome checkout returns one lease");
+    let [
+        CommittedEffect::Accepted {
+            tx,
+            status: AcceptedStatus::Pending,
+            cause:
+                CommittedAcceptance::Admission {
+                    ingress_peer: Some(peer),
+                },
+        },
+        rejected @ ..,
+    ] = lease.effects()
+    else {
+        panic!("capacity Apply must publish admission before exact victim outcomes");
+    };
+    assert_eq!(tx.hash(), candidate.0);
+    assert_eq!(*peer, PeerIndex::from(69));
+    assert_eq!(rejected.len(), expected_eviction_rates.len());
+    for effect in rejected {
+        let CommittedEffect::Rejected {
+            tx,
+            reason: CommittedRejection::CapacityEvicted { fee_rate },
+            ..
+        } = effect
+        else {
+            panic!("every capacity victim retains its exact eviction evidence");
+        };
+        let hash = RawTxHash(tx.hash());
+        assert_eq!(Some(fee_rate), expected_eviction_rates.get(&hash));
+    }
+    let published = authority
+        .apply_effect_settlement_for_foundation(lease.published())
+        .expect("capacity outcome publication settles");
+    assert_eq!(published.retired_effect_len(), 1);
 }
 
 #[test]
@@ -3470,7 +3604,7 @@ fn uak_input_conflict_failure_is_precomputed_and_mutation_free() {
     assert!(matches!(
         authority.entry(&second),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
     assert_resource_reference(&authority);
 }
@@ -3600,6 +3734,57 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
         1
     );
     assert_resource_reference(&authority);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("replacement outcome checkout plans")
+        .expect("replacement Apply commits one complete outcome batch")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("replacement outcome checkout returns one lease");
+    let [
+        CommittedEffect::Accepted {
+            tx,
+            status: AcceptedStatus::Pending,
+            cause:
+                CommittedAcceptance::Admission {
+                    ingress_peer: Some(peer),
+                },
+        },
+        rejected @ ..,
+    ] = lease.effects()
+    else {
+        panic!("replacement Apply must publish admission before victim outcomes");
+    };
+    assert_eq!(tx.hash(), replacement.0);
+    assert_eq!(*peer, PeerIndex::from(60));
+    let expected_victims = HashMap::from([
+        (victim.clone(), PeerIndex::from(58)),
+        (child.clone(), PeerIndex::from(59)),
+    ]);
+    assert_eq!(rejected.len(), expected_victims.len());
+    for effect in rejected {
+        let CommittedEffect::Rejected {
+            tx,
+            audience,
+            reason: CommittedRejection::ReplacedBy { winner },
+        } = effect
+        else {
+            panic!("every retained history victim keeps an exact replacement outcome");
+        };
+        let victim_hash = RawTxHash(tx.hash());
+        let expected_peer = expected_victims
+            .get(&victim_hash)
+            .expect("effect belongs to the exact replacement closure");
+        assert_eq!(winner, &replacement);
+        assert_eq!(audience.ingress_peer, Some(*expected_peer));
+        assert_eq!(audience.blame_peer, Some(*expected_peer));
+    }
+    let published = authority
+        .apply_effect_settlement_for_foundation(lease.published())
+        .expect("replacement outcome publication settles");
+    assert_eq!(published.retired_effect_len(), 1);
 }
 
 #[test]
@@ -4559,15 +4744,21 @@ fn uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate()
     let disposition = authority
         .plan_candidate_disposition_for_foundation(&replacement, version, AcceptedStatus::Pending)
         .expect("one driver round compiles a deterministic rejection");
-    let CandidateDispositionPlan::Rejected { reason, plan } = disposition else {
+    let CandidateDispositionPlan::Rejected(rejection) = disposition else {
         panic!("under-fee replacement cannot be accepted");
     };
+    assert!(matches!(
+        rejection.reason(),
+        MembershipReject::InsufficientReplacementFee { actual, .. }
+            if *actual == Capacity::shannons(1)
+    ));
+    let (reason, committed) = rejection.apply();
     assert!(matches!(
         reason,
         MembershipReject::InsufficientReplacementFee { actual, .. }
             if actual == Capacity::shannons(1)
     ));
-    let committed = apply_committed_without_work(plan);
+    assert!(committed.handoff_is_none());
     assert!(committed.removals.is_empty());
     assert!(matches!(
         authority.entry(&victim),
@@ -4576,6 +4767,31 @@ fn uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate()
     assert!(authority.entry(&replacement).is_none());
     assert_eq!(authority.resources().replacement_history().entries, 0);
     assert_resource_reference(&authority);
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("effect checkout plans")
+        .expect("the terminal Apply committed its rejection")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("effect checkout returns the rejection lease");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Rejected {
+            audience,
+            reason: CommittedRejection::Membership(
+                MembershipReject::InsufficientReplacementFee { actual, .. }
+            ),
+            ..
+        }] if audience.ingress_peer == Some(PeerIndex::from(62))
+            && audience.blame_peer == Some(PeerIndex::from(62))
+            && *actual == Capacity::shannons(1)
+    ));
+    let published = authority
+        .apply_effect_settlement_for_foundation(lease.published())
+        .expect("rejection publication settles");
+    assert_eq!(published.retired_effect_len(), 1);
 }
 
 #[test]
@@ -4784,12 +5000,14 @@ fn uak_capacity_never_evicts_a_candidate_ancestor() {
     let before = authority.normalized_snapshot();
     let version = owner_version(&authority, &child);
 
-    assert_eq!(
+    assert!(matches!(
         authority
             .plan_accept_for_foundation(&child, version, AcceptedStatus::Proposed)
             .err(),
-        Some(PlanError::Membership(MembershipReject::CandidateEvicted))
-    );
+        Some(PlanError::Membership(
+            MembershipReject::CandidateEvicted { .. }
+        ))
+    ));
     assert_eq!(authority.normalized_snapshot(), before);
     assert!(matches!(
         authority.entry(&parent),
@@ -4887,6 +5105,7 @@ fn uak_rbf_component_bound_stops_before_any_authority_mutation() {
             .plan_accept_for_foundation(&replacement, version, AcceptedStatus::Pending)
             .err(),
         Some(PlanError::Membership(MembershipReject::ComponentLimit {
+            kind: ComponentLimitKind::Mutation,
             limit: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
         }))
     );
@@ -5007,7 +5226,7 @@ fn uak_counter_exhaustion_is_typed_and_mutation_free() {
 }
 
 #[test]
-fn uak_settlement_failure_returns_a_cancellation_capability() {
+fn uak_settlement_failure_returns_the_exact_terminal_capability() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 111, 22);
     let version = owner_version(&authority, &hash);
@@ -5034,18 +5253,34 @@ fn uak_settlement_failure_returns_a_cancellation_capability() {
     authority.force_next_sequence(resumable_sequence);
     apply_without_work(
         authority
-            .apply_settlement(exhausted.into_cancellation())
-            .expect("returned capability deterministically releases the lease"),
+            .apply_settlement(exhausted.into_retry())
+            .expect("returned capability commits the original rejection"),
     );
     assert_eq!(authority.resources().preaccepted().active_work, 0);
+    assert!(authority.entry(&hash).is_none());
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("effect checkout plans")
+        .expect("terminalization and rejection publish in the same Apply")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("rejection effect owns one publication lease");
     assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(
-                entry.phase,
-                PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure)
-            )
+        lease.effects(),
+        [CommittedEffect::Rejected {
+            reason: CommittedRejection::Validation(rejection),
+            ..
+        }] if matches!(
+            rejection.reject(),
+            Reject::Invalidated(message) if message == "foundation policy rejection"
+        )
     ));
+    apply_without_work(
+        authority
+            .apply_effect_settlement_for_foundation(lease.published())
+            .expect("terminal rejection publication settles"),
+    );
     assert_resource_reference(&authority);
 }
 
@@ -5150,12 +5385,7 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
             .apply_settlement(settlement)
             .expect("the active incarnation settles before retirement"),
     );
-    let settled_version = owner_version(&authority, &hash);
-    apply_without_work(
-        authority
-            .plan_terminalize_for_foundation(&hash, settled_version)
-            .expect("the settled incarnation terminalizes"),
-    );
+    assert!(authority.entry(&hash).is_none());
     apply_without_work(
         authority
             .plan_admission(
@@ -5168,7 +5398,7 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
     let stale = authority
         .apply_settlement(ComputeSettlement {
             token: stale_token,
-            next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+            next: SettlementNext::Retry,
         })
         .expect_err("the retired incarnation cannot settle its successor");
     assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
@@ -5201,10 +5431,17 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         .expect("queued resolve accepts a continuous permit")
         .apply();
     assert_eq!(only_committed_change(&checkout).sequence, ApplySequence(2));
-    assert_eq!(
-        authority.resources().preaccepted(),
-        ResourceVector::new(1, queued_charge.bytes, queued_charge.edges, 1)
-    );
+    let (compute_bytes, compute_edges) = authority
+        .resources()
+        .compute_limits()
+        .reservation_for(WorkPermit::ResolveThenVerify(VerifyCapability::Any));
+    let expected_charge = queued_charge
+        .reserve_compute(ComputeGrant {
+            max_resident_bytes: compute_bytes,
+            max_edges: compute_edges,
+        })
+        .expect("fixture charge accepts exactly one compute reservation");
+    assert_eq!(authority.resources().preaccepted(), expected_charge);
     assert!(authority.primary_projection_consistent());
     let before_local_continuation = authority.normalized_snapshot();
     let CheckedOutWork::ContinuousResolve(resolve) = checkout
@@ -5236,7 +5473,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
     apply_without_work(
         authority
@@ -5258,10 +5495,6 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
 fn uak_compute_growth_requires_an_authority_issued_grant() {
     let mut resolve_authority = TxPoolAuthority::for_foundation(limits());
     let resolve_hash = admit_remote(&mut resolve_authority, 540, 54);
-    let raw_charge = resolve_authority
-        .entry(&resolve_hash)
-        .and_then(OwnedTx::preaccepted_charge)
-        .expect("queued raw owner is charged");
     let resolve_version = owner_version(&resolve_authority, &resolve_hash);
     let checkout = resolve_authority
         .plan_checkout_for_foundation(
@@ -5299,12 +5532,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
             .apply_settlement(denied)
             .expect("budget denial releases the active grant"),
     );
-    assert!(matches!(
-        resolve_authority.entry(&resolve_hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
-                && entry.charge == raw_charge
-    ));
+    assert!(resolve_authority.entry(&resolve_hash).is_none());
     assert_resource_reference(&resolve_authority);
 
     let mut verify_authority = TxPoolAuthority::for_foundation(limits());
@@ -5332,12 +5560,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
             .apply_settlement(denied)
             .expect("verified budget denial releases the active grant"),
     );
-    assert!(matches!(
-        verify_authority.entry(&verify_hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
-                && entry.charge == entry.original_charge()
-    ));
+    assert!(verify_authority.entry(&verify_hash).is_none());
     assert_resource_reference(&verify_authority);
 }
 
@@ -5410,7 +5633,7 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
             Some(OwnedTx::PreAccepted(entry))
                 if matches!(
                     entry.phase,
-                    PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure)
+                    PreAcceptedPhase::Queued(QueuedWork::Resolve)
                 ) && entry.charge.active_work == 0
         ));
     }
@@ -5479,7 +5702,7 @@ fn uak_verified_residency_cannot_undercharge_retained_resolution() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(
                 entry.phase,
-                PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure)
+                PreAcceptedPhase::Queued(QueuedWork::Resolve)
             ) && entry.charge == entry.original_charge()
     ));
     assert_resource_reference(&authority);
@@ -5546,7 +5769,7 @@ fn uak_verified_settlement_has_one_ready_projection() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
     assert_resource_reference(&authority);
 }
@@ -5617,13 +5840,13 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
             .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("rejection settlement plans"),
     );
-    let rejected_version = owner_version(&rejected, &rejected_hash);
+    assert!(rejected.entry(&rejected_hash).is_none());
     let before = rejected.normalized_snapshot();
     assert_eq!(
         rejected
-            .plan_accept_for_foundation(&rejected_hash, rejected_version, AcceptedStatus::Pending,)
+            .plan_accept_for_foundation(&rejected_hash, version, AcceptedStatus::Pending,)
             .err(),
-        Some(PlanError::Stale(StalePlan::Phase))
+        Some(PlanError::Stale(StalePlan::Missing))
     );
     assert_eq!(rejected.normalized_snapshot(), before);
     assert_resource_reference(&queued);
@@ -5719,16 +5942,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
             .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("verification rejection settles"),
     );
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(
-                entry.phase,
-                PreAcceptedPhase::Computed(ComputedOutcome::Rejected(
-                    RejectionKind::Verification
-                ))
-            )
-    ));
+    assert!(authority.entry(&hash).is_none());
     assert!(authority.primary_projection_consistent());
 }
 
@@ -5762,7 +5976,7 @@ fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
             version: settlement.token.version,
             lease: ComputeLeaseId(u128::MAX),
         },
-        next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+        next: SettlementNext::Retry,
     };
     let before_forged = authority.normalized_snapshot();
     let stale_lease = authority
@@ -5884,11 +6098,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     );
 
     assert!(authority.primary_projection_consistent());
-    assert!(matches!(
-        authority.entry(&resolve_reject_hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Rejected(_)))
-    ));
+    assert!(authority.entry(&resolve_reject_hash).is_none());
     assert!(matches!(
         authority.entry(&continuous_missing_hash),
         Some(OwnedTx::PreAccepted(entry))
@@ -5897,7 +6107,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
     assert!(matches!(
         authority.entry(&verify_success_hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
 
     let mut authority = TxPoolAuthority::for_foundation(limits());
@@ -6243,22 +6453,27 @@ fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
     let remote = ValidatedAdmission::remote(tx(615), PeerIndex::from(66))
         .expect("fixture remote admission is valid");
     let remote_hash = remote.identity.raw.clone();
-    let total = [proposal.charge, recovery.charge, remote.charge]
-        .into_iter()
-        .reduce(add_resources)
-        .expect("fixture has admissions");
+    let remote_charge = remote.charge_for_foundation();
+    let total = [
+        proposal.charge_for_foundation(),
+        recovery.charge_for_foundation(),
+        remote_charge,
+    ]
+    .into_iter()
+    .reduce(add_resources)
+    .expect("fixture has admissions");
     let constrained = ResourceLimits::new(
         ResourceVector::new(total.entries, total.bytes, total.edges, 3),
         ResourceVector::new(
-            remote.charge.entries,
-            remote.charge.bytes,
-            remote.charge.edges,
+            remote_charge.entries,
+            remote_charge.bytes,
+            remote_charge.edges,
             1,
         ),
         ResourceVector::new(
-            remote.charge.entries,
-            remote.charge.bytes,
-            remote.charge.edges,
+            remote_charge.entries,
+            remote_charge.bytes,
+            remote_charge.edges,
             1,
         ),
         AcceptedResources::new(8, 64 * 1024, 64 * 1024, 64),
@@ -6317,8 +6532,11 @@ fn uak_proposal_promotion_separates_peer_residency_from_trusted_compute() {
         ValidatedAdmission::remote(tx(618), peer).expect("promoted remote fixture is valid");
     let trusted_admission = ValidatedAdmission::proposal(tx(619), ProposalContextId(2))
         .expect("trusted proposal fixture is valid");
-    let remote = add_resources(active_admission.charge, promoted_admission.charge);
-    let total = add_resources(remote, trusted_admission.charge);
+    let remote = add_resources(
+        active_admission.charge_for_foundation(),
+        promoted_admission.charge_for_foundation(),
+    );
+    let total = add_resources(remote, trusted_admission.charge_for_foundation());
     let constrained = ResourceLimits::new(
         ResourceVector::new(total.entries, total.bytes, total.edges, 3),
         ResourceVector::new(remote.entries, remote.bytes, remote.edges, 1),
@@ -6419,6 +6637,14 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
             .apply(),
     );
     assert_eq!(selected, final_peer);
+    let active_usage = authority.resources().preaccepted();
+    assert_eq!(active_usage.active_work, BLOCKED_PEERS + 1);
+    assert_eq!(
+        active_usage.compute_bytes(),
+        (BLOCKED_PEERS + 1)
+            .checked_mul(4 * 1024)
+            .expect("fixture compute partition is finite")
+    );
 
     let (plan, probes) = authority
         .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
@@ -6433,10 +6659,11 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
     for work in active_work {
         apply_without_work(
             authority
-                .apply_settlement(work.rejected(RejectionKind::Policy))
+                .apply_settlement(work.internal_failure())
                 .expect("every active lease settles exactly once"),
         );
     }
+    assert_eq!(authority.resources().preaccepted().compute_bytes(), 0);
     assert!(authority.primary_projection_consistent());
 }
 
@@ -6506,7 +6733,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
 fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
     let admission = ValidatedAdmission::remote(tx(1_000), PeerIndex::from(900))
         .expect("capacity fixture admission is valid");
-    let raw_charge = admission.charge;
+    let raw_charge = admission.charge_for_foundation();
     let compute_bytes = raw_charge
         .bytes
         .checked_add(64)
@@ -6547,13 +6774,11 @@ fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
             )
             .expect("retained growth denial is a total settlement"),
     );
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
-                && entry.charge == raw_charge
-    ));
-    assert_eq!(authority.resources().preaccepted(), raw_charge);
+    assert!(authority.entry(&hash).is_none());
+    assert_eq!(
+        authority.resources().preaccepted(),
+        ResourceVector::default()
+    );
     assert!(authority.primary_projection_consistent());
 }
 
@@ -6568,10 +6793,10 @@ fn uak_idle_peer_cardinality_does_not_expand_checkout_probe_work() {
         .collect::<Vec<_>>();
     let total = admissions
         .iter()
-        .map(|admission| admission.charge)
+        .map(|admission| admission.charge_for_foundation())
         .reduce(add_resources)
         .expect("fixture has owners");
-    let one = admissions[0].charge;
+    let one = admissions[0].charge_for_foundation();
     let constrained = ResourceLimits::new(
         ResourceVector::new(total.entries, total.bytes, total.edges, 1),
         ResourceVector::new(total.entries, total.bytes, total.edges, 1),
@@ -6689,11 +6914,7 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
             .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("large verification lease settles"),
     );
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Rejected(_)))
-    ));
+    assert!(authority.entry(&hash).is_none());
     assert!(authority.primary_projection_consistent());
 }
 
@@ -6812,7 +7033,7 @@ fn uak_runner_cancellation_settles_one_exact_lease_before_exit() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(authority.primary_projection_consistent());
 }

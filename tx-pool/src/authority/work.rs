@@ -1,11 +1,17 @@
-use super::chain::{CellLocationReceipt, ValidationRulesId, VerificationContextReceipt};
+#[cfg(test)]
+use super::chain::ValidationRulesId;
+use super::chain::{CellLocationReceipt, TimeContextReceipt, VerificationContextReceipt};
+use super::rejection::CommittedPublicReject;
 use super::resources::AcceptedCost;
+#[cfg(test)]
+use super::state::FoundationResolution;
 use super::state::{
-    CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
-    DependencyKey, DependencySetError, EntryVersion, FoundationResolution, InputEvidenceError,
-    KnownDependencies, MissingDependencies, QueuedWork, RawTxHash, RejectionKind, ResolvedFacts,
-    ResolvedPayload, TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
+    CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, DependencyCut, DependencyKey,
+    DependencySetError, EntryVersion, InputEvidenceError, KnownDependencies, MissingDependencies,
+    QueuedWork, RawTxHash, ResolvedFacts, ResolvedPayload, TxIdentity, VerifiedFacts,
+    VerifyCapability, VerifyCycleClass, WorkPermit,
 };
+use crate::error::Reject;
 use ckb_types::core::TransactionView;
 use ckb_types::core::{Capacity, cell::ResolvedTransaction};
 use std::sync::Arc;
@@ -151,7 +157,7 @@ impl<E> ReceiptFailure<E> {
     pub(super) fn into_settlement(self) -> ComputeSettlement {
         ComputeSettlement {
             token: self.token,
-            next: SettlementNext::Computed(ComputedOutcome::InternalFailure),
+            next: SettlementNext::Retry,
         }
     }
 }
@@ -166,7 +172,40 @@ pub(super) enum ContinuousResolution {
 pub(super) enum SettlementNext {
     QueuedVerify(ResolvedFacts),
     Waiting(MissingResolution),
-    Computed(ComputedOutcome),
+    Ready(VerifiedFacts),
+    Rejected(SettlementRejection),
+    Retry,
+}
+
+/// Exact worker rejection plus the minimum validity domain needed when a
+/// settlement races a chain transition. The authority can never infer this
+/// distinction from an error string or from the caller that returned it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SettlementRejection {
+    /// Resolve/verify evidence is bound to the checked-out chain view.
+    ChainBound(CommittedPublicReject),
+    /// The sealed compute/residency envelope is independent of chain state.
+    ResourceBound(CommittedPublicReject),
+}
+
+impl SettlementRejection {
+    fn chain_bound(reason: impl Into<CommittedPublicReject>) -> Self {
+        Self::ChainBound(reason.into())
+    }
+
+    fn resource_bound(reason: impl Into<CommittedPublicReject>) -> Self {
+        Self::ResourceBound(reason.into())
+    }
+
+    pub(super) const fn remains_valid_after_chain_change(&self) -> bool {
+        matches!(self, Self::ResourceBound(_))
+    }
+
+    pub(super) fn into_public(self) -> CommittedPublicReject {
+        match self {
+            Self::ChainBound(rejection) | Self::ResourceBound(rejection) => rejection,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -193,7 +232,15 @@ pub(super) struct ComputeSettlement {
 }
 
 fn internal_failure(token: LeaseToken) -> ComputeSettlement {
-    token.settle(SettlementNext::Computed(ComputedOutcome::InternalFailure))
+    token.settle(SettlementNext::Retry)
+}
+
+fn budget_denied(token: LeaseToken) -> ComputeSettlement {
+    token.settle(SettlementNext::Rejected(
+        SettlementRejection::resource_bound(Reject::Full(
+            "transaction exceeds the tx-pool compute residency envelope".to_owned(),
+        )),
+    ))
 }
 
 fn missing_settlement(
@@ -204,7 +251,7 @@ fn missing_settlement(
     let missing = match MissingDependencies::new(keys, token.grant.max_edges) {
         Ok(missing) => missing,
         Err(DependencySetError::TooMany) => {
-            return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
+            return Ok(budget_denied(token));
         }
         Err(DependencySetError::Empty) => {
             return Err(ReceiptFailure::new(
@@ -230,7 +277,7 @@ fn missing_settlement(
     let dependencies = match declared_dependencies.with_missing(&missing, token.grant.max_edges) {
         Ok(dependencies) => dependencies,
         Err(DependencySetError::TooMany) => {
-            return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
+            return Ok(budget_denied(token));
         }
         Err(DependencySetError::Allocation) => {
             return Err(ReceiptFailure::new(
@@ -309,7 +356,7 @@ fn verified(
     resolved: ResolvedFacts,
     accepted_resident_bytes: usize,
     cycles: u64,
-    rules: ValidationRulesId,
+    context: VerificationContextReceipt,
 ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
     if !payload_matches(&tx, resolved.payload()) {
         return Err(ReceiptFailure::new(
@@ -327,36 +374,27 @@ fn verified(
     if accepted_resident_bytes > token.grant.max_resident_bytes
         || resolved.payload().footprint.edge_count() > token.grant.max_edges
     {
-        return Ok(token.settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)));
+        return Ok(budget_denied(token));
     }
     let metrics = CandidateMetrics {
         fee: resolved.payload().fee(),
         cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
     };
-    let (dependency_cut, content, location, _) =
+    if !context.is_for(token.chain_view()) {
+        return Err(ReceiptFailure::new(
+            token,
+            VerificationReceiptError::ContextMismatch,
+        ));
+    }
+    let (dependency_cut, content, _location, _) =
         resolved.into_verification_parts(VerificationSeal(()));
-    let context = match VerificationContextReceipt::refresh_for_foundation(
-        token.chain_view().clone(),
-        location,
-        rules,
-    ) {
-        Ok(context) => context,
-        Err(_) => {
-            return Err(ReceiptFailure::new(
-                token,
-                VerificationReceiptError::ContextMismatch,
-            ));
-        }
-    };
     Ok(
-        token.settle(SettlementNext::Computed(ComputedOutcome::Verified(
-            VerifiedFacts::from_verification(
-                VerificationSeal(()),
-                dependency_cut,
-                content,
-                context,
-                metrics,
-            ),
+        token.settle(SettlementNext::Ready(VerifiedFacts::from_verification(
+            VerificationSeal(()),
+            dependency_cut,
+            content,
+            context,
+            metrics,
         ))),
     )
 }
@@ -393,7 +431,9 @@ impl ResolveWork {
                     verify_class,
                 ))
             }
-            Ok(None) => SettlementNext::Computed(ComputedOutcome::BudgetDenied),
+            Ok(None) => {
+                return Ok(budget_denied(self.token));
+            }
         };
         Ok(self.token.settle(next))
     }
@@ -429,14 +469,16 @@ impl ResolveWork {
                 verify_class,
             ))
         } else {
-            SettlementNext::Computed(ComputedOutcome::BudgetDenied)
+            return Ok(budget_denied(self.token));
         };
         Ok(self.token.settle(next))
     }
 
-    pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
         self.token
-            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
+            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
+                reason,
+            )))
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -474,10 +516,7 @@ impl ContinuousResolveWork {
             Err(error) => return Err(ReceiptFailure::new(self.token, error)),
         };
         let Some((payload, location, verify_class)) = payload else {
-            return Ok(ContinuousResolution::Settle(
-                self.token
-                    .settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)),
-            ));
+            return Ok(ContinuousResolution::Settle(budget_denied(self.token)));
         };
         let chain_view = self.token.chain_view().clone();
         let resolved = ResolvedFacts::from_resolution(
@@ -523,10 +562,7 @@ impl ContinuousResolveWork {
             ));
         }
         if !resolved_within_grant(self.token.grant, &payload) {
-            return Ok(ContinuousResolution::Settle(
-                self.token
-                    .settle(SettlementNext::Computed(ComputedOutcome::BudgetDenied)),
-            ));
+            return Ok(ContinuousResolution::Settle(budget_denied(self.token)));
         }
         let chain_view = self.token.chain_view().clone();
         let resolved = ResolvedFacts::from_resolution(
@@ -550,9 +586,11 @@ impl ContinuousResolveWork {
         }
     }
 
-    pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
         self.token
-            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
+            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
+                reason,
+            )))
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -565,6 +603,7 @@ impl VerifyWork {
         &self.tx
     }
 
+    #[cfg(test)]
     pub(super) fn verified(
         self,
         accepted_resident_bytes: usize,
@@ -577,11 +616,62 @@ impl VerifyWork {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn verified_under(
         self,
         accepted_resident_bytes: usize,
         cycles: u64,
         rules: ValidationRulesId,
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
+        let context = match VerificationContextReceipt::refresh_for_foundation(
+            self.token.chain_view().clone(),
+            self.resolved.location_receipt().clone(),
+            rules,
+        ) {
+            Ok(context) => context,
+            Err(_) => {
+                return Err(ReceiptFailure::new(
+                    self.token,
+                    VerificationReceiptError::ContextMismatch,
+                ));
+            }
+        };
+        self.verified_with_context(accepted_resident_bytes, cycles, context)
+    }
+
+    /// Seal post-script time/rules evidence into the exact resolved payload
+    /// owned by this compute capability. The location receipt and chain view
+    /// cannot be supplied independently by a runtime caller.
+    pub(super) fn verified_with_time_context(
+        self,
+        accepted_resident_bytes: usize,
+        cycles: u64,
+        time: TimeContextReceipt,
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
+        let context = match VerificationContextReceipt::from_validation(
+            self.token.chain_view().clone(),
+            self.resolved.location_receipt().clone(),
+            time,
+        ) {
+            Ok(context) => context,
+            Err(_) => {
+                return Err(ReceiptFailure::new(
+                    self.token,
+                    VerificationReceiptError::ContextMismatch,
+                ));
+            }
+        };
+        self.verified_with_context(accepted_resident_bytes, cycles, context)
+    }
+
+    /// Consume one validator-sealed location/time/view receipt. A changed-tip
+    /// caller must obtain a newly validated context; it cannot restamp the
+    /// location receipt retained by resolution.
+    pub(super) fn verified_with_context(
+        self,
+        accepted_resident_bytes: usize,
+        cycles: u64,
+        context: VerificationContextReceipt,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         verified(
             self.token,
@@ -589,13 +679,15 @@ impl VerifyWork {
             self.resolved,
             accepted_resident_bytes,
             cycles,
-            rules,
+            context,
         )
     }
 
-    pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
         self.token
-            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
+            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
+                reason,
+            )))
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -604,6 +696,7 @@ impl VerifyWork {
 }
 
 impl ContinuousVerifyWork {
+    #[cfg(test)]
     pub(super) fn verified(
         self,
         accepted_resident_bytes: usize,
@@ -616,11 +709,56 @@ impl ContinuousVerifyWork {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn verified_under(
         self,
         accepted_resident_bytes: usize,
         cycles: u64,
         rules: ValidationRulesId,
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
+        let context = match VerificationContextReceipt::refresh_for_foundation(
+            self.token.chain_view().clone(),
+            self.resolved.location_receipt().clone(),
+            rules,
+        ) {
+            Ok(context) => context,
+            Err(_) => {
+                return Err(ReceiptFailure::new(
+                    self.token,
+                    VerificationReceiptError::ContextMismatch,
+                ));
+            }
+        };
+        self.verified_with_context(accepted_resident_bytes, cycles, context)
+    }
+
+    pub(super) fn verified_with_time_context(
+        self,
+        accepted_resident_bytes: usize,
+        cycles: u64,
+        time: TimeContextReceipt,
+    ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
+        let context = match VerificationContextReceipt::from_validation(
+            self.token.chain_view().clone(),
+            self.resolved.location_receipt().clone(),
+            time,
+        ) {
+            Ok(context) => context,
+            Err(_) => {
+                return Err(ReceiptFailure::new(
+                    self.token,
+                    VerificationReceiptError::ContextMismatch,
+                ));
+            }
+        };
+        self.verified_with_context(accepted_resident_bytes, cycles, context)
+    }
+
+    pub(super) fn verified_with_context(
+        self,
+        accepted_resident_bytes: usize,
+        cycles: u64,
+        context: VerificationContextReceipt,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
         verified(
             self.token,
@@ -628,7 +766,7 @@ impl ContinuousVerifyWork {
             self.resolved,
             accepted_resident_bytes,
             cycles,
-            rules,
+            context,
         )
     }
 
@@ -636,9 +774,11 @@ impl ContinuousVerifyWork {
         internal_failure(self.token)
     }
 
-    pub(super) fn rejected(self, reason: RejectionKind) -> ComputeSettlement {
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
         self.token
-            .settle(SettlementNext::Computed(ComputedOutcome::Rejected(reason)))
+            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
+                reason,
+            )))
     }
 }
 

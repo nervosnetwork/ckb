@@ -155,7 +155,7 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
     assert_eq!(summary.computing, 0);
     assert_eq!(summary.waiting_missing, 0);
     assert_eq!(summary.replacement_history, 0);
-    assert_eq!(summary.computed, 0);
+    assert_eq!(summary.ready, 0);
     let compact = view
         .compact_transactions(std::slice::from_ref(&proposal))
         .expect("compact lookup includes every owner phase");

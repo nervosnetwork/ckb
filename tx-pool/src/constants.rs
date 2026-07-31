@@ -15,6 +15,11 @@ pub(crate) const EFFECT_JOURNAL_REMOTE_MAX_BATCHES: usize = 4096;
 /// bounded maintenance progress while an untrusted sink is saturated.
 pub(crate) const EFFECT_TRUSTED_HEADROOM_BATCHES: usize = 64;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
+/// One canonical ceiling for rejection diagnostics retained by either the
+/// authority journal or the recent-reject projection. Keeping both consumers
+/// on this value prevents an outcome that fits one committed boundary but can
+/// never be published by the other.
+pub(crate) const MAX_TX_POOL_REJECT_DESCRIPTION_BYTES: usize = 1024;
 
 /// Maximum number of entries one indexed conflict, capacity, or ancestor
 /// displacement sub-transition may visit or remove. Reorg reconciliation and

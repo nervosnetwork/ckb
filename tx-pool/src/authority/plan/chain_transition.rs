@@ -5,30 +5,30 @@ use crate::authority::chain::{
     ChainTransitionReceipt, ChainValidationWork, ProposalContextReceipt,
 };
 use crate::authority::state::DependencySetError;
-use ckb_types::core::TransactionView;
+use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum CausalDisposition {
     ForcePending,
     Recovery,
-    ChainConflictRemoval,
+    ChainConflictRemoval { out_point: OutPoint },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum PreacceptedDisposition {
     Requeue,
-    ChainConflictRemoval,
+    ChainConflictRemoval { out_point: OutPoint },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum PreacceptedCausalAction {
     PreserveOwner,
     Requeue,
-    Terminalize,
+    Terminalize { out_point: OutPoint },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,29 +43,40 @@ impl PreacceptedCapability {
             PreAcceptedPhase::Computing(_) => Self::ActiveCompute,
             PreAcceptedPhase::Queued(_)
             | PreAcceptedPhase::Waiting(_)
-            | PreAcceptedPhase::Computed(_) => Self::Inactive,
+            | PreAcceptedPhase::Ready(_) => Self::Inactive,
         }
     }
 }
 
 impl CausalDisposition {
     /// Join the causal lattice explicitly. Enum declaration order is not a
-    /// correctness policy: adding a cause must extend this closed matrix.
-    fn join(self, incoming: Self) -> Self {
+    /// correctness policy: adding a cause must extend this closed matrix. If
+    /// several attached inputs reach the same causal closure, canonical
+    /// outpoint ordering makes the externally reported conflict deterministic.
+    fn join(&self, incoming: &Self) -> Self {
         match self {
             Self::ForcePending => match incoming {
                 Self::ForcePending => Self::ForcePending,
                 Self::Recovery => Self::Recovery,
-                Self::ChainConflictRemoval => Self::ChainConflictRemoval,
+                Self::ChainConflictRemoval { out_point } => Self::ChainConflictRemoval {
+                    out_point: out_point.clone(),
+                },
             },
             Self::Recovery => match incoming {
                 Self::ForcePending | Self::Recovery => Self::Recovery,
-                Self::ChainConflictRemoval => Self::ChainConflictRemoval,
+                Self::ChainConflictRemoval { out_point } => Self::ChainConflictRemoval {
+                    out_point: out_point.clone(),
+                },
             },
-            Self::ChainConflictRemoval => match incoming {
-                Self::ForcePending | Self::Recovery | Self::ChainConflictRemoval => {
-                    Self::ChainConflictRemoval
-                }
+            Self::ChainConflictRemoval { out_point } => match incoming {
+                Self::ForcePending | Self::Recovery => Self::ChainConflictRemoval {
+                    out_point: out_point.clone(),
+                },
+                Self::ChainConflictRemoval {
+                    out_point: incoming,
+                } => Self::ChainConflictRemoval {
+                    out_point: canonical_conflict_out_point(out_point, incoming),
+                },
             },
         }
     }
@@ -74,34 +85,54 @@ impl CausalDisposition {
     /// consumers always propagate the disposition; PreAccepted has no
     /// proposal status, and an active compute capability remains uniquely
     /// settleable across chain/dependency cuts.
-    fn preaccepted_action(self, phase: &PreAcceptedPhase) -> PreacceptedCausalAction {
+    fn preaccepted_action(&self, phase: &PreAcceptedPhase) -> PreacceptedCausalAction {
         match (self, PreacceptedCapability::from_phase(phase)) {
             (
                 Self::ForcePending,
                 PreacceptedCapability::Inactive | PreacceptedCapability::ActiveCompute,
             )
-            | (Self::Recovery | Self::ChainConflictRemoval, PreacceptedCapability::ActiveCompute) => {
-                PreacceptedCausalAction::PreserveOwner
-            }
+            | (
+                Self::Recovery | Self::ChainConflictRemoval { .. },
+                PreacceptedCapability::ActiveCompute,
+            ) => PreacceptedCausalAction::PreserveOwner,
             (Self::Recovery, PreacceptedCapability::Inactive) => PreacceptedCausalAction::Requeue,
-            (Self::ChainConflictRemoval, PreacceptedCapability::Inactive) => {
-                PreacceptedCausalAction::Terminalize
+            (Self::ChainConflictRemoval { out_point }, PreacceptedCapability::Inactive) => {
+                PreacceptedCausalAction::Terminalize {
+                    out_point: out_point.clone(),
+                }
             }
         }
     }
 }
 
 impl PreacceptedDisposition {
-    fn join(self, incoming: Self) -> Self {
+    fn join(&self, incoming: &Self) -> Self {
         match self {
             Self::Requeue => match incoming {
                 Self::Requeue => Self::Requeue,
-                Self::ChainConflictRemoval => Self::ChainConflictRemoval,
+                Self::ChainConflictRemoval { out_point } => Self::ChainConflictRemoval {
+                    out_point: out_point.clone(),
+                },
             },
-            Self::ChainConflictRemoval => match incoming {
-                Self::Requeue | Self::ChainConflictRemoval => Self::ChainConflictRemoval,
+            Self::ChainConflictRemoval { out_point } => match incoming {
+                Self::Requeue => Self::ChainConflictRemoval {
+                    out_point: out_point.clone(),
+                },
+                Self::ChainConflictRemoval {
+                    out_point: incoming,
+                } => Self::ChainConflictRemoval {
+                    out_point: canonical_conflict_out_point(out_point, incoming),
+                },
             },
         }
+    }
+}
+
+fn canonical_conflict_out_point(left: &OutPoint, right: &OutPoint) -> OutPoint {
+    if left <= right {
+        left.clone()
+    } else {
+        right.clone()
     }
 }
 
@@ -195,7 +226,7 @@ impl<'facts> CausalCompiler<'facts> {
             return Ok(());
         }
         if let Some(current) = self.accepted.get_mut(&hash) {
-            let joined = current.join(disposition);
+            let joined = current.join(&disposition);
             if *current != joined {
                 *current = joined;
                 self.enqueue(hash)?;
@@ -216,7 +247,7 @@ impl<'facts> CausalCompiler<'facts> {
             return Ok(());
         }
         if let Some(current) = self.preaccepted.get_mut(&hash) {
-            *current = current.join(disposition);
+            *current = current.join(&disposition);
             return Ok(());
         }
         self.reserve_new_owner()?;
@@ -276,15 +307,25 @@ impl TxPoolAuthority {
         for transaction in &facts.attached {
             let attached_hash = RawTxHash(transaction.hash());
             for input in transaction.input_pts_iter() {
+                // Molecule iterators may share the attached transaction's
+                // backing bytes. The committed reason retains only this
+                // compact cell identity, never the whole block transaction.
+                let conflict_out_point = crate::util::compact_packed(&input);
                 if let Some(spender) = self.membership.spender(&input)
                     && spender != &attached_hash
                 {
-                    causal
-                        .seed_accepted(spender.clone(), CausalDisposition::ChainConflictRemoval)?;
+                    causal.seed_accepted(
+                        spender.clone(),
+                        CausalDisposition::ChainConflictRemoval {
+                            out_point: conflict_out_point.clone(),
+                        },
+                    )?;
                 }
                 self.seed_consumers(
                     &DependencyKey::Cell(input),
-                    CausalDisposition::ChainConflictRemoval,
+                    CausalDisposition::ChainConflictRemoval {
+                        out_point: conflict_out_point,
+                    },
                     &mut causal,
                 )?;
             }
@@ -350,7 +391,7 @@ impl TxPoolAuthority {
             let disposition = causal
                 .accepted
                 .get(&hash)
-                .copied()
+                .cloned()
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             self.seed_origin_consumers(
                 &DependencyOrigin::Transaction(hash),
@@ -383,7 +424,11 @@ impl TxPoolAuthority {
             let cause = match disposition {
                 CausalDisposition::ForcePending => continue,
                 CausalDisposition::Recovery => ChainRemovalCause::Recovery,
-                CausalDisposition::ChainConflictRemoval => ChainRemovalCause::ChainConflict,
+                CausalDisposition::ChainConflictRemoval { out_point } => {
+                    ChainRemovalCause::ChainConflict {
+                        out_point: out_point.clone(),
+                    }
+                }
             };
             removals.push(ChainRemoval {
                 hash: hash.clone(),
@@ -393,10 +438,14 @@ impl TxPoolAuthority {
         for (hash, disposition) in &preaccepted_dispositions {
             match disposition {
                 PreacceptedDisposition::Requeue => {}
-                PreacceptedDisposition::ChainConflictRemoval => removals.push(ChainRemoval {
-                    hash: hash.clone(),
-                    cause: ChainRemovalCause::ChainConflict,
-                }),
+                PreacceptedDisposition::ChainConflictRemoval { out_point } => {
+                    removals.push(ChainRemoval {
+                        hash: hash.clone(),
+                        cause: ChainRemovalCause::ChainConflict {
+                            out_point: out_point.clone(),
+                        },
+                    });
+                }
             }
         }
         removals.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
@@ -468,7 +517,9 @@ impl TxPoolAuthority {
         for (hash, disposition) in &dispositions {
             match disposition {
                 CausalDisposition::ForcePending => {}
-                CausalDisposition::Recovery | CausalDisposition::ChainConflictRemoval => continue,
+                CausalDisposition::Recovery | CausalDisposition::ChainConflictRemoval { .. } => {
+                    continue;
+                }
             }
             if non_status_hashes.contains(hash) {
                 continue;
@@ -529,7 +580,7 @@ impl TxPoolAuthority {
             let hash = RawTxHash(transaction.hash());
             let requeue_existing = match preaccepted_dispositions.get(&hash) {
                 Some(PreacceptedDisposition::Requeue) => !detached_hashes.contains(&hash),
-                Some(PreacceptedDisposition::ChainConflictRemoval) | None => false,
+                Some(PreacceptedDisposition::ChainConflictRemoval { .. }) | None => false,
             };
             if requeue_existing {
                 ChainRecoveryWork::RequeueExisting(hash)
@@ -577,7 +628,7 @@ impl TxPoolAuthority {
             return Ok(());
         };
         for key in keys {
-            self.seed_consumers(key, disposition, causal)?;
+            self.seed_consumers(key, disposition.clone(), causal)?;
         }
         Ok(())
     }
@@ -597,17 +648,18 @@ impl TxPoolAuthority {
             }
             match self.entries.get(hash) {
                 Some(OwnedTx::Accepted(_)) => {
-                    causal.seed_accepted(hash.clone(), disposition)?;
+                    causal.seed_accepted(hash.clone(), disposition.clone())?;
                 }
                 Some(OwnedTx::PreAccepted(entry)) => {
                     match disposition.preaccepted_action(&entry.phase) {
                         PreacceptedCausalAction::PreserveOwner => {}
                         PreacceptedCausalAction::Requeue => causal
                             .seed_preaccepted(hash.clone(), PreacceptedDisposition::Requeue)?,
-                        PreacceptedCausalAction::Terminalize => causal.seed_preaccepted(
-                            hash.clone(),
-                            PreacceptedDisposition::ChainConflictRemoval,
-                        )?,
+                        PreacceptedCausalAction::Terminalize { out_point } => causal
+                            .seed_preaccepted(
+                                hash.clone(),
+                                PreacceptedDisposition::ChainConflictRemoval { out_point },
+                            )?,
                     }
                 }
                 Some(OwnedTx::ReplacementHistory(_)) => {
@@ -650,7 +702,8 @@ impl TxPoolAuthority {
         for (hash, disposition) in dispositions {
             match disposition {
                 CausalDisposition::Recovery => {}
-                CausalDisposition::ForcePending | CausalDisposition::ChainConflictRemoval => {
+                CausalDisposition::ForcePending
+                | CausalDisposition::ChainConflictRemoval { .. } => {
                     continue;
                 }
             }
@@ -672,7 +725,7 @@ impl TxPoolAuthority {
         for (hash, disposition) in preaccepted {
             match disposition {
                 PreacceptedDisposition::Requeue => {}
-                PreacceptedDisposition::ChainConflictRemoval => continue,
+                PreacceptedDisposition::ChainConflictRemoval { .. } => continue,
             }
             if by_hash.contains_key(hash) {
                 continue;
@@ -764,9 +817,9 @@ impl TxPoolAuthority {
             )?;
         }
         for removal in removals {
-            match removal.cause {
+            match &removal.cause {
                 ChainRemovalCause::Committed => continue,
-                ChainRemovalCause::ChainConflict
+                ChainRemovalCause::ChainConflict { .. }
                 | ChainRemovalCause::Recovery
                 | ChainRemovalCause::ProposalLeaseExpired => {}
             }
@@ -947,6 +1000,7 @@ impl TxPoolAuthority {
             let before = self.entries.get(&key).cloned();
             let after = match recovery {
                 ChainRecoveryReceipt::Trusted(admission) => {
+                    let admission = self.resources.charge_admission(admission)?;
                     queued_recovery_owner(admission, version, arrival)
                 }
                 ChainRecoveryReceipt::RequeueExisting(_) => {
@@ -1019,7 +1073,10 @@ impl TxPoolAuthority {
             });
         }
         changes.sort_unstable_by(|left, right| left.key.cmp(&right.key));
-        if changes.windows(2).any(|pair| pair[0].key == pair[1].key) {
+        if changes.windows(2).any(|pair| match pair {
+            [left, right] => left.key == right.key,
+            _ => false,
+        }) {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
         let new_owner_count = changes
@@ -1072,7 +1129,7 @@ impl TxPoolAuthority {
         let mut available = receipt.available;
         let mut lost = receipt.lost;
         for removal in &removals {
-            match removal.cause {
+            match &removal.cause {
                 ChainRemovalCause::ProposalLeaseExpired => {
                     let owner = self
                         .entries
@@ -1081,7 +1138,7 @@ impl TxPoolAuthority {
                     append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
                 }
                 ChainRemovalCause::Committed
-                | ChainRemovalCause::ChainConflict
+                | ChainRemovalCause::ChainConflict { .. }
                 | ChainRemovalCause::Recovery => {}
             }
         }
@@ -1130,16 +1187,22 @@ impl TxPoolAuthority {
                 .entries
                 .get(&removal.hash)
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
-            match removal.cause {
+            match &removal.cause {
                 ChainRemovalCause::Committed => {
                     effects.push(CommittedEffect::ChainCommitted {
                         tx: Arc::clone(&owner.record().tx),
                     });
                 }
-                ChainRemovalCause::ChainConflict => {
+                ChainRemovalCause::ChainConflict { out_point } => {
                     effects.push(CommittedEffect::Rejected {
                         tx: Arc::clone(&owner.record().tx),
-                        reason: RejectionKind::UnavailableDependency,
+                        audience: RejectionAudience::from_owner(
+                            owner.ingress_peer(),
+                            owner.payload_blame_peer(),
+                        ),
+                        reason: CommittedRejection::ChainConflict {
+                            out_point: out_point.clone(),
+                        },
                     });
                 }
                 ChainRemovalCause::Recovery | ChainRemovalCause::ProposalLeaseExpired => {}
@@ -1158,6 +1221,7 @@ impl TxPoolAuthority {
             effects.push(CommittedEffect::Accepted {
                 tx: Arc::clone(&entry.record.tx),
                 status: entry.status(),
+                cause: CommittedAcceptance::ChainStatusChange,
             });
         }
         let effect = if effects.is_empty() {
@@ -1315,10 +1379,11 @@ fn append_origin_keys(
 }
 
 fn queued_recovery_owner(
-    admission: ValidatedAdmission,
+    admission: ChargedAdmission,
     version: EntryVersion,
     arrival: Arrival,
 ) -> OwnedTx {
+    let (admission, charge) = admission.into_parts();
     let record = TxRecord {
         tx: admission.tx,
         identity: admission.identity,
@@ -1328,9 +1393,14 @@ fn queued_recovery_owner(
     OwnedTx::PreAccepted(PreAcceptedEntry {
         record,
         source: admission.source,
-        basis: AdmissionBasis::new(admission.dependencies, admission.charge),
+        basis: AdmissionBasis::new(
+            admission.dependencies,
+            admission.payload_bytes,
+            admission.encoded_edges,
+            charge,
+        ),
         phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-        charge: admission.charge,
+        charge,
     })
 }
 

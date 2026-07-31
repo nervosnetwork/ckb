@@ -2,9 +2,9 @@ use super::super::{
     plan::{CommittedChanges, PlanError, SettlementBatch, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
-        AcceptedStatus, ComputedOutcome, DependencyKey, EntryVersion, OwnedTx, PoolGeneration,
-        PreAcceptedPhase, ProposalContextId, QueuedWork, RawTxHash, RejectionKind, ResolvedPayload,
-        TxIdentity, ValidatedAdmission, VerifyCapability, WorkPermit,
+        AcceptedStatus, DependencyKey, EntryVersion, OwnedTx, PoolGeneration, PreAcceptedPhase,
+        ProposalContextId, QueuedWork, RawTxHash, ResolvedPayload, TxIdentity, ValidatedAdmission,
+        VerifyCapability, WorkPermit,
     },
     work::{CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork},
 };
@@ -484,16 +484,7 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
                 .apply_settlement(second_resolution)
                 .expect("trusted definitive loss reaches a terminal outcome"),
         );
-        assert!(matches!(
-            authority.entry(&child),
-            Some(OwnedTx::PreAccepted(entry))
-                if matches!(
-                    entry.phase,
-                    PreAcceptedPhase::Computed(ComputedOutcome::Rejected(
-                        RejectionKind::UnavailableDependency
-                    ))
-                )
-        ));
+        assert!(authority.entry(&child).is_none());
         assert!(authority.primary_projection_consistent());
     }
 }
@@ -694,7 +685,7 @@ fn uak_availability_does_not_invalidate_positive_dependency_evidence() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(_))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
     assert!(authority.primary_projection_consistent());
 }
@@ -938,14 +929,8 @@ fn uak_missing_growth_is_charged_or_becomes_budget_denied() {
             )
             .expect("expanded wait over the exact grant settles deterministically"),
     );
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(
-                super::super::state::ComputedOutcome::BudgetDenied
-            ))
-    ));
-    assert_eq!(authority.resources().preaccepted().edges, 1);
+    assert!(authority.entry(&hash).is_none());
+    assert_eq!(authority.resources().preaccepted().edges, 0);
     assert_eq!(authority.resources().preaccepted().active_work, 0);
     assert!(authority.primary_projection_consistent());
 }
@@ -970,13 +955,7 @@ fn uak_duplicate_missing_receipt_cannot_bypass_the_work_grant() {
             .expect("budget denial consumes the exact lease"),
     );
 
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(
-                super::super::state::ComputedOutcome::BudgetDenied
-            ))
-    ));
+    assert!(authority.entry(&hash).is_none());
     assert_eq!(authority.resources().preaccepted().active_work, 0);
     assert!(authority.primary_projection_consistent());
 }

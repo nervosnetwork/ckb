@@ -1,8 +1,12 @@
+#[cfg(test)]
+use super::chain::ValidationRulesId;
 use super::chain::{
     AcceptedProof, CellContentReceipt, CellLocationReceipt, ProposalContextReceipt, ScriptReceipt,
-    ValidationRulesId, VerificationContextReceipt,
+    VerificationContextReceipt,
 };
-use super::resources::{AcceptedCost, AcceptedResources, ChargeRecord, ResourceVector};
+use super::resources::{
+    AcceptedCost, AcceptedResources, ChargeRecord, ReplacementHistoryCharge, ResourceVector,
+};
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
@@ -57,6 +61,7 @@ impl ChainViewId {
         }))
     }
 
+    #[cfg(test)]
     pub(super) fn initial() -> Self {
         Self::new(ChainRevision(0), Byte32::zero())
     }
@@ -828,6 +833,10 @@ impl ResolvedFacts {
         self.verify_class
     }
 
+    pub(super) fn location_receipt(&self) -> &CellLocationReceipt {
+        &self.location
+    }
+
     pub(super) fn into_verification_parts(
         self,
         _seal: super::work::VerificationSeal,
@@ -1059,19 +1068,11 @@ impl ObservedDependencies {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RejectionKind {
     Verification,
     Policy,
-    UnavailableDependency,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ComputedOutcome {
-    Verified(VerifiedFacts),
-    Rejected(RejectionKind),
-    BudgetDenied,
-    InternalFailure,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1082,7 +1083,10 @@ pub(super) enum PreAcceptedPhase {
     /// replacement history is a distinct [`OwnedTx`] location, so the type
     /// cannot encode a schedulable history entry or a non-history conflict.
     Waiting(ObservedDependencies),
-    Computed(ComputedOutcome),
+    /// Final validation evidence waiting for the one membership disposition.
+    /// Reject/cancel/budget outcomes are terminal or retry transitions and
+    /// therefore cannot be represented as resident owner phases.
+    Ready(VerifiedFacts),
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -1103,16 +1107,22 @@ pub(super) struct TxRecord {
 #[derive(Clone, Debug)]
 pub(super) struct AdmissionBasis {
     declared_dependencies: KnownDependencies,
+    payload_bytes: usize,
+    encoded_edges: usize,
     original_charge: ResourceVector,
 }
 
 impl AdmissionBasis {
     pub(super) fn new(
         declared_dependencies: KnownDependencies,
+        payload_bytes: usize,
+        encoded_edges: usize,
         original_charge: ResourceVector,
     ) -> Self {
         Self {
             declared_dependencies,
+            payload_bytes,
+            encoded_edges,
             original_charge,
         }
     }
@@ -1123,6 +1133,14 @@ impl AdmissionBasis {
 
     pub(super) fn charge(&self) -> ResourceVector {
         self.original_charge
+    }
+
+    pub(super) fn payload_bytes(&self) -> usize {
+        self.payload_bytes
+    }
+
+    pub(super) fn encoded_edges(&self) -> usize {
+        self.encoded_edges
     }
 }
 
@@ -1179,34 +1197,14 @@ pub(super) enum OwnedTx {
 impl PreAcceptedEntry {
     pub(super) fn dependencies(&self) -> &KnownDependencies {
         match &self.phase {
-            PreAcceptedPhase::Queued(QueuedWork::Resolve)
-            | PreAcceptedPhase::Computed(
-                ComputedOutcome::Rejected(_)
-                | ComputedOutcome::BudgetDenied
-                | ComputedOutcome::InternalFailure,
-            ) => self.basis.dependencies(),
+            PreAcceptedPhase::Queued(QueuedWork::Resolve) => self.basis.dependencies(),
             PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
                 resolved.payload().dependencies()
             }
             PreAcceptedPhase::Computing(active) => &active.dependencies,
             PreAcceptedPhase::Waiting(observed) => observed.retained(),
-            PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)) => {
-                verified.payload().dependencies()
-            }
+            PreAcceptedPhase::Ready(verified) => verified.payload().dependencies(),
         }
-    }
-
-    pub(super) fn retained_charge(
-        &self,
-        resident_bytes: usize,
-        dependencies: &KnownDependencies,
-    ) -> ResourceVector {
-        ResourceVector::new(
-            1,
-            self.basis.charge().bytes.max(resident_bytes),
-            self.basis.charge().edges.max(dependencies.len()),
-            0,
-        )
     }
 
     pub(super) fn original_charge(&self) -> ResourceVector {
@@ -1218,7 +1216,7 @@ impl PreAcceptedEntry {
             PreAcceptedPhase::Computing(active) => active.attribution.peer(),
             PreAcceptedPhase::Queued(_)
             | PreAcceptedPhase::Waiting(_)
-            | PreAcceptedPhase::Computed(_) => None,
+            | PreAcceptedPhase::Ready(_) => None,
         };
         ChargeRecord::PreAccepted {
             resources: self.charge,
@@ -1236,17 +1234,13 @@ impl ReplacementHistoryEntry {
     pub(super) fn from_accepted(
         accepted: &AcceptedEntry,
         recovery_triggers: MissingDependencies,
+        charge: ReplacementHistoryCharge,
         version: EntryVersion,
         arrival: Arrival,
         dependency_cut: DependencyCut,
     ) -> Result<Self, ReplacementHistoryError> {
         let tx = &accepted.record.tx;
-        let raw_edges = tx
-            .inputs()
-            .len()
-            .checked_add(tx.cell_deps().len())
-            .and_then(|count| count.checked_add(tx.header_deps().len()))
-            .ok_or(ReplacementHistoryError::ResourceArithmetic)?;
+        let (payload_bytes, encoded_edges, recovery_charge, retained_charge) = charge.into_parts();
         let declared_dependencies =
             KnownDependencies::from_transaction(tx).map_err(|error| match error {
                 DependencySetError::Allocation => ReplacementHistoryError::ResourceAllocation,
@@ -1267,14 +1261,17 @@ impl ReplacementHistoryEntry {
             dependencies.clone(),
             dependency_cut,
         );
-        let bytes = tx.data().total_size();
-        let recovery_charge = ResourceVector::new(1, bytes, raw_edges, 0);
         let mut record = accepted.record.clone();
         record.version = version;
         record.arrival = arrival;
         Ok(Self {
             record,
-            basis: AdmissionBasis::new(declared_dependencies, recovery_charge),
+            basis: AdmissionBasis::new(
+                declared_dependencies,
+                payload_bytes,
+                encoded_edges,
+                recovery_charge,
+            ),
             observed,
             // History is a continuous reservation for its later Recovery
             // owner. CKB permits one outpoint to occur in different roles
@@ -1282,7 +1279,7 @@ impl ReplacementHistoryEntry {
             // canonicalizes those roles into one key. Retain the larger of
             // the encoded and canonical edge costs so wakeup never requires
             // an unplanned resource increase.
-            charge: ResourceVector::new(1, bytes, raw_edges.max(dependencies.len()), 0),
+            charge: retained_charge,
         })
     }
 
@@ -1393,7 +1390,8 @@ pub(super) struct ValidatedAdmission {
     pub(super) identity: TxIdentity,
     pub(super) source: PreAcceptedSource,
     pub(super) dependencies: KnownDependencies,
-    pub(super) charge: ResourceVector,
+    pub(super) payload_bytes: usize,
+    pub(super) encoded_edges: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1404,6 +1402,12 @@ pub(super) enum AdmissionValidationError {
 }
 
 impl ValidatedAdmission {
+    #[cfg(test)]
+    pub(super) fn charge_for_foundation(&self) -> ResourceVector {
+        ResourceVector::new(1, self.payload_bytes, self.encoded_edges, 0)
+    }
+
+    #[cfg(test)]
     pub(super) fn remote(
         tx: TransactionView,
         peer: PeerIndex,
@@ -1469,13 +1473,13 @@ impl ValidatedAdmission {
         // The reverse projection is a canonical set, but ingress accounting
         // deliberately charges every encoded edge. Duplicate declarations do
         // not buy an attacker extra pre-pool residency for free.
-        let charge = ResourceVector::new(1, bytes, raw_edges, 0);
         Ok(Self {
             identity: TxIdentity::from_transaction(&tx),
             tx: Arc::new(tx),
             source,
             dependencies,
-            charge,
+            payload_bytes: bytes,
+            encoded_edges: raw_edges,
         })
     }
 }

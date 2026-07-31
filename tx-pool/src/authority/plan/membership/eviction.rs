@@ -1,6 +1,6 @@
 use super::{
-    AcceptedOrderKey, AggregateDelta, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
-    EvictionPlan, MembershipReject, RemovalCause, SelectedRemoval,
+    AcceptedOrderKey, AggregateDelta, AncestorAggregate, ComponentLimitKind, DescendantAggregate,
+    EvictionOrderKey, EvictionPlan, MembershipReject, RemovalCause, SelectedRemoval,
 };
 use crate::authority::{
     plan::{AuthorityFault, Backpressure, PlanError, TxPoolAuthority},
@@ -15,6 +15,8 @@ pub(super) fn complete_removals(
     candidate: &AcceptedEntry,
     mandatory: Vec<RawTxHash>,
 ) -> Result<EvictionPlan, PlanError> {
+    let candidate_fee_rate =
+        EvictionOrderKey::new(candidate, DescendantAggregate::one(candidate)).fee_rate;
     let mut removed = HashSet::new();
     removed
         .try_reserve(mandatory.len())
@@ -49,7 +51,12 @@ pub(super) fn complete_removals(
     let candidate_descendants = if descendant_roots.is_empty() {
         Vec::new()
     } else {
-        authority.bounded_descendant_postorder(&descendant_roots, &removed, descendant_limit)?
+        authority.bounded_descendant_postorder(
+            &descendant_roots,
+            &removed,
+            descendant_limit,
+            ComponentLimitKind::Mutation,
+        )?
     };
     if let Some(descendant) = candidate_descendants
         .iter()
@@ -142,19 +149,24 @@ pub(super) fn complete_removals(
             .next_eviction(authority, &removed)
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
         if &next.hash == candidate_hash || candidate_ancestors.contains(&next.hash) {
-            return Err(PlanError::Membership(MembershipReject::CandidateEvicted));
+            return Err(PlanError::Membership(MembershipReject::CandidateEvicted {
+                fee_rate: candidate_fee_rate,
+            }));
         }
         let roots = BTreeSet::from([next.hash]);
         let closure = authority.bounded_descendant_postorder(
             &roots,
             &removed,
             authority.membership_config.max_component,
+            ComponentLimitKind::Mutation,
         )?;
         if closure
             .iter()
             .any(|hash| hash == candidate_hash || candidate_ancestors.contains(hash))
         {
-            return Err(PlanError::Membership(MembershipReject::CandidateEvicted));
+            return Err(PlanError::Membership(MembershipReject::CandidateEvicted {
+                fee_rate: candidate_fee_rate,
+            }));
         }
         // Capacity eviction may overlap the already-proved late-descendant
         // closure. Charge only newly touched existing members, but never let
@@ -169,6 +181,7 @@ pub(super) fn complete_removals(
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         if projected_component > authority.membership_config.max_component {
             return Err(PlanError::Membership(MembershipReject::ComponentLimit {
+                kind: ComponentLimitKind::Mutation,
                 limit: authority.membership_config.max_component,
             }));
         }

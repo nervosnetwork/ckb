@@ -10,6 +10,7 @@ pub(in crate::authority::plan) use independent::{
 
 use super::TxPoolAuthority;
 use crate::authority::{
+    rejection::{ComponentLimitKind, MembershipReject},
     resources::AcceptedCost,
     state::{
         AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash,
@@ -31,13 +32,30 @@ enum ReplacementPolicy {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct MembershipConfig {
+pub(in crate::authority) struct MembershipConfig {
     max_ancestors: usize,
     max_component: usize,
     replacement: ReplacementPolicy,
 }
 
 impl MembershipConfig {
+    pub(in crate::authority) fn from_runtime(
+        max_ancestors: usize,
+        max_component: usize,
+        minimum_replacement_rate: Option<FeeRate>,
+    ) -> Self {
+        let replacement = minimum_replacement_rate
+            .map_or(ReplacementPolicy::Disabled, |minimum_rate| {
+                ReplacementPolicy::Enabled { minimum_rate }
+            });
+        Self {
+            max_ancestors,
+            max_component,
+            replacement,
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn testing_default() -> Self {
         Self {
             max_ancestors: 125,
@@ -52,10 +70,11 @@ impl MembershipConfig {
 
     #[cfg(test)]
     pub(super) fn testing_with_replacement(minimum_rate: FeeRate) -> Self {
-        Self {
-            replacement: ReplacementPolicy::Enabled { minimum_rate },
-            ..Self::testing_default()
-        }
+        Self::from_runtime(
+            125,
+            crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+            Some(minimum_rate),
+        )
     }
 }
 
@@ -276,30 +295,6 @@ pub(in crate::authority) struct MembershipSnapshot {
     pub(in crate::authority) accepted_order: BTreeSet<AcceptedOrderKey>,
     pub(in crate::authority) eviction_order: BTreeSet<EvictionOrderKey>,
     pub(in crate::authority) counts: StatusCounts,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum MembershipReject {
-    InputConflict(OutPoint),
-    TooManyAncestors,
-    ComponentLimit {
-        limit: usize,
-    },
-    NewUnconfirmedInput(OutPoint),
-    InputFromDescendant(OutPoint),
-    AncestorDescendantOverlap,
-    DependencyOnVictim(OutPoint),
-    InsufficientReplacementFee {
-        actual: ckb_types::core::Capacity,
-        required: ckb_types::core::Capacity,
-    },
-    ReplacementFeeOverflow,
-    AggregateOverflow,
-    CandidateEvicted,
-    CausalCycle(RawTxHash),
-    MissingInputEvidence(OutPoint),
-    MissingDependencyEvidence(OutPoint),
-    MissingPoolOutput(OutPoint),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1729,6 +1724,7 @@ impl TxPoolAuthority {
         roots: &BTreeSet<RawTxHash>,
         excluded: &HashSet<RawTxHash>,
         remaining_limit: usize,
+        limit_kind: ComponentLimitKind,
     ) -> Result<Vec<RawTxHash>, super::PlanError> {
         // Mark on enqueue so a high-fanout DAG cannot allocate an attacker-
         // sized frontier before the component limit is observed. Traversal
@@ -1745,6 +1741,7 @@ impl TxPoolAuthority {
             if closure.len() == remaining_limit {
                 return Err(super::PlanError::Membership(
                     MembershipReject::ComponentLimit {
+                        kind: limit_kind,
                         limit: self.membership_config.max_component,
                     },
                 ));
@@ -1769,6 +1766,7 @@ impl TxPoolAuthority {
                 if closure.len() == remaining_limit {
                     return Err(super::PlanError::Membership(
                         MembershipReject::ComponentLimit {
+                            kind: limit_kind,
                             limit: self.membership_config.max_component,
                         },
                     ));
@@ -1945,6 +1943,7 @@ impl TxPoolAuthority {
             if children.len() == child_limit {
                 return Err(super::PlanError::Membership(
                     MembershipReject::ComponentLimit {
+                        kind: ComponentLimitKind::Mutation,
                         limit: self.membership_config.max_component,
                     },
                 ));

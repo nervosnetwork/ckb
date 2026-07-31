@@ -1,6 +1,15 @@
-use super::state::{AcceptedStatus, ApplySequence, RawTxHash, RejectionKind};
+#[cfg(test)]
+use super::state::RejectionKind;
+use super::{
+    rejection::{CommittedPublicReject, MembershipReject},
+    state::{AcceptedStatus, ApplySequence, PreAcceptedSource, RawTxHash},
+};
 use ckb_network::PeerIndex;
-use ckb_types::core::TransactionView;
+use ckb_types::{
+    core::{FeeRate, TransactionView},
+    packed::OutPoint,
+    prelude::Entity,
+};
 use std::{collections::VecDeque, num::NonZeroUsize, sync::Arc};
 
 const EFFECT_ENVELOPE_BYTES: usize = 128;
@@ -165,14 +174,88 @@ impl EffectPolicy {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CommittedRejection {
+    /// Resolve/verify/policy work produced an exact bounded public rejection.
+    /// It is journal-safe and retains the policy flags captured before any
+    /// oversized diagnostic was normalized.
+    Validation(CommittedPublicReject),
+    /// Final membership policy rejected the candidate.  The complete typed
+    /// reason is retained so the production adapter must exhaustively map it
+    /// to the public `Reject`; it cannot silently collapse a new rule into a
+    /// generic policy bucket.
+    Membership(MembershipReject),
+    /// Accepted membership displaced this public owner under RBF. The
+    /// winner identity is part of the committed outcome even when the victim
+    /// remains internally retained as invisible replacement history.
+    ReplacedBy { winner: RawTxHash },
+    /// Accepted-pool capacity removed this owner. Preserve the existing
+    /// public fee-rate diagnostic rather than reconstructing it after Apply.
+    CapacityEvicted { fee_rate: FeeRate },
+    /// An attached chain transaction invalidated this resident owner. The
+    /// exact canonical cell is committed evidence for the existing public
+    /// `Resolve(Dead(out_point))` surface.
+    ChainConflict { out_point: OutPoint },
+    /// Foundation-only effect fixture. Production constructors must retain an
+    /// exact domain reason instead of publishing a scheduling class.
+    #[cfg(test)]
+    Foundation(RejectionKind),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CommittedAcceptance {
+    /// A candidate acquired Accepted ownership. The original ingress peer is
+    /// immutable outcome evidence used by the relay acknowledgement adapter.
+    Admission { ingress_peer: Option<PeerIndex> },
+    /// Existing Accepted ownership changed proposal status because the chain
+    /// view moved. It updates template/callback projections but must not emit
+    /// a fresh network admission acknowledgement.
+    ChainStatusChange,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct RejectionAudience {
+    pub(super) ingress_peer: Option<PeerIndex>,
+    pub(super) blame_peer: Option<PeerIndex>,
+}
+
+impl RejectionAudience {
+    pub(super) const fn from_source(source: PreAcceptedSource) -> Self {
+        Self {
+            ingress_peer: source.ingress_peer(),
+            blame_peer: source.payload_blame_peer(),
+        }
+    }
+
+    pub(super) const fn from_owner(
+        ingress_peer: Option<PeerIndex>,
+        blame_peer: Option<PeerIndex>,
+    ) -> Self {
+        Self {
+            ingress_peer,
+            blame_peer,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) const fn foundation() -> Self {
+        Self {
+            ingress_peer: None,
+            blame_peer: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum CommittedEffect {
     Accepted {
         tx: Arc<TransactionView>,
         status: AcceptedStatus,
+        cause: CommittedAcceptance,
     },
     Rejected {
         tx: Arc<TransactionView>,
-        reason: RejectionKind,
+        audience: RejectionAudience,
+        reason: CommittedRejection,
     },
     /// The transaction became canonical while it still had a local owner.
     /// This clears pending relay/callback projections without manufacturing a
@@ -200,9 +283,20 @@ pub(super) enum CommittedEffect {
 impl CommittedEffect {
     fn charge_bytes(&self) -> Option<usize> {
         match self {
-            Self::Accepted { tx, .. } | Self::Rejected { tx, .. } | Self::ChainCommitted { tx } => {
+            Self::Accepted { tx, .. } | Self::ChainCommitted { tx } => {
                 EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
             }
+            Self::Rejected { tx, reason, .. } => EFFECT_ENVELOPE_BYTES
+                .checked_add(tx.data().total_size())?
+                .checked_add(match reason {
+                    CommittedRejection::Validation(reject) => reject.description_bytes(),
+                    CommittedRejection::Membership(_)
+                    | CommittedRejection::ReplacedBy { .. }
+                    | CommittedRejection::CapacityEvicted { .. } => 0,
+                    CommittedRejection::ChainConflict { out_point } => out_point.as_slice().len(),
+                    #[cfg(test)]
+                    CommittedRejection::Foundation(_) => 0,
+                }),
             Self::PeerRevoked { .. } | Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
             Self::GenerationReset => Some(0),
         }
@@ -431,6 +525,46 @@ pub(super) struct EffectSnapshot {
     latest_generation_reset: Option<EffectEnvelope>,
     usage: EffectRegionUsage,
     closed: bool,
+}
+
+#[cfg(test)]
+impl EffectSnapshot {
+    /// Compares the externally committed effect stream while deliberately
+    /// ignoring journal batch boundaries and their accounting envelope.
+    ///
+    /// A commuting authority Apply may publish several effects in one batch,
+    /// while its canonical one-at-a-time reference publishes the same effects
+    /// in adjacent batches.  Batch shape is a delivery optimization, not a
+    /// transaction outcome.  Order, trust class, active/reset position, and
+    /// closure state remain observable and therefore stay in the comparison.
+    pub(super) fn equivalent_stream(&self, other: &Self) -> bool {
+        fn flatten(
+            envelopes: impl IntoIterator<Item = EffectEnvelope>,
+        ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
+            envelopes
+                .into_iter()
+                .flat_map(|envelope| {
+                    envelope
+                        .batch
+                        .effects()
+                        .iter()
+                        .cloned()
+                        .map(move |effect| (envelope.class, effect))
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        }
+
+        let active = self.active.clone().into_iter();
+        let other_active = other.active.clone().into_iter();
+        let reset = self.latest_generation_reset.clone().into_iter();
+        let other_reset = other.latest_generation_reset.clone().into_iter();
+
+        flatten(self.queued.clone()) == flatten(other.queued.clone())
+            && flatten(active) == flatten(other_active)
+            && flatten(reset) == flatten(other_reset)
+            && self.closed == other.closed
+    }
 }
 
 #[cfg(test)]

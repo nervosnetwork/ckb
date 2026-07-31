@@ -138,7 +138,7 @@ fn classify(
             return Ok(Some(IndependentCoupling::AcceptedChild(child)));
         }
 
-        for other in changes.iter().skip(index + 1) {
+        for other in changes.iter().skip(index.saturating_add(1)) {
             if change.after.record.identity.proposal == other.after.record.identity.proposal {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }

@@ -127,6 +127,7 @@
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/authority/resources.rs",
         "tx-pool/src/authority/plan.rs",
+        "tx-pool/src/authority/runtime.rs",
         "tx-pool/src/service/effects.rs",
         "tx-pool/src/service/message.rs",
         "tx-pool/src/service/controller.rs",
@@ -135,16 +136,17 @@
         "util/constant/src/sync.rs",
         "util/metrics/src/lib.rs"
       ],
-      "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects. Only a count-and-byte validated relay batch may enter the bounded dispatcher channel. Operational gauges are read-only snapshots of the same maintained counters and publish only after authority locks are released.",
-      "hostile_case": "Parking, invalidation, reservation, peer churn, an oversized relay batch or an oversized displacement plan must not refund resident state, retain attacker-sized channel payload, evict unrelated stronger work or mutate before proving the bound.",
+      "required_behavior": "Global and per-peer count, bytes and active-work budgets continuously charge payload and conservative metadata in every resident state, including bounded terminal effects. Each move-only compute capability reserves exact transient bytes and edges from the same configured physical envelope; checkout and settlement exchange that reservation atomically with retained ownership. Only a count-and-byte validated relay batch may enter the bounded dispatcher channel. Operational gauges are read-only snapshots of the same maintained counters and publish only after authority locks are released.",
+      "hostile_case": "Parking, invalidation, reservation, peer churn, excessive worker configuration, an oversized relay batch or an oversized displacement plan must not refund resident state, multiply the configured physical ceiling, start with grants incapable of holding one entry, retain attacker-sized channel payload, evict unrelated stronger work or mutate before proving the bound.",
       "reviewer_questions": [
         "Is every owner charged if and only if it is resident?",
-        "Are count, bytes, graph edges, victims and active work all bounded before mutation?",
+        "Are retained bytes/edges and every simultaneous compute grant charged under one physical ceiling before mutation?",
+        "Does runtime assembly reject a worker/budget ratio whose per-capability grant cannot hold one weighted entry?",
         "Does an impossible peer admission fail before global eviction planning?",
         "Can a raw transaction Vec cross the dispatcher boundary without the relayer's count and byte proof?",
         "Can metrics influence admission or require a scan, dynamic label, extra authority lock or retained payload?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|parent_projection_deduplicates|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound|notify_tx_batch_rejects|uak_independent_rbf_churn|uak_replacement_history_reserves_raw_edges)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(admission_budget_failure|parent_loss_uses_the_continuous_wait_reservation|parent_projection_deduplicates|remote_conflict_keeps_remote_reservation|owner_fairness_and_active_caps|verified_candidate_compacts|conflict_closure_aborts|self_eviction_plan|multi_input_conflict_union_respects_the_global_commit_bound|notify_tx_batch_rejects|uak_independent_rbf_churn|uak_replacement_history_reserves_raw_edges|uak_checkout_attack_work_is_bounded|runtime_configuration_rejects_an_unusable_per_work_grant)/)'",
       "performance_bound": "Budget checks and victim selection use maintained bounded indexes; no attacker-sized repair on the admission hot path."
     },
     {
@@ -228,17 +230,19 @@
         "tx-pool/src/service.rs",
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/authority/chain.rs",
+        "tx-pool/src/authority/plan/chain_transition.rs",
         "tx-pool/src/authority/state.rs"
       ],
-      "required_behavior": "One chain-authoritative reorg phase switches snapshot/membership once, combines detached transactions with the complete bounded accepted descendant closure of detached producers, installs one charged parent-first Recovery-source plan in the ordinary six-state kernel, and journals the immediate reset plus level-triggered template generations.",
-      "hostile_case": "A late accepted child, startup zombie reconcile, over-budget or over-fanout descendant closure, duplicate/colliding detached roots, clear/save races or a stale/failed full-template rebuild must not replay chain mutation, expose a parentless accepted suffix or unowned payload interval, retain transaction-bearing blocks outside the kernel, cross a missing parent prefix or publish stale uncles/template state.",
+      "required_behavior": "One chain-authoritative reorg phase switches snapshot/membership once, combines detached transactions with the complete bounded accepted descendant closure of detached producers, installs one charged parent-first Recovery-source plan in the ordinary six-state kernel, carries the canonical conflicting outpoint into every chain-conflict terminal effect, and journals the immediate reset plus level-triggered template generations.",
+      "hostile_case": "A late accepted child, startup zombie reconcile, over-budget or over-fanout descendant closure, duplicate/colliding detached roots, several conflict cells reaching one owner, clear/save races or a stale/failed full-template rebuild must not replay chain mutation, expose a parentless accepted suffix or unowned payload interval, lose or nondeterministically select the public dead-outpoint reason, retain transaction-bearing blocks outside the kernel, cross a missing parent prefix or publish stale uncles/template state.",
       "reviewer_questions": [
         "Does the paired mutation follow TxPool then PrePoolKernel then innermost EffectJournal, with every recovery payload charged before locks open and no stateful guard crossing an await?",
         "Can any derived retry replay the authoritative chain mutation or retain full detached blocks as a second payload owner?",
         "Are accepted descendants planned before startup zombie reconciliation, retained parent-first, and reset as one ephemeral generation when the complete bounded closure cannot fit?",
-        "Are duplicate/collision handling, full/witness identity, non-reused versions and clear epoch ordering exact?"
+        "Are duplicate/collision handling, full/witness identity, non-reused versions and clear epoch ordering exact?",
+        "Does chain-conflict evidence remain a required typed field from causal selection through the committed effect, with a deterministic join for multiple cells?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale|uak_recovery_admission_requires)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale|uak_recovery_admission_requires|uak_chain_conflict_commits_the_canonical_dead_outpoint)/)'",
       "performance_bound": "The single graph traversal/transfer stops at fixed mutation and recovery bounds and uses one generation reset beyond them; no recovery lock, replay worker, duplicate accepted traversal or full-block payload owner remains."
     },
     {
@@ -461,6 +465,8 @@
     {"test": "notify_tx_batch_rejects_bytes_before_dispatch", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8", "T10"]},
     {"test": "uak_independent_rbf_churn_never_exceeds_replacement_history_budget", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T5", "T6", "T8"]},
     {"test": "uak_replacement_history_reserves_raw_edges_until_wake", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T8", "T11"]},
+    {"test": "uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "runtime_configuration_rejects_an_unusable_per_work_grant", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T7", "T8", "T10", "T11"]},
 
     {"test": "expiry_batch_is_bounded_without_a_ready_prefix_scan", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "large_owner_head_does_not_hide_its_small_cycle_work", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
@@ -526,6 +532,7 @@
     {"test": "uak_chain_proposal_demotion_preserves_active_remote_compute_capability", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T11"]},
     {"test": "uak_chain_receipt_detects_same_version_proposal_source_refresh", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
     {"test": "uak_recovery_admission_requires_the_current_generation_capability", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
+    {"test": "uak_chain_conflict_commits_the_canonical_dead_outpoint", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T4", "T7", "T9", "T10", "T11", "T12", "T13"]},
 
     {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["T7", "T9", "T10", "T12", "T13"]},

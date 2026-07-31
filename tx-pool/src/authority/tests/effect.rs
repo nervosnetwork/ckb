@@ -1,15 +1,16 @@
 use super::super::{
     effect::{
-        CommittedEffect, EffectBatchBounds, EffectBuildError, EffectCapacity, EffectConfigError,
-        EffectLease, EffectLimits, EffectPolicy, EffectPublication,
+        CommittedAcceptance, CommittedEffect, CommittedRejection, EffectBatchBounds,
+        EffectBuildError, EffectCapacity, EffectConfigError, EffectLease, EffectLimits,
+        EffectPolicy, EffectPublication, RejectionAudience,
     },
     plan::{
         AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, PlanError, StalePlan,
         TxPoolAuthority,
     },
     state::{
-        AcceptedStatus, ApplySequence, ComputedOutcome, OwnedTx, PreAcceptedPhase, RejectionKind,
-        RemoteDeadline, ValidatedAdmission, WorkPermit,
+        AcceptedStatus, ApplySequence, OwnedTx, PreAcceptedPhase, RejectionKind, RemoteDeadline,
+        ValidatedAdmission, WorkPermit,
     },
 };
 use super::foundation::{
@@ -100,7 +101,8 @@ fn rejected_publication(
             policy,
             vec![CommittedEffect::Rejected {
                 tx: transaction,
-                reason: RejectionKind::Policy,
+                audience: RejectionAudience::foundation(),
+                reason: CommittedRejection::Foundation(RejectionKind::Policy),
             }],
         )
         .expect("fixture effect is bounded")
@@ -117,6 +119,7 @@ fn accepted_publication(
             vec![CommittedEffect::Accepted {
                 tx: transaction,
                 status: AcceptedStatus::Pending,
+                cause: CommittedAcceptance::Admission { ingress_peer: None },
             }],
         )
         .expect("fixture effect is bounded")
@@ -180,11 +183,13 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
             vec![
                 CommittedEffect::Rejected {
                     tx: Arc::new(tx(700)),
-                    reason: RejectionKind::Policy,
+                    audience: RejectionAudience::foundation(),
+                    reason: CommittedRejection::Foundation(RejectionKind::Policy),
                 },
                 CommittedEffect::Rejected {
                     tx: Arc::new(tx(701)),
-                    reason: RejectionKind::Policy,
+                    audience: RejectionAudience::foundation(),
+                    reason: CommittedRejection::Foundation(RejectionKind::Policy),
                 },
             ],
         )
@@ -217,17 +222,70 @@ fn uak_compute_outcome_survives_effect_backpressure() {
     let Some(OwnedTx::PreAccepted(entry)) = authority.entry(&hash) else {
         panic!("verified transaction retains one pre-accepted owner");
     };
-    assert!(matches!(
-        entry.phase,
-        PreAcceptedPhase::Computed(ComputedOutcome::Verified(_))
-    ));
+    assert!(matches!(entry.phase, PreAcceptedPhase::Ready(_)));
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
     assert!(authority.primary_projection_consistent());
 }
 
 #[test]
-fn uak_effect_full_preserves_computed_owner_and_charge() {
+fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
+    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
+    let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(712)));
+    drop(publish(&mut authority, &occupied));
+
+    let hash = admit_remote(&mut authority, 713, 73);
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("resolve checkout plans")
+            .apply(),
+    );
+    let before = authority.normalized_snapshot();
+    let blocked = authority
+        .apply_settlement(work.rejected(RejectionKind::Policy))
+        .expect_err("a full effect region cannot separate removal from rejection");
+    assert_eq!(
+        blocked.error(),
+        &PlanError::Backpressure(Backpressure::EffectCapacity)
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+                && entry.charge.active_work == 1
+    ));
+
+    let occupied_lease = checkout(&mut authority);
+    drop(apply_without_handoff(
+        authority
+            .apply_effect_settlement_for_foundation(occupied_lease.published())
+            .expect("occupied publication settles"),
+    ));
+    drop(apply_without_handoff(
+        authority
+            .apply_settlement(blocked.into_retry())
+            .expect("the exact rejected settlement retries after capacity is free"),
+    ));
+    assert!(authority.entry(&hash).is_none());
+
+    let rejection = checkout(&mut authority);
+    assert!(matches!(
+        rejection.effects(),
+        [CommittedEffect::Rejected {
+            audience,
+            reason: CommittedRejection::Validation(reason),
+            ..
+        }] if audience.ingress_peer == Some(PeerIndex::from(73))
+            && *reason == RejectionKind::Policy.into()
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_effect_full_preserves_ready_owner_and_charge() {
     let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
     let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(720)));
     drop(publish(&mut authority, &occupied));
@@ -249,7 +307,7 @@ fn uak_effect_full_preserves_computed_owner_and_charge() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::Verified(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
