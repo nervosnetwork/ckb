@@ -91,16 +91,12 @@ fn test_rpc_tcp() {
 
     let suite = setup_rpc();
     let rt = Runtime::new().unwrap();
-    let res = rt.block_on(async move {
-        suite
-            .tcp(&RpcTestRequest {
-                id: 42,
-                jsonrpc: "2.0".to_string(),
-                method: "generate_epochs".to_string(),
-                params: vec!["0x20000000000".into()],
-            })
-            .await
-    });
+    let res = rt.block_on(suite.tcp(&RpcTestRequest {
+        id: 42,
+        jsonrpc: "2.0".to_string(),
+        method: "generate_epochs".to_string(),
+        params: vec!["0x20000000000".into()],
+    }));
     assert!(res.is_ok());
     assert_eq!(res.unwrap().result, "0x1e0014000000");
 }

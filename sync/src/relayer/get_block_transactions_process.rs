@@ -5,6 +5,7 @@ use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub struct GetBlockTransactionsProcess<'a> {
@@ -47,6 +48,30 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                     get_block_transactions.uncle_indexes().len(),
                     shared.consensus().max_uncles_num(),
                 ));
+            }
+            // Reject duplicate transaction indexes
+            {
+                let indexes: HashSet<u32> = get_block_transactions
+                    .indexes()
+                    .iter()
+                    .map(Into::<u32>::into)
+                    .collect();
+                if indexes.len() != get_block_transactions.indexes().len() {
+                    return StatusCode::RequestDuplicate
+                        .with_context("Request duplicate transaction index");
+                }
+            }
+            // Reject duplicate uncle indexes
+            {
+                let uncle_indexes: HashSet<u32> = get_block_transactions
+                    .uncle_indexes()
+                    .iter()
+                    .map(Into::<u32>::into)
+                    .collect();
+                if uncle_indexes.len() != get_block_transactions.uncle_indexes().len() {
+                    return StatusCode::RequestDuplicate
+                        .with_context("Request duplicate uncle index");
+                }
             }
         }
 

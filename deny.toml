@@ -84,12 +84,6 @@ ignore = [
   "RUSTSEC-2024-0436",
   # wait https://github.com/tikv/rust-prometheus/issues/538
   "RUSTSEC-2024-0437",
-  # torut introduce these:
-  #   - https://rustsec.org/advisories/RUSTSEC-2022-0093
-  #   - https://rustsec.org/advisories/RUSTSEC-2024-0344
-  # these won't have bad effect for ckb
-  "RUSTSEC-2024-0344",
-  "RUSTSEC-2022-0093",
   #"RUSTSEC-0000-0000",
   #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
   #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish
@@ -173,7 +167,7 @@ registries = [
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "warn"
 # Lint level for when a crate version requirement is `*`
-wildcards = "allow"
+wildcards = "deny"
 # The graph highlighting used when creating dotgraphs for crates
 # with multiple versions
 # * lowest-version - The path to the lowest versioned duplicate is highlighted
@@ -245,10 +239,10 @@ skip-tree = [
 [sources]
 # Lint level for what to happen when a crate from a crate registry that is not
 # in the allow list is encountered
-unknown-registry = "warn"
+unknown-registry = "deny"
 # Lint level for what to happen when a crate from a git repository that is not
 # in the allow list is encountered
-unknown-git = "warn"
+unknown-git = "deny"
 # List of URLs for allowed crate registries. Defaults to the crates.io index
 # if not specified. If it is specified but empty, no registries are allowed.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

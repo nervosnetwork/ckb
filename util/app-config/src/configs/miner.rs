@@ -27,6 +27,17 @@ pub struct ClientConfig {
     pub block_on_submit: bool,
     /// listen block_template notify instead of loop poll
     pub listen: Option<SocketAddr>,
+    /// Optional bearer token to authenticate block-template notifications.
+    ///
+    /// When `listen` is set and this token is configured, incoming notify
+    /// requests must include the header `Authorization: Bearer <token>`.
+    /// If `listen` is set but this token is not configured, ckb-miner will
+    /// accept any request that deserializes as a BlockTemplate, which can be
+    /// abused if the notify endpoint is reachable by untrusted parties.
+    ///
+    /// Must be non-empty and free of leading/trailing whitespace; ckb-miner
+    /// refuses to start otherwise.
+    pub auth_token: Option<String>,
 }
 
 /// Miner worker config options.

@@ -152,8 +152,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
         let withdraw_counted_capacity = u128::from(counted_capacity.as_u64())
             * u128::from(withdrawing_ar)
             / u128::from(deposit_ar);
+        let withdraw_counted_capacity =
+            u64::try_from(withdraw_counted_capacity).map_err(|_| DaoError::Overflow)?;
         let withdraw_capacity =
-            Capacity::shannons(withdraw_counted_capacity as u64).safe_add(occupied_capacity)?;
+            Capacity::shannons(withdraw_counted_capacity).safe_add(occupied_capacity)?;
 
         Ok(withdraw_capacity)
     }

@@ -283,15 +283,6 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
         })
     }
 
-    pub fn version_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        if self.header.version() != 0 {
-            state.invalid(Some(ValidationError::Version));
-            Err(())
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
         let sync_shared = self.active_chain.sync_shared();
@@ -343,16 +334,6 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
             return result;
         }
 
-        if self.version_check(&mut result).is_err() {
-            debug!(
-                "HeadersProcess rejected invalid-version header: {} {}",
-                self.header.number(),
-                self.header.hash(),
-            );
-            shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
-            return result;
-        }
-
         sync_shared.insert_valid_header(self.peer, self.header);
         result
     }
@@ -370,7 +351,6 @@ pub enum ValidationState {
 #[derive(Debug)]
 pub enum ValidationError {
     Verify(Error),
-    Version,
     InvalidParent,
 }
 

@@ -139,6 +139,11 @@ impl AsyncRichIndexerHandle {
                 }
             },
         }
+        if !dead_cells.is_empty() {
+            for (tx_hash, _) in dead_cells {
+                query = query.bind(tx_hash)
+            }
+        }
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
                 query = query
@@ -169,11 +174,6 @@ impl AsyncRichIndexerHandle {
                         }
                     },
                 }
-            }
-        }
-        if !dead_cells.is_empty() {
-            for (tx_hash, _) in dead_cells {
-                query = query.bind(tx_hash)
             }
         }
 

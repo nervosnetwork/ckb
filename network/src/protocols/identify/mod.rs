@@ -29,6 +29,15 @@ const CHECK_TIMEOUT_INTERVAL: u64 = 1;
 const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
+pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
+    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+        !global_ip_only || is_reachable(socket_addr.ip())
+    } else {
+        addr.iter()
+            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
+    }
+}
+
 /// The misbehavior to report to underlying peer storage
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -138,10 +147,7 @@ impl<T: Callback> IdentifyProtocol<T> {
             let global_ip_only = self.global_ip_only;
             let reachable_addrs = listens
                 .into_iter()
-                .filter(|addr| match multiaddr_to_socketaddr(addr) {
-                    Some(socket_addr) => !global_ip_only || is_reachable(socket_addr.ip()),
-                    None => true,
-                })
+                .filter(|addr| is_remote_listen_addr_allowed(addr, global_ip_only))
                 .collect::<Vec<_>>();
             self.callback
                 .add_remote_listen_addrs(session, reachable_addrs);
@@ -577,5 +583,58 @@ bitflags::bitflags! {
         const LIGHT_CLIENT = 0b10000;
         /// Client-side block filter protocol can provide BlockFilter download service
         const BLOCK_FILTER = 0b100000;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_remote_listen_addr_allowed;
+    use p2p::multiaddr::Multiaddr;
+
+    #[test]
+    fn test_identify_rejects_dns_loopback_listen_addr() {
+        let addr: Multiaddr = format!(
+            "/dns4/localhost/tcp/{}/p2p/{}",
+            rand::random::<u16>(),
+            crate::PeerId::random().to_base58()
+        )
+        .parse()
+        .unwrap();
+
+        assert!(!is_remote_listen_addr_allowed(&addr, true));
+        assert!(!is_remote_listen_addr_allowed(&addr, false));
+    }
+
+    #[test]
+    fn test_identify_remote_listen_addr_allows_socket_addrs_by_policy() {
+        let global_addr: Multiaddr = format!(
+            "/ip4/8.8.8.8/tcp/{}/p2p/{}",
+            rand::random::<u16>(),
+            crate::PeerId::random().to_base58()
+        )
+        .parse()
+        .unwrap();
+        let loopback_addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+            rand::random::<u16>(),
+            crate::PeerId::random().to_base58()
+        )
+        .parse()
+        .unwrap();
+
+        assert!(is_remote_listen_addr_allowed(&global_addr, true));
+        assert!(!is_remote_listen_addr_allowed(&loopback_addr, true));
+        assert!(is_remote_listen_addr_allowed(&loopback_addr, false));
+    }
+
+    #[test]
+    fn test_identify_remote_listen_addr_allows_onion3() {
+        let onion_addr: Multiaddr =
+            "/onion3/vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd:1234"
+                .parse()
+                .unwrap();
+
+        assert!(is_remote_listen_addr_allowed(&onion_addr, true));
+        assert!(is_remote_listen_addr_allowed(&onion_addr, false));
     }
 }

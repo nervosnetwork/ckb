@@ -6,14 +6,18 @@ All the binaries available from GitHub releases are signed via following PGP key
 | --------- | -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------- |
 | >= 0.13.0, < 0.43.0 | macOS, Linux, CentOS | Nervos Travis Builder <bot@nervos.org> | [F4631C0A](https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x4F37F694F4631C0A) | 64B7 05B5 6078 1FC5 4047  7B82 4F37 F694 F463 1C0A |
 | >= 0.14.0, < 0.43.0 | Windows              | Nervos Azure Builder <bot@nervos.org>  | [AD748F26](https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x5EBA64ECAD748F26) | 0849 A2D2 4CA7 CFFC FA80  BCD4 5EBA 64EC AD74 8F26 |
-| >= 0.43.0 | macOS, Linux, CentOS, Windows  | Nervos CI <bot@nervos.org>             | [34FF2E93](https://keys.openpgp.org/vks/v1/by-fingerprint/8D09AC56856F84AFDB2CEB12E21C4F2E34FF2E93) | 8D09 AC56 856F 84AF DB2C  EB12 E21C 4F2E 34FF 2E93 |
+| >= 0.43.0, < 0.208.0 | macOS, Linux, CentOS, Windows  | Nervos CI <bot@nervos.org>             | [34FF2E93](https://keys.openpgp.org/vks/v1/by-fingerprint/8D09AC56856F84AFDB2CEB12E21C4F2E34FF2E93) | 8D09 AC56 856F 84AF DB2C  EB12 E21C 4F2E 34FF 2E93 |
+| >= 0.208.0 | macOS, Linux, CentOS, Windows  | Nervos CI <bot@nervos.org>             | [D4C6D843F9C2D100](https://keys.openpgp.org/vks/v1/by-fingerprint/3B9BFAD9AB00F5A27249872AD4C6D843F9C2D100) | 3B9B FAD9 AB00 F5A2 7249  872A D4C6 D843 F9C2 D100 |
 
 
 You can import the public keys from the keyserver network:
 
 ```
-gpg --recv-keys E21C4F2E34FF2E93
+gpg --recv-keys 37F67AEEAC33DF1F
 ```
+
+For releases signed by the new Nervos CI key, signatures may be made by signing
+subkey `6514 121B 9998 5A60 D0AB  ACFA 37F6 7AEE AC33 DF1F`.
 
 Once you have already imported the public keys, please download both the archive and
 the corresponding `.asc` file to verify the signature. For example, to check

@@ -216,9 +216,7 @@ pub fn main_test() {
                 spec_name,
                 seconds,
                 node_log_paths,
-                // node_paths is ignored here to let TempPathBuf handle
-                // automatic directory cleanup when this scope ends.
-                ..
+                node_paths,
             } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
@@ -237,13 +235,18 @@ pub fn main_test() {
                     info!("[{}] Error", spec_name);
                     tail_node_logs(&node_log_paths);
                 }
+                // `--keep-tmp-data` is set: preserve the test directories for post-mortem analysis.
+                if !clean_tmp {
+                    for path in node_paths {
+                        path.leak();
+                    }
+                }
             }
             Notify::Panick {
                 spec_name,
                 seconds,
                 node_log_paths,
-                // same as above
-                ..
+                node_paths,
             } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
@@ -261,6 +264,12 @@ pub fn main_test() {
                 if verbose {
                     info!("[{}] Panic", spec_name);
                     print_panicked_logs(&node_log_paths);
+                }
+                // same as above
+                if !clean_tmp {
+                    for path in node_paths {
+                        path.leak();
+                    }
                 }
             }
             Notify::Done {
@@ -284,6 +293,11 @@ pub fn main_test() {
                         if let Err(err) = fs::remove_dir_all(&path) {
                             warn!("failed to remove directory [{:?}] since {}", path, err);
                         }
+                    }
+                } else {
+                    // same as above
+                    for path in node_paths {
+                        path.leak();
                     }
                 }
             }

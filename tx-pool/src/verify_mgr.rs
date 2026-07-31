@@ -85,14 +85,14 @@ impl Worker {
 
     async fn run(mut self) {
         let queue_ready = self.tasks.read().await.subscribe();
-        self.status = self.command_rx.borrow().to_owned();
+        self.refresh_status();
         loop {
             tokio::select! {
                 _ = self.exit_signal.cancelled() => {
                     break;
                 }
                 _ = self.command_rx.changed() => {
-                    self.status = self.command_rx.borrow().to_owned();
+                    self.status = self.command_rx.borrow_and_update().to_owned();
                     self.process_inner().await;
                 }
                 _ = queue_ready.notified() => {
@@ -102,17 +102,27 @@ impl Worker {
         }
     }
 
+    fn refresh_status(&mut self) {
+        self.status = self.command_rx.borrow().to_owned();
+    }
+
     async fn process_inner(&mut self) {
         loop {
             if self.exit_signal.is_cancelled() {
                 info!("Verify worker::process_inner exit_signal is cancelled");
                 return;
             }
+            self.refresh_status();
             if self.status != ChunkCommand::Resume {
                 return;
             }
             // cheap query to check queue is not empty
             if self.tasks.read().await.is_empty() {
+                return;
+            }
+
+            self.refresh_status();
+            if self.status != ChunkCommand::Resume {
                 return;
             }
 

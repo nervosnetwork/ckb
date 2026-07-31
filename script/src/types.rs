@@ -26,12 +26,8 @@ use ckb_traits::CellDataProvider;
 use ckb_vm::snapshot2::Snapshot2Context;
 
 use ckb_vm::{
-    DefaultMachineRunner, RISCV_GENERAL_REGISTER_NUMBER, SupportMachine,
-    bytes::Bytes,
-    machine::Pause,
-    snapshot2::{DataSource, Snapshot2},
+    DefaultMachineRunner, SupportMachine, bytes::Bytes, machine::Pause, snapshot2::DataSource,
 };
-use std::mem::size_of;
 
 /// The type of CKB-VM ISA.
 pub type VmIsa = u8;
@@ -197,13 +193,10 @@ impl fmt::Display for ScriptGroupType {
 }
 
 /// Struct specifies which script has verified so far.
-/// State is lifetime free, but capture snapshot need heavy memory copy
 #[derive(Clone)]
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
-    /// vm scheduler suspend state
-    pub state: Option<FullSuspendedState>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
@@ -212,15 +205,9 @@ pub struct TransactionState {
 
 impl TransactionState {
     /// Creates a new TransactionState struct
-    pub fn new(
-        state: Option<FullSuspendedState>,
-        current: usize,
-        current_cycles: Cycle,
-        limit_cycles: Cycle,
-    ) -> Self {
+    pub fn new(current: usize, current_cycles: Cycle, limit_cycles: Cycle) -> Self {
         TransactionState {
             current,
-            state,
             current_cycles,
             limit_cycles,
         }
@@ -485,67 +472,6 @@ impl TryFrom<(u64, u64, u64)> for DataPieceId {
             (0x0100000000000002, 1) => Ok(DataPieceId::WitnessGroupOutput(index)),
             _ => Err(format!("Invalid source value: {:#x}", source)),
         }
-    }
-}
-
-/// Full state representing all VM instances from verifying a CKB script.
-/// It should be serializable to binary formats, while also be able to
-/// fully recover the running environment with the full transaction environment.
-#[derive(Clone, Debug)]
-pub struct FullSuspendedState {
-    /// Total executed cycles
-    pub total_cycles: Cycle,
-    /// Iteration cycles. Due to an implementation bug in Meepo hardfork,
-    /// this value will not always be zero at visible execution boundaries.
-    /// We will have to preserve this value.
-    pub iteration_cycles: Cycle,
-    /// Next available VM ID
-    pub next_vm_id: VmId,
-    /// Next available file descriptor
-    pub next_fd_slot: u64,
-    /// Suspended VMs
-    pub vms: Vec<(VmId, VmState, Snapshot2<DataPieceId>)>,
-    /// Opened file descriptors with owners
-    pub fds: Vec<(Fd, VmId)>,
-    /// Inherited file descriptors for each spawned process
-    pub inherited_fd: Vec<(VmId, Vec<Fd>)>,
-    /// Terminated VMs with exit codes
-    pub terminated_vms: Vec<(VmId, i8)>,
-    /// Currently instantiated VMs. Upon resumption, those VMs will
-    /// be instantiated.
-    pub instantiated_ids: Vec<VmId>,
-}
-
-impl FullSuspendedState {
-    /// Calculates the size of current suspended state, should be used
-    /// to derive cycles charged for suspending / resuming.
-    pub fn size(&self) -> u64 {
-        (size_of::<Cycle>()
-            + size_of::<VmId>()
-            + size_of::<u64>()
-            + size_of::<u64>()
-            + self.vms.iter().fold(0, |mut acc, (_, _, snapshot)| {
-                acc += size_of::<VmId>() + size_of::<VmState>();
-                acc += snapshot.pages_from_source.len()
-                    * (size_of::<u64>()
-                        + size_of::<u8>()
-                        + size_of::<DataPieceId>()
-                        + size_of::<u64>()
-                        + size_of::<u64>());
-                for dirty_page in &snapshot.dirty_pages {
-                    acc += size_of::<u64>() + size_of::<u8>() + dirty_page.2.len();
-                }
-                acc += size_of::<u32>()
-                    + RISCV_GENERAL_REGISTER_NUMBER * size_of::<u64>()
-                    + size_of::<u64>()
-                    + size_of::<u64>()
-                    + size_of::<u64>();
-                acc
-            })
-            + (self.fds.len() * (size_of::<Fd>() + size_of::<VmId>()))) as u64
-            + (self.inherited_fd.len() * (size_of::<Fd>())) as u64
-            + (self.terminated_vms.len() * (size_of::<VmId>() + size_of::<i8>())) as u64
-            + (self.instantiated_ids.len() * size_of::<VmId>()) as u64
     }
 }
 

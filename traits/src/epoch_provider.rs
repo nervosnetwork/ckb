@@ -33,11 +33,11 @@ pub trait EpochProvider {
                         .get_block_ext(&last_block_hash_in_previous_epoch)
                         .expect("stored block ext")
                         .total_uncles_count;
-                let epoch_duration_in_milliseconds = header.timestamp()
-                    - self
-                        .get_block_header(&last_block_hash_in_previous_epoch)
+                let epoch_duration_in_milliseconds = header.timestamp().saturating_sub(
+                    self.get_block_header(&last_block_hash_in_previous_epoch)
                         .expect("stored block header")
-                        .timestamp();
+                        .timestamp(),
+                );
 
                 BlockEpoch::TailBlock {
                     epoch,

@@ -154,7 +154,7 @@ impl BlockFetchCMD {
                     info!(
                         "best known header {}-{}, \
                                  CKB is syncing to latest Header to find the assume valid target: {}. \
-                                 Please wait. {}",
+                                 {}",
                         number,
                         best_known.hash(),
                         assume_valid_target,
@@ -170,18 +170,13 @@ impl BlockFetchCMD {
             Some(remaining) => {
                 let secs = remaining.as_secs();
                 match secs {
-                    0 => "Almost synced.".to_string(),
-                    1..=59 => format!("Need {} seconds to sync to the latest Header.", secs),
-                    60..=3599 => {
-                        format!("Need {} minutes to sync to the latest Header.", secs / 60)
-                    }
+                    0 => "ETA: almost synced.".to_string(),
+                    1..=59 => format!("ETA: {} seconds.", secs),
+                    60..=3599 => format!("ETA: {} minutes.", secs / 60),
                     _ => {
                         let hours = secs / 3600;
                         let minutes = (secs % 3600) / 60;
-                        format!(
-                            "Need {} hours {} minutes to sync to the latest Header.",
-                            hours, minutes
-                        )
+                        format!("ETA: {} hours {} minutes.", hours, minutes)
                     }
                 }
             }

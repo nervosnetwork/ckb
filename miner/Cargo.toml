@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "1.1.1"
+version = "1.2.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -34,4 +34,5 @@ console.workspace = true
 eaglesong.workspace = true
 base64.workspace = true
 jsonrpc-core.workspace = true
+subtle.workspace = true
 tokio = { workspace = true, features = ["sync"] }

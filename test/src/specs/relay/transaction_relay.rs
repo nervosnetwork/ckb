@@ -22,22 +22,80 @@ impl Spec for TransactionRelayBasic {
     fn run(&self, nodes: &mut Vec<Node>) {
         out_ibd_mode(nodes);
         connect_all(nodes);
+        waiting_for_sync(nodes);
 
         let node1 = &nodes[1];
         let cells = gen_spendable(node1, 1);
+        waiting_for_sync(nodes);
+        wait_relay_protocols_connected(nodes);
+
         let transaction = always_success_transaction(node1, &cells[0]);
         let hash = node1.submit_transaction(&transaction);
 
-        let relayed = wait_until(10, || {
+        let relayed = wait_until(60, || {
             nodes.iter().all(|node| {
                 node.rpc_client().get_transaction(hash.clone()).cycles == Some(537.into())
             })
         });
-        assert!(
-            relayed,
-            "Transaction should be relayed from node0 to others"
+        if !relayed {
+            let tx_states = nodes
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let response = node.rpc_client().get_transaction(hash.clone());
+                    (index, response.tx_status.status, response.cycles)
+                })
+                .collect::<Vec<_>>();
+            panic!(
+                "Transaction should be relayed from node1 to all nodes, tx: {hash:?}, node states: {tx_states:?}"
+            );
+        }
+    }
+}
+
+fn wait_relay_protocols_connected(nodes: &[Node]) {
+    for (node_index, node) in nodes.iter().enumerate() {
+        for (peer_index, peer) in nodes.iter().enumerate() {
+            if node_index != peer_index {
+                wait_relay_protocol_connected(node, peer);
+            }
+        }
+    }
+}
+
+fn wait_relay_protocol_connected(node: &Node, peer: &Node) {
+    let connected = wait_until(10, || relay_protocol_connected(node, peer));
+    if !connected {
+        let peers = node
+            .rpc_client()
+            .get_peers()
+            .into_iter()
+            .map(|remote_node| {
+                let protocol_ids = remote_node
+                    .protocols
+                    .into_iter()
+                    .map(|protocol| protocol.id.value())
+                    .collect::<Vec<_>>();
+                (remote_node.node_id, protocol_ids)
+            })
+            .collect::<Vec<_>>();
+        panic!(
+            "RelayV3 protocol should be active from node {} to peer {}, peers: {peers:?}",
+            node.node_id(),
+            peer.node_id(),
         );
     }
+}
+
+fn relay_protocol_connected(node: &Node, peer: &Node) -> bool {
+    let relay_protocol_id = SupportProtocols::RelayV3.protocol_id().value() as u64;
+    node.rpc_client().get_peers().iter().any(|remote_node| {
+        remote_node.node_id == peer.node_id()
+            && remote_node
+                .protocols
+                .iter()
+                .any(|protocol| protocol.id.value() == relay_protocol_id)
+    })
 }
 
 pub struct TransactionRelayMultiple;
@@ -50,6 +108,9 @@ impl Spec for TransactionRelayMultiple {
 
         let node0 = &nodes[0];
         let cells = gen_spendable(node0, 10);
+        waiting_for_sync(nodes);
+        wait_relay_protocols_connected(nodes);
+
         let transactions = always_success_transactions(node0, &cells);
         transactions.iter().for_each(|tx| {
             node0.submit_transaction(tx);

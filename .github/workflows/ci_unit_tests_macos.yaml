@@ -3,10 +3,12 @@ concurrency:
   group: ci_unit_tests_macos-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   push:
-    branches: ['**']
+    branches:
+      - develop
+      - master
+      - "rc/**"
+      - "pkg/*"
   merge_group: {}
   workflow_dispatch: {}
 
@@ -17,20 +19,20 @@ env:
 jobs:
   ci_unit_tests_macos:
     name: ci_unit_tests_macos
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: macos-15
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     steps:
       - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
         run: |
           sudo rm -rf /Applications/Xcode_*.app
           sudo rm -rf /usr/local/lib/android
           brew cleanup
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
-        uses: actions/cache@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -42,7 +44,7 @@ jobs:
         env:
           CKB_FEATURES: deadlock_detection,with_sentry,portable
       - name: Disk usage summary
-        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/')))
         run: |
           echo "=== Disk Space Summary ==="
           df -h

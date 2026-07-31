@@ -76,6 +76,7 @@ impl MockChain {
                 notify: vec![],
                 notify_scripts: vec![],
                 notify_timeout_millis: 800,
+                notify_auth_token: None,
             };
             SharedBuilder::with_temp_db()
                 .consensus(consensus)

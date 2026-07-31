@@ -1,5 +1,5 @@
 use ckb_chain_spec::consensus::Consensus;
-use ckb_dao_utils::{extract_dao_data, pack_dao_data};
+use ckb_dao_utils::{DaoError, extract_dao_data, pack_dao_data};
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_store::{ChainDB, ChainStore};
@@ -347,6 +347,63 @@ fn check_withdraw_calculation_overflows() {
         &withdrawing_block.hash(),
     );
     assert!(result.is_err());
+}
+
+#[test]
+fn check_withdraw_calculation_counted_capacity_overflows_before_adding_occupied_capacity() {
+    let output = CellOutput::new_builder()
+        .capacity(Capacity::shannons(u64::MAX))
+        .build();
+    let tx = TransactionBuilder::default().output(output.clone()).build();
+    let epoch = EpochNumberWithFraction::new(1, 100, 1000);
+    let deposit_header = HeaderBuilder::default()
+        .number(100)
+        .epoch(epoch)
+        .dao(pack_dao_data(
+            1,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ))
+        .build();
+    let deposit_block = BlockBuilder::default()
+        .header(deposit_header)
+        .transaction(tx)
+        .build();
+
+    let epoch = EpochNumberWithFraction::new(1, 200, 1000);
+    let withdrawing_header = HeaderBuilder::default()
+        .number(200)
+        .epoch(epoch)
+        .dao(pack_dao_data(
+            u64::MAX,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ))
+        .build();
+    let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
+
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
+    let txn = store.begin_transaction();
+    txn.insert_block(&deposit_block).unwrap();
+    txn.attach_block(&deposit_block).unwrap();
+    txn.insert_block(&withdrawing_block).unwrap();
+    txn.attach_block(&withdrawing_block).unwrap();
+    txn.commit().unwrap();
+
+    let consensus = Consensus::default();
+    let data_loader = store.borrow_as_data_loader();
+    let calculator = DaoCalculator::new(&consensus, &data_loader);
+    let result = calculator.calculate_maximum_withdraw(
+        &output,
+        Capacity::bytes(0).expect("should not overflow"),
+        &deposit_block.hash(),
+        &withdrawing_block.hash(),
+    );
+    assert_eq!(result.unwrap_err(), DaoError::Overflow);
 }
 
 fn build_dao_withdraw_tx(

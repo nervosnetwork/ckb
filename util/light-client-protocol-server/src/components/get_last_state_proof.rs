@@ -198,7 +198,11 @@ impl<'a> GetLastStateProofProcess<'a> {
     pub(crate) async fn execute(self) -> Status {
         let last_n_blocks: u64 = self.message.last_n_blocks().into();
 
-        if self.message.difficulties().len() + (last_n_blocks as usize) * 2
+        if self
+            .message
+            .difficulties()
+            .len()
+            .saturating_add((last_n_blocks as usize).saturating_mul(2))
             > constant::GET_LAST_STATE_PROOF_LIMIT
         {
             return StatusCode::MalformedProtocolMessage.with_context("too many samples");

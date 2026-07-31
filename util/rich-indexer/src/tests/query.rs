@@ -1607,6 +1607,189 @@ async fn output_data_filter_mode_rpc() {
     assert_eq!(200000000000, capacity);
 }
 
+/// Regression test: when the tx-pool overlay has dead cells AND the search key
+/// includes a filter with bound parameters (`filter.output_data`), the SQL
+/// `$n` placeholders must match the bind order.
+///
+/// Before the fix the dead-cell predicates were emitted into the SQL before
+/// the filter predicates, but the bind loop emitted filter parameters before
+/// dead-cell parameters.  This caused filter values to be bound to dead-cell
+/// placeholders and vice-versa, allowing dead cells to leak into results.
+#[test]
+async fn get_cells_with_pool_overlay_and_filter() {
+    let store = connect_sqlite(MEMORY_DB).await;
+    let pool = Arc::new(RwLock::new(Pool::default()));
+    let indexer = AsyncRichIndexer::new(store.clone(), None, CustomFilters::new(None, None));
+    let rpc = AsyncRichIndexerHandle::new(store, Some(Arc::clone(&pool)), usize::MAX);
+
+    // Scripts
+    let lock_script = ScriptBuilder::default()
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(b"lock_a".to_vec()))
+        .build();
+
+    let type_script = ScriptBuilder::default()
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(b"type_a".to_vec()))
+        .build();
+
+    // Block 0: cellbase (unrelated lock) + tx0 (lock_script, data="hello")
+    // We need exactly 1 dead cell so that the single dead_cells placeholder
+    // ($4) is followed by the filter placeholders ($5-$6).  With the buggy
+    // bind order the filter values occupy $4-$5 and the dead hash ends up
+    // at $6, causing the dead cell to leak through the NOT-IN.
+    let cellbase = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .witness(Script::default().into_witness())
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(1000))
+                .lock(ScriptBuilder::default().build())
+                .build(),
+        )
+        .output_data(Bytes::default())
+        .build();
+
+    let tx0 = TransactionBuilder::default()
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(500))
+                .lock(lock_script.clone())
+                .type_(Some(type_script.clone()))
+                .build(),
+        )
+        // Dead cell data = [0x02].  With the buggy bind:
+        //   $5 ← filter.data_upper = [0x01] (upper boundary of [0x00])
+        //   [0x02] >= [0x01] → passes data filter (bug!)
+        // With correct bind:
+        //   $5 ← filter.data = [0x00]
+        //   $6 ← filter.data_upper = [0x01]
+        //   but dead cell is excluded by NOT IN first.
+        .output_data(Bytes::from(vec![0x02]))
+        .build();
+
+    let block0 = BlockBuilder::default()
+        .transaction(cellbase)
+        .transaction(tx0.clone())
+        .header(HeaderBuilder::default().number(0).build())
+        .build();
+
+    indexer.append(&block0).await.unwrap();
+
+    // Verify baseline: 1 live cell matching lock_script (Exact mode).
+    let cells = rpc
+        .get_cells(
+            IndexerSearchKey {
+                script: lock_script.clone().into(),
+                script_search_mode: Some(IndexerSearchMode::Exact),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            100.into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(cells.objects.len(), 1);
+
+    // Spend tx0 output 0 via the pool overlay → 1 dead cell.
+    let pool_tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(tx0.hash(), 0), 0))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(500))
+                .lock(lock_script.clone())
+                .build(),
+        )
+        .output_data(Bytes::default())
+        .build();
+    pool.write().unwrap().new_transaction(&pool_tx);
+
+    // The bug: SQL placeholders are emitted as script → dead_cells → filter,
+    // but the bind loop emitted script → filter → dead_cells.
+    //
+    // With 1 dead cell and filter.output_data (Prefix mode, 2 bound params):
+    //   SQL:  $1-$3 (script) + $4 (dead_cells) + $5-$6 (output_data)
+    //   Buggy bind: script(3) + filter(2) + dead(1)
+    //     $4 ← filter.data  (should be dead_tx_hash)
+    //     $5 ← filter.upper (should be filter.data)
+    //     $6 ← dead_tx_hash (should be filter.upper)
+    //   Dead cell (data=[0x02]) passes all swapped checks:
+    //     NOT IN (filter.data=[0x00], 0): tx_hash ≠ [0x00] → passes
+    //     data >= $5=[0x01]: [0x02] >= [0x01] → passes
+    //     data <  $6=dead_hash(32B): [0x02] < 32-byte-blob → passes
+    //   → dead cell leaks through!
+    //
+    //   Correct bind: script(3) + dead(1) + filter(2)
+    //     $4 ← dead_tx_hash → NOT IN excludes dead cell ✓
+
+    // Sanity: pool overlay without filter should exclude the dead cell.
+    let cells_no_filter = rpc
+        .get_cells(
+            IndexerSearchKey {
+                script: lock_script.clone().into(),
+                script_search_mode: Some(IndexerSearchMode::Exact),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            100.into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        cells_no_filter.objects.len(),
+        0,
+        "pool overlay without filter should exclude both dead cells"
+    );
+
+    // ---- get_cells: pool overlay + filter.output_data (Prefix mode) ----
+    let cells = rpc
+        .get_cells(
+            IndexerSearchKey {
+                script: lock_script.clone().into(),
+                script_search_mode: Some(IndexerSearchMode::Exact),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(vec![0x00])),
+                    output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            100.into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        cells.objects.len(),
+        0,
+        "dead cell must be excluded when filter.output_data is present"
+    );
+
+    // ---- get_cells_capacity: pool overlay + filter.output_data ----
+    let capacity = rpc
+        .get_cells_capacity(IndexerSearchKey {
+            script: lock_script.clone().into(),
+            script_search_mode: Some(IndexerSearchMode::Exact),
+            filter: Some(IndexerSearchKeyFilter {
+                output_data: Some(JsonBytes::from_vec(vec![0x00])),
+                output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(
+        capacity.is_none(),
+        "no live cell with matching output_data after pool overlay (get_cells_capacity)"
+    );
+}
+
 /// helper fn extracts script fields raw data
 fn extract_raw_data(script: &Script) -> Vec<u8> {
     [

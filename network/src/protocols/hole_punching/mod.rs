@@ -26,6 +26,8 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const CHECK_TOKEN: u64 = 0;
 const ADDRS_COUNT_LIMIT: usize = 24;
 const TIMEOUT: u64 = 5 * 60 * 1000; // 5 minutes
+const FORWARD_RATE_LIMIT_INTERVAL: u64 = 1000;
+pub(super) const MAX_FORWARD_RATE_LIMITER_KEYS: usize = 4096;
 
 type PendingDeliveredInfo = (Vec<Multiaddr>, u64);
 type RateLimiter<T> = governor::RateLimiter<
@@ -33,6 +35,51 @@ type RateLimiter<T> = governor::RateLimiter<
     governor::state::keyed::HashMapStateStore<T>,
     governor::clock::DefaultClock,
 >;
+type ForwardRateLimiterKey = (PeerId, PeerId, u32);
+
+struct ForwardRateLimiter {
+    keys: HashMap<ForwardRateLimiterKey, u64>,
+    max_keys: usize,
+}
+
+impl ForwardRateLimiter {
+    fn new(max_keys: usize) -> Self {
+        Self {
+            keys: HashMap::new(),
+            max_keys,
+        }
+    }
+
+    fn check_key(&mut self, key: ForwardRateLimiterKey, now: u64) -> bool {
+        self.retain_recent(now);
+        if let Some(last_seen) = self.keys.get_mut(&key) {
+            if now.saturating_sub(*last_seen) < FORWARD_RATE_LIMIT_INTERVAL {
+                return false;
+            }
+            *last_seen = now;
+            true
+        } else if self.keys.len() >= self.max_keys {
+            false
+        } else {
+            self.keys.insert(key, now);
+            true
+        }
+    }
+
+    fn retain_recent(&mut self, now: u64) {
+        self.keys
+            .retain(|_, last_seen| now.saturating_sub(*last_seen) < FORWARD_RATE_LIMIT_INTERVAL);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        self.keys.shrink_to_fit();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.keys.len()
+    }
+}
 
 /// Hole Punching Protocol
 pub(crate) struct HolePunching {
@@ -43,7 +90,7 @@ pub(crate) struct HolePunching {
     // Delivered timestamp recorded
     pending_delivered: HashMap<PeerId, PendingDeliveredInfo>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
-    forward_rate_limiter: RateLimiter<(PeerId, PeerId, u32)>,
+    forward_rate_limiter: ForwardRateLimiter,
 }
 
 #[async_trait]
@@ -64,8 +111,7 @@ impl ServiceProtocol for HolePunching {
     }
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
-        self.rate_limiter.retain_recent();
-        self.forward_rate_limiter.retain_recent();
+        self.cleanup_rate_limiters();
         debug!("HolePunching.disconnected session={}", context.session.id);
     }
 
@@ -173,6 +219,7 @@ impl ServiceProtocol for HolePunching {
         self.pending_delivered
             .retain(|_, (_, t)| (now - *t) < TIMEOUT);
         self.inflight_requests.retain(|_, t| (now - *t) < TIMEOUT);
+        self.cleanup_rate_limiters();
 
         if status.non_whitelist_outbound < status.max_outbound && status.total > 0 {
             let target = &self.network_state.required_flags;
@@ -251,10 +298,10 @@ impl HolePunching {
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
         let rate_limiter = RateLimiter::hashmap(quota);
 
-        // In the request forwarding process, the same group of from/to should not be received by the same
-        // node more than 1 times within one second.
-        let quota = governor::Quota::per_second(std::num::NonZeroU32::new(1).unwrap());
-        let forward_rate_limiter = RateLimiter::hashmap(quota);
+        // In the request forwarding process, the same group of from/to should not be received by
+        // the same node more than once within one second. Keep the original from/to/message-keyed
+        // semantics, but bound the message-controlled key space.
+        let forward_rate_limiter = ForwardRateLimiter::new(MAX_FORWARD_RATE_LIMITER_KEYS);
 
         Self {
             #[cfg(not(target_os = "linux"))]
@@ -281,5 +328,49 @@ impl HolePunching {
             rate_limiter,
             forward_rate_limiter,
         }
+    }
+
+    pub(super) fn check_forward_rate_limit(
+        &mut self,
+        from: &PeerId,
+        to: &PeerId,
+        msg_item_id: u32,
+    ) -> bool {
+        self.check_forward_rate_limit_at(from, to, msg_item_id, unix_time_as_millis())
+    }
+
+    fn check_forward_rate_limit_at(
+        &mut self,
+        from: &PeerId,
+        to: &PeerId,
+        msg_item_id: u32,
+        now: u64,
+    ) -> bool {
+        self.forward_rate_limiter
+            .check_key((from.clone(), to.clone(), msg_item_id), now)
+    }
+
+    #[cfg(test)]
+    pub(super) fn forward_rate_limiter_len(&self) -> usize {
+        self.forward_rate_limiter.len()
+    }
+
+    #[cfg(test)]
+    pub(super) fn check_forward_rate_limit_at_for_test(
+        &mut self,
+        from: &PeerId,
+        to: &PeerId,
+        msg_item_id: u32,
+        now: u64,
+    ) -> bool {
+        self.check_forward_rate_limit_at(from, to, msg_item_id, now)
+    }
+
+    fn cleanup_rate_limiters(&mut self) {
+        self.rate_limiter.retain_recent();
+        self.rate_limiter.shrink_to_fit();
+        self.forward_rate_limiter
+            .retain_recent(unix_time_as_millis());
+        self.forward_rate_limiter.shrink_to_fit();
     }
 }

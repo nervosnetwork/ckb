@@ -71,6 +71,11 @@ impl OrphanPool {
         self.entries.get(id)
     }
 
+    pub(crate) fn get_by_tx_hash(&self, tx_hash: &Byte32) -> Option<&Entry> {
+        let id = ProposalShortId::from_tx_hash(tx_hash);
+        self.get(&id).filter(|entry| &entry.tx.hash() == tx_hash)
+    }
+
     pub fn remove_orphan_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
         self.entries.remove(id).inspect(|entry| {
             debug!("remove orphan tx {}", entry.tx.hash());
@@ -86,9 +91,16 @@ impl OrphanPool {
         })
     }
 
-    pub fn remove_orphan_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
-        for id in ids {
-            self.remove_orphan_tx(&id);
+    pub fn remove_orphan_tx_by_hash(&mut self, tx_hash: &Byte32) -> Option<Entry> {
+        let id = self
+            .get_by_tx_hash(tx_hash)
+            .map(|entry| entry.tx.proposal_short_id())?;
+        self.remove_orphan_tx(&id)
+    }
+
+    pub fn remove_orphan_txs_by_hash(&mut self, tx_hashes: impl Iterator<Item = Byte32>) {
+        for tx_hash in tx_hashes {
+            self.remove_orphan_tx_by_hash(&tx_hash);
         }
         self.shrink_to_fit();
     }

@@ -9,6 +9,7 @@ use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::HeaderIndex;
+use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
@@ -265,7 +266,7 @@ async fn contextual_check(
         &compact_block_header.data().raw().parent_hash(),
         store_first,
     );
-    if parent.is_none() {
+    let Some(parent) = parent else {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "UnknownParent: {}, send_getheaders_to_peer({})",
@@ -278,7 +279,7 @@ async fn contextual_check(
             block_hash,
             compact_block_header.data().raw().parent_hash(),
         ));
-    }
+    };
 
     // compact block is in pending
     let pending_compact_blocks = shared.state().pending_compact_blocks().await;
@@ -336,6 +337,43 @@ async fn contextual_check(
             return StatusCode::CompactBlockHasInvalidHeader
                 .with_context(format!("{block_hash} {err}"));
         }
+    }
+
+    let parent_hash = compact_block_header.parent_hash();
+    let maybe_epoch = if let Some(parent_header) = shared.store().get_block_header(&parent_hash) {
+        shared
+            .consensus()
+            .next_epoch_ext(&parent_header, &shared.store().borrow_as_data_loader())
+            .map(|next_epoch| next_epoch.epoch())
+    } else {
+        let parent_epoch = parent.epoch();
+        if parent_epoch.index() + 1 < parent_epoch.length() {
+            shared
+                .store()
+                .get_epoch_index(parent_epoch.number())
+                .and_then(|index| shared.store().get_epoch_ext(&index))
+        } else {
+            None
+        }
+    };
+
+    let Some(epoch) = maybe_epoch else {
+        return StatusCode::CompactBlockRequiresParent.with_context(format!(
+            "{block_hash} failed to derive expected epoch from parent {parent_hash}"
+        ));
+    };
+
+    let expected_epoch = epoch.number_with_fraction(compact_block_header.number());
+    let actual_epoch = compact_block_header.epoch();
+    let expected_compact_target = epoch.compact_target();
+    let actual_compact_target = compact_block_header.compact_target();
+    if actual_epoch != expected_epoch || actual_compact_target != expected_compact_target {
+        shared
+            .shared()
+            .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+        return StatusCode::CompactBlockHasInvalidHeader.with_context(format!(
+            "{block_hash} invalid epoch, expected epoch {expected_epoch:#}, actual epoch {actual_epoch:#}, expected compact target {expected_compact_target:#x}, actual compact target {actual_compact_target:#x}"
+        ));
     }
 
     Status::ok()

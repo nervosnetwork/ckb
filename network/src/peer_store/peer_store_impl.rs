@@ -295,7 +295,7 @@ impl PeerStore {
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let ban_addr = BannedAddr {
             address: network,
-            ban_until: now_ms + timeout_ms,
+            ban_until: now_ms.saturating_add(timeout_ms),
             created_at: now_ms,
             ban_reason,
         };

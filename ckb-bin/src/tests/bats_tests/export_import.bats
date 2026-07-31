@@ -60,9 +60,20 @@ function export_to_pipe() { #@test
 
 setup_file() {
   rm -f ${TMP_DIR}/ckb*.jsonl
+  rm -rvf ${TMP_DIR}/import
+  rm -rvf ${TMP_DIR}/import_range
+  rm -rvf ${TMP_DIR}/export_to_stdout
+  rm -rvf ${TMP_DIR}/import_from_stdin
+  rm -rvf ${TMP_DIR}/export_to_pipe
+  rm -rvf ${TMP_DIR}/import_from_pipe
 }
 
 teardown_file() {
   rm -f ${TMP_DIR}/ckb*.jsonl
   rm -rvf ${TMP_DIR}/import
+  rm -rvf ${TMP_DIR}/import_range
+  rm -rvf ${TMP_DIR}/export_to_stdout
+  rm -rvf ${TMP_DIR}/import_from_stdin
+  rm -rvf ${TMP_DIR}/export_to_pipe
+  rm -rvf ${TMP_DIR}/import_from_pipe
 }

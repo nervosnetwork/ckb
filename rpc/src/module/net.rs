@@ -707,10 +707,14 @@ impl NetRpc for NetRpcImpl {
                 let ban_until = if absolute.unwrap_or(false) {
                     ban_time.unwrap_or_default().into()
                 } else {
-                    unix_time_as_millis()
-                        + ban_time
-                            .unwrap_or_else(|| DEFAULT_BAN_DURATION.into())
-                            .value()
+                    let duration = ban_time
+                        .unwrap_or_else(|| DEFAULT_BAN_DURATION.into())
+                        .value();
+                    unix_time_as_millis().checked_add(duration).ok_or_else(|| {
+                        RPCError::invalid_params(format!(
+                            "the relative `ban_time` {duration} is too large and overflows the ban expiration timestamp"
+                        ))
+                    })?
                 };
                 self.network_controller
                     .ban(ip_network, ban_until, reason.unwrap_or_default());

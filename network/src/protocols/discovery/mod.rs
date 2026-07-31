@@ -294,6 +294,22 @@ fn verify_nodes_message(nodes: &Nodes) -> Option<Misbehavior> {
                 break;
             }
         }
+
+        let total_addrs: usize = nodes.items.iter().map(|item| item.addresses.len()).sum();
+        let max_total = if nodes.announce {
+            ANNOUNCE_THRESHOLD
+        } else {
+            // Each item is expected to carry one address, so the total
+            // address cap matches the maximum number of addresses to send.
+            MAX_ADDR_TO_SEND
+        };
+        if total_addrs > max_total {
+            warn!(
+                "Too many total addresses in Nodes message: {} > {}",
+                total_addrs, max_total
+            );
+            misbehavior = Some(Misbehavior::TooManyAddresses(total_addrs));
+        }
     }
 
     misbehavior
@@ -399,5 +415,121 @@ impl AddressManager for DiscoveryAddressManager {
             reg.get_peer(id)
                 .and_then(|peer| peer.identify_info.as_ref().map(|a| a.flags))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{PeerId, SupportProtocols};
+
+    #[test]
+    fn rejects_nodes_message_with_three_thousand_addresses() {
+        // Reproducer: 1000 items × 3 addresses = 3000 total.
+        // This passes per-item checks (each ≤ 3) but exceeds
+        // the total-address cap enforced by verify_nodes_message.
+        let nodes = Nodes {
+            announce: false,
+            items: (0..MAX_ADDR_TO_SEND)
+                .map(|item_index| Node {
+                    addresses: (0..MAX_ADDRS)
+                        .map(|address_index| {
+                            let port = 10_000 + item_index * MAX_ADDRS + address_index;
+                            format!(
+                                "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+                                port,
+                                PeerId::random().to_base58()
+                            )
+                            .parse()
+                            .unwrap()
+                        })
+                        .collect(),
+                    flags: Flags::COMPATIBILITY,
+                })
+                .collect(),
+        };
+
+        let total_addresses: usize = nodes.items.iter().map(|node| node.addresses.len()).sum();
+        assert_eq!(MAX_ADDR_TO_SEND * MAX_ADDRS, total_addresses);
+
+        // The message still fits within the Discovery frame limit.
+        let encoded_len = encode(DiscoveryMessage::Nodes(nodes.clone())).len();
+        assert!(encoded_len < SupportProtocols::Discovery.max_frame_length());
+
+        // The message is now rejected by verify_nodes_message.
+        assert!(verify_nodes_message(&nodes).is_some());
+    }
+
+    #[test]
+    fn accepts_nodes_message_with_legitimate_address_count() {
+        // 1000 items × 1 address = 1000 total addresses.
+        // This matches the intended protocol behaviour and must
+        // still pass validation after the hotfix.
+        let nodes = Nodes {
+            announce: false,
+            items: (0..MAX_ADDR_TO_SEND)
+                .map(|item_index| Node {
+                    addresses: {
+                        let port = 10_000 + item_index;
+                        vec![
+                            format!(
+                                "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+                                port,
+                                PeerId::random().to_base58()
+                            )
+                            .parse()
+                            .unwrap(),
+                        ]
+                    },
+                    flags: Flags::COMPATIBILITY,
+                })
+                .collect(),
+        };
+
+        let total_addresses: usize = nodes.items.iter().map(|node| node.addresses.len()).sum();
+        assert_eq!(MAX_ADDR_TO_SEND, total_addresses);
+
+        assert!(verify_nodes_message(&nodes).is_none());
+    }
+
+    #[test]
+    fn rejects_announce_with_too_many_total_addresses() {
+        // Announce messages are capped at ANNOUNCE_THRESHOLD total
+        // addresses (10), even if each item individually ≤ MAX_ADDRS.
+        let nodes = Nodes {
+            announce: true,
+            items: (0..ANNOUNCE_THRESHOLD)
+                .map(|item_index| Node {
+                    addresses: {
+                        let port = 10_000 + item_index;
+                        // Two addresses per item — exceeds
+                        // ANNOUNCE_THRESHOLD total when summed.
+                        vec![
+                            format!(
+                                "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+                                port,
+                                PeerId::random().to_base58()
+                            )
+                            .parse()
+                            .unwrap(),
+                            format!(
+                                "/ip4/127.0.0.2/tcp/{}/p2p/{}",
+                                port,
+                                PeerId::random().to_base58()
+                            )
+                            .parse()
+                            .unwrap(),
+                        ]
+                    },
+                    flags: Flags::COMPATIBILITY,
+                })
+                .collect(),
+        };
+
+        let total_addresses: usize = nodes.items.iter().map(|node| node.addresses.len()).sum();
+        // 10 items × 2 addresses = 20 > ANNOUNCE_THRESHOLD (10)
+        assert_eq!(ANNOUNCE_THRESHOLD * 2, total_addresses);
+
+        assert!(verify_nodes_message(&nodes).is_some());
     }
 }

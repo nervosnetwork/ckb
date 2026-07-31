@@ -39,6 +39,15 @@ function Unset-Env {
   Remove-Item -Path "env:\$Key" -ErrorAction SilentlyContinue
 }
 
+function Enable-StaticMsvcCrt {
+  $rustflags = (Get-Item -Path "env:RUSTFLAGS" -ErrorAction SilentlyContinue).Value
+  if ([string]::IsNullOrWhiteSpace($rustflags)) {
+    Set-Env RUSTFLAGS "-C target-feature=+crt-static"
+  } elseif ($rustflags -notmatch "target-feature=\+crt-static") {
+    Set-Env RUSTFLAGS "$rustflags -C target-feature=+crt-static"
+  }
+}
+
 function Enable-DebugSymbols {
   $content = Get-Content Cargo.toml | % {
     $_
@@ -57,7 +66,7 @@ function Disable-DebugSymbols {
 }
 
 function run-prod {
-  Set-Env RUSTFLAGS ""
+  Enable-StaticMsvcCrt
   cargo build --locked @Verbose --release
 }
 

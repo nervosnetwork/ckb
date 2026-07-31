@@ -1,5 +1,8 @@
 use super::helper::new_index_transaction;
-use crate::relayer::compact_block_verifier::{PrefilledVerifier, ShortIdsVerifier};
+use crate::relayer::{
+    MAX_RELAY_TXS_NUM_PER_BATCH,
+    compact_block_verifier::{PrefilledVerifier, ShortIdsVerifier},
+};
 use crate::{Status, StatusCode};
 use ckb_types::packed::{CompactBlockBuilder, ProposalShortId};
 use ckb_types::prelude::*;
@@ -72,6 +75,27 @@ fn test_duplicated_short_ids() {
     assert_eq!(
         ShortIdsVerifier::verify(&block),
         StatusCode::CompactBlockHasDuplicatedShortIds.into(),
+    );
+}
+
+#[test]
+fn test_short_ids_can_not_exceed_relay_batch_limit() {
+    let short_ids = (0..=MAX_RELAY_TXS_NUM_PER_BATCH)
+        .map(|i| {
+            let mut bytes = [0u8; 10];
+            bytes[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            ProposalShortId::from_slice(&bytes).unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let block = CompactBlockBuilder::default().short_ids(short_ids).build();
+    assert_eq!(
+        ShortIdsVerifier::verify(&block),
+        StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+            "ShortIds count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
+            MAX_RELAY_TXS_NUM_PER_BATCH + 1,
+            MAX_RELAY_TXS_NUM_PER_BATCH,
+        )),
     );
 }
 
