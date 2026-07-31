@@ -7039,8 +7039,6 @@ dependencies = [
 [[package]]
 name = "tentacle"
 version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ab80c50726dc639daf326406efc983c578e65d06efa84f6d11385abc6dc27be"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7078,8 +7076,6 @@ dependencies = [
 [[package]]
 name = "tentacle-multiaddr"
 version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7b06b419ae75898680ae449d5db5bf9dfedb531c49cdb6f24d42054508a2df3"
 dependencies = [
  "arrayref",
  "bs58",
@@ -7094,8 +7090,6 @@ dependencies = [
 [[package]]
 name = "tentacle-secio"
 version = "0.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "410f26213e6f4bf189f661db9c92241f77b84f6eabebe4bf35283d841cbb67ae"
 dependencies = [
  "bs58",
  "bytes",
@@ -7420,8 +7414,6 @@ dependencies = [
 [[package]]
 name = "tokio-yamux"
 version = "0.3.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ec7b39569c9fc5dada5c87ca70e364bae3ca191b6f72a444842b114a656bd5"
 dependencies = [
  "bytes",
  "futures",
