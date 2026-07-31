@@ -494,6 +494,56 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
 }
 
 #[test]
+fn uak_dependency_maintenance_never_revokes_active_compute_capability() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = output_transaction(717);
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let dependency = DependencyKey::Cell(parent_output.clone());
+    let parent = admit(
+        &mut authority,
+        ValidatedAdmission::proposal(parent_tx, ProposalContextId(6))
+            .expect("active-consumer parent admission is valid"),
+    );
+    let child = admit(
+        &mut authority,
+        ValidatedAdmission::remote(input_transaction(718, parent_output), PeerIndex::from(106))
+            .expect("active dependency consumer is valid"),
+    );
+    let work = checkout_resolve(&mut authority, &child);
+
+    apply_without_work(
+        authority
+            .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
+            .expect("parent loss publishes one definitive dependency cut"),
+    );
+    assert_eq!(
+        drain_dependency_maintenance(&mut authority),
+        0,
+        "maintenance advances the dirty cursor without stealing the compute lease"
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+
+    apply_without_work(
+        authority
+            .apply_settlement(
+                work.missing(vec![dependency])
+                    .expect("the matching old-cut result is bounded"),
+            )
+            .expect("the unique completion remains settleable"),
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
 fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let parent_tx = output_transaction(714);

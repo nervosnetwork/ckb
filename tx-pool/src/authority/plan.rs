@@ -5,7 +5,7 @@ mod settlement;
 use super::chain::{AcceptedProof, FinalAdmissionReceipt, FinalAdmissionWork, ValidationRulesId};
 use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
-    DependencyEvent, DependencyFrontier, DependencySnapshot,
+    DependencyEvent, DependencyFrontier, DependencyMaintenanceAction, DependencySnapshot,
 };
 use super::effect::{
     CommittedEffect, EffectBatch, EffectBuildError, EffectConfigError, EffectDelta, EffectError,
@@ -23,11 +23,12 @@ use super::scheduler::{
 };
 use super::source::{AuthoritySourceVersions, SourceVersionDelta};
 use super::state::{
-    AcceptedEntry, AcceptedStatus, AdmissionBasis, AdmissionClass, ApplySequence, Arrival,
+    AcceptedEntry, AcceptedProvenance, AcceptedStatus, AdmissionBasis, ApplySequence, Arrival,
     AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputedOutcome,
-    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, IngressAttribution,
-    KnownDependencies, OwnedTx, PayloadBlame, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase,
-    QueuedWork, RawTxHash, RejectionKind, TxIdentity, TxRecord, ValidatedAdmission, WaitCondition,
+    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies, OwnedTx,
+    PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
+    QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, TxIdentity, TxRecord, ValidatedAdmission,
+    WaitCondition,
 };
 use super::work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken};
 pub(in crate::authority) use membership::IndependentCoupling;
@@ -43,6 +44,7 @@ pub(in crate::authority) use settlement::{
     CandidateBatchError, IndependentCandidate, SettlementBatch, SettlementPlan,
 };
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,13 +64,17 @@ pub(super) enum OwnerPhaseSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct OwnerSnapshot {
     identity: TxIdentity,
-    ingress: IngressAttribution,
-    blame: PayloadBlame,
-    class: AdmissionClass,
+    source: OwnerSourceSnapshot,
     version: EntryVersion,
     arrival: Arrival,
     charge: ChargeRecord,
     phase: OwnerPhaseSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OwnerSourceSnapshot {
+    PreAccepted(PreAcceptedSource),
+    Accepted(AcceptedProvenance),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -281,13 +287,15 @@ impl TxPoolAuthority {
                         dependencies: entry.proof.payload().dependencies().clone(),
                     },
                 };
+                let source = match owner {
+                    OwnedTx::PreAccepted(entry) => OwnerSourceSnapshot::PreAccepted(entry.source),
+                    OwnedTx::Accepted(entry) => OwnerSourceSnapshot::Accepted(entry.provenance),
+                };
                 (
                     hash.clone(),
                     OwnerSnapshot {
                         identity: record.identity.clone(),
-                        ingress: record.ingress,
-                        blame: record.blame,
-                        class: record.class,
+                        source,
                         version: record.version,
                         arrival: record.arrival,
                         charge: owner.charge_record(),
@@ -511,7 +519,8 @@ pub(super) enum CommittedChanges {
     GenerationControl(ApplySequence),
     AdminControl {
         sequence: ApplySequence,
-        peer: ckb_network::PeerIndex,
+        cause: AdminCause,
+        changed_owners: usize,
     },
     ChainControl {
         sequence: ApplySequence,
@@ -784,8 +793,14 @@ struct GenerationDelta {
     sequence: ApplySequence,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AdminCause {
+    PeerRevocation(ckb_network::PeerIndex),
+    RemoteExpiry { cutoff: RemoteDeadline },
+}
+
 struct AdminDelta {
-    peer: ckb_network::PeerIndex,
+    cause: AdminCause,
     hashes: Vec<RawTxHash>,
     owners: DerivedOwnerDelta,
     resources: ResourceBatchPlan,
@@ -1026,6 +1041,7 @@ impl PreparedApply<'_> {
     }
 
     fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> CommittedDelta {
+        let changed_owners = delta.hashes.len();
         let mut retired = delta.retired;
         for hash in &delta.hashes {
             if let Some(owner) = authority.entries.remove(hash) {
@@ -1042,7 +1058,8 @@ impl PreparedApply<'_> {
         CommittedDelta {
             changes: CommittedChanges::AdminControl {
                 sequence: delta.sequence,
-                peer: delta.peer,
+                cause: delta.cause,
+                changed_owners,
             },
             handoff: CommittedHandoff::None,
             removals: Vec::new(),
@@ -1147,26 +1164,36 @@ fn retired_buffer(capacity: usize) -> Result<Vec<OwnedTx>, PlanError> {
 }
 
 impl TxPoolAuthority {
+    fn reserve_primary_owner_insertions(&mut self, additional: usize) -> Result<(), PlanError> {
+        if additional == 0 {
+            return Ok(());
+        }
+        self.entries
+            .try_reserve(additional)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))
+    }
+
     fn missing_resolution_disposition(
         &self,
-        class: AdmissionClass,
+        source: PreAcceptedSource,
         missing: &super::state::MissingDependencies,
     ) -> MissingResolutionDisposition {
-        if matches!(class, AdmissionClass::Remote(_)) {
-            return MissingResolutionDisposition::Wait;
-        }
-
-        let has_unavailable_dependency = missing.keys().iter().any(|key| match key {
-            DependencyKey::Cell(out_point) => !matches!(
-                self.entries.get(&RawTxHash(out_point.tx_hash())),
-                Some(OwnedTx::PreAccepted(_))
-            ),
-            DependencyKey::Header(_) => true,
-        });
-        if has_unavailable_dependency {
-            MissingResolutionDisposition::RejectUnavailable
-        } else {
-            MissingResolutionDisposition::Wait
+        match source {
+            PreAcceptedSource::Remote(_) => MissingResolutionDisposition::Wait,
+            PreAcceptedSource::Proposal { .. } | PreAcceptedSource::Recovery(_) => {
+                let has_unavailable_dependency = missing.keys().iter().any(|key| match key {
+                    DependencyKey::Cell(out_point) => !matches!(
+                        self.entries.get(&RawTxHash(out_point.tx_hash())),
+                        Some(OwnedTx::PreAccepted(_))
+                    ),
+                    DependencyKey::Header(_) => true,
+                });
+                if has_unavailable_dependency {
+                    MissingResolutionDisposition::RejectUnavailable
+                } else {
+                    MissingResolutionDisposition::Wait
+                }
+            }
         }
     }
 
@@ -1267,13 +1294,13 @@ impl TxPoolAuthority {
             removed_entries.push(removed);
         }
         let lost = self.collect_dependency_loss_keys(removed_entries)?.keys;
-        let available = if matches!(existing, OwnedTx::PreAccepted(_))
-            && matches!(after, OwnedTx::Accepted(_))
-        {
-            self.collect_dependency_loss_keys(std::iter::once(after))?
-                .keys
-        } else {
-            Vec::new()
+        let available = match (existing, after) {
+            (OwnedTx::PreAccepted(_), OwnedTx::Accepted(_)) => {
+                self.collect_dependency_loss_keys(std::iter::once(after))?
+                    .keys
+            }
+            (OwnedTx::PreAccepted(_), OwnedTx::PreAccepted(_))
+            | (OwnedTx::Accepted(_), OwnedTx::PreAccepted(_) | OwnedTx::Accepted(_)) => Vec::new(),
         };
         let control = self
             .dependencies
@@ -1426,14 +1453,12 @@ impl TxPoolAuthority {
         let record = TxRecord {
             tx: admission.tx,
             identity: admission.identity,
-            ingress: admission.ingress,
-            blame: admission.blame,
-            class: admission.class,
             version,
             arrival,
         };
         let after = OwnedTx::PreAccepted(PreAcceptedEntry {
             record,
+            source: admission.source,
             basis: AdmissionBasis::new(dependencies, admission.charge),
             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
             charge: admission.charge,
@@ -1456,26 +1481,96 @@ impl TxPoolAuthority {
         existing: OwnedTx,
         admission: ValidatedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        if existing.record().identity.witness != admission.identity.witness {
-            return Err(PlanError::PayloadVariant);
-        }
-        let AdmissionClass::Proposal(proposal) = admission.class else {
-            return Err(PlanError::Duplicate);
-        };
         let OwnedTx::PreAccepted(entry) = &existing else {
+            // Accepted ownership is by raw hash. A different witness cannot
+            // replace a committed membership proof, but it is still the same
+            // already-owned transaction rather than a second payload owner.
             return Err(PlanError::Duplicate);
         };
-        if entry.record.class == AdmissionClass::Proposal(proposal) {
-            return Err(PlanError::Duplicate);
-        }
+        let same_witness = entry.record.identity.witness == admission.identity.witness;
+        let PreAcceptedSource::Proposal {
+            lease: proposal,
+            base: ProposalBase::Trusted,
+        } = admission.source
+        else {
+            return Err(if same_witness {
+                PlanError::Duplicate
+            } else {
+                PlanError::PayloadVariant
+            });
+        };
+
+        let proposal_base = match entry.source {
+            PreAcceptedSource::Remote(remote) => ProposalBase::Remote(remote),
+            PreAcceptedSource::Proposal {
+                lease: current,
+                base,
+            } => {
+                if same_witness && current == proposal {
+                    return Err(PlanError::Duplicate);
+                }
+                base
+            }
+            PreAcceptedSource::Recovery(_) => {
+                return Err(if same_witness {
+                    PlanError::Duplicate
+                } else {
+                    PlanError::PayloadVariant
+                });
+            }
+        };
 
         let sequence = self.clocks.next_sequence;
-        let clocks = AuthorityClocks {
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
+        let (promoted, clocks) = if same_witness {
+            // A policy-only promotion/refresh preserves EntryVersion and the
+            // exact active lease. ActiveWork has already sealed its compute
+            // attribution, so changing future scheduling trust cannot move
+            // that capability between resource partitions.
+            let mut promoted = entry.clone();
+            promoted.source = PreAcceptedSource::Proposal {
+                lease: proposal,
+                base: proposal_base,
+            };
+            (
+                promoted,
+                AuthorityClocks {
+                    next_sequence: next_sequence(sequence)?,
+                    ..self.clocks
+                },
+            )
+        } else {
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_)) {
+                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+            }
+            let version = self.clocks.next_version;
+            let base = match proposal_base {
+                ProposalBase::Trusted => ProposalBase::Trusted,
+                ProposalBase::Remote(remote) => ProposalBase::Remote(remote.with_trusted_payload()),
+            };
+            let promoted = PreAcceptedEntry {
+                record: TxRecord {
+                    tx: admission.tx,
+                    identity: admission.identity,
+                    version,
+                    arrival: entry.record.arrival,
+                },
+                source: PreAcceptedSource::Proposal {
+                    lease: proposal,
+                    base,
+                },
+                basis: AdmissionBasis::new(admission.dependencies, admission.charge),
+                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                charge: admission.charge,
+            };
+            (
+                promoted,
+                AuthorityClocks {
+                    next_version: next_version(version)?,
+                    next_sequence: next_sequence(sequence)?,
+                    ..self.clocks
+                },
+            )
         };
-        let mut promoted = entry.clone();
-        promoted.record.class = AdmissionClass::Proposal(proposal);
         self.prepare_entry_delta(
             EntryTransition {
                 key,
@@ -1552,6 +1647,7 @@ impl TxPoolAuthority {
         record.version = version;
         let accepted = AcceptedEntry {
             record,
+            provenance: preaccepted.source.accepted_provenance(),
             proof,
             proposal,
         };
@@ -1834,26 +1930,12 @@ impl TxPoolAuthority {
         })
     }
 
-    /// Remove the complete bounded pre-accepted cohort owned by one banned
-    /// ingress peer. Accepted membership is deliberately absent from the peer
-    /// index: a commit before the external ban fence wins, while a fence-first
-    /// race reaches this transition. Active compute must first return its
-    /// unique settlement capability; it is never made stale by deletion.
-    pub(super) fn plan_peer_revocation_for_foundation(
+    fn plan_administrative_removal(
         &mut self,
-        peer: ckb_network::PeerIndex,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        mut hashes: Vec<RawTxHash>,
+        cause: AdminCause,
+    ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
-        let Some(indexed) = self.indexes.preaccepted_for_peer(peer) else {
-            return Ok(None);
-        };
-        let mut hashes = Vec::new();
-        hashes
-            .try_reserve(indexed.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        hashes.extend(indexed.iter().cloned());
-        hashes.sort_unstable();
-
         let mut owner_refs = Vec::new();
         owner_refs
             .try_reserve(hashes.len())
@@ -1866,8 +1948,20 @@ impl TxPoolAuthority {
             let OwnedTx::PreAccepted(entry) = owner else {
                 return Err(PlanError::Fault(AuthorityFault::IndexProjection));
             };
-            if entry.record.ingress.peer() != Some(peer) {
-                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            match cause {
+                AdminCause::PeerRevocation(peer) => {
+                    if entry.source.ingress_peer() != Some(peer) {
+                        return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+                    }
+                }
+                AdminCause::RemoteExpiry { cutoff } => match entry.source {
+                    PreAcceptedSource::Remote(remote) if remote.residency.expires_at <= cutoff => {}
+                    PreAcceptedSource::Remote(_)
+                    | PreAcceptedSource::Proposal { .. }
+                    | PreAcceptedSource::Recovery(_) => {
+                        return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+                    }
+                },
             }
             if matches!(&entry.phase, PreAcceptedPhase::Computing(_)) {
                 return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
@@ -1884,11 +1978,48 @@ impl TxPoolAuthority {
         effects
             .try_reserve(owner_refs.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        effects.extend(owner_refs.iter().map(|owner| CommittedEffect::PeerRevoked {
-            tx: Arc::clone(&owner.record().tx),
-            peer,
-        }));
-        let effect = self.effects.plan_critical_rebuildable(effects, sequence)?;
+        for owner in &owner_refs {
+            let effect = match cause {
+                AdminCause::PeerRevocation(peer) => CommittedEffect::PeerRevoked {
+                    tx_hash: owner.record().identity.raw.clone(),
+                    peer,
+                },
+                AdminCause::RemoteExpiry { .. } => {
+                    let peer = owner
+                        .ingress_peer()
+                        .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
+                    CommittedEffect::RemoteExpired {
+                        tx_hash: owner.record().identity.raw.clone(),
+                        peer,
+                    }
+                }
+            };
+            effects.push(effect);
+        }
+        let effect = match cause {
+            AdminCause::PeerRevocation(_) => {
+                self.effects.plan_critical_rebuildable(effects, sequence)?
+            }
+            AdminCause::RemoteExpiry { .. } => {
+                let prefix = self
+                    .effects
+                    .build_remote_prefix(effects)
+                    .map_err(|error| match error {
+                        EffectBuildError::Empty
+                        | EffectBuildError::TooMany
+                        | EffectBuildError::TooLarge
+                        | EffectBuildError::Arithmetic
+                        | EffectBuildError::ReservedReset => {
+                            PlanError::Fault(AuthorityFault::EffectProjection)
+                        }
+                    })?
+                    .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
+                let (publication, selected) = prefix.into_parts();
+                hashes.truncate(selected.get());
+                owner_refs.truncate(selected.get());
+                self.effects.plan_publication(&publication, sequence)?
+            }
+        };
 
         let mut resource_changes = Vec::new();
         resource_changes
@@ -1921,10 +2052,10 @@ impl TxPoolAuthority {
         )?;
         let owners = DerivedOwnerDelta { indexes, sources };
         let retired = retired_buffer(hashes.len())?;
-        Ok(Some(PreparedApply {
+        Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Admin(AdminDelta {
-                peer,
+                cause,
                 hashes,
                 owners,
                 resources,
@@ -1936,7 +2067,89 @@ impl TxPoolAuthority {
                 sequence,
             }),
             handoff: CommittedHandoff::None,
-        }))
+        })
+    }
+
+    /// Remove the complete bounded pre-accepted cohort owned by one banned
+    /// ingress peer. Accepted membership is deliberately absent from the peer
+    /// index: a commit before the external ban fence wins, while a fence-first
+    /// race reaches this transition. Active compute must first return its
+    /// unique settlement capability; it is never made stale by deletion.
+    pub(super) fn plan_peer_revocation_for_foundation(
+        &mut self,
+        peer: ckb_network::PeerIndex,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let Some(indexed) = self.indexes.preaccepted_for_peer(peer) else {
+            return Ok(None);
+        };
+        let mut hashes = Vec::new();
+        hashes
+            .try_reserve(indexed.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        hashes.extend(indexed.iter().cloned());
+        hashes.sort_unstable();
+        self.plan_administrative_removal(hashes, AdminCause::PeerRevocation(peer))
+            .map(Some)
+    }
+
+    /// Remove up to `limit` inactive Remote owners whose retained residency
+    /// lease has elapsed. Computing owners keep their unique settlement
+    /// capability and are skipped; the scan expansion is bounded by the
+    /// globally charged active-work population, so one slow worker cannot
+    /// head-of-line block unrelated expiry.
+    pub(super) fn plan_remote_expiry_for_foundation(
+        &mut self,
+        cutoff: RemoteDeadline,
+        limit: NonZeroUsize,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let scan_limit = limit
+            .get()
+            .checked_add(self.resources.preaccepted().active_work)
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let due = self.indexes.due_remote(cutoff, scan_limit)?;
+        if due.is_empty() {
+            return Ok(None);
+        }
+        let mut hashes = Vec::new();
+        hashes
+            .try_reserve(limit.get())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut blocked = false;
+        for candidate in due {
+            let owner = self
+                .entries
+                .get(&candidate.hash)
+                .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
+            let OwnedTx::PreAccepted(entry) = owner else {
+                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            };
+            if entry.record.version != candidate.version {
+                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            }
+            let PreAcceptedSource::Remote(remote) = entry.source else {
+                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            };
+            if remote.residency.expires_at != candidate.expires_at {
+                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+            }
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_)) {
+                blocked = true;
+                continue;
+            }
+            hashes.push(candidate.hash);
+            if hashes.len() == limit.get() {
+                break;
+            }
+        }
+        if hashes.is_empty() {
+            return if blocked {
+                Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+            } else {
+                Err(PlanError::Fault(AuthorityFault::IndexProjection))
+            };
+        }
+        self.plan_administrative_removal(hashes, AdminCause::RemoteExpiry { cutoff })
+            .map(Some)
     }
 
     pub(super) fn plan_effect_checkout_for_foundation(
@@ -2045,24 +2258,26 @@ impl TxPoolAuthority {
             return Ok(None);
         };
         let hash = ticket.hash().cloned();
-        let requeue =
-            ticket.requires_requeue(hash.as_ref().and_then(|hash| self.entries.get(hash)))?;
+        let action = ticket.action(hash.as_ref().and_then(|hash| self.entries.get(hash)))?;
         let control = self.dependencies.plan_maintenance(ticket)?;
         let sequence = self.clocks.next_sequence;
-        if !requeue {
-            let clocks = AuthorityClocks {
-                next_sequence: next_sequence(sequence)?,
-                ..self.clocks
-            };
-            return Ok(Some(PreparedApply {
-                authority: self,
-                delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
-                    control,
-                    clocks,
-                    sequence,
-                }),
-                handoff: CommittedHandoff::None,
-            }));
+        match action {
+            DependencyMaintenanceAction::Advance => {
+                let clocks = AuthorityClocks {
+                    next_sequence: next_sequence(sequence)?,
+                    ..self.clocks
+                };
+                return Ok(Some(PreparedApply {
+                    authority: self,
+                    delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
+                        control,
+                        clocks,
+                        sequence,
+                    }),
+                    handoff: CommittedHandoff::None,
+                }));
+            }
+            DependencyMaintenanceAction::Requeue => {}
         }
 
         let hash = hash.ok_or(PlanError::Fault(AuthorityFault::DependencyProjection))?;
@@ -2234,7 +2449,7 @@ impl TxPoolAuthority {
         let OwnedTx::PreAccepted(preaccepted) = existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
-        let attribution = preaccepted.record.class.compute_attribution();
+        let attribution = preaccepted.source.compute_attribution();
         match self.resources.active_work_availability(attribution)? {
             ActiveWorkAvailability::Available => {}
             ActiveWorkAvailability::PeerExhausted(_) => {
@@ -2249,7 +2464,7 @@ impl TxPoolAuthority {
         let expected_charge = existing.charge_record();
         let after_record = ChargeRecord::PreAccepted {
             resources: after_charge,
-            residency_peer: preaccepted.record.ingress.peer(),
+            residency_peer: preaccepted.source.ingress_peer(),
             compute_peer: attribution.peer(),
         };
         let resources = self
@@ -2377,7 +2592,7 @@ impl TxPoolAuthority {
         )
         .map_err(|_| PlanError::Stale(StalePlan::Phase))?;
         let active_dependencies = preaccepted.dependencies().clone();
-        let attribution = preaccepted.record.class.compute_attribution();
+        let attribution = preaccepted.source.compute_attribution();
         let after = existing
             .with_foundation_phase(
                 PreAcceptedPhase::Computing(super::state::ActiveWork {
@@ -2499,37 +2714,36 @@ impl TxPoolAuthority {
                             dependency_cut,
                         )
                     {
-                        if self.missing_resolution_disposition(
-                            preaccepted.record.class,
-                            missing.missing(),
-                        ) == MissingResolutionDisposition::RejectUnavailable
+                        match self
+                            .missing_resolution_disposition(preaccepted.source, missing.missing())
                         {
-                            (
+                            MissingResolutionDisposition::RejectUnavailable => (
                                 PreAcceptedPhase::Computed(ComputedOutcome::Rejected(
                                     RejectionKind::UnavailableDependency,
                                 )),
                                 raw_charge,
-                            )
-                        } else {
-                            let retained_charge = preaccepted.retained_charge(
-                                preaccepted.original_charge().bytes,
-                                &dependencies,
-                            );
-                            let observed = self.dependencies.observe_missing(
-                                missing.missing(),
-                                dependencies,
-                                dependency_cut,
-                            );
-                            (
-                                PreAcceptedPhase::Waiting(WaitCondition::Missing(observed)),
-                                retained_charge,
-                            )
+                            ),
+                            MissingResolutionDisposition::Wait => {
+                                let retained_charge = preaccepted.retained_charge(
+                                    preaccepted.original_charge().bytes,
+                                    &dependencies,
+                                );
+                                let observed = self.dependencies.observe_missing(
+                                    missing.missing(),
+                                    dependencies,
+                                    dependency_cut,
+                                );
+                                (
+                                    PreAcceptedPhase::Waiting(WaitCondition::Missing(observed)),
+                                    retained_charge,
+                                )
+                            }
                         }
                     } else {
                         (PreAcceptedPhase::Queued(QueuedWork::Resolve), raw_charge)
                     }
                 }
-                SettlementNext::Computed(super::state::ComputedOutcome::Verified(verified)) => {
+                SettlementNext::Computed(ComputedOutcome::Verified(verified)) => {
                     if verified.witness() != &preaccepted.record.identity.witness
                         || verified.payload().identity() != &preaccepted.record.identity
                     {
@@ -2550,23 +2764,31 @@ impl TxPoolAuthority {
                         dependency_cut,
                     ) {
                         (
-                            PreAcceptedPhase::Computed(super::state::ComputedOutcome::Verified(
-                                verified,
-                            )),
+                            PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified)),
                             retained_charge,
                         )
                     } else {
                         (PreAcceptedPhase::Queued(QueuedWork::Resolve), raw_charge)
                     }
                 }
-                SettlementNext::Computed(ComputedOutcome::Rejected(_))
-                    if !chain_state_is_current =>
-                {
-                    (PreAcceptedPhase::Queued(QueuedWork::Resolve), raw_charge)
+                SettlementNext::Computed(ComputedOutcome::Rejected(reason)) => {
+                    if chain_state_is_current {
+                        (
+                            PreAcceptedPhase::Computed(ComputedOutcome::Rejected(reason)),
+                            raw_charge,
+                        )
+                    } else {
+                        (PreAcceptedPhase::Queued(QueuedWork::Resolve), raw_charge)
+                    }
                 }
-                SettlementNext::Computed(outcome) => {
-                    (PreAcceptedPhase::Computed(outcome), raw_charge)
-                }
+                SettlementNext::Computed(ComputedOutcome::BudgetDenied) => (
+                    PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied),
+                    raw_charge,
+                ),
+                SettlementNext::Computed(ComputedOutcome::InternalFailure) => (
+                    PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure),
+                    raw_charge,
+                ),
             }
         };
         let grant_ceiling = ResourceVector::new(
@@ -2581,7 +2803,7 @@ impl TxPoolAuthority {
         let expected_charge = existing.charge_record();
         let desired_charge = ChargeRecord::PreAccepted {
             resources: retained_charge,
-            residency_peer: preaccepted.record.ingress.peer(),
+            residency_peer: preaccepted.source.ingress_peer(),
             compute_peer: None,
         };
         let (phase, retained_charge, resource) = match self.resources.plan_replace(
@@ -2597,7 +2819,7 @@ impl TxPoolAuthority {
             ) => {
                 let fallback_charge = ChargeRecord::PreAccepted {
                     resources: raw_charge,
-                    residency_peer: preaccepted.record.ingress.peer(),
+                    residency_peer: preaccepted.source.ingress_peer(),
                     compute_peer: None,
                 };
                 let resource = self
@@ -2740,11 +2962,7 @@ impl TxPoolAuthority {
         } else {
             EntryRetirement::InlineDrop
         };
-        if after.is_some() && expected.is_none() {
-            self.entries
-                .try_reserve(1)
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        }
+        self.reserve_primary_owner_insertions(usize::from(after.is_some() && expected.is_none()))?;
         let resource = match preplanned_resources {
             Some(resources) => resources,
             None => self
@@ -2801,6 +3019,7 @@ impl OwnedTx {
         record.version = version;
         Ok(Self::PreAccepted(PreAcceptedEntry {
             record,
+            source: entry.source,
             basis: entry.basis.clone(),
             phase,
             charge,

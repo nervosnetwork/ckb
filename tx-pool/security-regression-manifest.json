@@ -7,13 +7,13 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "unit_test_count": 416,
+    "unit_test_count": 437,
     "integration_spec_count": 150
   },
   "release_blockers": [
     {
       "id": "UNIFIED-AUTHORITY-CUTOVER",
-      "reason": "The isolated Unified Authority Kernel is still in P9.7g/G4.2; coherent read, persistence and template receipts plus the atomic production cutover and legacy-owner deletion remain incomplete"
+      "reason": "The isolated Unified Authority Kernel has completed G4.2 chain and administrative transitions; coherent read, persistence and template receipts plus the atomic production cutover and legacy-owner deletion remain incomplete"
     },
     {
       "id": "CORRECTNESS-ACCEPTANCE",

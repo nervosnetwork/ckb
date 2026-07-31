@@ -495,9 +495,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedMembership, super::PlanError> {
         if before.record.identity.raw != *hash
             || candidate.record.identity != before.record.identity
-            || candidate.record.ingress != before.record.ingress
-            || candidate.record.blame != before.record.blame
-            || candidate.record.class != before.record.class
+            || candidate.provenance != before.source.accepted_provenance()
             || candidate.record.arrival != before.record.arrival
         {
             return Err(super::PlanError::Fault(

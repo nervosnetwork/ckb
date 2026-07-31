@@ -1,7 +1,7 @@
-use super::state::{AcceptedStatus, ApplySequence, RejectionKind};
+use super::state::{AcceptedStatus, ApplySequence, RawTxHash, RejectionKind};
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, num::NonZeroUsize, sync::Arc};
 
 const EFFECT_ENVELOPE_BYTES: usize = 128;
 
@@ -88,6 +88,12 @@ impl EffectLimits {
         {
             return Err(EffectConfigError::EmptyBatchBound);
         }
+        if EFFECT_ENVELOPE_BYTES > bounds.remote_bytes
+            || EFFECT_ENVELOPE_BYTES > bounds.trusted_bytes
+            || EFFECT_ENVELOPE_BYTES > bounds.critical_bytes
+        {
+            return Err(EffectConfigError::IndivisibleBatch);
+        }
         let ordinary = remote
             .checked_add(trusted_headroom)
             .ok_or(EffectConfigError::Arithmetic)?;
@@ -151,7 +157,10 @@ impl EffectPolicy {
     }
 
     const fn can_reset(self) -> bool {
-        matches!(self, Self::CriticalRebuildable)
+        match self {
+            Self::Remote | Self::Trusted | Self::CriticalDetail => false,
+            Self::CriticalRebuildable => true,
+        }
     }
 }
 
@@ -175,7 +184,14 @@ pub(super) enum CommittedEffect {
     /// projection. It is not a transaction rejection and must not populate a
     /// raw-hash negative cache, so another peer may provide the same tx again.
     PeerRevoked {
-        tx: Arc<TransactionView>,
+        tx_hash: RawTxHash,
+        peer: PeerIndex,
+    },
+    /// A remote residency lease elapsed before Accepted ownership. Expiry has
+    /// the same refetch semantics as peer revocation, but remains remote
+    /// capacity work and does not imply hostile-peer policy.
+    RemoteExpired {
+        tx_hash: RawTxHash,
         peer: PeerIndex,
     },
     GenerationReset,
@@ -184,12 +200,10 @@ pub(super) enum CommittedEffect {
 impl CommittedEffect {
     fn charge_bytes(&self) -> Option<usize> {
         match self {
-            Self::Accepted { tx, .. }
-            | Self::Rejected { tx, .. }
-            | Self::ChainCommitted { tx }
-            | Self::PeerRevoked { tx, .. } => {
+            Self::Accepted { tx, .. } | Self::Rejected { tx, .. } | Self::ChainCommitted { tx } => {
                 EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
             }
+            Self::PeerRevoked { .. } | Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
             Self::GenerationReset => Some(0),
         }
     }
@@ -273,6 +287,21 @@ impl EffectPublication {
             policy,
             batch: EffectBatch::build(effects, policy.class(), limits)?,
         })
+    }
+}
+
+/// A non-empty prefix proven to fit the remote effect region's indivisible
+/// batch shape. The selected count is carried with the publication so the
+/// authority transition cannot remove more owners than the journal can
+/// describe.
+pub(super) struct RemoteEffectPrefix {
+    publication: EffectPublication,
+    selected: NonZeroUsize,
+}
+
+impl RemoteEffectPrefix {
+    pub(super) fn into_parts(self) -> (EffectPublication, NonZeroUsize) {
+        (self.publication, self.selected)
     }
 }
 
@@ -583,6 +612,46 @@ impl EffectLog {
         effects: Vec<CommittedEffect>,
     ) -> Result<EffectPublication, EffectBuildError> {
         EffectPublication::new(policy, effects, self.limits)
+    }
+
+    /// Select the largest leading remote cleanup cohort that fits one effect
+    /// batch. The caller supplies deadline order; this method preserves that
+    /// order and never turns attacker-originated expiry into trusted or
+    /// critical journal work.
+    pub(super) fn build_remote_prefix(
+        &self,
+        mut effects: Vec<CommittedEffect>,
+    ) -> Result<Option<RemoteEffectPrefix>, EffectBuildError> {
+        let mut selected = 0usize;
+        let mut bytes = 0usize;
+        for effect in &effects {
+            if selected == self.limits.bounds.max_effects {
+                break;
+            }
+            let effect_bytes = effect.charge_bytes().ok_or(EffectBuildError::Arithmetic)?;
+            let next_bytes = bytes
+                .checked_add(effect_bytes)
+                .ok_or(EffectBuildError::Arithmetic)?;
+            if next_bytes > self.limits.bounds.remote_bytes {
+                if selected == 0 {
+                    return Err(EffectBuildError::TooLarge);
+                }
+                break;
+            }
+            bytes = next_bytes;
+            selected = selected
+                .checked_add(1)
+                .ok_or(EffectBuildError::Arithmetic)?;
+        }
+        let Some(selected) = NonZeroUsize::new(selected) else {
+            return Ok(None);
+        };
+        effects.truncate(selected.get());
+        let publication = EffectPublication::new(EffectPolicy::Remote, effects, self.limits)?;
+        Ok(Some(RemoteEffectPrefix {
+            publication,
+            selected,
+        }))
     }
 
     pub(super) fn snapshot(&self) -> EffectSnapshot {

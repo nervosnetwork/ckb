@@ -7,17 +7,18 @@ use super::super::{
     plan::{Backpressure, PlanError, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
-        AcceptedStatus, AdmissionClass, ChainRevision, ChainViewId, ComputedOutcome, DependencyKey,
-        IngressAttribution, OwnedTx, PayloadBlame, PreAcceptedPhase, ProposalId, QueuedWork,
-        RawTxHash, TxIdentity, ValidatedAdmission, VerifyCapability, WaitCondition, WorkPermit,
+        AcceptedStatus, ChainRevision, ChainViewId, ComputedOutcome, DependencyKey, OwnedTx,
+        PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId,
+        QueuedWork, RawTxHash, RemoteDeadline, RemotePayloadOrigin, TxIdentity, ValidatedAdmission,
+        VerifyCapability, WaitCondition, WorkPermit,
     },
-    work::CheckedOutWork,
+    work::{CheckedOutWork, SettlementNext},
 };
 use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
-    apply_without_work, assert_membership_reference, assert_resource_reference, independent_batch,
-    limits, missing_keys, owner_version, resolved_payload, resolved_payload_with_facts, tx,
-    verify_remote_transaction,
+    admit_remote_until, apply_without_work, assert_membership_reference, assert_resource_reference,
+    independent_batch, limits, missing_keys, owner_version, resolved_payload,
+    resolved_payload_with_facts, tx, verify_remote_transaction,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -25,7 +26,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, num::NonZeroUsize};
 
 #[test]
 fn uak_final_admission_refreshes_stale_verification_context() {
@@ -196,6 +197,66 @@ fn uak_matching_completion_settles_and_refreshes_across_chain_view_change() {
                 PreAcceptedPhase::Computed(ComputedOutcome::Verified(verified))
                     if verified.chain_view() == &current_view
             )
+    ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_chain_change_requeues_contextual_rejection_but_keeps_context_free_failures() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let mut settlements = Vec::new();
+    for (nonce, peer) in [(71, 71), (72, 72), (73, 73)] {
+        let hash = admit_remote(&mut authority, nonce, peer);
+        let (_, work) = super::foundation::take_resolve_work(
+            authority
+                .plan_checkout_for_foundation(
+                    &hash,
+                    owner_version(&authority, &hash),
+                    WorkPermit::ResolveOnly,
+                )
+                .expect("fixture resolve checkout plans")
+                .apply(),
+        );
+        settlements.push((hash, work));
+    }
+    authority.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::new([71; 32])));
+
+    let (rejected_hash, rejected_work) = settlements.remove(0);
+    apply_without_work(
+        authority
+            .apply_settlement(rejected_work.rejected(super::super::state::RejectionKind::Policy))
+            .expect("a stale contextual rejection releases its exact lease"),
+    );
+    assert!(matches!(
+        authority.entry(&rejected_hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+
+    let (budget_hash, budget_work) = settlements.remove(0);
+    let mut budget = budget_work.internal_failure();
+    budget.next = SettlementNext::Computed(ComputedOutcome::BudgetDenied);
+    apply_without_work(
+        authority
+            .apply_settlement(budget)
+            .expect("budget failure is independent of chain context"),
+    );
+    assert!(matches!(
+        authority.entry(&budget_hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::BudgetDenied))
+    ));
+
+    let (internal_hash, internal_work) = settlements.remove(0);
+    apply_without_work(
+        authority
+            .apply_settlement(internal_work.internal_failure())
+            .expect("internal worker failure is independent of chain context"),
+    );
+    assert!(matches!(
+        authority.entry(&internal_hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computed(ComputedOutcome::InternalFailure))
     ));
     assert_resource_reference(&authority);
 }
@@ -538,6 +599,80 @@ fn uak_chain_conflict_closes_accepted_cell_dep_readers_in_the_same_apply() {
 }
 
 #[test]
+fn uak_conflict_dominates_simultaneous_recovery_for_accepted_and_preaccepted_owners() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let detached_parent = output_transaction(1_320);
+    let parent_output = OutPoint::new(detached_parent.hash(), 0);
+    let chain_input = OutPoint::new(Byte32::new([77; 32]), 0);
+    let accepted_tx = TransactionBuilder::default()
+        .version(1_321u32)
+        .input(CellInput::new(parent_output.clone(), 0))
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let accepted = accept_remote_transaction_with_payload(
+        &mut authority,
+        accepted_tx.clone(),
+        1_321,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &accepted_tx,
+            Vec::new(),
+            vec![parent_output.clone(), chain_input.clone()],
+            Capacity::shannons(10),
+        ),
+    );
+    let preaccepted_tx = TransactionBuilder::default()
+        .version(1_322u32)
+        .input(CellInput::new(parent_output, 0))
+        .input(CellInput::new(chain_input.clone(), 0))
+        .build();
+    let preaccepted_admission =
+        ValidatedAdmission::remote(preaccepted_tx, ckb_network::PeerIndex::from(1_322))
+            .expect("preaccepted dual-cause fixture is valid");
+    let preaccepted = preaccepted_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(preaccepted_admission)
+            .expect("preaccepted dual-cause fixture enters ownership"),
+    );
+    let attached = TransactionBuilder::default()
+        .version(1_323u32)
+        .input(CellInput::new(chain_input, 0))
+        .build();
+    let recovered_parent = RawTxHash(detached_parent.hash());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(77),
+        block_changes(vec![attached], vec![detached_parent]),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("conflict and recovery facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("the closed causal lattice selects every affected owner")
+        .validate_for_foundation(Vec::new())
+        .expect("conflict-dominated owners need no proposal-window facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("conflict, recovery, and detached replay apply atomically"),
+    );
+
+    assert!(authority.entry(&accepted).is_none());
+    assert!(authority.entry(&preaccepted).is_none());
+    assert!(matches!(
+        authority.entry(&recovered_parent),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let input = OutPoint::new(Byte32::new([62; 32]), 0);
@@ -595,6 +730,93 @@ fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let chain_input = OutPoint::new(Byte32::new([63; 32]), 0);
+    let parent_tx = TransactionBuilder::default()
+        .version(517u32)
+        .input(CellInput::new(chain_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let parent_admission =
+        ValidatedAdmission::remote(parent_tx.clone(), ckb_network::PeerIndex::from(517))
+            .expect("preaccepted parent fixture is valid");
+    let parent = parent_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(parent_admission)
+            .expect("preaccepted parent enters ownership"),
+    );
+
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let child_tx = child_transaction(518, &parent_tx);
+    let child_admission = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(518))
+        .expect("dependent child fixture is valid");
+    let child = child_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(child_admission)
+            .expect("dependent child enters ownership"),
+    );
+    let (_, work) = super::foundation::take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &child,
+                owner_version(&authority, &child),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("dependent child checks out")
+            .apply(),
+    );
+
+    let attached = TransactionBuilder::default()
+        .version(519u32)
+        .input(CellInput::new(chain_input, 0))
+        .build();
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(63),
+        block_changes(vec![attached], Vec::new()),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("attached conflict facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("the parent conflict preserves the active child capability")
+        .validate_for_foundation(Vec::new())
+        .expect("the conflict needs no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("parent removal and dependency loss commit atomically"),
+    );
+
+    assert!(authority.entry(&parent).is_none());
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    apply_without_work(
+        authority
+            .apply_settlement(
+                work.missing(vec![DependencyKey::Cell(parent_output)])
+                    .expect("the old dependency result is bounded"),
+            )
+            .expect("the exact lease settles after the dependency cut"),
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
     assert_resource_reference(&authority);
 }
 
@@ -736,6 +958,118 @@ fn uak_detached_parent_and_accepted_child_recover_parent_first() {
 }
 
 #[test]
+fn uak_detached_provider_and_accepted_cell_dep_reader_recover_in_one_apply() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let detached_provider = output_transaction(1_320);
+    let provider_output = OutPoint::new(detached_provider.hash(), 0);
+    let reader_tx = TransactionBuilder::default()
+        .version(1_321u32)
+        .cell_dep(CellDep::new_builder().out_point(provider_output).build())
+        .build();
+    let reader = accept_remote_transaction(
+        &mut authority,
+        reader_tx,
+        1_321,
+        AcceptedStatus::Proposed,
+        Vec::new(),
+    );
+    let provider = RawTxHash(detached_provider.hash());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(77),
+        block_changes(Vec::new(), vec![detached_provider]),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("detached provider facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("canonical dependency closure includes the accepted cell-dep reader")
+        .validate_for_foundation(Vec::new())
+        .expect("provider recovery requires no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("provider and reader enter recovery in one atomic Apply"),
+    );
+
+    let provider_arrival = authority
+        .entry(&provider)
+        .expect("provider recovered")
+        .record()
+        .arrival;
+    let reader_arrival = authority
+        .entry(&reader)
+        .expect("cell-dep reader recovered")
+        .record()
+        .arrival;
+    assert!(provider_arrival < reader_arrival);
+    for hash in [&provider, &reader] {
+        assert!(matches!(
+            authority.entry(hash),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                    && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+        ));
+    }
+    assert_eq!(authority.membership_counts().pending, 0);
+    assert!(authority.primary_projection_consistent());
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_detached_header_requeues_its_accepted_consumer_in_the_same_apply() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let detached_header = Byte32::new([78; 32]);
+    let consumer_tx = TransactionBuilder::default()
+        .version(1_322u32)
+        .header_dep(detached_header.clone())
+        .build();
+    let consumer = accept_remote_transaction(
+        &mut authority,
+        consumer_tx,
+        1_322,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(79),
+        ChainBlockChanges::for_foundation(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![detached_header],
+        ),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("detached header facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("canonical dependency closure includes the accepted header consumer")
+        .validate_for_foundation(Vec::new())
+        .expect("header recovery requires no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("header loss and consumer recovery commit atomically"),
+    );
+
+    assert!(matches!(
+        authority.entry(&consumer),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_eq!(authority.membership_counts().pending, 0);
+    assert!(authority.primary_projection_consistent());
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_recovery_orders_cell_dependencies_before_hash_tiebreaks() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let parent_tx = output_transaction(1_100);
@@ -840,7 +1174,7 @@ fn uak_relocated_chain_producer_requeues_accepted_consumers() {
     assert!(matches!(
         authority.entry(&child),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.record.class, AdmissionClass::Recovery(_))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
                 && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert_resource_reference(&authority);
@@ -885,10 +1219,64 @@ fn uak_direct_recovery_dominates_a_simultaneous_proposal_status_change() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.record.class, AdmissionClass::Recovery(_))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
                 && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_causal_recovery_dominates_a_detached_proposal_demotion() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let detached_parent = output_transaction(1_324);
+    let parent_output = OutPoint::new(detached_parent.hash(), 0);
+    let child_tx = child_transaction(1_325, &detached_parent);
+    let proposal = ProposalId(child_tx.proposal_short_id());
+    let child = accept_remote_transaction_with_payload(
+        &mut authority,
+        child_tx.clone(),
+        1_325,
+        AcceptedStatus::Proposed,
+        resolved_payload_with_facts(
+            &child_tx,
+            Vec::new(),
+            vec![parent_output],
+            Capacity::shannons(10),
+        ),
+    );
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(78),
+        block_changes(Vec::new(), vec![detached_parent]),
+        Vec::new(),
+        vec![proposal],
+        ChainPackagingMode::Package,
+    )
+    .expect("causal recovery and detached proposal facts are canonical");
+    let work = authority
+        .chain_validation_work(facts)
+        .expect("recovery is the stronger causal action");
+    assert!(
+        work.required_proposals()
+            .expect("the bounded proposal set is materialized")
+            .is_empty(),
+        "a recovered owner must not retain a second status transition"
+    );
+    let receipt = work
+        .validate_for_foundation(Vec::new())
+        .expect("recovery requires no proposal-window fact");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("the stronger recovery action applies once"),
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+    assert_resource_reference(&authority);
 }
 
 #[test]
@@ -938,7 +1326,7 @@ fn uak_reorg_requeues_only_context_sensitive_accepted_membership() {
     assert!(matches!(
         authority.entry(&contextual),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.record.class, AdmissionClass::Recovery(_))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
                 && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(matches!(
@@ -991,7 +1379,7 @@ fn uak_rules_transition_cannot_claim_monotonic_accepted_validity() {
     assert!(matches!(
         authority.entry(&contextual),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.record.class, AdmissionClass::Recovery(_))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
                 && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(matches!(
@@ -1041,19 +1429,92 @@ fn uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget(
     assert!(matches!(
         authority.entry(&parent),
         Some(OwnedTx::PreAccepted(entry))
-            if entry.record.ingress == IngressAttribution::Trusted
-                && entry.record.blame == PayloadBlame::None
-                && matches!(entry.record.class, AdmissionClass::Recovery(_))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
     ));
     assert!(matches!(
         authority.entry(&child),
         Some(OwnedTx::PreAccepted(entry))
-            if entry.record.ingress == IngressAttribution::Peer(peer)
-                && entry.record.blame == PayloadBlame::Peer(peer)
-                && matches!(entry.record.class, AdmissionClass::Remote(lease) if lease.peer == peer)
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Remote(remote)
+                    if remote.residency.peer == peer
+                        && remote.payload == RemotePayloadOrigin::IngressPeer
+            )
                 && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert_eq!(authority.resources().peer(peer), charged);
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_chain_recovery_keeps_affected_compute_settleable_across_the_cut() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let detached_parent = output_transaction(1_325);
+    let parent = RawTxHash(detached_parent.hash());
+    let parent_output = OutPoint::new(detached_parent.hash(), 0);
+    let child_tx = child_transaction(1_326, &detached_parent);
+    let child_admission = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(1_326))
+        .expect("active recovery child fixture is valid");
+    let child = child_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(child_admission)
+            .expect("active recovery child enters preacceptance"),
+    );
+    let (_, work) = super::foundation::take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &child,
+                owner_version(&authority, &child),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("active recovery child checks out")
+            .apply(),
+    );
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(81),
+        block_changes(Vec::new(), vec![detached_parent]),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("detached parent facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("dependency invalidation does not revoke active compute")
+        .validate_for_foundation(Vec::new())
+        .expect("recovery requires no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("parent recovery and chain cut preserve the child lease"),
+    );
+
+    assert!(matches!(
+        authority.entry(&parent),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    apply_without_work(
+        authority
+            .apply_settlement(
+                work.missing(vec![DependencyKey::Cell(parent_output)])
+                    .expect("the old-view missing result is bounded"),
+            )
+            .expect("matching old-view completion remains settleable"),
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
     assert_resource_reference(&authority);
 }
 
@@ -1253,6 +1714,384 @@ fn uak_chain_reconcile_demotes_gap_outside_the_new_window() {
 }
 
 #[test]
+fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_725);
+    let hash = admit_remote_until(&mut authority, 1_725, 725, 10);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(25))
+                    .expect("proposal fixture is valid"),
+            )
+            .expect("remote owner promotes without losing its base"),
+    );
+    let version = owner_version(&authority, &hash);
+    let proposal = ProposalId(transaction.proposal_short_id());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(83),
+        block_changes(Vec::new(), Vec::new()),
+        vec![proposal.clone()],
+        Vec::new(),
+        ChainPackagingMode::Package,
+    )
+    .expect("proposal transition facts are canonical");
+    let work = authority
+        .chain_validation_work(facts)
+        .expect("the proposal owner is selected through the proposal index");
+    assert_eq!(
+        work.required_proposals()
+            .expect("the bounded proposal query fits"),
+        vec![proposal.clone()]
+    );
+    let receipt = work
+        .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
+        .expect("the proposal position is exhaustive");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("source demotion and deadline publication are one Apply"),
+    );
+
+    assert_eq!(owner_version(&authority, &hash), version);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Remote(remote)
+                    if remote.residency.expires_at == RemoteDeadline(10)
+            )
+    ));
+    let expired = authority
+        .plan_remote_expiry_for_foundation(
+            RemoteDeadline(10),
+            NonZeroUsize::new(1).expect("fixture slice is non-zero"),
+        )
+        .expect("reactivated deadline plans")
+        .expect("demoted owner is immediately due")
+        .apply();
+    assert_eq!(expired.retired_len(), 1);
+    assert!(authority.entry(&hash).is_none());
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_726);
+    let hash = admit_remote_until(&mut authority, 1_726, 726, 20);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(26))
+                    .expect("proposal fixture is valid"),
+            )
+            .expect("remote owner promotes"),
+    );
+    let (_, work) = super::foundation::take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("promoted owner checks out trusted work")
+            .apply(),
+    );
+    let active_version = owner_version(&authority, &hash);
+    let proposal = ProposalId(transaction.proposal_short_id());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(84),
+        block_changes(Vec::new(), Vec::new()),
+        vec![proposal.clone()],
+        Vec::new(),
+        ChainPackagingMode::Package,
+    )
+    .expect("proposal transition facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("source-only demotion does not require compute drain")
+        .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
+        .expect("the final position is exhaustive");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("demotion preserves the unique active capability"),
+    );
+
+    assert_eq!(owner_version(&authority, &hash), active_version);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Remote(_))
+                && matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    apply_without_work(
+        authority
+            .apply_settlement(work.rejected(super::super::state::RejectionKind::Policy))
+            .expect("the pre-demotion work capability remains uniquely settleable"),
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = output_transaction(1_727);
+    let parent_admission = ValidatedAdmission::proposal(parent_tx.clone(), ProposalContextId(27))
+        .expect("trusted proposal fixture is valid");
+    let parent = parent_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(parent_admission)
+            .expect("trusted proposal enters preacceptance"),
+    );
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let child_admission = ValidatedAdmission::remote(
+        child_transaction(1_728, &parent_tx),
+        ckb_network::PeerIndex::from(728),
+    )
+    .expect("dependent child fixture is valid");
+    let child = child_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(child_admission)
+            .expect("dependent child enters preacceptance"),
+    );
+    let (_, child_work) = super::foundation::take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &child,
+                owner_version(&authority, &child),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("dependent child checks out")
+            .apply(),
+    );
+    let proposal = ProposalId(parent_tx.proposal_short_id());
+    let facts = ChainTransitionFacts::for_foundation(
+        ChainViewId::new(ChainRevision(1), Byte32::zero()),
+        block_changes(Vec::new(), Vec::new()),
+        vec![proposal.clone()],
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("same-tip proposal transition facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("trusted proposal expiry is bounded")
+        .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
+        .expect("the final proposal position is exhaustive");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("parent terminalization and dependency loss are atomic"),
+    );
+
+    assert!(authority.entry(&parent).is_none());
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    apply_without_work(
+        authority
+            .apply_settlement(
+                child_work
+                    .missing(vec![DependencyKey::Cell(parent_output)])
+                    .expect("old dependency evidence is bounded"),
+            )
+            .expect("same-tip completion observes the definitive dependency loss"),
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_chain_trusted_proposal_expiry_requires_only_its_active_owner_to_drain() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_729);
+    let admission = ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(29))
+        .expect("trusted proposal fixture is valid");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("trusted proposal enters preacceptance"),
+    );
+    let _work = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("trusted proposal checks out")
+        .apply();
+    let proposal = ProposalId(transaction.proposal_short_id());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(85),
+        block_changes(Vec::new(), Vec::new()),
+        vec![proposal.clone()],
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("proposal transition facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("read-only validation does not cancel active work")
+        .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
+        .expect("the final proposal position is exhaustive");
+    let before = authority.normalized_snapshot();
+    assert_eq!(
+        authority.plan_chain_transition(receipt).err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_chain_receipt_detects_same_version_proposal_source_refresh() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_730);
+    let hash = admit_remote_until(&mut authority, 1_730, 730, 20);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(30))
+                    .expect("initial proposal fixture is valid"),
+            )
+            .expect("remote owner promotes"),
+    );
+    let version = owner_version(&authority, &hash);
+    let proposal = ProposalId(transaction.proposal_short_id());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(86),
+        block_changes(Vec::new(), Vec::new()),
+        vec![proposal.clone()],
+        Vec::new(),
+        ChainPackagingMode::Package,
+    )
+    .expect("proposal transition facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("proposal source is captured in the exact expectation")
+        .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
+        .expect("the final proposal position is exhaustive");
+
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction, ProposalContextId(31))
+                    .expect("refreshed proposal fixture is valid"),
+            )
+            .expect("same-witness lease refresh preserves EntryVersion"),
+    );
+    assert_eq!(owner_version(&authority, &hash), version);
+    let before = authority.normalized_snapshot();
+    assert_eq!(
+        authority.plan_chain_transition(receipt).err(),
+        Some(PlanError::Stale(StalePlan::Version))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Proposal {
+                    lease,
+                    base: ProposalBase::Remote(_),
+                } if lease.context == ProposalContextId(31)
+            )
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = output_transaction(1_323);
+    let parent = accept_remote_transaction(
+        &mut authority,
+        parent_tx.clone(),
+        1_323,
+        AcceptedStatus::Proposed,
+        Vec::new(),
+    );
+    let parent_proposal = ProposalId(parent_tx.proposal_short_id());
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let child_tx = child_transaction(1_324, &parent_tx);
+    let child_admission = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(1_324))
+        .expect("preaccepted child fixture is valid");
+    let child = child_admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(child_admission)
+            .expect("preaccepted child enters resolve queue"),
+    );
+    let (_, work) = super::foundation::take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &child,
+                owner_version(&authority, &child),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("preaccepted child checks out")
+            .apply(),
+    );
+
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(80),
+        block_changes(Vec::new(), Vec::new()),
+        Vec::new(),
+        vec![parent_proposal.clone()],
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("detached proposal facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("proposal demotion does not require a compute drain")
+        .validate_for_foundation(vec![(parent_proposal, ProposalWindowPosition::Outside)])
+        .expect("the parent proposal is outside the new window");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("status demotion preserves active preaccepted compute"),
+    );
+
+    assert!(matches!(
+        authority.entry(&parent),
+        Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Pending
+    ));
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    apply_without_work(
+        authority
+            .apply_settlement(
+                work.missing(vec![DependencyKey::Cell(parent_output)])
+                    .expect("the old-view missing result is bounded"),
+            )
+            .expect("matching completion releases its lease after the chain cut"),
+    );
+    assert!(matches!(
+        authority.entry(&child),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_chain_receipt_stales_on_accepted_change_but_not_unrelated_preacceptance() {
     let mut stale_authority = TxPoolAuthority::for_foundation(limits());
     let facts = ChainTransitionFacts::for_foundation(
@@ -1341,9 +2180,7 @@ fn uak_chain_recovery_receipt_proves_targeted_vacancy() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if entry.record.ingress == IngressAttribution::Peer(
-                ckb_network::PeerIndex::from(545)
-            )
+            if entry.source.ingress_peer() == Some(ckb_network::PeerIndex::from(545))
     ));
     assert!(authority.primary_projection_consistent());
 }
@@ -1373,8 +2210,13 @@ fn uak_chain_work_requires_targeted_active_owner_drain_and_never_applies_a_prefi
     )
     .expect("attached active owner is canonical");
     let before = authority.normalized_snapshot();
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("read-only validation may capture an active owner")
+        .validate_for_foundation(Vec::new())
+        .expect("the committed hash needs no proposal lookup");
     assert_eq!(
-        authority.chain_validation_work(facts).err(),
+        authority.plan_chain_transition(receipt).err(),
         Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
     );
     assert_eq!(authority.normalized_snapshot(), before);

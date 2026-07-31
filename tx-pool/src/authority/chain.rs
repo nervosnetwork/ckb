@@ -7,8 +7,9 @@
 
 use super::state::{
     AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics, ChainTipHash,
-    ChainViewId, DependencyCut, EntryVersion, InputEvidenceError, PoolGeneration, ProposalId,
-    RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
+    ChainViewId, DependencyCut, EntryVersion, InputEvidenceError, PoolGeneration,
+    PreAcceptedSource, ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission,
+    VerifiedFacts,
 };
 use ckb_types::{
     core::TransactionView,
@@ -279,6 +280,15 @@ impl AcceptedProof {
     }
 }
 
+impl AcceptedChainSensitivity {
+    pub(super) fn requires_reorg_revalidation(self) -> bool {
+        match self {
+            Self::Stable => false,
+            Self::TipContext => true,
+        }
+    }
+}
+
 /// Read-only candidate capability. It does not own or reserve membership;
 /// `EntryVersion` makes concurrent final validations ordinary OCC attempts.
 #[derive(Clone, Debug)]
@@ -417,7 +427,10 @@ pub(super) enum AcceptedValidityTransition {
 
 impl AcceptedValidityTransition {
     pub(super) fn requires_revalidation(self) -> bool {
-        self == Self::RevalidateContext
+        match self {
+            Self::Preserved => false,
+            Self::RevalidateContext => true,
+        }
     }
 }
 
@@ -597,7 +610,11 @@ pub(super) struct ChainOwnerExpectation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ChainExpectedOwner {
     Vacant,
-    Present(EntryVersion),
+    PreAccepted {
+        version: EntryVersion,
+        source: PreAcceptedSource,
+    },
+    Accepted(EntryVersion),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -605,6 +622,7 @@ pub(super) enum ChainRemovalCause {
     Committed,
     Conflict,
     Recovery,
+    ProposalLeaseExpired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -618,7 +636,22 @@ pub(super) struct ChainStatusSubject {
     pub(super) hash: RawTxHash,
     pub(super) proposal: ProposalId,
     pub(super) before: AcceptedStatus,
-    pub(super) forced_pending: bool,
+    pub(super) baseline: ProposalStatusBaseline,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ChainProposalSubject {
+    pub(super) hash: RawTxHash,
+    pub(super) proposal: ProposalId,
+    pub(super) base: ProposalBase,
+}
+
+/// Why proposal-window reconciliation starts from the current status or from
+/// Pending. A detached proposal is a semantic cause, not a Boolean option.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ProposalStatusBaseline {
+    Current,
+    DetachedProposal,
 }
 
 /// Read-only, lock-outside validation work. It carries only the bounded owner
@@ -636,6 +669,7 @@ pub(super) struct ChainValidationWork {
     pub(super) removals: Vec<ChainRemoval>,
     pub(super) recoveries: Vec<ChainRecoveryWork>,
     pub(super) status_subjects: Vec<ChainStatusSubject>,
+    pub(super) proposal_subjects: Vec<ChainProposalSubject>,
     pub(super) available: Vec<super::state::DependencyKey>,
     pub(super) lost: Vec<super::state::DependencyKey>,
     pub(super) packaging: ChainPackagingMode,
@@ -678,10 +712,20 @@ impl ChainValidationWork {
     pub(super) fn required_proposals(&self) -> Result<Vec<ProposalId>, ChainValidationError> {
         let mut proposals = Vec::new();
         proposals
-            .try_reserve(self.status_subjects.len())
+            .try_reserve(
+                self.status_subjects
+                    .len()
+                    .checked_add(self.proposal_subjects.len())
+                    .ok_or(ChainValidationError::Allocation)?,
+            )
             .map_err(|_| ChainValidationError::Allocation)?;
         proposals.extend(
             self.status_subjects
+                .iter()
+                .map(|subject| subject.proposal.clone()),
+        );
+        proposals.extend(
+            self.proposal_subjects
                 .iter()
                 .map(|subject| subject.proposal.clone()),
         );
@@ -730,13 +774,42 @@ impl ChainValidationWork {
                 subject.before,
                 position,
                 self.packaging,
-                subject.forced_pending,
+                subject.baseline,
             );
             if after != subject.before {
                 statuses.push((subject.hash, after));
             }
         }
         statuses.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+        let mut removals = self.removals;
+        removals
+            .try_reserve(self.proposal_subjects.len())
+            .map_err(|_| ChainValidationError::Allocation)?;
+        let mut proposal_demotions = Vec::new();
+        proposal_demotions
+            .try_reserve(self.proposal_subjects.len())
+            .map_err(|_| ChainValidationError::Allocation)?;
+        for subject in self.proposal_subjects {
+            let position = positions
+                .binary_search_by(|item| item.0.cmp(&subject.proposal))
+                .ok()
+                .and_then(|index| positions.get(index))
+                .map(|item| item.1)
+                .ok_or(ChainValidationError::MissingProposalPosition)?;
+            if position != ProposalWindowPosition::Outside {
+                continue;
+            }
+            match subject.base {
+                ProposalBase::Remote(_) => proposal_demotions.push(subject.hash),
+                ProposalBase::Trusted => removals.push(ChainRemoval {
+                    hash: subject.hash,
+                    cause: ChainRemovalCause::ProposalLeaseExpired,
+                }),
+            }
+        }
+        removals.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
+        proposal_demotions.sort_unstable();
 
         let mut recoveries = Vec::new();
         recoveries
@@ -763,9 +836,10 @@ impl ChainValidationWork {
             status_source: self.status_source,
             expectations: self.expectations,
             committed: self.committed,
-            removals: self.removals,
+            removals,
             recoveries,
             statuses,
+            proposal_demotions,
             available: self.available,
             lost: self.lost,
         })
@@ -776,25 +850,25 @@ fn reconcile_proposal_status(
     before: AcceptedStatus,
     position: ProposalWindowPosition,
     packaging: ChainPackagingMode,
-    forced_pending: bool,
+    baseline: ProposalStatusBaseline,
 ) -> AcceptedStatus {
-    let baseline = if forced_pending {
-        AcceptedStatus::Pending
-    } else {
-        before
+    let baseline = match baseline {
+        ProposalStatusBaseline::Current => before,
+        ProposalStatusBaseline::DetachedProposal => AcceptedStatus::Pending,
     };
-    match (baseline, position, packaging) {
-        (_, ProposalWindowPosition::Proposed, ChainPackagingMode::Package) => {
-            AcceptedStatus::Proposed
-        }
-        (_, ProposalWindowPosition::Proposed, ChainPackagingMode::ObserveOnly) => baseline,
-        (AcceptedStatus::Pending, ProposalWindowPosition::Gap, ChainPackagingMode::Package)
-        | (AcceptedStatus::Proposed, ProposalWindowPosition::Gap, _) => AcceptedStatus::Gap,
-        (AcceptedStatus::Gap, ProposalWindowPosition::Gap, _)
-        | (AcceptedStatus::Pending, ProposalWindowPosition::Gap, ChainPackagingMode::ObserveOnly) => {
-            baseline
-        }
-        (_, ProposalWindowPosition::Outside, _) => AcceptedStatus::Pending,
+    match position {
+        ProposalWindowPosition::Proposed => match packaging {
+            ChainPackagingMode::Package => AcceptedStatus::Proposed,
+            ChainPackagingMode::ObserveOnly => baseline,
+        },
+        ProposalWindowPosition::Gap => match baseline {
+            AcceptedStatus::Pending => match packaging {
+                ChainPackagingMode::Package => AcceptedStatus::Gap,
+                ChainPackagingMode::ObserveOnly => AcceptedStatus::Pending,
+            },
+            AcceptedStatus::Gap | AcceptedStatus::Proposed => AcceptedStatus::Gap,
+        },
+        ProposalWindowPosition::Outside => AcceptedStatus::Pending,
     }
 }
 
@@ -813,6 +887,7 @@ pub(super) struct ChainTransitionReceipt {
     pub(super) removals: Vec<ChainRemoval>,
     pub(super) recoveries: Vec<ChainRecoveryReceipt>,
     pub(super) statuses: Vec<(RawTxHash, AcceptedStatus)>,
+    pub(super) proposal_demotions: Vec<RawTxHash>,
     pub(super) available: Vec<super::state::DependencyKey>,
     pub(super) lost: Vec<super::state::DependencyKey>,
 }

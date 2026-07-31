@@ -234,6 +234,7 @@ Rust evidence:
 - `target_model_declares_exactly_the_frozen_six_states` (T1, T2, T3)
 - `target_model_generated_commands_preserve_partition_lease_budget_and_indexes` (T1, T2, T3, T4, T5, T6, T7, T8, T11)
 - `target_model_stale_lease_cannot_mutate_a_replaced_witness_owner` (T1, T2, T3, T4, T7, T11)
+- `uak_active_trusted_witness_replacement_waits_for_the_unique_completion` (T1, T2, T3, T4, T7, T8, T11)
 
 Process-level evidence:
 
@@ -312,6 +313,7 @@ Rust evidence:
 - `target_model_wait_wake_and_ready_conflict_use_recomputed_views` (T4, T5, T6, T11)
 - `terminalized_superseded_parent_wakes_its_trusted_child` (T1, T2, T4, T7, T11, T12, T13)
 - `uak_chain_tip_not_revision_controls_negative_evidence_freshness` (T2, T4, T9, T11)
+- `uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss` (T1, T2, T4, T7, T9, T11, T13)
 
 Process-level evidence:
 
@@ -396,6 +398,9 @@ Rust evidence:
 - `proposal_promotes_active_remote_owner_without_restarting_lease` (T1, T2, T3, T4, T7, T8, T11)
 - `queued_remote_admission_after_ban_is_removed_and_refetchable` (T1, T2, T3, T4, T7, T8, T10, T11)
 - `ready_commit_observes_ban_fence_before_acceptance` (T1, T2, T3, T4, T7, T8, T10, T11)
+- `uak_proposal_promotion_suspends_but_retains_the_remote_deadline` (T1, T2, T3, T4, T7, T8, T11)
+- `uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
+- `uak_remote_expiry_skips_active_work_without_blocking_other_due_owners` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
 
 #### `TP-EFFECT-001` — Statically partitioned stable-state effects
 
@@ -420,6 +425,7 @@ Rust evidence:
 - `remote_byte_ceiling_cannot_borrow_trusted_headroom` (T3, T7, T8, T10, T11, T13)
 - `replacement_publisher_resumes_the_charged_active_batch` (T3, T7, T8, T10)
 - `trusted_saturation_cannot_consume_critical_headroom` (T3, T7, T8, T10, T11, T13)
+- `uak_remote_expiry_effect_backpressure_is_zero_mutation` (T1, T2, T3, T7, T8, T10, T11, T13)
 
 Process-level evidence:
 
@@ -444,6 +450,9 @@ Rust evidence:
 - `reorg_direct_replay_treats_pool_duplicates_as_idempotent` (T1, T2, T4, T7, T9, T10, T11, T12, T13)
 - `reorg_publishes_only_the_final_status_after_multiple_transitions` (T9, T10, T12, T13)
 - `reorg_replays_detached_parent_with_accepted_descendant_closure` (T1, T2, T3, T4, T6, T9, T10, T11, T12, T13)
+- `uak_chain_proposal_demotion_preserves_active_remote_compute_capability` (T1, T2, T3, T4, T7, T8, T9, T11)
+- `uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline` (T1, T2, T3, T4, T7, T8, T9, T10, T11, T12, T13)
+- `uak_chain_receipt_detects_same_version_proposal_source_refresh` (T1, T2, T7, T9, T11)
 - `uak_final_admission_receipt_is_stale_after_chain_view_aba` (T6, T9)
 
 Process-level evidence:
@@ -545,6 +554,7 @@ Rust evidence:
 - `short_id_collision_is_backpressure_not_aliasing` (T1, T2, T3, T8)
 - `synchronous_precheck_does_not_alias_short_id_collision_as_duplicate` (T1, T2, T3, T4, T7, T11)
 - `trusted_conflict_resubmission_refreshes_the_exact_witness_owner` (T1, T2, T3, T5, T6)
+- `uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame` (T1, T2, T3, T4, T5, T7, T8, T11)
 - `verification_cache_isolated_by_witness_hash_not_raw_hash` (T1, T2, T3, T5, T6)
 
 #### `TP-PERF-001` — Bounded attacker-controlled work
@@ -558,6 +568,7 @@ Rust evidence:
 - `large_cycle_population_is_partitioned_from_small_head` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
 - `owner_fairness_and_active_caps_do_not_scan_a_capped_prefix` (T3, T8, T10, T11, T13)
 - `successful_stage_completion_checks_out_same_lane_without_projection_drift` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
+- `uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote` (T1, T2, T3, T7, T8, T10, T11, T13)
 
 Process-level evidence:
 

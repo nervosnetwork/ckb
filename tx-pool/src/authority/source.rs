@@ -30,8 +30,7 @@ impl AuthoritySourceVersions {
         let impact = replacements
             .into_iter()
             .map(|(before, after)| SourceImpact::for_replacement(before, after))
-            .max()
-            .unwrap_or(SourceImpact::None);
+            .fold(SourceImpact::None, SourceImpact::join);
         let after = match impact {
             SourceImpact::None => self,
             SourceImpact::Owners => Self {
@@ -72,7 +71,7 @@ pub(super) struct SourceVersionDelta {
     after: AuthoritySourceVersions,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SourceImpact {
     None,
     Owners,
@@ -81,23 +80,53 @@ enum SourceImpact {
 }
 
 impl SourceImpact {
+    fn join(self, incoming: Self) -> Self {
+        match self {
+            Self::None => match incoming {
+                Self::None => Self::None,
+                Self::Owners => Self::Owners,
+                Self::Status => Self::Status,
+                Self::Accepted => Self::Accepted,
+            },
+            Self::Owners => match incoming {
+                Self::None | Self::Owners => Self::Owners,
+                Self::Status => Self::Status,
+                Self::Accepted => Self::Accepted,
+            },
+            Self::Status => match incoming {
+                Self::None | Self::Owners | Self::Status => Self::Status,
+                Self::Accepted => Self::Accepted,
+            },
+            Self::Accepted => match incoming {
+                Self::None | Self::Owners | Self::Status | Self::Accepted => Self::Accepted,
+            },
+        }
+    }
+
     fn for_replacement(before: Option<&OwnedTx>, after: Option<&OwnedTx>) -> Self {
         match (before, after) {
-            (Some(OwnedTx::Accepted(before)), Some(OwnedTx::Accepted(after)))
-                if before.record.identity == after.record.identity
-                    && before.proof == after.proof =>
-            {
-                if before.proposal == after.proposal {
-                    Self::None
-                } else {
+            (Some(OwnedTx::Accepted(before)), Some(OwnedTx::Accepted(after))) => {
+                // EntryVersion is OCC machinery, not an accepted fact. Every
+                // other immutable record field participates in the source
+                // cut so a future metadata transition cannot masquerade as a
+                // status-only update.
+                if before.record.identity != after.record.identity
+                    || before.record.arrival != after.record.arrival
+                    || before.provenance != after.provenance
+                    || before.proof != after.proof
+                {
+                    Self::Accepted
+                } else if before.proposal != after.proposal {
                     Self::Status
+                } else {
+                    Self::None
                 }
             }
-            (Some(OwnedTx::Accepted(_)), _) | (_, Some(OwnedTx::Accepted(_))) => Self::Accepted,
+            (Some(OwnedTx::Accepted(_)), Some(OwnedTx::PreAccepted(_)) | None)
+            | (Some(OwnedTx::PreAccepted(_)) | None, Some(OwnedTx::Accepted(_))) => Self::Accepted,
             (None, None) => Self::None,
-            (Some(OwnedTx::PreAccepted(_)) | None, Some(OwnedTx::PreAccepted(_)) | None) => {
-                Self::Owners
-            }
+            (Some(OwnedTx::PreAccepted(_)), Some(OwnedTx::PreAccepted(_)) | None)
+            | (None, Some(OwnedTx::PreAccepted(_))) => Self::Owners,
         }
     }
 }

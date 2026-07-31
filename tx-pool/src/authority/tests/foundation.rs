@@ -1,10 +1,10 @@
 use super::super::chain::{AcceptedProof, ProposalContextReceipt};
 use super::super::effect::{CommittedEffect, EffectPolicy};
 use super::super::plan::{
-    AuthorityFault, Backpressure, CandidateBatchError, CommittedChange, CommittedChanges,
-    CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCoupling, MembershipReject,
-    MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch, SettlementPlan,
-    StalePlan, StatusCounts, TxPoolAuthority,
+    AdminCause, AuthorityFault, Backpressure, CandidateBatchError, CommittedChange,
+    CommittedChanges, CommittedDelta, DescendantAggregate, EvictionOrderKey, IndependentCoupling,
+    MembershipReject, MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch,
+    SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
@@ -12,14 +12,14 @@ use super::super::resources::{
 };
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
-    AcceptedEntry, AcceptedStatus, ActiveWork, AdmissionClass, ApplySequence, CandidateMetrics,
-    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome,
-    DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
-    FoundationResolution, IngressAttribution, InputEvidenceError, KnownDependencies,
-    ObservedDependencies, OwnedTx, PayloadBlame, PoolGeneration, PreAcceptedPhase,
-    ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind, ResolvedPayload,
-    TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass,
-    WaitCondition, WorkPermit,
+    AcceptedEntry, AcceptedStatus, ActiveWork, ApplySequence, CandidateMetrics, ChainRevision,
+    ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId, ComputedOutcome, DependencyCut,
+    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, FoundationResolution,
+    InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx, PoolGeneration,
+    PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalLease,
+    QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
+    RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
+    VerifyCapability, VerifyCycleClass, WaitCondition, WorkPermit,
 };
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
@@ -36,6 +36,7 @@ use ckb_types::{
     prelude::{Builder, Entity, Pack},
 };
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub(super) fn limits() -> ResourceLimits {
@@ -146,6 +147,26 @@ pub(super) fn admit_remote(
         authority
             .plan_admission(admission)
             .expect("fixture admission plans"),
+    );
+    hash
+}
+
+pub(super) fn admit_remote_until(
+    authority: &mut TxPoolAuthority,
+    nonce: u64,
+    peer: usize,
+    expires_at: u64,
+) -> RawTxHash {
+    let admission = ValidatedAdmission::remote_with_lease(
+        tx(nonce),
+        RemoteResidencyLease::new(PeerIndex::from(peer), RemoteDeadline(expires_at)),
+    )
+    .expect("fixture admission has one checked residency lease");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("deadline fixture admission plans"),
     );
     hash
 }
@@ -903,7 +924,10 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
         .apply();
     assert!(matches!(
         &revoked.changes,
-        CommittedChanges::AdminControl { peer, .. } if *peer == banned
+        CommittedChanges::AdminControl {
+            cause: AdminCause::PeerRevocation(peer),
+            ..
+        } if *peer == banned
     ));
     assert_eq!(revoked.retired_len(), 2);
     assert!(authority.entry(&queued).is_none());
@@ -941,7 +965,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
         .effects()
         .iter()
         .map(|effect| match effect {
-            CommittedEffect::PeerRevoked { tx, peer } if *peer == banned => tx.hash(),
+            CommittedEffect::PeerRevoked { tx_hash, peer } if *peer == banned => tx_hash.0.clone(),
             _ => panic!("fixture expected peer-specific cleanup detail"),
         })
         .collect::<HashSet<_>>();
@@ -1008,6 +1032,148 @@ fn uak_peer_revocation_drains_promoted_active_work_before_delete() {
 }
 
 #[test]
+fn uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch() {
+    let original_peer = PeerIndex::from(712);
+    let next_peer = PeerIndex::from(713);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let expired = admit_remote_until(&mut authority, 1_715, 712, 10);
+    let future = admit_remote_until(&mut authority, 1_716, 712, 20);
+    let slice = NonZeroUsize::new(4).expect("fixture slice is non-zero");
+
+    assert!(
+        authority
+            .plan_remote_expiry_for_foundation(RemoteDeadline(9), slice)
+            .expect("a pre-deadline lookup is valid")
+            .is_none()
+    );
+    let committed = authority
+        .plan_remote_expiry_for_foundation(RemoteDeadline(10), slice)
+        .expect("the due deadline cohort plans")
+        .expect("one owner is due")
+        .apply();
+    assert!(matches!(
+        committed.changes,
+        CommittedChanges::AdminControl {
+            cause: AdminCause::RemoteExpiry {
+                cutoff: RemoteDeadline(10)
+            },
+            changed_owners: 1,
+            ..
+        }
+    ));
+    assert_eq!(committed.retired_len(), 1);
+    assert!(authority.entry(&expired).is_none());
+    assert!(authority.entry(&future).is_some());
+
+    let effect = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("expiry effect checkout plans")
+        .expect("expiry committed one cleanup batch")
+        .apply()
+        .into_effect_lease()
+        .expect("cleanup has one publisher lease");
+    assert_eq!(
+        effect.effects(),
+        &[CommittedEffect::RemoteExpired {
+            tx_hash: expired.clone(),
+            peer: original_peer,
+        }]
+    );
+
+    let resubmitted = ValidatedAdmission::remote_with_lease(
+        tx(1_715),
+        RemoteResidencyLease::new(next_peer, RemoteDeadline(30)),
+    )
+    .expect("another peer can provide the expired raw transaction");
+    apply_without_work(
+        authority
+            .plan_admission(resubmitted)
+            .expect("expiry installs no raw-hash tombstone"),
+    );
+    assert!(authority.entry(&expired).is_some());
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_proposal_promotion_suspends_but_retains_the_remote_deadline() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_717);
+    let hash = admit_remote_until(&mut authority, 1_717, 714, 10);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction, ProposalContextId(10))
+                    .expect("proposal fixture is valid"),
+            )
+            .expect("same-witness promotion plans"),
+    );
+
+    let slice = NonZeroUsize::new(4).expect("fixture slice is non-zero");
+    assert!(
+        authority
+            .plan_remote_expiry_for_foundation(RemoteDeadline(20), slice)
+            .expect("inactive proposal lookup is valid")
+            .is_none(),
+        "a live proposal lease, not its retained remote base, controls residency"
+    );
+    let Some(OwnedTx::PreAccepted(entry)) = authority.entry(&hash) else {
+        panic!("promoted owner remains pre-accepted");
+    };
+    assert!(matches!(
+        entry.source,
+        PreAcceptedSource::Proposal {
+            base: ProposalBase::Remote(remote),
+            ..
+        } if remote.residency.expires_at == RemoteDeadline(10)
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_remote_expiry_skips_active_work_without_blocking_other_due_owners() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let active = admit_remote_until(&mut authority, 1_718, 715, 10);
+    let inactive = admit_remote_until(&mut authority, 1_719, 716, 11);
+    let active_version = owner_version(&authority, &active);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&active, active_version, WorkPermit::ResolveOnly)
+            .expect("due owner checks out one exact capability")
+            .apply(),
+    );
+    let slice = NonZeroUsize::new(2).expect("fixture slice is non-zero");
+
+    let committed = authority
+        .plan_remote_expiry_for_foundation(RemoteDeadline(12), slice)
+        .expect("bounded scan skips the active due owner")
+        .expect("the later inactive owner remains removable")
+        .apply();
+    assert_eq!(committed.retired_len(), 1);
+    assert!(authority.entry(&active).is_some());
+    assert!(authority.entry(&inactive).is_none());
+    assert_eq!(
+        authority
+            .plan_remote_expiry_for_foundation(RemoteDeadline(12), slice)
+            .err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+
+    apply_without_work(
+        authority
+            .apply_settlement(work.rejected(RejectionKind::Policy))
+            .expect("the unique worker returns its charged capability"),
+    );
+    let committed = authority
+        .plan_remote_expiry_for_foundation(RemoteDeadline(12), slice)
+        .expect("settled owner is now removable")
+        .expect("the retained deadline is still due")
+        .apply();
+    assert_eq!(committed.retired_len(), 1);
+    assert!(authority.entry(&active).is_none());
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
 fn uak_duplicate_and_promotion_never_create_second_owner() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(2);
@@ -1044,12 +1210,19 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
     let owner = authority.entry(&hash).expect("promoted owner exists");
-    assert_eq!(
-        owner.record().class,
-        AdmissionClass::Proposal(ProposalLease {
-            context: ProposalContextId(3),
-        })
-    );
+    assert!(matches!(
+        owner,
+        OwnedTx::PreAccepted(entry)
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Proposal {
+                    lease: ProposalLease {
+                        context: ProposalContextId(3),
+                    },
+                    base: ProposalBase::Remote(_),
+                }
+            )
+    ));
     assert_eq!(
         authority.resources().peer(PeerIndex::from(9)),
         owner.preaccepted_charge().expect("owner is preaccepted")
@@ -1100,6 +1273,174 @@ fn uak_payload_variant_is_not_misclassified_as_duplicate() {
         Some(PlanError::PayloadVariant)
     );
     assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[test]
+fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let raw = tx(24);
+    let remote = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"remote").pack()])
+        .build();
+    let trusted = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"trusted").pack()])
+        .build();
+    let peer = PeerIndex::from(42);
+    let initial = ValidatedAdmission::remote(remote, peer).expect("remote variant is valid");
+    let hash = initial.identity.raw.clone();
+    let initial_version = authority.clocks().next_version;
+    apply_without_work(
+        authority
+            .plan_admission(initial)
+            .expect("remote variant enters ownership"),
+    );
+
+    let replacement = ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(9))
+        .expect("trusted replacement is valid");
+    apply_without_work(
+        authority
+            .plan_admission(replacement)
+            .expect("trusted witness replaces the inactive remote payload"),
+    );
+
+    let owner = authority.entry(&hash).expect("replacement owner exists");
+    assert_eq!(owner.record().tx.witness_hash(), trusted.witness_hash());
+    assert_eq!(owner.ingress_peer(), Some(peer));
+    assert_eq!(owner.payload_blame_peer(), None);
+    assert!(owner.record().version > initial_version);
+    assert!(matches!(
+        owner,
+        OwnedTx::PreAccepted(entry)
+            if matches!(
+                entry.source,
+                PreAcceptedSource::Proposal {
+                    lease: ProposalLease {
+                        context: ProposalContextId(9),
+                    },
+                    base: ProposalBase::Remote(remote),
+                } if remote.residency.peer == peer
+                    && remote.payload == RemotePayloadOrigin::Trusted
+            ) && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_eq!(
+        authority.resources().peer(peer),
+        owner
+            .preaccepted_charge()
+            .expect("replacement remains peer-resident")
+    );
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_active_trusted_witness_replacement_waits_for_the_unique_completion() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let raw = tx(25);
+    let remote = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"remote-active").pack()])
+        .build();
+    let trusted = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"trusted-active").pack()])
+        .build();
+    let admission = ValidatedAdmission::remote(remote, PeerIndex::from(43))
+        .expect("active remote variant is valid");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("active remote variant enters ownership"),
+    );
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("remote variant checks out")
+            .apply(),
+    );
+    let before = authority.normalized_snapshot();
+    let replacement = ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(10))
+        .expect("trusted replacement is valid");
+    assert_eq!(
+        authority.plan_admission(replacement).err(),
+        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+
+    apply_without_work(
+        authority
+            .apply_settlement(work.internal_failure())
+            .expect("the old payload returns its unique completion"),
+    );
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(10))
+                    .expect("retry replacement is valid"),
+            )
+            .expect("replacement succeeds after active drain"),
+    );
+    let owner = authority.entry(&hash).expect("replacement owner exists");
+    assert_eq!(owner.record().tx.witness_hash(), trusted.witness_hash());
+    assert_eq!(owner.payload_blame_peer(), None);
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_accepted_or_recovery_ownership_cannot_be_replaced_by_a_proposal_witness() {
+    let raw = tx(26);
+    let first = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"first").pack()])
+        .build();
+    let second = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"second").pack()])
+        .build();
+
+    let mut accepted_authority = TxPoolAuthority::for_foundation(limits());
+    let accepted = accept_remote_transaction(
+        &mut accepted_authority,
+        first.clone(),
+        44,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let before = accepted_authority.normalized_snapshot();
+    let accepted_variant = ValidatedAdmission::proposal(second.clone(), ProposalContextId(11))
+        .expect("accepted duplicate variant is structurally valid");
+    assert_eq!(
+        accepted_authority.plan_admission(accepted_variant).err(),
+        Some(PlanError::Duplicate)
+    );
+    assert_eq!(accepted_authority.normalized_snapshot(), before);
+    assert!(matches!(
+        accepted_authority.entry(&accepted),
+        Some(OwnedTx::Accepted(_))
+    ));
+
+    let mut recovery_authority = TxPoolAuthority::for_foundation(limits());
+    apply_without_work(
+        recovery_authority
+            .plan_admission(
+                ValidatedAdmission::recovery(first, PoolGeneration(0))
+                    .expect("recovery variant is valid"),
+            )
+            .expect("recovery variant enters ownership"),
+    );
+    let before = recovery_authority.normalized_snapshot();
+    let proposal_variant = ValidatedAdmission::proposal(second, ProposalContextId(12))
+        .expect("lower-priority proposal variant is structurally valid");
+    assert_eq!(
+        recovery_authority.plan_admission(proposal_variant).err(),
+        Some(PlanError::PayloadVariant)
+    );
+    assert_eq!(recovery_authority.normalized_snapshot(), before);
 }
 
 #[test]
@@ -1264,11 +1605,8 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let owner = authority.entry(&hash).expect("owner exists");
     let record = owner.record();
     assert_eq!(record.tx.hash(), hash.0);
-    assert_eq!(
-        record.ingress,
-        IngressAttribution::Peer(PeerIndex::from(17))
-    );
-    assert_eq!(record.blame, PayloadBlame::Peer(PeerIndex::from(17)));
+    assert_eq!(owner.ingress_peer(), Some(PeerIndex::from(17)));
+    assert_eq!(owner.payload_blame_peer(), Some(PeerIndex::from(17)));
     assert_eq!(record.arrival.0, 0);
     assert_eq!(authority.chain_revision(), ChainRevision(0));
     assert_eq!(authority.chain_view(), &ChainViewId::initial());
@@ -1347,6 +1685,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let accepted = match changed {
         OwnedTx::PreAccepted(entry) => OwnedTx::Accepted(AcceptedEntry {
             record: entry.record,
+            provenance: entry.source.accepted_provenance(),
             proof: AcceptedProof::for_foundation(verified),
             proposal: ProposalContextReceipt::from_validation(AcceptedStatus::Gap),
         }),
@@ -3914,9 +4253,8 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
         authority
             .entry(&hash)
             .expect("new incarnation exists")
-            .record()
-            .ingress,
-        IngressAttribution::Peer(PeerIndex::from(47))
+            .ingress_peer(),
+        Some(PeerIndex::from(47))
     );
     assert_resource_reference(&authority);
 }
@@ -4831,7 +5169,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
 }
 
 #[test]
-fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
+fn uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let peer_a_first = admit_remote(&mut authority, 617, 68);
     let _peer_a_second = admit_remote(&mut authority, 618, 68);
@@ -4859,25 +5197,11 @@ fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
             .plan_admission(trusted_admission)
             .expect("trusted admission plans"),
     );
-    let (selected, trusted_work) = take_resolve_work(
-        authority
-            .plan_checkout_next(WorkPermit::ResolveOnly)
-            .expect("trusted selection is valid")
-            .expect("trusted work has priority")
-            .apply(),
-    );
-    assert_eq!(selected, trusted);
-    apply_without_work(
-        authority
-            .apply_settlement(trusted_work.rejected(RejectionKind::Policy))
-            .expect("trusted work settles"),
-    );
-
     let (selected, peer_b_work) = take_resolve_work(
         authority
             .plan_checkout_next(WorkPermit::ResolveOnly)
-            .expect("remote fairness resumes")
-            .expect("peer B remains selectable")
+            .expect("the next owner-ring selection is valid")
+            .expect("peer B remains ahead of the newly arrived owner")
             .apply(),
     );
     assert_eq!(selected, peer_b);
@@ -4885,6 +5209,20 @@ fn uak_trusted_checkout_does_not_reset_remote_fairness_progress() {
         authority
             .apply_settlement(peer_b_work.rejected(RejectionKind::Policy))
             .expect("peer B work settles"),
+    );
+
+    let (selected, trusted_work) = take_resolve_work(
+        authority
+            .plan_checkout_next(WorkPermit::ResolveOnly)
+            .expect("the joined trusted owner remains visible")
+            .expect("trusted work is served within the same owner ring")
+            .apply(),
+    );
+    assert_eq!(selected, trusted);
+    apply_without_work(
+        authority
+            .apply_settlement(trusted_work.rejected(RejectionKind::Policy))
+            .expect("trusted work settles"),
     );
     assert!(authority.primary_projection_consistent());
 }
@@ -4983,6 +5321,7 @@ fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
         .expect("fixture recovery admission is valid");
     let remote = ValidatedAdmission::remote(tx(615), PeerIndex::from(66))
         .expect("fixture remote admission is valid");
+    let remote_hash = remote.identity.raw.clone();
     let total = [proposal.charge, recovery.charge, remote.charge]
         .into_iter()
         .reduce(add_resources)
@@ -5025,13 +5364,20 @@ fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
 
     let (second, second_probes) = authority
         .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
-        .expect("the next transaction in the same trusted owner remains visible");
+        .expect("the remote owner receives its bounded turn");
     assert_eq!(second_probes, 1);
-    let (selected, second_work) =
-        take_resolve_work(second.expect("second trusted work exists").apply());
+    let (selected, second_work) = take_resolve_work(second.expect("remote work exists").apply());
+    assert_eq!(selected, remote_hash);
+
+    let (third, third_probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("the remaining trusted transaction stays visible");
+    assert_eq!(third_probes, 1);
+    let (selected, third_work) =
+        take_resolve_work(third.expect("second trusted work exists").apply());
     assert_eq!(selected, proposal_hash);
 
-    for work in [first_work, second_work] {
+    for work in [first_work, second_work, third_work] {
         apply_without_work(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))

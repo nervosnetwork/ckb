@@ -1,6 +1,6 @@
 use super::state::{
-    AdmissionClass, Arrival, EntryVersion, OwnedTx, PreAcceptedEntry, PreAcceptedPhase, RawTxHash,
-    VerifyCapability, VerifyCycleClass,
+    Arrival, EntryVersion, OwnedTx, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
+    RawTxHash, VerifyCapability, VerifyCycleClass,
 };
 use ckb_network::PeerIndex;
 use std::{
@@ -17,11 +17,33 @@ pub(super) enum WorkOwner {
     Trusted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SourcePriority {
     Remote,
     Proposal,
     Recovery,
+}
+
+impl SourcePriority {
+    fn rank(self) -> u8 {
+        match self {
+            Self::Remote => 0,
+            Self::Proposal => 1,
+            Self::Recovery => 2,
+        }
+    }
+}
+
+impl Ord for SourcePriority {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.rank().cmp(&other.rank())
+    }
+}
+
+impl PartialOrd for SourcePriority {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -31,21 +53,21 @@ pub(super) enum VerifyOrder {
     FeeRate,
 }
 
-impl From<AdmissionClass> for SourcePriority {
-    fn from(class: AdmissionClass) -> Self {
-        match class {
-            AdmissionClass::Remote(_) => Self::Remote,
-            AdmissionClass::Proposal(_) => Self::Proposal,
-            AdmissionClass::Recovery(_) => Self::Recovery,
+impl From<PreAcceptedSource> for SourcePriority {
+    fn from(source: PreAcceptedSource) -> Self {
+        match source {
+            PreAcceptedSource::Remote(_) => Self::Remote,
+            PreAcceptedSource::Proposal { .. } => Self::Proposal,
+            PreAcceptedSource::Recovery(_) => Self::Recovery,
         }
     }
 }
 
 impl WorkOwner {
-    fn from_class(class: AdmissionClass) -> Self {
-        match class {
-            AdmissionClass::Remote(lease) => Self::Remote(lease.peer),
-            AdmissionClass::Proposal(_) | AdmissionClass::Recovery(_) => Self::Trusted,
+    fn from_source(source: PreAcceptedSource) -> Self {
+        match source {
+            PreAcceptedSource::Remote(remote) => Self::Remote(remote.residency.peer),
+            PreAcceptedSource::Proposal { .. } | PreAcceptedSource::Recovery(_) => Self::Trusted,
         }
     }
 }
@@ -54,6 +76,12 @@ impl WorkOwner {
 pub(super) enum QueueLane {
     Resolve,
     Verify,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueuePopulation {
+    All,
+    SmallOnly,
 }
 
 impl QueueLane {
@@ -75,6 +103,14 @@ impl QueueLane {
                 VerifyCapability::SmallCycleOnly
             }
             super::state::WorkPermit::VerifyOnly(capability) => capability,
+        }
+    }
+
+    fn population(self, capability: VerifyCapability) -> QueuePopulation {
+        match (self, capability) {
+            (Self::Resolve, VerifyCapability::Any | VerifyCapability::SmallCycleOnly)
+            | (Self::Verify, VerifyCapability::Any) => QueuePopulation::All,
+            (Self::Verify, VerifyCapability::SmallCycleOnly) => QueuePopulation::SmallOnly,
         }
     }
 }
@@ -218,7 +254,7 @@ impl ReadyKey {
             return Err(SchedulerError::Projection);
         }
         Ok(Self {
-            source: entry.record.class.into(),
+            source: entry.source.into(),
             fee: verified.metrics().fee.as_u64(),
             serialized_bytes,
             arrival: entry.record.arrival,
@@ -298,7 +334,7 @@ impl CheckoutTicket {
 pub(super) struct SchedulerDelta {
     before: Option<SchedulerSlot>,
     after: Option<SchedulerSlot>,
-    remote_cursor: Option<(QueueLane, PeerIndex)>,
+    owner_cursor: Option<(QueueLane, WorkOwner)>,
 }
 
 pub(super) struct SchedulerBatchDelta {
@@ -363,7 +399,7 @@ impl OwnerQueue {
 struct FairLane {
     by_owner: BTreeMap<WorkOwner, OwnerQueue>,
     small_owners: BTreeSet<WorkOwner>,
-    remote_cursor: Option<PeerIndex>,
+    owner_cursor: Option<WorkOwner>,
 }
 
 impl FairLane {
@@ -376,8 +412,11 @@ impl FairLane {
     fn insert(&mut self, owner: WorkOwner, key: QueueKey) {
         let class = key.class();
         self.by_owner.entry(owner).or_default().insert(key);
-        if class == VerifyCycleClass::Small {
-            self.small_owners.insert(owner);
+        match class {
+            VerifyCycleClass::Small => {
+                self.small_owners.insert(owner);
+            }
+            VerifyCycleClass::Large => {}
         }
     }
 
@@ -395,50 +434,43 @@ impl FairLane {
         }
     }
 
-    fn trusted_head(&self, lane: QueueLane, capability: VerifyCapability) -> Option<&QueueKey> {
-        if lane == QueueLane::Verify
-            && capability == VerifyCapability::SmallCycleOnly
-            && !self.small_owners.contains(&WorkOwner::Trusted)
-        {
-            return None;
-        }
-        self.by_owner
-            .get(&WorkOwner::Trusted)?
-            .head(lane, capability)
-    }
-
-    fn next_remote_owner(
+    fn owner_is_eligible(
         &self,
         lane: QueueLane,
         capability: VerifyCapability,
-        cursor: Option<PeerIndex>,
+        owner: WorkOwner,
+    ) -> bool {
+        match lane.population(capability) {
+            QueuePopulation::All => self.by_owner.contains_key(&owner),
+            QueuePopulation::SmallOnly => self.small_owners.contains(&owner),
+        }
+    }
+
+    fn next_owner(
+        &self,
+        lane: QueueLane,
+        capability: VerifyCapability,
+        cursor: Option<WorkOwner>,
     ) -> Option<WorkOwner> {
-        let lower = match cursor {
-            Some(peer) => Excluded(WorkOwner::Remote(peer)),
-            None => Unbounded,
-        };
-        if lane == QueueLane::Verify && capability == VerifyCapability::SmallCycleOnly {
-            self.small_owners
-                .range((lower, Excluded(WorkOwner::Trusted)))
-                .next()
-                .copied()
-                .or_else(|| {
-                    self.small_owners
-                        .range((Unbounded, Excluded(WorkOwner::Trusted)))
-                        .next()
-                        .copied()
-                })
-        } else {
-            self.by_owner
-                .range((lower, Excluded(WorkOwner::Trusted)))
-                .next()
-                .map(|(owner, _)| *owner)
-                .or_else(|| {
+        match lane.population(capability) {
+            QueuePopulation::All => {
+                let next = cursor.and_then(|cursor| {
                     self.by_owner
-                        .range((Unbounded, Excluded(WorkOwner::Trusted)))
+                        .range((Excluded(cursor), Unbounded))
                         .next()
                         .map(|(owner, _)| *owner)
-                })
+                });
+                next.or_else(|| self.by_owner.first_key_value().map(|(owner, _)| *owner))
+            }
+            QueuePopulation::SmallOnly => {
+                let next = cursor.and_then(|cursor| {
+                    self.small_owners
+                        .range((Excluded(cursor), Unbounded))
+                        .next()
+                        .copied()
+                });
+                next.or_else(|| self.small_owners.first().copied())
+            }
         }
     }
 
@@ -448,15 +480,7 @@ impl FairLane {
         capability: VerifyCapability,
         cursor: Option<WorkOwner>,
     ) -> Option<(WorkOwner, &QueueKey)> {
-        // `next` considers Trusted exactly once. Enumeration after that first
-        // candidate walks one complete Remote ring without revisiting Trusted
-        // or an already examined peer. If Trusted was first, start the ring at
-        // the persistent fairness cursor rather than at the smallest peer.
-        let remote_cursor = match cursor {
-            Some(WorkOwner::Remote(peer)) => Some(peer),
-            Some(WorkOwner::Trusted) | None => self.remote_cursor,
-        };
-        let owner = self.next_remote_owner(lane, capability, remote_cursor)?;
+        let owner = self.next_owner(lane, capability, cursor)?;
         let key = self.by_owner.get(&owner)?.head(lane, capability)?;
         Some((owner, key))
     }
@@ -466,20 +490,25 @@ impl FairLane {
         lane: QueueLane,
         capability: VerifyCapability,
     ) -> Option<(WorkOwner, &QueueKey)> {
-        self.trusted_head(lane, capability)
-            .map(|key| (WorkOwner::Trusted, key))
-            .or_else(|| {
-                let owner = self.next_remote_owner(lane, capability, self.remote_cursor)?;
-                let key = self.by_owner.get(&owner)?.head(lane, capability)?;
-                Some((owner, key))
-            })
+        // The first cut may prefer Trusted. Every committed checkout then
+        // advances one shared owner ring, so newly queued Remote or Trusted
+        // work receives service within one bounded owner traversal while a
+        // sole owner can still borrow every global slot.
+        let owner = if self.owner_cursor.is_none()
+            && self.owner_is_eligible(lane, capability, WorkOwner::Trusted)
+        {
+            WorkOwner::Trusted
+        } else {
+            self.next_owner(lane, capability, self.owner_cursor)?
+        };
+        let key = self.by_owner.get(&owner)?.head(lane, capability)?;
+        Some((owner, key))
     }
 
     fn owner_count(&self, lane: QueueLane, capability: VerifyCapability) -> usize {
-        if lane == QueueLane::Verify && capability == VerifyCapability::SmallCycleOnly {
-            self.small_owners.len()
-        } else {
-            self.by_owner.len()
+        match lane.population(capability) {
+            QueuePopulation::All => self.by_owner.len(),
+            QueuePopulation::SmallOnly => self.small_owners.len(),
         }
     }
 
@@ -505,8 +534,8 @@ pub(super) struct FairFrontier {
 pub(super) struct SchedulerSnapshot {
     verify_order: VerifyOrder,
     slots: BTreeSet<SchedulerSlot>,
-    resolve_remote_cursor: Option<PeerIndex>,
-    verify_remote_cursor: Option<PeerIndex>,
+    resolve_owner_cursor: Option<WorkOwner>,
+    verify_owner_cursor: Option<WorkOwner>,
     resolve_small_owners: BTreeSet<WorkOwner>,
     verify_small_owners: BTreeSet<WorkOwner>,
 }
@@ -530,13 +559,13 @@ impl FairFrontier {
             return Ok(None);
         };
         let record = &entry.record;
-        let owner = WorkOwner::from_class(record.class);
+        let owner = WorkOwner::from_source(entry.source);
         let slot = match &entry.phase {
             PreAcceptedPhase::Queued(super::state::QueuedWork::Resolve) => SchedulerSlot::Queue {
                 lane: QueueLane::Resolve,
                 owner,
                 key: QueueKey::Resolve(ResolveKey {
-                    source: record.class.into(),
+                    source: entry.source.into(),
                     arrival: record.arrival,
                     hash: record.identity.raw.clone(),
                     version: record.version,
@@ -552,7 +581,7 @@ impl FairFrontier {
                     lane: QueueLane::Verify,
                     owner,
                     key: QueueKey::Verify(VerifyKey {
-                        source: record.class.into(),
+                        source: entry.source.into(),
                         order: self.verify_order,
                         fee: resolved.payload().fee().as_u64(),
                         serialized_bytes,
@@ -568,7 +597,11 @@ impl FairFrontier {
             }
             PreAcceptedPhase::Computing(_)
             | PreAcceptedPhase::Waiting(_)
-            | PreAcceptedPhase::Computed(_) => return Ok(None),
+            | PreAcceptedPhase::Computed(
+                super::state::ComputedOutcome::Rejected(_)
+                | super::state::ComputedOutcome::BudgetDenied
+                | super::state::ComputedOutcome::InternalFailure,
+            ) => return Ok(None),
         };
         Ok(Some(slot))
     }
@@ -590,7 +623,7 @@ impl FairFrontier {
         {
             return Err(SchedulerError::Projection);
         }
-        let remote_cursor = match checkout {
+        let owner_cursor = match checkout {
             Some(ticket) => {
                 let selected = SchedulerSlot::Queue {
                     lane: ticket.lane,
@@ -600,17 +633,14 @@ impl FairFrontier {
                 if before.as_ref() != Some(&selected) || after.is_some() {
                     return Err(SchedulerError::Projection);
                 }
-                match ticket.owner {
-                    WorkOwner::Remote(peer) => Some((ticket.lane, peer)),
-                    WorkOwner::Trusted => None,
-                }
+                Some((ticket.lane, ticket.owner))
             }
             None => None,
         };
         Ok(SchedulerDelta {
             before,
             after,
-            remote_cursor,
+            owner_cursor,
         })
     }
 
@@ -624,7 +654,7 @@ impl FairFrontier {
                 Ok(SchedulerDelta {
                     before: before.map(|owner| self.slot(owner)).transpose()?.flatten(),
                     after: after.map(|owner| self.slot(owner)).transpose()?.flatten(),
-                    remote_cursor: None,
+                    owner_cursor: None,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -712,8 +742,8 @@ impl FairFrontier {
         SchedulerSnapshot {
             verify_order: self.verify_order,
             slots: self.slots(),
-            resolve_remote_cursor: self.resolve.remote_cursor,
-            verify_remote_cursor: self.verify.remote_cursor,
+            resolve_owner_cursor: self.resolve.owner_cursor,
+            verify_owner_cursor: self.verify.owner_cursor,
             resolve_small_owners: self.resolve.small_owners.clone(),
             verify_small_owners: self.verify.small_owners.clone(),
         }
@@ -726,10 +756,10 @@ impl FairFrontier {
         if let Some(after) = delta.after {
             self.insert(after);
         }
-        if let Some((lane, peer)) = delta.remote_cursor {
+        if let Some((lane, owner)) = delta.owner_cursor {
             match lane {
-                QueueLane::Resolve => self.resolve.remote_cursor = Some(peer),
-                QueueLane::Verify => self.verify.remote_cursor = Some(peer),
+                QueueLane::Resolve => self.resolve.owner_cursor = Some(owner),
+                QueueLane::Verify => self.verify.owner_cursor = Some(owner),
             }
         }
     }

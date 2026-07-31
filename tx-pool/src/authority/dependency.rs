@@ -29,8 +29,16 @@ enum DirtyScope {
 impl DirtyScope {
     fn merge(self, other: Self) -> Self {
         match (self, other) {
-            (Self::AllConsumers, _) | (_, Self::AllConsumers) => Self::AllConsumers,
+            (Self::AllConsumers, Self::AllConsumers | Self::ExistingWaiters)
+            | (Self::ExistingWaiters, Self::AllConsumers) => Self::AllConsumers,
             (Self::ExistingWaiters, Self::ExistingWaiters) => Self::ExistingWaiters,
+        }
+    }
+
+    fn requires_definitive_loss(self) -> bool {
+        match self {
+            Self::ExistingWaiters => false,
+            Self::AllConsumers => true,
         }
     }
 }
@@ -78,6 +86,12 @@ pub(super) enum DependencyError {
 pub(super) enum DependencyEvent {
     Availability(DependencyCut),
     DefinitiveLoss(DependencyCut),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DependencyMaintenanceAction {
+    Advance,
+    Requeue,
 }
 
 struct DependencyEventChange {
@@ -170,12 +184,12 @@ impl DependencyMaintenanceTicket {
         self.hash.as_ref()
     }
 
-    pub(super) fn requires_requeue(
+    pub(super) fn action(
         &self,
         owner: Option<&OwnedTx>,
-    ) -> Result<bool, DependencyError> {
+    ) -> Result<DependencyMaintenanceAction, DependencyError> {
         let Some(hash) = &self.hash else {
-            return Ok(false);
+            return Ok(DependencyMaintenanceAction::Advance);
         };
         let owner = owner.ok_or(DependencyError::Projection)?;
         if &owner.record().identity.raw != hash {
@@ -184,14 +198,18 @@ impl DependencyMaintenanceTicket {
         let entry = match owner {
             OwnedTx::PreAccepted(entry) => entry,
             OwnedTx::Accepted(entry) => {
-                if self.scope == DirtyScope::AllConsumers
-                    && self
-                        .last_definitive_loss
-                        .is_some_and(|loss| entry.proof.dependency_cut() < loss)
-                {
-                    return Err(DependencyError::SurvivingAcceptedConsumer);
+                match self.scope {
+                    DirtyScope::ExistingWaiters => {}
+                    DirtyScope::AllConsumers => {
+                        if self
+                            .last_definitive_loss
+                            .is_some_and(|loss| entry.proof.dependency_cut() < loss)
+                        {
+                            return Err(DependencyError::SurvivingAcceptedConsumer);
+                        }
+                    }
                 }
-                return Ok(false);
+                return Ok(DependencyMaintenanceAction::Advance);
             }
         };
         if !entry.dependencies().contains(&self.key) {
@@ -200,21 +218,27 @@ impl DependencyMaintenanceTicket {
         match self.scope {
             DirtyScope::ExistingWaiters => match &entry.phase {
                 PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
-                | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => {
-                    Ok(observed.contains(&self.key) && observed.dependency_cut() < self.target)
-                }
-                _ => Ok(false),
+                | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => Ok(
+                    if observed.contains(&self.key) && observed.dependency_cut() < self.target {
+                        DependencyMaintenanceAction::Requeue
+                    } else {
+                        DependencyMaintenanceAction::Advance
+                    },
+                ),
+                PreAcceptedPhase::Queued(_)
+                | PreAcceptedPhase::Computing(_)
+                | PreAcceptedPhase::Computed(_) => Ok(DependencyMaintenanceAction::Advance),
             },
             DirtyScope::AllConsumers => {
                 let loss = self
                     .last_definitive_loss
                     .ok_or(DependencyError::Projection)?;
-                Ok(match &entry.phase {
-                    PreAcceptedPhase::Queued(QueuedWork::Resolve) => false,
+                let stale = match &entry.phase {
+                    PreAcceptedPhase::Queued(QueuedWork::Resolve)
+                    | PreAcceptedPhase::Computing(_) => false,
                     PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
                         resolved.dependency_cut() < loss
                     }
-                    PreAcceptedPhase::Computing(active) => active.dependency_cut < loss,
                     PreAcceptedPhase::Waiting(WaitCondition::Missing(observed))
                     | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => {
                         // `AllConsumers` may represent a coalesced loss followed
@@ -231,6 +255,11 @@ impl DependencyMaintenanceTicket {
                         | ComputedOutcome::BudgetDenied
                         | ComputedOutcome::InternalFailure,
                     ) => false,
+                };
+                Ok(if stale {
+                    DependencyMaintenanceAction::Requeue
+                } else {
+                    DependencyMaintenanceAction::Advance
                 })
             }
         }
@@ -246,7 +275,9 @@ impl DependencySlot {
                     | PreAcceptedPhase::Waiting(WaitCondition::Conflict(observed)) => {
                         Some(observed.clone())
                     }
-                    _ => None,
+                    PreAcceptedPhase::Queued(_)
+                    | PreAcceptedPhase::Computing(_)
+                    | PreAcceptedPhase::Computed(_) => None,
                 };
                 (entry.dependencies().clone(), waiting)
             }
@@ -692,9 +723,13 @@ impl DependencyFrontier {
         // accidental duplicate attachment unrepresentable without scanning the
         // complete reverse index under the authority guard. A future bulk
         // admission/chain-generation API must carry its own typed vacancy proof.
-        if vacancy == VacancyPolicy::ExistingOwnersOnly && !added_hashes.is_subset(&removed_hashes)
-        {
-            return Err(DependencyError::Projection);
+        match vacancy {
+            VacancyPolicy::ExistingOwnersOnly => {
+                if !added_hashes.is_subset(&removed_hashes) {
+                    return Err(DependencyError::Projection);
+                }
+            }
+            VacancyPolicy::PrimaryVacancyProven => {}
         }
         Ok(DependencyBatchDelta {
             removed,
@@ -869,11 +904,11 @@ impl DependencyFrontier {
                 self.consumers.contains_key(key)
                     && self.levels.get(key).is_some_and(|level| {
                         dirty.target <= level.last_change
-                            && (dirty.scope != DirtyScope::AllConsumers
+                            && (!dirty.scope.requires_definitive_loss()
                                 || level.last_definitive_loss.is_some())
                             && dirty.pending.is_none_or(|pending| {
                                 pending.target <= level.last_change
-                                    && (pending.scope != DirtyScope::AllConsumers
+                                    && (!pending.scope.requires_definitive_loss()
                                         || level.last_definitive_loss.is_some())
                             })
                     })

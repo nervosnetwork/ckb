@@ -373,6 +373,7 @@
     {"test": "target_model_generated_commands_preserve_partition_lease_budget_and_indexes", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T11"]},
     {"test": "concrete_kernel_transitions_preserve_recomputed_projections", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T11"]},
     {"test": "stale_lease_cannot_mutate_a_removed_and_readmitted_hash", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T11"]},
+    {"test": "uak_active_trusted_witness_replacement_waits_for_the_unique_completion", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
     {"test": "randomized_public_transitions_always_match_full_rebuild", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "target_model_exercises_every_plan_outcome_without_partial_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
@@ -419,6 +420,7 @@
     {"test": "over_budget_dep_entry_does_not_censor_independent_suffix", "behavior_id": "TP-DEP-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
     {"test": "terminalized_superseded_parent_wakes_its_trusted_child", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11", "T12", "T13"]},
     {"test": "uak_chain_tip_not_revision_controls_negative_evidence_freshness", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T9", "T11"]},
+    {"test": "uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T9", "T11", "T13"]},
 
     {"test": "full_conflict_history_terminalizes_rejected_owner_without_panicking", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T11"]},
     {"test": "remote_peer_order_cannot_hijack_an_existing_conflict_owner", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
@@ -457,6 +459,9 @@
     {"test": "ready_commit_observes_ban_fence_before_acceptance", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11"]},
     {"test": "queued_remote_admission_after_ban_is_removed_and_refetchable", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11"]},
     {"test": "proposal_promotes_active_remote_owner_without_restarting_lease", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
+    {"test": "uak_proposal_promotion_suspends_but_retains_the_remote_deadline", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
+    {"test": "uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_remote_expiry_skips_active_work_without_blocking_other_due_owners", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "malformed_remote_preflight_is_banned_recorded_and_not_relayed", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T4", "T7", "T10", "T11"]},
     {"test": "proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
 
@@ -477,6 +482,7 @@
     {"test": "close_wakes_every_blocked_capacity_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_remote_expiry_effect_backpressure_is_zero_mutation", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "reorg_publishes_only_the_final_status_after_multiple_transitions", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "overlapping_detached_proposals_requeue_each_descendant_once", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},
@@ -492,6 +498,9 @@
     {"test": "reorg_replays_detached_parent_with_accepted_descendant_closure", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "over_bound_reorg_descendant_closure_resets_ephemeral_pool_generation", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "uak_final_admission_receipt_is_stale_after_chain_view_aba", "behavior_id": "TP-REORG-001", "invariants": ["T6", "T9"]},
+    {"test": "uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_chain_proposal_demotion_preserves_active_remote_compute_capability", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T11"]},
+    {"test": "uak_chain_receipt_detects_same_version_proposal_source_refresh", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
 
     {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["T7", "T9", "T10", "T12", "T13"]},
@@ -536,9 +545,11 @@
     {"test": "verification_cache_isolated_by_witness_hash_not_raw_hash", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
     {"test": "reorg_recovery_reads_cache_by_exact_witness_hash", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T9", "T10", "T12", "T13"]},
     {"test": "proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
+    {"test": "uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T7", "T8", "T11"]},
     {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "successful_stage_completion_checks_out_same_lane_without_projection_drift", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "descendants_cache_members_stay_within_budget", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "controller_dependent_secp_chain_reverse", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]}

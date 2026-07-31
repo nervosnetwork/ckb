@@ -152,6 +152,7 @@ impl TxPoolAuthority {
             let (proof, proposal) = fact.receipt.into_membership_parts();
             let after = AcceptedEntry {
                 record,
+                provenance: fact.before.source.accepted_provenance(),
                 proof,
                 proposal,
             };

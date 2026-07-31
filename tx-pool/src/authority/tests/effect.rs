@@ -9,16 +9,16 @@ use super::super::{
     },
     state::{
         AcceptedStatus, ApplySequence, ComputedOutcome, OwnedTx, PreAcceptedPhase, RejectionKind,
-        ValidatedAdmission, WorkPermit,
+        RemoteDeadline, ValidatedAdmission, WorkPermit,
     },
 };
 use super::foundation::{
-    FixtureCommit, admit_remote, limits, owner_version, take_resolve_work, tx,
+    FixtureCommit, admit_remote, admit_remote_until, limits, owner_version, take_resolve_work, tx,
     verify_remote_transaction,
 };
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 const EFFECT_BYTES: usize = 1024 * 1024;
 
@@ -65,6 +65,28 @@ fn uak_peer_revocation_over_detail_bound_commits_a_constant_reset() {
 
     let lease = checkout(&mut authority);
     assert_eq!(lease.effects(), &[CommittedEffect::GenerationReset]);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_remote_expiry_effect_backpressure_is_zero_mutation() {
+    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
+    let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(1_720)));
+    drop(publish(&mut authority, &occupied));
+    let due = admit_remote_until(&mut authority, 1_721, 717, 10);
+    let before = authority.normalized_snapshot();
+
+    assert_eq!(
+        authority
+            .plan_remote_expiry_for_foundation(
+                RemoteDeadline(10),
+                NonZeroUsize::new(1).expect("fixture slice is non-zero"),
+            )
+            .err(),
+        Some(PlanError::Backpressure(Backpressure::EffectCapacity))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.entry(&due).is_some());
     assert!(authority.primary_projection_consistent());
 }
 

@@ -101,32 +101,26 @@ impl TxIdentity {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum IngressAttribution {
-    Peer(PeerIndex),
-    Trusted,
-}
-
-impl IngressAttribution {
-    pub(super) fn peer(self) -> Option<PeerIndex> {
-        match self {
-            Self::Peer(peer) => Some(peer),
-            Self::Trusted => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PayloadBlame {
-    Peer(PeerIndex),
-    None,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ProposalContextId(pub(super) u64);
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct RemoteDeadline(pub(super) u64);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct RemoteLease {
+pub(super) struct RemoteResidencyLease {
     pub(super) peer: PeerIndex,
+    pub(super) expires_at: RemoteDeadline,
+}
+
+impl RemoteResidencyLease {
+    pub(super) const fn new(peer: PeerIndex, expires_at: RemoteDeadline) -> Self {
+        Self { peer, expires_at }
+    }
+
+    #[cfg(test)]
+    pub(super) const fn for_foundation(peer: PeerIndex) -> Self {
+        Self::new(peer, RemoteDeadline(u64::MAX))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,24 +134,148 @@ pub(super) struct RecoveryLease {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum AdmissionClass {
-    Remote(RemoteLease),
-    Proposal(ProposalLease),
+pub(super) enum RemotePayloadOrigin {
+    IngressPeer,
+    Trusted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RemoteBase {
+    pub(super) residency: RemoteResidencyLease,
+    pub(super) payload: RemotePayloadOrigin,
+}
+
+impl RemoteBase {
+    pub(super) const fn ingress(residency: RemoteResidencyLease) -> Self {
+        Self {
+            residency,
+            payload: RemotePayloadOrigin::IngressPeer,
+        }
+    }
+
+    pub(super) const fn with_trusted_payload(self) -> Self {
+        Self {
+            residency: self.residency,
+            payload: RemotePayloadOrigin::Trusted,
+        }
+    }
+
+    pub(super) const fn blame_peer(self) -> Option<PeerIndex> {
+        match self.payload {
+            RemotePayloadOrigin::IngressPeer => Some(self.residency.peer),
+            RemotePayloadOrigin::Trusted => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ProposalBase {
+    Trusted,
+    Remote(RemoteBase),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PreAcceptedSource {
+    Remote(RemoteBase),
+    Proposal {
+        lease: ProposalLease,
+        base: ProposalBase,
+    },
     Recovery(RecoveryLease),
 }
 
-impl AdmissionClass {
-    fn initial_peer(self) -> Option<PeerIndex> {
+impl PreAcceptedSource {
+    pub(super) const fn ingress_peer(self) -> Option<PeerIndex> {
         match self {
-            Self::Remote(lease) => Some(lease.peer),
-            Self::Proposal(_) | Self::Recovery(_) => None,
+            Self::Remote(remote) => Some(remote.residency.peer),
+            Self::Proposal {
+                base: ProposalBase::Remote(remote),
+                ..
+            } => Some(remote.residency.peer),
+            Self::Proposal {
+                base: ProposalBase::Trusted,
+                ..
+            }
+            | Self::Recovery(_) => None,
+        }
+    }
+
+    pub(super) const fn payload_blame_peer(self) -> Option<PeerIndex> {
+        match self {
+            Self::Remote(remote)
+            | Self::Proposal {
+                base: ProposalBase::Remote(remote),
+                ..
+            } => remote.blame_peer(),
+            Self::Proposal {
+                base: ProposalBase::Trusted,
+                ..
+            }
+            | Self::Recovery(_) => None,
+        }
+    }
+
+    pub(super) const fn active_remote_deadline(self) -> Option<RemoteDeadline> {
+        match self {
+            Self::Remote(remote) => Some(remote.residency.expires_at),
+            Self::Proposal { .. } | Self::Recovery(_) => None,
         }
     }
 
     pub(super) fn compute_attribution(self) -> ComputeAttribution {
         match self {
-            Self::Remote(lease) => ComputeAttribution::Peer(lease.peer),
-            Self::Proposal(_) | Self::Recovery(_) => ComputeAttribution::Trusted,
+            Self::Remote(remote) => ComputeAttribution::Peer(remote.residency.peer),
+            Self::Proposal { .. } | Self::Recovery(_) => ComputeAttribution::Trusted,
+        }
+    }
+
+    pub(super) const fn accepted_provenance(self) -> AcceptedProvenance {
+        match self {
+            Self::Remote(remote)
+            | Self::Proposal {
+                base: ProposalBase::Remote(remote),
+                ..
+            } => AcceptedProvenance::Peer {
+                ingress: remote.residency.peer,
+                payload: remote.payload,
+            },
+            Self::Proposal {
+                base: ProposalBase::Trusted,
+                ..
+            }
+            | Self::Recovery(_) => AcceptedProvenance::Trusted,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AcceptedProvenance {
+    Trusted,
+    Peer {
+        ingress: PeerIndex,
+        payload: RemotePayloadOrigin,
+    },
+}
+
+impl AcceptedProvenance {
+    pub(super) const fn ingress_peer(self) -> Option<PeerIndex> {
+        match self {
+            Self::Trusted => None,
+            Self::Peer { ingress, .. } => Some(ingress),
+        }
+    }
+
+    pub(super) const fn payload_blame_peer(self) -> Option<PeerIndex> {
+        match self {
+            Self::Peer {
+                ingress,
+                payload: RemotePayloadOrigin::IngressPeer,
+            } => Some(ingress),
+            Self::Trusted
+            | Self::Peer {
+                payload: RemotePayloadOrigin::Trusted,
+                ..
+            } => None,
         }
     }
 }
@@ -212,20 +330,24 @@ pub(super) enum DependencySetError {
 }
 
 impl KnownDependencies {
-    fn canonicalize(
-        mut keys: Vec<DependencyKey>,
-        max: usize,
-        allow_empty: bool,
-    ) -> Result<Self, DependencySetError> {
+    fn canonicalize(mut keys: Vec<DependencyKey>, max: usize) -> Result<Self, DependencySetError> {
         keys.sort_unstable();
         keys.dedup();
-        if !allow_empty && keys.is_empty() {
-            return Err(DependencySetError::Empty);
-        }
         if keys.len() > max {
             return Err(DependencySetError::TooMany);
         }
         Ok(Self(keys.into()))
+    }
+
+    fn canonicalize_nonempty(
+        keys: Vec<DependencyKey>,
+        max: usize,
+    ) -> Result<Self, DependencySetError> {
+        let dependencies = Self::canonicalize(keys, max)?;
+        if dependencies.0.is_empty() {
+            return Err(DependencySetError::Empty);
+        }
+        Ok(dependencies)
     }
 
     pub(super) fn from_transaction(tx: &TransactionView) -> Result<Self, DependencySetError> {
@@ -245,7 +367,7 @@ impl KnownDependencies {
                 .map(|dependency| DependencyKey::Cell(dependency.out_point())),
         );
         keys.extend(tx.header_deps().into_iter().map(DependencyKey::Header));
-        Self::canonicalize(keys, capacity, true)
+        Self::canonicalize(keys, capacity)
     }
 
     pub(super) fn from_footprint(
@@ -270,7 +392,7 @@ impl KnownDependencies {
                 .cloned()
                 .map(DependencyKey::Header),
         );
-        Self::canonicalize(keys, max, true)
+        Self::canonicalize(keys, max)
     }
 
     pub(super) fn with_missing(
@@ -287,7 +409,7 @@ impl KnownDependencies {
             .map_err(|_| DependencySetError::Allocation)?;
         keys.extend(self.keys().iter().cloned());
         keys.extend(missing.keys().iter().cloned());
-        Self::canonicalize(keys, max, true)
+        Self::canonicalize(keys, max)
     }
 
     pub(super) fn keys(&self) -> &[DependencyKey] {
@@ -311,7 +433,7 @@ impl MissingDependencies {
         if keys.len() > max {
             return Err(DependencySetError::TooMany);
         }
-        KnownDependencies::canonicalize(keys, max, false).map(Self)
+        KnownDependencies::canonicalize_nonempty(keys, max).map(Self)
     }
 
     pub(super) fn keys(&self) -> &[DependencyKey] {
@@ -748,8 +870,13 @@ pub(super) enum VerifyCapability {
 impl VerifyCapability {
     pub(super) fn permits(self, class: VerifyCycleClass) -> bool {
         match self {
-            Self::Any => true,
-            Self::SmallCycleOnly => class == VerifyCycleClass::Small,
+            Self::Any => match class {
+                VerifyCycleClass::Small | VerifyCycleClass::Large => true,
+            },
+            Self::SmallCycleOnly => match class {
+                VerifyCycleClass::Small => true,
+                VerifyCycleClass::Large => false,
+            },
         }
     }
 }
@@ -815,7 +942,7 @@ impl ObservedDependencies {
         dependency_cut: DependencyCut,
     ) -> Result<Self, DependencyObservationError> {
         let max = dependencies.len();
-        let dependencies = KnownDependencies::canonicalize(dependencies, max, false)
+        let dependencies = KnownDependencies::canonicalize_nonempty(dependencies, max)
             .map_err(|_| DependencyObservationError::EmptyOrDuplicate)?;
         Ok(Self {
             dependency_cut,
@@ -885,9 +1012,6 @@ pub(super) enum AcceptedStatus {
 pub(super) struct TxRecord {
     pub(super) tx: Arc<TransactionView>,
     pub(super) identity: TxIdentity,
-    pub(super) ingress: IngressAttribution,
-    pub(super) blame: PayloadBlame,
-    pub(super) class: AdmissionClass,
     pub(super) version: EntryVersion,
     pub(super) arrival: Arrival,
 }
@@ -921,6 +1045,7 @@ impl AdmissionBasis {
 #[derive(Clone, Debug)]
 pub(super) struct PreAcceptedEntry {
     pub(super) record: TxRecord,
+    pub(super) source: PreAcceptedSource,
     pub(super) basis: AdmissionBasis,
     pub(super) phase: PreAcceptedPhase,
     pub(super) charge: ResourceVector,
@@ -929,6 +1054,7 @@ pub(super) struct PreAcceptedEntry {
 #[derive(Clone, Debug)]
 pub(super) struct AcceptedEntry {
     pub(super) record: TxRecord,
+    pub(super) provenance: AcceptedProvenance,
     pub(super) proof: AcceptedProof,
     pub(super) proposal: ProposalContextReceipt,
 }
@@ -990,7 +1116,7 @@ impl PreAcceptedEntry {
             // DoS charge. Accepted membership deliberately changes to a
             // distinct global pool charge instead of hand-clearing peer
             // counters.
-            residency_peer: self.record.ingress.peer(),
+            residency_peer: self.source.ingress_peer(),
             compute_peer,
         }
     }
@@ -1028,6 +1154,20 @@ impl OwnedTx {
         }
     }
 
+    pub(super) fn ingress_peer(&self) -> Option<PeerIndex> {
+        match self {
+            Self::PreAccepted(entry) => entry.source.ingress_peer(),
+            Self::Accepted(entry) => entry.provenance.ingress_peer(),
+        }
+    }
+
+    pub(super) fn payload_blame_peer(&self) -> Option<PeerIndex> {
+        match self {
+            Self::PreAccepted(entry) => entry.source.payload_blame_peer(),
+            Self::Accepted(entry) => entry.provenance.payload_blame_peer(),
+        }
+    }
+
     pub(super) fn preaccepted_charge(&self) -> Option<ResourceVector> {
         match self {
             Self::PreAccepted(entry) => Some(entry.charge),
@@ -1040,9 +1180,7 @@ impl OwnedTx {
 pub(super) struct ValidatedAdmission {
     pub(super) tx: Arc<TransactionView>,
     pub(super) identity: TxIdentity,
-    pub(super) ingress: IngressAttribution,
-    pub(super) blame: PayloadBlame,
-    pub(super) class: AdmissionClass,
+    pub(super) source: PreAcceptedSource,
     pub(super) dependencies: KnownDependencies,
     pub(super) charge: ResourceVector,
 }
@@ -1050,7 +1188,6 @@ pub(super) struct ValidatedAdmission {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AdmissionValidationError {
     EmptyTransaction,
-    AttributionMismatch,
     ResourceArithmetic,
     ResourceAllocation,
 }
@@ -1060,11 +1197,16 @@ impl ValidatedAdmission {
         tx: TransactionView,
         peer: PeerIndex,
     ) -> Result<Self, AdmissionValidationError> {
+        Self::remote_with_lease(tx, RemoteResidencyLease::for_foundation(peer))
+    }
+
+    pub(super) fn remote_with_lease(
+        tx: TransactionView,
+        residency: RemoteResidencyLease,
+    ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
-            IngressAttribution::Peer(peer),
-            PayloadBlame::Peer(peer),
-            AdmissionClass::Remote(RemoteLease { peer }),
+            PreAcceptedSource::Remote(RemoteBase::ingress(residency)),
         )
     }
 
@@ -1074,9 +1216,10 @@ impl ValidatedAdmission {
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
-            IngressAttribution::Trusted,
-            PayloadBlame::None,
-            AdmissionClass::Proposal(ProposalLease { context }),
+            PreAcceptedSource::Proposal {
+                lease: ProposalLease { context },
+                base: ProposalBase::Trusted,
+            },
         )
     }
 
@@ -1086,33 +1229,17 @@ impl ValidatedAdmission {
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
-            IngressAttribution::Trusted,
-            PayloadBlame::None,
-            AdmissionClass::Recovery(RecoveryLease { generation }),
+            PreAcceptedSource::Recovery(RecoveryLease { generation }),
         )
     }
 
     fn new(
         tx: TransactionView,
-        ingress: IngressAttribution,
-        blame: PayloadBlame,
-        class: AdmissionClass,
+        source: PreAcceptedSource,
     ) -> Result<Self, AdmissionValidationError> {
         let bytes = tx.data().total_size();
         if bytes == 0 {
             return Err(AdmissionValidationError::EmptyTransaction);
-        }
-        let source_peer = class.initial_peer();
-        let ingress_peer = match ingress {
-            IngressAttribution::Peer(peer) => Some(peer),
-            IngressAttribution::Trusted => None,
-        };
-        let blame_peer = match blame {
-            PayloadBlame::Peer(peer) => Some(peer),
-            PayloadBlame::None => None,
-        };
-        if source_peer != ingress_peer || source_peer != blame_peer {
-            return Err(AdmissionValidationError::AttributionMismatch);
         }
         let raw_edges = tx
             .inputs()
@@ -1135,9 +1262,7 @@ impl ValidatedAdmission {
         Ok(Self {
             identity: TxIdentity::from_transaction(&tx),
             tx: Arc::new(tx),
-            ingress,
-            blame,
-            class,
+            source,
             dependencies,
             charge,
         })

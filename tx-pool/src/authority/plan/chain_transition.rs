@@ -1,7 +1,7 @@
 use super::*;
 use crate::authority::chain::{
-    ChainExpectedOwner, ChainOwnerExpectation, ChainRecoveryReceipt, ChainRecoveryWork,
-    ChainRemoval, ChainRemovalCause, ChainStatusSubject, ChainTransitionFacts,
+    ChainExpectedOwner, ChainOwnerExpectation, ChainProposalSubject, ChainRecoveryReceipt,
+    ChainRecoveryWork, ChainRemoval, ChainRemovalCause, ChainStatusSubject, ChainTransitionFacts,
     ChainTransitionReceipt, ChainValidationWork, ProposalContextReceipt,
 };
 use crate::authority::state::DependencySetError;
@@ -11,19 +11,96 @@ use std::{
     collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CausalDisposition {
     ForcePending,
     Recovery,
     Conflict,
 }
 
-const CAUSAL_DISPOSITION_LEVELS: usize = 3;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PreacceptedDisposition {
     Requeue,
     Conflict,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreacceptedCausalAction {
+    PreserveOwner,
+    Requeue,
+    Terminalize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreacceptedCapability {
+    Inactive,
+    ActiveCompute,
+}
+
+impl PreacceptedCapability {
+    fn from_phase(phase: &PreAcceptedPhase) -> Self {
+        match phase {
+            PreAcceptedPhase::Computing(_) => Self::ActiveCompute,
+            PreAcceptedPhase::Queued(_)
+            | PreAcceptedPhase::Waiting(_)
+            | PreAcceptedPhase::Computed(_) => Self::Inactive,
+        }
+    }
+}
+
+impl CausalDisposition {
+    /// Join the causal lattice explicitly. Enum declaration order is not a
+    /// correctness policy: adding a cause must extend this closed matrix.
+    fn join(self, incoming: Self) -> Self {
+        match self {
+            Self::ForcePending => match incoming {
+                Self::ForcePending => Self::ForcePending,
+                Self::Recovery => Self::Recovery,
+                Self::Conflict => Self::Conflict,
+            },
+            Self::Recovery => match incoming {
+                Self::ForcePending | Self::Recovery => Self::Recovery,
+                Self::Conflict => Self::Conflict,
+            },
+            Self::Conflict => match incoming {
+                Self::ForcePending | Self::Recovery | Self::Conflict => Self::Conflict,
+            },
+        }
+    }
+
+    /// Closed `cause × phase` policy for a PreAccepted consumer. Accepted
+    /// consumers always propagate the disposition; PreAccepted has no
+    /// proposal status, and an active compute capability remains uniquely
+    /// settleable across chain/dependency cuts.
+    fn preaccepted_action(self, phase: &PreAcceptedPhase) -> PreacceptedCausalAction {
+        match (self, PreacceptedCapability::from_phase(phase)) {
+            (
+                Self::ForcePending,
+                PreacceptedCapability::Inactive | PreacceptedCapability::ActiveCompute,
+            )
+            | (Self::Recovery | Self::Conflict, PreacceptedCapability::ActiveCompute) => {
+                PreacceptedCausalAction::PreserveOwner
+            }
+            (Self::Recovery, PreacceptedCapability::Inactive) => PreacceptedCausalAction::Requeue,
+            (Self::Conflict, PreacceptedCapability::Inactive) => {
+                PreacceptedCausalAction::Terminalize
+            }
+        }
+    }
+}
+
+impl PreacceptedDisposition {
+    fn join(self, incoming: Self) -> Self {
+        match self {
+            Self::Requeue => match incoming {
+                Self::Requeue => Self::Requeue,
+                Self::Conflict => Self::Conflict,
+            },
+            Self::Conflict => match incoming {
+                Self::Requeue | Self::Conflict => Self::Conflict,
+            },
+        }
+    }
 }
 
 struct PreparedOwnerChange {
@@ -37,9 +114,12 @@ struct RecoveryCandidate {
     dependencies: KnownDependencies,
 }
 
-/// One bounded compiler owns the complete non-block-fact causal budget. Direct
-/// attached/detached transactions are already bounded by consensus block
-/// limits and therefore never consume the independent affected-owner bound.
+/// One bounded compiler owns the complete derived causal budget. Direct
+/// attached/detached transactions are the canonical chain-transition input:
+/// processing them is input-linear and cannot be truncated without changing
+/// the chain cut. They therefore contribute to the explicit
+/// `O(attached + detached)` term, but never consume the independent
+/// affected-owner bound used for the derived closure.
 struct CausalCompiler<'facts> {
     attached: &'facts HashSet<RawTxHash>,
     detached: &'facts HashSet<RawTxHash>,
@@ -60,11 +140,8 @@ impl<'facts> CausalCompiler<'facts> {
             .try_reserve(max)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         let mut frontier = VecDeque::new();
-        let frontier_capacity = max
-            .checked_mul(CAUSAL_DISPOSITION_LEVELS)
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         frontier
-            .try_reserve(frontier_capacity)
+            .try_reserve(max)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         let mut preaccepted = HashMap::new();
         preaccepted
@@ -96,6 +173,17 @@ impl<'facts> CausalCompiler<'facts> {
         Ok(())
     }
 
+    fn enqueue(&mut self, hash: RawTxHash) -> Result<(), PlanError> {
+        // A cause upgrade may enqueue one owner more than once. Reserve at
+        // the mutation site so capacity cannot drift from the number of enum
+        // variants or turn a future cause into an infallible allocation.
+        self.frontier
+            .try_reserve(1)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        self.frontier.push_back(hash);
+        Ok(())
+    }
+
     fn seed_accepted(
         &mut self,
         hash: RawTxHash,
@@ -105,16 +193,16 @@ impl<'facts> CausalCompiler<'facts> {
             return Ok(());
         }
         if let Some(current) = self.accepted.get_mut(&hash) {
-            if *current < disposition {
-                *current = disposition;
-                self.frontier.push_back(hash);
+            let joined = current.join(disposition);
+            if *current != joined {
+                *current = joined;
+                self.enqueue(hash)?;
             }
             return Ok(());
         }
         self.reserve_new_owner()?;
         self.accepted.insert(hash.clone(), disposition);
-        self.frontier.push_back(hash);
-        Ok(())
+        self.enqueue(hash)
     }
 
     fn seed_preaccepted(
@@ -126,9 +214,7 @@ impl<'facts> CausalCompiler<'facts> {
             return Ok(());
         }
         if let Some(current) = self.preaccepted.get_mut(&hash) {
-            if *current < disposition {
-                *current = disposition;
-            }
+            *current = current.join(disposition);
             return Ok(());
         }
         self.reserve_new_owner()?;
@@ -301,15 +387,15 @@ impl TxPoolAuthority {
                 cause,
             });
         }
-        removals.extend(
-            preaccepted_dispositions
-                .iter()
-                .filter(|(_, disposition)| **disposition == PreacceptedDisposition::Conflict)
-                .map(|(hash, _)| ChainRemoval {
+        for (hash, disposition) in &preaccepted_dispositions {
+            match disposition {
+                PreacceptedDisposition::Requeue => {}
+                PreacceptedDisposition::Conflict => removals.push(ChainRemoval {
                     hash: hash.clone(),
                     cause: ChainRemovalCause::Conflict,
                 }),
-        );
+            }
+        }
         removals.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
         removals.dedup_by(|left, right| left.hash == right.hash);
 
@@ -339,6 +425,10 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
             )
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut proposal_subjects = Vec::new();
+        proposal_subjects
+            .try_reserve(facts.changed_proposals.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for proposal in &facts.changed_proposals {
             let Some(hash) = self.indexes.proposal_owner(proposal) else {
                 continue;
@@ -346,20 +436,37 @@ impl TxPoolAuthority {
             if non_status_hashes.contains(hash) {
                 continue;
             }
-            if let Some(OwnedTx::Accepted(entry)) = self.entries.get(hash) {
-                status_subjects.insert(
-                    hash.clone(),
-                    ChainStatusSubject {
-                        hash: hash.clone(),
-                        proposal: proposal.clone(),
-                        before: entry.status(),
-                        forced_pending: false,
-                    },
-                );
+            match self.entries.get(hash) {
+                Some(OwnedTx::Accepted(entry)) => {
+                    status_subjects.insert(
+                        hash.clone(),
+                        ChainStatusSubject {
+                            hash: hash.clone(),
+                            proposal: proposal.clone(),
+                            before: entry.status(),
+                            baseline: super::super::chain::ProposalStatusBaseline::Current,
+                        },
+                    );
+                }
+                Some(OwnedTx::PreAccepted(entry)) => match entry.source {
+                    PreAcceptedSource::Proposal { base, .. } => {
+                        proposal_subjects.push(ChainProposalSubject {
+                            hash: hash.clone(),
+                            proposal: proposal.clone(),
+                            base,
+                        });
+                    }
+                    PreAcceptedSource::Remote(_) | PreAcceptedSource::Recovery(_) => {}
+                },
+                None => return Err(PlanError::Fault(AuthorityFault::IndexProjection)),
             }
         }
         for (hash, disposition) in &dispositions {
-            if *disposition != CausalDisposition::ForcePending || non_status_hashes.contains(hash) {
+            match disposition {
+                CausalDisposition::ForcePending => {}
+                CausalDisposition::Recovery | CausalDisposition::Conflict => continue,
+            }
+            if non_status_hashes.contains(hash) {
                 continue;
             }
             let entry = match self.entries.get(hash) {
@@ -370,12 +477,15 @@ impl TxPoolAuthority {
             };
             status_subjects
                 .entry(hash.clone())
-                .and_modify(|subject| subject.forced_pending = true)
+                .and_modify(|subject| {
+                    subject.baseline =
+                        super::super::chain::ProposalStatusBaseline::DetachedProposal;
+                })
                 .or_insert_with(|| ChainStatusSubject {
                     hash: hash.clone(),
                     proposal: entry.record.identity.proposal.clone(),
                     before: entry.status(),
-                    forced_pending: true,
+                    baseline: super::super::chain::ProposalStatusBaseline::DetachedProposal,
                 });
         }
         let mut ordered_status_subjects = Vec::new();
@@ -385,6 +495,7 @@ impl TxPoolAuthority {
         ordered_status_subjects.extend(status_subjects.into_values());
         let mut status_subjects = ordered_status_subjects;
         status_subjects.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
+        proposal_subjects.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
 
         let (available, lost) = self.chain_dependency_events(
             &facts.attached,
@@ -403,6 +514,7 @@ impl TxPoolAuthority {
             &recovery_transactions,
             &preaccepted_dispositions,
             &status_subjects,
+            &proposal_subjects,
         )?;
         expectations.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
         let mut recoveries = Vec::new();
@@ -411,9 +523,11 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         recoveries.extend(recovery_transactions.into_iter().map(|transaction| {
             let hash = RawTxHash(transaction.hash());
-            if preaccepted_dispositions.get(&hash) == Some(&PreacceptedDisposition::Requeue)
-                && !detached_hashes.contains(&hash)
-            {
+            let requeue_existing = match preaccepted_dispositions.get(&hash) {
+                Some(PreacceptedDisposition::Requeue) => !detached_hashes.contains(&hash),
+                Some(PreacceptedDisposition::Conflict) | None => false,
+            };
+            if requeue_existing {
                 ChainRecoveryWork::RequeueExisting(hash)
             } else {
                 ChainRecoveryWork::Trusted(transaction)
@@ -442,6 +556,7 @@ impl TxPoolAuthority {
             removals,
             recoveries,
             status_subjects,
+            proposal_subjects,
             available,
             lost,
             packaging: facts.packaging,
@@ -481,16 +596,13 @@ impl TxPoolAuthority {
                     causal.seed_accepted(hash.clone(), disposition)?;
                 }
                 Some(OwnedTx::PreAccepted(entry)) => {
-                    if matches!(entry.phase, PreAcceptedPhase::Computing(_)) {
-                        return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+                    match disposition.preaccepted_action(&entry.phase) {
+                        PreacceptedCausalAction::PreserveOwner => {}
+                        PreacceptedCausalAction::Requeue => causal
+                            .seed_preaccepted(hash.clone(), PreacceptedDisposition::Requeue)?,
+                        PreacceptedCausalAction::Terminalize => causal
+                            .seed_preaccepted(hash.clone(), PreacceptedDisposition::Conflict)?,
                     }
-                    let preaccepted_disposition = match disposition {
-                        CausalDisposition::Conflict => PreacceptedDisposition::Conflict,
-                        CausalDisposition::Recovery | CausalDisposition::ForcePending => {
-                            PreacceptedDisposition::Requeue
-                        }
-                    };
-                    causal.seed_preaccepted(hash.clone(), preaccepted_disposition)?;
                 }
                 None => return Err(PlanError::Fault(AuthorityFault::DependencyProjection)),
             }
@@ -525,7 +637,11 @@ impl TxPoolAuthority {
             );
         }
         for (hash, disposition) in dispositions {
-            if *disposition != CausalDisposition::Recovery || by_hash.contains_key(hash) {
+            match disposition {
+                CausalDisposition::Recovery => {}
+                CausalDisposition::ForcePending | CausalDisposition::Conflict => continue,
+            }
+            if by_hash.contains_key(hash) {
                 continue;
             }
             let entry = self
@@ -541,8 +657,9 @@ impl TxPoolAuthority {
             );
         }
         for (hash, disposition) in preaccepted {
-            if *disposition != PreacceptedDisposition::Requeue {
-                continue;
+            match disposition {
+                PreacceptedDisposition::Requeue => {}
+                PreacceptedDisposition::Conflict => continue,
             }
             if by_hash.contains_key(hash) {
                 continue;
@@ -568,12 +685,14 @@ impl TxPoolAuthority {
         recoveries: &[TransactionView],
         preaccepted_dispositions: &HashMap<RawTxHash, PreacceptedDisposition>,
         statuses: &[ChainStatusSubject],
+        proposals: &[ChainProposalSubject],
     ) -> Result<Vec<ChainOwnerExpectation>, PlanError> {
         let capacity = removals
             .len()
             .checked_add(recoveries.len())
             .and_then(|count| count.checked_add(preaccepted_dispositions.len()))
             .and_then(|count| count.checked_add(statuses.len()))
+            .and_then(|count| count.checked_add(proposals.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         let mut expected = HashMap::new();
         expected
@@ -584,6 +703,7 @@ impl TxPoolAuthority {
             .map(|removal| &removal.hash)
             .chain(preaccepted_dispositions.keys())
             .chain(statuses.iter().map(|subject| &subject.hash))
+            .chain(proposals.iter().map(|subject| &subject.hash))
         {
             insert_expectation(&mut expected, hash.clone(), self.entries.get(hash))?;
         }
@@ -631,23 +751,34 @@ impl TxPoolAuthority {
             )?;
         }
         for removal in removals {
-            if removal.cause == ChainRemovalCause::Committed {
-                continue;
+            match removal.cause {
+                ChainRemovalCause::Committed => continue,
+                ChainRemovalCause::Conflict
+                | ChainRemovalCause::Recovery
+                | ChainRemovalCause::ProposalLeaseExpired => {}
             }
             let owner = self
                 .entries
                 .get(&removal.hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            // Only Accepted owns the pool overlay. Removing a preaccepted
-            // conflict changes ownership/accounting but cannot publish cell
-            // availability that never existed. Accepted Recovery/Conflict
-            // releases its inputs and removes its produced outputs.
-            if matches!(owner, OwnedTx::Accepted(_)) {
-                append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
-                append_keys(
-                    &mut available,
-                    owner.record().tx.input_pts_iter().map(DependencyKey::Cell),
-                )?;
+            // Accepted owns the pool overlay, so its removal both releases
+            // inputs and removes produced outputs. A PreAccepted producer
+            // never made its inputs unavailable, but its definitive removal
+            // still invalidates every child waiting or computing against its
+            // outputs. Publishing that loss here is what makes a preserved
+            // active child's old DependencyCut stale without revoking the
+            // child's unique compute capability.
+            match owner {
+                OwnedTx::PreAccepted(_) => {
+                    append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
+                }
+                OwnedTx::Accepted(_) => {
+                    append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
+                    append_keys(
+                        &mut available,
+                        owner.record().tx.input_pts_iter().map(DependencyKey::Cell),
+                    )?;
+                }
             }
         }
         for header in attached_headers {
@@ -695,18 +826,17 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::SourceVersion));
         }
         for expectation in &receipt.expectations {
-            match (expectation.expected, self.entries.get(&expectation.hash)) {
+            match (&expectation.expected, self.entries.get(&expectation.hash)) {
                 (ChainExpectedOwner::Vacant, None) => {}
-                (ChainExpectedOwner::Present(expected), Some(owner))
-                    if owner.record().version == expected =>
-                {
-                    if matches!(owner, OwnedTx::PreAccepted(entry) if matches!(entry.phase, PreAcceptedPhase::Computing(_)))
-                    {
-                        return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-                    }
-                }
+                (
+                    ChainExpectedOwner::PreAccepted { version, source },
+                    Some(OwnedTx::PreAccepted(entry)),
+                ) if entry.record.version == *version && entry.source == *source => {}
+                (ChainExpectedOwner::Accepted(expected), Some(OwnedTx::Accepted(entry)))
+                    if entry.record.version == *expected => {}
                 (ChainExpectedOwner::Vacant, Some(_))
-                | (ChainExpectedOwner::Present(_), Some(_) | None) => {
+                | (ChainExpectedOwner::PreAccepted { .. }, Some(_) | None)
+                | (ChainExpectedOwner::Accepted(_), Some(_) | None) => {
                     return Err(PlanError::Stale(StalePlan::Version));
                 }
             }
@@ -754,6 +884,7 @@ impl TxPoolAuthority {
         let change_capacity = removals
             .len()
             .checked_add(receipt.recoveries.len())
+            .and_then(|count| count.checked_add(receipt.proposal_demotions.len()))
             .and_then(|count| count.checked_add(receipt.statuses.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         changes
@@ -778,6 +909,10 @@ impl TxPoolAuthority {
                 .get(&removal.hash)
                 .cloned()
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
+            if matches!(&before, OwnedTx::PreAccepted(entry) if matches!(entry.phase, PreAcceptedPhase::Computing(_)))
+            {
+                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+            }
             changes.push(PreparedOwnerChange {
                 key: removal.hash.clone(),
                 before: Some(before),
@@ -811,6 +946,33 @@ impl TxPoolAuthority {
             });
         }
 
+        for key in receipt.proposal_demotions {
+            let before = self
+                .entries
+                .get(&key)
+                .cloned()
+                .ok_or(PlanError::Stale(StalePlan::Missing))?;
+            let OwnedTx::PreAccepted(mut after) = before.clone() else {
+                return Err(PlanError::Stale(StalePlan::Phase));
+            };
+            let PreAcceptedSource::Proposal {
+                base: ProposalBase::Remote(remote),
+                ..
+            } = after.source
+            else {
+                return Err(PlanError::Stale(StalePlan::Phase));
+            };
+            // A source-only demotion preserves EntryVersion and any unique
+            // compute capability. The exact source in ChainExpectedOwner is
+            // the OCC fact that makes this safe despite the unchanged token.
+            after.source = PreAcceptedSource::Remote(remote);
+            changes.push(PreparedOwnerChange {
+                key,
+                before: Some(before),
+                after: Some(OwnedTx::PreAccepted(after)),
+            });
+        }
+
         let mut status_after = HashMap::new();
         status_after
             .try_reserve(receipt.statuses.len())
@@ -841,13 +1003,20 @@ impl TxPoolAuthority {
         if changes.windows(2).any(|pair| pair[0].key == pair[1].key) {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
+        let new_owner_count = changes
+            .iter()
+            .filter(|change| change.before.is_none() && change.after.is_some())
+            .count();
 
         let mut accepted_removals = BTreeSet::new();
         for change in &changes {
-            if matches!(change.before, Some(OwnedTx::Accepted(_)))
-                && !matches!(change.after, Some(OwnedTx::Accepted(_)))
-            {
-                accepted_removals.insert(change.key.clone());
+            match (&change.before, &change.after) {
+                (Some(OwnedTx::Accepted(_)), Some(OwnedTx::PreAccepted(_)) | None) => {
+                    accepted_removals.insert(change.key.clone());
+                }
+                (Some(OwnedTx::Accepted(_)), Some(OwnedTx::Accepted(_)))
+                | (Some(OwnedTx::PreAccepted(_)) | None, Some(OwnedTx::PreAccepted(_)) | None)
+                | (Some(OwnedTx::PreAccepted(_)) | None, Some(OwnedTx::Accepted(_))) => {}
             }
         }
         let membership = self.prepare_chain_projection(&accepted_removals, &status_after)?;
@@ -872,9 +1041,28 @@ impl TxPoolAuthority {
                 .iter()
                 .map(|change| (change.before.as_ref(), change.after.as_ref())),
         )?;
+        let mut available = receipt.available;
+        let mut lost = receipt.lost;
+        for removal in &removals {
+            match removal.cause {
+                ChainRemovalCause::ProposalLeaseExpired => {
+                    let owner = self
+                        .entries
+                        .get(&removal.hash)
+                        .ok_or(PlanError::Stale(StalePlan::Missing))?;
+                    append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
+                }
+                ChainRemovalCause::Committed
+                | ChainRemovalCause::Conflict
+                | ChainRemovalCause::Recovery => {}
+            }
+        }
+        lost.sort_unstable();
+        lost.dedup();
+        available.retain(|key| lost.binary_search(key).is_err());
         let control = self
             .dependencies
-            .plan_events(receipt.available, receipt.lost, DependencyCut(sequence))?
+            .plan_events(available, lost, DependencyCut(sequence))?
             .unwrap_or_default();
         let dependency = self
             .dependencies
@@ -926,7 +1114,7 @@ impl TxPoolAuthority {
                         reason: RejectionKind::UnavailableDependency,
                     });
                 }
-                ChainRemovalCause::Recovery => {}
+                ChainRemovalCause::Recovery | ChainRemovalCause::ProposalLeaseExpired => {}
             }
         }
         let mut status_effect_keys = Vec::new();
@@ -965,6 +1153,11 @@ impl TxPoolAuthority {
             key: change.key,
             after: change.after,
         }));
+        // Keep the potentially large primary-map reservation behind all
+        // semantic/resource checks. An over-bound recovery must not grow the
+        // live authority merely because its rejected Plan carried many
+        // detached transactions.
+        self.reserve_primary_owner_insertions(new_owner_count)?;
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Chain(ChainDelta {
@@ -1018,12 +1211,12 @@ fn insert_expectation(
     hash: RawTxHash,
     owner: Option<&OwnedTx>,
 ) -> Result<(), PlanError> {
-    if matches!(owner, Some(OwnedTx::PreAccepted(entry)) if matches!(entry.phase, PreAcceptedPhase::Computing(_)))
-    {
-        return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-    }
     let expected = match owner {
-        Some(owner) => ChainExpectedOwner::Present(owner.record().version),
+        Some(OwnedTx::PreAccepted(entry)) => ChainExpectedOwner::PreAccepted {
+            version: entry.record.version,
+            source: entry.source,
+        },
+        Some(OwnedTx::Accepted(entry)) => ChainExpectedOwner::Accepted(entry.record.version),
         None => ChainExpectedOwner::Vacant,
     };
     if let Some(previous) = expectations.get(&hash) {
@@ -1097,14 +1290,12 @@ fn queued_recovery_owner(
     let record = TxRecord {
         tx: admission.tx,
         identity: admission.identity,
-        ingress: admission.ingress,
-        blame: admission.blame,
-        class: admission.class,
         version,
         arrival,
     };
     OwnedTx::PreAccepted(PreAcceptedEntry {
         record,
+        source: admission.source,
         basis: AdmissionBasis::new(admission.dependencies, admission.charge),
         phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
         charge: admission.charge,

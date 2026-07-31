@@ -154,9 +154,7 @@ fn validate_owner(
     let after = &change.after;
     if before.record.identity.raw != change.key
         || after.record.identity != before.record.identity
-        || after.record.ingress != before.record.ingress
-        || after.record.blame != before.record.blame
-        || after.record.class != before.record.class
+        || after.provenance != before.source.accepted_provenance()
         || after.record.arrival != before.record.arrival
         || after.proof.chain_revision() != authority.chain_revision()
     {

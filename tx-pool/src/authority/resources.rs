@@ -530,7 +530,11 @@ impl ResourceLedger {
                             )
                         }
                         PreAcceptedPhase::Queued(QueuedWork::Resolve)
-                        | PreAcceptedPhase::Computed(_) => entry.original_charge(),
+                        | PreAcceptedPhase::Computed(
+                            super::state::ComputedOutcome::Rejected(_)
+                            | super::state::ComputedOutcome::BudgetDenied
+                            | super::state::ComputedOutcome::InternalFailure,
+                        ) => entry.original_charge(),
                     };
                     if resources != exact_resources {
                         return false;
@@ -541,7 +545,7 @@ impl ResourceLedger {
                         | PreAcceptedPhase::Waiting(_)
                         | PreAcceptedPhase::Computed(_) => None,
                     };
-                    if residency_peer != entry.record.ingress.peer()
+                    if residency_peer != entry.source.ingress_peer()
                         || compute_peer != expected_compute_peer
                     {
                         return false;
