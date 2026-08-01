@@ -51,10 +51,10 @@ use super::state::{AcceptedAtMillis, AcceptedStatus, TxIdentity};
 use super::state::{
     AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival, AuthorityClocks,
     ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut, DependencyKey,
-    DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx,
+    DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PayloadPolicy,
     PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
-    QueuedWork, RawTxHash, RemoteDeadline, RemotePayloadOrigin, ReplacementHistoryEntry,
-    ReplacementHistoryError, TxRecord, ValidatedAdmission,
+    QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError,
+    TxRecord, ValidatedAdmission,
 };
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
@@ -2146,6 +2146,10 @@ impl TxPoolAuthority {
         };
 
         let sequence = self.clocks.next_sequence;
+        let trusted_proposal_base = match proposal_base {
+            ProposalBase::Trusted => ProposalBase::Trusted,
+            ProposalBase::Remote(remote) => ProposalBase::Remote(remote.with_trusted_payload()),
+        };
         let (promoted, clocks) = if same_witness {
             // A policy-only promotion/refresh preserves EntryVersion and the
             // exact active lease. ActiveWork has already sealed its compute
@@ -2154,7 +2158,7 @@ impl TxPoolAuthority {
             let mut promoted = entry.clone();
             promoted.source = PreAcceptedSource::Proposal {
                 lease: proposal,
-                base: proposal_base,
+                base: trusted_proposal_base,
             };
             (
                 promoted,
@@ -2168,10 +2172,6 @@ impl TxPoolAuthority {
                 return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
             }
             let version = self.clocks.next_version;
-            let base = match proposal_base {
-                ProposalBase::Trusted => ProposalBase::Trusted,
-                ProposalBase::Remote(remote) => ProposalBase::Remote(remote.with_trusted_payload()),
-            };
             let promoted = PreAcceptedEntry {
                 record: TxRecord {
                     tx: admission.tx,
@@ -2181,7 +2181,7 @@ impl TxPoolAuthority {
                 },
                 source: PreAcceptedSource::Proposal {
                     lease: proposal,
-                    base,
+                    base: trusted_proposal_base,
                 },
                 basis: AdmissionBasis::new(
                     admission.dependencies,
@@ -2592,7 +2592,7 @@ impl TxPoolAuthority {
             AcceptedProvenance::Trusted,
             |ingress| AcceptedProvenance::Peer {
                 ingress,
-                payload: RemotePayloadOrigin::Trusted,
+                payload_policy: PayloadPolicy::Trusted,
             },
         );
         let (tx, proof, proposal, accepted_at) = receipt.into_membership_parts();
@@ -3853,6 +3853,7 @@ impl TxPoolAuthority {
             dependency_cut,
             permit,
             grant,
+            payload_policy: preaccepted.source.payload_policy(),
         };
         let work = CheckedOutWork::new(
             token,
@@ -3871,6 +3872,7 @@ impl TxPoolAuthority {
                     permit,
                     grant,
                     attribution,
+                    payload_policy: preaccepted.source.payload_policy(),
                     dependency_cut,
                     dependencies: active_dependencies,
                 }),
@@ -4093,6 +4095,70 @@ impl TxPoolAuthority {
                             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
                             charge: raw_charge,
                         }
+                    }
+                }
+                SettlementNext::VerificationRejected {
+                    rejection,
+                    resolved,
+                } => {
+                    if resolved.payload().identity() != &preaccepted.record.identity
+                        || resolved.chain_view() != &active.chain_view
+                        || resolved.dependency_cut() != dependency_cut
+                    {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
+                    }
+                    let current_policy = preaccepted.source.payload_policy();
+                    if current_policy == active.payload_policy {
+                        if chain_state_is_current {
+                            SettlementDisposition::Terminal(SettlementRejection::ChainBound(
+                                rejection,
+                            ))
+                        } else {
+                            SettlementDisposition::Retain {
+                                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                charge: raw_charge,
+                            }
+                        }
+                    } else if matches!(
+                        active.payload_policy,
+                        PayloadPolicy::RemoteDeclaredCycles(_)
+                    ) && current_policy == PayloadPolicy::Trusted
+                    {
+                        if !chain_state_is_current {
+                            SettlementDisposition::Retain {
+                                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                charge: raw_charge,
+                            }
+                        } else {
+                            let dependencies = resolved.payload().dependencies().clone();
+                            let retained_charge = self
+                                .resources
+                                .retained_entry_charge(
+                                    preaccepted,
+                                    resolved.payload().resolved_resident_bytes(),
+                                    dependencies.len(),
+                                )
+                                .map_err(|_| {
+                                    PlanError::Fault(AuthorityFault::ResourceProjection)
+                                })?;
+                            if self.dependencies.resolution_is_current(
+                                preaccepted.dependencies(),
+                                &dependencies,
+                                dependency_cut,
+                            ) {
+                                SettlementDisposition::Retain {
+                                    phase: PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+                                    charge: retained_charge,
+                                }
+                            } else {
+                                SettlementDisposition::Retain {
+                                    phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                    charge: raw_charge,
+                                }
+                            }
+                        }
+                    } else {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
                     }
                 }
                 SettlementNext::Retry => SettlementDisposition::Retain {

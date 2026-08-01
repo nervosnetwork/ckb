@@ -160,18 +160,22 @@
         "tx-pool/src/component/pre_pool/runtime.rs",
         "tx-pool/src/service/workers.rs",
         "tx-pool/src/service/builder.rs",
-        "tx-pool/src/service/stages/runner.rs"
+        "tx-pool/src/service/stages/runner.rs",
+        "tx-pool/src/authority/state.rs",
+        "tx-pool/src/authority/work.rs",
+        "tx-pool/src/authority/plan.rs"
       ],
-      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart. A successful Resolve or Verify completion may check out only the next same-lane lease inside the same kernel mutation; VerifyLease carries the checkout capability so completion cannot widen it. The applied-completion type keeps a later checkout fault distinct from completion failure, and pause, cancellation or command loss completes at most that already-owned continuation without checking out another.",
-      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work, drop an already checked-out continuation nor create a respawn loop.",
+      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart. A successful Resolve or Verify completion may check out only the next same-lane lease inside the same kernel mutation; VerifyLease carries both the checkout capability and the exact remote declared-cycle or trusted payload policy, so completion cannot widen either. Every negative verification result is bound to both the checked-out chain view and payload policy. Apply compares that validity domain with the current owner: an unchanged policy terminalizes, while a racing same-witness trusted promotion retains the resolved payload and requeues Verify. The applied-completion type keeps a later checkout fault distinct from completion failure, and pause, cancellation or command loss completes at most that already-owned continuation without checking out another.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; a same-witness Proposal racing either a remote cycle-ceiling verification failure or a declared-cycle mismatch must not publish stale blame or lose its trusted payload; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work, drop an already checked-out continuation nor create a respawn loop.",
       "reviewer_questions": [
         "Does notification mean at least one worker of this capability can execute now?",
         "Can a consumed wake be reconstructed from authoritative state after subscribe or a typed job failure?",
         "Does any internal worker use panic plus catch_unwind as control flow instead of a typed result?",
         "Can a completion continuation cross a stage/lane, hide whether Apply succeeded, or bypass the capability-aware fair queue?",
+        "Does a Verify lease seal its exact payload policy, and can Apply distinguish a current peer claim from one superseded by a trusted promotion?",
         "Does pause, cancellation or command loss finish at most the already checked-out continuation and prevent another checkout?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses|uak_stale_dependency_head)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses|uak_stale_dependency_head|uak_stale_remote_cycle_rejection|uak_remote_verify_failure)/)'",
       "performance_bound": "Readiness checks inspect bounded owner heads/caps only; successful completion reuses one kernel acquisition for a same-lane checkout; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
     },
     {
@@ -188,21 +192,25 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/component/pre_pool/lifecycle.rs",
         "tx-pool/src/service/stages/verify.rs",
+        "tx-pool/src/authority/state.rs",
+        "tx-pool/src/authority/work.rs",
+        "tx-pool/src/authority/plan.rs",
         "sync/src/relayer/mod.rs",
         "sync/src/types/mod.rs"
       ],
-      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. Immutable ingress attribution survives trusted source promotion, and VerifyLeased-to-Ready binds the current scheduling source inside the same revision transition instead of publishing a separately sampled worker value. The ban marker is expiring but cannot evict an unexpired revocation fence, post-admission checks remove already queued ingress and the non-copyable Ready commit session rechecks the same fence before Accepted planning while exclusively borrowing kernel authority through Plan/Apply. Banning that ingress therefore removes every matching owner that is still in PrePool in bounded slices, but never rolls back an Accepted transaction whose commit linearized first. A matching Reject releases both relayer known and pending projections so the same valid transaction can be requested from another peer. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
+      "required_behavior": "Ban, expiry and malformed-input policy terminalize the current non-committing owner once, release all resource/index state and publish only policy-eligible effects. A remote declared-cycle claim belongs to the exact witness payload and current peer policy: a current mismatch terminalizes with immutable ingress and payload-blame attribution, while trusted same-witness promotion removes payload blame and makes an in-flight mismatch stale. Immutable ingress attribution survives trusted source promotion, and VerifyLeased-to-Ready binds the current scheduling source inside the same revision transition instead of publishing a separately sampled worker value. The ban marker is expiring but cannot evict an unexpired revocation fence, post-admission checks remove already queued ingress and the non-copyable Ready commit session rechecks the same fence before Accepted planning while exclusively borrowing kernel authority through Plan/Apply. Banning that ingress therefore removes every matching owner that is still in PrePool in bounded slices, but never rolls back an Accepted transaction whose commit linearized first. A matching Reject releases both relayer known and pending projections so the same valid transaction can be requested from another peer. Clear swaps the complete entry generation and publishes one constant-size GenerationReset, which releases all relayer filters without scanning or retaining a population-sized hash batch.",
       "hostile_case": "An already queued, active, Ready or source-promoted malicious-peer transaction must not cross a concurrent ban into Accepted, escape revocation, pin an active slot, retain a budget/index/lease ghost, resurrect through a late lease, remain permanently pinned in the relayer known filter or turn a typed malformed input into fail-stop or an ineligible relay reject.",
       "reviewer_questions": [
         "Does administrative removal make every outstanding lease stale atomically?",
         "Are mutable scheduling source and immutable ingress attribution modeled separately, with every derived index and budget cleaned from the authoritative removal plan?",
         "Does VerifyLeased-to-Ready derive its scheduling source inside the same revision transition, without a check-then-publish read?",
+        "Can a declared-cycle mismatch publish peer blame only while the exact checked-out payload policy is still peer-authoritative?",
         "Does Ready selection return a non-copyable session whose exclusive kernel borrow survives until accepted or rejected Plan/Apply?",
         "Do both sides of the admission race recheck the same non-evicting ban marker: immediately after new ownership and in the final Ready Plan before Accepted Apply?",
         "Does the cross-crate Reject projection make the same transaction requestable from another peer while leaving Accepted state untouched?",
         "Are ban/reject history and relay policy separate explicit decisions?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_fence_never_evicts_an_unexpired_marker|banned_peer_revokes|banned_peer_revocation_plan_uses_immutable_ingress_attribution|peer_ban_removes_promoted_ingress_and_allows_refetch|peer_ban_does_not_rollback_an_already_accepted_transaction|ready_commit_observes_ban_fence_before_acceptance|queued_remote_admission_after_ban_is_removed_and_refetchable|proposal_promotes_active_remote_owner_without_restarting_lease|malformed_remote_preflight|proposal_promoted_remote_clear)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_fence_never_evicts_an_unexpired_marker|banned_peer_revokes|banned_peer_revocation_plan_uses_immutable_ingress_attribution|peer_ban_removes_promoted_ingress_and_allows_refetch|peer_ban_does_not_rollback_an_already_accepted_transaction|ready_commit_observes_ban_fence_before_acceptance|queued_remote_admission_after_ban_is_removed_and_refetchable|proposal_promotes_active_remote_owner_without_restarting_lease|malformed_remote_preflight|proposal_promoted_remote_clear|uak_current_remote_cycle_rejection)/)'",
       "performance_bound": "Administrative removal uses indexed owners and bounded batches; peer fences are expiry-pruned and share the network ban set's unexpired cardinality without allowing live-fence eviction."
     },
     {
@@ -496,6 +504,8 @@
     {"test": "service_cancellation_is_scoped_under_process_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T4", "T7"]},
     {"test": "zero_verify_worker_config_still_runs_remote_pipeline", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
     {"test": "uak_stale_dependency_head_cannot_abort_unrelated_checkout", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promotion", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T5", "T7", "T8", "T11"]},
+    {"test": "uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T5", "T7", "T8", "T11"]},
 
     {"test": "banned_peer_fence_never_evicts_an_unexpired_marker", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T8"]},
     {"test": "banned_peer_revokes_active_remote_lease_and_releases_budget", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
@@ -508,6 +518,7 @@
     {"test": "uak_proposal_promotion_suspends_but_retains_the_remote_deadline", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
     {"test": "uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "uak_remote_expiry_skips_active_work_without_blocking_other_due_owners", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T7", "T8"]},
     {"test": "malformed_remote_preflight_is_banned_recorded_and_not_relayed", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T4", "T7", "T10", "T11"]},
     {"test": "proposal_promoted_remote_clear_uses_generation_reset_to_release_ingress_filter", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
 

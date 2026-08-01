@@ -7,9 +7,9 @@ use super::super::{
     plan::{Backpressure, PlanError, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
-        AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PreAcceptedPhase,
-        PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId, QueuedWork, RawTxHash,
-        RemoteDeadline, RemotePayloadOrigin, TxIdentity, ValidatedAdmission, VerifyCapability,
+        AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PayloadPolicy,
+        PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId,
+        QueuedWork, RawTxHash, RemoteDeadline, TxIdentity, ValidatedAdmission, VerifyCapability,
         WorkPermit,
     },
     work::CheckedOutWork,
@@ -1612,7 +1612,7 @@ fn uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget(
                 entry.source,
                 PreAcceptedSource::Remote(remote)
                     if remote.residency.peer == peer
-                        && remote.payload == RemotePayloadOrigin::IngressPeer
+                        && matches!(remote.payload_policy, PayloadPolicy::RemoteDeclaredCycles(_))
             )
                 && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));

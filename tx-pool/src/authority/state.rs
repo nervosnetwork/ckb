@@ -149,37 +149,44 @@ pub(super) struct RecoveryLease {
     pub(super) generation: PoolGeneration,
 }
 
+/// Validation authority attached to the exact witness payload checked out by
+/// a worker. A same-witness Proposal promotion can replace this policy while
+/// the old capability is active, so settlement compares the sealed value with
+/// the current owner instead of consulting mutable source state mid-verify.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RemotePayloadOrigin {
-    IngressPeer,
+pub(super) enum PayloadPolicy {
+    RemoteDeclaredCycles(ckb_types::core::Cycle),
     Trusted,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RemoteBase {
     pub(super) residency: RemoteResidencyLease,
-    pub(super) payload: RemotePayloadOrigin,
+    pub(super) payload_policy: PayloadPolicy,
 }
 
 impl RemoteBase {
-    pub(super) const fn ingress(residency: RemoteResidencyLease) -> Self {
+    pub(super) const fn ingress(
+        residency: RemoteResidencyLease,
+        declared_cycles: ckb_types::core::Cycle,
+    ) -> Self {
         Self {
             residency,
-            payload: RemotePayloadOrigin::IngressPeer,
+            payload_policy: PayloadPolicy::RemoteDeclaredCycles(declared_cycles),
         }
     }
 
     pub(super) const fn with_trusted_payload(self) -> Self {
         Self {
             residency: self.residency,
-            payload: RemotePayloadOrigin::Trusted,
+            payload_policy: PayloadPolicy::Trusted,
         }
     }
 
     pub(super) const fn blame_peer(self) -> Option<PeerIndex> {
-        match self.payload {
-            RemotePayloadOrigin::IngressPeer => Some(self.residency.peer),
-            RemotePayloadOrigin::Trusted => None,
+        match self.payload_policy {
+            PayloadPolicy::RemoteDeclaredCycles(_) => Some(self.residency.peer),
+            PayloadPolicy::Trusted => None,
         }
     }
 }
@@ -245,6 +252,21 @@ impl PreAcceptedSource {
         }
     }
 
+    pub(super) const fn payload_policy(self) -> PayloadPolicy {
+        match self {
+            Self::Remote(remote)
+            | Self::Proposal {
+                base: ProposalBase::Remote(remote),
+                ..
+            } => remote.payload_policy,
+            Self::Proposal {
+                base: ProposalBase::Trusted,
+                ..
+            }
+            | Self::Recovery(_) => PayloadPolicy::Trusted,
+        }
+    }
+
     pub(super) const fn accepted_provenance(self) -> AcceptedProvenance {
         match self {
             Self::Remote(remote)
@@ -253,7 +275,7 @@ impl PreAcceptedSource {
                 ..
             } => AcceptedProvenance::Peer {
                 ingress: remote.residency.peer,
-                payload: remote.payload,
+                payload_policy: remote.payload_policy,
             },
             Self::Proposal {
                 base: ProposalBase::Trusted,
@@ -269,7 +291,7 @@ pub(super) enum AcceptedProvenance {
     Trusted,
     Peer {
         ingress: PeerIndex,
-        payload: RemotePayloadOrigin,
+        payload_policy: PayloadPolicy,
     },
 }
 
@@ -285,11 +307,11 @@ impl AcceptedProvenance {
         match self {
             Self::Peer {
                 ingress,
-                payload: RemotePayloadOrigin::IngressPeer,
+                payload_policy: PayloadPolicy::RemoteDeclaredCycles(_),
             } => Some(ingress),
             Self::Trusted
             | Self::Peer {
-                payload: RemotePayloadOrigin::Trusted,
+                payload_policy: PayloadPolicy::Trusted,
                 ..
             } => None,
         }
@@ -1064,6 +1086,7 @@ pub(super) struct ActiveWork {
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
     pub(super) attribution: ComputeAttribution,
+    pub(super) payload_policy: PayloadPolicy,
     pub(super) dependency_cut: DependencyCut,
     pub(super) dependencies: KnownDependencies,
 }
@@ -1473,16 +1496,17 @@ impl ValidatedAdmission {
         tx: TransactionView,
         peer: PeerIndex,
     ) -> Result<Self, AdmissionValidationError> {
-        Self::remote_with_lease(tx, RemoteResidencyLease::for_foundation(peer))
+        Self::remote_with_lease(tx, RemoteResidencyLease::for_foundation(peer), 0)
     }
 
     pub(super) fn remote_with_lease(
         tx: TransactionView,
         residency: RemoteResidencyLease,
+        declared_cycles: ckb_types::core::Cycle,
     ) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
-            PreAcceptedSource::Remote(RemoteBase::ingress(residency)),
+            PreAcceptedSource::Remote(RemoteBase::ingress(residency, declared_cycles)),
         )
     }
 

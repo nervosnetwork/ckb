@@ -240,9 +240,15 @@ Derived projections own no transaction payload:
 `PrePoolSource` is `Remote(peer)`, `Proposal`, or `Recovery`.
 
 - Remote retains immutable ingress attribution, current-payload blame,
-  declared cycles, remote/per-peer charge and expiry. Trusted same-hash source
-  promotion may change scheduling and payload blame, but cannot erase the
-  original ingress used for administrative revocation.
+  the declared-cycle policy for its exact witness payload, remote/per-peer
+  charge and expiry. Trusted same-witness source promotion supersedes that
+  peer-supplied policy while preserving the original ingress used for
+  administrative revocation. A verify lease seals the policy it checked out;
+  every negative script-verification result is bound to that policy as well as
+  the chain view. If a trusted promotion races either the peer's lower cycle
+  ceiling or a declared-cycle mismatch, Apply retains the exact resolved
+  payload and requeues trusted verification instead of publishing a stale peer
+  rejection.
 - Proposal is trusted and may promote the same-witness Remote entry or replace
   its payload with a trusted witness variant.
 - Verification workers never publish a separately sampled source. The

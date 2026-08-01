@@ -20,15 +20,15 @@ use super::super::state::{
     CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId,
     DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
     FoundationResolution, InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx,
-    PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId,
-    ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline, RemotePayloadOrigin,
+    PayloadPolicy, PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
+    ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline,
     RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
     VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
     ContinuousVerifyWork, ResolutionEvidence, ResolutionReceiptError, ResolveWork, SettlementNext,
-    SettlementToken, VerificationReceiptError,
+    SettlementToken, VerificationReceiptError, VerifyWork,
 };
 use crate::error::Reject;
 use ckb_network::PeerIndex;
@@ -187,6 +187,7 @@ pub(super) fn admit_remote_until(
     let admission = ValidatedAdmission::remote_with_lease(
         tx(nonce),
         RemoteResidencyLease::new(PeerIndex::from(peer), RemoteDeadline(expires_at)),
+        0,
     )
     .expect("fixture admission has one checked residency lease");
     let hash = admission.identity.raw.clone();
@@ -230,6 +231,62 @@ fn queue_remote_for_verify(
             .expect("fixture resolve settlement plans"),
     );
     hash
+}
+
+fn checkout_remote_for_verify_with_claim(
+    authority: &mut TxPoolAuthority,
+    transaction: &TransactionView,
+    peer: PeerIndex,
+    declared_cycles: u64,
+) -> (RawTxHash, VerifyWork) {
+    let admission = ValidatedAdmission::remote_with_lease(
+        transaction.clone(),
+        RemoteResidencyLease::for_foundation(peer),
+        declared_cycles,
+    )
+    .expect("remote cycle claim is admitted with its exact payload");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("remote cycle fixture enters ownership"),
+    );
+    let (_, resolve) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("remote resolve checkout plans")
+            .apply(),
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(
+                resolve
+                    .yield_verify(resolved_payload_with_facts(
+                        transaction,
+                        Vec::new(),
+                        Vec::new(),
+                        Capacity::shannons(1),
+                    ))
+                    .expect("resolved payload belongs to the remote work"),
+            )
+            .expect("remote resolution queues verification"),
+    );
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(authority, &hash),
+            WorkPermit::VerifyOnly(VerifyCapability::Any),
+        )
+        .expect("remote verify checkout plans")
+        .apply();
+    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
+        panic!("verify-only checkout returns verify work");
+    };
+    (hash, verify)
 }
 
 pub(super) fn owner_version(
@@ -1295,6 +1352,7 @@ fn uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch() {
     let resubmitted = ValidatedAdmission::remote_with_lease(
         tx(1_715),
         RemoteResidencyLease::new(next_peer, RemoteDeadline(30)),
+        0,
     )
     .expect("another peer can provide the expired raw transaction");
     apply_without_work(
@@ -1500,7 +1558,13 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
         .set_witnesses(vec![Bytes::from_static(b"trusted").pack()])
         .build();
     let peer = PeerIndex::from(42);
-    let initial = ValidatedAdmission::remote(remote, peer).expect("remote variant is valid");
+    let declared_cycles = 123;
+    let initial = ValidatedAdmission::remote_with_lease(
+        remote,
+        RemoteResidencyLease::for_foundation(peer),
+        declared_cycles,
+    )
+    .expect("remote variant is valid");
     let hash = initial.identity.raw.clone();
     let initial_version = authority.clocks().next_version;
     apply_without_work(
@@ -1508,6 +1572,12 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
             .plan_admission(initial)
             .expect("remote variant enters ownership"),
     );
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if entry.source.payload_policy()
+                == PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+    ));
 
     let replacement = ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(9))
         .expect("trusted replacement is valid");
@@ -1521,6 +1591,11 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
     assert_eq!(owner.record().tx.witness_hash(), trusted.witness_hash());
     assert_eq!(owner.ingress_peer(), Some(peer));
     assert_eq!(owner.payload_blame_peer(), None);
+    assert!(matches!(
+        owner,
+        OwnedTx::PreAccepted(entry)
+            if entry.source.payload_policy() == PayloadPolicy::Trusted
+    ));
     assert!(owner.record().version > initial_version);
     assert!(matches!(
         owner,
@@ -1533,7 +1608,7 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
                     },
                     base: ProposalBase::Remote(remote),
                 } if remote.residency.peer == peer
-                    && remote.payload == RemotePayloadOrigin::Trusted
+                    && remote.payload_policy == PayloadPolicy::Trusted
             ) && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert_eq!(
@@ -1542,6 +1617,172 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
             .preaccepted_charge()
             .expect("replacement remains peer-resident")
     );
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promotion() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(626);
+    let peer = PeerIndex::from(626);
+    let declared_cycles = 100;
+    let accepted_resident_bytes = transaction.data().total_size();
+    let (hash, verify) =
+        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
+    assert_eq!(
+        verify.payload_policy(),
+        PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+    );
+    let stale_rejection = verify
+        .verified(accepted_resident_bytes, declared_cycles + 1)
+        .expect("declared-cycle mismatch is a typed source-policy settlement");
+
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction, ProposalContextId(626))
+                    .expect("same-witness proposal is trusted"),
+            )
+            .expect("proposal promotion preserves the active compute lease"),
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(stale_rejection)
+            .expect("stale peer-policy rejection settles under current source authority"),
+    );
+
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if entry.source.payload_policy() == PayloadPolicy::Trusted
+                && entry.source.ingress_peer() == Some(peer)
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    assert!(
+        authority
+            .plan_effect_checkout_for_foundation()
+            .expect("effect projection remains coherent")
+            .is_none(),
+        "a stale peer cycle claim must not publish a trusted payload rejection"
+    );
+
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::VerifyOnly(VerifyCapability::Any),
+        )
+        .expect("trusted payload is requeued for verification")
+        .apply();
+    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
+        panic!("verify-only checkout returns verify work");
+    };
+    assert_eq!(verify.payload_policy(), PayloadPolicy::Trusted);
+    apply_without_work(
+        authority
+            .apply_settlement(
+                verify
+                    .verified(accepted_resident_bytes, declared_cycles + 2)
+                    .expect("trusted verification accepts its measured cycles"),
+            )
+            .expect("trusted verification settles the retained payload"),
+    );
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(
+                &entry.phase,
+                PreAcceptedPhase::Ready(verified)
+                    if verified.metrics().cost.cycles == declared_cycles + 2
+            )
+    ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(628);
+    let peer = PeerIndex::from(628);
+    let declared_cycles = 1;
+    let (hash, verify) =
+        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
+    assert_eq!(
+        verify.payload_policy(),
+        PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+    );
+    let stale_rejection = verify.rejected(RejectionKind::Verification);
+
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction, ProposalContextId(628))
+                    .expect("same-witness proposal is trusted"),
+            )
+            .expect("proposal promotion preserves the active compute lease"),
+    );
+    apply_without_work(
+        authority
+            .apply_settlement(stale_rejection)
+            .expect("peer-bounded verify failure settles under current source authority"),
+    );
+
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if entry.source.payload_policy() == PayloadPolicy::Trusted
+                && entry.source.ingress_peer() == Some(peer)
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    assert!(
+        authority
+            .plan_effect_checkout_for_foundation()
+            .expect("effect projection remains coherent")
+            .is_none(),
+        "a verify failure under the superseded peer cycle cap must not reject trusted work"
+    );
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(627);
+    let peer = PeerIndex::from(627);
+    let declared_cycles = 200;
+    let (hash, verify) =
+        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
+    let rejection = verify
+        .verified(transaction.data().total_size(), declared_cycles + 1)
+        .expect("declared-cycle mismatch is a typed source-policy settlement");
+    apply_without_work(
+        authority
+            .apply_settlement(rejection)
+            .expect("current peer-policy rejection terminalizes atomically"),
+    );
+    assert!(authority.entry(&hash).is_none());
+
+    let checkout = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("rejection effect checkout plans")
+        .expect("rejection is committed with terminalization")
+        .apply();
+    let lease = checkout
+        .into_effect_lease()
+        .expect("rejection checkout returns one effect lease");
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::Rejected {
+            audience: RejectionAudience {
+                ingress_peer: Some(ingress),
+                blame_peer: Some(blame),
+            },
+            reason: CommittedRejection::Validation(reason),
+            ..
+        }] if *ingress == peer
+            && *blame == peer
+            && matches!(reason.reject(), Reject::DeclaredWrongCycles(200, 201))
+    ));
     assert_resource_reference(&authority);
 }
 
@@ -1669,7 +1910,7 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
         OwnedTx::Accepted(AcceptedEntry {
             provenance: AcceptedProvenance::Peer {
                 ingress,
-                payload: RemotePayloadOrigin::Trusted,
+                payload_policy: PayloadPolicy::Trusted,
             },
             ..
         }) if *ingress == peer
@@ -2132,6 +2373,7 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
                 max_edges: 0,
             },
             attribution: ComputeAttribution::Trusted,
+            payload_policy: PayloadPolicy::Trusted,
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: KnownDependencies::default(),
         }),
@@ -2195,6 +2437,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
                 max_edges: 1,
             },
             attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
+            payload_policy: PayloadPolicy::RemoteDeclaredCycles(0),
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies.clone(),
         }),
@@ -2207,6 +2450,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
                 max_edges: 1,
             },
             attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
+            payload_policy: PayloadPolicy::RemoteDeclaredCycles(0),
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies,
         }),

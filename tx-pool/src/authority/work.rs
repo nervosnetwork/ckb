@@ -6,8 +6,8 @@ use super::state::FoundationResolution;
 use super::state::{
     CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, DependencyCut, DependencyKey,
     DependencySetError, EntryVersion, InputEvidenceError, KnownDependencies, MissingDependencies,
-    QueuedWork, RawTxHash, ResolvedFacts, ResolvedPayload, TxIdentity, VerifiedFacts,
-    VerifyCapability, VerifyCycleClass, WorkPermit,
+    PayloadPolicy, QueuedWork, RawTxHash, ResolvedFacts, ResolvedPayload, TxIdentity,
+    VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use crate::error::Reject;
 use ckb_types::core::TransactionView;
@@ -30,6 +30,7 @@ pub(super) struct LeaseToken {
     pub(super) dependency_cut: DependencyCut,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
+    pub(super) payload_policy: PayloadPolicy,
 }
 
 impl LeaseToken {
@@ -174,6 +175,15 @@ pub(super) enum SettlementNext {
     Waiting(MissingResolution),
     Ready(VerifiedFacts),
     Rejected(SettlementRejection),
+    /// A negative script-verification result is valid only under both the
+    /// checked-out chain view and its sealed payload policy. Retaining the
+    /// resolved evidence lets Apply retry verification without repeating
+    /// resolution when a same-witness trusted promotion supersedes a peer's
+    /// cycle limit while work is active.
+    VerificationRejected {
+        rejection: CommittedPublicReject,
+        resolved: ResolvedFacts,
+    },
     Retry,
 }
 
@@ -376,16 +386,29 @@ fn verified(
     {
         return Ok(budget_denied(token));
     }
-    let metrics = CandidateMetrics {
-        fee: resolved.payload().fee(),
-        cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
-    };
     if !context.is_for(token.chain_view()) {
         return Err(ReceiptFailure::new(
             token,
             VerificationReceiptError::ContextMismatch,
         ));
     }
+    let payload_policy = token.payload_policy;
+    // Cycle-claim validation is part of the only constructor for Ready
+    // evidence. A runner cannot accidentally bypass it; Apply later decides
+    // whether this sealed peer policy is still current or was superseded by a
+    // trusted same-witness promotion.
+    if let PayloadPolicy::RemoteDeclaredCycles(declared) = payload_policy
+        && declared != cycles
+    {
+        return Ok(token.settle(SettlementNext::VerificationRejected {
+            rejection: CommittedPublicReject::new(Reject::DeclaredWrongCycles(declared, cycles)),
+            resolved,
+        }));
+    }
+    let metrics = CandidateMetrics {
+        fee: resolved.payload().fee(),
+        cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
+    };
     let (dependency_cut, content, _location, verify_class) =
         resolved.into_verification_parts(VerificationSeal(()));
     Ok(
@@ -604,6 +627,10 @@ impl VerifyWork {
         &self.tx
     }
 
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
     #[cfg(test)]
     pub(super) fn verified(
         self,
@@ -681,10 +708,10 @@ impl VerifyWork {
     }
 
     pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
-        self.token
-            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
-                reason,
-            )))
+        self.token.settle(SettlementNext::VerificationRejected {
+            rejection: reason.into(),
+            resolved: self.resolved,
+        })
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -693,6 +720,14 @@ impl VerifyWork {
 }
 
 impl ContinuousVerifyWork {
+    pub(super) fn transaction(&self) -> &TransactionView {
+        &self.tx
+    }
+
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
     #[cfg(test)]
     pub(super) fn verified(
         self,
@@ -768,10 +803,10 @@ impl ContinuousVerifyWork {
     }
 
     pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
-        self.token
-            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
-                reason,
-            )))
+        self.token.settle(SettlementNext::VerificationRejected {
+            rejection: reason.into(),
+            resolved: self.resolved,
+        })
     }
 }
 
