@@ -60,7 +60,7 @@ fn uak_final_admission_receipt_is_stale_after_chain_view_aba() {
     let before = authority.normalized_snapshot();
 
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
+        authority.plan_settlement(&batch).err(),
         Some(PlanError::Stale(StalePlan::ChainRevision))
     );
     assert_eq!(authority.normalized_snapshot(), before);

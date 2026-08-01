@@ -2,7 +2,7 @@ use super::foundation::{accept_remote_transaction, apply_without_work, limits, o
 use crate::authority::{
     plan::TxPoolAuthority,
     resolver::{
-        ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeOutcome,
+        ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
         VerificationJob,
     },
     state::{
@@ -181,12 +181,16 @@ fn uak_resolution_reports_the_complete_direct_missing_frontier() {
         probe.missing_keys_for_foundation(),
         vec![DependencyKey::Cell(first), DependencyKey::Cell(second)]
     );
-    let ResolutionProbeOutcome::Settle(settlement) = probe
-        .enrich(&authority)
-        .expect("an unchanged authority cut settles the missing frontier")
+    let ResolutionProbeObservation::Missing(probe) = probe
+        .prepare_enrichment()
+        .expect("the bounded probe reserves outside the authority cut")
+        .observe(&authority)
     else {
         panic!("no Accepted producer exists")
     };
+    let settlement = probe
+        .settle_missing()
+        .expect("an unchanged authority cut settles the missing frontier");
     apply_without_work(
         authority
             .apply_settlement(settlement)
@@ -253,9 +257,10 @@ fn uak_resolution_enrichment_is_bounded_and_stale_safe() {
         AcceptedStatus::Pending,
         Vec::new(),
     );
-    let ResolutionProbeOutcome::Retry(job) = probe
-        .enrich(&authority)
-        .expect("one new Accepted producer enriches the sparse receipt")
+    let ResolutionProbeObservation::Retry(job) = probe
+        .prepare_enrichment()
+        .expect("the bounded probe reserves outside the authority cut")
+        .observe(&authority)
     else {
         panic!("new evidence requires exactly one retry")
     };

@@ -23,6 +23,10 @@ impl IndependentCandidate {
     pub(in crate::authority) fn new(receipt: FinalAdmissionReceipt) -> Self {
         Self { receipt }
     }
+
+    pub(in crate::authority) fn into_receipt(self) -> FinalAdmissionReceipt {
+        self.receipt
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +64,10 @@ impl SettlementBatch {
         }
         Ok(Self(candidates))
     }
+
+    pub(in crate::authority) fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 #[must_use = "the settlement classification must be applied or routed through the coupled planner"]
@@ -83,7 +91,7 @@ struct CandidateFact {
 }
 
 impl TxPoolAuthority {
-    pub(in crate::authority) fn plan_settlement_for_foundation(
+    pub(in crate::authority) fn plan_settlement(
         &mut self,
         batch: &SettlementBatch,
     ) -> Result<SettlementPlan<'_>, PlanError> {

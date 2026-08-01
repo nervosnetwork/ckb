@@ -94,10 +94,7 @@ struct AcceptedOriginOverlay {
 }
 
 impl AcceptedOriginOverlay {
-    fn capture(
-        authority: &TxPoolAuthority,
-        payload: &ResolvedPayload,
-    ) -> Result<Self, FinalAdmissionValidationError> {
+    fn prepare(payload: &ResolvedPayload) -> Result<Self, FinalAdmissionValidationError> {
         let resolved = payload.resolved_transaction();
         let total_cells = resolved
             .resolved_inputs
@@ -109,15 +106,36 @@ impl AcceptedOriginOverlay {
         pool_origin
             .try_reserve_exact(total_cells)
             .map_err(|_| FinalAdmissionValidationError::Allocation)?;
-        for cell in resolved
+        pool_origin.resize(total_cells, false);
+        Ok(Self { pool_origin })
+    }
+
+    /// Populate a preallocated bit projection from one coherent authority
+    /// cut. No allocation or payload destruction occurs under the guard.
+    fn populate(
+        &mut self,
+        authority: &TxPoolAuthority,
+        payload: &ResolvedPayload,
+    ) -> Result<(), FinalAdmissionValidationError> {
+        let resolved = payload.resolved_transaction();
+        let total_cells = resolved
+            .resolved_inputs
+            .len()
+            .checked_add(resolved.resolved_cell_deps.len())
+            .and_then(|count| count.checked_add(resolved.resolved_dep_groups.len()))
+            .ok_or(FinalAdmissionValidationError::Arithmetic)?;
+        if total_cells != self.pool_origin.len() {
+            return Err(FinalAdmissionValidationError::Arithmetic);
+        }
+        let cells = resolved
             .resolved_inputs
             .iter()
             .chain(&resolved.resolved_cell_deps)
-            .chain(&resolved.resolved_dep_groups)
-        {
-            pool_origin.push(is_accepted_output(authority, &cell.out_point));
+            .chain(&resolved.resolved_dep_groups);
+        for (origin, cell) in self.pool_origin.iter_mut().zip(cells) {
+            *origin = is_accepted_output(authority, &cell.out_point);
         }
-        Ok(Self { pool_origin })
+        Ok(())
     }
 
     fn origins(&self) -> impl Iterator<Item = bool> + '_ {
@@ -147,14 +165,71 @@ pub(super) struct FinalAdmissionValidation {
     overlay: AcceptedOriginOverlay,
 }
 
-impl FinalAdmissionValidation {
-    pub(super) fn capture(
+/// First half of an OCC capture. The candidate identifies how much overlay
+/// storage is needed, allocation happens with no authority guard, and a
+/// second read cut revalidates the exact Ready version before populating it.
+#[must_use = "prepared validation must be completed against the rechecked authority cut"]
+pub(super) struct PreparedFinalAdmissionValidation {
+    key: RawTxHash,
+    expected: super::state::EntryVersion,
+    snapshot: Arc<Snapshot>,
+    overlay: AcceptedOriginOverlay,
+}
+
+impl PreparedFinalAdmissionValidation {
+    pub(super) fn key(&self) -> &RawTxHash {
+        &self.key
+    }
+
+    pub(super) fn expected(&self) -> super::state::EntryVersion {
+        self.expected
+    }
+
+    pub(super) fn complete(
+        self,
         _seal: AuthorityStoreCaptureSeal,
         authority: &TxPoolAuthority,
+        work: FinalAdmissionWork,
+    ) -> Result<FinalAdmissionValidation, FinalAdmissionValidationError> {
+        self.complete_inner(authority, work)
+    }
+
+    fn complete_inner(
+        mut self,
+        authority: &TxPoolAuthority,
+        work: FinalAdmissionWork,
+    ) -> Result<FinalAdmissionValidation, FinalAdmissionValidationError> {
+        if work.key() != &self.key
+            || work.expected() != self.expected
+            || authority.chain_view() != work.view()
+            || self.snapshot.tip_hash() != work.view().tip().0
+        {
+            return Err(FinalAdmissionValidationError::StaleView);
+        }
+        self.overlay.populate(authority, work.payload())?;
+        Ok(FinalAdmissionValidation {
+            work,
+            snapshot: self.snapshot,
+            overlay: self.overlay,
+        })
+    }
+}
+
+impl FinalAdmissionValidation {
+    pub(super) fn prepare(
         snapshot: Arc<Snapshot>,
         work: FinalAdmissionWork,
-    ) -> Result<Self, FinalAdmissionValidationError> {
-        Self::capture_inner(authority, snapshot, work)
+    ) -> Result<PreparedFinalAdmissionValidation, FinalAdmissionValidationError> {
+        if snapshot.tip_hash() != work.view().tip().0 {
+            return Err(FinalAdmissionValidationError::StaleView);
+        }
+        let overlay = AcceptedOriginOverlay::prepare(work.payload())?;
+        Ok(PreparedFinalAdmissionValidation {
+            key: work.key().clone(),
+            expected: work.expected(),
+            snapshot,
+            overlay,
+        })
     }
 
     #[cfg(test)]
@@ -163,23 +238,8 @@ impl FinalAdmissionValidation {
         snapshot: Arc<Snapshot>,
         work: FinalAdmissionWork,
     ) -> Result<Self, FinalAdmissionValidationError> {
-        Self::capture_inner(authority, snapshot, work)
-    }
-
-    fn capture_inner(
-        authority: &TxPoolAuthority,
-        snapshot: Arc<Snapshot>,
-        work: FinalAdmissionWork,
-    ) -> Result<Self, FinalAdmissionValidationError> {
-        if authority.chain_view() != work.view() || snapshot.tip_hash() != work.view().tip().0 {
-            return Err(FinalAdmissionValidationError::StaleView);
-        }
-        let overlay = AcceptedOriginOverlay::capture(authority, work.payload())?;
-        Ok(Self {
-            work,
-            snapshot,
-            overlay,
-        })
+        let current = work.clone();
+        Self::prepare(snapshot, work)?.complete_inner(authority, current)
     }
 
     /// Validate location, time, DAO, proposal position, and script-rule reuse

@@ -2765,7 +2765,7 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
         let (mut aggregate, hashes) = independent_fixture(count);
         let batch = independent_batch(&aggregate, &hashes);
         let SettlementPlan::IndependentRun(plan) = aggregate
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("independent cohort classification is total")
         else {
             panic!("chain-backed disjoint cohort must remain independent");
@@ -2925,7 +2925,7 @@ fn uak_independent_ready_order_is_invariant_to_worker_completion_permutations() 
             .collect::<Vec<_>>();
         let batch = independent_batch(&authority, &requested);
         let SettlementPlan::IndependentRun(plan) = authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("permutation remains a valid settlement request")
         else {
             panic!("worker completion order cannot create coupling");
@@ -2955,7 +2955,7 @@ fn uak_independent_plan_drop_and_mid_batch_counter_failure_are_mutation_free() {
     let before = dropped.normalized_snapshot();
     let batch = independent_batch(&dropped, &hashes);
     let SettlementPlan::IndependentRun(plan) = dropped
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("independent Plan can be prepared")
     else {
         panic!("fixture is independent");
@@ -2968,7 +2968,7 @@ fn uak_independent_plan_drop_and_mid_batch_counter_failure_are_mutation_free() {
     let before = exhausted.normalized_snapshot();
     let batch = independent_batch(&exhausted, &hashes);
     assert_eq!(
-        exhausted.plan_settlement_for_foundation(&batch).err(),
+        exhausted.plan_settlement(&batch).err(),
         Some(PlanError::Fault(AuthorityFault::CounterExhausted))
     );
     assert_eq!(exhausted.normalized_snapshot(), before);
@@ -3013,7 +3013,7 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
     let batch = independent_batch(&conflicts, &[left, right]);
     let reason = coupled_reason_and_drop(
         conflicts
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("classification itself is valid"),
     );
     assert!(matches!(
@@ -3059,7 +3059,7 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
     let batch = independent_batch(&conditional, &[spender, reader]);
     let reason = coupled_reason_and_drop(
         conditional
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("classification itself is valid"),
     );
     assert!(matches!(
@@ -3083,7 +3083,7 @@ fn uak_independent_capacity_is_aggregate_and_never_partially_applied() {
 
     let reason = coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("capacity coupling is a normal classification"),
     );
     assert_eq!(reason, IndependentCoupling::AcceptedCapacity);
@@ -3130,7 +3130,7 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     let batch = independent_batch(&conflict, &[candidate]);
     let reason = rejected_coupled_reason_and_drop(
         conflict
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(reason, MembershipReject::InputConflict(conflicted_input));
@@ -3165,7 +3165,7 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     let batch = independent_batch(&conditional, &[spender]);
     let reason = coupled_reason_and_drop(
         conditional
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("accepted conditional edge routes normally"),
     );
     assert!(matches!(
@@ -3196,7 +3196,7 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     let batch = independent_batch(&causal, &[child]);
     let reason = coupled_reason_and_drop(
         causal
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("pool parent routes normally"),
     );
     assert!(matches!(
@@ -3232,7 +3232,7 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     let before = late.normalized_snapshot();
     let batch = independent_batch(&late, &[late_parent]);
     let reason = coupled_reason_and_drop(
-        late.plan_settlement_for_foundation(&batch)
+        late.plan_settlement(&batch)
             .expect("accepted child routes normally"),
     );
     assert!(matches!(
@@ -3265,7 +3265,7 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     let batch = independent_batch(&authority, &[candidate]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(reason, MembershipReject::MissingInputEvidence(missing));
@@ -3299,7 +3299,7 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     let batch = independent_batch(&authority, &[child]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(
@@ -3334,7 +3334,7 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     let batch = independent_batch(&authority, &[dependent]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(
@@ -3391,7 +3391,7 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     let batch = independent_batch(&authority, &[unsupported]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(
@@ -3452,7 +3452,7 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
         reason,
         disposition,
     } = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("late parent has one bounded coupled Plan")
     else {
         panic!("late parent must not use IndependentRun");
@@ -3485,7 +3485,7 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
         reason,
         disposition,
     } = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("late grandparent has one bounded coupled Plan")
     else {
         panic!("late grandparent must not use IndependentRun");
@@ -3561,7 +3561,7 @@ fn uak_coupled_late_parent_deduplicates_an_existing_descendant_path() {
         reason,
         disposition,
     } = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("shared descendant path has one bounded coupled Plan")
     else {
         panic!("accepted child must route through the coupled planner");
@@ -3709,7 +3709,7 @@ fn uak_coupled_late_parent_capacity_evicts_from_the_projected_graph() {
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
     let SettlementPlan::CoupledComponent { disposition, .. } = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("late parent capacity is planned on the projected graph")
     else {
         panic!("accepted child must route through the coupled planner");
@@ -3785,7 +3785,7 @@ fn uak_coupled_capacity_can_remove_a_late_child_without_stale_parent_weight() {
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
     let SettlementPlan::CoupledComponent { disposition, .. } = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("late-child eviction is compiled before Apply")
     else {
         panic!("accepted child must route through the coupled planner");
@@ -3854,7 +3854,7 @@ fn uak_late_parent_component_bound_fails_before_authority_mutation() {
     let batch = independent_batch(&authority, &[parent]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(
@@ -3933,7 +3933,7 @@ fn uak_nested_late_child_fanout_is_sliced_by_the_same_component_bound() {
     let batch = independent_batch(&authority, &[candidate]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(
@@ -4023,7 +4023,7 @@ fn uak_late_parent_cannot_bypass_the_descendant_ancestor_bound() {
     let batch = independent_batch(&authority, &[late_parent]);
     let reason = rejected_coupled_reason_and_drop(
         authority
-            .plan_settlement_for_foundation(&batch)
+            .plan_settlement(&batch)
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(reason, MembershipReject::TooManyAncestors);
@@ -7577,7 +7577,7 @@ fn uak_ready_frontier_and_independent_settlement_share_one_order() {
         &[hashes[0].clone(), hashes[2].clone(), hashes[1].clone()],
     );
     let SettlementPlan::IndependentRun(plan) = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("independent ready owners classify")
     else {
         panic!("chain-only candidates are independent");

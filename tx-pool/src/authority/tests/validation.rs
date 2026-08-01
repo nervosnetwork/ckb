@@ -309,7 +309,7 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
         reason,
         disposition,
     } = authority
-        .plan_settlement_for_foundation(&batch)
+        .plan_settlement(&batch)
         .expect("refreshed payload routes through the retirement-aware compiler")
     else {
         panic!("a refreshed payload cannot use inline independent retirement");

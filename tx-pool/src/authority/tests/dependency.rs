@@ -662,7 +662,7 @@ fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
     .expect("two distinct candidates form a bounded batch");
     let before = authority.normalized_snapshot();
     assert_eq!(
-        authority.plan_settlement_for_foundation(&batch).err(),
+        authority.plan_settlement(&batch).err(),
         Some(PlanError::Stale(StalePlan::Dependency))
     );
     assert_eq!(authority.normalized_snapshot(), before);

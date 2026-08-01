@@ -424,6 +424,14 @@ impl FinalAdmissionWork {
         self.validation.payload()
     }
 
+    pub(super) fn key(&self) -> &RawTxHash {
+        &self.key
+    }
+
+    pub(super) fn expected(&self) -> EntryVersion {
+        self.expected
+    }
+
     pub(super) fn view(&self) -> &ChainViewId {
         &self.validation.view
     }

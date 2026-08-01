@@ -6,29 +6,40 @@
 //! synthetic chain identities, or replacement policy independently.
 
 use super::{
+    chain::FinalAdmissionWork,
     effect::{EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLimits},
     plan::{
-        AuthorityConfigError, ComputeSettlementFailure, MembershipConfig, PlanError,
-        TxPoolAuthority,
+        AuthorityConfigError, CandidateBatchError, CandidateDispositionPlan, CommittedDelta,
+        ComputeSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
+        MembershipConfig, PlanError, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
-    resolver::{ResolutionExecutionKind, ResolutionJob, VerificationJob},
+    resolver::{
+        ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
+        TxPoolVerificationRequest, VerificationCacheUpdate, VerificationExecutionKind,
+        VerificationJob,
+    },
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{ChainRevision, ChainViewId, EntryVersion, RawTxHash, ValidatedAdmission, WorkPermit},
-    validation::{FinalAdmissionValidation, FinalAdmissionValidationError},
+    state::{ChainRevision, ChainViewId, ValidatedAdmission, WorkPermit},
+    validation::{
+        FinalAdmissionValidation, FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
+        PreparedFinalAdmissionValidation,
+    },
     work::{CheckedOutWork, ComputeSettlement},
 };
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
+use ckb_types::core::FeeRate;
 use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_util::RwLock;
+use ckb_verification::cache::Completed;
 use lru::LruCache;
 use std::{num::NonZeroUsize, sync::Arc};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
 const DEPENDENCY_EDGE_BYTES: usize = 160;
@@ -74,6 +85,24 @@ struct AuthorityRuntimeConfig {
     membership: MembershipConfig,
 }
 
+/// Immutable resolution policy compiled once at runtime assembly. Jobs never
+/// accept caller-supplied fee or cycle thresholds, so the evidence they
+/// retain cannot be evaluated under a nearby service configuration.
+#[derive(Clone, Copy, Debug)]
+struct ResolutionPolicy {
+    min_fee_rate: FeeRate,
+    large_cycle_threshold: u64,
+}
+
+impl ResolutionPolicy {
+    fn from_runtime(config: &TxPoolConfig) -> Self {
+        Self {
+            min_fee_rate: config.min_fee_rate,
+            large_cycle_threshold: config.max_tx_verify_cycles,
+        }
+    }
+}
+
 impl AuthorityRuntimeConfig {
     fn from_runtime(
         config: &TxPoolConfig,
@@ -97,12 +126,12 @@ impl AuthorityRuntimeConfig {
         let retained_entries = pipeline_bytes / PREACCEPTED_ENTRY_BYTES;
         let pipeline_edges = pipeline_bytes / DEPENDENCY_EDGE_BYTES;
         let verify_workers = config.max_tx_verify_workers.max(1);
-        let resolve_workers = verify_workers
-            .min(std::thread::available_parallelism().map_or(4, |count| count.get()))
+        // One ordered resolver preserves dependency fairness. Verification
+        // workers opportunistically take ResolveThenVerify when their own
+        // verify lane is empty, so no second resolve-worker population or VM
+        // concurrency budget exists.
+        let active_work = verify_workers
             .checked_add(1)
-            .ok_or(RuntimeConfigError::Arithmetic)?;
-        let active_work = resolve_workers
-            .checked_add(verify_workers)
             .ok_or(RuntimeConfigError::Arithmetic)?;
 
         let compute_partition_bytes = pipeline_bytes / COMPUTE_RESOURCE_DIVISOR;
@@ -325,6 +354,7 @@ pub(crate) struct AuthorityStore {
 struct AuthoritySignals {
     resolve: Arc<Notify>,
     verify: Arc<Notify>,
+    ready: Arc<Notify>,
 }
 
 impl AuthoritySignals {
@@ -332,6 +362,7 @@ impl AuthoritySignals {
         Self {
             resolve: Arc::new(Notify::new()),
             verify: Arc::new(Notify::new()),
+            ready: Arc::new(Notify::new()),
         }
     }
 
@@ -349,6 +380,7 @@ impl AuthoritySignals {
         // while the scheduler remains the sole level authority.
         self.resolve.notify_waiters();
         self.verify.notify_waiters();
+        self.ready.notify_waiters();
     }
 }
 
@@ -361,13 +393,40 @@ impl AuthoritySignals {
 pub(crate) struct AuthorityRuntime {
     store: Arc<RwLock<AuthorityStore>>,
     signals: Arc<AuthoritySignals>,
+    resolution_policy: ResolutionPolicy,
 }
 
 #[derive(Debug)]
 #[must_use = "checked-out authority work must be executed and settled"]
-pub(in crate::authority) enum AuthorityComputeJob {
+pub(crate) struct AuthorityComputeJob {
+    inner: AuthorityComputeKind,
+}
+
+#[derive(Debug)]
+enum AuthorityComputeKind {
     Resolution(ResolutionJob),
     Verification(VerificationJob),
+}
+
+impl AuthorityComputeJob {
+    fn resolution(job: ResolutionJob) -> Self {
+        Self {
+            inner: AuthorityComputeKind::Resolution(job),
+        }
+    }
+
+    fn verification(job: VerificationJob) -> Self {
+        Self {
+            inner: AuthorityComputeKind::Verification(job),
+        }
+    }
+
+    fn retry(self) -> ComputeSettlement {
+        match self.inner {
+            AuthorityComputeKind::Resolution(job) => job.retry(),
+            AuthorityComputeKind::Verification(job) => job.retry(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -375,7 +434,60 @@ pub(in crate::authority) enum AuthorityComputeJob {
 pub(in crate::authority) enum AuthorityRuntimeError {
     Plan(PlanError),
     Capture(ResolutionExecutionKind),
+    Execution(ResolutionExecutionKind),
+    Verification(VerificationExecutionKind),
+    FinalCapture(FinalAdmissionCaptureError),
+    ReadyValidation(ReadyValidationError),
     Settlement(ComputeSettlementFailure),
+}
+
+#[derive(Debug)]
+pub(in crate::authority) enum ReadyValidationError {
+    Candidate(FinalAdmissionValidationError),
+    Allocation,
+    Empty,
+    Batch(CandidateBatchError),
+}
+
+#[derive(Debug)]
+#[must_use = "resolved authority work either settled or still owns verification"]
+pub(crate) enum AuthorityComputeOutcome {
+    Settled,
+    Verification(TxPoolVerificationRequest),
+}
+
+#[derive(Debug)]
+#[must_use = "verification cache evidence is a best-effort post-settlement effect"]
+pub(in crate::authority) struct AuthorityVerificationOutcome {
+    pub(in crate::authority) cache_update: Option<VerificationCacheUpdate>,
+    pub(in crate::authority) cache_hit: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "Ready is a level; an applied count is only progress evidence"]
+pub(in crate::authority) enum AuthorityReadyOutcome {
+    Idle,
+    Applied { owners: usize },
+}
+
+#[must_use = "captured Ready validation work must be validated or discarded as stale"]
+struct ReadyValidationBatch(Vec<FinalAdmissionValidation>);
+
+#[must_use = "Ready work must be preallocated and rechecked against one later authority cut"]
+struct ReadyWorkBatch {
+    snapshot: Arc<Snapshot>,
+    works: Vec<FinalAdmissionWork>,
+}
+
+#[must_use = "prepared Ready work must complete its OCC capture"]
+struct PreparedReadyValidationBatch {
+    prepared: Vec<PreparedFinalAdmissionValidation>,
+    completed: Vec<FinalAdmissionValidation>,
+}
+
+enum ReadyDisposition {
+    Candidates(SettlementBatch),
+    Head(FinalAdmissionValidationOutcome),
 }
 
 impl AuthorityRuntime {
@@ -389,6 +501,7 @@ impl AuthorityRuntime {
                 config, consensus, snapshot,
             )?)),
             signals: Arc::new(AuthoritySignals::new()),
+            resolution_policy: ResolutionPolicy::from_runtime(config),
         })
     }
 
@@ -425,14 +538,14 @@ impl AuthorityRuntime {
             let captured = match work {
                 CheckedOutWork::Resolve(work) => {
                     ResolutionJob::capture_resolve(&store.authority, snapshot, work)
-                        .map(AuthorityComputeJob::Resolution)
+                        .map(AuthorityComputeJob::resolution)
                 }
                 CheckedOutWork::ContinuousResolve(work) => {
                     ResolutionJob::capture_continuous(&store.authority, snapshot, work)
-                        .map(AuthorityComputeJob::Resolution)
+                        .map(AuthorityComputeJob::resolution)
                 }
                 CheckedOutWork::Verify(work) => VerificationJob::from_checkout(work, snapshot)
-                    .map(AuthorityComputeJob::Verification),
+                    .map(AuthorityComputeJob::verification),
             };
             match captured {
                 Ok(job) => (Ok(Some(job)), checkout, None),
@@ -502,12 +615,266 @@ impl AuthorityRuntime {
         self.signals.publish_mutation();
         Ok(())
     }
+
+    /// Execute one resolve capability entirely outside the authority guard.
+    /// A bounded dep-group miss may take allocation-free Accepted read cuts;
+    /// every terminal or retry result is settled before this method returns.
+    pub(in crate::authority) fn execute_compute(
+        &self,
+        job: AuthorityComputeJob,
+    ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
+        match job.inner {
+            AuthorityComputeKind::Resolution(job) => self.execute_resolution(job),
+            AuthorityComputeKind::Verification(job) => {
+                Ok(AuthorityComputeOutcome::Verification(job.prepare()))
+            }
+        }
+    }
+
+    fn execute_resolution(
+        &self,
+        mut job: ResolutionJob,
+    ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
+        loop {
+            let policy = self.resolution_policy;
+            let evaluated = crate::util::block_offload(|| {
+                job.evaluate(policy.min_fee_rate, policy.large_cycle_threshold)
+            });
+            let evaluation = match evaluated {
+                Ok(evaluation) => evaluation,
+                Err(failure) => return self.settle_resolution_failure(failure),
+            };
+            match evaluation {
+                ResolutionEvaluation::Settle(settlement) => {
+                    self.settle(settlement)
+                        .map_err(AuthorityRuntimeError::Settlement)?;
+                    return Ok(AuthorityComputeOutcome::Settled);
+                }
+                ResolutionEvaluation::Verify(verification) => {
+                    return Ok(AuthorityComputeOutcome::Verification(
+                        verification.prepare(),
+                    ));
+                }
+                ResolutionEvaluation::Enrich(probe) => {
+                    let prepared = match probe.prepare_enrichment() {
+                        Ok(prepared) => prepared,
+                        Err(failure) => return self.settle_resolution_failure(failure),
+                    };
+                    let observed = {
+                        let store = self.store.read();
+                        prepared.observe(&store.authority)
+                    };
+                    match observed {
+                        ResolutionProbeObservation::Retry(retry) => job = retry,
+                        ResolutionProbeObservation::Missing(probe) => {
+                            let settlement = match probe.settle_missing() {
+                                Ok(settlement) => settlement,
+                                Err(failure) => {
+                                    return self.settle_resolution_failure(failure);
+                                }
+                            };
+                            self.settle(settlement)
+                                .map_err(AuthorityRuntimeError::Settlement)?;
+                            return Ok(AuthorityComputeOutcome::Settled);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn settle_resolution_failure(
+        &self,
+        failure: super::resolver::ResolutionExecutionFailure,
+    ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
+        let kind = failure.kind();
+        self.settle(failure.into_settlement())
+            .map_err(AuthorityRuntimeError::Settlement)?;
+        Err(AuthorityRuntimeError::Execution(kind))
+    }
+
+    /// Execute one snapshot-bound tx-pool verification request and settle its
+    /// exact capability before returning. Cache lookup happens outside this
+    /// method, but the key and script rules are sealed inside `request`.
+    pub(in crate::authority) async fn execute_verification(
+        &self,
+        request: TxPoolVerificationRequest,
+        cache_entry: Option<Completed>,
+        command_rx: Option<&mut watch::Receiver<ckb_script::ChunkCommand>>,
+    ) -> Result<AuthorityVerificationOutcome, AuthorityRuntimeError> {
+        match request.execute(cache_entry, command_rx).await {
+            Ok(execution) => {
+                self.settle(execution.settlement)
+                    .map_err(AuthorityRuntimeError::Settlement)?;
+                Ok(AuthorityVerificationOutcome {
+                    cache_update: execution.cache_update,
+                    cache_hit: execution.cache_hit,
+                })
+            }
+            Err(failure) => {
+                let kind = failure.kind();
+                self.settle(failure.into_settlement())
+                    .map_err(AuthorityRuntimeError::Settlement)?;
+                Err(AuthorityRuntimeError::Verification(kind))
+            }
+        }
+    }
+
+    /// Capture, validate and commit one bounded strongest-first Ready slice.
+    /// Common independent candidates share one membership Apply. If any
+    /// member has a special validation outcome, only the strongest owner is
+    /// disposed and the next iteration captures a fresh coherent cut.
+    pub(in crate::authority) fn try_drive_ready(
+        &self,
+    ) -> Result<AuthorityReadyOutcome, AuthorityRuntimeError> {
+        let Some(work) = ({
+            let store = self.store.read();
+            store.capture_ready_work_batch()
+        })
+        .map_err(AuthorityRuntimeError::FinalCapture)?
+        else {
+            return Ok(AuthorityReadyOutcome::Idle);
+        };
+        let prepared = work
+            .prepare()
+            .map_err(AuthorityRuntimeError::FinalCapture)?;
+        let batch = {
+            let store = self.store.read();
+            store.complete_ready_batch(prepared)
+        }
+        .map_err(AuthorityRuntimeError::FinalCapture)?;
+
+        let disposition = batch
+            .validate()
+            .map_err(AuthorityRuntimeError::ReadyValidation)?;
+        let (owners, committed) = {
+            let mut store = self.store.write();
+            match disposition {
+                ReadyDisposition::Candidates(batch) => {
+                    let batch_len = batch.len();
+                    let plan = store
+                        .authority
+                        .plan_settlement(&batch)
+                        .map_err(AuthorityRuntimeError::Plan)?;
+                    match plan {
+                        SettlementPlan::IndependentRun(plan) => (batch_len, plan.apply()),
+                        SettlementPlan::CoupledComponent {
+                            disposition,
+                            reason: _,
+                        } => (1, apply_candidate_disposition(disposition)),
+                    }
+                }
+                ReadyDisposition::Head(outcome) => {
+                    let plan = store
+                        .authority
+                        .plan_final_admission(outcome)
+                        .map_err(AuthorityRuntimeError::Plan)?;
+                    (1, apply_final_disposition(plan))
+                }
+            }
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(AuthorityReadyOutcome::Applied { owners })
+    }
+}
+
+impl ReadyWorkBatch {
+    fn prepare(self) -> Result<PreparedReadyValidationBatch, FinalAdmissionCaptureError> {
+        let mut prepared = Vec::new();
+        prepared
+            .try_reserve(self.works.len())
+            .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
+        let mut completed = Vec::new();
+        completed
+            .try_reserve(self.works.len())
+            .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
+        for work in self.works {
+            prepared.push(
+                FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), work)
+                    .map_err(FinalAdmissionCaptureError::Validation)?,
+            );
+        }
+        Ok(PreparedReadyValidationBatch {
+            prepared,
+            completed,
+        })
+    }
+}
+
+impl ReadyValidationBatch {
+    fn validate(self) -> Result<ReadyDisposition, ReadyValidationError> {
+        let mut outcomes = Vec::new();
+        outcomes
+            .try_reserve(self.0.len())
+            .map_err(|_| ReadyValidationError::Allocation)?;
+        for validation in self.0 {
+            outcomes.push(
+                validation
+                    .validate()
+                    .map_err(ReadyValidationError::Candidate)?,
+            );
+        }
+
+        let mut outcomes = outcomes.into_iter();
+        let Some(head) = outcomes.next() else {
+            return Err(ReadyValidationError::Empty);
+        };
+        let head = match head {
+            FinalAdmissionValidationOutcome::Candidate(head) => head,
+            other @ (FinalAdmissionValidationOutcome::Rejected(_)
+            | FinalAdmissionValidationOutcome::Reresolve(_)) => {
+                return Ok(ReadyDisposition::Head(other));
+            }
+        };
+        let mut candidates = Vec::new();
+        candidates
+            .try_reserve(outcomes.len().saturating_add(1))
+            .map_err(|_| ReadyValidationError::Allocation)?;
+        candidates.push(IndependentCandidate::new(head));
+        for outcome in outcomes {
+            match outcome {
+                FinalAdmissionValidationOutcome::Candidate(candidate) => {
+                    candidates.push(IndependentCandidate::new(candidate));
+                }
+                FinalAdmissionValidationOutcome::Rejected(_)
+                | FinalAdmissionValidationOutcome::Reresolve(_) => {
+                    // The strongest Ready owner remains the only admissible
+                    // action from this cut. Drop weaker receipts and re-read
+                    // after its disposition commits.
+                    let head = candidates.swap_remove(0).into_receipt();
+                    return Ok(ReadyDisposition::Head(
+                        FinalAdmissionValidationOutcome::Candidate(head),
+                    ));
+                }
+            }
+        }
+        SettlementBatch::new(candidates)
+            .map(ReadyDisposition::Candidates)
+            .map_err(ReadyValidationError::Batch)
+    }
+}
+
+fn apply_candidate_disposition(plan: CandidateDispositionPlan<'_>) -> CommittedDelta {
+    match plan {
+        CandidateDispositionPlan::Accepted(plan) => plan.apply(),
+        CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
+    }
+}
+
+fn apply_final_disposition(plan: FinalAdmissionDispositionPlan<'_>) -> CommittedDelta {
+    match plan {
+        FinalAdmissionDispositionPlan::Candidate(plan) => apply_candidate_disposition(plan),
+        FinalAdmissionDispositionPlan::ValidationRejected(plan) => plan.apply().1,
+        FinalAdmissionDispositionPlan::Reresolve(plan) => plan.apply(),
+    }
 }
 
 #[derive(Debug)]
 pub(in crate::authority) enum FinalAdmissionCaptureError {
     Plan(PlanError),
     Validation(FinalAdmissionValidationError),
+    Allocation,
 }
 
 impl AuthorityStore {
@@ -538,25 +905,51 @@ impl AuthorityStore {
         &self.snapshot
     }
 
-    /// Capture Ready ownership, paired chain evidence and the exact bounded
-    /// Accepted-origin overlay under this store's single physical guard.
-    /// Snapshot and authority view therefore cannot be mixed by a caller.
-    pub(in crate::authority) fn capture_final_admission(
+    /// First OCC read: clone only the bounded Ready proof shells and paired
+    /// snapshot. Per-cell overlay allocation happens after this guard opens.
+    fn capture_ready_work_batch(
         &self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-    ) -> Result<FinalAdmissionValidation, FinalAdmissionCaptureError> {
-        let work = self
-            .authority
-            .final_admission_work(key, expected)
-            .map_err(FinalAdmissionCaptureError::Plan)?;
-        FinalAdmissionValidation::capture(
-            AuthorityStoreCaptureSeal(()),
-            &self.authority,
-            Arc::clone(&self.snapshot),
-            work,
-        )
-        .map_err(FinalAdmissionCaptureError::Validation)
+    ) -> Result<Option<ReadyWorkBatch>, FinalAdmissionCaptureError> {
+        let candidates = self.authority.ready_candidates();
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let mut works = Vec::new();
+        works
+            .try_reserve(candidates.len())
+            .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
+        for (key, expected) in candidates {
+            works.push(
+                self.authority
+                    .final_admission_work(&key, expected)
+                    .map_err(FinalAdmissionCaptureError::Plan)?,
+            );
+        }
+        Ok(Some(ReadyWorkBatch {
+            snapshot: Arc::clone(&self.snapshot),
+            works,
+        }))
+    }
+
+    /// Second OCC read: recheck each exact Ready version and fill only the
+    /// preallocated Accepted-origin bits. Any intervening mutation makes the
+    /// capture stale rather than mixing two authority cuts.
+    fn complete_ready_batch(
+        &self,
+        mut batch: PreparedReadyValidationBatch,
+    ) -> Result<ReadyValidationBatch, FinalAdmissionCaptureError> {
+        for prepared in batch.prepared {
+            let work = self
+                .authority
+                .final_admission_work(prepared.key(), prepared.expected())
+                .map_err(FinalAdmissionCaptureError::Plan)?;
+            batch.completed.push(
+                prepared
+                    .complete(AuthorityStoreCaptureSeal(()), &self.authority, work)
+                    .map_err(FinalAdmissionCaptureError::Validation)?,
+            );
+        }
+        Ok(ReadyValidationBatch(batch.completed))
     }
 
     pub(crate) fn committed_txs_hash_cache(&mut self) -> &mut LruCache<ProposalShortId, Byte32> {
@@ -575,12 +968,12 @@ impl AuthorityStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthorityComputeJob, AuthorityRuntime, AuthorityRuntimeConfig, AuthorityRuntimeError,
-        PREACCEPTED_ENTRY_BYTES, RuntimeConfigError,
+        AuthorityComputeJob, AuthorityComputeOutcome, AuthorityReadyOutcome, AuthorityRuntime,
+        AuthorityRuntimeConfig, AuthorityRuntimeError, PREACCEPTED_ENTRY_BYTES, RuntimeConfigError,
     };
     use crate::authority::state::{
         ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, ValidatedAdmission,
-        WorkPermit,
+        VerifyCapability, WorkPermit,
     };
     use ckb_app_config::{TxPoolConfig, VerifyOrdering};
     use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -641,10 +1034,7 @@ mod tests {
     }
 
     fn retry(job: AuthorityComputeJob) -> super::super::work::ComputeSettlement {
-        match job {
-            AuthorityComputeJob::Resolution(job) => job.retry(),
-            AuthorityComputeJob::Verification(job) => job.retry(),
-        }
+        job.retry()
     }
 
     fn is_queued_resolve(runtime: &AuthorityRuntime, key: &super::super::state::RawTxHash) -> bool {
@@ -671,6 +1061,65 @@ mod tests {
             .settle(retry(job))
             .expect("the exact capability returns to resolve");
         assert!(is_queued_resolve(&runtime, &key));
+    }
+
+    #[test]
+    fn runtime_resolution_uses_assembled_policy_and_settles_before_returning() {
+        let runtime = runtime();
+        let admission = admission(904, 94);
+        let key = admission.identity.raw.clone();
+        runtime.admit(admission).expect("admission commits");
+        let job = runtime
+            .try_checkout(WorkPermit::ResolveOnly)
+            .expect("checkout remains healthy")
+            .expect("resolve work is ready");
+        assert!(matches!(
+            runtime
+                .execute_compute(job)
+                .expect("the assembled zero-fee policy accepts this fixture"),
+            AuthorityComputeOutcome::Settled
+        ));
+        let store = runtime.store.read();
+        assert!(matches!(
+            store.authority.entry(&key),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+        ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() {
+        let runtime = runtime();
+        let admission = admission(905, 95);
+        let key = admission.identity.raw.clone();
+        runtime.admit(admission).expect("admission commits");
+        let job = runtime
+            .try_checkout(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
+            .expect("checkout remains healthy")
+            .expect("resolve work is ready");
+        let AuthorityComputeOutcome::Verification(request) = runtime
+            .execute_compute(job)
+            .expect("resolution continues under the same worker capability")
+        else {
+            panic!("the empty-script fixture fits continuous verification")
+        };
+        let verification = runtime
+            .execute_verification(request, None, None)
+            .await
+            .expect("verification settles Ready ownership");
+        assert!(!verification.cache_hit);
+        assert!(verification.cache_update.is_some());
+        assert_eq!(
+            runtime
+                .try_drive_ready()
+                .expect("the sealed Ready batch commits"),
+            AuthorityReadyOutcome::Applied { owners: 1 }
+        );
+        let store = runtime.store.read();
+        assert!(matches!(
+            store.authority.entry(&key),
+            Some(OwnedTx::Accepted(_))
+        ));
     }
 
     #[tokio::test]

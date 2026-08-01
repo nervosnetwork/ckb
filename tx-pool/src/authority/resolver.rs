@@ -99,23 +99,26 @@ impl AcceptedOverlay {
         Ok(overlay)
     }
 
-    fn enrich(
-        &mut self,
-        authority: &TxPoolAuthority,
-        missing: &[MissingCell],
-    ) -> Result<bool, ResolutionExecutionKind> {
+    fn reserve_enrichment(&mut self, missing_count: usize) -> Result<(), ResolutionExecutionKind> {
         self.producers
-            .try_reserve(missing.len())
+            .try_reserve(missing_count)
             .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
         self.spent_inputs
-            .try_reserve(missing.len())
+            .try_reserve(missing_count)
             .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        Ok(())
+    }
+
+    /// Observe only the transaction-bounded Accepted cut. Capacity was
+    /// reserved before the authority guard was acquired, so this read cannot
+    /// allocate while it blocks an authoritative writer.
+    fn observe_enrichment(&mut self, authority: &TxPoolAuthority, missing: &[MissingCell]) -> bool {
         let before_producers = self.producers.len();
         let before_spends = self.spent_inputs.len();
         for cell in missing {
             self.capture_cell(authority, &cell.out_point, cell.role);
         }
-        Ok(self.producers.len() != before_producers || self.spent_inputs.len() != before_spends)
+        self.producers.len() != before_producers || self.spent_inputs.len() != before_spends
     }
 
     fn capture_cell(&mut self, authority: &TxPoolAuthority, out_point: &OutPoint, role: CellRole) {
@@ -631,28 +634,40 @@ impl ResolutionJob {
 }
 
 impl ResolutionProbe {
-    pub(super) fn enrich(
-        mut self,
-        authority: &TxPoolAuthority,
-    ) -> Result<ResolutionProbeOutcome, ResolutionExecutionFailure> {
-        match self.job.overlay.enrich(authority, &self.missing) {
-            Ok(true) => Ok(ResolutionProbeOutcome::Retry(self.job)),
-            Ok(false) => {
-                let keys = self
-                    .missing
-                    .into_iter()
-                    .map(|cell| DependencyKey::Cell(compact_packed(&cell.out_point)))
-                    .collect();
-                self.job
-                    .work
-                    .missing(keys)
-                    .map(ResolutionProbeOutcome::Settle)
-            }
-            Err(kind) => Err(ResolutionExecutionFailure {
+    /// Reserve fallible collection growth before the authority read cut. A
+    /// failure retains the exact settlement capability for an ordinary retry.
+    pub(super) fn prepare_enrichment(mut self) -> Result<Self, ResolutionExecutionFailure> {
+        if let Err(kind) = self.job.overlay.reserve_enrichment(self.missing.len()) {
+            return Err(ResolutionExecutionFailure {
                 kind,
                 settlement: self.job.work.retry(),
-            }),
+            });
         }
+        Ok(self)
+    }
+
+    /// Perform the allocation-free Accepted observation under the authority
+    /// read guard. Missing-set canonicalization remains outside that guard.
+    pub(super) fn observe(mut self, authority: &TxPoolAuthority) -> ResolutionProbeObservation {
+        if self
+            .job
+            .overlay
+            .observe_enrichment(authority, &self.missing)
+        {
+            ResolutionProbeObservation::Retry(self.job)
+        } else {
+            ResolutionProbeObservation::Missing(self)
+        }
+    }
+
+    /// Compile the complete missing set after the authority guard opens.
+    pub(super) fn settle_missing(self) -> Result<ComputeSettlement, ResolutionExecutionFailure> {
+        let keys = self
+            .missing
+            .into_iter()
+            .map(|cell| DependencyKey::Cell(compact_packed(&cell.out_point)))
+            .collect();
+        self.job.work.missing(keys)
     }
 
     #[cfg(test)]
@@ -665,10 +680,10 @@ impl ResolutionProbe {
 }
 
 #[derive(Debug)]
-#[must_use = "an enrichment result must retry resolution or settle"]
-pub(super) enum ResolutionProbeOutcome {
+#[must_use = "an enrichment observation must retry resolution or compile its missing settlement"]
+pub(super) enum ResolutionProbeObservation {
     Retry(ResolutionJob),
-    Settle(ComputeSettlement),
+    Missing(ResolutionProbe),
 }
 
 enum MissingScanError {
@@ -772,7 +787,7 @@ pub(super) struct VerificationJob {
 /// or constructed from independently sampled chain state.
 #[derive(Debug)]
 #[must_use = "a prepared verification request still owns the checked-out capability"]
-pub(super) struct TxPoolVerificationRequest {
+pub(crate) struct TxPoolVerificationRequest {
     job: VerificationJob,
     environment: Arc<TxVerifyEnv>,
     cache_key: TxVerificationCacheKey,
@@ -780,9 +795,9 @@ pub(super) struct TxPoolVerificationRequest {
 }
 
 #[derive(Debug)]
-pub(in crate::authority) struct VerificationCacheUpdate {
-    pub(in crate::authority) key: TxVerificationCacheKey,
-    pub(in crate::authority) completed: Completed,
+pub(crate) struct VerificationCacheUpdate {
+    pub(crate) key: TxVerificationCacheKey,
+    pub(crate) completed: Completed,
 }
 
 #[derive(Debug)]
@@ -794,7 +809,7 @@ pub(in crate::authority) struct VerificationExecution {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum VerificationExecutionKind {
+pub(crate) enum VerificationExecutionKind {
     InvalidReceipt(VerificationReceiptError),
 }
 
@@ -892,7 +907,7 @@ impl VerificationJob {
 }
 
 impl TxPoolVerificationRequest {
-    pub(in crate::authority) fn cache_key(&self) -> &TxVerificationCacheKey {
+    pub(crate) fn cache_key(&self) -> &TxVerificationCacheKey {
         &self.cache_key
     }
 

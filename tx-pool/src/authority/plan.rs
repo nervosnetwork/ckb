@@ -80,7 +80,6 @@ pub(in crate::authority) use membership::{
 };
 use membership::{MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use membership::{RemovalCause, StatusCounts};
-#[cfg(test)]
 pub(in crate::authority) use settlement::{
     CandidateBatchError, IndependentCandidate, SettlementBatch, SettlementPlan,
 };
@@ -359,9 +358,15 @@ impl TxPoolAuthority {
         self.membership.snapshot()
     }
 
+    /// Bounded strongest-first Ready identities for the runtime's sealed
+    /// validation capture. Raw identities never cross the authority module.
+    pub(in crate::authority) fn ready_candidates(&self) -> Vec<(RawTxHash, EntryVersion)> {
+        self.scheduler.ready()
+    }
+
     #[cfg(test)]
     pub(super) fn ready_for_reference(&self) -> Vec<(RawTxHash, EntryVersion)> {
-        self.scheduler.ready()
+        self.ready_candidates()
     }
 
     #[cfg(test)]
