@@ -151,7 +151,7 @@ impl TxPoolService {
                     Err(verified) => (
                         verified.completed,
                         verified.verify_cache_hit,
-                        verified.verification_cache_key.clone(),
+                        verified.verification_cache_key,
                         verified.started_at,
                     ),
                 };
@@ -517,11 +517,11 @@ impl TxPoolService {
         {
             match error {
                 tokio::sync::mpsc::error::TrySendError::Full(update) => warn!(
-                    "verify cache update queue is full for {}",
+                    "verify cache update queue is full for {:02x?}",
                     update.key.witness_hash()
                 ),
                 tokio::sync::mpsc::error::TrySendError::Closed(update) => warn!(
-                    "verify cache update queue is closed for {}",
+                    "verify cache update queue is closed for {:02x?}",
                     update.key.witness_hash()
                 ),
             }

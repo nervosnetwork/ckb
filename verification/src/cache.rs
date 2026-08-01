@@ -4,7 +4,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_script::{TransactionState, TxVerifyEnv};
 use ckb_types::{
     core::{Capacity, Cycle, EntryCompleted, TransactionView},
-    packed::Byte32,
+    prelude::Unpack,
 };
 use std::sync::Arc;
 
@@ -50,9 +50,9 @@ impl ScriptVerificationRules {
 /// Script verification covers witnesses, while [`TransactionView::hash`]
 /// deliberately does not. Keeping the witness hash and script rules behind
 /// one type makes both a raw-hash lookup and a context-free lookup impossible.
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct TxVerificationCacheKey {
-    witness_hash: Byte32,
+    witness_hash: [u8; 32],
     script_rules: ScriptVerificationRules,
 }
 
@@ -61,13 +61,15 @@ impl TxVerificationCacheKey {
     /// verified. Neither component can be omitted by a cache caller.
     pub fn from_transaction(tx: &TransactionView, script_rules: ScriptVerificationRules) -> Self {
         Self {
-            witness_hash: tx.witness_hash(),
+            witness_hash: tx.witness_hash().unpack(),
             script_rules,
         }
     }
 
-    /// Borrow the underlying witness hash for diagnostics.
-    pub fn witness_hash(&self) -> &Byte32 {
+    /// Borrow the fixed-size witness hash. Keeping this value inline makes
+    /// cache-key copies plain bounded data copies rather than shared packed
+    /// buffer reference-count operations.
+    pub const fn witness_hash(&self) -> &[u8; 32] {
         &self.witness_hash
     }
 

@@ -6,7 +6,7 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_types::{
     bytes::Bytes,
     core::{EpochNumberWithFraction, HeaderBuilder, TransactionBuilder, hardfork::HardForks},
-    prelude::Pack,
+    prelude::{Pack, Unpack},
 };
 
 #[test]
@@ -14,7 +14,7 @@ fn cache_key_binds_witness_identity_to_script_rules() {
     let tx = TransactionBuilder::default()
         .witness(Bytes::from_static(b"witness").pack())
         .build();
-    let expected_witness_hash = tx.witness_hash();
+    let expected_witness_hash: [u8; 32] = tx.witness_hash().unpack();
     let v1 = TxVerificationCacheKey::from_transaction(&tx, ScriptVerificationRules::V1);
     let v2 = TxVerificationCacheKey::from_transaction(&tx, ScriptVerificationRules::V2);
 

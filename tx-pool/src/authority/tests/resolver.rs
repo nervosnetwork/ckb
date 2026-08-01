@@ -21,7 +21,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{Capacity, DepType, FeeRate, TransactionBuilder},
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec},
-    prelude::{Builder, Entity, Pack},
+    prelude::{Builder, Entity, Pack, Unpack},
 };
 use ckb_verification::cache::{Completed, ScriptVerificationRules};
 use std::sync::Arc;
@@ -367,7 +367,7 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
     let snapshot = genesis_snapshot();
     let mut authority = authority_at(&snapshot);
     let tx = TransactionBuilder::default().version(812u32).build();
-    let witness_hash = tx.witness_hash();
+    let witness_hash: [u8; 32] = tx.witness_hash().unpack();
     let job = checkout_verification_job(&mut authority, Arc::clone(&snapshot), tx, 92);
     let request = job.prepare();
     let expected_rules = ScriptVerificationRules::from_env(
