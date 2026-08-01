@@ -911,6 +911,14 @@ impl TxPoolVerificationRequest {
         &self.cache_key
     }
 
+    /// Return the still-linear verification capability to ordinary resolve
+    /// scheduling. This is used only when the sealed worker topology detects
+    /// an impossible lane mismatch before VM execution; callers cannot
+    /// extract or reconstruct the underlying lease token.
+    pub(in crate::authority) fn retry(self) -> ComputeSettlement {
+        self.job.retry()
+    }
+
     pub(in crate::authority) async fn execute(
         self,
         cache_entry: Option<Completed>,

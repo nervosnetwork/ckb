@@ -83,6 +83,8 @@ struct AuthorityRuntimeConfig {
     verify_order: VerifyOrder,
     effects: EffectLimits,
     membership: MembershipConfig,
+    resolution_policy: ResolutionPolicy,
+    verify_workers: NonZeroUsize,
 }
 
 /// Immutable resolution policy compiled once at runtime assembly. Jobs never
@@ -125,12 +127,14 @@ impl AuthorityRuntimeConfig {
 
         let retained_entries = pipeline_bytes / PREACCEPTED_ENTRY_BYTES;
         let pipeline_edges = pipeline_bytes / DEPENDENCY_EDGE_BYTES;
-        let verify_workers = config.max_tx_verify_workers.max(1);
+        let verify_workers = NonZeroUsize::new(config.max_tx_verify_workers.max(1))
+            .ok_or(RuntimeConfigError::Arithmetic)?;
         // One ordered resolver preserves dependency fairness. Verification
         // workers opportunistically take ResolveThenVerify when their own
         // verify lane is empty, so no second resolve-worker population or VM
         // concurrency budget exists.
         let active_work = verify_workers
+            .get()
             .checked_add(1)
             .ok_or(RuntimeConfigError::Arithmetic)?;
 
@@ -319,6 +323,8 @@ impl AuthorityRuntimeConfig {
             verify_order,
             effects,
             membership,
+            resolution_policy: ResolutionPolicy::from_runtime(config),
+            verify_workers,
         })
     }
 }
@@ -394,6 +400,7 @@ pub(crate) struct AuthorityRuntime {
     store: Arc<RwLock<AuthorityStore>>,
     signals: Arc<AuthoritySignals>,
     resolution_policy: ResolutionPolicy,
+    verify_workers: NonZeroUsize,
 }
 
 #[derive(Debug)]
@@ -438,7 +445,22 @@ pub(in crate::authority) enum AuthorityRuntimeError {
     Verification(VerificationExecutionKind),
     FinalCapture(FinalAdmissionCaptureError),
     ReadyValidation(ReadyValidationError),
-    Settlement(ComputeSettlementFailure),
+    Settlement {
+        failure: ComputeSettlementFailure,
+        origin: SettlementOrigin,
+    },
+}
+
+/// Semantic result whose exact linear capability was being committed when
+/// settlement encountered backpressure or a structural error. The worker
+/// retains this origin while it drains the capability, so an invalid receipt
+/// cannot be hidden by a temporary full effect region.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::authority) enum SettlementOrigin {
+    Capture(ResolutionExecutionKind),
+    Resolution(ResolutionExecutionKind),
+    Verification(VerificationExecutionKind),
+    Completion,
 }
 
 #[derive(Debug)]
@@ -496,13 +518,29 @@ impl AuthorityRuntime {
         consensus: &Consensus,
         snapshot: Arc<Snapshot>,
     ) -> Result<Self, RuntimeConfigError> {
+        let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
+        let resolution_policy = runtime.resolution_policy;
+        let verify_workers = runtime.verify_workers;
         Ok(Self {
-            store: Arc::new(RwLock::new(AuthorityStore::new(
-                config, consensus, snapshot,
+            store: Arc::new(RwLock::new(AuthorityStore::from_runtime(
+                runtime, snapshot,
             )?)),
             signals: Arc::new(AuthoritySignals::new()),
-            resolution_policy: ResolutionPolicy::from_runtime(config),
+            resolution_policy,
+            verify_workers,
         })
+    }
+
+    pub(super) fn signal_for_permit(&self, permit: WorkPermit) -> Arc<Notify> {
+        Arc::clone(self.signals.for_permit(permit))
+    }
+
+    pub(super) fn mutation_signal(&self) -> Arc<Notify> {
+        Arc::clone(&self.signals.ready)
+    }
+
+    pub(super) const fn verify_worker_count(&self) -> usize {
+        self.verify_workers.get()
     }
 
     pub(in crate::authority) fn admit(
@@ -558,7 +596,10 @@ impl AuthorityRuntime {
                             Some(settlement),
                         ),
                         Err(failure) => (
-                            Err(AuthorityRuntimeError::Settlement(failure)),
+                            Err(AuthorityRuntimeError::Settlement {
+                                failure,
+                                origin: SettlementOrigin::Capture(kind),
+                            }),
                             checkout,
                             None,
                         ),
@@ -646,8 +687,12 @@ impl AuthorityRuntime {
             };
             match evaluation {
                 ResolutionEvaluation::Settle(settlement) => {
-                    self.settle(settlement)
-                        .map_err(AuthorityRuntimeError::Settlement)?;
+                    self.settle(settlement).map_err(|failure| {
+                        AuthorityRuntimeError::Settlement {
+                            failure,
+                            origin: SettlementOrigin::Completion,
+                        }
+                    })?;
                     return Ok(AuthorityComputeOutcome::Settled);
                 }
                 ResolutionEvaluation::Verify(verification) => {
@@ -673,8 +718,12 @@ impl AuthorityRuntime {
                                     return self.settle_resolution_failure(failure);
                                 }
                             };
-                            self.settle(settlement)
-                                .map_err(AuthorityRuntimeError::Settlement)?;
+                            self.settle(settlement).map_err(|failure| {
+                                AuthorityRuntimeError::Settlement {
+                                    failure,
+                                    origin: SettlementOrigin::Completion,
+                                }
+                            })?;
                             return Ok(AuthorityComputeOutcome::Settled);
                         }
                     }
@@ -688,8 +737,12 @@ impl AuthorityRuntime {
         failure: super::resolver::ResolutionExecutionFailure,
     ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
         let kind = failure.kind();
-        self.settle(failure.into_settlement())
-            .map_err(AuthorityRuntimeError::Settlement)?;
+        self.settle(failure.into_settlement()).map_err(|failure| {
+            AuthorityRuntimeError::Settlement {
+                failure,
+                origin: SettlementOrigin::Resolution(kind),
+            }
+        })?;
         Err(AuthorityRuntimeError::Execution(kind))
     }
 
@@ -704,8 +757,12 @@ impl AuthorityRuntime {
     ) -> Result<AuthorityVerificationOutcome, AuthorityRuntimeError> {
         match request.execute(cache_entry, command_rx).await {
             Ok(execution) => {
-                self.settle(execution.settlement)
-                    .map_err(AuthorityRuntimeError::Settlement)?;
+                self.settle(execution.settlement).map_err(|failure| {
+                    AuthorityRuntimeError::Settlement {
+                        failure,
+                        origin: SettlementOrigin::Completion,
+                    }
+                })?;
                 Ok(AuthorityVerificationOutcome {
                     cache_update: execution.cache_update,
                     cache_hit: execution.cache_hit,
@@ -713,8 +770,12 @@ impl AuthorityRuntime {
             }
             Err(failure) => {
                 let kind = failure.kind();
-                self.settle(failure.into_settlement())
-                    .map_err(AuthorityRuntimeError::Settlement)?;
+                self.settle(failure.into_settlement()).map_err(|failure| {
+                    AuthorityRuntimeError::Settlement {
+                        failure,
+                        origin: SettlementOrigin::Verification(kind),
+                    }
+                })?;
                 Err(AuthorityRuntimeError::Verification(kind))
             }
         }
@@ -878,12 +939,10 @@ pub(in crate::authority) enum FinalAdmissionCaptureError {
 }
 
 impl AuthorityStore {
-    pub(crate) fn new(
-        config: &TxPoolConfig,
-        consensus: &Consensus,
+    fn from_runtime(
+        runtime: AuthorityRuntimeConfig,
         snapshot: Arc<Snapshot>,
     ) -> Result<Self, RuntimeConfigError> {
-        let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
         let chain_view = ChainViewId::new(ChainRevision(0), snapshot.tip_hash());
         let authority = TxPoolAuthority::from_runtime(
             runtime.resources,
@@ -969,22 +1028,32 @@ impl AuthorityStore {
 mod tests {
     use super::{
         AuthorityComputeJob, AuthorityComputeOutcome, AuthorityReadyOutcome, AuthorityRuntime,
-        AuthorityRuntimeConfig, AuthorityRuntimeError, PREACCEPTED_ENTRY_BYTES, RuntimeConfigError,
+        AuthorityRuntimeConfig, AuthorityRuntimeError, AuthoritySignals, AuthorityStore,
+        PREACCEPTED_ENTRY_BYTES, RuntimeConfigError,
+    };
+    use crate::authority::effect::{
+        CommittedEffect, CommittedRejection, EffectBatchBounds, EffectCapacity, EffectLimits,
+        EffectPolicy, RejectionAudience,
     };
     use crate::authority::state::{
-        ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, ValidatedAdmission,
-        VerifyCapability, WorkPermit,
+        ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RejectionKind,
+        ValidatedAdmission, VerifyCapability, WorkPermit,
     };
     use ckb_app_config::{TxPoolConfig, VerifyOrdering};
+    use ckb_async_runtime::Handle;
     use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_network::PeerIndex;
+    use ckb_script::ChunkCommand;
     use ckb_snapshot::Snapshot;
+    use ckb_stop_handler::CancellationToken;
     use ckb_test_chain_utils::MockStore;
     use ckb_types::{
         U256,
         core::{FeeRate, TransactionBuilder},
+        prelude::Unpack,
     };
     use std::sync::Arc;
+    use tokio::sync::{RwLock as TokioRwLock, mpsc, watch};
 
     fn runtime_config() -> TxPoolConfig {
         TxPoolConfig {
@@ -1023,6 +1092,26 @@ mod tests {
         let snapshot = genesis_snapshot();
         AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
             .expect("the production authority runtime fixture is valid")
+    }
+
+    fn runtime_with_effect_limits(
+        config: &TxPoolConfig,
+        snapshot: Arc<Snapshot>,
+        effects: EffectLimits,
+    ) -> AuthorityRuntime {
+        let mut assembled = AuthorityRuntimeConfig::from_runtime(config, snapshot.consensus())
+            .expect("the production authority policy fixture is valid");
+        assembled.effects = effects;
+        let resolution_policy = assembled.resolution_policy;
+        let verify_workers = assembled.verify_workers;
+        let store = AuthorityStore::from_runtime(assembled, snapshot)
+            .expect("the narrow effect runtime reserves every bounded projection");
+        AuthorityRuntime {
+            store: Arc::new(ckb_util::RwLock::new(store)),
+            signals: Arc::new(AuthoritySignals::new()),
+            resolution_policy,
+            verify_workers,
+        }
     }
 
     fn admission(nonce: u32, peer: usize) -> ValidatedAdmission {
@@ -1120,6 +1209,222 @@ mod tests {
             store.authority.entry(&key),
             Some(OwnedTx::Accepted(_))
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle() {
+        let runtime = runtime();
+        let handle = Handle::new(tokio::runtime::Handle::current(), None);
+        let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
+        let (cache_tx, mut cache_rx) = mpsc::channel(4);
+        let (command_tx, command_rx) = watch::channel(ChunkCommand::Suspend);
+        let cancel = CancellationToken::new();
+        let handles = runtime
+            .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
+            .expect("the validated worker topology reserves its handle vector");
+        assert_eq!(handles.verifiers.len(), 4);
+
+        let admission = admission(906, 96);
+        let key = admission.identity.raw.clone();
+        runtime.admit(admission).expect("admission commits");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(is_queued_resolve(&runtime, &key));
+        assert_eq!(
+            runtime
+                .store
+                .read()
+                .authority
+                .resources()
+                .preaccepted()
+                .active_work,
+            0,
+            "a suspended topology must not check out a linear capability"
+        );
+
+        command_tx
+            .send(ChunkCommand::Resume)
+            .expect("the worker command authority remains live");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if matches!(
+                    runtime.store.read().authority.entry(&key),
+                    Some(OwnedTx::Accepted(_))
+                ) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the sealed workers converge the transaction to Accepted");
+        let update = tokio::time::timeout(std::time::Duration::from_secs(1), cache_rx.recv())
+            .await
+            .expect("the best-effort cache effect is not delayed")
+            .expect("the cache receiver remains open");
+        let expected_witness: [u8; 32] = TransactionBuilder::default()
+            .version(906u32)
+            .build()
+            .witness_hash()
+            .unpack();
+        assert_eq!(update.key.witness_hash(), &expected_witness);
+
+        cancel.cancel();
+        handles
+            .resolver
+            .await
+            .expect("resolver task remains healthy")
+            .expect("resolver exits without a structural fault");
+        for verifier in handles.verifiers {
+            verifier
+                .await
+                .expect("verifier task remains healthy")
+                .expect("verifier exits without a structural fault");
+        }
+        handles
+            .ready
+            .await
+            .expect("Ready driver task remains healthy")
+            .expect("Ready driver exits without a structural fault");
+        assert_eq!(
+            runtime
+                .store
+                .read()
+                .authority
+                .resources()
+                .preaccepted()
+                .active_work,
+            0,
+            "structured cancellation cannot strand checked-out work"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_returns() {
+        const EFFECT_BYTES: usize = 1024 * 1024;
+        let mut config = runtime_config();
+        config.min_fee_rate = FeeRate::from_u64(1_000);
+        let snapshot = genesis_snapshot();
+        let effects = EffectLimits::partitioned(
+            EffectCapacity::new(1, EFFECT_BYTES),
+            EffectCapacity::new(1, EFFECT_BYTES),
+            EffectCapacity::new(1, EFFECT_BYTES),
+            EffectBatchBounds::new(1, EFFECT_BYTES, EFFECT_BYTES, EFFECT_BYTES),
+        )
+        .expect("the narrow fixture admits one effect in each region");
+        let runtime = runtime_with_effect_limits(&config, snapshot, effects);
+
+        let occupied_tx = Arc::new(TransactionBuilder::default().version(907u32).build());
+        let occupied = {
+            let store = runtime.store.read();
+            store
+                .authority
+                .effect_publication_for_foundation(
+                    EffectPolicy::Remote,
+                    vec![CommittedEffect::Rejected {
+                        tx: occupied_tx,
+                        audience: RejectionAudience::foundation(),
+                        reason: CommittedRejection::Foundation(RejectionKind::Policy),
+                    }],
+                )
+                .expect("the occupied effect is bounded")
+        };
+        let occupied_retirement = {
+            let mut store = runtime.store.write();
+            store
+                .authority
+                .plan_effect_publication_for_foundation(&occupied)
+                .expect("the empty remote region accepts one effect")
+                .apply()
+        };
+        drop(occupied_retirement);
+        runtime.signals.publish_mutation();
+
+        let handle = Handle::new(tokio::runtime::Handle::current(), None);
+        let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
+        let (cache_tx, _cache_rx) = mpsc::channel(1);
+        let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+        let cancel = CancellationToken::new();
+        let handles = runtime
+            .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
+            .expect("the validated topology reserves its handle vector");
+
+        let admission = admission(908, 98);
+        let key = admission.identity.raw.clone();
+        runtime.admit(admission).expect("admission commits");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if matches!(
+                    runtime.store.read().authority.entry(&key),
+                    Some(OwnedTx::PreAccepted(entry))
+                        if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+                ) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the rejected settlement remains Computing while publication is full");
+
+        let occupied_lease = {
+            let mut store = runtime.store.write();
+            store
+                .authority
+                .plan_effect_checkout_for_foundation()
+                .expect("effect checkout remains healthy")
+                .expect("the occupied effect is queued")
+                .apply()
+                .into_effect_lease()
+                .expect("effect checkout returns its exact lease")
+        };
+        let publication_retirement = {
+            let mut store = runtime.store.write();
+            store
+                .authority
+                .apply_effect_settlement_for_foundation(occupied_lease.published())
+                .expect("the occupied publication settles")
+        };
+        drop(publication_retirement);
+        runtime.signals.publish_mutation();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if runtime.store.read().authority.entry(&key).is_none() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the exact rejection commits after effect capacity returns");
+        assert_eq!(
+            runtime
+                .store
+                .read()
+                .authority
+                .resources()
+                .preaccepted()
+                .active_work,
+            0
+        );
+
+        cancel.cancel();
+        handles
+            .resolver
+            .await
+            .expect("resolver task remains healthy")
+            .expect("resolver exits without a structural fault");
+        for verifier in handles.verifiers {
+            verifier
+                .await
+                .expect("verifier task remains healthy")
+                .expect("verifier exits without a structural fault");
+        }
+        handles
+            .ready
+            .await
+            .expect("Ready driver task remains healthy")
+            .expect("Ready driver exits without a structural fault");
     }
 
     #[tokio::test]

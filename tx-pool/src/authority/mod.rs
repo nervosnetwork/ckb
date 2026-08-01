@@ -21,6 +21,7 @@ mod state;
 mod template;
 mod validation;
 mod work;
+mod worker;
 
 #[cfg(test)]
 mod tests;
