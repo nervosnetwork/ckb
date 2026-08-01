@@ -228,15 +228,16 @@
         "tx-pool/src/authority/plan.rs",
         "tx-pool/src/authority/runtime.rs"
       ],
-      "required_behavior": "An ordinary mutation-coupled immutable batch passes one exact source-derived region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; Full is mutation-free and no reservation or capacity token crosses a lock or await. Authority-dependent duplicate success holds an accepted-membership read capability through append. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and only a chain/admin transition that cannot publish detail installs one prebuilt replaceable GenerationReset without waiting behind the FIFO.",
+      "required_behavior": "An ordinary mutation-coupled immutable batch passes one exact source-derived region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; Full is mutation-free and no reservation or capacity token crosses a lock or await. Authority-dependent duplicate success holds an accepted-membership read capability through append. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and only a chain/admin transition that cannot publish detail installs one prebuilt replaceable GenerationReset without waiting behind the FIFO. Effect checkout, exact settlement, close and closed-and-drained observation pass through the AuthorityRuntime facade; every successful Apply retires outside the guard before publishing one level hint.",
       "hostile_case": "Remote saturation, a full critical FIFO, a permanently full relay endpoint, callback/network/database re-entry/failure/hang, accepted duplicate racing clear/reorg, publisher failure, close race or check-before-wait window must not mutate without a matching authority record, consume trusted/critical progress, delay chain convergence, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
       "reviewer_questions": [
         "Is every ordinary immutable batch exact and assigned from the selected owner's source before Apply?",
         "Does Full/Closed/Oversize return before Apply, with the journal lock innermost and no capacity token crossing a lock or await?",
         "Are Remote, trusted and critical usage accounted independently while queued and active, and does saturated chain detail fall back to the prebuilt reset register rather than wait?",
+        "Does an idle publisher subscribe before checkout, and can close wake it while queued, active and retained leases still drain in total order?",
         "Does every potentially blocking foreign endpoint have a bounded timeout/circuit, and does every authority-dependent acknowledgement retain its read/write capability until journal append?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing|runtime_effect)/)'",
       "performance_bound": "One bounded journal publisher, one bounded callback endpoint worker and at most one timed-out detached call per blocking endpoint circuit; O(1) admission/accounting, no per-effect retry task, unbounded channel, callback-under-lock or busy retry."
     },
     {
@@ -548,6 +549,8 @@
     {"test": "idle_publisher_observes_close_without_a_later_ready_event", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "authoritative_apply_falls_back_to_prebuilt_reset_when_fifo_is_full", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "uak_remote_expiry_effect_backpressure_is_zero_mutation", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "runtime_effect_facade_retains_and_drains_a_closed_log_in_sequence", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "runtime_effect_close_wakes_an_idle_level_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "reorg_publishes_only_the_final_status_after_multiple_transitions", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "overlapping_detached_proposals_requeue_each_descendant_once", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},

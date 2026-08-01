@@ -674,6 +674,17 @@ timeout and stable per-kind circuit, so one stuck foreign call cannot retain
 the sole journal head; endpoint panic cannot unwind state Apply. At most one
 timed-out detached call exists per opened blocking endpoint circuit.
 
+The production publisher cannot mutate the effect log directly. Its runtime
+facade checks out one move-only lease, settles that exact lease as published,
+circuit-disposed or retained, and closes production only after compute work has
+drained. Every successful effect Apply opens the authority guard, destroys
+retirement carriers, then publishes the shared level hint. An idle publisher
+subscribes before checking the log, holds no lock across its wait and observes
+`None` only after close plus complete queued/active/reset drainage. The service
+supervisor remains responsible for stopping every non-compute producer before
+calling close; the runtime intentionally does not infer task liveness from
+transaction state.
+
 An accepted-duplicate `Ok` is also authority-dependent output. Its publisher
 holds an accepted-membership read capability through journal append, so clear
 or reorg either observes the `Ok` before its reset/removal or wins first and

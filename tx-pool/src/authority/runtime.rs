@@ -8,13 +8,14 @@
 use super::{
     chain::FinalAdmissionWork,
     effect::{
-        EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLimits,
-        parent_request_charge_bound,
+        EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLease, EffectLimits,
+        EffectSettlement, parent_request_charge_bound,
     },
     plan::{
-        AuthorityConfigError, CandidateBatchError, CandidateDispositionPlan, CommittedDelta,
-        ComputeSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
-        MembershipConfig, PlanError, SettlementBatch, SettlementPlan, TxPoolAuthority,
+        AuthorityConfigError, AuthorityFault, CandidateBatchError, CandidateDispositionPlan,
+        CommittedDelta, ComputeSettlementFailure, EffectSettlementFailure,
+        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, PlanError,
+        SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     resolver::{
         ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
@@ -503,6 +504,12 @@ pub(in crate::authority) enum AuthorityReadyOutcome {
     Applied { owners: usize },
 }
 
+enum EffectCheckoutState {
+    Idle,
+    Lease(EffectLease),
+    ClosedAndDrained,
+}
+
 #[must_use = "captured Ready validation work must be validated or discarded as stale"]
 struct ReadyValidationBatch(Vec<FinalAdmissionValidation>);
 
@@ -548,6 +555,75 @@ impl AuthorityRuntime {
 
     pub(super) fn mutation_signal(&self) -> Arc<Notify> {
         Arc::clone(&self.signals.ready)
+    }
+
+    fn try_effect_checkout(&self) -> Result<EffectCheckoutState, PlanError> {
+        let (lease, retirement) = {
+            let mut store = self.store.write();
+            let Some(plan) = store.authority.plan_effect_checkout()? else {
+                return if store.authority.effects_closed_and_drained() {
+                    Ok(EffectCheckoutState::ClosedAndDrained)
+                } else {
+                    Ok(EffectCheckoutState::Idle)
+                };
+            };
+            let mut retirement = plan.apply();
+            let lease = retirement.take_effect_lease();
+            (lease, retirement)
+        };
+        drop(retirement);
+        self.signals.publish_mutation();
+        lease
+            .map(EffectCheckoutState::Lease)
+            .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))
+    }
+
+    /// Wait for the next committed effect capability. `None` means the log is
+    /// closed and fully drained. The sole publisher calls this only while it
+    /// owns no prior lease; cancellation during the wait owns no capability,
+    /// and there is no suspension point after checkout succeeds.
+    pub(in crate::authority) async fn wait_effect_checkout(
+        &self,
+    ) -> Result<Option<EffectLease>, PlanError> {
+        loop {
+            let signal = self.mutation_signal();
+            let notified = signal.notified();
+            match self.try_effect_checkout()? {
+                EffectCheckoutState::Idle => notified.await,
+                EffectCheckoutState::Lease(lease) => return Ok(Some(lease)),
+                EffectCheckoutState::ClosedAndDrained => return Ok(None),
+            }
+        }
+    }
+
+    pub(in crate::authority) fn settle_effect(
+        &self,
+        settlement: EffectSettlement,
+    ) -> Result<(), EffectSettlementFailure> {
+        let retirement = {
+            let mut store = self.store.write();
+            store.authority.apply_effect_settlement(settlement)?
+        };
+        drop(retirement);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    /// Close effect production after every state producer and compute
+    /// capability has drained. Already committed queued/active effects remain
+    /// checkout-able until `effects_closed_and_drained` becomes true.
+    pub(in crate::authority) fn close_effects(&self) -> Result<(), PlanError> {
+        let retirement = {
+            let mut store = self.store.write();
+            store.authority.plan_effect_close()?.apply()
+        };
+        drop(retirement);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    pub(in crate::authority) fn effects_closed_and_drained(&self) -> bool {
+        self.store.read().authority.effects_closed_and_drained()
     }
 
     pub(super) const fn verify_worker_count(&self) -> usize {
@@ -1040,7 +1116,7 @@ mod tests {
     use super::{
         AuthorityComputeJob, AuthorityComputeOutcome, AuthorityReadyOutcome, AuthorityRuntime,
         AuthorityRuntimeConfig, AuthorityRuntimeError, AuthoritySignals, AuthorityStore,
-        PREACCEPTED_ENTRY_BYTES, RuntimeConfigError,
+        PREACCEPTED_ENTRY_BYTES, PlanError, RuntimeConfigError,
     };
     use crate::authority::effect::{
         CommittedEffect, CommittedRejection, EffectBatchBounds, EffectCapacity, EffectLimits,
@@ -1123,6 +1199,33 @@ mod tests {
             resolution_policy,
             verify_workers,
         }
+    }
+
+    fn queue_remote_rejection(runtime: &AuthorityRuntime, nonce: u32) {
+        let publication = {
+            let store = runtime.store.read();
+            store
+                .authority
+                .effect_publication_for_foundation(
+                    EffectPolicy::Remote,
+                    vec![CommittedEffect::Rejected {
+                        tx: Arc::new(TransactionBuilder::default().version(nonce).build()),
+                        audience: RejectionAudience::foundation(),
+                        reason: CommittedRejection::Foundation(RejectionKind::Policy),
+                    }],
+                )
+                .expect("the runtime effect fixture is bounded")
+        };
+        let retirement = {
+            let mut store = runtime.store.write();
+            store
+                .authority
+                .plan_effect_publication_for_foundation(&publication)
+                .expect("the runtime effect fixture fits its region")
+                .apply()
+        };
+        drop(retirement);
+        runtime.signals.publish_mutation();
     }
 
     fn admission(nonce: u32, peer: usize) -> ValidatedAdmission {
@@ -1324,31 +1427,7 @@ mod tests {
         .expect("the narrow fixture admits one effect in each region");
         let runtime = runtime_with_effect_limits(&config, snapshot, effects);
 
-        let occupied_tx = Arc::new(TransactionBuilder::default().version(907u32).build());
-        let occupied = {
-            let store = runtime.store.read();
-            store
-                .authority
-                .effect_publication_for_foundation(
-                    EffectPolicy::Remote,
-                    vec![CommittedEffect::Rejected {
-                        tx: occupied_tx,
-                        audience: RejectionAudience::foundation(),
-                        reason: CommittedRejection::Foundation(RejectionKind::Policy),
-                    }],
-                )
-                .expect("the occupied effect is bounded")
-        };
-        let occupied_retirement = {
-            let mut store = runtime.store.write();
-            store
-                .authority
-                .plan_effect_publication_for_foundation(&occupied)
-                .expect("the empty remote region accepts one effect")
-                .apply()
-        };
-        drop(occupied_retirement);
-        runtime.signals.publish_mutation();
+        queue_remote_rejection(&runtime, 907);
 
         let handle = Handle::new(tokio::runtime::Handle::current(), None);
         let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
@@ -1377,26 +1456,14 @@ mod tests {
         .await
         .expect("the rejected settlement remains Computing while publication is full");
 
-        let occupied_lease = {
-            let mut store = runtime.store.write();
-            store
-                .authority
-                .plan_effect_checkout_for_foundation()
-                .expect("effect checkout remains healthy")
-                .expect("the occupied effect is queued")
-                .apply()
-                .into_effect_lease()
-                .expect("effect checkout returns its exact lease")
-        };
-        let publication_retirement = {
-            let mut store = runtime.store.write();
-            store
-                .authority
-                .apply_effect_settlement_for_foundation(occupied_lease.published())
-                .expect("the occupied publication settles")
-        };
-        drop(publication_retirement);
-        runtime.signals.publish_mutation();
+        let occupied_lease = runtime
+            .wait_effect_checkout()
+            .await
+            .expect("effect checkout remains healthy")
+            .expect("the occupied effect is queued");
+        runtime
+            .settle_effect(occupied_lease.published())
+            .expect("the occupied publication settles through the runtime facade");
 
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
@@ -1436,6 +1503,83 @@ mod tests {
             .await
             .expect("Ready driver task remains healthy")
             .expect("Ready driver exits without a structural fault");
+    }
+
+    #[tokio::test]
+    async fn runtime_effect_facade_retains_and_drains_a_closed_log_in_sequence() {
+        let runtime = runtime();
+        queue_remote_rejection(&runtime, 909);
+        queue_remote_rejection(&runtime, 910);
+
+        let first = runtime
+            .wait_effect_checkout()
+            .await
+            .expect("the first checkout remains healthy")
+            .expect("the first effect is committed");
+        let first_sequence = first.sequence();
+        runtime
+            .close_effects()
+            .expect("zero active compute permits effect close");
+        assert!(!runtime.effects_closed_and_drained());
+        assert_eq!(
+            runtime.admit(admission(911, 99)).err(),
+            Some(PlanError::EffectClosed),
+            "closing the effect authority freezes new state producers"
+        );
+
+        runtime
+            .settle_effect(first.retain())
+            .expect("Retain returns the exact active capability to the head");
+        let retained = runtime
+            .wait_effect_checkout()
+            .await
+            .expect("retained checkout remains healthy")
+            .expect("the retained head is still committed");
+        assert_eq!(retained.sequence(), first_sequence);
+        runtime
+            .settle_effect(retained.published())
+            .expect("the retained head publishes exactly once");
+
+        let second = runtime
+            .wait_effect_checkout()
+            .await
+            .expect("the second checkout remains healthy")
+            .expect("the second effect remains queued after close");
+        assert!(second.sequence() > first_sequence);
+        assert!(!runtime.effects_closed_and_drained());
+        runtime
+            .settle_effect(second.circuit_disposed())
+            .expect("a stable endpoint circuit may dispose its exact batch");
+
+        assert!(
+            runtime
+                .wait_effect_checkout()
+                .await
+                .expect("the drained observation remains healthy")
+                .is_none()
+        );
+        assert!(runtime.effects_closed_and_drained());
+    }
+
+    #[tokio::test]
+    async fn runtime_effect_close_wakes_an_idle_level_waiter() {
+        let runtime = runtime();
+        let waiter = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move { runtime.wait_effect_checkout().await })
+        };
+        tokio::task::yield_now().await;
+
+        runtime
+            .close_effects()
+            .expect("an idle authority closes without a synthetic effect");
+        let checkout = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("close cannot lose the idle publisher wake")
+            .expect("the publisher task remains healthy")
+            .expect("effect checkout remains healthy");
+        assert!(checkout.is_none());
+        assert!(runtime.effects_closed_and_drained());
     }
 
     #[tokio::test]

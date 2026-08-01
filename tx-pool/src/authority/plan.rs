@@ -3457,9 +3457,7 @@ impl TxPoolAuthority {
             .map(Some)
     }
 
-    pub(super) fn plan_effect_checkout_for_foundation(
-        &mut self,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+    pub(super) fn plan_effect_checkout(&mut self) -> Result<Option<PreparedApply<'_>>, PlanError> {
         let Some((effect, lease)) = self.effects.plan_checkout()? else {
             return Ok(None);
         };
@@ -3468,7 +3466,7 @@ impl TxPoolAuthority {
             .map(Some)
     }
 
-    pub(super) fn apply_effect_settlement_for_foundation(
+    pub(super) fn apply_effect_settlement(
         &mut self,
         settlement: EffectSettlement,
     ) -> Result<CommittedDelta, EffectSettlementFailure> {
@@ -3488,9 +3486,7 @@ impl TxPoolAuthority {
         }
     }
 
-    pub(super) fn plan_effect_close_for_foundation(
-        &mut self,
-    ) -> Result<PreparedApply<'_>, PlanError> {
+    pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, PlanError> {
         if self.resources.preaccepted().active_work != 0 {
             return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
         }
@@ -3499,8 +3495,35 @@ impl TxPoolAuthority {
         self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
     }
 
-    pub(super) fn effects_closed_and_drained_for_foundation(&self) -> bool {
+    pub(super) fn effects_closed_and_drained(&self) -> bool {
         self.effects.is_closed_and_drained()
+    }
+
+    #[cfg(test)]
+    pub(super) fn plan_effect_checkout_for_foundation(
+        &mut self,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        self.plan_effect_checkout()
+    }
+
+    #[cfg(test)]
+    pub(super) fn apply_effect_settlement_for_foundation(
+        &mut self,
+        settlement: EffectSettlement,
+    ) -> Result<CommittedDelta, EffectSettlementFailure> {
+        self.apply_effect_settlement(settlement)
+    }
+
+    #[cfg(test)]
+    pub(super) fn plan_effect_close_for_foundation(
+        &mut self,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_effect_close()
+    }
+
+    #[cfg(test)]
+    pub(super) fn effects_closed_and_drained_for_foundation(&self) -> bool {
+        self.effects_closed_and_drained()
     }
 
     #[cfg(test)]
