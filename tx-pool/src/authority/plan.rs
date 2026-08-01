@@ -7,8 +7,8 @@ use super::chain::AcceptedProof;
 #[cfg(test)]
 use super::chain::{AdmissionEvidenceError, DirectAdmissionWork};
 use super::chain::{
-    DirectAdmissionReceipt, FinalAdmissionReceipt, FinalAdmissionRejection,
-    FinalAdmissionRevalidation, FinalAdmissionSubject, FinalAdmissionWork, ReadyPayloadRelation,
+    DirectAdmissionReceipt, FinalAdmissionReceipt, FinalAdmissionRejection, FinalAdmissionRetry,
+    FinalAdmissionSubject, FinalAdmissionWork, ReadyPayloadRelation,
 };
 #[cfg(test)]
 use super::dependency::DependencySnapshot;
@@ -1092,6 +1092,86 @@ pub(super) struct PreparedApply<'authority> {
     handoff: CommittedHandoff,
 }
 
+/// A prepared compute checkout whose post-Apply capability is present by
+/// construction. Converting the private generic transition before mutation
+/// keeps a missing compute handoff out of the runtime state space.
+#[must_use = "a prepared checkout must be applied exactly once"]
+pub(super) struct PreparedCheckout<'authority> {
+    authority: &'authority mut TxPoolAuthority,
+    delta: AuthorityDelta,
+    work: CheckedOutWork,
+}
+
+#[must_use = "checked-out work and its retirement carrier must leave the authority guard together"]
+pub(super) struct CommittedCheckout {
+    work: CheckedOutWork,
+    retirement: CommittedDelta,
+}
+
+impl PreparedCheckout<'_> {
+    fn from_prepared(plan: PreparedApply<'_>) -> Result<PreparedCheckout<'_>, PlanError> {
+        let PreparedApply {
+            authority,
+            delta,
+            handoff,
+        } = plan;
+        let CommittedHandoff::Compute(work) = handoff else {
+            return Err(PlanError::Fault(AuthorityFault::SchedulerProjection));
+        };
+        Ok(PreparedCheckout {
+            authority,
+            delta,
+            work,
+        })
+    }
+
+    pub(super) fn apply(self) -> CommittedCheckout {
+        let Self {
+            authority,
+            delta,
+            work,
+        } = self;
+        let retirement = PreparedApply {
+            authority,
+            delta,
+            handoff: CommittedHandoff::None,
+        }
+        .apply();
+        CommittedCheckout { work, retirement }
+    }
+}
+
+impl CommittedCheckout {
+    /// The runtime must keep `retirement` alive until after the authority guard
+    /// opens; the compute job itself may then cross the worker boundary.
+    pub(in crate::authority) fn into_parts(self) -> (CheckedOutWork, CommittedDelta) {
+        (self.work, self.retirement)
+    }
+
+    /// Foundation fixtures own no runtime authority guard.
+    #[cfg(test)]
+    pub(in crate::authority) fn into_work(self) -> Option<CheckedOutWork> {
+        Some(self.work)
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn committed_delta_for_foundation(&self) -> &CommittedDelta {
+        &self.retirement
+    }
+}
+
+#[cfg(test)]
+impl From<CommittedCheckout> for CommittedDelta {
+    fn from(checkout: CommittedCheckout) -> Self {
+        let CommittedCheckout {
+            work,
+            mut retirement,
+        } = checkout;
+        retirement.handoff = CommittedHandoff::Compute(work);
+        retirement
+    }
+}
+
 #[must_use = "candidate disposition must be applied exactly once"]
 pub(super) enum CandidateDispositionPlan<'authority> {
     Accepted(PreparedApply<'authority>),
@@ -1105,7 +1185,7 @@ pub(super) enum CandidateDispositionPlan<'authority> {
 pub(super) enum FinalAdmissionDispositionPlan<'authority> {
     Candidate(CandidateDispositionPlan<'authority>),
     ValidationRejected(PreparedValidationRejection<'authority>),
-    Reverify(PreparedApply<'authority>),
+    Reresolve(PreparedApply<'authority>),
 }
 
 /// Complete synchronous trusted-admission result. Every branch owns the one
@@ -2321,9 +2401,9 @@ impl TxPoolAuthority {
             FinalAdmissionValidationOutcome::Rejected(rejection) => self
                 .plan_final_validation_rejection(rejection)
                 .map(FinalAdmissionDispositionPlan::ValidationRejected),
-            FinalAdmissionValidationOutcome::Reverify(revalidation) => self
-                .plan_final_revalidation(revalidation)
-                .map(FinalAdmissionDispositionPlan::Reverify),
+            FinalAdmissionValidationOutcome::Reresolve(retry) => self
+                .plan_final_reresolution(retry)
+                .map(FinalAdmissionDispositionPlan::Reresolve),
         }
     }
 
@@ -2387,29 +2467,12 @@ impl TxPoolAuthority {
         Ok(PreparedValidationRejection { reason, plan })
     }
 
-    fn plan_final_revalidation(
+    fn plan_final_reresolution(
         &mut self,
-        revalidation: FinalAdmissionRevalidation,
+        retry: FinalAdmissionRetry,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        let (subject, resolved, payload_relation) = revalidation.into_parts();
+        let subject = retry.into_subject();
         let preaccepted = self.final_admission_subject_owner(&subject)?;
-        if resolved.chain_view() != subject.view()
-            || resolved.dependency_cut() != subject.dependency_cut()
-            || resolved.payload().identity() != &preaccepted.record.identity
-        {
-            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-        }
-        if !self
-            .dependencies
-            .proof_is_current(resolved.payload().dependencies(), resolved.dependency_cut())
-        {
-            return Err(PlanError::Stale(StalePlan::Dependency));
-        }
-        let retained_charge = self.resources.retained_entry_charge(
-            &preaccepted,
-            resolved.payload().resolved_resident_bytes(),
-            resolved.payload().dependencies().len(),
-        )?;
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -2419,12 +2482,8 @@ impl TxPoolAuthority {
         };
         let mut requeued = preaccepted.clone();
         requeued.record.version = version;
-        requeued.phase = PreAcceptedPhase::Queued(QueuedWork::Verify(resolved));
-        requeued.charge = retained_charge;
-        let retirement = match payload_relation {
-            ReadyPayloadRelation::Shared => EntryReplacementRetirement::SharedShellInline,
-            ReadyPayloadRelation::LocationRefreshed => EntryReplacementRetirement::OutsideGuard,
-        };
+        requeued.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);
+        requeued.charge = preaccepted.original_charge();
         self.prepare_entry_delta_with_replacement_retirement(
             EntryTransition {
                 key: subject.key().clone(),
@@ -2433,7 +2492,7 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            retirement,
+            EntryReplacementRetirement::OutsideGuard,
         )
     }
 
@@ -3576,7 +3635,7 @@ impl TxPoolAuthority {
         key: &RawTxHash,
         expected: EntryVersion,
         permit: super::state::WorkPermit,
-    ) -> Result<PreparedApply<'_>, PlanError> {
+    ) -> Result<PreparedCheckout<'_>, PlanError> {
         self.plan_selected_checkout(key, expected, permit, CheckoutOrigin::Foundation)
     }
 
@@ -3585,7 +3644,7 @@ impl TxPoolAuthority {
     pub(super) fn plan_checkout_next(
         &mut self,
         permit: super::state::WorkPermit,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+    ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
         let search = self.search_checkout(permit)?;
         self.prepare_checkout_search(search, permit)
     }
@@ -3594,7 +3653,7 @@ impl TxPoolAuthority {
     pub(super) fn plan_checkout_next_with_probe_count_for_foundation(
         &mut self,
         permit: super::state::WorkPermit,
-    ) -> Result<(Option<PreparedApply<'_>>, usize), PlanError> {
+    ) -> Result<(Option<PreparedCheckout<'_>>, usize), PlanError> {
         let search = self.search_checkout(permit)?;
         let probes = search.probes;
         let plan = self.prepare_checkout_search(search, permit)?;
@@ -3661,7 +3720,7 @@ impl TxPoolAuthority {
         &mut self,
         search: CheckoutSearch,
         permit: super::state::WorkPermit,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+    ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
         let Some((ticket, reservation)) = search.selected else {
             return Ok(None);
         };
@@ -3799,7 +3858,7 @@ impl TxPoolAuthority {
         expected: EntryVersion,
         permit: super::state::WorkPermit,
         origin: CheckoutOrigin,
-    ) -> Result<PreparedApply<'_>, PlanError> {
+    ) -> Result<PreparedCheckout<'_>, PlanError> {
         let existing = self
             .entries
             .get(key)
@@ -3886,7 +3945,7 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        self.prepare_entry_delta(
+        let plan = self.prepare_entry_delta(
             EntryTransition {
                 key: key.clone(),
                 before: Some(existing.clone()),
@@ -3895,7 +3954,8 @@ impl TxPoolAuthority {
             clocks,
             sequence,
             Some(WorkHandoff { work, origin }),
-        )
+        )?;
+        PreparedCheckout::from_prepared(plan)
     }
 
     /// Consume a move-only compute completion in one atomic command. A

@@ -9,8 +9,7 @@ use super::rejection::CommittedPublicReject;
 use super::state::{
     AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics,
     ChainTipHash, ChainViewId, DependencyCut, EntryVersion, PoolGeneration, PreAcceptedSource,
-    ProposalBase, ProposalId, RawTxHash, ResolvedFacts, ResolvedPayload, ValidatedAdmission,
-    VerifiedFacts,
+    ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
 };
 use ckb_types::{
     core::TransactionView,
@@ -37,6 +36,10 @@ impl CellContentReceipt {
 
     pub(super) fn payload_arc(&self) -> &Arc<ResolvedPayload> {
         &self.payload
+    }
+
+    pub(super) fn into_payload(self) -> Arc<ResolvedPayload> {
+        self.payload
     }
 }
 
@@ -626,28 +629,20 @@ impl FinalAdmissionRejection {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct FinalAdmissionRevalidation {
+pub(super) struct FinalAdmissionRetry {
     subject: FinalAdmissionSubject,
-    resolved: ResolvedFacts,
-    payload_relation: ReadyPayloadRelation,
 }
 
-impl FinalAdmissionRevalidation {
+impl FinalAdmissionRetry {
     pub(super) fn new(
         _seal: super::validation::FinalAdmissionSeal,
         subject: FinalAdmissionSubject,
-        resolved: ResolvedFacts,
-        payload_relation: ReadyPayloadRelation,
     ) -> Self {
-        Self {
-            subject,
-            resolved,
-            payload_relation,
-        }
+        Self { subject }
     }
 
-    pub(super) fn into_parts(self) -> (FinalAdmissionSubject, ResolvedFacts, ReadyPayloadRelation) {
-        (self.subject, self.resolved, self.payload_relation)
+    pub(super) fn into_subject(self) -> FinalAdmissionSubject {
+        self.subject
     }
 }
 

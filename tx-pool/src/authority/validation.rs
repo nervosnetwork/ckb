@@ -10,7 +10,7 @@
 use super::{
     chain::{
         AcceptedChainSensitivity, FinalAdmissionReceipt, FinalAdmissionRejection,
-        FinalAdmissionRevalidation, FinalAdmissionSubject, FinalAdmissionWork, MembershipReceipt,
+        FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork, MembershipReceipt,
         ReadyPayloadRelation, TimeContextReceipt, VerificationContextReceipt,
     },
     plan::TxPoolAuthority,
@@ -42,15 +42,9 @@ use std::sync::Arc;
 #[derive(Clone, Copy)]
 pub(super) struct LocationRefreshSeal(());
 
-/// Capability for consuming stale script evidence into a fresh Verify job.
-/// Only this validator can prove that the retained content, refreshed
-/// locations and new authority view came from one validation attempt.
-#[derive(Clone, Copy)]
-pub(super) struct FinalRevalidationSeal(());
-
 /// Construction capability for every final-admission outcome. Keeping the
 /// field private to this module prevents sibling modules from hand-stamping a
-/// membership receipt, rejection, or revalidation without running this
+/// membership receipt, rejection, or typed re-resolution without running this
 /// validator.
 #[derive(Clone, Copy)]
 pub(super) struct FinalAdmissionSeal(());
@@ -60,7 +54,7 @@ pub(super) struct FinalAdmissionSeal(());
 pub(super) enum FinalAdmissionValidationOutcome {
     Candidate(FinalAdmissionReceipt),
     Rejected(FinalAdmissionRejection),
-    Reverify(FinalAdmissionRevalidation),
+    Reresolve(FinalAdmissionRetry),
 }
 
 #[derive(Debug)]
@@ -212,6 +206,18 @@ impl FinalAdmissionValidation {
             verified.dependency_cut(),
         );
 
+        let status = proposal_status(&snapshot, &verified.payload().identity().proposal.0);
+        let environment = verification_environment(status, &snapshot);
+        let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
+        if verified.verification_context().rules() != rules {
+            // Successful Verify compacts dependency scripts/data. A rules
+            // transition cannot honestly reuse that payload for another VM
+            // run, so the exact Ready owner returns to Resolve instead.
+            return Ok(FinalAdmissionValidationOutcome::Reresolve(
+                FinalAdmissionRetry::new(seal, subject),
+            ));
+        }
+
         let same_chain_state = verified.chain_view().has_same_chain_state(&view);
         let location_result = if same_chain_state {
             refresh_locations(verified.payload_arc(), true, &snapshot, &overlay)
@@ -233,18 +239,7 @@ impl FinalAdmissionValidation {
             }
             Err(CandidateValidationError::Fault(error)) => return Err(error),
         };
-        let status = proposal_status(&snapshot, &payload.identity().proposal.0);
-        let environment = verification_environment(status, &snapshot);
-        let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
         let location = super::chain::CellLocationReceipt::from_resolution(&view, &payload);
-
-        if verified.verification_context().rules() != rules {
-            let resolved =
-                verified.into_revalidation(FinalRevalidationSeal(()), view, payload, location);
-            return Ok(FinalAdmissionValidationOutcome::Reverify(
-                FinalAdmissionRevalidation::new(seal, subject, resolved, payload_relation),
-            ));
-        }
 
         let context_is_reusable =
             payload_relation == ReadyPayloadRelation::Shared && verified.context_is_for(&view);
@@ -311,7 +306,7 @@ fn validate_header_dependencies(
     Ok(())
 }
 
-fn proposal_status(
+pub(super) fn proposal_status(
     snapshot: &Snapshot,
     proposal: &ckb_types::packed::ProposalShortId,
 ) -> AcceptedStatus {
@@ -324,7 +319,7 @@ fn proposal_status(
     }
 }
 
-fn verification_environment(status: AcceptedStatus, snapshot: &Snapshot) -> TxVerifyEnv {
+pub(super) fn verification_environment(status: AcceptedStatus, snapshot: &Snapshot) -> TxVerifyEnv {
     match status {
         AcceptedStatus::Pending => TxVerifyEnv::new_submit(snapshot.tip_header()),
         AcceptedStatus::Gap => TxVerifyEnv::new_proposed(snapshot.tip_header(), GAP_PROPOSAL_INDEX),
@@ -388,7 +383,7 @@ fn refresh_locations(
             let pool_origin = origins
                 .next()
                 .ok_or(FinalAdmissionValidationError::ContextReceipt)?;
-            let current = current_location(cell, pool_origin, same_chain_state, snapshot)?;
+            let current = current_location(cell, role, pool_origin, same_chain_state, snapshot)?;
             if current != cell.transaction_info {
                 if changes.is_empty() {
                     changes
@@ -429,6 +424,7 @@ fn refresh_locations(
 
 fn current_location(
     previous: &CellMeta,
+    role: ResolvedCellRole,
     pool_origin: bool,
     same_tip: bool,
     snapshot: &Snapshot,
@@ -456,7 +452,15 @@ fn current_location(
             )));
         }
     };
-    if current.cell_output != previous.cell_output || current.data_bytes != previous.data_bytes {
+    // Successful Verify deliberately drops dependency scripts/data. Their
+    // OutPoint commits to the producing transaction and output index, so a
+    // live occurrence on another valid tip has identical immutable content;
+    // only its transaction location may change. Inputs retain full payload
+    // for DAO and keep the corruption-detection comparison below.
+    if role == ResolvedCellRole::Input
+        && (current.cell_output != previous.cell_output
+            || current.data_bytes != previous.data_bytes)
+    {
         return Err(
             FinalAdmissionValidationError::CellContentMismatch(previous.out_point.clone()).into(),
         );
@@ -470,7 +474,7 @@ fn current_location(
         .map_err(Into::into)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ResolvedCellRole {
     Input,
     Dependency,

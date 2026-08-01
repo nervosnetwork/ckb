@@ -1,4 +1,6 @@
-use super::chain::{CellLocationReceipt, TimeContextReceipt, VerificationContextReceipt};
+use super::chain::{
+    CellContentReceipt, CellLocationReceipt, TimeContextReceipt, VerificationContextReceipt,
+};
 use super::rejection::CommittedPublicReject;
 use super::resources::AcceptedCost;
 #[cfg(test)]
@@ -132,7 +134,6 @@ pub(super) enum ResolutionReceiptError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum VerificationReceiptError {
     TransactionMismatch,
-    ResidentBelowResolved,
     ContextMismatch,
 }
 
@@ -364,7 +365,6 @@ fn verified(
     token: LeaseToken,
     tx: Arc<TransactionView>,
     resolved: ResolvedFacts,
-    accepted_resident_bytes: usize,
     cycles: u64,
     context: VerificationContextReceipt,
 ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
@@ -375,15 +375,7 @@ fn verified(
         ));
     }
     let serialized_bytes = resolved.payload().serialized_bytes();
-    if accepted_resident_bytes < resolved.payload().resolved_resident_bytes() {
-        return Err(ReceiptFailure::new(
-            token,
-            VerificationReceiptError::ResidentBelowResolved,
-        ));
-    }
-    if accepted_resident_bytes > token.grant.max_resident_bytes
-        || resolved.payload().footprint.edge_count() > token.grant.max_edges
-    {
+    if resolved.payload().footprint.edge_count() > token.grant.max_edges {
         return Ok(budget_denied(token));
     }
     if !context.is_for(token.chain_view()) {
@@ -405,17 +397,23 @@ fn verified(
             resolved,
         }));
     }
-    let metrics = CandidateMetrics {
-        fee: resolved.payload().fee(),
-        cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
-    };
+    let fee = resolved.payload().fee();
     let (dependency_cut, content, _location, verify_class) =
         resolved.into_verification_parts(VerificationSeal(()));
+    let (payload, accepted_resident_bytes) =
+        ResolvedPayload::compact_after_verification(content.into_payload(), VerificationSeal(()));
+    if accepted_resident_bytes > token.grant.max_resident_bytes {
+        return Ok(budget_denied(token));
+    }
+    let metrics = CandidateMetrics {
+        fee,
+        cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
+    };
     Ok(
         token.settle(SettlementNext::Ready(VerifiedFacts::from_verification(
             VerificationSeal(()),
             dependency_cut,
-            content,
+            CellContentReceipt::from_resolution(payload),
             context,
             verify_class,
             metrics,
@@ -437,6 +435,14 @@ impl ResolveWork {
 
     pub(super) fn resolution_grant(&self) -> ComputeGrant {
         self.token.grant
+    }
+
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.token.chain_view()
     }
 
     pub(super) fn resolved(
@@ -508,6 +514,10 @@ impl ResolveWork {
     pub(super) fn internal_failure(self) -> ComputeSettlement {
         internal_failure(self.token)
     }
+
+    pub(super) fn resource_denied(self) -> ComputeSettlement {
+        budget_denied(self.token)
+    }
 }
 
 impl ContinuousResolveWork {
@@ -529,6 +539,14 @@ impl ContinuousResolveWork {
 
     pub(super) fn resolution_grant(&self) -> ComputeGrant {
         self.token.grant
+    }
+
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.token.chain_view()
     }
 
     pub(super) fn resolved(
@@ -620,6 +638,10 @@ impl ContinuousResolveWork {
     pub(super) fn internal_failure(self) -> ComputeSettlement {
         internal_failure(self.token)
     }
+
+    pub(super) fn resource_denied(self) -> ComputeSettlement {
+        budget_denied(self.token)
+    }
 }
 
 impl VerifyWork {
@@ -631,19 +653,25 @@ impl VerifyWork {
         self.token.payload_policy
     }
 
+    pub(super) fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
+        self.resolved.payload().resolved_transaction()
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.token.chain_view()
+    }
+
     #[cfg(test)]
     pub(super) fn verified(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
-        self.verified_under(accepted_resident_bytes, cycles, ScriptVerificationRules::V0)
+        self.verified_under(cycles, ScriptVerificationRules::V0)
     }
 
     #[cfg(test)]
     pub(super) fn verified_under(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
         rules: ScriptVerificationRules,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
@@ -660,7 +688,7 @@ impl VerifyWork {
                 ));
             }
         };
-        self.verified_with_context(accepted_resident_bytes, cycles, context)
+        self.verified_with_context(cycles, context)
     }
 
     /// Seal post-script time/rules evidence into the exact resolved payload
@@ -668,7 +696,6 @@ impl VerifyWork {
     /// cannot be supplied independently by a runtime caller.
     pub(super) fn verified_with_time_context(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
         time: TimeContextReceipt,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
@@ -685,7 +712,7 @@ impl VerifyWork {
                 ));
             }
         };
-        self.verified_with_context(accepted_resident_bytes, cycles, context)
+        self.verified_with_context(cycles, context)
     }
 
     /// Consume one validator-sealed location/time/view receipt. A changed-tip
@@ -693,18 +720,10 @@ impl VerifyWork {
     /// location receipt retained by resolution.
     pub(super) fn verified_with_context(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
         context: VerificationContextReceipt,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
-        verified(
-            self.token,
-            self.tx,
-            self.resolved,
-            accepted_resident_bytes,
-            cycles,
-            context,
-        )
+        verified(self.token, self.tx, self.resolved, cycles, context)
     }
 
     pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
@@ -728,19 +747,25 @@ impl ContinuousVerifyWork {
         self.token.payload_policy
     }
 
+    pub(super) fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
+        self.resolved.payload().resolved_transaction()
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.token.chain_view()
+    }
+
     #[cfg(test)]
     pub(super) fn verified(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
-        self.verified_under(accepted_resident_bytes, cycles, ScriptVerificationRules::V0)
+        self.verified_under(cycles, ScriptVerificationRules::V0)
     }
 
     #[cfg(test)]
     pub(super) fn verified_under(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
         rules: ScriptVerificationRules,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
@@ -757,12 +782,11 @@ impl ContinuousVerifyWork {
                 ));
             }
         };
-        self.verified_with_context(accepted_resident_bytes, cycles, context)
+        self.verified_with_context(cycles, context)
     }
 
     pub(super) fn verified_with_time_context(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
         time: TimeContextReceipt,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
@@ -779,23 +803,15 @@ impl ContinuousVerifyWork {
                 ));
             }
         };
-        self.verified_with_context(accepted_resident_bytes, cycles, context)
+        self.verified_with_context(cycles, context)
     }
 
     pub(super) fn verified_with_context(
         self,
-        accepted_resident_bytes: usize,
         cycles: u64,
         context: VerificationContextReceipt,
     ) -> Result<ComputeSettlement, ReceiptFailure<VerificationReceiptError>> {
-        verified(
-            self.token,
-            self.tx,
-            self.resolved,
-            accepted_resident_bytes,
-            cycles,
-            context,
-        )
+        verified(self.token, self.tx, self.resolved, cycles, context)
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {

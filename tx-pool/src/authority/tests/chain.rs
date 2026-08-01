@@ -181,12 +181,11 @@ fn uak_matching_completion_settles_and_refreshes_across_chain_view_change() {
     let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
         panic!("verify-only permit returns verify work");
     };
-    let accepted_resident_bytes = verify.transaction().data().total_size();
     apply_without_work(
         authority
             .apply_settlement(
                 verify
-                    .verified(accepted_resident_bytes, 0)
+                    .verified(0)
                     .expect("current-view context validation succeeds"),
             )
             .expect("the refreshed verification settles"),

@@ -116,7 +116,7 @@ fn uak_final_validation_rejects_a_mixed_authority_snapshot_cut() {
 }
 
 #[test]
-fn uak_script_rule_change_requeues_exact_content_for_verification() {
+fn uak_script_rule_change_requeues_the_exact_owner_for_resolution() {
     let snapshot = genesis_snapshot();
     let mut authority = authority_at(&snapshot);
     let current_rules = ScriptVerificationRules::from_env(
@@ -148,22 +148,22 @@ fn uak_script_rule_change_requeues_exact_content_for_verification() {
             .expect("a hard-fork rules change is a normal candidate outcome");
     assert!(matches!(
         &outcome,
-        FinalAdmissionValidationOutcome::Reverify(_)
+        FinalAdmissionValidationOutcome::Reresolve(_)
     ));
-    let FinalAdmissionDispositionPlan::Reverify(plan) = authority
+    let FinalAdmissionDispositionPlan::Reresolve(plan) = authority
         .plan_final_admission(outcome)
-        .expect("the sealed revalidation outcome plans one owner transition")
+        .expect("the sealed rules transition plans one owner transition")
     else {
-        panic!("stale script evidence must not be accepted or terminalized");
+        panic!("stale script evidence must return to resolution");
     };
     let committed = plan.apply();
 
-    assert_eq!(committed.retired_len(), 0);
+    assert_eq!(committed.retired_len(), 1);
     assert_ne!(owner_version(&authority, &key), old_version);
     assert!(matches!(
         authority.entry(&key),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
 }
 
@@ -206,7 +206,7 @@ fn uak_final_validation_reuses_same_tip_positive_location_evidence() {
         .plan_final_admission(outcome)
         .expect("valid evidence reaches the one membership compiler")
     else {
-        panic!("valid evidence cannot become rejection or revalidation");
+        panic!("valid evidence cannot become rejection or re-resolution");
     };
     let CandidateDispositionPlan::Accepted(plan) = disposition else {
         panic!("an independent valid candidate must be accepted");

@@ -5,6 +5,10 @@ use super::chain::{
 use super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ReplacementHistoryCharge, ResourceVector,
 };
+use crate::{
+    component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
+    resolved_tx::compact_verified_resolved_transaction,
+};
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
@@ -694,10 +698,15 @@ impl ResolvedPayload {
             .map_err(InputEvidenceError::Footprint)?;
         let dependencies = KnownDependencies::from_footprint(&footprint, max_edges)
             .map_err(InputEvidenceError::DependencySet)?;
-        let serialized_bytes = tx.data().total_size();
-        if resolved_resident_bytes < serialized_bytes {
+        let payload_bytes = tx.data().total_size();
+        if resolved_resident_bytes < payload_bytes {
             return Err(InputEvidenceError::ResidentBelowSerialized);
         }
+        // Accepted-pool size, fee-rate ordering and RBF policy use the exact
+        // bytes occupied by a transaction in a block. This includes the
+        // Molecule vector offset and intentionally differs from the raw
+        // payload allocation charged while the transaction is PreAccepted.
+        let serialized_bytes = tx.data().serialized_size_in_block();
         let identity = TxIdentity::from_transaction(tx);
         Ok(Self {
             resolved,
@@ -732,6 +741,34 @@ impl ResolvedPayload {
 
     pub(super) fn resolved_resident_bytes(&self) -> usize {
         self.resolved_resident_bytes
+    }
+
+    /// Consume full script-verification evidence at the only successful
+    /// Verify boundary and retain only the payload required by final tx-pool
+    /// validation, Accepted membership and block-template DAO accounting.
+    ///
+    /// Resolved inputs remain complete. Cell deps keep their outpoint and
+    /// transaction information, which is sufficient for liveness and
+    /// maturity; their scripts/data cannot be reused for a later VM run. A
+    /// rules change must therefore return the owner to Resolve, not Verify.
+    pub(super) fn compact_after_verification(
+        payload: Arc<Self>,
+        _seal: super::work::VerificationSeal,
+    ) -> (Arc<Self>, usize) {
+        let mut payload = match Arc::try_unwrap(payload) {
+            Ok(payload) => payload,
+            Err(shared) => (*shared).clone(),
+        };
+        payload.resolved = compact_verified_resolved_transaction(payload.resolved);
+        payload.resolved_resident_bytes = resolved_transaction_charge_bytes(
+            payload.serialized_bytes,
+            payload.resolved_transaction(),
+        );
+        let accepted_resident_bytes = accepted_transaction_charge_bytes(
+            payload.serialized_bytes,
+            payload.resolved_transaction(),
+        );
+        (Arc::new(payload), accepted_resident_bytes)
     }
 
     /// Replace only tip-relative cell locations after lock-external
@@ -1010,25 +1047,6 @@ impl VerifiedFacts {
         Self {
             content: CellContentReceipt::from_resolution(payload),
             ..self
-        }
-    }
-
-    /// Consume stale script evidence while retaining the exact resolved
-    /// content, dependency cut, location proof and scheduler class needed to
-    /// run verification under a new hard-fork ruleset.
-    pub(super) fn into_revalidation(
-        self,
-        _seal: super::validation::FinalRevalidationSeal,
-        chain_view: ChainViewId,
-        payload: Arc<ResolvedPayload>,
-        location: CellLocationReceipt,
-    ) -> ResolvedFacts {
-        ResolvedFacts {
-            chain_view,
-            dependency_cut: self.dependency_cut,
-            content: CellContentReceipt::from_resolution(payload),
-            location,
-            verify_class: self.verify_class,
         }
     }
 }

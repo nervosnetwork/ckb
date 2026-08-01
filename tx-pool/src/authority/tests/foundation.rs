@@ -28,14 +28,19 @@ use super::super::state::{
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
     ContinuousVerifyWork, ResolutionEvidence, ResolutionReceiptError, ResolveWork, SettlementNext,
-    SettlementToken, VerificationReceiptError, VerifyWork,
+    SettlementToken, VerifyWork,
 };
-use crate::error::Reject;
+use crate::{
+    component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
+    error::Reject,
+};
 use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        Capacity, FeeRate, TransactionBuilder, TransactionView, cell::ResolvedTransaction,
+        Capacity, EpochNumberWithFraction, FeeRate, TransactionBuilder, TransactionInfo,
+        TransactionView,
+        cell::{CellMetaBuilder, ResolvedTransaction},
         tx_pool::get_transaction_weight,
     },
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
@@ -348,7 +353,8 @@ fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
     }
 }
 
-pub(super) fn take_resolve_work(committed: CommittedDelta) -> (RawTxHash, ResolveWork) {
+pub(super) fn take_resolve_work(committed: impl Into<CommittedDelta>) -> (RawTxHash, ResolveWork) {
+    let committed = committed.into();
     let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
         panic!("resolve-only checkout returns resolve work");
     };
@@ -367,7 +373,10 @@ fn continue_fixture_verify(
     resolve: ContinuousResolveWork,
     payload: FoundationResolution,
 ) -> (ContinuousVerifyWork, usize) {
-    let accepted_resident_bytes = payload.serialized_bytes();
+    let accepted_resident_bytes = accepted_transaction_charge_bytes(
+        payload.serialized_bytes(),
+        payload.resolved_transaction(),
+    );
     let ContinuousResolution::Verify(verify) = resolve
         .into_verify(payload)
         .expect("fixture payload belongs to the checked-out transaction")
@@ -452,17 +461,20 @@ pub(super) fn direct_verified_facts(
     chain_inputs: Vec<OutPoint>,
     fee: Capacity,
 ) -> VerifiedFacts {
-    let resident_bytes = transaction.data().total_size();
+    let payload = Arc::new(
+        resolved_payload_with_facts(transaction, expanded_dependencies, chain_inputs, fee)
+            .into_payload(),
+    );
+    let serialized_bytes = payload.serialized_bytes();
+    let resident_bytes =
+        accepted_transaction_charge_bytes(serialized_bytes, payload.resolved_transaction());
     VerifiedFacts::for_foundation(
         ChainRevision(0),
         DependencyCut(ApplySequence(0)),
-        Arc::new(
-            resolved_payload_with_facts(transaction, expanded_dependencies, chain_inputs, fee)
-                .into_payload(),
-        ),
+        payload,
         CandidateMetrics {
             fee,
-            cost: AcceptedCost::new(resident_bytes, resident_bytes, 0),
+            cost: AcceptedCost::new(serialized_bytes, resident_bytes, 0),
         },
     )
 }
@@ -553,12 +565,12 @@ pub(super) fn verify_remote_transaction_with_payload_under(
     else {
         panic!("continuous permit returns continuous resolve work");
     };
-    let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
+    let (verify, _) = continue_fixture_verify(resolve, payload);
     apply_without_work(
         authority
             .apply_settlement(
                 verify
-                    .verified_under(accepted_resident_bytes, 0, rules)
+                    .verified_under(0, rules)
                     .expect("fixture verification metrics are valid"),
             )
             .expect("fixture verification settles"),
@@ -1626,7 +1638,6 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
     let transaction = tx(626);
     let peer = PeerIndex::from(626);
     let declared_cycles = 100;
-    let accepted_resident_bytes = transaction.data().total_size();
     let (hash, verify) =
         checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
     assert_eq!(
@@ -1634,7 +1645,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
         PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
     );
     let stale_rejection = verify
-        .verified(accepted_resident_bytes, declared_cycles + 1)
+        .verified(declared_cycles + 1)
         .expect("declared-cycle mismatch is a typed source-policy settlement");
 
     apply_without_work(
@@ -1682,7 +1693,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
         authority
             .apply_settlement(
                 verify
-                    .verified(accepted_resident_bytes, declared_cycles + 2)
+                    .verified(declared_cycles + 2)
                     .expect("trusted verification accepts its measured cycles"),
             )
             .expect("trusted verification settles the retained payload"),
@@ -1753,7 +1764,7 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
     let (hash, verify) =
         checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
     let rejection = verify
-        .verified(transaction.data().total_size(), declared_cycles + 1)
+        .verified(declared_cycles + 1)
         .expect("declared-cycle mismatch is a typed source-policy settlement");
     apply_without_work(
         authority
@@ -6061,7 +6072,10 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         )
         .expect("queued resolve accepts a continuous permit")
         .apply();
-    assert_eq!(only_committed_change(&checkout).sequence, ApplySequence(2));
+    assert_eq!(
+        only_committed_change(checkout.committed_delta_for_foundation()).sequence,
+        ApplySequence(2)
+    );
     let (compute_bytes, compute_edges) = authority
         .resources()
         .compute_limits()
@@ -6085,7 +6099,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
     assert_eq!(authority.normalized_snapshot(), before_local_continuation);
     let settlement = verify
-        .verified(accepted_resident_bytes, 0)
+        .verified(0)
         .expect("fixture verification metrics are valid");
     apply_without_work(
         authority
@@ -6167,7 +6181,25 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
     assert_resource_reference(&resolve_authority);
 
     let mut verify_authority = TxPoolAuthority::for_foundation(limits());
-    let verify_hash = admit_remote(&mut verify_authority, 541, 55);
+    let verify_transaction = (0u8..13)
+        .fold(
+            TransactionBuilder::default().version(541u32),
+            |builder, index| {
+                builder.input(CellInput::new(
+                    OutPoint::new(Byte32::new([index; 32]), 0),
+                    0,
+                ))
+            },
+        )
+        .build();
+    let admission = ValidatedAdmission::remote(verify_transaction, PeerIndex::from(55))
+        .expect("large accepted-footprint fixture is valid");
+    let verify_hash = admission.identity.raw.clone();
+    apply_without_work(
+        verify_authority
+            .plan_admission(admission)
+            .expect("large accepted-footprint fixture is admitted"),
+    );
     let verify_version = owner_version(&verify_authority, &verify_hash);
     let checkout = verify_authority
         .plan_checkout_for_foundation(
@@ -6184,8 +6216,8 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
     let payload = resolved_payload(resolve.transaction());
     let (verify, _) = continue_fixture_verify(resolve, payload);
     let denied = verify
-        .verified(4 * 1024 + 1, 0)
-        .expect("oversized verified residency is a typed budget outcome");
+        .verified(0)
+        .expect("derived oversized verified residency is a typed budget outcome");
     apply_without_work(
         verify_authority
             .apply_settlement(denied)
@@ -6196,7 +6228,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
 }
 
 #[test]
-fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
+fn uak_invalid_resolution_receipt_retains_the_only_lease_settlement() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let resolve_hash = admit_remote(&mut authority, 623, 71);
     let resolve_version = owner_version(&authority, &resolve_hash);
@@ -6225,55 +6257,18 @@ fn uak_invalid_compute_receipt_retains_the_only_lease_settlement() {
             .expect("invalid resolve receipt settles its exact lease"),
     );
 
-    let verify_tx = tx(624);
-    let verify_hash =
-        queue_remote_for_verify(&mut authority, verify_tx.clone(), 72, Capacity::shannons(1));
-    let verify_version = owner_version(&authority, &verify_hash);
-    let committed = authority
-        .plan_checkout_for_foundation(
-            &verify_hash,
-            verify_version,
-            WorkPermit::VerifyOnly(VerifyCapability::Any),
-        )
-        .expect("verify checkout plans")
-        .apply();
-    let CheckedOutWork::Verify(verify) = committed.into_work().expect("verify work exists") else {
-        panic!("verify permit returns verify work");
-    };
-    let underreported = verify_tx
-        .data()
-        .total_size()
-        .checked_sub(1)
-        .expect("fixture transaction is non-empty");
-    let failure = verify
-        .verified(underreported, 0)
-        .expect_err("accepted residency cannot be smaller than serialization");
-    assert_eq!(
-        failure.error(),
-        &VerificationReceiptError::ResidentBelowResolved
-    );
-    apply_without_work(
-        authority
-            .apply_settlement(failure.into_settlement())
-            .expect("invalid verify receipt settles its exact lease"),
-    );
-
-    for hash in [&resolve_hash, &verify_hash] {
-        assert!(matches!(
-            authority.entry(hash),
-            Some(OwnedTx::PreAccepted(entry))
-                if matches!(
-                    entry.phase,
-                    PreAcceptedPhase::Queued(QueuedWork::Resolve)
-                ) && entry.charge.active_work == 0
-        ));
-    }
+    assert!(matches!(
+        authority.entry(&resolve_hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+                && entry.charge.active_work == 0
+    ));
     assert!(authority.primary_projection_consistent());
     assert_resource_reference(&authority);
 }
 
 #[test]
-fn uak_verified_residency_cannot_undercharge_retained_resolution() {
+fn uak_verified_residency_is_derived_from_the_owned_payload() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(625);
     let hash = admit_remote(&mut authority, 625, 73);
@@ -6315,27 +6310,136 @@ fn uak_verified_residency_cannot_undercharge_retained_resolution() {
     let CheckedOutWork::Verify(verify) = committed.into_work().expect("verify work exists") else {
         panic!("verify permit returns verify work");
     };
-    let failure = verify
-        .verified(serialized_bytes, 0)
-        .expect_err("accepted residency cannot undercharge retained resolution");
-    assert_eq!(
-        failure.error(),
-        &VerificationReceiptError::ResidentBelowResolved
+    let expected_resident_bytes = accepted_transaction_charge_bytes(
+        transaction.data().serialized_size_in_block(),
+        verify.resolved_transaction(),
     );
+    let settlement = verify
+        .verified(0)
+        .expect("the verify capability derives its own accepted charge");
     apply_without_work(
         authority
-            .apply_settlement(failure.into_settlement())
-            .expect("invalid verify receipt settles its exact lease"),
+            .apply_settlement(settlement)
+            .expect("the internally charged verify receipt settles"),
     );
 
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
             if matches!(
-                entry.phase,
-                PreAcceptedPhase::Queued(QueuedWork::Resolve)
-            ) && entry.charge == entry.original_charge()
+                &entry.phase,
+                PreAcceptedPhase::Ready(verified)
+                    if verified.metrics().cost.resident_bytes == expected_resident_bytes
+                        && verified.metrics().cost.serialized_bytes
+                            == transaction.data().serialized_size_in_block()
+            )
     ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_successful_verification_compacts_deps_but_retains_dao_inputs() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let input = OutPoint::new(Byte32::new([0xb1; 32]), 0);
+    let dependency = OutPoint::new(Byte32::new([0xb2; 32]), 0);
+    let transaction = TransactionBuilder::default()
+        .version(626u32)
+        .input(CellInput::new(input.clone(), 0))
+        .cell_dep(CellDep::new_builder().out_point(dependency.clone()).build())
+        .build();
+    let admission = ValidatedAdmission::remote(transaction.clone(), PeerIndex::from(74))
+        .expect("compaction fixture admission is valid");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("compaction fixture is admitted"),
+    );
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::ResolveThenVerify(VerifyCapability::Any),
+        )
+        .expect("compaction fixture checks out")
+        .apply();
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
+    else {
+        panic!("continuous permit returns resolve work");
+    };
+
+    let input_data = Bytes::from(vec![0x51; 128]);
+    let dependency_data = Bytes::from(vec![0x52; 128]);
+    let dependency_info = TransactionInfo::new(
+        1,
+        EpochNumberWithFraction::new(1, 0, 1),
+        Byte32::new([0xb3; 32]),
+        0,
+    );
+    let resolved = Arc::new(ResolvedTransaction {
+        transaction: transaction.clone(),
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(CellOutput::default(), input_data.clone())
+                .out_point(input)
+                .build(),
+        ],
+        resolved_cell_deps: vec![
+            CellMetaBuilder::from_cell_output(CellOutput::default(), dependency_data)
+                .out_point(dependency.clone())
+                .transaction_info(dependency_info.clone())
+                .build(),
+        ],
+        resolved_dep_groups: Vec::new(),
+    });
+    let tx_size = transaction.data().serialized_size_in_block();
+    let resident_bytes = resolved_transaction_charge_bytes(tx_size, &resolved);
+    let ContinuousResolution::Verify(verify) = resolve
+        .resolved(ResolutionEvidence::new(
+            resolved,
+            Capacity::shannons(1),
+            resident_bytes,
+            VerifyCycleClass::Small,
+        ))
+        .expect("exact resolved evidence is valid")
+    else {
+        panic!("the resolved payload fits its continuous grant");
+    };
+    apply_without_work(
+        authority
+            .apply_settlement(
+                verify
+                    .verified(0)
+                    .expect("verification compacts the payload"),
+            )
+            .expect("compacted verification settles"),
+    );
+
+    let Some(OwnedTx::PreAccepted(entry)) = authority.entry(&hash) else {
+        panic!("the verified owner remains PreAccepted");
+    };
+    let PreAcceptedPhase::Ready(verified) = &entry.phase else {
+        panic!("successful verification produces Ready");
+    };
+    let payload = verified.payload().resolved_transaction();
+    assert_eq!(
+        payload.resolved_inputs[0]
+            .mem_cell_data
+            .as_ref()
+            .map(Bytes::len),
+        Some(input_data.len()),
+        "DAO-relevant input data remains resident"
+    );
+    let dep = &payload.resolved_cell_deps[0];
+    assert_eq!(dep.out_point, dependency);
+    assert_eq!(dep.transaction_info, Some(dependency_info));
+    assert_eq!(dep.cell_output, CellOutput::default());
+    assert_eq!(dep.data_bytes, 0);
+    assert!(dep.mem_cell_data.is_none());
+    assert!(dep.mem_cell_data_hash.is_none());
+    assert_eq!(
+        verified.metrics().cost.resident_bytes,
+        accepted_transaction_charge_bytes(tx_size, payload)
+    );
     assert_resource_reference(&authority);
 }
 
@@ -6386,12 +6490,12 @@ fn uak_verified_settlement_has_one_ready_projection() {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
-    let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
+    let (verify, _) = continue_fixture_verify(resolve, payload);
     apply_without_work(
         authority
             .apply_settlement(
                 verify
-                    .verified(accepted_resident_bytes, 0)
+                    .verified(0)
                     .expect("fixture verification metrics are valid"),
             )
             .expect("verified settlement plans"),
@@ -6596,9 +6700,9 @@ fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(second.transaction());
-    let (verify, accepted_resident_bytes) = continue_fixture_verify(second, payload);
+    let (verify, _) = continue_fixture_verify(second, payload);
     let settlement = verify
-        .verified(accepted_resident_bytes, 0)
+        .verified(0)
         .expect("fixture verification metrics are valid");
     authority.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::new([16; 32])));
     let forged = ComputeSettlement {
@@ -6696,7 +6800,6 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         panic!("resolve-only permit returns resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
-    let accepted_resident_bytes = payload.serialized_bytes();
     apply_without_work(
         authority
             .apply_settlement(
@@ -6722,7 +6825,7 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         authority
             .apply_settlement(
                 verify
-                    .verified(accepted_resident_bytes, 0)
+                    .verified(0)
                     .expect("fixture verification metrics are valid"),
             )
             .expect("verify success settles"),

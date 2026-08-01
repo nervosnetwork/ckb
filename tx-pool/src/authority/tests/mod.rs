@@ -3,5 +3,6 @@ mod dependency;
 mod effect;
 mod foundation;
 mod read;
+mod resolver;
 mod template;
 mod validation;

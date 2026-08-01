@@ -7,21 +7,28 @@
 
 use super::{
     effect::{EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLimits},
-    plan::{AuthorityConfigError, MembershipConfig, PlanError, TxPoolAuthority},
+    plan::{
+        AuthorityConfigError, ComputeSettlementFailure, MembershipConfig, PlanError,
+        TxPoolAuthority,
+    },
+    resolver::{ResolutionExecutionKind, ResolutionJob, VerificationJob},
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{ChainRevision, ChainViewId, EntryVersion, RawTxHash},
+    state::{ChainRevision, ChainViewId, EntryVersion, RawTxHash, ValidatedAdmission, WorkPermit},
     validation::{FinalAdmissionValidation, FinalAdmissionValidationError},
+    work::{CheckedOutWork, ComputeSettlement},
 };
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
 use ckb_types::packed::{Byte32, ProposalShortId};
+use ckb_util::RwLock;
 use lru::LruCache;
 use std::{num::NonZeroUsize, sync::Arc};
+use tokio::sync::Notify;
 
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
 const DEPENDENCY_EDGE_BYTES: usize = 160;
@@ -311,6 +318,192 @@ pub(crate) struct AuthorityStore {
     onchain_reconcile_done: bool,
 }
 
+/// Lossy wake hints around the one authoritative scheduler. A hint carries no
+/// queue state: every waiter first attempts capability-aware checkout under
+/// the store guard, and subscribes before that attempt so a concurrent Apply
+/// cannot be missed.
+struct AuthoritySignals {
+    resolve: Arc<Notify>,
+    verify: Arc<Notify>,
+}
+
+impl AuthoritySignals {
+    fn new() -> Self {
+        Self {
+            resolve: Arc::new(Notify::new()),
+            verify: Arc::new(Notify::new()),
+        }
+    }
+
+    fn for_permit(&self, permit: WorkPermit) -> &Arc<Notify> {
+        match permit {
+            WorkPermit::ResolveOnly | WorkPermit::ResolveThenVerify(_) => &self.resolve,
+            WorkPermit::VerifyOnly(_) => &self.verify,
+        }
+    }
+
+    fn publish_mutation(&self) {
+        // Publication occurs only after the authority guard has opened and
+        // retirement carriers have been destroyed. Waking both lanes avoids
+        // a hand-maintained transition-to-signal table; Notify coalesces hints
+        // while the scheduler remains the sole level authority.
+        self.resolve.notify_waiters();
+        self.verify.notify_waiters();
+    }
+}
+
+/// Narrow production shell around the single UAK store lock.
+///
+/// No method accepts a generic mutation closure. Plan/Apply, snapshot pairing,
+/// retirement and wake publication stay centralized so a service caller
+/// cannot choose a second ordering or forget one post-commit edge.
+#[derive(Clone)]
+pub(crate) struct AuthorityRuntime {
+    store: Arc<RwLock<AuthorityStore>>,
+    signals: Arc<AuthoritySignals>,
+}
+
+#[derive(Debug)]
+#[must_use = "checked-out authority work must be executed and settled"]
+pub(in crate::authority) enum AuthorityComputeJob {
+    Resolution(ResolutionJob),
+    Verification(VerificationJob),
+}
+
+#[derive(Debug)]
+#[must_use = "a checkout failure may still own an active settlement capability"]
+pub(in crate::authority) enum AuthorityRuntimeError {
+    Plan(PlanError),
+    Capture(ResolutionExecutionKind),
+    Settlement(ComputeSettlementFailure),
+}
+
+impl AuthorityRuntime {
+    pub(crate) fn new(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+        snapshot: Arc<Snapshot>,
+    ) -> Result<Self, RuntimeConfigError> {
+        Ok(Self {
+            store: Arc::new(RwLock::new(AuthorityStore::new(
+                config, consensus, snapshot,
+            )?)),
+            signals: Arc::new(AuthoritySignals::new()),
+        })
+    }
+
+    pub(in crate::authority) fn admit(
+        &self,
+        admission: ValidatedAdmission,
+    ) -> Result<(), PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store.authority.plan_admission(admission)?.apply()
+        };
+        // Potential last-owner payload/effect destruction must never extend
+        // the authority critical section.
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    pub(in crate::authority) fn try_checkout(
+        &self,
+        permit: WorkPermit,
+    ) -> Result<Option<AuthorityComputeJob>, AuthorityRuntimeError> {
+        let (result, checkout_retirement, settlement_retirement) = {
+            let mut store = self.store.write();
+            let plan = store
+                .authority
+                .plan_checkout_next(permit)
+                .map_err(AuthorityRuntimeError::Plan)?;
+            let Some(plan) = plan else {
+                return Ok(None);
+            };
+            let (work, checkout) = plan.apply().into_parts();
+            let snapshot = Arc::clone(&store.snapshot);
+            let captured = match work {
+                CheckedOutWork::Resolve(work) => {
+                    ResolutionJob::capture_resolve(&store.authority, snapshot, work)
+                        .map(AuthorityComputeJob::Resolution)
+                }
+                CheckedOutWork::ContinuousResolve(work) => {
+                    ResolutionJob::capture_continuous(&store.authority, snapshot, work)
+                        .map(AuthorityComputeJob::Resolution)
+                }
+                CheckedOutWork::Verify(work) => VerificationJob::from_checkout(work, snapshot)
+                    .map(AuthorityComputeJob::Verification),
+            };
+            match captured {
+                Ok(job) => (Ok(Some(job)), checkout, None),
+                Err(failure) => {
+                    let kind = failure.kind();
+                    match store.authority.apply_settlement(failure.into_settlement()) {
+                        Ok(settlement) => (
+                            Err(AuthorityRuntimeError::Capture(kind)),
+                            checkout,
+                            Some(settlement),
+                        ),
+                        Err(failure) => (
+                            Err(AuthorityRuntimeError::Settlement(failure)),
+                            checkout,
+                            None,
+                        ),
+                    }
+                }
+            }
+        };
+        Self::finish_checkout(
+            result,
+            checkout_retirement,
+            settlement_retirement,
+            &self.signals,
+        )
+    }
+
+    fn finish_checkout(
+        result: Result<Option<AuthorityComputeJob>, AuthorityRuntimeError>,
+        checkout_retirement: super::plan::CommittedDelta,
+        settlement_retirement: Option<super::plan::CommittedDelta>,
+        signals: &AuthoritySignals,
+    ) -> Result<Option<AuthorityComputeJob>, AuthorityRuntimeError> {
+        drop(checkout_retirement);
+        drop(settlement_retirement);
+        signals.publish_mutation();
+        result
+    }
+
+    /// Level-triggered checkout with no lock held across the wait. Cancelling
+    /// this future while it waits owns no compute capability; after checkout
+    /// succeeds there is no suspension point before the job is returned.
+    pub(in crate::authority) async fn wait_checkout(
+        &self,
+        permit: WorkPermit,
+    ) -> Result<AuthorityComputeJob, AuthorityRuntimeError> {
+        loop {
+            let signal = Arc::clone(self.signals.for_permit(permit));
+            let notified = signal.notified();
+            if let Some(job) = self.try_checkout(permit)? {
+                return Ok(job);
+            }
+            notified.await;
+        }
+    }
+
+    pub(in crate::authority) fn settle(
+        &self,
+        settlement: ComputeSettlement,
+    ) -> Result<(), ComputeSettlementFailure> {
+        let committed = {
+            let mut store = self.store.write();
+            store.authority.apply_settlement(settlement)?
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::authority) enum FinalAdmissionCaptureError {
     Plan(PlanError),
@@ -381,10 +574,24 @@ impl AuthorityStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthorityRuntimeConfig, PREACCEPTED_ENTRY_BYTES, RuntimeConfigError};
+    use super::{
+        AuthorityComputeJob, AuthorityRuntime, AuthorityRuntimeConfig, AuthorityRuntimeError,
+        PREACCEPTED_ENTRY_BYTES, RuntimeConfigError,
+    };
+    use crate::authority::state::{
+        ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, ValidatedAdmission,
+        WorkPermit,
+    };
     use ckb_app_config::{TxPoolConfig, VerifyOrdering};
     use ckb_chain_spec::consensus::ConsensusBuilder;
-    use ckb_types::core::FeeRate;
+    use ckb_network::PeerIndex;
+    use ckb_snapshot::Snapshot;
+    use ckb_test_chain_utils::MockStore;
+    use ckb_types::{
+        U256,
+        core::{FeeRate, TransactionBuilder},
+    };
+    use std::sync::Arc;
 
     fn runtime_config() -> TxPoolConfig {
         TxPoolConfig {
@@ -403,6 +610,112 @@ mod tests {
             verify_ordering: VerifyOrdering::ArrivalTime,
             max_tx_pipeline_resident_size: 384_000_000,
         }
+    }
+
+    fn genesis_snapshot() -> Arc<Snapshot> {
+        let consensus = Arc::new(ConsensusBuilder::default().build());
+        let store = MockStore::default();
+        let genesis = consensus.genesis_block();
+        Arc::new(Snapshot::new(
+            genesis.header(),
+            U256::zero(),
+            consensus.genesis_epoch_ext().clone(),
+            store.store().get_snapshot(),
+            Default::default(),
+            consensus,
+        ))
+    }
+
+    fn runtime() -> AuthorityRuntime {
+        let snapshot = genesis_snapshot();
+        AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+            .expect("the production authority runtime fixture is valid")
+    }
+
+    fn admission(nonce: u32, peer: usize) -> ValidatedAdmission {
+        ValidatedAdmission::remote(
+            TransactionBuilder::default().version(nonce).build(),
+            PeerIndex::from(peer),
+        )
+        .expect("the runtime fixture has valid ingress evidence")
+    }
+
+    fn retry(job: AuthorityComputeJob) -> super::super::work::ComputeSettlement {
+        match job {
+            AuthorityComputeJob::Resolution(job) => job.retry(),
+            AuthorityComputeJob::Verification(job) => job.retry(),
+        }
+    }
+
+    fn is_queued_resolve(runtime: &AuthorityRuntime, key: &super::super::state::RawTxHash) -> bool {
+        let store = runtime.store.read();
+        matches!(
+            store.authority.entry(key),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+        )
+    }
+
+    #[test]
+    fn runtime_checkout_observes_preexisting_level_without_a_wake_hint() {
+        let runtime = runtime();
+        let admission = admission(901, 91);
+        let key = admission.identity.raw.clone();
+        runtime.admit(admission).expect("admission commits");
+
+        let job = runtime
+            .try_checkout(WorkPermit::ResolveOnly)
+            .expect("checkout remains healthy")
+            .expect("queued work is an authoritative level");
+        runtime
+            .settle(retry(job))
+            .expect("the exact capability returns to resolve");
+        assert!(is_queued_resolve(&runtime, &key));
+    }
+
+    #[tokio::test]
+    async fn runtime_waiter_wakes_after_post_commit_admission_publication() {
+        let runtime = runtime();
+        let waiter = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move { runtime.wait_checkout(WorkPermit::ResolveOnly).await })
+        };
+        tokio::task::yield_now().await;
+
+        runtime
+            .admit(admission(902, 92))
+            .expect("admission commits before publication");
+        let job = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("the post-commit wake cannot be lost")
+            .expect("the waiter task remains healthy")
+            .expect("the authority runtime remains healthy");
+        runtime
+            .settle(retry(job))
+            .expect("the exact checked-out capability returns");
+    }
+
+    #[test]
+    fn runtime_capture_failure_requeues_before_returning_the_typed_error() {
+        let runtime = runtime();
+        let admission = admission(903, 93);
+        let key = admission.identity.raw.clone();
+        runtime.admit(admission).expect("admission commits");
+        {
+            let mut store = runtime.store.write();
+            store.authority.force_chain_view(ChainViewId::new(
+                ChainRevision(1),
+                ckb_types::packed::Byte32::new([0x93; 32]),
+            ));
+        }
+
+        assert!(matches!(
+            runtime.try_checkout(WorkPermit::ResolveOnly),
+            Err(AuthorityRuntimeError::Capture(
+                super::super::resolver::ResolutionExecutionKind::StaleView
+            ))
+        ));
+        assert!(is_queued_resolve(&runtime, &key));
     }
 
     #[test]

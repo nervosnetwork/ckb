@@ -12,6 +12,7 @@ mod indexes;
 mod plan;
 mod read;
 mod rejection;
+mod resolver;
 mod resources;
 pub(crate) mod runtime;
 mod scheduler;

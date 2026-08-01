@@ -153,7 +153,7 @@ fn verified_settlement_with_fee(
         panic!("dependency fixture fits the continuous compute grant");
     };
     verify
-        .verified(resident_bytes, 0)
+        .verified(0)
         .expect("dependency fixture verification metrics are valid")
 }
 
