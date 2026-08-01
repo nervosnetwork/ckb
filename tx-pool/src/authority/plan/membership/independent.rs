@@ -30,6 +30,10 @@ pub(in crate::authority) enum IndependentCoupling {
     CohortCausalEdge(RawTxHash),
     AcceptedChild(RawTxHash),
     AcceptedCapacity,
+    /// Final validation replaced the Ready owner's resolved-cell payload.
+    /// That predecessor must be carried out of the authority guard, which the
+    /// allocation-free independent batch Apply deliberately cannot do.
+    LocationRefreshedPayload,
 }
 
 pub(in crate::authority::plan) struct PreparedIndependentMembership {

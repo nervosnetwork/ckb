@@ -622,6 +622,18 @@ history queries such as `planned_unavailable_parent_hashes` and
 consume this evidence. Block, consensus, store and snapshot checkers retain
 `CellChecker::is_live_resolved_cell`'s default `is_live(out_point)` behavior.
 
+The UAK cutover encodes the same premise in `FinalAdmissionValidation` rather
+than exporting a reusable Boolean. `AuthorityStore` captures the exact Ready
+version, its paired snapshot, dependency cut, and one cell-order-aligned bit
+projection of Accepted producers under a single read guard. The guard then
+opens before cell/header database reads and time/DAO verification. A changed
+script-rules receipt becomes a typed Verify requeue; a transaction-level
+location or context failure becomes a sealed terminal disposition containing
+its committed rejection effect. Structural evidence mismatch remains a typed
+authority fault. These constructors require validator-owned capabilities, so
+a sibling module cannot stamp a successful final receipt manually. This path
+is tx-pool-only and is not imported by block or consensus verification.
+
 The first attempt plans optimistically without a worst-case capacity wait. If
 the exact batch is `Full`, the caller releases every state lock, waits on that
 exact charge as a level-triggered hint, then replans against the new

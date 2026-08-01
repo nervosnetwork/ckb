@@ -4,7 +4,7 @@ use super::{
     TxPoolAuthority, next_sequence, next_version,
 };
 use crate::authority::{
-    chain::FinalAdmissionReceipt,
+    chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
     effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
     plan::membership::{
         IndependentCoupling, IndependentMembershipChange, IndependentMembershipOutcome,
@@ -121,6 +121,21 @@ impl TxPoolAuthority {
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
             .receipt
             .clone();
+
+        if facts
+            .iter()
+            .any(|fact| fact.receipt.payload_relation() == ReadyPayloadRelation::LocationRefreshed)
+        {
+            // Independent Apply drops replaced Ready shells inline. A
+            // refreshed payload does not share that shell's resolved-cell
+            // allocation, so use the single-candidate compiler that reserves
+            // an outside-guard retirement carrier.
+            let disposition = self.plan_candidate_disposition(strongest_receipt)?;
+            return Ok(SettlementPlan::CoupledComponent {
+                reason: IndependentCoupling::LocationRefreshedPayload,
+                disposition,
+            });
+        }
 
         let mut clocks = self.clocks;
         let mut changes = Vec::new();

@@ -7,13 +7,14 @@
 
 use super::{
     effect::{EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLimits},
-    plan::{AuthorityConfigError, MembershipConfig, TxPoolAuthority},
+    plan::{AuthorityConfigError, MembershipConfig, PlanError, TxPoolAuthority},
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{ChainRevision, ChainViewId},
+    state::{ChainRevision, ChainViewId, EntryVersion, RawTxHash},
+    validation::{FinalAdmissionValidation, FinalAdmissionValidationError},
 };
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
@@ -43,6 +44,11 @@ const HISTORY_RESOURCE_DIVISOR: usize = 16;
 /// configured ceiling.
 const COMPUTE_RESOURCE_DIVISOR: usize = 4;
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+
+/// Construction capability for a validator job captured from the paired
+/// authority/snapshot store. Its field is private to this module, so no other
+/// production caller can assemble a mixed read cut.
+pub(super) struct AuthorityStoreCaptureSeal(());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeConfigError {
@@ -305,6 +311,12 @@ pub(crate) struct AuthorityStore {
     onchain_reconcile_done: bool,
 }
 
+#[derive(Debug)]
+pub(in crate::authority) enum FinalAdmissionCaptureError {
+    Plan(PlanError),
+    Validation(FinalAdmissionValidationError),
+}
+
 impl AuthorityStore {
     pub(crate) fn new(
         config: &TxPoolConfig,
@@ -331,6 +343,27 @@ impl AuthorityStore {
 
     pub(crate) fn snapshot(&self) -> &Arc<Snapshot> {
         &self.snapshot
+    }
+
+    /// Capture Ready ownership, paired chain evidence and the exact bounded
+    /// Accepted-origin overlay under this store's single physical guard.
+    /// Snapshot and authority view therefore cannot be mixed by a caller.
+    pub(in crate::authority) fn capture_final_admission(
+        &self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+    ) -> Result<FinalAdmissionValidation, FinalAdmissionCaptureError> {
+        let work = self
+            .authority
+            .final_admission_work(key, expected)
+            .map_err(FinalAdmissionCaptureError::Plan)?;
+        FinalAdmissionValidation::capture(
+            AuthorityStoreCaptureSeal(()),
+            &self.authority,
+            Arc::clone(&self.snapshot),
+            work,
+        )
+        .map_err(FinalAdmissionCaptureError::Validation)
     }
 
     pub(crate) fn committed_txs_hash_cache(&mut self) -> &mut LruCache<ProposalShortId, Byte32> {

@@ -4,3 +4,4 @@ mod effect;
 mod foundation;
 mod read;
 mod template;
+mod validation;

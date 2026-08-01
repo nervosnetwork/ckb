@@ -148,6 +148,31 @@ fn verify_dao_script_size(
     })
 }
 
+/// Revalidate every chain-context rule that is not covered by a reusable
+/// script receipt. This is the only valid bridge from a cached script result
+/// to a different tx-pool chain view: maturity, `since`, and the DAO location
+/// rule all consume the same refreshed resolved transaction and environment.
+pub(crate) fn revalidate_tx_context(
+    snapshot: Arc<Snapshot>,
+    rtx: Arc<ResolvedTransaction>,
+    tx_env: Arc<TxVerifyEnv>,
+) -> Result<(), Reject> {
+    let consensus = snapshot.cloned_consensus();
+    block_offload(|| {
+        TimeRelativeTransactionVerifier::new(
+            Arc::clone(&rtx),
+            Arc::clone(&consensus),
+            snapshot.as_data_loader(),
+            tx_env,
+        )
+        .verify()
+        .and_then(|_| {
+            DaoScriptSizeVerifier::new(rtx, consensus, snapshot.borrow_as_data_loader()).verify()
+        })
+    })
+    .map_err(Reject::Verification)
+}
+
 pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
@@ -160,11 +185,7 @@ pub(crate) async fn verify_rtx(
     let data_loader = snapshot.as_data_loader();
 
     if let Some(completed) = cache_entry {
-        TimeRelativeTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
-            .verify()
-            .and_then(|_| verify_dao_script_size(&snapshot, Arc::clone(&rtx)))
-            .map(|_| *completed)
-            .map_err(Reject::Verification)
+        revalidate_tx_context(snapshot, rtx, tx_env).map(|_| *completed)
     } else if let Some(command_rx) = command_rx {
         // The resumable verifier already executes each VM scheduler in its
         // own Tokio task. Wrapping this parent future in `block_in_place` and

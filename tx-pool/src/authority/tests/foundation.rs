@@ -41,6 +41,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
+use ckb_verification::cache::ScriptVerificationRules;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -458,6 +459,22 @@ pub(super) fn verify_remote_transaction_with_payload(
     peer: usize,
     payload: FoundationResolution,
 ) -> super::super::state::RawTxHash {
+    verify_remote_transaction_with_payload_under(
+        authority,
+        transaction,
+        peer,
+        payload,
+        ScriptVerificationRules::V0,
+    )
+}
+
+pub(super) fn verify_remote_transaction_with_payload_under(
+    authority: &mut TxPoolAuthority,
+    transaction: TransactionView,
+    peer: usize,
+    payload: FoundationResolution,
+    rules: ScriptVerificationRules,
+) -> super::super::state::RawTxHash {
     let admission = ValidatedAdmission::remote(transaction, PeerIndex::from(peer))
         .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
@@ -484,7 +501,7 @@ pub(super) fn verify_remote_transaction_with_payload(
         authority
             .apply_settlement(
                 verify
-                    .verified(accepted_resident_bytes, 0)
+                    .verified_under(accepted_resident_bytes, 0, rules)
                     .expect("fixture verification metrics are valid"),
             )
             .expect("fixture verification settles"),

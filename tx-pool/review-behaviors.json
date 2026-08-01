@@ -35,6 +35,9 @@
         "tx-pool/src/component/pre_pool/commit.rs",
         "tx-pool/src/pool.rs",
         "tx-pool/src/authority/chain.rs",
+        "tx-pool/src/authority/validation.rs",
+        "tx-pool/src/authority/runtime.rs",
+        "tx-pool/src/authority/plan.rs",
         "tx-pool/src/authority/plan/settlement.rs"
       ],
       "required_behavior": "The TxPool write guard is the only final membership/RBF sequencer. It builds one immutable AdmissionPlan containing the accepted PoolMutationPlan, matching revision-bound kernel handoff, exact effect batch and template receipt; one total Apply moves the logical owner and journals those committed effects. A verified lease may fold its otherwise adjacent Ready handoff into that same sealed CommitSession only when its prospective ReadyKey is stronger than every published Ready owner and its exact transient payload charge fits the existing budgets; every Plan, ban fence, rejection and effect path remains shared. Tx-pool final admission may reuse positive resolved-cell evidence only per cell, after the mutable pool overlay, when the resolution and current tip hashes match and transaction_info proves chain provenance.",
@@ -47,7 +50,7 @@
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence|uak_final_admission|uak_matching_completion)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence|uak_direct_local|uak_dropped_direct_local|uak_final_admission|uak_final_validation|uak_changed_tip_revalidates|uak_same_tip_unproven|uak_pool_origin_refresh|uak_script_rule_change|uak_matching_completion)/)'",
       "performance_bound": "Reuse the existing pool sequencer and fold only the adjacent verified/Ready ceremony; do not add a normal-path recovery lock, second admission implementation, commit queue or population-sized reconciliation."
     },
     {
@@ -88,7 +91,7 @@
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_direct_parent_acceptance|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
@@ -397,6 +400,11 @@
     {"test": "verified_commit_session_commits_the_canonical_leased_owner_without_ready_publication", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T7", "T11"]},
     {"test": "verified_commit_session_defers_to_a_stronger_ready_owner", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T5", "T6", "T11"]},
     {"test": "verified_commit_effect_backpressure_falls_back_to_ready", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T7", "T10", "T11"]},
+    {"test": "uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T6", "T7"]},
+    {"test": "uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "uak_direct_local_waits_for_the_matching_remote_compute_capability", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T11"]},
+    {"test": "uak_dropped_direct_local_plan_is_semantically_mutation_free", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6"]},
 
     {"test": "successful_replacement_does_not_recover_removed_descendants", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "failed_size_plan_is_mutation_free_with_original_statuses", "behavior_id": "TP-RBF-001", "invariants": ["T6"]},
@@ -406,6 +414,7 @@
     {"test": "pipeline_rejects_conflicting_double_spend", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "rbf_rejects_dep_group_member_from_replacement_victim", "behavior_id": "TP-RBF-001", "invariants": ["T5", "T6"]},
     {"test": "verified_commit_session_uses_the_existing_ready_conflict_cohort", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
+    {"test": "uak_direct_local_under_fee_rbf_rejects_without_touching_any_owner", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T5", "T6", "T7"]},
 
     {"test": "tx_pool_same_tip_resolution_evidence_skips_chain_revalidation", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
     {"test": "tx_pool_resolution_evidence_yields_to_pool_spends_and_tip_changes", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
@@ -413,6 +422,12 @@
     {"test": "uak_final_admission_refreshes_stale_verification_context", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
     {"test": "uak_final_admission_rejects_a_changed_validation_ruleset", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
     {"test": "uak_matching_completion_settles_and_refreshes_across_chain_view_change", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T11"]},
+    {"test": "uak_changed_tip_revalidates_header_dependencies", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T4", "T6", "T7", "T9"]},
+    {"test": "uak_final_validation_rejects_a_mixed_authority_snapshot_cut", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9"]},
+    {"test": "uak_final_validation_reuses_same_tip_positive_location_evidence", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8"]},
+    {"test": "uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8"]},
+    {"test": "uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T4", "T6"]},
+    {"test": "uak_script_rule_change_requeues_exact_content_for_verification", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9", "T11"]},
 
     {"test": "same_commit_wakes_prior_conflict_but_not_its_new_victim", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
 
@@ -421,6 +436,7 @@
     {"test": "definitive_parent_terminalization_wakes_trusted_dependents", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "repeated_dependency_epochs_are_level_triggered_and_bounded", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "parent_commit_before_wait_registration_requeues_child", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
+    {"test": "uak_direct_parent_acceptance_publishes_output_availability_atomically", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T11"]},
     {"test": "resolve_job_registers_complete_unknown_outpoint_frontier", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
     {"test": "local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11"]},
     {"test": "successive_expanded_parent_losses_keep_exact_causal_keys_in_wait", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},

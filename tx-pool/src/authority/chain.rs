@@ -5,10 +5,12 @@
 //! change. Constructors stay inside the authority boundary so callers cannot
 //! assemble a membership proof from unrelated booleans or snapshots.
 
+use super::rejection::CommittedPublicReject;
 use super::state::{
     AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics,
     ChainTipHash, ChainViewId, DependencyCut, EntryVersion, PoolGeneration, PreAcceptedSource,
-    ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
+    ProposalBase, ProposalId, RawTxHash, ResolvedFacts, ResolvedPayload, ValidatedAdmission,
+    VerifiedFacts,
 };
 use ckb_types::{
     core::TransactionView,
@@ -30,6 +32,10 @@ impl CellContentReceipt {
     }
 
     pub(super) fn payload(&self) -> &ResolvedPayload {
+        &self.payload
+    }
+
+    pub(super) fn payload_arc(&self) -> &Arc<ResolvedPayload> {
         &self.payload
     }
 }
@@ -334,9 +340,19 @@ pub(super) struct DirectAdmissionWork {
 }
 
 #[derive(Clone, Debug)]
-struct MembershipValidationWork {
+pub(super) struct MembershipValidationWork {
     view: ChainViewId,
     verified: VerifiedFacts,
+}
+
+/// Whether final validation retained the Ready owner's resolved payload or
+/// installed a location-refreshed payload. The latter cannot use the bounded
+/// inline shell-retirement path because it may release the last reference to
+/// the previous resolved cells under the authority guard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReadyPayloadRelation {
+    Shared,
+    LocationRefreshed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -351,6 +367,14 @@ pub(super) type DirectAdmissionError = AdmissionEvidenceError;
 impl MembershipValidationWork {
     fn new(view: ChainViewId, verified: VerifiedFacts) -> Self {
         Self { view, verified }
+    }
+
+    pub(super) fn payload(&self) -> &ResolvedPayload {
+        self.verified.payload()
+    }
+
+    pub(super) fn into_parts(self) -> (ChainViewId, VerifiedFacts) {
+        (self.view, self.verified)
     }
 
     #[cfg(test)]
@@ -391,6 +415,20 @@ impl FinalAdmissionWork {
             expected,
             validation: MembershipValidationWork::new(view, verified),
         }
+    }
+
+    pub(super) fn payload(&self) -> &ResolvedPayload {
+        self.validation.payload()
+    }
+
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.validation.view
+    }
+
+    pub(super) fn into_validation_parts(
+        self,
+    ) -> (RawTxHash, EntryVersion, MembershipValidationWork) {
+        (self.key, self.expected, self.validation)
     }
 
     /// Target-harness constructor for the result of real snapshot, overlay,
@@ -435,6 +473,7 @@ impl FinalAdmissionWork {
             membership: self
                 .validation
                 .validate_for_foundation(status, rules, sensitivity)?,
+            payload_relation: ReadyPayloadRelation::Shared,
         })
     }
 }
@@ -472,13 +511,30 @@ impl DirectAdmissionWork {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct MembershipReceipt {
+pub(super) struct MembershipReceipt {
     proof: AcceptedProof,
     proposal: ProposalContextReceipt,
     accepted_at: AcceptedAtMillis,
 }
 
 impl MembershipReceipt {
+    pub(super) fn from_validation(
+        _seal: super::validation::FinalAdmissionSeal,
+        verified: VerifiedFacts,
+        sensitivity: AcceptedChainSensitivity,
+        status: AcceptedStatus,
+        accepted_at: AcceptedAtMillis,
+    ) -> Self {
+        Self {
+            proof: AcceptedProof {
+                verified,
+                sensitivity,
+            },
+            proposal: ProposalContextReceipt::from_validation(status),
+            accepted_at,
+        }
+    }
+
     fn view(&self) -> &ChainViewId {
         self.proof.admission_view()
     }
@@ -498,9 +554,119 @@ pub(super) struct FinalAdmissionReceipt {
     key: RawTxHash,
     expected: EntryVersion,
     membership: MembershipReceipt,
+    payload_relation: ReadyPayloadRelation,
+}
+
+/// The immutable authority cut against which a lock-external final outcome
+/// was validated. Keeping these fields together prevents a caller from
+/// terminalizing or requeueing a different Ready incarnation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FinalAdmissionSubject {
+    key: RawTxHash,
+    expected: EntryVersion,
+    view: ChainViewId,
+    dependency_cut: DependencyCut,
+}
+
+impl FinalAdmissionSubject {
+    pub(super) fn new(
+        _seal: super::validation::FinalAdmissionSeal,
+        key: RawTxHash,
+        expected: EntryVersion,
+        view: ChainViewId,
+        dependency_cut: DependencyCut,
+    ) -> Self {
+        Self {
+            key,
+            expected,
+            view,
+            dependency_cut,
+        }
+    }
+
+    pub(super) fn key(&self) -> &RawTxHash {
+        &self.key
+    }
+
+    pub(super) fn expected(&self) -> EntryVersion {
+        self.expected
+    }
+
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.view
+    }
+
+    pub(super) fn dependency_cut(&self) -> DependencyCut {
+        self.dependency_cut
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FinalAdmissionRejection {
+    subject: FinalAdmissionSubject,
+    reason: CommittedPublicReject,
+}
+
+impl FinalAdmissionRejection {
+    pub(super) fn new(
+        _seal: super::validation::FinalAdmissionSeal,
+        subject: FinalAdmissionSubject,
+        reason: CommittedPublicReject,
+    ) -> Self {
+        Self { subject, reason }
+    }
+
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        &self.reason
+    }
+
+    pub(super) fn into_parts(self) -> (FinalAdmissionSubject, CommittedPublicReject) {
+        (self.subject, self.reason)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FinalAdmissionRevalidation {
+    subject: FinalAdmissionSubject,
+    resolved: ResolvedFacts,
+    payload_relation: ReadyPayloadRelation,
+}
+
+impl FinalAdmissionRevalidation {
+    pub(super) fn new(
+        _seal: super::validation::FinalAdmissionSeal,
+        subject: FinalAdmissionSubject,
+        resolved: ResolvedFacts,
+        payload_relation: ReadyPayloadRelation,
+    ) -> Self {
+        Self {
+            subject,
+            resolved,
+            payload_relation,
+        }
+    }
+
+    pub(super) fn into_parts(self) -> (FinalAdmissionSubject, ResolvedFacts, ReadyPayloadRelation) {
+        (self.subject, self.resolved, self.payload_relation)
+    }
 }
 
 impl FinalAdmissionReceipt {
+    pub(super) fn from_validation(
+        _seal: super::validation::FinalAdmissionSeal,
+        key: RawTxHash,
+        expected: EntryVersion,
+        membership: MembershipReceipt,
+        payload_relation: ReadyPayloadRelation,
+    ) -> Self {
+        Self {
+            key,
+            expected,
+            membership,
+            payload_relation,
+        }
+    }
+
     pub(super) fn key(&self) -> &RawTxHash {
         &self.key
     }
@@ -515,6 +681,10 @@ impl FinalAdmissionReceipt {
 
     pub(super) fn proof(&self) -> &AcceptedProof {
         self.membership.proof()
+    }
+
+    pub(super) fn payload_relation(&self) -> ReadyPayloadRelation {
+        self.payload_relation
     }
 
     pub(super) fn into_membership_parts(

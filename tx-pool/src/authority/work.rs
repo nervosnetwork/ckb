@@ -386,7 +386,7 @@ fn verified(
             VerificationReceiptError::ContextMismatch,
         ));
     }
-    let (dependency_cut, content, _location, _) =
+    let (dependency_cut, content, _location, verify_class) =
         resolved.into_verification_parts(VerificationSeal(()));
     Ok(
         token.settle(SettlementNext::Ready(VerifiedFacts::from_verification(
@@ -394,6 +394,7 @@ fn verified(
             dependency_cut,
             content,
             context,
+            verify_class,
             metrics,
         ))),
     )

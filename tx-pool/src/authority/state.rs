@@ -711,6 +711,26 @@ impl ResolvedPayload {
     pub(super) fn resolved_resident_bytes(&self) -> usize {
         self.resolved_resident_bytes
     }
+
+    /// Replace only tip-relative cell locations after lock-external
+    /// validation. The unforgeable seal is owned by the production validator,
+    /// so callers cannot use this operation to substitute transaction content
+    /// while retaining an earlier script receipt.
+    pub(super) fn with_refreshed_locations(
+        &self,
+        _seal: super::validation::LocationRefreshSeal,
+        resolved: Arc<ResolvedTransaction>,
+    ) -> Self {
+        Self {
+            resolved,
+            identity: self.identity.clone(),
+            footprint: self.footprint.clone(),
+            dependencies: self.dependencies.clone(),
+            fee: self.fee,
+            serialized_bytes: self.serialized_bytes,
+            resolved_resident_bytes: self.resolved_resident_bytes,
+        }
+    }
 }
 
 /// Test-only complete resolution fixture. Production builds create the same
@@ -764,6 +784,7 @@ pub(super) struct VerifiedFacts {
     content: CellContentReceipt,
     context: VerificationContextReceipt,
     script: ScriptReceipt,
+    verify_class: VerifyCycleClass,
     metrics: CandidateMetrics,
 }
 
@@ -861,6 +882,7 @@ impl VerifiedFacts {
         dependency_cut: DependencyCut,
         content: CellContentReceipt,
         context: VerificationContextReceipt,
+        verify_class: VerifyCycleClass,
         metrics: CandidateMetrics,
     ) -> Self {
         let rules = context.rules();
@@ -869,6 +891,7 @@ impl VerifiedFacts {
             content,
             context,
             script: ScriptReceipt::from_verification(rules),
+            verify_class,
             metrics,
         }
     }
@@ -902,6 +925,7 @@ impl VerifiedFacts {
             content: CellContentReceipt::from_resolution(payload),
             context,
             script: ScriptReceipt::from_verification(rules),
+            verify_class: VerifyCycleClass::Small,
             metrics,
         }
     }
@@ -920,6 +944,10 @@ impl VerifiedFacts {
 
     pub(super) fn payload(&self) -> &ResolvedPayload {
         self.content.payload()
+    }
+
+    pub(super) fn payload_arc(&self) -> &Arc<ResolvedPayload> {
+        self.content.payload_arc()
     }
 
     pub(super) fn metrics(&self) -> &CandidateMetrics {
@@ -947,6 +975,39 @@ impl VerifiedFacts {
             return None;
         }
         Some(Self { context, ..self })
+    }
+
+    /// Rebind immutable content to freshly validated cell locations. Only the
+    /// validator can construct the seal, and [`ResolvedPayload`] preserves the
+    /// exact transaction, footprint, dependency set, fee and resident charge.
+    pub(super) fn with_refreshed_locations(
+        self,
+        _seal: super::validation::LocationRefreshSeal,
+        payload: Arc<ResolvedPayload>,
+    ) -> Self {
+        Self {
+            content: CellContentReceipt::from_resolution(payload),
+            ..self
+        }
+    }
+
+    /// Consume stale script evidence while retaining the exact resolved
+    /// content, dependency cut, location proof and scheduler class needed to
+    /// run verification under a new hard-fork ruleset.
+    pub(super) fn into_revalidation(
+        self,
+        _seal: super::validation::FinalRevalidationSeal,
+        chain_view: ChainViewId,
+        payload: Arc<ResolvedPayload>,
+        location: CellLocationReceipt,
+    ) -> ResolvedFacts {
+        ResolvedFacts {
+            chain_view,
+            dependency_cut: self.dependency_cut,
+            content: CellContentReceipt::from_resolution(payload),
+            location,
+            verify_class: self.verify_class,
+        }
     }
 }
 

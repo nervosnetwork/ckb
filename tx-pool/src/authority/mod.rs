@@ -18,6 +18,7 @@ mod scheduler;
 mod source;
 mod state;
 mod template;
+mod validation;
 mod work;
 
 #[cfg(test)]

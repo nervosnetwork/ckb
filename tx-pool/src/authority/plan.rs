@@ -6,7 +6,10 @@ mod settlement;
 use super::chain::AcceptedProof;
 #[cfg(test)]
 use super::chain::{AdmissionEvidenceError, DirectAdmissionWork};
-use super::chain::{DirectAdmissionReceipt, FinalAdmissionReceipt, FinalAdmissionWork};
+use super::chain::{
+    DirectAdmissionReceipt, FinalAdmissionReceipt, FinalAdmissionRejection,
+    FinalAdmissionRevalidation, FinalAdmissionSubject, FinalAdmissionWork, ReadyPayloadRelation,
+};
 #[cfg(test)]
 use super::dependency::DependencySnapshot;
 use super::dependency::{
@@ -53,6 +56,7 @@ use super::state::{
     QueuedWork, RawTxHash, RemoteDeadline, RemotePayloadOrigin, ReplacementHistoryEntry,
     ReplacementHistoryError, TxRecord, ValidatedAdmission,
 };
+use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
     CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementRejection,
     SettlementToken,
@@ -808,10 +812,26 @@ struct DerivedOwnerDelta {
     sources: SourceVersionDelta,
 }
 
-#[derive(Default)]
 struct TransitionControls {
     dependency: DependencyControlDelta,
     effect: EffectDelta,
+    replacement_retirement: EntryReplacementRetirement,
+}
+
+impl Default for TransitionControls {
+    fn default() -> Self {
+        Self {
+            dependency: DependencyControlDelta::default(),
+            effect: EffectDelta::default(),
+            replacement_retirement: EntryReplacementRetirement::SharedShellInline,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum EntryReplacementRetirement {
+    SharedShellInline,
+    OutsideGuard,
 }
 
 struct WorkHandoff {
@@ -1078,6 +1098,16 @@ pub(super) enum CandidateDispositionPlan<'authority> {
     Rejected(PreparedCandidateRejection<'authority>),
 }
 
+/// Closed final-validation disposition. A caller cannot turn a lock-external
+/// validation failure into an ad-hoc retry or forget the matching committed
+/// rejection effect.
+#[must_use = "final admission disposition must be applied exactly once"]
+pub(super) enum FinalAdmissionDispositionPlan<'authority> {
+    Candidate(CandidateDispositionPlan<'authority>),
+    ValidationRejected(PreparedValidationRejection<'authority>),
+    Reverify(PreparedApply<'authority>),
+}
+
 /// Complete synchronous trusted-admission result. Every branch owns the one
 /// Apply that commits its externally visible outcome; the caller cannot
 /// mutate membership and publish success/rejection independently.
@@ -1128,6 +1158,22 @@ impl PreparedDirectRejection<'_> {
 pub(super) struct PreparedCandidateRejection<'authority> {
     reason: MembershipReject,
     plan: PreparedApply<'authority>,
+}
+
+#[must_use = "validation rejection must be applied exactly once"]
+pub(super) struct PreparedValidationRejection<'authority> {
+    reason: CommittedPublicReject,
+    plan: PreparedApply<'authority>,
+}
+
+impl PreparedValidationRejection<'_> {
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        &self.reason
+    }
+
+    pub(super) fn apply(self) -> (CommittedPublicReject, CommittedDelta) {
+        (self.reason, self.plan.apply())
+    }
 }
 
 impl PreparedCandidateRejection<'_> {
@@ -2264,6 +2310,133 @@ impl TxPoolAuthority {
         self.plan_candidate_disposition(receipt)
     }
 
+    pub(in crate::authority) fn plan_final_admission(
+        &mut self,
+        outcome: FinalAdmissionValidationOutcome,
+    ) -> Result<FinalAdmissionDispositionPlan<'_>, PlanError> {
+        match outcome {
+            FinalAdmissionValidationOutcome::Candidate(receipt) => self
+                .plan_candidate_disposition(receipt)
+                .map(FinalAdmissionDispositionPlan::Candidate),
+            FinalAdmissionValidationOutcome::Rejected(rejection) => self
+                .plan_final_validation_rejection(rejection)
+                .map(FinalAdmissionDispositionPlan::ValidationRejected),
+            FinalAdmissionValidationOutcome::Reverify(revalidation) => self
+                .plan_final_revalidation(revalidation)
+                .map(FinalAdmissionDispositionPlan::Reverify),
+        }
+    }
+
+    fn final_admission_subject_owner(
+        &self,
+        subject: &FinalAdmissionSubject,
+    ) -> Result<PreAcceptedEntry, PlanError> {
+        if subject.view() != &self.chain_view {
+            return Err(PlanError::Stale(StalePlan::ChainRevision));
+        }
+        let existing = self
+            .entries
+            .get(subject.key())
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if existing.record().version != subject.expected() {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Ready(verified) = &preaccepted.phase else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        if verified.dependency_cut() != subject.dependency_cut()
+            || !self
+                .dependencies
+                .proof_is_current(verified.payload().dependencies(), subject.dependency_cut())
+        {
+            return Err(PlanError::Stale(StalePlan::Dependency));
+        }
+        Ok(preaccepted.clone())
+    }
+
+    fn plan_final_validation_rejection(
+        &mut self,
+        rejection: FinalAdmissionRejection,
+    ) -> Result<PreparedValidationRejection<'_>, PlanError> {
+        let (subject, reason) = rejection.into_parts();
+        let preaccepted = self.final_admission_subject_owner(&subject)?;
+        let policy = if preaccepted.source.ingress_peer().is_some() {
+            EffectPolicy::Remote
+        } else {
+            EffectPolicy::Trusted
+        };
+        let publication = self
+            .effects
+            .build_publication(
+                policy,
+                vec![CommittedEffect::Rejected {
+                    tx: Arc::clone(&preaccepted.record.tx),
+                    audience: RejectionAudience::from_source(preaccepted.source),
+                    reason: CommittedRejection::Validation(reason.clone()),
+                }],
+            )
+            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+        let plan = self.plan_preaccepted_terminalization(
+            subject.key(),
+            subject.expected(),
+            PreAcceptedTerminalOutcome::Published(&publication),
+        )?;
+        Ok(PreparedValidationRejection { reason, plan })
+    }
+
+    fn plan_final_revalidation(
+        &mut self,
+        revalidation: FinalAdmissionRevalidation,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let (subject, resolved, payload_relation) = revalidation.into_parts();
+        let preaccepted = self.final_admission_subject_owner(&subject)?;
+        if resolved.chain_view() != subject.view()
+            || resolved.dependency_cut() != subject.dependency_cut()
+            || resolved.payload().identity() != &preaccepted.record.identity
+        {
+            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+        }
+        if !self
+            .dependencies
+            .proof_is_current(resolved.payload().dependencies(), resolved.dependency_cut())
+        {
+            return Err(PlanError::Stale(StalePlan::Dependency));
+        }
+        let retained_charge = self.resources.retained_entry_charge(
+            &preaccepted,
+            resolved.payload().resolved_resident_bytes(),
+            resolved.payload().dependencies().len(),
+        )?;
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let clocks = AuthorityClocks {
+            next_version: next_version(version)?,
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        let mut requeued = preaccepted.clone();
+        requeued.record.version = version;
+        requeued.phase = PreAcceptedPhase::Queued(QueuedWork::Verify(resolved));
+        requeued.charge = retained_charge;
+        let retirement = match payload_relation {
+            ReadyPayloadRelation::Shared => EntryReplacementRetirement::SharedShellInline,
+            ReadyPayloadRelation::LocationRefreshed => EntryReplacementRetirement::OutsideGuard,
+        };
+        self.prepare_entry_delta_with_replacement_retirement(
+            EntryTransition {
+                key: subject.key().clone(),
+                before: Some(OwnedTx::PreAccepted(preaccepted)),
+                after: Some(OwnedTx::PreAccepted(requeued)),
+            },
+            clocks,
+            sequence,
+            retirement,
+        )
+    }
+
     /// Compile the only final-membership command exposed to production.  Both
     /// success and policy rejection are complete owner/resource/effect Plans;
     /// the caller cannot receive a bare membership error after validation and
@@ -2520,6 +2693,10 @@ impl TxPoolAuthority {
         receipt: FinalAdmissionReceipt,
     ) -> Result<MembershipDelta, PlanError> {
         self.effects.ensure_open()?;
+        let changed_retirement = match receipt.payload_relation() {
+            ReadyPayloadRelation::Shared => ChangedOwnerRetirement::VacantOrSharedShellInline,
+            ReadyPayloadRelation::LocationRefreshed => ChangedOwnerRetirement::OutsideGuard,
+        };
         let key = receipt.key().clone();
         let expected = receipt.expected();
         let existing = self
@@ -2568,7 +2745,7 @@ impl TxPoolAuthority {
             base_clocks,
             sequence,
             effect_policy,
-            changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
+            changed_retirement,
         })
     }
 
@@ -2878,6 +3055,7 @@ impl TxPoolAuthority {
             TransitionControls {
                 dependency: dependency_control,
                 effect,
+                ..TransitionControls::default()
             },
             None,
         )
@@ -4042,7 +4220,11 @@ impl TxPoolAuthority {
             clocks,
             sequence,
             None,
-            TransitionControls { dependency, effect },
+            TransitionControls {
+                dependency,
+                effect,
+                ..TransitionControls::default()
+            },
             None,
         )
     }
@@ -4098,6 +4280,27 @@ impl TxPoolAuthority {
             TransitionControls {
                 dependency: dependency_control,
                 effect: EffectDelta::default(),
+                ..TransitionControls::default()
+            },
+            None,
+        )
+    }
+
+    fn prepare_entry_delta_with_replacement_retirement(
+        &mut self,
+        transition: EntryTransition,
+        clocks: AuthorityClocks,
+        sequence: ApplySequence,
+        replacement_retirement: EntryReplacementRetirement,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.prepare_entry_delta_with_controls(
+            transition,
+            clocks,
+            sequence,
+            None,
+            TransitionControls {
+                replacement_retirement,
+                ..TransitionControls::default()
             },
             None,
         )
@@ -4118,6 +4321,11 @@ impl TxPoolAuthority {
             before: expected,
             after,
         } = transition;
+        let TransitionControls {
+            dependency: dependency_control,
+            effect,
+            replacement_retirement,
+        } = controls;
         let (work, checkout, checkout_resources) = match handoff {
             Some(WorkHandoff {
                 work,
@@ -4143,10 +4351,13 @@ impl TxPoolAuthority {
         };
         let expected_charge = expected.as_ref().map(OwnedTx::charge_record);
         let after_charge = after.as_ref().map(OwnedTx::charge_record);
-        let retirement = if expected.is_some() && after.is_none() {
-            EntryRetirement::Outside(retired_buffer(1)?)
-        } else {
-            EntryRetirement::InlineDrop
+        let retirement = match (expected.is_some(), after.is_none(), replacement_retirement) {
+            (true, true, _) | (true, false, EntryReplacementRetirement::OutsideGuard) => {
+                EntryRetirement::Outside(retired_buffer(1)?)
+            }
+            (false, _, _) | (true, false, EntryReplacementRetirement::SharedShellInline) => {
+                EntryRetirement::InlineDrop
+            }
         };
         self.reserve_primary_owner_insertions(usize::from(after.is_some() && expected.is_none()))?;
         let resource = match preplanned_resources {
@@ -4161,8 +4372,7 @@ impl TxPoolAuthority {
         let dependency = self
             .dependencies
             .plan_replace(expected.as_ref(), after.as_ref())?
-            .with_control(controls.dependency);
-        let effect = controls.effect;
+            .with_control(dependency_control);
         let sources = self.source_versions.plan_replacements(
             std::iter::once((expected.as_ref(), after.as_ref())),
             sequence,
