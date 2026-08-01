@@ -19,7 +19,7 @@ use super::dependency::{
 use super::effect::{
     CommittedAcceptance, CommittedEffect, CommittedRejection, EffectBatch, EffectBuildError,
     EffectConfigError, EffectDelta, EffectError, EffectLease, EffectLimits, EffectLog,
-    EffectPolicy, EffectPublication, EffectSettlement, RejectionAudience,
+    EffectPolicy, EffectPublication, EffectSettlement, ParentTransactionRequest, RejectionAudience,
 };
 #[cfg(test)]
 use super::effect::{EffectObservation, EffectSnapshot};
@@ -541,7 +541,7 @@ pub(super) enum PlanError {
 pub(super) struct ComputeSettlementFailure {
     error: PlanError,
     token: SettlementToken,
-    terminal_rejection: Option<SettlementRejection>,
+    next: SettlementNext,
 }
 
 impl ComputeSettlementFailure {
@@ -549,12 +549,10 @@ impl ComputeSettlementFailure {
         &self.error
     }
 
-    pub(super) fn into_retry(self) -> ComputeSettlement {
+    pub(super) fn into_settlement(self) -> ComputeSettlement {
         ComputeSettlement {
             token: self.token,
-            next: self
-                .terminal_rejection
-                .map_or(SettlementNext::Retry, SettlementNext::Rejected),
+            next: self.next,
         }
     }
 }
@@ -1073,20 +1071,25 @@ enum SettlementDisposition {
         phase: PreAcceptedPhase,
         charge: ResourceVector,
     },
+    RetainAndPublish {
+        phase: PreAcceptedPhase,
+        charge: ResourceVector,
+        publication: EffectPublication,
+    },
     Terminal(SettlementRejection),
 }
 
 enum PrepareSettlementError {
-    Plain(PlanError),
-    Terminal {
+    Recompute(PlanError),
+    Preserve {
         error: PlanError,
-        rejection: SettlementRejection,
+        next: SettlementNext,
     },
 }
 
 impl From<PlanError> for PrepareSettlementError {
     fn from(error: PlanError) -> Self {
-        Self::Plain(error)
+        Self::Recompute(error)
     }
 }
 
@@ -3978,22 +3981,44 @@ impl TxPoolAuthority {
         let ComputeSettlement { token, next } = settlement;
         match self.prepare_settlement(&token, next) {
             Ok(plan) => Ok(plan.apply()),
-            Err(PrepareSettlementError::Plain(error)) => Err(ComputeSettlementFailure {
+            Err(PrepareSettlementError::Recompute(error)) => Err(ComputeSettlementFailure {
                 error,
                 token,
-                terminal_rejection: None,
+                next: SettlementNext::Retry,
             }),
-            Err(PrepareSettlementError::Terminal { error, rejection }) => {
-                Err(ComputeSettlementFailure {
-                    error,
-                    token,
-                    terminal_rejection: Some(rejection),
-                })
+            Err(PrepareSettlementError::Preserve { error, next }) => {
+                Err(ComputeSettlementFailure { error, token, next })
             }
         }
     }
 
     fn prepare_settlement<'a>(
+        &'a mut self,
+        token: &SettlementToken,
+        next: SettlementNext,
+    ) -> Result<PreparedApply<'a>, PrepareSettlementError> {
+        // A Remote missing frontier is non-rebuildable publication detail. If
+        // journal capacity is temporarily full, preserve that exact bounded
+        // result instead of converting it to `Retry` and hot-looping through
+        // resolution. Other compute results are safely reproducible, except
+        // terminal rejections which the inner planner retains explicitly.
+        let waiting_retry = match &next {
+            SettlementNext::Waiting(missing) => Some(missing.clone()),
+            _ => None,
+        };
+        self.prepare_settlement_inner(token, next)
+            .map_err(|error| match (error, waiting_retry) {
+                (PrepareSettlementError::Recompute(error), Some(missing)) => {
+                    PrepareSettlementError::Preserve {
+                        error,
+                        next: SettlementNext::Waiting(missing),
+                    }
+                }
+                (error, _) => error,
+            })
+    }
+
+    fn prepare_settlement_inner<'a>(
         &'a mut self,
         token: &SettlementToken,
         next: SettlementNext,
@@ -4102,9 +4127,38 @@ impl TxPoolAuthority {
                                     dependencies,
                                     dependency_cut,
                                 );
-                                SettlementDisposition::Retain {
-                                    phase: PreAcceptedPhase::Waiting(observed),
-                                    charge: retained_charge,
+                                let publication = match preaccepted.source {
+                                    PreAcceptedSource::Remote(remote) => {
+                                        ParentTransactionRequest::new(
+                                            remote.residency.peer,
+                                            Arc::clone(missing.parent_transactions()),
+                                        )
+                                        .map(|request| {
+                                            self.effects.build_publication(
+                                                EffectPolicy::Remote,
+                                                vec![CommittedEffect::ParentTransactionsRequested(
+                                                    request,
+                                                )],
+                                            )
+                                        })
+                                        .transpose()
+                                        .map_err(|_| {
+                                            PlanError::Fault(AuthorityFault::EffectProjection)
+                                        })?
+                                    }
+                                    PreAcceptedSource::Proposal { .. }
+                                    | PreAcceptedSource::Recovery(_) => None,
+                                };
+                                match publication {
+                                    Some(publication) => SettlementDisposition::RetainAndPublish {
+                                        phase: PreAcceptedPhase::Waiting(observed),
+                                        charge: retained_charge,
+                                        publication,
+                                    },
+                                    None => SettlementDisposition::Retain {
+                                        phase: PreAcceptedPhase::Waiting(observed),
+                                        charge: retained_charge,
+                                    },
                                 }
                             }
                         }
@@ -4232,15 +4286,20 @@ impl TxPoolAuthority {
                 },
             }
         };
-        let (phase, retained_charge) = match disposition {
-            SettlementDisposition::Retain { phase, charge } => (phase, charge),
+        let (phase, retained_charge, publication) = match disposition {
+            SettlementDisposition::Retain { phase, charge } => (phase, charge, None),
+            SettlementDisposition::RetainAndPublish {
+                phase,
+                charge,
+                publication,
+            } => (phase, charge, Some(publication)),
             SettlementDisposition::Terminal(rejection) => {
                 let retry_rejection = rejection.clone();
                 return self
                     .prepare_compute_rejection(existing, rejection)
-                    .map_err(|error| PrepareSettlementError::Terminal {
+                    .map_err(|error| PrepareSettlementError::Preserve {
                         error,
-                        rejection: retry_rejection,
+                        next: SettlementNext::Rejected(retry_rejection),
                     });
             }
         };
@@ -4276,9 +4335,9 @@ impl TxPoolAuthority {
                 let retry_rejection = rejection.clone();
                 return self
                     .prepare_compute_rejection(existing, rejection)
-                    .map_err(|error| PrepareSettlementError::Terminal {
+                    .map_err(|error| PrepareSettlementError::Preserve {
                         error,
-                        rejection: retry_rejection,
+                        next: SettlementNext::Rejected(retry_rejection),
                     });
             }
             Err(error) => return Err(PlanError::from(error).into()),
@@ -4293,7 +4352,14 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        self.prepare_entry_delta_with_preplanned_resource(
+        let effect = publication
+            .as_ref()
+            .map_or_else(
+                || Ok(EffectDelta::default()),
+                |publication| self.effects.plan_publication(publication, sequence),
+            )
+            .map_err(PlanError::from)?;
+        self.prepare_entry_delta_with_controls(
             EntryTransition {
                 key: token.hash.clone(),
                 before: Some(existing),
@@ -4302,7 +4368,11 @@ impl TxPoolAuthority {
             clocks,
             sequence,
             None,
-            resource,
+            TransitionControls {
+                effect,
+                ..TransitionControls::default()
+            },
+            Some(resource),
         )
         .map_err(PrepareSettlementError::from)
     }
@@ -4374,24 +4444,6 @@ impl TxPoolAuthority {
             handoff,
             TransitionControls::default(),
             None,
-        )
-    }
-
-    fn prepare_entry_delta_with_preplanned_resource(
-        &mut self,
-        transition: EntryTransition,
-        clocks: AuthorityClocks,
-        sequence: ApplySequence,
-        handoff: Option<WorkHandoff>,
-        resource: ResourcePlan,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.prepare_entry_delta_with_controls(
-            transition,
-            clocks,
-            sequence,
-            handoff,
-            TransitionControls::default(),
-            Some(resource),
         )
     }
 

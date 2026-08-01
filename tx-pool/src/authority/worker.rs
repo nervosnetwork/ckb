@@ -328,7 +328,7 @@ impl ComputeWorker {
 
             let signal = self.runtime.mutation_signal();
             let notified = signal.notified();
-            let settlement = failure.into_retry();
+            let settlement = failure.into_settlement();
             match self.runtime.settle(settlement) {
                 Ok(()) => return classify_settled_origin(origin),
                 Err(next) => failure = next,

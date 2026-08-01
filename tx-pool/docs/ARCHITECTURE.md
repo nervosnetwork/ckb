@@ -684,6 +684,18 @@ Exactly-once delivery is not claimed. The invariant is: after state Apply, a
 bounded stable record exists until detailed publication succeeds or a newer
 authoritative generation reset subsumes it.
 
+A Remote owner that resolves to a complete missing-cell frontier follows the
+same rule. Resolution derives canonical, sorted and deduplicated parent
+transaction hashes outside the authority guard. The current-source Plan then
+commits `Waiting(Missing)` and the matching parent-request effect in one Apply;
+Proposal and Recovery owners do not manufacture relay requests. The runtime's
+Remote effect region is assembled to fit the largest legal request batch. If
+capacity is transiently full, the move-only settlement retains that exact
+bounded missing result and waits for a mutation signal instead of re-running
+resolution. Production header resolution rejects an unavailable header
+directly, so this transaction-parent projection never treats a header hash as
+a relayable transaction.
+
 ## 12. Dependencies and conflicts
 
 Three relations are intentionally distinct:

@@ -7,13 +7,13 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "unit_test_count": 488,
+    "unit_test_count": 504,
     "integration_spec_count": 150
   },
   "release_blockers": [
     {
       "id": "UNIFIED-AUTHORITY-CUTOVER",
-      "reason": "The isolated Unified Authority Kernel has completed G4.4 template convergence and is closing G4.5 replacement-history exit review; atomic production cutover and legacy-owner deletion remain incomplete"
+      "reason": "The Unified Authority Kernel has completed G5.0 worker-boundary closure and is in G5.1 atomic production wiring; production consumer cutover and legacy-owner deletion remain incomplete"
     },
     {
       "id": "CORRECTNESS-ACCEPTANCE",

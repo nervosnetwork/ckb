@@ -13,6 +13,16 @@ use ckb_types::{
 use std::{collections::VecDeque, num::NonZeroUsize, sync::Arc};
 
 const EFFECT_ENVELOPE_BYTES: usize = 128;
+/// Conservative retained-memory charge for one detached packed hash and its
+/// `Arc<[RawTxHash]>` allocation share. This matches the existing relayer
+/// projection bound without making the authority depend on the service layer.
+const PARENT_TRANSACTION_HASH_BYTES: usize = 64;
+
+pub(super) fn parent_request_charge_bound(parent_count: usize) -> Option<usize> {
+    parent_count
+        .checked_mul(PARENT_TRANSACTION_HASH_BYTES)?
+        .checked_add(EFFECT_ENVELOPE_BYTES)
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct EffectCapacity {
@@ -223,6 +233,33 @@ pub(super) struct RejectionAudience {
     pub(super) blame_peer: Option<PeerIndex>,
 }
 
+/// Non-empty, canonical request detail committed with a Remote missing wait.
+/// The constructor is private so an empty request cannot occupy journal
+/// capacity or pretend that an external liveness action was published.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ParentTransactionRequest {
+    peer: PeerIndex,
+    parents: Arc<[RawTxHash]>,
+}
+
+impl ParentTransactionRequest {
+    pub(super) fn new(peer: PeerIndex, parents: Arc<[RawTxHash]>) -> Option<Self> {
+        if parents.is_empty() {
+            None
+        } else {
+            Some(Self { peer, parents })
+        }
+    }
+
+    pub(super) const fn peer(&self) -> PeerIndex {
+        self.peer
+    }
+
+    pub(super) fn parents(&self) -> &[RawTxHash] {
+        &self.parents
+    }
+}
+
 impl RejectionAudience {
     pub(super) const fn from_source(source: PreAcceptedSource) -> Self {
         Self {
@@ -282,6 +319,10 @@ pub(super) enum CommittedEffect {
         tx_hash: RawTxHash,
         peer: PeerIndex,
     },
+    /// A Remote owner entered `Waiting(Missing)`. The exact request and the
+    /// durable wait share one authority Apply, so the relayer cannot observe a
+    /// request for a stale lease or lose the only request for a committed wait.
+    ParentTransactionsRequested(ParentTransactionRequest),
     GenerationReset,
 }
 
@@ -303,6 +344,9 @@ impl CommittedEffect {
                     CommittedRejection::Foundation(_) => 0,
                 }),
             Self::PeerRevoked { .. } | Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
+            Self::ParentTransactionsRequested(request) => {
+                parent_request_charge_bound(request.parents().len())
+            }
             Self::GenerationReset => Some(0),
         }
     }

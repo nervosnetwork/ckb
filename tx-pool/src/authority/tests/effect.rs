@@ -9,8 +9,8 @@ use super::super::{
         TxPoolAuthority,
     },
     state::{
-        AcceptedStatus, ApplySequence, OwnedTx, PreAcceptedPhase, RejectionKind, RemoteDeadline,
-        ValidatedAdmission, WorkPermit,
+        AcceptedStatus, ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash,
+        RejectionKind, RemoteDeadline, ValidatedAdmission, WorkPermit,
     },
 };
 use super::foundation::{
@@ -18,7 +18,10 @@ use super::foundation::{
     verify_remote_transaction,
 };
 use ckb_network::PeerIndex;
-use ckb_types::core::TransactionView;
+use ckb_types::{
+    core::TransactionView,
+    packed::{Byte32, OutPoint},
+};
 use std::{num::NonZeroUsize, sync::Arc};
 
 const EFFECT_BYTES: usize = 1024 * 1024;
@@ -266,7 +269,7 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
     ));
     drop(apply_without_handoff(
         authority
-            .apply_settlement(blocked.into_retry())
+            .apply_settlement(blocked.into_settlement())
             .expect("the exact rejected settlement retries after capacity is free"),
     ));
     assert!(authority.entry(&hash).is_none());
@@ -281,6 +284,89 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
         }] if audience.ingress_peer == Some(PeerIndex::from(73))
             && *reason == RejectionKind::Policy.into()
     ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
+    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
+    let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(714)));
+    drop(publish(&mut authority, &occupied));
+
+    let peer = PeerIndex::from(74);
+    let hash = admit_remote(&mut authority, 715, 74);
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("remote missing work checks out")
+            .apply(),
+    );
+    let first_parent = Byte32::new([0x11; 32]);
+    let second_parent = Byte32::new([0x22; 32]);
+    let settlement = work
+        .missing(vec![
+            DependencyKey::Cell(OutPoint::new(second_parent.clone(), 0)),
+            DependencyKey::Cell(OutPoint::new(first_parent.clone(), 1)),
+            DependencyKey::Cell(OutPoint::new(first_parent.clone(), 0)),
+            // The relayer requests transactions only. Production resolution
+            // rejects an invalid header before this receipt is constructed.
+            DependencyKey::Header(Byte32::new([0x33; 32])),
+        ])
+        .expect("the complete missing frontier fits the compute grant");
+    let before = authority.normalized_snapshot();
+
+    let blocked = authority
+        .apply_settlement(settlement)
+        .expect_err("the wait cannot commit without its parent request");
+    assert_eq!(
+        blocked.error(),
+        &PlanError::Backpressure(Backpressure::EffectCapacity)
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+                && entry.charge.active_work == 1
+    ));
+
+    let blocked = authority
+        .apply_settlement(blocked.into_settlement())
+        .expect_err("an unchanged full journal retains the exact missing result");
+    assert_eq!(
+        blocked.error(),
+        &PlanError::Backpressure(Backpressure::EffectCapacity)
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+
+    let occupied_lease = checkout(&mut authority);
+    drop(apply_without_handoff(
+        authority
+            .apply_effect_settlement_for_foundation(occupied_lease.published())
+            .expect("the occupied publication settles"),
+    ));
+    drop(apply_without_handoff(
+        authority
+            .apply_settlement(blocked.into_settlement())
+            .expect("the same missing result commits after capacity returns"),
+    ));
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Waiting(_))
+                && entry.charge.active_work == 0
+    ));
+
+    let request = checkout(&mut authority);
+    let [CommittedEffect::ParentTransactionsRequested(request)] = request.effects() else {
+        panic!("the wait commits exactly one parent-transaction request");
+    };
+    assert_eq!(request.peer(), peer);
+    assert_eq!(
+        request.parents(),
+        &[RawTxHash(first_parent), RawTxHash(second_parent),]
+    );
     assert!(authority.primary_projection_consistent());
 }
 

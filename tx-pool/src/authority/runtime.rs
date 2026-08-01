@@ -7,7 +7,10 @@
 
 use super::{
     chain::FinalAdmissionWork,
-    effect::{EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLimits},
+    effect::{
+        EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLimits,
+        parent_request_charge_bound,
+    },
     plan::{
         AuthorityConfigError, CandidateBatchError, CandidateDispositionPlan, CommittedDelta,
         ComputeSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
@@ -283,7 +286,15 @@ impl AuthorityRuntimeConfig {
         if submit_effect_bytes == usize::MAX || reorg_effect_bytes == usize::MAX {
             return Err(RuntimeConfigError::Arithmetic);
         }
-        let ordinary_effect_bytes = resident_effect_bytes.max(submit_effect_bytes);
+        // A complete missing frontier is a non-rebuildable committed detail.
+        // Size its one-effect Remote batch from the same per-work edge grant
+        // that bounds resolution, so every legal missing receipt can wait for
+        // capacity but can never fail the journal's indivisible-batch shape.
+        let parent_request_effect_bytes = parent_request_charge_bound(compute_edges_per_work)
+            .ok_or(RuntimeConfigError::Arithmetic)?;
+        let ordinary_effect_bytes = resident_effect_bytes
+            .max(submit_effect_bytes)
+            .max(parent_request_effect_bytes);
         let max_effects = crate::constants::MAX_POOL_MUTATION_CANDIDATES
             .checked_add(1)
             .ok_or(RuntimeConfigError::Arithmetic)?;

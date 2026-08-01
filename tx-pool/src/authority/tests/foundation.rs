@@ -5895,7 +5895,7 @@ fn uak_settlement_failure_returns_the_exact_terminal_capability() {
     authority.force_next_sequence(resumable_sequence);
     apply_without_work(
         authority
-            .apply_settlement(exhausted.into_retry())
+            .apply_settlement(exhausted.into_settlement())
             .expect("returned capability commits the original rejection"),
     );
     assert_eq!(authority.resources().preaccepted().active_work, 0);

@@ -12,6 +12,7 @@ use super::state::{
     VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use crate::error::Reject;
+use crate::util::compact_packed;
 use ckb_types::core::TransactionView;
 use ckb_types::core::{Capacity, cell::ResolvedTransaction};
 #[cfg(test)]
@@ -219,10 +220,16 @@ impl SettlementRejection {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct MissingResolution {
     missing: MissingDependencies,
     dependencies: KnownDependencies,
+    /// Canonical transaction origins of the complete missing Cell frontier.
+    ///
+    /// This projection is built outside the authority guard. It deliberately
+    /// excludes header dependencies: production resolution rejects an invalid
+    /// header directly, while the relayer can only request transactions.
+    parent_transactions: Arc<[RawTxHash]>,
 }
 
 impl MissingResolution {
@@ -232,6 +239,10 @@ impl MissingResolution {
 
     pub(super) fn dependencies(&self) -> &KnownDependencies {
         &self.dependencies
+    }
+
+    pub(super) fn parent_transactions(&self) -> &Arc<[RawTxHash]> {
+        &self.parent_transactions
     }
 }
 
@@ -303,9 +314,26 @@ fn missing_settlement(
             ));
         }
     };
+    let mut parent_transactions = Vec::new();
+    if parent_transactions.try_reserve(missing.len()).is_err() {
+        return Err(ReceiptFailure::new(
+            token,
+            ResolutionReceiptError::DependencyAllocation,
+        ));
+    }
+    for key in missing.keys() {
+        let DependencyKey::Cell(out_point) = key else {
+            continue;
+        };
+        let parent = RawTxHash(compact_packed(&out_point.tx_hash()));
+        if parent_transactions.last() != Some(&parent) {
+            parent_transactions.push(parent);
+        }
+    }
     Ok(token.settle(SettlementNext::Waiting(MissingResolution {
         missing,
         dependencies,
+        parent_transactions: parent_transactions.into(),
     })))
 }
 

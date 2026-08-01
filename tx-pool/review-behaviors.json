@@ -82,16 +82,20 @@
         "tx-pool/src/pool_cell.rs",
         "tx-pool/src/component/tx_selector.rs",
         "tx-pool/src/authority/chain.rs",
-        "tx-pool/src/authority/dependency.rs"
+        "tx-pool/src/authority/dependency.rs",
+        "tx-pool/src/authority/work.rs",
+        "tx-pool/src/authority/plan.rs",
+        "tx-pool/src/authority/effect.rs",
+        "tx-pool/src/authority/runtime.rs"
       ],
-      "required_behavior": "Raw, resolved and accepted exact dependency keys—including the complete direct missing-cell frontier, headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection.",
-      "hostile_case": "A cell provider reporting only its first miss, late-discovered parents, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, make RelayV3 reject an unrequested parent, lose its wake edge or let a template commit an invalid order.",
+      "required_behavior": "Raw, resolved and accepted exact dependency keys—including the complete direct missing-cell frontier, headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection. A Remote transition to Waiting(Missing) commits one canonical transaction-parent request in the same Apply; trusted sources retain the same wait without manufacturing network work.",
+      "hostile_case": "A cell provider reporting only its first miss, duplicate missing outputs from one parent, late-discovered parents, effect backpressure, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, make RelayV3 reject an unrequested parent, hot-loop resolution, lose its wake edge or let a template commit an invalid order.",
       "reviewer_questions": [
         "Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?",
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_direct_parent_acceptance|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_remote_missing|uak_direct_parent_acceptance|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
@@ -219,7 +223,10 @@
       "change_surfaces": [
         "tx-pool/src/service/effects.rs",
         "tx-pool/src/service/builder.rs",
-        "tx-pool/src/callback.rs"
+        "tx-pool/src/callback.rs",
+        "tx-pool/src/authority/effect.rs",
+        "tx-pool/src/authority/plan.rs",
+        "tx-pool/src/authority/runtime.rs"
       ],
       "required_behavior": "An ordinary mutation-coupled immutable batch passes one exact source-derived region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; Full is mutation-free and no reservation or capacity token crosses a lock or await. Authority-dependent duplicate success holds an accepted-membership read capability through append. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and only a chain/admin transition that cannot publish detail installs one prebuilt replaceable GenerationReset without waiting behind the FIFO.",
       "hostile_case": "Remote saturation, a full critical FIFO, a permanently full relay endpoint, callback/network/database re-entry/failure/hang, accepted duplicate racing clear/reorg, publisher failure, close race or check-before-wait window must not mutate without a matching authority record, consume trusted/critical progress, delay chain convergence, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
@@ -229,7 +236,7 @@
         "Are Remote, trusted and critical usage accounted independently while queued and active, and does saturated chain detail fall back to the prebuilt reset register rather than wait?",
         "Does every potentially blocking foreign endpoint have a bounded timeout/circuit, and does every authority-dependent acknowledgement retain its read/write capability until journal append?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing)/)'",
       "performance_bound": "One bounded journal publisher, one bounded callback endpoint worker and at most one timed-out detached call per blocking endpoint circuit; O(1) admission/accounting, no per-effect retry task, unbounded channel, callback-under-lock or busy retry."
     },
     {
@@ -435,7 +442,7 @@
     {"test": "uak_final_validation_reuses_same_tip_positive_location_evidence", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8"]},
     {"test": "uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8"]},
     {"test": "uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T4", "T6"]},
-    {"test": "uak_script_rule_change_requeues_exact_content_for_verification", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9", "T11"]},
+    {"test": "uak_script_rule_change_requeues_the_exact_owner_for_resolution", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9", "T11"]},
 
     {"test": "same_commit_wakes_prior_conflict_but_not_its_new_victim", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T2", "T4", "T5", "T6", "T7", "T11"]},
 
@@ -449,6 +456,7 @@
     {"test": "local_rbf_commit_demotes_consumer_of_live_expanded_dep_group_member", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11"]},
     {"test": "successive_expanded_parent_losses_keep_exact_causal_keys_in_wait", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
     {"test": "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
+    {"test": "uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "sort_txs_by_dependencies_orders_parents_before_children", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11"]},
     {"test": "pipeline_accepts_dep_reader_after_in_flight_spender", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
     {"test": "selected_reader_is_ordered_before_spender", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11", "T12", "T13"]},
@@ -750,7 +758,7 @@
       "path": "test/src/specs/tx_pool/orphan_tx.rs",
       "anchor": "TxPoolOrphanReverse",
       "invariants": ["T1", "T2", "T4", "T7", "T10", "T11"],
-      "unit_anchors": ["resolve_job_registers_complete_unknown_outpoint_frontier", "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "journal_sequence_is_total_apply_order"],
+      "unit_anchors": ["resolve_job_registers_complete_unknown_outpoint_frontier", "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply", "journal_sequence_is_total_apply_order"],
       "boundary": "A child with three unavailable direct parents installs one exact Wait owner and atomically requests the complete currently missing parent frontier, so RelayV3 accepts every reverse-order parent and the whole graph converges without polling or an inferred orphan store."
     },
     {
