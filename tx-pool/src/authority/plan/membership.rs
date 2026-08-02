@@ -131,7 +131,7 @@ pub(in crate::authority) struct AncestorAggregate {
 }
 
 impl AncestorAggregate {
-    fn one(entry: &AcceptedEntry) -> Self {
+    pub(super) fn one(entry: &AcceptedEntry) -> Self {
         let cost = entry.proof.metrics().cost;
         Self {
             entries: 1,
@@ -161,7 +161,7 @@ pub(in crate::authority) struct DescendantAggregate {
 }
 
 impl DescendantAggregate {
-    fn one(entry: &AcceptedEntry) -> Self {
+    pub(super) fn one(entry: &AcceptedEntry) -> Self {
         let cost = entry.proof.metrics().cost;
         Self {
             entries: 1,
@@ -486,6 +486,39 @@ pub(super) struct ProjectionDelta {
     counts: StatusCounts,
 }
 
+impl ProjectionDelta {
+    /// Read one projected post-Apply aggregate without materializing a second
+    /// membership view. Change logs are canonical by raw hash, so effect
+    /// compilation remains logarithmic in the bounded mutation component.
+    pub(super) fn ancestor_after(
+        &self,
+        before: &MembershipProjection,
+        hash: &RawTxHash,
+    ) -> Option<AncestorAggregate> {
+        match self
+            .ancestor_changes
+            .binary_search_by(|(candidate, _)| candidate.cmp(hash))
+        {
+            Ok(index) => self.ancestor_changes.get(index)?.1,
+            Err(_) => before.ancestor_aggregate(hash),
+        }
+    }
+
+    pub(super) fn descendant_after(
+        &self,
+        before: &MembershipProjection,
+        hash: &RawTxHash,
+    ) -> Option<DescendantAggregate> {
+        match self
+            .aggregate_changes
+            .binary_search_by(|(candidate, _)| candidate.cmp(hash))
+        {
+            Ok(index) => self.aggregate_changes.get(index)?.1,
+            Err(_) => before.descendant_aggregate(hash),
+        }
+    }
+}
+
 struct AggregateDelta {
     changes: Vec<(RawTxHash, Option<DescendantAggregate>)>,
     ancestor_changes: Vec<(RawTxHash, Option<AncestorAggregate>)>,
@@ -515,6 +548,14 @@ impl MembershipProjection {
 
     pub(super) fn spender(&self, input: &OutPoint) -> Option<&RawTxHash> {
         self.spenders.get(input)
+    }
+
+    pub(super) fn ancestor_aggregate(&self, hash: &RawTxHash) -> Option<AncestorAggregate> {
+        self.ancestor_aggregates.get(hash).copied()
+    }
+
+    pub(super) fn descendant_aggregate(&self, hash: &RawTxHash) -> Option<DescendantAggregate> {
+        self.descendant_aggregates.get(hash).copied()
     }
 
     fn dependency_readers(&self, dependency: &OutPoint) -> Option<&HashSet<RawTxHash>> {

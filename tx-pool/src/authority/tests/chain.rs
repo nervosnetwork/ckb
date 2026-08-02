@@ -555,7 +555,8 @@ fn uak_chain_commit_closes_a_preaccepted_owner_with_exact_effect_semantics() {
     assert_eq!(
         lease.effects(),
         &[CommittedEffect::ChainCommitted {
-            tx: std::sync::Arc::new(transaction),
+            tx_hash: RawTxHash(transaction.hash()),
+            ingress_peer: ckb_network::PeerIndex::from(503),
         }]
     );
     assert_resource_reference(&authority);
@@ -893,14 +894,14 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
         .expect("effect checkout returns its capability");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Rejected {
-            reason: CommittedRejection::ChainConflict { out_point },
+        [CommittedEffect::Rejected(CommittedRejection::ChainConflict {
+            out_point,
             ..
-        }] if out_point == &smaller
+        })] if out_point == &smaller
     ));
     apply_without_work(
         authority
-            .apply_effect_settlement_for_foundation(lease.published())
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("published conflict effect settles"),
     );
     assert_resource_reference(&authority);

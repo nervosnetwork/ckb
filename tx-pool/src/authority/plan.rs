@@ -17,9 +17,10 @@ use super::dependency::{
     DependencyEvent, DependencyFrontier, DependencyMaintenanceAction,
 };
 use super::effect::{
-    CommittedAcceptance, CommittedEffect, CommittedRejection, EffectBatch, EffectBuildError,
-    EffectConfigError, EffectDelta, EffectError, EffectLease, EffectLimits, EffectLog,
-    EffectPolicy, EffectPublication, EffectSettlement, ParentTransactionRequest, RejectionAudience,
+    CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
+    CommittedRejection, EffectBatch, EffectBuildError, EffectConfigError, EffectDelta, EffectError,
+    EffectLease, EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectSettlement,
+    ParentTransactionRequest, RejectionAudience,
 };
 #[cfg(test)]
 use super::effect::{EffectObservation, EffectSnapshot};
@@ -72,12 +73,11 @@ use ckb_types::{
 use ckb_verification::cache::ScriptVerificationRules;
 pub(in crate::authority) use membership::MembershipConfig;
 pub(in crate::authority) use membership::{
-    AcceptedOrderKey, EvictionOrderKey, MembershipProjection,
+    AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
+    MembershipProjection,
 };
 #[cfg(test)]
-pub(in crate::authority) use membership::{
-    AncestorAggregate, DescendantAggregate, IndependentCoupling, MembershipSnapshot,
-};
+pub(in crate::authority) use membership::{IndependentCoupling, MembershipSnapshot};
 use membership::{MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use membership::{RemovalCause, StatusCounts};
 pub(in crate::authority) use settlement::{
@@ -2460,11 +2460,11 @@ impl TxPoolAuthority {
             .effects
             .build_publication(
                 policy,
-                vec![CommittedEffect::Rejected {
+                vec![CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx: Arc::clone(&preaccepted.record.tx),
                     audience: RejectionAudience::from_source(preaccepted.source),
-                    reason: CommittedRejection::Validation(reason.clone()),
-                }],
+                    reason: reason.clone(),
+                })],
             )
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
         let plan = self.plan_preaccepted_terminalization(
@@ -2537,11 +2537,11 @@ impl TxPoolAuthority {
                     .effects
                     .build_publication(
                         policy,
-                        vec![CommittedEffect::Rejected {
+                        vec![CommittedEffect::Rejected(CommittedRejection::Membership {
                             tx: Arc::clone(&preaccepted.record.tx),
                             audience: RejectionAudience::from_source(preaccepted.source),
-                            reason: CommittedRejection::Membership(reason.clone()),
-                        }],
+                            reason: reason.clone(),
+                        })],
                     )
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
                 let plan = self.plan_preaccepted_terminalization(
@@ -2605,18 +2605,15 @@ impl TxPoolAuthority {
         self.effects.ensure_open()?;
         let key = receipt.key().clone();
         let existing = self.entries.get(&key).cloned();
-        if let Some(OwnedTx::Accepted(accepted)) = &existing {
+        if matches!(&existing, Some(OwnedTx::Accepted(_))) {
             let publication = self
                 .effects
                 .build_publication(
                     EffectPolicy::Trusted,
-                    vec![CommittedEffect::Accepted {
-                        tx: Arc::clone(receipt.transaction()),
-                        status: accepted.status(),
-                        cause: CommittedAcceptance::Duplicate {
-                            requesting_peer: None,
-                        },
-                    }],
+                    vec![CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+                        tx_hash: key.clone(),
+                        requesting_peer: None,
+                    })],
                 )
                 .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
             let sequence = self.clocks.next_sequence;
@@ -2682,11 +2679,11 @@ impl TxPoolAuthority {
                     .effects
                     .build_publication(
                         EffectPolicy::Trusted,
-                        vec![CommittedEffect::Rejected {
+                        vec![CommittedEffect::Rejected(CommittedRejection::Membership {
                             tx: Arc::clone(&accepted.record.tx),
                             audience: RejectionAudience::default(),
-                            reason: CommittedRejection::Membership(reason.clone()),
-                        }],
+                            reason: reason.clone(),
+                        })],
                     )
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
                 let effect = self
@@ -2854,7 +2851,13 @@ impl TxPoolAuthority {
             removals.iter_mut().for_each(MembershipRemoval::terminalize);
         }
 
-        let effect = self.plan_admission_effects(&accepted, &removals, sequence, effect_policy)?;
+        let effect = self.plan_admission_effects(
+            &accepted,
+            &removals,
+            &projection,
+            sequence,
+            effect_policy,
+        )?;
         let after = OwnedTx::Accepted(accepted);
         let has_history = removals.iter().any(|removal| removal.after().is_some());
         let resource =
@@ -2915,6 +2918,7 @@ impl TxPoolAuthority {
         &self,
         accepted: &AcceptedEntry,
         removals: &[MembershipRemoval],
+        projection: &ProjectionDelta,
         sequence: ApplySequence,
         policy: EffectPolicy,
     ) -> Result<EffectDelta, PlanError> {
@@ -2926,13 +2930,11 @@ impl TxPoolAuthority {
         effects
             .try_reserve(effect_count)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        effects.push(CommittedEffect::Accepted {
-            tx: Arc::clone(&accepted.record.tx),
+        effects.push(CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            entry: self.committed_entry_after(accepted, projection)?,
             status: accepted.status(),
-            cause: CommittedAcceptance::Admission {
-                ingress_peer: accepted.provenance.ingress_peer(),
-            },
-        });
+            ingress_peer: accepted.provenance.ingress_peer(),
+        }));
         for removal in removals {
             let owner = self
                 .entries
@@ -2941,13 +2943,20 @@ impl TxPoolAuthority {
             let OwnedTx::Accepted(removed) = owner else {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             };
-            let reason = match removal.cause {
-                RemovalCause::Replacement => CommittedRejection::ReplacedBy {
+            let entry = self.committed_entry_before(removed)?;
+            let audience =
+                RejectionAudience::from_owner(owner.ingress_peer(), owner.payload_blame_peer());
+            let rejection = match removal.cause {
+                RemovalCause::Replacement => CommittedRejection::Replaced {
+                    entry,
+                    audience,
                     winner: accepted.record.identity.raw.clone(),
                 },
                 RemovalCause::Capacity => {
                     let cost = removed.proof.metrics().cost;
                     CommittedRejection::CapacityEvicted {
+                        entry,
+                        audience,
                         fee_rate: ckb_types::core::FeeRate::calculate(
                             removed.proof.metrics().fee,
                             get_transaction_weight(cost.serialized_bytes, cost.cycles),
@@ -2955,14 +2964,7 @@ impl TxPoolAuthority {
                     }
                 }
             };
-            effects.push(CommittedEffect::Rejected {
-                tx: Arc::clone(&removed.record.tx),
-                audience: RejectionAudience::from_owner(
-                    owner.ingress_peer(),
-                    owner.payload_blame_peer(),
-                ),
-                reason,
-            });
+            effects.push(CommittedEffect::Rejected(rejection));
         }
         let publication = self
             .effects
@@ -2971,6 +2973,68 @@ impl TxPoolAuthority {
         self.effects
             .plan_publication(&publication, sequence)
             .map_err(PlanError::from)
+    }
+
+    fn committed_entry_before(
+        &self,
+        entry: &AcceptedEntry,
+    ) -> Result<CommittedEntrySnapshot, PlanError> {
+        let hash = &entry.record.identity.raw;
+        let ancestors = self
+            .membership
+            .ancestor_aggregate(hash)
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        let descendants = self
+            .membership
+            .descendant_aggregate(hash)
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        Ok(Self::committed_entry_snapshot(
+            entry,
+            ancestors,
+            descendants,
+        ))
+    }
+
+    fn committed_entry_after(
+        &self,
+        entry: &AcceptedEntry,
+        projection: &ProjectionDelta,
+    ) -> Result<CommittedEntrySnapshot, PlanError> {
+        let hash = &entry.record.identity.raw;
+        let ancestors = projection
+            .ancestor_after(&self.membership, hash)
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        let descendants = projection
+            .descendant_after(&self.membership, hash)
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        Ok(Self::committed_entry_snapshot(
+            entry,
+            ancestors,
+            descendants,
+        ))
+    }
+
+    fn committed_entry_snapshot(
+        entry: &AcceptedEntry,
+        ancestors: AncestorAggregate,
+        descendants: DescendantAggregate,
+    ) -> CommittedEntrySnapshot {
+        let metrics = entry.proof.metrics();
+        CommittedEntrySnapshot {
+            tx: Arc::clone(&entry.record.tx),
+            cycles: metrics.cost.cycles,
+            size: metrics.cost.serialized_bytes,
+            fee: metrics.fee,
+            ancestors_size: ancestors.serialized_bytes,
+            ancestors_fee: ancestors.fee,
+            ancestors_cycles: ancestors.cycles,
+            ancestors_count: ancestors.entries,
+            descendants_fee: descendants.fee,
+            descendants_size: descendants.serialized_bytes,
+            descendants_cycles: descendants.cycles,
+            descendants_count: descendants.entries,
+            timestamp: entry.accepted_at.0,
+        }
     }
 
     #[cfg(test)]
@@ -4420,11 +4484,11 @@ impl TxPoolAuthority {
             .effects
             .build_publication(
                 policy,
-                vec![CommittedEffect::Rejected {
+                vec![CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx: Arc::clone(&preaccepted.record.tx),
                     audience: RejectionAudience::from_source(preaccepted.source),
-                    reason: CommittedRejection::Validation(rejection.into_public()),
-                }],
+                    reason: rejection.into_public(),
+                })],
             )
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
         let sequence = self.clocks.next_sequence;

@@ -225,20 +225,22 @@
         "tx-pool/src/service/builder.rs",
         "tx-pool/src/callback.rs",
         "tx-pool/src/authority/effect.rs",
+        "tx-pool/src/authority/publisher.rs",
         "tx-pool/src/authority/plan.rs",
         "tx-pool/src/authority/runtime.rs"
       ],
-      "required_behavior": "An ordinary mutation-coupled immutable batch passes one exact source-derived region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; Full is mutation-free and no reservation or capacity token crosses a lock or await. Authority-dependent duplicate success holds an accepted-membership read capability through append. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and only a chain/admin transition that cannot publish detail installs one prebuilt replaceable GenerationReset without waiting behind the FIFO. Effect checkout, exact settlement, close and closed-and-drained observation pass through the AuthorityRuntime facade; every successful Apply retires outside the guard before publishing one level hint.",
-      "hostile_case": "Remote saturation, a full critical FIFO, a permanently full relay endpoint, callback/network/database re-entry/failure/hang, accepted duplicate racing clear/reorg, publisher failure, close race or check-before-wait window must not mutate without a matching authority record, consume trusted/critical progress, delay chain convergence, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
+      "required_behavior": "An ordinary mutation-coupled immutable batch passes one exact source-derived region predicate, runs a total Apply and enters the global sequence under the journal's innermost lock; Full is mutation-free and no reservation or capacity token crosses a lock or await. Authority-dependent duplicate success holds an accepted-membership read capability through append. Remote, trusted and chain-critical regions are isolated, resident queued/active records are exactly charged, and only a chain/admin transition that cannot publish detail installs one prebuilt replaceable GenerationReset without waiting behind the FIFO. Effect checkout, exact settlement, close and closed-and-drained observation pass through the AuthorityRuntime facade; every successful Apply retires outside the guard before publishing one level hint. The sole publisher consumes only the committed outcome and a typed endpoint-step cursor: cancellation commits completed endpoint progress back to the same effect authority, so recheckout resumes at the first unacknowledged endpoint without rereading lifecycle state.",
+      "hostile_case": "Remote saturation, a full critical FIFO, a permanently full or disconnected relay endpoint, callback/network/database re-entry/failure/hang, cancellation after an earlier endpoint completed, accepted duplicate racing clear/reorg, a concurrent publisher, close race or check-before-wait window must not mutate without a matching authority record, replay a completed callback/ban/database write, consume trusted/critical progress, delay chain convergence, expose intermediate state, reorder a retained batch, lose charge, spawn unbounded workers, fail-stop the service or sleep forever.",
       "reviewer_questions": [
         "Is every ordinary immutable batch exact and assigned from the selected owner's source before Apply?",
         "Does Full/Closed/Oversize return before Apply, with the journal lock innermost and no capacity token crossing a lock or await?",
         "Are Remote, trusted and critical usage accounted independently while queued and active, and does saturated chain detail fall back to the prebuilt reset register rather than wait?",
         "Does an idle publisher subscribe before checkout, and can close wake it while queued, active and retained leases still drain in total order?",
-        "Does every potentially blocking foreign endpoint have a bounded timeout/circuit, and does every authority-dependent acknowledgement retain its read/write capability until journal append?"
+        "Does every potentially blocking foreign endpoint have a bounded timeout/circuit, and does every authority-dependent acknowledgement retain its read/write capability until journal append?",
+        "Does cancellation retain a typed endpoint-step cursor in the sole effect authority, retrying at most the currently unacknowledged endpoint rather than replaying completed earlier endpoints?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing|runtime_effect)/)'",
-      "performance_bound": "One bounded journal publisher, one bounded callback endpoint worker and at most one timed-out detached call per blocking endpoint circuit; O(1) admission/accounting, no per-effect retry task, unbounded channel, callback-under-lock or busy retry."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing|runtime_effect|uak_effect_compiler|uak_ordinary_relay|uak_required_parent_detail|uak_relay_disconnect|uak_publisher_relay_disconnect|uak_effect_publisher_claim|uak_cancelled_publisher|uak_retained_batch|uak_cancelled_later_endpoint|uak_unregistered_callback|uak_callback_uses)/)'",
+      "performance_bound": "One bounded journal publisher, one bounded callback endpoint worker, four fixed endpoint steps per semantic outcome and at most one timed-out detached call per blocking endpoint circuit; endpoint progress is local while I/O runs and takes no authority lock until completion or cancellation retention. Admission/accounting remains O(1), with no per-effect retry task, unbounded channel, callback-under-lock or busy retry."
     },
     {
       "id": "TP-REORG-001",
@@ -551,6 +553,19 @@
     {"test": "uak_remote_expiry_effect_backpressure_is_zero_mutation", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "runtime_effect_facade_retains_and_drains_a_closed_log_in_sequence", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "runtime_effect_close_wakes_an_idle_level_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_effect_compiler_preserves_acceptance_and_chain_endpoint_semantics", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T4", "T7", "T10", "T12"]},
+    {"test": "uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T4", "T7", "T8", "T10"]},
+    {"test": "uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T4", "T7", "T9", "T10", "T11", "T12"]},
+    {"test": "uak_ordinary_relay_saturation_publishes_reset_before_disposal", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_required_parent_detail_never_degrades_under_relay_saturation", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T4", "T7", "T8", "T10", "T11"]},
+    {"test": "uak_relay_disconnect_is_typed_and_does_not_claim_publication", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T10", "T11"]},
+    {"test": "uak_publisher_relay_disconnect_retains_the_authority_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T3", "T7", "T10", "T11"]},
+    {"test": "uak_effect_publisher_claim_is_move_only_and_exclusive", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T7", "T10"]},
+    {"test": "uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
+    {"test": "uak_retained_batch_resumes_at_its_first_unprocessed_endpoint", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
+    {"test": "uak_cancelled_later_endpoint_does_not_replay_completed_callback", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
+    {"test": "uak_unregistered_callback_is_not_dispatched_to_the_foreign_worker", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10"]},
+    {"test": "uak_callback_uses_the_production_timeout_and_opens_one_stable_circuit", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11"]},
 
     {"test": "reorg_publishes_only_the_final_status_after_multiple_transitions", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "overlapping_detached_proposals_requeue_each_descendant_once", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},

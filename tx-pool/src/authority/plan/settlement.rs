@@ -7,8 +7,9 @@ use crate::authority::{
     chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
     effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
     plan::membership::{
-        IndependentCoupling, IndependentMembershipChange, IndependentMembershipOutcome,
-        PreparedIndependentMembership, prepare_independent_membership,
+        AncestorAggregate, DescendantAggregate, IndependentCoupling, IndependentMembershipChange,
+        IndependentMembershipOutcome, PreparedIndependentMembership,
+        prepare_independent_membership,
     },
     scheduler::{MAX_READY_BATCH, ReadyKey},
     state::{AcceptedEntry, OwnedTx, PreAcceptedPhase, RawTxHash},
@@ -214,11 +215,15 @@ impl TxPoolAuthority {
         for change in &changes {
             let ingress_peer = change.before.source.ingress_peer();
             contains_remote |= ingress_peer.is_some();
-            effects.push(CommittedEffect::Accepted {
-                tx: std::sync::Arc::clone(&change.after.record.tx),
+            effects.push(CommittedEffect::Accepted(CommittedAcceptance::Admission {
+                entry: Self::committed_entry_snapshot(
+                    &change.after,
+                    AncestorAggregate::one(&change.after),
+                    DescendantAggregate::one(&change.after),
+                ),
                 status: change.after.status(),
-                cause: CommittedAcceptance::Admission { ingress_peer },
-            });
+                ingress_peer,
+            }));
         }
         // G5's production batch builder groups candidates by effect trust
         // class. Until that facade owns construction, a mixed foundation

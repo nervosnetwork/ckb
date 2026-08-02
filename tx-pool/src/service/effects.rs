@@ -118,7 +118,7 @@ fn bounded_recent_reject(reject: &Reject) -> Reject {
 /// recent-reject database. Doing this before enqueue detaches every packed or
 /// verifier-owned allocation and makes the journal byte charge exact.
 #[derive(Debug)]
-enum RecentRejectEncodingError {
+pub(crate) enum RecentRejectEncodingError {
     Json(serde_json::Error),
     FixedFallbackExceedsBound,
 }
@@ -134,7 +134,9 @@ impl std::fmt::Display for RecentRejectEncodingError {
     }
 }
 
-fn serialized_recent_reject(reject: &Reject) -> Result<String, RecentRejectEncodingError> {
+pub(crate) fn serialized_recent_reject(
+    reject: &Reject,
+) -> Result<String, RecentRejectEncodingError> {
     fn serialize(reject: Reject) -> Result<String, RecentRejectEncodingError> {
         let public: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
         serde_json::to_string(&public).map_err(RecentRejectEncodingError::Json)

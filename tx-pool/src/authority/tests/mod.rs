@@ -2,6 +2,7 @@ mod chain;
 mod dependency;
 mod effect;
 mod foundation;
+mod publisher;
 mod read;
 mod resolver;
 mod template;

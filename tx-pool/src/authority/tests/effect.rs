@@ -9,8 +9,8 @@ use super::super::{
         TxPoolAuthority,
     },
     state::{
-        AcceptedStatus, ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash,
-        RejectionKind, RemoteDeadline, ValidatedAdmission, WorkPermit,
+        ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash, RejectionKind,
+        RemoteDeadline, ValidatedAdmission, WorkPermit,
     },
 };
 use super::foundation::{
@@ -102,11 +102,11 @@ fn rejected_publication(
     authority
         .effect_publication_for_foundation(
             policy,
-            vec![CommittedEffect::Rejected {
+            vec![CommittedEffect::Rejected(CommittedRejection::Foundation {
                 tx: transaction,
                 audience: RejectionAudience::foundation(),
-                reason: CommittedRejection::Foundation(RejectionKind::Policy),
-            }],
+                reason: RejectionKind::Policy,
+            })],
         )
         .expect("fixture effect is bounded")
 }
@@ -119,11 +119,10 @@ fn accepted_publication(
     authority
         .effect_publication_for_foundation(
             policy,
-            vec![CommittedEffect::Accepted {
-                tx: transaction,
-                status: AcceptedStatus::Pending,
-                cause: CommittedAcceptance::Admission { ingress_peer: None },
-            }],
+            vec![CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+                tx_hash: RawTxHash(transaction.hash()),
+                requesting_peer: None,
+            })],
         )
         .expect("fixture effect is bounded")
 }
@@ -184,16 +183,16 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
         .effect_publication_for_foundation(
             EffectPolicy::Remote,
             vec![
-                CommittedEffect::Rejected {
+                CommittedEffect::Rejected(CommittedRejection::Foundation {
                     tx: Arc::new(tx(700)),
                     audience: RejectionAudience::foundation(),
-                    reason: CommittedRejection::Foundation(RejectionKind::Policy),
-                },
-                CommittedEffect::Rejected {
+                    reason: RejectionKind::Policy,
+                }),
+                CommittedEffect::Rejected(CommittedRejection::Foundation {
                     tx: Arc::new(tx(701)),
                     audience: RejectionAudience::foundation(),
-                    reason: CommittedRejection::Foundation(RejectionKind::Policy),
-                },
+                    reason: RejectionKind::Policy,
+                }),
             ],
         )
         .expect("broad authority admits two effects");
@@ -264,7 +263,9 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
     let occupied_lease = checkout(&mut authority);
     drop(apply_without_handoff(
         authority
-            .apply_effect_settlement_for_foundation(occupied_lease.published())
+            .apply_effect_settlement_for_foundation(
+                occupied_lease.complete_for_foundation().published(),
+            )
             .expect("occupied publication settles"),
     ));
     drop(apply_without_handoff(
@@ -277,11 +278,11 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
     let rejection = checkout(&mut authority);
     assert!(matches!(
         rejection.effects(),
-        [CommittedEffect::Rejected {
+        [CommittedEffect::Rejected(CommittedRejection::Validation {
             audience,
-            reason: CommittedRejection::Validation(reason),
+            reason,
             ..
-        }] if audience.ingress_peer == Some(PeerIndex::from(73))
+        })] if audience.ingress_peer == Some(PeerIndex::from(73))
             && *reason == RejectionKind::Policy.into()
     ));
     assert!(authority.primary_projection_consistent());
@@ -343,7 +344,9 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
     let occupied_lease = checkout(&mut authority);
     drop(apply_without_handoff(
         authority
-            .apply_effect_settlement_for_foundation(occupied_lease.published())
+            .apply_effect_settlement_for_foundation(
+                occupied_lease.complete_for_foundation().published(),
+            )
             .expect("the occupied publication settles"),
     ));
     drop(apply_without_handoff(
@@ -467,7 +470,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let lease = checkout(&mut authority);
     let published = apply_without_handoff(
         authority
-            .apply_effect_settlement_for_foundation(lease.published())
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("the exact lease publishes"),
     );
     assert_eq!(published.retired_effect_len(), 1);
@@ -483,7 +486,9 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let lease = checkout(&mut authority);
     let disposed = apply_without_handoff(
         authority
-            .apply_effect_settlement_for_foundation(lease.circuit_disposed())
+            .apply_effect_settlement_for_foundation(
+                lease.complete_for_foundation().circuit_disposed(),
+            )
             .expect("the endpoint circuit can dispose committed detail"),
     );
     assert_eq!(disposed.retired_effect_len(), 1);
@@ -605,7 +610,7 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     ));
     drop(apply_without_handoff(
         authority
-            .apply_effect_settlement_for_foundation(newest.published())
+            .apply_effect_settlement_for_foundation(newest.complete_for_foundation().published())
             .expect("latest reset publishes"),
     ));
     assert!(authority.primary_projection_consistent());
@@ -651,7 +656,7 @@ fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
         let lease = checkout(&mut authority);
         drop(apply_without_handoff(
             authority
-                .apply_effect_settlement_for_foundation(lease.published())
+                .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
                 .expect("already committed effects drain after close"),
         ));
     }

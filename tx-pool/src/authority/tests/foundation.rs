@@ -34,8 +34,13 @@ use crate::{
     component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
     error::Reject,
 };
+use ckb_app_config::{TxPoolConfig, VerifyOrdering};
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::PeerIndex;
+use ckb_snapshot::Snapshot;
+use ckb_test_chain_utils::MockStore;
 use ckb_types::{
+    U256,
     bytes::Bytes,
     core::{
         Capacity, EpochNumberWithFraction, FeeRate, TransactionBuilder, TransactionInfo,
@@ -50,6 +55,39 @@ use ckb_verification::cache::ScriptVerificationRules;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+
+pub(super) fn runtime_config() -> TxPoolConfig {
+    TxPoolConfig {
+        max_tx_pool_size: 180_000_000,
+        max_tx_pool_resident_size: 1_000_000_000,
+        min_fee_rate: FeeRate::zero(),
+        min_rbf_rate: FeeRate::zero(),
+        max_tx_verify_cycles: 70_000_000,
+        max_tx_verify_workers: 4,
+        max_ancestors_count: 125,
+        keep_rejected_tx_hashes_days: 1,
+        keep_rejected_tx_hashes_count: 1_000,
+        persisted_data: Default::default(),
+        recent_reject: Default::default(),
+        expiry_hours: 24,
+        verify_ordering: VerifyOrdering::ArrivalTime,
+        max_tx_pipeline_resident_size: 384_000_000,
+    }
+}
+
+pub(super) fn genesis_snapshot() -> Arc<Snapshot> {
+    let consensus = Arc::new(ConsensusBuilder::default().build());
+    let store = MockStore::default();
+    let genesis = consensus.genesis_block();
+    Arc::new(Snapshot::new(
+        genesis.header(),
+        U256::zero(),
+        consensus.genesis_epoch_ext().clone(),
+        store.store().get_snapshot(),
+        Default::default(),
+        consensus,
+    ))
+}
 
 pub(super) fn limits() -> ResourceLimits {
     ResourceLimits::new(
@@ -347,7 +385,7 @@ fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
             .into_effect_lease()
             .expect("fixture checkout returns one effect lease");
         let committed = authority
-            .apply_effect_settlement_for_foundation(lease.published())
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("fixture effect publication settles");
         assert!(committed.handoff_is_none());
     }
@@ -1783,14 +1821,14 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
         .expect("rejection checkout returns one effect lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Rejected {
+        [CommittedEffect::Rejected(CommittedRejection::Validation {
             audience: RejectionAudience {
                 ingress_peer: Some(ingress),
                 blame_peer: Some(blame),
             },
-            reason: CommittedRejection::Validation(reason),
+            reason,
             ..
-        }] if *ingress == peer
+        })] if *ingress == peer
             && *blame == peer
             && matches!(reason.reject(), Reject::DeclaredWrongCycles(200, 201))
     ));
@@ -1846,11 +1884,13 @@ fn uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply() {
         .expect("direct admission checkout returns its effect lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Accepted {
-            tx,
+        [CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            entry,
             status: AcceptedStatus::Pending,
-            cause: CommittedAcceptance::Admission { ingress_peer: None },
-        }] if tx.hash() == transaction.hash()
+            ingress_peer: None,
+        })] if entry.tx.hash() == transaction.hash()
+            && entry.ancestors_count == 1
+            && entry.descendants_count == 1
     ));
 }
 
@@ -1944,12 +1984,10 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
         .expect("direct replacement returns its effect lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Accepted {
-            cause: CommittedAcceptance::Admission {
-                ingress_peer: Some(effect_peer),
-            },
+        [CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            ingress_peer: Some(effect_peer),
             ..
-        }] if *effect_peer == peer
+        })] if *effect_peer == peer
     ));
 }
 
@@ -2050,13 +2088,10 @@ fn uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation() {
         .expect("duplicate checkout returns its effect lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Accepted {
-            status: AcceptedStatus::Proposed,
-            cause: CommittedAcceptance::Duplicate {
-                requesting_peer: None,
-            },
-            ..
-        }]
+        [CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+            tx_hash,
+            requesting_peer: None,
+        })] if tx_hash == &hash
     ));
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
@@ -2130,16 +2165,14 @@ fn uak_direct_local_under_fee_rbf_rejects_without_touching_any_owner() {
         .expect("direct reject checkout returns its effect lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Rejected {
+        [CommittedEffect::Rejected(CommittedRejection::Membership {
             tx,
             audience: RejectionAudience {
                 ingress_peer: None,
                 blame_peer: None,
             },
-            reason: CommittedRejection::Membership(
-                MembershipReject::InsufficientReplacementFee { .. }
-            ),
-        }] if tx.hash() == replacement.hash()
+            reason: MembershipReject::InsufficientReplacementFee { .. },
+        })] if tx.hash() == replacement.hash()
     ));
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
@@ -2321,11 +2354,11 @@ fn uak_terminal_outcome_and_effect_commit_together() {
     let publication = authority
         .effect_publication_for_foundation(
             EffectPolicy::Trusted,
-            vec![CommittedEffect::Rejected {
+            vec![CommittedEffect::Rejected(CommittedRejection::Foundation {
                 tx: Arc::clone(&retained_tx),
                 audience: RejectionAudience::foundation(),
-                reason: CommittedRejection::Foundation(RejectionKind::Policy),
-            }],
+                reason: RejectionKind::Policy,
+            })],
         )
         .expect("fixture effect is bounded");
     let terminal = authority
@@ -2356,12 +2389,12 @@ fn uak_terminal_outcome_and_effect_commit_together() {
     assert_eq!(lease.effects().len(), 1);
     assert!(matches!(
         &lease.effects()[0],
-        CommittedEffect::Rejected { tx, reason, .. }
+        CommittedEffect::Rejected(CommittedRejection::Foundation { tx, reason, .. })
             if Arc::ptr_eq(tx, &retained_tx)
-                && *reason == CommittedRejection::Foundation(RejectionKind::Policy)
+                && *reason == RejectionKind::Policy
     ));
     let published = authority
-        .apply_effect_settlement_for_foundation(lease.published())
+        .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
         .expect("published effect settles");
     assert_eq!(published.retired_effect_len(), 1);
     assert_eq!(Arc::strong_count(&retained_tx), 2);
@@ -4162,36 +4195,35 @@ fn uak_capacity_eviction_removes_one_complete_causal_component() {
         .into_effect_lease()
         .expect("capacity outcome checkout returns one lease");
     let [
-        CommittedEffect::Accepted {
-            tx,
+        CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            entry,
             status: AcceptedStatus::Pending,
-            cause:
-                CommittedAcceptance::Admission {
-                    ingress_peer: Some(peer),
-                },
-        },
+            ingress_peer: Some(peer),
+        }),
         rejected @ ..,
     ] = lease.effects()
     else {
         panic!("capacity Apply must publish admission before exact victim outcomes");
     };
-    assert_eq!(tx.hash(), candidate.0);
+    assert_eq!(entry.tx.hash(), candidate.0);
+    assert_eq!(entry.ancestors_count, 1);
+    assert_eq!(entry.descendants_count, 1);
     assert_eq!(*peer, PeerIndex::from(69));
     assert_eq!(rejected.len(), expected_eviction_rates.len());
     for effect in rejected {
-        let CommittedEffect::Rejected {
-            tx,
-            reason: CommittedRejection::CapacityEvicted { fee_rate },
-            ..
-        } = effect
+        let CommittedEffect::Rejected(CommittedRejection::CapacityEvicted {
+            entry, fee_rate, ..
+        }) = effect
         else {
             panic!("every capacity victim retains its exact eviction evidence");
         };
-        let hash = RawTxHash(tx.hash());
+        let hash = RawTxHash(entry.tx.hash());
+        assert!(entry.ancestors_count >= 1);
+        assert!(entry.descendants_count >= 1);
         assert_eq!(Some(fee_rate), expected_eviction_rates.get(&hash));
     }
     let published = authority
-        .apply_effect_settlement_for_foundation(lease.published())
+        .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
         .expect("capacity outcome publication settles");
     assert_eq!(published.retired_effect_len(), 1);
 }
@@ -4386,20 +4418,19 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
         .into_effect_lease()
         .expect("replacement outcome checkout returns one lease");
     let [
-        CommittedEffect::Accepted {
-            tx,
+        CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            entry,
             status: AcceptedStatus::Pending,
-            cause:
-                CommittedAcceptance::Admission {
-                    ingress_peer: Some(peer),
-                },
-        },
+            ingress_peer: Some(peer),
+        }),
         rejected @ ..,
     ] = lease.effects()
     else {
         panic!("replacement Apply must publish admission before victim outcomes");
     };
-    assert_eq!(tx.hash(), replacement.0);
+    assert_eq!(entry.tx.hash(), replacement.0);
+    assert_eq!(entry.ancestors_count, 1);
+    assert_eq!(entry.descendants_count, 1);
     assert_eq!(*peer, PeerIndex::from(60));
     let expected_victims = HashMap::from([
         (victim.clone(), PeerIndex::from(58)),
@@ -4407,15 +4438,17 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
     ]);
     assert_eq!(rejected.len(), expected_victims.len());
     for effect in rejected {
-        let CommittedEffect::Rejected {
-            tx,
+        let CommittedEffect::Rejected(CommittedRejection::Replaced {
+            entry,
             audience,
-            reason: CommittedRejection::ReplacedBy { winner },
-        } = effect
+            winner,
+        }) = effect
         else {
             panic!("every retained history victim keeps an exact replacement outcome");
         };
-        let victim_hash = RawTxHash(tx.hash());
+        let victim_hash = RawTxHash(entry.tx.hash());
+        assert!(entry.ancestors_count >= 1);
+        assert!(entry.descendants_count >= 1);
         let expected_peer = expected_victims
             .get(&victim_hash)
             .expect("effect belongs to the exact replacement closure");
@@ -4424,7 +4457,7 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
         assert_eq!(audience.blame_peer, Some(*expected_peer));
     }
     let published = authority
-        .apply_effect_settlement_for_foundation(lease.published())
+        .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
         .expect("replacement outcome publication settles");
     assert_eq!(published.retired_effect_len(), 1);
 }
@@ -5420,18 +5453,16 @@ fn uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate()
         .expect("effect checkout returns the rejection lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Rejected {
+        [CommittedEffect::Rejected(CommittedRejection::Membership {
             audience,
-            reason: CommittedRejection::Membership(
-                MembershipReject::InsufficientReplacementFee { actual, .. }
-            ),
+            reason: MembershipReject::InsufficientReplacementFee { actual, .. },
             ..
-        }] if audience.ingress_peer == Some(PeerIndex::from(62))
+        })] if audience.ingress_peer == Some(PeerIndex::from(62))
             && audience.blame_peer == Some(PeerIndex::from(62))
             && *actual == Capacity::shannons(1)
     ));
     let published = authority
-        .apply_effect_settlement_for_foundation(lease.published())
+        .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
         .expect("rejection publication settles");
     assert_eq!(published.retired_effect_len(), 1);
 }
@@ -5910,17 +5941,17 @@ fn uak_settlement_failure_returns_the_exact_terminal_capability() {
         .expect("rejection effect owns one publication lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Rejected {
-            reason: CommittedRejection::Validation(rejection),
+        [CommittedEffect::Rejected(CommittedRejection::Validation {
+            reason: rejection,
             ..
-        }] if matches!(
+        })] if matches!(
             rejection.reject(),
             Reject::Invalidated(message) if message == "foundation policy rejection"
         )
     ));
     apply_without_work(
         authority
-            .apply_effect_settlement_for_foundation(lease.published())
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("terminal rejection publication settles"),
     );
     assert_resource_reference(&authority);

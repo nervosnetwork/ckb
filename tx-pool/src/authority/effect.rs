@@ -6,7 +6,7 @@ use super::{
 };
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::{FeeRate, TransactionView},
+    core::{Capacity, FeeRate, TransactionView},
     packed::OutPoint,
     prelude::Entity,
 };
@@ -17,6 +17,10 @@ const EFFECT_ENVELOPE_BYTES: usize = 128;
 /// `Arc<[RawTxHash]>` allocation share. This matches the existing relayer
 /// projection bound without making the authority depend on the service layer.
 const PARENT_TRANSACTION_HASH_BYTES: usize = 64;
+/// Scalar and view residency beyond the packed transaction bytes retained by
+/// one callback-compatible accepted-entry snapshot.
+const COMMITTED_ENTRY_SNAPSHOT_OVERHEAD_BYTES: usize =
+    std::mem::size_of::<CommittedEntrySnapshot>() + 64;
 
 pub(super) fn parent_request_charge_bound(parent_count: usize) -> Option<usize> {
     parent_count
@@ -183,48 +187,123 @@ impl EffectPolicy {
     }
 }
 
+/// Exact accepted-entry facts consumed by the existing callback surface.
+///
+/// These values are compiled from the same virtual membership projection as
+/// the owner transition. An endpoint must never reread authority state after
+/// Apply to reconstruct them: a later admission or reorg could otherwise pair
+/// this committed outcome with a different ancestor/descendant generation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum CommittedRejection {
-    /// Resolve/verify/policy work produced an exact bounded public rejection.
-    /// It is journal-safe and retains the policy flags captured before any
-    /// oversized diagnostic was normalized.
-    Validation(CommittedPublicReject),
-    /// Final membership policy rejected the candidate.  The complete typed
-    /// reason is retained so the production adapter must exhaustively map it
-    /// to the public `Reject`; it cannot silently collapse a new rule into a
-    /// generic policy bucket.
-    Membership(MembershipReject),
-    /// Accepted membership displaced this public owner under RBF. The
-    /// winner identity is part of the committed outcome even when the victim
-    /// remains internally retained as invisible replacement history.
-    ReplacedBy { winner: RawTxHash },
-    /// Accepted-pool capacity removed this owner. Preserve the existing
-    /// public fee-rate diagnostic rather than reconstructing it after Apply.
-    CapacityEvicted { fee_rate: FeeRate },
-    /// An attached chain transaction invalidated this resident owner. The
-    /// exact canonical cell is committed evidence for the existing public
-    /// `Resolve(Dead(out_point))` surface.
-    ChainConflict { out_point: OutPoint },
-    /// Foundation-only effect fixture. Production constructors must retain an
-    /// exact domain reason instead of publishing a scheduling class.
-    #[cfg(test)]
-    Foundation(RejectionKind),
+pub(super) struct CommittedEntrySnapshot {
+    pub(super) tx: Arc<TransactionView>,
+    pub(super) cycles: u64,
+    pub(super) size: usize,
+    pub(super) fee: Capacity,
+    pub(super) ancestors_size: usize,
+    pub(super) ancestors_fee: Capacity,
+    pub(super) ancestors_cycles: u64,
+    pub(super) ancestors_count: usize,
+    pub(super) descendants_fee: Capacity,
+    pub(super) descendants_size: usize,
+    pub(super) descendants_cycles: u64,
+    pub(super) descendants_count: usize,
+    pub(super) timestamp: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+impl CommittedEntrySnapshot {
+    fn charge_bytes(&self) -> Option<usize> {
+        EFFECT_ENVELOPE_BYTES
+            .checked_add(self.tx.data().total_size())?
+            .checked_add(COMMITTED_ENTRY_SNAPSHOT_OVERHEAD_BYTES)
+    }
+}
+
+/// Closed successful public outcomes. Payload shape makes callback and relay
+/// differences structural rather than an adapter convention.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum CommittedAcceptance {
-    /// A candidate acquired Accepted ownership. The original ingress peer is
-    /// immutable outcome evidence used by the relay acknowledgement adapter.
-    Admission { ingress_peer: Option<PeerIndex> },
+    /// A candidate acquired Accepted ownership. The snapshot is the projected
+    /// post-Apply membership view; ingress is the immutable relay attribution.
+    Admission {
+        entry: CommittedEntrySnapshot,
+        status: AcceptedStatus,
+        ingress_peer: Option<PeerIndex>,
+    },
     /// A trusted synchronous caller observed an already Accepted raw hash.
-    /// Membership is unchanged, but the existing product contract requires
-    /// an accepted relay result rather than a rejection. The requesting peer
-    /// is distinct from the resident owner's immutable provenance.
-    Duplicate { requesting_peer: Option<PeerIndex> },
+    /// No membership callback is emitted because ownership did not change.
+    Duplicate {
+        tx_hash: RawTxHash,
+        requesting_peer: Option<PeerIndex>,
+    },
     /// Existing Accepted ownership changed proposal status because the chain
-    /// view moved. It updates template/callback projections but must not emit
+    /// view moved. It updates callback/template projections but does not emit
     /// a fresh network admission acknowledgement.
-    ChainStatusChange,
+    ChainStatusChange {
+        entry: CommittedEntrySnapshot,
+        status: AcceptedStatus,
+    },
+}
+
+/// Whether a chain conflict removed an externally invisible preaccepted
+/// candidate or a callback-visible accepted member. The distinction controls
+/// callback and relay policy and therefore cannot be inferred after Apply.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CommittedConflictOwner {
+    PreAccepted(Arc<TransactionView>),
+    Accepted(CommittedEntrySnapshot),
+}
+
+impl CommittedConflictOwner {
+    fn charge_bytes(&self) -> Option<usize> {
+        match self {
+            Self::PreAccepted(tx) => EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size()),
+            Self::Accepted(entry) => entry.charge_bytes(),
+        }
+    }
+}
+
+/// Closed rejected public outcomes. Each variant owns exactly the evidence
+/// needed to reproduce the existing endpoint contract without a state read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CommittedRejection {
+    /// Resolve/verify/policy work rejected a not-yet-Accepted owner.
+    Validation {
+        tx: Arc<TransactionView>,
+        audience: RejectionAudience,
+        reason: CommittedPublicReject,
+    },
+    /// Final membership policy rejected a not-yet-Accepted candidate.
+    Membership {
+        tx: Arc<TransactionView>,
+        audience: RejectionAudience,
+        reason: MembershipReject,
+    },
+    /// RBF displaced an Accepted member. The pre-Apply callback snapshot and
+    /// winner identity remain committed even when recovery history is kept.
+    Replaced {
+        entry: CommittedEntrySnapshot,
+        audience: RejectionAudience,
+        winner: RawTxHash,
+    },
+    /// Accepted-pool capacity removed an Accepted member.
+    CapacityEvicted {
+        entry: CommittedEntrySnapshot,
+        audience: RejectionAudience,
+        fee_rate: FeeRate,
+    },
+    /// An attached chain transaction invalidated a resident owner.
+    ChainConflict {
+        owner: CommittedConflictOwner,
+        audience: RejectionAudience,
+        out_point: OutPoint,
+    },
+    /// Foundation-only bounded effect fixture.
+    #[cfg(test)]
+    Foundation {
+        tx: Arc<TransactionView>,
+        audience: RejectionAudience,
+        reason: RejectionKind,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -289,21 +368,14 @@ impl RejectionAudience {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum CommittedEffect {
-    Accepted {
-        tx: Arc<TransactionView>,
-        status: AcceptedStatus,
-        cause: CommittedAcceptance,
-    },
-    Rejected {
-        tx: Arc<TransactionView>,
-        audience: RejectionAudience,
-        reason: CommittedRejection,
-    },
+    Accepted(CommittedAcceptance),
+    Rejected(CommittedRejection),
     /// The transaction became canonical while it still had a local owner.
     /// This clears pending relay/callback projections without manufacturing a
     /// pool status or a rejection record.
     ChainCommitted {
-        tx: Arc<TransactionView>,
+        tx_hash: RawTxHash,
+        ingress_peer: PeerIndex,
     },
     /// Administrative ingress revocation clears only the relayer's pending
     /// projection. It is not a transaction rejection and must not populate a
@@ -329,20 +401,31 @@ pub(super) enum CommittedEffect {
 impl CommittedEffect {
     fn charge_bytes(&self) -> Option<usize> {
         match self {
-            Self::Accepted { tx, .. } | Self::ChainCommitted { tx } => {
-                EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
-            }
-            Self::Rejected { tx, reason, .. } => EFFECT_ENVELOPE_BYTES
-                .checked_add(tx.data().total_size())?
-                .checked_add(match reason {
-                    CommittedRejection::Validation(reject) => reject.description_bytes(),
-                    CommittedRejection::Membership(_)
-                    | CommittedRejection::ReplacedBy { .. }
-                    | CommittedRejection::CapacityEvicted { .. } => 0,
-                    CommittedRejection::ChainConflict { out_point } => out_point.as_slice().len(),
-                    #[cfg(test)]
-                    CommittedRejection::Foundation(_) => 0,
-                }),
+            Self::Accepted(acceptance) => match acceptance {
+                CommittedAcceptance::Admission { entry, .. }
+                | CommittedAcceptance::ChainStatusChange { entry, .. } => entry.charge_bytes(),
+                CommittedAcceptance::Duplicate { .. } => Some(EFFECT_ENVELOPE_BYTES),
+            },
+            Self::Rejected(rejection) => match rejection {
+                CommittedRejection::Validation { tx, reason, .. } => EFFECT_ENVELOPE_BYTES
+                    .checked_add(tx.data().total_size())?
+                    .checked_add(reason.description_bytes()),
+                CommittedRejection::Membership { tx, .. } => {
+                    EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
+                }
+                CommittedRejection::Replaced { entry, .. }
+                | CommittedRejection::CapacityEvicted { entry, .. } => entry.charge_bytes(),
+                CommittedRejection::ChainConflict {
+                    owner, out_point, ..
+                } => owner
+                    .charge_bytes()?
+                    .checked_add(out_point.as_slice().len()),
+                #[cfg(test)]
+                CommittedRejection::Foundation { tx, .. } => {
+                    EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
+                }
+            },
+            Self::ChainCommitted { .. } => Some(EFFECT_ENVELOPE_BYTES),
             Self::PeerRevoked { .. } | Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
             Self::ParentTransactionsRequested(request) => {
                 parent_request_charge_bound(request.parents().len())
@@ -364,6 +447,7 @@ pub(super) enum EffectBuildError {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct EffectBatch {
     effects: Box<[CommittedEffect]>,
+    publication_steps: usize,
     charge_bytes: usize,
 }
 
@@ -385,6 +469,10 @@ impl EffectBatch {
         {
             return Err(EffectBuildError::ReservedReset);
         }
+        let publication_steps = effects
+            .len()
+            .checked_mul(EffectEndpoint::COUNT)
+            .ok_or(EffectBuildError::Arithmetic)?;
         let charge_bytes = effects.iter().try_fold(0usize, |total, effect| {
             total.checked_add(effect.charge_bytes()?)
         });
@@ -394,6 +482,7 @@ impl EffectBatch {
         }
         Ok(Arc::new(Self {
             effects: effects.into_boxed_slice(),
+            publication_steps,
             charge_bytes,
         }))
     }
@@ -401,6 +490,7 @@ impl EffectBatch {
     fn reset() -> Arc<Self> {
         Arc::new(Self {
             effects: Box::new([CommittedEffect::GenerationReset]),
+            publication_steps: EffectEndpoint::COUNT,
             charge_bytes: 0,
         })
     }
@@ -411,6 +501,10 @@ impl EffectBatch {
 
     pub(super) fn charge_bytes(&self) -> usize {
         self.charge_bytes
+    }
+
+    fn publication_steps(&self) -> usize {
+        self.publication_steps
     }
 }
 
@@ -565,6 +659,7 @@ struct EffectEnvelope {
     sequence: ApplySequence,
     class: Option<EffectClass>,
     batch: Arc<EffectBatch>,
+    processed: EffectProgress,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -621,6 +716,7 @@ impl EffectSnapshot {
 pub(super) struct EffectObservation {
     pub(super) queued: Vec<ApplySequence>,
     pub(super) active: Option<ApplySequence>,
+    pub(super) active_processed_steps: Option<usize>,
     pub(super) latest_generation_reset: Option<ApplySequence>,
     pub(super) remote_usage: EffectUsage,
     pub(super) ordinary_usage: EffectUsage,
@@ -661,6 +757,77 @@ enum EffectDisposition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct EffectToken {
     sequence: ApplySequence,
+    processed: EffectProgress,
+}
+
+/// One deterministic external endpoint position within a committed outcome.
+///
+/// A semantic outcome may fan out to several endpoints. Persisting this step
+/// in the sole effect authority prevents cancellation during a later endpoint
+/// from replaying an earlier callback, ban or database write. Only the
+/// currently executing endpoint retains the unavoidable at-least-once
+/// action/acknowledgement window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectEndpoint {
+    RecentReject,
+    Callback,
+    Ban,
+    Relay,
+}
+
+impl EffectEndpoint {
+    pub(super) const ORDER: [Self; 4] =
+        [Self::RecentReject, Self::Callback, Self::Ban, Self::Relay];
+    const COUNT: usize = Self::ORDER.len();
+
+    fn from_offset(offset: usize) -> Option<Self> {
+        Self::ORDER.get(offset).copied()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct EffectProgress(usize);
+
+impl EffectProgress {
+    fn current<'batch>(self, batch: &'batch EffectBatch) -> Option<EffectWork<'batch>> {
+        if self.0 >= batch.publication_steps() {
+            return None;
+        }
+        let effect_index = self.0 / EffectEndpoint::COUNT;
+        let endpoint = EffectEndpoint::from_offset(self.0 % EffectEndpoint::COUNT)?;
+        Some(EffectWork {
+            effect_index,
+            effect: batch.effects().get(effect_index)?,
+            endpoint,
+        })
+    }
+
+    fn advance(self, batch: &EffectBatch) -> Result<(Self, bool), EffectProgressError> {
+        if self.current(batch).is_none() {
+            return Err(EffectProgressError::Complete);
+        }
+        let next = Self(
+            self.0
+                .checked_add(1)
+                .ok_or(EffectProgressError::Arithmetic)?,
+        );
+        Ok((next, next.0 == batch.publication_steps()))
+    }
+
+    fn is_complete(self, batch: &EffectBatch) -> bool {
+        self.0 == batch.publication_steps()
+    }
+
+    fn is_pending(self, batch: &EffectBatch) -> bool {
+        self.0 < batch.publication_steps()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct EffectWork<'batch> {
+    pub(super) effect_index: usize,
+    pub(super) effect: &'batch CommittedEffect,
+    pub(super) endpoint: EffectEndpoint,
 }
 
 #[derive(Debug)]
@@ -668,6 +835,7 @@ struct EffectToken {
 pub(super) struct EffectLease {
     token: EffectToken,
     batch: Arc<EffectBatch>,
+    processed: EffectProgress,
 }
 
 impl EffectLease {
@@ -679,31 +847,101 @@ impl EffectLease {
         self.batch.effects()
     }
 
+    /// The first not-yet-processed endpoint in this exclusive batch lease.
+    /// Progress is local to the move-only capability while endpoint I/O runs;
+    /// only Retain commits it back into the authority.
+    pub(super) fn current(&self) -> Option<EffectWork<'_>> {
+        self.processed.current(&self.batch)
+    }
+
+    pub(super) fn mark_current_processed(&mut self) -> Result<bool, EffectProgressError> {
+        let (processed, complete) = self.processed.advance(&self.batch)?;
+        self.processed = processed;
+        Ok(complete)
+    }
+
     pub(super) fn charge_bytes(&self) -> usize {
         self.batch.charge_bytes()
-    }
-
-    pub(super) fn published(self) -> EffectSettlement {
-        EffectSettlement {
-            token: self.token,
-            batch: self.batch,
-            disposition: EffectDisposition::Published,
-        }
-    }
-
-    pub(super) fn circuit_disposed(self) -> EffectSettlement {
-        EffectSettlement {
-            token: self.token,
-            batch: self.batch,
-            disposition: EffectDisposition::CircuitDisposed,
-        }
     }
 
     pub(super) fn retain(self) -> EffectSettlement {
         EffectSettlement {
             token: self.token,
             batch: self.batch,
+            processed: self.processed,
             disposition: EffectDisposition::Retain,
+        }
+    }
+
+    pub(super) fn into_complete(self) -> Result<CompletedEffectLease, EffectCompletionFailure> {
+        if self.processed.is_complete(&self.batch) {
+            Ok(CompletedEffectLease {
+                token: self.token,
+                batch: self.batch,
+            })
+        } else {
+            Err(EffectCompletionFailure {
+                error: EffectProgressError::Incomplete,
+                lease: self,
+            })
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn complete_for_foundation(mut self) -> CompletedEffectLease {
+        self.processed = EffectProgress(self.batch.publication_steps());
+        CompletedEffectLease {
+            token: self.token,
+            batch: self.batch,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectProgressError {
+    Complete,
+    Incomplete,
+    Arithmetic,
+}
+
+#[derive(Debug)]
+#[must_use = "an incomplete effect lease still owns the active capability"]
+pub(super) struct EffectCompletionFailure {
+    error: EffectProgressError,
+    lease: EffectLease,
+}
+
+impl EffectCompletionFailure {
+    pub(super) fn into_parts(self) -> (EffectProgressError, EffectLease) {
+        (self.error, self.lease)
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "a completed effect lease must settle the authority charge"]
+pub(super) struct CompletedEffectLease {
+    token: EffectToken,
+    batch: Arc<EffectBatch>,
+}
+
+impl CompletedEffectLease {
+    pub(super) fn published(self) -> EffectSettlement {
+        let processed = EffectProgress(self.batch.publication_steps());
+        EffectSettlement {
+            token: self.token,
+            batch: self.batch,
+            processed,
+            disposition: EffectDisposition::Published,
+        }
+    }
+
+    pub(super) fn circuit_disposed(self) -> EffectSettlement {
+        let processed = EffectProgress(self.batch.publication_steps());
+        EffectSettlement {
+            token: self.token,
+            batch: self.batch,
+            processed,
+            disposition: EffectDisposition::CircuitDisposed,
         }
     }
 }
@@ -713,11 +951,13 @@ impl EffectLease {
 pub(super) struct EffectSettlement {
     token: EffectToken,
     batch: Arc<EffectBatch>,
+    processed: EffectProgress,
     disposition: EffectDisposition,
 }
 
 struct SettlementPlan {
     disposition: EffectDisposition,
+    processed: EffectProgress,
     after_usage: EffectRegionUsage,
 }
 
@@ -871,6 +1111,7 @@ impl EffectLog {
                     sequence,
                     class: Some(class),
                     batch: Arc::clone(&publication.batch),
+                    processed: EffectProgress::default(),
                 },
                 usage,
             })));
@@ -924,6 +1165,7 @@ impl EffectLog {
                 sequence,
                 class: None,
                 batch: Arc::clone(&self.generation_reset_batch),
+                processed: EffectProgress::default(),
             },
         }))
     }
@@ -947,8 +1189,10 @@ impl EffectLog {
             EffectLease {
                 token: EffectToken {
                     sequence: envelope.sequence,
+                    processed: envelope.processed,
                 },
                 batch: Arc::clone(&envelope.batch),
+                processed: envelope.processed,
             },
         )))
     }
@@ -960,10 +1204,27 @@ impl EffectLog {
         let active = self.active.as_ref().ok_or(EffectError::StaleLease)?;
         if active.sequence != settlement.token.sequence
             || !Arc::ptr_eq(&active.batch, &settlement.batch)
+            || active.processed != settlement.token.processed
         {
             return Err(EffectError::StaleLease);
         }
-        let after_usage = match settlement.disposition {
+        if settlement.processed < active.processed
+            || settlement.processed.0 > active.batch.publication_steps()
+        {
+            return Err(EffectError::Projection);
+        }
+        let disposition = match settlement.disposition {
+            EffectDisposition::Published | EffectDisposition::CircuitDisposed
+                if !settlement.processed.is_complete(&active.batch) =>
+            {
+                return Err(EffectError::Projection);
+            }
+            EffectDisposition::Retain if settlement.processed.is_complete(&active.batch) => {
+                EffectDisposition::Published
+            }
+            disposition => disposition,
+        };
+        let after_usage = match disposition {
             EffectDisposition::Published | EffectDisposition::CircuitDisposed => {
                 active.class.map_or(Some(self.usage), |class| {
                     self.usage
@@ -974,7 +1235,8 @@ impl EffectLog {
         }
         .ok_or(EffectError::Projection)?;
         Ok(EffectDelta(EffectMutation::Settle(SettlementPlan {
-            disposition: settlement.disposition,
+            disposition,
+            processed: settlement.processed,
             after_usage,
         })))
     }
@@ -1026,10 +1288,14 @@ impl EffectLog {
             EffectDisposition::Published | EffectDisposition::CircuitDisposed => Some(active.batch),
             EffectDisposition::Retain => match active.class {
                 Some(_) => {
+                    let mut active = active;
+                    active.processed = plan.processed;
                     self.queued.push_front(active);
                     None
                 }
                 None => {
+                    let mut active = active;
+                    active.processed = plan.processed;
                     if self
                         .latest_generation_reset
                         .as_ref()
@@ -1062,6 +1328,7 @@ impl EffectLog {
                 .map(|envelope| envelope.sequence)
                 .collect(),
             active: self.active.as_ref().map(|envelope| envelope.sequence),
+            active_processed_steps: self.active.as_ref().map(|envelope| envelope.processed.0),
             latest_generation_reset: self
                 .latest_generation_reset
                 .as_ref()
@@ -1109,6 +1376,12 @@ impl EffectLog {
             .chain(self.active.iter())
             .chain(self.latest_generation_reset.iter())
             .all(|envelope| envelope.sequence < next_sequence);
+        let all_progress_incomplete = self
+            .queued
+            .iter()
+            .chain(self.active.iter())
+            .chain(self.latest_generation_reset.iter())
+            .all(|envelope| envelope.processed.is_pending(&envelope.batch));
         let active_precedes_pending = self.active.as_ref().is_none_or(|active| {
             self.queued
                 .front()
@@ -1121,6 +1394,7 @@ impl EffectLog {
         rebuilt == self.usage
             && self.usage_within_limits()
             && all_sequences_before_clock
+            && all_progress_incomplete
             && active_precedes_pending
             && self
                 .latest_generation_reset

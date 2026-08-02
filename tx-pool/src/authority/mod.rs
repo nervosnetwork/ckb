@@ -10,6 +10,7 @@ mod dependency;
 mod effect;
 mod indexes;
 mod plan;
+mod publisher;
 mod read;
 mod rejection;
 mod resolver;

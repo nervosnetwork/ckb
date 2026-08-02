@@ -42,7 +42,13 @@ use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_util::RwLock;
 use ckb_verification::cache::Completed;
 use lru::LruCache;
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio::sync::{Notify, watch};
 
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
@@ -373,6 +379,7 @@ struct AuthoritySignals {
     resolve: Arc<Notify>,
     verify: Arc<Notify>,
     ready: Arc<Notify>,
+    effect_publisher_running: AtomicBool,
 }
 
 impl AuthoritySignals {
@@ -381,6 +388,7 @@ impl AuthoritySignals {
             resolve: Arc::new(Notify::new()),
             verify: Arc::new(Notify::new()),
             ready: Arc::new(Notify::new()),
+            effect_publisher_running: AtomicBool::new(false),
         }
     }
 
@@ -399,6 +407,22 @@ impl AuthoritySignals {
         self.resolve.notify_waiters();
         self.verify.notify_waiters();
         self.ready.notify_waiters();
+    }
+}
+
+/// Move-only claim for the sole consumer of the authority effect sequence.
+/// The effect log already serializes checkout; this claim additionally makes
+/// a second idle consumer fail immediately instead of waiting forever behind
+/// the first consumer's active lease.
+pub(in crate::authority) struct AuthorityEffectPublisherClaim {
+    signals: Arc<AuthoritySignals>,
+}
+
+impl Drop for AuthorityEffectPublisherClaim {
+    fn drop(&mut self) {
+        self.signals
+            .effect_publisher_running
+            .store(false, Ordering::Release);
     }
 }
 
@@ -557,6 +581,18 @@ impl AuthorityRuntime {
         Arc::clone(&self.signals.ready)
     }
 
+    pub(in crate::authority) fn claim_effect_publisher(
+        &self,
+    ) -> Option<AuthorityEffectPublisherClaim> {
+        self.signals
+            .effect_publisher_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| AuthorityEffectPublisherClaim {
+                signals: Arc::clone(&self.signals),
+            })
+    }
+
     fn try_effect_checkout(&self) -> Result<EffectCheckoutState, PlanError> {
         let (lease, retirement) = {
             let mut store = self.store.write();
@@ -620,6 +656,46 @@ impl AuthorityRuntime {
         drop(retirement);
         self.signals.publish_mutation();
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn queue_effect_for_foundation(
+        &self,
+        policy: super::effect::EffectPolicy,
+        effect: super::effect::CommittedEffect,
+    ) -> Result<(), FoundationEffectQueueError> {
+        self.queue_effects_for_foundation(policy, vec![effect])
+    }
+
+    #[cfg(test)]
+    pub(super) fn queue_effects_for_foundation(
+        &self,
+        policy: super::effect::EffectPolicy,
+        effects: Vec<super::effect::CommittedEffect>,
+    ) -> Result<(), FoundationEffectQueueError> {
+        let retirement = {
+            let mut store = self.store.write();
+            let publication = store
+                .authority
+                .effect_publication_for_foundation(policy, effects)
+                .map_err(FoundationEffectQueueError::Build)?;
+            store
+                .authority
+                .plan_effect_publication_for_foundation(&publication)
+                .map_err(FoundationEffectQueueError::Plan)?
+                .apply()
+        };
+        drop(retirement);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn effect_observation_for_foundation(&self) -> super::effect::EffectObservation {
+        self.store
+            .read()
+            .authority
+            .effect_observation_for_foundation()
     }
 
     pub(in crate::authority) fn effects_closed_and_drained(&self) -> bool {
@@ -927,6 +1003,13 @@ impl AuthorityRuntime {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug)]
+pub(super) enum FoundationEffectQueueError {
+    Build(super::effect::EffectBuildError),
+    Plan(PlanError),
+}
+
 impl ReadyWorkBatch {
     fn prepare(self) -> Result<PreparedReadyValidationBatch, FinalAdmissionCaptureError> {
         let mut prepared = Vec::new();
@@ -1208,11 +1291,11 @@ mod tests {
                 .authority
                 .effect_publication_for_foundation(
                     EffectPolicy::Remote,
-                    vec![CommittedEffect::Rejected {
+                    vec![CommittedEffect::Rejected(CommittedRejection::Foundation {
                         tx: Arc::new(TransactionBuilder::default().version(nonce).build()),
                         audience: RejectionAudience::foundation(),
-                        reason: CommittedRejection::Foundation(RejectionKind::Policy),
-                    }],
+                        reason: RejectionKind::Policy,
+                    })],
                 )
                 .expect("the runtime effect fixture is bounded")
         };
@@ -1462,7 +1545,7 @@ mod tests {
             .expect("effect checkout remains healthy")
             .expect("the occupied effect is queued");
         runtime
-            .settle_effect(occupied_lease.published())
+            .settle_effect(occupied_lease.complete_for_foundation().published())
             .expect("the occupied publication settles through the runtime facade");
 
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -1537,7 +1620,7 @@ mod tests {
             .expect("the retained head is still committed");
         assert_eq!(retained.sequence(), first_sequence);
         runtime
-            .settle_effect(retained.published())
+            .settle_effect(retained.complete_for_foundation().published())
             .expect("the retained head publishes exactly once");
 
         let second = runtime
@@ -1548,7 +1631,7 @@ mod tests {
         assert!(second.sequence() > first_sequence);
         assert!(!runtime.effects_closed_and_drained());
         runtime
-            .settle_effect(second.circuit_disposed())
+            .settle_effect(second.complete_for_foundation().circuit_disposed())
             .expect("a stable endpoint circuit may dispose its exact batch");
 
         assert!(

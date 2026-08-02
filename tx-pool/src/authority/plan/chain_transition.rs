@@ -1189,21 +1189,42 @@ impl TxPoolAuthority {
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
             match &removal.cause {
                 ChainRemovalCause::Committed => {
-                    effects.push(CommittedEffect::ChainCommitted {
-                        tx: Arc::clone(&owner.record().tx),
-                    });
+                    // Accepted membership already settled the relayer at
+                    // admission, while replacement history is deliberately
+                    // invisible. Only an in-flight Remote owner needs its
+                    // pending filter cleared when the chain wins the race.
+                    if let OwnedTx::PreAccepted(_) = owner
+                        && let Some(ingress_peer) = owner.ingress_peer()
+                    {
+                        effects.push(CommittedEffect::ChainCommitted {
+                            tx_hash: owner.record().identity.raw.clone(),
+                            ingress_peer,
+                        });
+                    }
                 }
                 ChainRemovalCause::ChainConflict { out_point } => {
-                    effects.push(CommittedEffect::Rejected {
-                        tx: Arc::clone(&owner.record().tx),
-                        audience: RejectionAudience::from_owner(
-                            owner.ingress_peer(),
-                            owner.payload_blame_peer(),
-                        ),
-                        reason: CommittedRejection::ChainConflict {
+                    let audience = RejectionAudience::from_owner(
+                        owner.ingress_peer(),
+                        owner.payload_blame_peer(),
+                    );
+                    let conflict_owner = match owner {
+                        OwnedTx::PreAccepted(entry) => {
+                            CommittedConflictOwner::PreAccepted(Arc::clone(&entry.record.tx))
+                        }
+                        OwnedTx::Accepted(entry) => {
+                            CommittedConflictOwner::Accepted(self.committed_entry_before(entry)?)
+                        }
+                        OwnedTx::ReplacementHistory(_) => {
+                            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                        }
+                    };
+                    effects.push(CommittedEffect::Rejected(
+                        CommittedRejection::ChainConflict {
+                            owner: conflict_owner,
+                            audience,
                             out_point: out_point.clone(),
                         },
-                    });
+                    ));
                 }
                 ChainRemovalCause::Recovery | ChainRemovalCause::ProposalLeaseExpired => {}
             }
@@ -1218,11 +1239,12 @@ impl TxPoolAuthority {
             let entry = status_after
                 .get(&hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            effects.push(CommittedEffect::Accepted {
-                tx: Arc::clone(&entry.record.tx),
-                status: entry.status(),
-                cause: CommittedAcceptance::ChainStatusChange,
-            });
+            effects.push(CommittedEffect::Accepted(
+                CommittedAcceptance::ChainStatusChange {
+                    entry: self.committed_entry_after(entry, &membership)?,
+                    status: entry.status(),
+                },
+            ));
         }
         let effect = if effects.is_empty() {
             EffectDelta::default()
