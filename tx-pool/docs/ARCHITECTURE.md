@@ -530,10 +530,12 @@ Configuration is rejected at assembly if one grant cannot hold the minimum
 weighted entry. The partition ratio is policy that may be tuned by controlled
 benchmarking; it does not introduce another lock, queue or resource authority.
 
-`NotifyTxs(Vec<TransactionView>)` is a trusted controller boundary. Each item
-still passes validation and admission accounting, but the vector itself is not
-currently proven by this module to have an upstream length bound; this remains
-a documented integration-boundary risk rather than a hidden invariant claim.
+The public `NotifyTxs(Vec<TransactionView>)` controller signature remains a
+compatibility boundary, but only `NotifyTxBatch` may cross the bounded service
+channel. Its checked constructor applies the relayer protocol count and
+serialized-byte limits before channel admission. Every item still passes UAK
+validation and admission accounting; the batch newtype is the retained
+upstream proof and must not be unpacked into a new unvalidated message payload.
 
 ## 9. Accepted Plan/Apply
 

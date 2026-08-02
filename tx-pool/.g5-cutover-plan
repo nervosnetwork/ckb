@@ -1,0 +1,850 @@
+# G5 Production Cutover Recovery Plan
+
+Status: design frozen
+Base checkpoint: c1650d596
+Active slice: G5.3b.1
+Next exact action: extract the shared bounded effect-sizing and rejection
+conversion helpers behind the isolated UAK boundary. Do not change a legacy
+production owner before G5.3c.
+
+This is a temporary continuity artifact. It must be removed after the final
+architecture, review guide, behavior inventory, contracts, and release
+manifest carry the completed production design. It is not a second normative
+architecture document.
+
+## 1. Fixed roadmap
+
+- [x] G5.0: seal UAK worker/runtime ownership and typed settlement.
+- [x] G5.1: seal Ready admission, the effect journal, and the publisher.
+- [x] G5.2: seal rejection, peer revocation, and refetch behavior.
+- [x] G5.3a: freeze the production behavior, capability, concurrency, failure,
+  and deletion maps.
+- [ ] G5.3b: implement missing production capabilities only behind isolated UAK
+  boundaries. Do not dual-write legacy state.
+- [ ] G5.3c: switch service construction, dispatch, workers, chain updates,
+  queries, template reads, persistence, and shutdown as one coordinated
+  production cutover. Delete or disconnect every legacy production owner in
+  the same phase.
+- [ ] G5/G6: remove migration scaffolding and stacked tests, then perform one
+  whole-architecture drift, snowball, invariant, Rust, compatibility, and
+  concurrency review.
+- [ ] P9.8: run static, unit, hostile, fault, complexity, and the complete
+  managed 150-spec integration acceptance universe.
+- [ ] P10: run reproducible profiling and fixed-binary A/B benchmarks against
+  develop and frozen checkpoints.
+
+Benchmarking remains deferred until production wiring and correctness gates are
+complete. Performance reasoning and concurrency preservation are design gates
+now; performance claims require P10 evidence later.
+
+## 2. Non-negotiable result
+
+Production must have one transaction ownership authority:
+
+    raw transaction input
+      -> validation evidence
+      -> read-only Plan
+      -> one total Apply in TxPoolAuthority
+      -> committed Effect
+      -> external endpoint
+
+`AuthorityStore` owns all `PreAccepted`, `Accepted`, and
+`ReplacementHistory` transaction locations plus the exact paired chain
+snapshot. Indexes, scheduler order, resource use, dependency levels, template
+receipts, RPC views, persistence receipts, metrics, caches, and effects are
+derived from this authority. None may decide transaction membership.
+
+The production cutover is invalid if it leaves any request able to mutate both
+the UAK and a legacy `TxPool`, `PrePool`, or `EffectJournal`, or if different
+requests use different membership authorities. There is no shadow dual-write,
+fallback write path, repair scan, or gradual endpoint-by-endpoint ownership
+switch.
+
+## 3. Why the cutover cannot be piecemeal
+
+The current service simultaneously constructs the legacy accepted `TxPool`,
+the legacy `component::pre_pool::PrePool`, and the legacy
+`service::effects::EffectJournal`. The UAK already models both accepted and
+preaccepted ownership. Replacing RPC or worker calls one by one would create a
+temporary three-authority system whose cross-product cannot be proven atomic.
+
+Safe migration therefore has two implementation zones:
+
+1. Before cutover, new code is reachable only through isolated UAK tests and
+   typed UAK APIs. Legacy production behavior remains unchanged.
+2. One coordinated assembly switch makes all production mutation and coherent
+   reads use one `AuthorityRuntime`; the now-unreachable legacy production
+   topology is deleted or disconnected in the same phase.
+
+Public compatibility types may remain when removing them would be an unrelated
+API break. They must not be instantiated as a production membership owner.
+
+## 4. External behavior and compatibility matrix
+
+| Surface | Required production behavior | UAK owner or projection | Open capability |
+| --- | --- | --- | --- |
+| `BlockTemplate` | return the latest valid block-assembler projection without making template state authoritative | immutable template receipt plus assembler | pure packer and source-cut adapter |
+| `SubmitRemoteTx` | bounded asynchronous admission; peer attribution and deadline are internal | admission Plan/Apply | production ingress constructor and result mapping |
+| malformed remote input | install peer fence and remove only that peer's PreAccepted cohort, including active work; Accepted remains | peer-revocation Plan/Apply plus exact effect | production boundary already modeled, service call missing |
+| `NotifyTxs` | trusted Proposal admission with internally derived proposal context; the existing `NotifyTxBatch` count/byte proof remains the channel capability | admission Plan/Apply | consume the existing bounded batch and add proposal evidence |
+| `SubmitLocalTx` | synchronous validate and return final result; this is intentional compatibility behavior | direct admission Plan/Apply | production direct validation and typed active-work collision policy |
+| `SubmitLocalTestTx` | integration submission uses the same synchronous Local path and definitive result | direct admission Plan/Apply | internal endpoint mapping only |
+| `TestAcceptTx` | run the same validation and policy evaluation without mutation or effect | immutable evaluation receipt | read-only production evaluator |
+| duplicate submit | Accepted duplicate and PreAccepted duplicate remain distinct typed outcomes | owner map | complete public error/effect mapping |
+| `RemoveLocalTx` | remove the requested accepted root and required descendant closure, or the exact PreAccepted/history owner including active compute | admin Plan/Apply | production removal plan and compatibility mapping |
+| `ClearPipeline` | atomically retire all PreAccepted/history ownership, preserve Accepted and snapshot, stale every old lease | generation transition | non-draining generation invalidation |
+| `ClearPool` | atomically retire all transaction ownership and install the supplied snapshot, stale every old lease | generation and chain transition | non-draining total replacement |
+| remote expiry | bounded due-prefix maintenance; never scan the full resident population | deadline index | production maintenance API and driver |
+| accepted expiry | preserve configured `expiry_hours`, remove each due root plus accepted descendants, and publish exact expiry outcomes | accepted deadline index plus removal Plan | typed deadline and bounded expiry batch |
+| dependency wake/loss | bounded dirty-key slices and level-triggered retry | dependency control | production maintenance API and driver |
+| ordered reorg | one validated chain receipt and one atomic authority/snapshot Apply | chain Plan/Apply | production fact extraction, validation, Apply, cache update |
+| `FreshProposalsFilter` | collision-aware short-id projection across every retrievable owner | read projection | production DTO |
+| `FetchTxs` | compact lookup across every relevant owner phase plus committed short-id fallback | read projection plus bounded LRU | production cache lifecycle |
+| `FetchTxsWithCycles` | return only Accepted entries with committed cycles | read projection | production DTO |
+| `GetTxPoolInfo` | accepted totals, Pending/Gap compatibility, missing-dependency orphan count, verify count, timestamp | read projection | compatibility conversion |
+| `GetLiveCell` | capture only the queried accepted overlay and paired snapshot under the guard; database lookup outside | read receipt | production query method |
+| `GetTxStatus` | one coherent owner cut; ReplacementHistory falls through to recent reject | owned read DTO | production query boundary |
+| `GetTransactionWithStatus` | one coherent owner/payload cut and the same recent-reject fallthrough | owned read DTO | production query boundary |
+| `NewUncle` | update only bounded candidate-uncle state and its source version | block assembler | preserve optimistic partial publication |
+| `GetAllEntryInfo` | one coherent accepted-entry info snapshot | read projection | production DTO |
+| `GetAllIds` | Pending/Gap/Proposed IDs from one coherent cut | read projection | production DTO |
+| `SavePool` | clone bounded `Arc` handles from one cut, sort and write outside the guard | persistence receipt | startup/load and shutdown wiring |
+| `GetPoolTxDetails` | rank, ancestors, descendants, score, and status from one cut | read projection | production DTO |
+| `EstimateFeeRate` | coherent immutable accepted entry snapshot; no authority mutation | derived service | production receipt and fallback selector |
+| candidate-uncles/template source join | remain a separate bounded block-template input, never a tx owner | block assembler | source-version join only |
+| internal `PlugEntry` | preserve internal test/sync capability without opening normal production mutation | sealed synthetic adapter | internal-only bridge |
+| internal `PackageTxs` | use the same pure production packer | template projection | internal-only bridge |
+| `GetTotalRecentRejectNum` | query the existing bounded persistent recent-reject endpoint | derived store | no authority mutation |
+| `UpdateIBDState` | update only the external fee-estimator state | derived service | no authority mutation |
+
+Public controller method signatures and local synchronous completion are the
+compatibility boundary. RPC status continues to expose Pending/Gap compatibility
+without a new ReplacementHistory public state.
+
+## 5. Production boundary shape
+
+Add narrow concrete APIs; do not expose the authority lock or generic read or
+mutation closures.
+
+Suggested module split, subject to naming review before implementation:
+
+- `authority/ingress.rs`: raw external input to typed admission work and
+  synchronous local validation.
+- `authority/administration.rs`: peer revocation, bounded expiry, dependency
+  maintenance, local removal, and typed clear operations.
+- `authority/chain_boundary.rs`: block facts, external snapshot validation, and
+  the one paired authority/snapshot Apply.
+- `authority/query.rs`: owned service-facing read DTOs and conversions.
+- `authority/packing.rs`: the pure bounded cycles/bytes/CPFP template packer.
+- `authority/plan/administration.rs`: explicit Local, Remote-expiry,
+  Accepted-expiry, and peer-revocation planners over one total administrative
+  owner batch. RBF/capacity and chain policy stay in their existing closed
+  planners.
+- `authority/runtime.rs`: sole lock owner, coherent capture, Plan/Apply, lease
+  invalidation, post-guard retirement, and wake publication.
+
+`TxPoolService` becomes an adapter containing `AuthorityRuntime`, immutable
+configuration/consensus, the network and callback endpoints, recent-reject and
+fee-estimator projections, block assembler, and persistence writer. It does not
+own a second transaction map, pre-pool, epoch, effect journal, or recovery lock.
+
+Each API returns a domain result that distinguishes policy rejection,
+duplicate, stale work, bounded backpressure, shutdown, and structural authority
+fault. Valid or hostile input and supported races must not become invariant
+failure or service panic.
+
+## 5.1 Root-cause convergence of the G5.3 entry findings
+
+The verified entry review exposed six missing surfaces. They are not six local
+patches; they reduce to four missing boundary abstractions:
+
+1. **Cause-complete administrative disposition.** Accepted administrative
+   removal, Accepted expiry, and PreAccepted cancellation are missing. Extend
+   the administrative delta from a PreAccepted hash list to one exact total
+   before/after owner batch with the matching accepted projection when needed.
+   Its policy evidence remains distinct from RBF/capacity/chain policy.
+   Source-specific `AdminPlan` variants are not a complete lifecycle model; one
+   mega cause x policy compiler would be the opposite error.
+2. **Typed clear scope.** ClearPipeline and ClearPool are different commands.
+   A single `FreshGeneration::empty` cannot represent both without erasing
+   Accepted membership. The scope must be encoded by different Plan types, not
+   a Boolean or a service convention.
+3. **Compute without retention versus retention with compute.** TestAccept is a
+   validation-only command, while Local/Remote/Proposal are admissions. They may
+   share validators but cannot share a mutation-returning API.
+4. **Complete adapters over committed facts.** Fee estimation, internal test
+   construction, template packing, RPC reads, persistence, and callbacks are
+   projections or effect consumers. Missing adapters do not justify a second
+   authority or a direct side-effect hook into `CommittedDelta`.
+
+This classification is the G5.3 implementation boundary. A new API must belong
+to one of these abstractions; otherwise the design is incomplete or the API is
+accidental complexity.
+
+## 6. Ingress design
+
+### 6.1 Remote
+
+- Run non-contextual precheck outside the authority guard.
+- Derive source, peer attribution, deadline, dependency declaration, and charge
+  internally. Callers cannot construct raw lease, generation, or chain tokens.
+- Preserve the historical remote residency policy of current time plus 100
+  maximum block intervals unless policy is separately redesigned.
+- Apply one bounded admission transition. Duplicate Accepted, duplicate
+  PreAccepted, payload variant, resource pressure, and peer fence are distinct.
+- A malformed remote transaction invokes the already sealed peer-revocation
+  transition even when its cohort is empty. The exact peer fence is committed
+  with the exact revocation effect.
+- Removing a banned peer's PreAccepted owner invalidates any active compute
+  lease. A later settlement is stale and harmless. Accepted membership is not
+  removed. No hash tombstone blocks another peer from submitting the same raw
+  transaction.
+
+### 6.2 Proposal
+
+- Derive proposal validity from the paired snapshot and proposal-window rules;
+  do not accept a caller-provided lease or context token.
+- Same-witness promotion may preserve the exact active work capability.
+- A trusted different-witness proposal atomically replaces the exact
+  PreAccepted owner, including Computing, and invalidates the old lease through
+  the common stale-capability rule. It never waits for an obsolete payload to
+  finish before installing the trusted payload.
+- Preserve `NotifyTxBatch` as the only channel input. Its existing checked
+  count/byte validation uses the relayer protocol constants; the UAK adapter
+  must not reopen a raw `Vec<TransactionView>` entry after that proof.
+
+### 6.3 Local direct admission
+
+- Local submission remains synchronous by design.
+- Resolve and verify outside the authority guard from one captured snapshot and
+  script-rules context.
+- Compile the same final membership, RBF, capacity, dependency, accounting, and
+  effect Plan used by Ready admission.
+- If an active remote owner with the same raw hash exists, do not create a Local
+  asynchronous owner and do not spin while holding authority. Atomically
+  replace that exact PreAccepted owner with the direct Accepted result when the
+  evidence remains valid. The old completion becomes stale through the common
+  capability rule; a stale direct receipt is recomputed rather than partially
+  applied.
+- Accepted duplicate success is journaled under the accepted-membership read
+  capability, so clear/reorg cannot publish a stale acknowledgement.
+
+### 6.4 Test accept
+
+- Use the same captured snapshot and validation engine as Local submission.
+- Produce a dedicated immutable evaluation result. Do not create a mutating Plan
+  and silently discard it, because publication/resource predicates and OCC
+  facts would then masquerade as a read-only contract.
+- Perform no owner, resource, index, clock, effect, peer, or cache mutation.
+
+### 6.5 Boundary outcome and failure map
+
+No service adapter may switch directly on an open-ended internal error string.
+The following closed mapping is part of the cutover contract:
+
+| Boundary | Authoritative outcome | Existing external result | Committed effect |
+| --- | --- | --- | --- |
+| Local or LocalTest acceptance | one Accepted owner installed | `Ok(())` | exact Accepted admission |
+| Local or LocalTest already Accepted | owner unchanged | `Err(Reject::Duplicated(raw_hash))` | Accepted duplicate with no requesting peer |
+| Local or LocalTest final validation or membership rejection | no candidate owner or victim mutation | exact existing `Reject` | exact bounded rejection when its policy requires publication |
+| Local versus same-raw PreAccepted, including Computing | atomically replace that exact owner with the validated Accepted result; old lease becomes stale | the final accepted/rejected result, never asynchronous success | one result matching the committed disposition |
+| TestAccept accepted by evaluation | no mutation | `Ok(EntryCompleted)` | none |
+| TestAccept duplicate or rejected | no mutation | exact existing `Reject` | none |
+| Remote admission retained | one PreAccepted owner | asynchronous API returns `()` | deferred terminal outcome only after validation |
+| Remote already Accepted | owner unchanged | asynchronous API returns `()` | Accepted duplicate addressed to the requesting peer |
+| Remote exact PreAccepted duplicate or payload variant | no second owner and no false Accepted acknowledgement | asynchronous API returns `()` | exact filter-release/rejection disposition; never Accepted unless Accepted was observed in the same cut |
+| Proposal admission or same-witness promotion | one PreAccepted owner, preserving a valid exact compute lease | no responder | no terminal effect until settlement |
+| Trusted proposal witness replacement | atomically replace the exact PreAccepted owner and invalidate old compute; never wait for an unrelated completion | no responder | old payload receives only the release implied by the committed replacement |
+| Final async rejection | candidate terminalized in the same Apply | no responder | exact bounded reject, recent-reject eligibility, relay result, and optional peer revocation |
+| RemoveLocalTx found | exact owner/accepted descendant closure removed in one Apply | `true` | cause-specific effects only; no invented Accepted rejection |
+| RemoveLocalTx absent | no mutation | `false` | none |
+| ClearPipeline or ClearPool | the typed generation transition applies completely | `()` | one rebuildable generation reset |
+
+Internal failures follow these exhaustive boundary rules:
+
+- `Duplicate`, `PayloadVariant`, and `Membership` are transaction outcomes.
+  Their source-specific compiler selects the table row above; an adapter may
+  not infer Accepted success from a raw-hash duplicate alone.
+- `Stale` never crosses an RPC as a policy rejection. Async drivers re-read the
+  authoritative level. Local and TestAccept recapture and recompute outside the
+  guard until a definitive result, cancellation, clear, or shutdown. A clear
+  retains the existing generation-invalidated compatibility error rather than
+  publishing stale validation evidence.
+- Resource, allocation, proposal-collision, and effect-capacity pressure cause
+  zero mutation. Admission maps terminal pool pressure to the existing
+  non-recordable `Reject::Full`; retryable journal pressure waits for the
+  level-triggered capacity signal and replans. Administrative and chain
+  commands retain their exact request and replan rather than fabricating a
+  transaction rejection.
+- `IngressRevoked` is an ordinary peer-scoped outcome. The committed peer
+  revocation owns relay cleanup; the admission adapter emits no duplicate
+  rejection.
+- `EffectClosed` means producer shutdown. It performs no mutation and cannot
+  be translated into successful admission. The synchronous compatibility
+  boundary reports service invalidation and the async boundary releases its
+  caller without creating a new owner.
+- `Fault` is a programmer or structural authority failure. It triggers the
+  documented controlled shutdown and is never downgraded to a policy reject.
+
+The outcome compiler is source-aware but not a second lifecycle authority. It
+consumes only a committed disposition or a mutation-free planning result. The
+same exhaustive mapping must drive the RPC result, relayer filter decision,
+recent-reject eligibility, callbacks, and peer action so those projections
+cannot disagree.
+
+## 7. Administration and maintenance design
+
+### 7.1 Cause-complete administration over one total batch
+
+Do not duplicate owner/index/resource/dependency Apply logic for each missing
+command, and do not force unrelated policy into one mega-enum. Generalize the
+existing `AdminDelta` to one administrative owner batch containing exact
+`(key, before, after)` values and their precompiled resource, index, scheduler,
+dependency, optional accepted-membership, effect, clock, and retirement deltas.
+Reuse the existing iterator-based projection compilers; do not add generic
+plumbing or force hot one-owner admission through a new allocated `Vec`.
+
+The administrative planner has a closed typed intent whose variants carry only
+the evidence their cause requires:
+
+- explicit administrative root;
+- accepted wall-clock expiry root and deadline;
+- preaccepted remote expiry and peer revocation.
+
+RBF/capacity remain membership-policy planners. Chain commitment, chain
+conflict, recovery, and proposal-window changes remain chain-validation
+planners. They may reuse common owner-batch projection helpers, but their
+evidence cannot be constructed through the administrative intent.
+
+The compiler first resolves owner kind and cause, then creates one complete
+transition:
+
+- An Accepted root expands through the existing bounded descendant-postorder
+  graph compiler. The same membership projection code used by RBF/capacity
+  removes the closure and updates ancestor/descendant aggregates.
+- A PreAccepted or ReplacementHistory root uses its exact location and version;
+  active cancellation invalidates the lease rather than waiting for it.
+- Resource, owner index, dependency loss/availability, template source, and
+  effect changes are compiled from the same before/after owner set.
+- A local administrative removal of Accepted membership needs no invented
+  public rejection. A removed Remote PreAccepted owner must still publish the
+  exact relayer filter-release effect. Accepted expiry emits the historical
+  `Reject::Expiry(accepted_at)` callback/recent-reject/relay policy from the
+  committed pre-Apply entry snapshot.
+- Effect capacity is proved before Apply; Full or Closed changes no owner.
+
+`RemoveLocalTx` is a trusted compatibility slow path whose complete descendant
+closure is bounded by accepted residency, not by the smaller RBF mutation
+limit. Keep it one atomic Plan/Apply rather than add a resident removal command,
+global admission pause, or multi-round partial state. Record its owner/edge
+operation count and lock duration in hostile acceptance so the explicit rare
+slow-path cost cannot silently migrate into ordinary admission.
+
+This administrative compiler is the semantic owner for `RemoveLocalTx`, Remote
+expiry, Accepted expiry, and peer revocation. It must reuse the existing
+accepted graph projection and the generalized total `AdminDelta`, not
+duplicate descendant traversal or hand-maintain indexes in
+`administration.rs`.
+
+### 7.2 Typed clear scope and generation invalidation
+
+Current generation replacement requires `active_work == 0`. A production clear
+or reorg that waits for this level can starve because workers and ingress remain
+live. Adding an external pause lock, polling loop, timeout, or retry owner would
+transfer the risk into a second coordination protocol.
+
+The authority-level root fix is:
+
+- `ClearPipelinePlan` atomically retires all PreAccepted and
+  ReplacementHistory owners,
+  including Computing owners, releases their residency and compute charge once,
+  preserves Accepted owners and the paired snapshot, advances the generation,
+  and emits the one rebuildable reset effect. It compiles a total bounded batch
+  over only the removed owners; it does not clone the entire Accepted pool into
+  a second transient generation.
+- `ClearPoolPlan` atomically replaces all owner/projection state with an empty
+  generation and installs the validated supplied snapshot. Its O(1) state swap
+  retires the old bounded generation for destruction outside the guard.
+- Outstanding move-only compute values remain usable only as settlement
+  attempts. Their generation/version no longer names an owner, so settlement
+  returns typed stale and cannot mutate or release resources twice.
+- Destruction of retired payloads and worker-owned `Arc` values happens after
+  the authority guard opens.
+- The two plans are distinct concrete types. No Boolean clear scope and no
+  caller convention may invoke the wrong transition.
+
+This is distinct from effect-log close. Shutdown must first stop every state
+producer and drain checked-out compute capabilities; only then may it close the
+effect log. A stale-invalidation rule must not allow a live producer to append
+after close.
+
+### 7.3 Chain transitions with active work
+
+The chain is authoritative over pool work. An attached transaction, attached
+input conflict, detached recovery, or proposal-window change must not wait
+indefinitely for unrelated worker timing.
+
+- The chain compiler may preserve an unaffected Computing owner when its source
+  or dependency observation can remain valid.
+- When the transition removes, replaces, or requeues that exact owner, Apply
+  atomically retires it and invalidates its lease as above.
+- The later completion is stale, not a fault and not a reason to repeat the
+  chain transition.
+- No recovery lock, quiesce actor, or drain polling is added unless a concrete
+  owner/resource proof shows invalidation cannot cover a case.
+
+Before implementing, prove for each active phase that owner removal and stale
+settlement cannot double-release `active_work`, compute bytes/edges, peer
+charge, or retained payload charge.
+
+The proof is already available from the sealed ownership model and must be
+reused as one rule, not reimplemented per command:
+
+1. A Computing owner is the only ledger fact charged with `active_work == 1`
+   and the matching compute-byte/edge reservation. Its move-only completion
+   names the exact `(raw hash, entry version, compute lease)` tuple.
+2. An authoritative before/after Plan removes that exact old charge and owner
+   together. It either installs a non-Computing owner with a fresh version or
+   installs no owner. Effect capacity and every derived projection have been
+   validated before Apply.
+3. Apply changes owner, indexes, resources, dependencies, scheduler, clocks,
+   and effects in the one authority guard. Retired payload destruction happens
+   after the guard opens.
+4. A late completion first checks raw hash, version, phase, and lease. The new
+   state therefore yields typed `Stale` before any resource or owner mutation.
+   Worker settlement recovery drops that stale capability and performs no
+   ledger release.
+5. Generation replacement must preserve monotonic entry-version and
+   compute-lease clocks. Reusing a raw hash after clear therefore cannot create
+   ABA even though the settlement token needs no separate generation field.
+
+This rule removes `ActiveWorkDrain` as a normal prerequisite for exact owner
+replacement. It applies to peer revocation (already implemented), Local direct
+admission over PreAccepted, trusted different-witness proposal replacement,
+administrative removal, typed clear, and affected chain transitions. Same-
+witness proposal promotion may retain the exact lease because payload identity
+is unchanged and the sealed payload policy already controls how a stale trust
+classification is retried. Effect-log close remains a separate shutdown drain
+rule because it governs producers, not transaction ownership.
+
+### 7.4 Bounded maintenance
+
+The dependency controller already owns a dirty-key cursor and one-edge
+maintenance Plan. Production currently exposes only foundation/test wrappers.
+Add one runtime maintenance step that:
+
+- checks one authoritative dependency ticket under the guard;
+- applies at most one bounded edge action and its exact wake/reject transition;
+- publishes a lossy wake hint only after Apply;
+- never scans the owner population and never relies on edge-trigger timing.
+
+Remote expiry uses the ordered deadline index and a fixed batch limit. Active
+owners may be skipped within the globally bounded active-work allowance, or may
+be invalidated only if expiry policy explicitly chooses cancellation. It must
+not turn one slow worker into an unbounded due-prefix scan or a maintenance
+livelock.
+
+Accepted expiry is not optional: current production applies configured
+`expiry_hours` and removes each expired root plus descendants. `AcceptedEntry`
+already owns `AcceptedAtMillis`, but UAK has no accepted deadline index or
+removal cause. Add one payload-free `BTreeSet` deadline projection derived in
+the same owner index Plan. Its key includes a typed millisecond deadline, raw
+hash, and entry version. A bounded maintenance slice selects due roots,
+deduplicates overlapping descendant closures, and removes a bounded leaf-first
+prefix. The expired root remains the level-triggered deadline until its closure
+is empty, so no extra continuation owner or retry queue is needed; each
+intermediate pool remains causally valid because descendants are removed before
+parents. This replaces the legacy full-pool scan without changing expiry
+policy. Remote-second and Accepted-millisecond deadlines remain distinct
+newtypes; no implicit unit conversion is allowed.
+
+The maintenance worker owns only a timer and level hints. It owns no queue,
+retry count, or transaction state.
+
+## 8. Chain-transition boundary
+
+One chain administration method owns this complete sequence:
+
+1. Capture the old AuthorityStore view and the attached/detached block facts.
+2. Outside the guard, build canonical attached raw hashes, detached recovery
+   transactions, cell conflicts, proposal-window facts, and chain sensitivity.
+   Exclude cellbase transactions. Bind every proof to the new snapshot and one
+   internally generated `ChainViewId`.
+3. Validate proposal positions and context-sensitive entries from the new
+   snapshot outside the guard.
+4. Re-enter the authority, validate the exact old generation/view/source
+   receipts, compile the total owner/resource/index/dependency/effect Plan, and
+   atomically Apply it with the new snapshot.
+5. Update the bounded committed short-id cache and startup reconciliation marker
+   as chain-administration metadata in the same store cut.
+6. Open the guard and then publish wake hints and hand the immutable source
+   receipt to the block assembler and fee estimator.
+
+The first post-startup chain administration also performs the existing one-shot
+reconciliation against the fresh snapshot: entries committed during persisted
+replay and entries whose chain inputs/deps are no longer available are removed
+or reclassified through the same typed chain/removal compiler. The
+`onchain_reconcile_done` marker is paired with the snapshot in AuthorityStore;
+it is not a second lifecycle authority and cannot be set before the matching
+Apply succeeds.
+
+Detached recovery is one parent-first combined set. An unrepresentable bounded
+set uses only the rebuildable generation-reset fallback; exact ban or malformed
+rejection detail never collapses into that reset.
+
+The original reorg liveness regression remains mandatory: recovered
+parent/child/grandchild transactions must be proposed and mined through normal
+`get_block_template`; an uncle containing an old proposal ID cannot suppress
+them forever, and internal Gap must demote when the new proposal window no
+longer justifies it.
+
+## 9. Read, persistence, and cache boundaries
+
+- Read APIs capture one immutable owned receipt under the authority read guard
+  and perform formatting, graph rendering, database I/O, sorting, and JSON work
+  after the guard opens.
+- No service caller receives `&TxPoolAuthority`, `&AuthorityStore`, a lock guard,
+  or a generic closure.
+- `ReplacementHistory` is invisible to live RPC Pending status. Query lookup
+  falls through to committed pending recent-reject and the persistent
+  recent-reject database.
+- `FetchTxsWithCycles` returns Accepted entries only. Compact reconstruction may
+  read all relevant owner phases and then the bounded committed short-id cache.
+- Verification cache identity remains the witness hash plus exact
+  `ScriptVerificationRules`; no raw transaction hash is accepted as a cache
+  key. Cache update is best-effort after settlement.
+- The fee estimator remains a bounded derived endpoint, not authority state.
+  Accepted/rejected updates continue through committed callback effects, which
+  already own the exact pre/post entry snapshot. The estimator fallback consumes
+  one coherent UAK accepted-entry receipt. It must not read a retired legacy
+  `PoolMap`, consume internal `CommittedDelta` through a manual side-effect
+  publication point, or influence membership Apply.
+- Persistence captures bounded `Arc<TransactionView>` values and explicit
+  recovery ordering from one cut. Disk writes and serialization occur outside
+  all authority guards. ReplacementHistory is excluded.
+- Startup load re-enters normal Local/Recovery validation. Persisted data never
+  stamps Accepted or trusted validation evidence directly.
+
+## 10. Pure template packing and block-assembler concurrency
+
+`authority/template.rs` already produces an immutable candidate receipt and
+deterministic Pending proposal rank plus Proposed causal/conditional ordering.
+It does not yet implement the old `TxSelector` cycles/bytes/CPFP packer. The
+production cutover must provide one pure packer over that receipt with:
+
+- exact cycles and serialized-bytes limits;
+- ancestor-inclusive CPFP scoring and deterministic tie-breaking;
+- parent-before-child inclusion;
+- conditional reader-before-spender ordering only within the selected set;
+- the existing bound of 4,000 consecutive candidate failures;
+- bounded cycle/SCC handling and no mutation of authority state;
+- the same implementation for production templates and internal `PackageTxs`.
+
+The block assembler captures the UAK template receipt, paired snapshot, and
+candidate-uncle source version, then constructs outside the authority lock.
+Preserve the established optimistic concurrency model:
+
+- full update and reset are mutually ordered at publication;
+- full/reset construction may overlap partial uncle/proposal/transaction work;
+- partial updates use optimistic source versions and may be skipped;
+- full update retains publication priority;
+- candidate uncles remain a separate bounded source, not a transaction owner;
+- do not serialize full/reset/uncle/partial through one actor or one long-held
+  lock.
+
+Uncle filtering remains a template-derived liveness rule. It must exclude a
+candidate uncle that conflicts with proposals selected from the current
+authority receipt, so a detached block cannot indefinitely suppress recovered
+proposal IDs.
+
+## 11. Runtime topology and shutdown
+
+The post-cutover task set is exactly:
+
+- one ordered resolver;
+- N parallel verification workers;
+- one Ready driver;
+- one bounded maintenance driver;
+- one sole effect publisher;
+- the existing verification-cache worker;
+- the block-assembler loop with preserved optimistic concurrency;
+- one ordered reorg/chain-administration handler;
+- one message dispatcher.
+
+Every state-changing task calls `AuthorityRuntime`; no task owns a secondary
+queue or map. `Notify` values are lossy hints only; authoritative levels are
+rechecked after subscribing and before waiting. No lock is held across await,
+blocking I/O, callback, database access, VM verification, full graph traversal,
+or retired payload destruction.
+
+Shutdown order is:
+
+1. stop external ingress and chain/admin producers;
+2. cancel resolver, verification, Ready, and maintenance producers;
+3. settle or stale every checked-out capability and join those workers;
+4. close effect production;
+5. drain and join the effect publisher;
+6. capture one coherent persistence receipt and write it;
+7. stop remaining derived services.
+
+A worker task structural fault triggers controlled service shutdown. Legal
+input, stale work, journal Full, endpoint timeout, peer behavior, or resource
+pressure are typed outcomes and must not trigger service-wide fail-stop.
+
+## 12. Coordinated implementation sequence
+
+### G5.3a: design freeze
+
+1. Complete this matrix against every service `Message`, ordered reorg message,
+   startup path, public controller method, block-assembler reader, persistence
+   path, and `feature=internal` call.
+2. Verify every UAK state/field/task has a producer and a named business,
+   compatibility, concurrency, or attack owner.
+3. Freeze the active-work invalidation proof and public outcome mappings.
+4. Commit this recovery artifact. No legacy production code changes are allowed
+   in G5.3a.
+
+The phase names in this file intentionally adopt the release manifest's live
+sequence: G5.0 workers, G5.1 Ready/effects/publisher, G5.2 rejection and peer
+revocation, G5.3 production capability completion/cutover/deletion. Any older
+P9.7g text that calls service ownership G5.1 or effects G5.2 is superseded and
+must be removed when the normative documents are synchronized.
+
+### G5.3b: isolated capability completion
+
+Implement in dependency order, with focused UAK tests after each slice:
+
+1. Move shared effect sizing and rejection conversion helpers out of legacy
+   service modules so UAK has no dependency on code scheduled for deletion.
+2. Add production ingress and immutable TestAccept validation.
+3. Generalize the total administrative owner batch, add cause-complete
+   administrative planners, typed ClearPipeline/ClearPool plans, active-work
+   invalidation, bounded Remote and Accepted expiry, and dependency maintenance.
+4. Add production chain fact extraction, validation, snapshot Apply, and
+   committed short-id handling.
+5. Add owned query and persistence receipts.
+6. Add the pure template packer and block-assembler source receipt.
+7. Add the complete new topology assembly in isolated constructors, but do not
+   start it from production builder yet.
+
+Every former prototype function promoted to production loses the
+`_for_foundation` suffix and gains a narrow runtime caller. Every function that
+keeps that suffix must be `#[cfg(test)]`. Add a static documentation/CI check so
+the naming contract cannot drift silently again.
+
+The current ungated prototype inventory is six functions, not only the three
+called out by the entry report:
+
+- `drained_generation_receipt_for_foundation`: delete when non-draining typed
+  clear invalidation replaces it;
+- `plan_clear_generation_for_foundation`: replace with `ClearPipelinePlan`;
+- `plan_replace_generation_chain_for_foundation`: replace with the typed
+  ClearPool/chain boundary rather than promote the ambiguous API;
+- `plan_remote_expiry_for_foundation`: promote behind the maintenance runtime;
+- `plan_dependency_availability_for_foundation`: rename and keep private to the
+  production dependency/chain boundary;
+- `plan_dependency_maintenance_for_foundation`: promote behind the maintenance
+  runtime.
+
+No step writes legacy state. Every semantic slice must pass focused nextest,
+static panic-like-operation audit, lock-across-await audit, allocation/bound
+review, and a whole-model phase review before the next slice.
+
+### G5.3c: one production switch
+
+1. Replace `TxPoolService` ownership fields with `AuthorityRuntime` and derived
+   endpoints.
+2. Redirect all external messages, ordered reorg, queries, templates,
+   persistence, internal adapters, and shutdown to the sealed UAK boundaries in
+   one coordinated patch series that never lands a mixed production authority.
+3. Switch `TxPoolServiceBuilder` to the new topology.
+4. Delete or disconnect legacy production precheck, resolve, verify, commit,
+   maintenance, effect, epoch, and reorg mutation paths.
+5. Keep only mechanically extracted pure helpers and explicitly reviewed public
+   compatibility types.
+6. Update `ARCHITECTURE.md`, `architecture-contract.json`,
+   `security-regression-manifest.json`, `REVIEW_GUIDE.md`, behavior inventory,
+   scripts, and CI selectors in the same phase. Remove this temporary file once
+   those sources carry all live obligations.
+
+Do not leave a compile-time or runtime fallback to the legacy owner after this
+switch. Rollback is Git checkpoint rollback, not dual production ownership.
+
+## 13. Legacy deletion and retention map
+
+Delete or disconnect from production after the switch:
+
+- `component/pre_pool/**` ownership, queues, active leases, history, and runtime;
+- `service/effects.rs` legacy journal and publisher;
+- `service/stages/**` old resolve/verify runner;
+- `service/workers.rs` old precheck, pipeline commit, pipeline maintenance, and
+  reorg mutation workers;
+- `service/pipeline_ops.rs` legacy lifecycle and recovery operations;
+- old process submission/RBF/reorg code whose policy is now owned by UAK Plan;
+- `PipelineEpoch`, recovery locks, duplicate ban state, and old service fields;
+- tests that assert implementation-specific legacy locations rather than public
+  behavior or the final UAK contract.
+
+Retain only after explicit review:
+
+- public `TxPool` compatibility APIs that external crates may compile against,
+  with no production service instance;
+- pure reusable transaction verification, fee, dependency, and packing helpers;
+- candidate-uncle state because it is block-template input, not tx ownership;
+- recent-reject and fee-estimator stores as bounded derived endpoints;
+- internal synthetic entry capability behind `feature=internal`.
+
+Before deletion, search all workspace callers. A file is not deleted merely
+because its closest tx-pool caller moved; tests, sync, compact-block handling,
+RPC, fee estimation, and external public API are part of the boundary.
+
+## 14. Required regression and attack matrix
+
+### Ownership and races
+
+- remote versus Accepted duplicate;
+- remote versus PreAccepted duplicate and witness variant;
+- synchronous Local versus active remote owner;
+- proposal promotion versus active resolve/verify;
+- clear versus every active compute phase;
+- reorg versus every affected active compute phase;
+- peer ban before checkout, during compute, after Ready, and racing Accepted;
+- late settlement after peer revocation, clear, and chain replacement;
+- same raw transaction resubmitted by another peer after revocation.
+
+### Atomicity and resources
+
+- effect region Full and Closed cause zero membership mutation;
+- failed RBF leaves victims and accounting unchanged;
+- successful RBF transfers complete victim closure and optional history in one
+  Apply;
+- history saturation discards history, never the winner;
+- capacity eviction validates the candidate before victim removal;
+- every lifecycle location is charged exactly once and stale work releases
+  nothing;
+- per-peer, remote, history, compute, accepted byte/cycle/count, dependency,
+  fanout, and candidate limits remain bounded under hostile input.
+
+### Liveness
+
+- definitive parent death wakes or rejects every bounded dependent slice;
+- dependency dirty maintenance converges without edge-trigger assumptions;
+- Recovery and Proposal waiters cannot remain indefinitely without a source
+  transition;
+- remote expiry cannot be blocked by one active head;
+- Ready/RBF reject reaches a deterministic terminal or waiting state in a
+  bounded number of driver rounds;
+- reorg recovery parent tree is reproposed and mined by normal templates;
+- detached uncle proposal IDs cannot suppress recovered transactions forever;
+- clear and reorg do not wait indefinitely for active workers.
+
+### Reads, effects, and shutdown
+
+- all multi-field reads come from one authority/source cut;
+- ReplacementHistory never leaks as public Pending;
+- pending committed rejection bridges journal-to-database visibility;
+- exact peer revocation cannot collapse to GenerationReset;
+- callbacks, network ban, and recent-reject endpoint failures cannot roll back
+  committed state or retain the sole journal head forever;
+- full/reset template priority and partial optimistic concurrency are preserved;
+- shutdown stops producers before close, drains effects, then persists;
+- persistence excludes history and revalidates recovered transactions.
+
+### Static and complexity gates
+
+- no production `panic!`, `assert!`, `unwrap()`, `expect()`, or `catch_unwind`
+  used for legal input, resource pressure, stale work, or concurrency;
+- no authority lock held across await, I/O, VM execution, callback, database
+  access, full-population scan, or avoidable payload destruction;
+- every machine-readable test selector arm matches at least one discovered
+  test;
+- operation-count tests cover full pools, long chains, fanout, conflict closure,
+  dependency dirty slices, template SCCs, and large reorg sets.
+
+## 15. Phase review questions
+
+At every checkpoint answer all of these from the whole architecture, not only
+the latest diff:
+
+1. Is there exactly one transaction membership authority in production?
+2. Did any new state, lock, task, queue, retry, cache, marker, or fallback become
+   necessary, and is its owner, bound, validity, rebuild, and failure model
+   explicit?
+3. Did the change eliminate a risk, or only move it to shutdown, publication,
+   maintenance, persistence, or an external endpoint?
+4. Can a legal hostile input or supported race reach panic, fail-stop, deadlock,
+   livelock, starvation, unbounded work, or resource leakage?
+5. Are validation evidence and cached facts bound to exact transaction identity,
+   script rules, chain view, and source version?
+6. Does every historical behavior have a semantic owner in the model, and does
+   every model state have a business, compatibility, concurrency, or attack
+   justification?
+7. Did any previously parallel or optimistic work move under the authority lock
+   or into one serialized actor?
+8. Are all lock scopes, allocations, clones, graph traversals, wakeups, and
+   destruction costs bounded on the hot path?
+9. Did test code stack onto production or duplicate behavior rather than test
+   the same public/type boundary?
+10. Are architecture, contracts, review inventory, scripts, CI selectors, and
+    implementation still bidirectionally traceable?
+11. Is the resulting proof smaller and clearer than the failure mechanism it
+    replaces, without weakening compatibility or performance intent?
+
+If any answer is unresolved, stop the phase and repair the design before adding
+more code. Do not add compensating flags, retries, repair scans, watchdogs, or a
+second authority to make a failing intermediate design pass.
+
+## 16. Current verified evidence and open blockers
+
+Verified at G5.2 checkpoint `c1650d596`:
+
+- authority unit universe: 527/527 nextest green;
+- G5.0 sealed worker ownership and settlement;
+- G5.1 sealed Ready/effect/publisher path;
+- G5.2 sealed peer revocation and other-peer refetch semantics;
+- working tree contains no partial G5.3 implementation;
+- only the user-owned root `.gitignore` modification is visible and must not be
+  staged, reverted, or overwritten.
+
+Verified G5.3 entry-review dispositions:
+
+- accepted administrative removal: real blocker, converged into the
+  cause-complete total administrative owner batch;
+- accepted wall-clock expiry: real blocker, requires a typed accepted deadline
+  projection and the same removal compiler;
+- ClearPipeline semantic coverage: real blocker, requires a distinct
+  preserve-Accepted Plan rather than `FreshGeneration::empty`;
+- fee estimator: real adapter gap, but remains an effect/read consumer and not
+  authority state;
+- internal PlugEntry/PackageTxs: real workspace-test compatibility blockers;
+- TestAccept: real validate-only capability gap;
+- G5 numbering: documentation drift; the release-manifest sequence is now the
+  sole live sequence;
+- foundation gating: real naming/visibility drift; all six ungated functions
+  have an explicit production-or-delete disposition above;
+- `NotifyTxBatch`: already solved by checked protocol count/byte validation;
+  stale architecture wording must be corrected rather than adding another
+  bound or wrapper.
+- the report's "21 dispatch messages" count is stale: the current closed
+  `Message` enum has 24 ordinary variants plus two `feature=internal` variants.
+  The compatibility matrix above accounts for all 26.
+- active-work drain is not six independent blockers. Exact owner replacement
+  can use the already sealed stale-capability rule, so G5.3 must delete normal
+  drain waits instead of adding a pause lock, retry actor, or cancellation
+  registry.
+
+Open production blockers:
+
+- complete UAK ingress and Local/TestAccept boundary;
+- total Accepted/PreAccepted administrative removal and Accepted expiry;
+- typed ClearPipeline that preserves Accepted and typed ClearPool that does not;
+- authority-level non-starving clear/reorg active-work invalidation proof;
+- production dependency and expiry maintenance driver;
+- chain fact extraction, validation, paired snapshot Apply, and short-id cache;
+- service-facing coherent reads and persistence;
+- pure bounded CPFP template packer and block-assembler source cut;
+- coordinated topology, dispatch, shutdown, and legacy-owner deletion;
+- synchronized final architecture/contracts/review inventory;
+- P9.8 complete test acceptance and P10 controlled performance evidence.
+
+No production-readiness claim is allowed while any blocker remains.
