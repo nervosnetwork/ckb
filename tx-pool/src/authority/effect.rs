@@ -246,6 +246,11 @@ impl EffectLimits {
     fn max_batch_bytes(self, class: EffectClass) -> usize {
         self.bounds.bytes_for(class)
     }
+
+    #[cfg(test)]
+    pub(super) fn max_batch_bytes_for_foundation(self, policy: EffectPolicy) -> usize {
+        self.max_batch_bytes(policy.class())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -821,6 +826,20 @@ impl EffectPublication {
             policy,
             batch: EffectBatch::build(effects, policy.class(), limits)?,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_for_foundation(
+        policy: EffectPolicy,
+        effects: Vec<CommittedEffect>,
+        limits: EffectLimits,
+    ) -> Result<Self, EffectBuildError> {
+        Self::new(policy, effects, limits)
+    }
+
+    #[cfg(test)]
+    pub(super) fn charge_bytes_for_foundation(&self) -> usize {
+        self.batch.charge_bytes()
     }
 }
 

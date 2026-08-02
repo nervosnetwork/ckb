@@ -1,17 +1,19 @@
 use super::super::{
     effect::{
-        CommittedAcceptance, CommittedEffect, CommittedRejection, EffectBatchBounds,
-        EffectBuildError, EffectCapacity, EffectConfigError, EffectLease, EffectLimits,
-        EffectPolicy, EffectPublication, RejectionAudience,
+        CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
+        CommittedRejection, EffectBatchBounds, EffectBuildError, EffectCapacity, EffectConfigError,
+        EffectLease, EffectLimits, EffectPolicy, EffectPublication, ParentTransactionRequest,
+        RejectionAudience,
     },
     plan::{
         AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, MembershipReject,
         PlanError, StalePlan, TxPoolAuthority,
     },
+    rejection::CommittedPublicReject,
     runtime::AuthorityRuntime,
     state::{
-        ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash, RejectionKind,
-        RemoteDeadline, ValidatedAdmission, WorkPermit,
+        AcceptedStatus, ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash,
+        RejectionKind, RemoteDeadline, ValidatedAdmission, WorkPermit,
     },
 };
 use super::foundation::{
@@ -20,8 +22,10 @@ use super::foundation::{
 };
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::{FeeRate, TransactionView},
+    bytes::Bytes,
+    core::{Capacity, FeeRate, TransactionBuilder, TransactionView},
     packed::{Byte32, OutPoint},
+    prelude::Pack,
 };
 use std::{num::NonZeroUsize, sync::Arc};
 
@@ -395,6 +399,174 @@ fn uak_production_effect_sizing_is_checked_and_authority_owned() {
         EffectLimits::production(usize::MAX, 1, 1, 1),
         Err(EffectConfigError::Arithmetic)
     );
+}
+
+fn sized_transaction(payload_bytes: usize) -> Arc<TransactionView> {
+    Arc::new(
+        TransactionBuilder::default()
+            .witness(Bytes::from(vec![0x5a; payload_bytes]).pack())
+            .build(),
+    )
+}
+
+fn committed_entry(transaction: Arc<TransactionView>) -> CommittedEntrySnapshot {
+    let size = transaction.data().total_size();
+    CommittedEntrySnapshot {
+        tx: transaction,
+        cycles: u64::MAX,
+        size,
+        fee: Capacity::shannons(u64::MAX),
+        ancestors_size: size,
+        ancestors_fee: Capacity::shannons(u64::MAX),
+        ancestors_cycles: u64::MAX,
+        ancestors_count: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+        descendants_fee: Capacity::shannons(u64::MAX),
+        descendants_size: size,
+        descendants_cycles: u64::MAX,
+        descendants_count: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+        timestamp: u64::MAX,
+    }
+}
+
+/// Keep the sizing proof closed over the effect algebra. Adding a new effect
+/// or rejection shape must update this classification and the constructive
+/// bound tests below before the authority journal can compile its tests.
+fn effect_sizing_family(effect: &CommittedEffect) -> &'static str {
+    match effect {
+        CommittedEffect::Accepted(acceptance) => match acceptance {
+            CommittedAcceptance::Admission { .. } => "trusted-admission",
+            CommittedAcceptance::Duplicate { .. } => "single-envelope",
+            CommittedAcceptance::ChainStatusChange { .. } => "chain-rebuildable",
+        },
+        CommittedEffect::Rejected(rejection) => match rejection {
+            CommittedRejection::Validation { .. } => "bounded-validation",
+            CommittedRejection::Membership { .. } => "bounded-membership",
+            CommittedRejection::Replaced { .. } => "trusted-admission",
+            CommittedRejection::CapacityEvicted { .. } => "trusted-admission",
+            CommittedRejection::ChainConflict { .. } => "chain-rebuildable",
+            CommittedRejection::Foundation { .. } => "foundation-only",
+        },
+        CommittedEffect::ChainCommitted { .. } => "chain-rebuildable",
+        CommittedEffect::PeerCohortRevoked(_) => "critical-detail",
+        CommittedEffect::RemoteExpired { .. } => "remote-prefix",
+        CommittedEffect::ParentTransactionsRequested(_) => "parent-request",
+        CommittedEffect::GenerationReset => "reserved-reset",
+    }
+}
+
+#[test]
+fn uak_production_effect_sizing_constructively_covers_trusted_rbf_shape() {
+    let transaction = sized_transaction(16 * 1024);
+    let transaction_bytes = transaction.data().total_size();
+    let victims = crate::constants::MAX_POOL_MUTATION_CANDIDATES;
+    assert!(
+        super::super::scheduler::MAX_READY_BATCH <= victims + 1,
+        "the independent settlement batch must remain a strict subset of the trusted shape proof"
+    );
+    let pool_bytes = victims
+        .checked_mul(transaction_bytes)
+        .expect("the bounded test shape fits usize");
+    let limits = EffectLimits::production(pool_bytes, pool_bytes, transaction_bytes, 1)
+        .expect("the production formula accepts the bounded pool shape");
+    let entry = committed_entry(Arc::clone(&transaction));
+    let winner = RawTxHash(Byte32::new([0xff; 32]));
+    let mut effects = Vec::with_capacity(victims + 1);
+    effects.push(CommittedEffect::Accepted(CommittedAcceptance::Admission {
+        entry: entry.clone(),
+        status: AcceptedStatus::Pending,
+        ingress_peer: None,
+    }));
+    effects.extend((0..victims).map(|_| {
+        CommittedEffect::Rejected(CommittedRejection::Replaced {
+            entry: entry.clone(),
+            audience: RejectionAudience::foundation(),
+            winner: winner.clone(),
+        })
+    }));
+    assert!(
+        effects
+            .iter()
+            .all(|effect| { matches!(effect_sizing_family(effect), "trusted-admission") })
+    );
+
+    let publication = EffectPublication::new_for_foundation(EffectPolicy::Trusted, effects, limits)
+        .expect("one winner plus the maximum victim closure fits by construction");
+    assert!(
+        publication.charge_bytes_for_foundation()
+            <= limits.max_batch_bytes_for_foundation(EffectPolicy::Trusted)
+    );
+}
+
+#[test]
+fn uak_production_effect_sizing_constructively_covers_non_rebuildable_shapes() {
+    let transaction = sized_transaction(16 * 1024);
+    let transaction_bytes = transaction.data().total_size();
+    let parent_count = 512;
+    let limits = EffectLimits::production(
+        transaction_bytes,
+        transaction_bytes,
+        transaction_bytes,
+        parent_count,
+    )
+    .expect("the production formula accepts every single-effect shape");
+    let validation = CommittedEffect::Rejected(CommittedRejection::Validation {
+        tx: Arc::clone(&transaction),
+        audience: RejectionAudience::foundation(),
+        reason: CommittedPublicReject::new(ckb_types::core::tx_pool::Reject::Malformed(
+            "transaction".to_owned(),
+            "x".repeat(crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES * 2),
+        )),
+    });
+    assert_eq!(effect_sizing_family(&validation), "bounded-validation");
+    let remote =
+        EffectPublication::new_for_foundation(EffectPolicy::Remote, vec![validation], limits)
+            .expect("a maximal bounded validation rejection fits Remote shape bounds");
+    assert!(
+        remote.charge_bytes_for_foundation()
+            <= limits.max_batch_bytes_for_foundation(EffectPolicy::Remote)
+    );
+
+    let parents: Arc<[RawTxHash]> = (0..parent_count)
+        .map(|index| RawTxHash(Byte32::new([(index % 251) as u8; 32])))
+        .collect::<Vec<_>>()
+        .into();
+    let request = CommittedEffect::ParentTransactionsRequested(
+        ParentTransactionRequest::new(PeerIndex::from(1), parents)
+            .expect("the maximal parent request is non-empty"),
+    );
+    assert_eq!(effect_sizing_family(&request), "parent-request");
+    let parent_publication =
+        EffectPublication::new_for_foundation(EffectPolicy::Remote, vec![request], limits)
+            .expect("the maximal parent frontier fits its exact production bound");
+    assert!(
+        parent_publication.charge_bytes_for_foundation()
+            <= limits.max_batch_bytes_for_foundation(EffectPolicy::Remote)
+    );
+
+    let ban = CommittedEffect::PeerCohortRevoked(
+        super::super::effect::CommittedPeerCohortRevocation::malformed_for_foundation(
+            PeerIndex::from(2),
+            RawTxHash(transaction.hash()),
+            CommittedPublicReject::new(ckb_types::core::tx_pool::Reject::Malformed(
+                "transaction".to_owned(),
+                "x".repeat(crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES * 2),
+            )),
+        )
+        .expect("a malformed rejection carries bounded ban evidence"),
+    );
+    assert_eq!(effect_sizing_family(&ban), "critical-detail");
+    EffectPublication::new_for_foundation(EffectPolicy::CriticalDetail, vec![ban], limits)
+        .expect("one bounded peer revocation fits non-rebuildable critical detail");
+
+    // Exercise the remaining production rejection family in the exhaustive
+    // classifier. Chain conflict/status/commit batches are intentionally
+    // guarded by CriticalRebuildable and collapse to GenerationReset.
+    let chain = CommittedEffect::Rejected(CommittedRejection::ChainConflict {
+        owner: CommittedConflictOwner::PreAccepted(transaction),
+        audience: RejectionAudience::foundation(),
+        out_point: OutPoint::new(Byte32::new([3; 32]), u32::MAX),
+    });
+    assert_eq!(effect_sizing_family(&chain), "chain-rebuildable");
 }
 
 #[test]

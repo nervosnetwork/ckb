@@ -651,6 +651,26 @@ G5.3b.1 phase review:
 - Reusable lesson: when validation ownership moves, review the producer enum,
   every conversion, and the final failure policy as one change. Success-path
   compilation and one overflow test are not sufficient evidence.
+- Follow-up sizing audit corrected one imprecise availability claim: effect
+  shape rejection is a structural `EffectProjection` fault, whereas region
+  occupancy is typed `Full`; only `CriticalRebuildable` may replace detail
+  with `GenerationReset`. The current production arithmetic covers the exact
+  constructible Trusted winner plus maximum RBF/capacity victim closure, but
+  inspection alone was not an acceptable proof because legal shape overflow
+  would stop the service.
+- Constructive production-bound tests now build real `CommittedEffect` and
+  `EffectPublication` values for the maximum Trusted closure, bounded Remote
+  validation, maximum parent request, and non-rebuildable peer revocation.
+  Their effect/rejection classifier is exhaustive, so extending the closed
+  effect algebra makes the proof fail to compile until the new shape receives
+  an owner, cardinality bound, class, and overflow policy. Chain detail keeps
+  its separate rebuildable-reset proof; Remote expiry keeps its typed prefix.
+- The expanded producer audit also covered `IndependentRun`: its closed
+  `MAX_READY_BATCH` of eight Accepted effects is a strict subset of the same
+  Trusted count/byte proof and cannot carry RBF or capacity victims. Any future
+  non-rebuildable administrative batch, including Accepted expiry, must either
+  prove its slice is within the global shape count or introduce a typed bounded
+  prefix; a large critical byte region alone does not relax `max_effects`.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that
