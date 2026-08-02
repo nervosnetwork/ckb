@@ -1,4 +1,5 @@
 use super::*;
+use crate::authority::bounded_recent_reject;
 
 impl EffectRegions {
     fn for_class_mut(&mut self, class: EffectClass) -> &mut EffectUsage {

@@ -16,6 +16,72 @@ use ckb_types::{
 };
 
 const MAX_DYNAMIC_REJECT_TEXT_BYTES: usize = MAX_TX_POOL_REJECT_DESCRIPTION_BYTES - 128;
+pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
+pub(crate) const MAX_RECENT_REJECT_BYTES: usize = MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
+
+pub(crate) fn bounded_commit_ban_reason(reject: &Reject) -> String {
+    let mut reason = format!("reject {reject}");
+    if reason.len() > MAX_COMMIT_BAN_REASON_BYTES {
+        let boundary = reason.floor_char_boundary(MAX_COMMIT_BAN_REASON_BYTES);
+        reason.truncate(boundary);
+    }
+    reason
+}
+
+pub(crate) fn bounded_recent_reject(reject: &Reject) -> Reject {
+    let rendered = reject.to_string();
+    if rendered.len() <= MAX_RECENT_REJECT_BYTES {
+        return reject.clone();
+    }
+    Reject::Malformed(
+        "tx-pool".to_string(),
+        format!(
+            "rejection diagnostic omitted after exceeding {} bytes",
+            MAX_RECENT_REJECT_BYTES
+        ),
+    )
+}
+
+#[derive(Debug)]
+pub(crate) enum RecentRejectEncodingError {
+    Json(serde_json::Error),
+    FixedFallbackExceedsBound,
+}
+
+impl std::fmt::Display for RecentRejectEncodingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => write!(formatter, "recent-reject JSON encoding failed: {error}"),
+            Self::FixedFallbackExceedsBound => {
+                write!(formatter, "fixed recent-reject fallback exceeds its bound")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RecentRejectEncodingError {}
+
+pub(crate) fn serialized_recent_reject(
+    reject: &Reject,
+) -> Result<String, RecentRejectEncodingError> {
+    fn serialize(reject: Reject) -> Result<String, RecentRejectEncodingError> {
+        let public: PoolTransactionReject = reject.into();
+        serde_json::to_string(&public).map_err(RecentRejectEncodingError::Json)
+    }
+
+    let serialized = serialize(bounded_recent_reject(reject))?;
+    if serialized.len() <= MAX_RECENT_REJECT_BYTES {
+        return Ok(serialized);
+    }
+    let fallback = serialize(Reject::Malformed(
+        "tx-pool rejection diagnostic omitted".to_string(),
+        String::new(),
+    ))?;
+    if fallback.len() > MAX_RECENT_REJECT_BYTES {
+        return Err(RecentRejectEncodingError::FixedFallbackExceedsBound);
+    }
+    Ok(fallback)
+}
 
 /// Bounded, stable rejection evidence that may cross the committed-effect
 /// boundary.
@@ -219,6 +285,25 @@ pub(in crate::authority) enum MembershipReject {
 }
 
 impl MembershipReject {
+    /// Whether the public outcome produced by this membership rejection is
+    /// stable transaction evidence suitable for the recent-reject database.
+    ///
+    /// Keep this exhaustive and paired with [`Self::into_public`].  The three
+    /// false cases compile to `Reject::Full`, which is transient node-local
+    /// backpressure; every other membership failure compiles to a recordable
+    /// public rejection.  Effect-batch construction uses this allocation-free
+    /// classification while holding the authority guard.
+    pub(super) const fn should_record_recent_reject(&self) -> bool {
+        !matches!(
+            self,
+            Self::ComponentLimit {
+                kind: ComponentLimitKind::Mutation,
+                ..
+            } | Self::AggregateOverflow
+                | Self::CandidateEvicted { .. }
+        )
+    }
+
     /// Compile the exact final-membership outcome to the existing public
     /// tx-pool rejection domain.  This is deliberately exhaustive: adding a
     /// membership rule cannot compile until its RPC/relay semantics are
@@ -339,6 +424,47 @@ mod tests {
                     "Tx's current fee is {actual}, expect it to >= {required} to replace old txs"
                 )
         ));
+    }
+
+    #[test]
+    fn membership_recent_reject_classification_matches_the_public_policy() {
+        let cases = vec![
+            MembershipReject::InputConflict(out_point(1)),
+            MembershipReject::TooManyAncestors,
+            MembershipReject::ComponentLimit {
+                kind: ComponentLimitKind::Replacement,
+                limit: 100,
+            },
+            MembershipReject::ComponentLimit {
+                kind: ComponentLimitKind::Mutation,
+                limit: 100,
+            },
+            MembershipReject::NewUnconfirmedInput(out_point(2)),
+            MembershipReject::InputFromDescendant(out_point(3)),
+            MembershipReject::AncestorDescendantOverlap,
+            MembershipReject::DependencyOnVictim(out_point(4)),
+            MembershipReject::InsufficientReplacementFee {
+                actual: Capacity::shannons(10),
+                required: Capacity::shannons(11),
+            },
+            MembershipReject::ReplacementFeeOverflow,
+            MembershipReject::AggregateOverflow,
+            MembershipReject::CandidateEvicted {
+                fee_rate: FeeRate::from_u64(42),
+            },
+            MembershipReject::CausalCycle(super::RawTxHash(Byte32::new([5; 32]))),
+            MembershipReject::MissingInputEvidence(out_point(6)),
+            MembershipReject::MissingDependencyEvidence(out_point(7)),
+            MembershipReject::MissingPoolOutput(out_point(8)),
+        ];
+
+        for reason in cases {
+            assert_eq!(
+                reason.should_record_recent_reject(),
+                reason.clone().into_public().should_recorded(),
+                "allocation-free effect classification drifted for {reason:?}"
+            );
+        }
     }
 
     #[test]

@@ -1,18 +1,28 @@
+use super::ban::PeerBanLease;
 #[cfg(test)]
 use super::state::RejectionKind;
 use super::{
     rejection::{CommittedPublicReject, MembershipReject},
     state::{AcceptedStatus, ApplySequence, PreAcceptedSource, RawTxHash},
 };
+use crate::error::Reject;
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Capacity, FeeRate, TransactionView},
     packed::OutPoint,
     prelude::Entity,
 };
-use std::{collections::VecDeque, num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 const EFFECT_ENVELOPE_BYTES: usize = 128;
+/// Conservative residency charge for one raw-hash lookup entry into an
+/// immutable committed effect batch. The projection duplicates neither the
+/// transaction nor its rejection payload.
+const PENDING_REJECT_INDEX_BYTES: usize = 128;
 /// Conservative retained-memory charge for one detached packed hash and its
 /// `Arc<[RawTxHash]>` allocation share. This matches the existing relayer
 /// projection bound without making the authority depend on the service layer.
@@ -306,10 +316,134 @@ pub(super) enum CommittedRejection {
     },
 }
 
+impl CommittedRejection {
+    fn raw_hash(&self) -> RawTxHash {
+        let hash = match self {
+            Self::Validation { tx, .. } | Self::Membership { tx, .. } => tx.hash(),
+            Self::Replaced { entry, .. } | Self::CapacityEvicted { entry, .. } => entry.tx.hash(),
+            Self::ChainConflict { owner, .. } => match owner {
+                CommittedConflictOwner::PreAccepted(tx) => tx.hash(),
+                CommittedConflictOwner::Accepted(entry) => entry.tx.hash(),
+            },
+            #[cfg(test)]
+            Self::Foundation { tx, .. } => tx.hash(),
+        };
+        RawTxHash(hash)
+    }
+
+    /// Compile the one public rejection represented by this committed cause.
+    /// Both the publisher and the pending-RPC projection consume this method,
+    /// so endpoint delivery cannot drift from the value visible before the
+    /// recent-reject database write completes.
+    pub(super) fn public_reject(&self) -> CommittedPublicReject {
+        match self {
+            Self::Validation { reason, .. } => reason.clone(),
+            Self::Membership { reason, .. } => {
+                CommittedPublicReject::new(reason.clone().into_public())
+            }
+            Self::Replaced { winner, .. } => CommittedPublicReject::new(Reject::RBFRejected(
+                format!("replaced by tx {}", winner.0),
+            )),
+            Self::CapacityEvicted { fee_rate, .. } => CommittedPublicReject::new(Reject::Full(
+                format!("the fee_rate for this transaction is: {fee_rate}"),
+            )),
+            Self::ChainConflict { out_point, .. } => CommittedPublicReject::new(Reject::Resolve(
+                ckb_types::core::error::OutPointError::Dead(out_point.clone()),
+            )),
+            #[cfg(test)]
+            Self::Foundation { reason, .. } => (*reason).into(),
+        }
+    }
+
+    /// Allocation-free mirror of the public recent-reject policy, used only
+    /// while sealing a batch under the authority guard. An exhaustive test
+    /// checks it against `public_reject().should_record()` for every cause.
+    fn should_record_recent_reject(&self) -> bool {
+        match self {
+            Self::Validation { reason, .. } => reason.should_record(),
+            Self::Membership { reason, .. } => reason.should_record_recent_reject(),
+            Self::Replaced { .. } | Self::ChainConflict { .. } => true,
+            Self::CapacityEvicted { .. } => false,
+            #[cfg(test)]
+            Self::Foundation { .. } => true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct RejectionAudience {
     pub(super) ingress_peer: Option<PeerIndex>,
     pub(super) blame_peer: Option<PeerIndex>,
+}
+
+/// Exact, bounded malformed-input evidence attached to an ingress-cohort
+/// revocation. The constructor prevents an ordinary policy rejection from
+/// acquiring peer-ban semantics merely because it followed the same worker
+/// path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct CommittedPeerBanRejection {
+    tx_hash: RawTxHash,
+    reason: CommittedPublicReject,
+}
+
+impl CommittedPeerBanRejection {
+    pub(super) fn tx_hash(&self) -> &RawTxHash {
+        &self.tx_hash
+    }
+
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        &self.reason
+    }
+}
+
+/// A peer identity and its optional malformed culprit are sealed together, so
+/// effect construction cannot accidentally ban one peer using another peer's
+/// validation result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct CommittedPeerCohortRevocation {
+    lease: PeerBanLease,
+    culprit: Option<CommittedPeerBanRejection>,
+}
+
+impl CommittedPeerCohortRevocation {
+    pub(super) const fn administrative(lease: PeerBanLease) -> Self {
+        Self {
+            lease,
+            culprit: None,
+        }
+    }
+
+    pub(super) fn malformed(
+        lease: PeerBanLease,
+        tx_hash: RawTxHash,
+        reason: CommittedPublicReject,
+    ) -> Option<Self> {
+        reason.is_malformed().then_some(Self {
+            lease,
+            culprit: Some(CommittedPeerBanRejection { tx_hash, reason }),
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn malformed_for_foundation(
+        peer: PeerIndex,
+        tx_hash: RawTxHash,
+        reason: CommittedPublicReject,
+    ) -> Option<Self> {
+        Self::malformed(PeerBanLease::for_foundation(peer), tx_hash, reason)
+    }
+
+    pub(super) const fn peer(&self) -> PeerIndex {
+        self.lease.peer()
+    }
+
+    pub(super) const fn lease(&self) -> PeerBanLease {
+        self.lease
+    }
+
+    pub(super) fn culprit(&self) -> Option<&CommittedPeerBanRejection> {
+        self.culprit.as_ref()
+    }
 }
 
 /// Non-empty, canonical request detail committed with a Remote missing wait.
@@ -377,13 +511,12 @@ pub(super) enum CommittedEffect {
         tx_hash: RawTxHash,
         ingress_peer: PeerIndex,
     },
-    /// Administrative ingress revocation clears only the relayer's pending
-    /// projection. It is not a transaction rejection and must not populate a
-    /// raw-hash negative cache, so another peer may provide the same tx again.
-    PeerRevoked {
-        tx_hash: RawTxHash,
-        peer: PeerIndex,
-    },
+    /// One bounded authority result for a complete not-yet-Accepted ingress
+    /// cohort. The optional culprit retains only its exact hash and bounded
+    /// malformed reason: publication can record the rejection and ban the
+    /// peer without retaining every removed transaction or creating a raw-hash
+    /// tombstone. Relay consumes this as a required generation reset.
+    PeerCohortRevoked(CommittedPeerCohortRevocation),
     /// A remote residency lease elapsed before Accepted ownership. Expiry has
     /// the same refetch semantics as peer revocation, but remains remote
     /// capacity work and does not imply hostile-peer policy.
@@ -399,6 +532,22 @@ pub(super) enum CommittedEffect {
 }
 
 impl CommittedEffect {
+    fn recordable_rejection(&self) -> Option<CommittedRecentReject<'_>> {
+        match self {
+            Self::Rejected(rejection) if rejection.should_record_recent_reject() => {
+                Some(CommittedRecentReject::Rejection(rejection))
+            }
+            Self::PeerCohortRevoked(revocation)
+                if revocation
+                    .culprit()
+                    .is_some_and(|culprit| culprit.reason.should_record()) =>
+            {
+                revocation.culprit().map(CommittedRecentReject::PeerBan)
+            }
+            _ => None,
+        }
+    }
+
     fn charge_bytes(&self) -> Option<usize> {
         match self {
             Self::Accepted(acceptance) => match acceptance {
@@ -406,31 +555,78 @@ impl CommittedEffect {
                 | CommittedAcceptance::ChainStatusChange { entry, .. } => entry.charge_bytes(),
                 CommittedAcceptance::Duplicate { .. } => Some(EFFECT_ENVELOPE_BYTES),
             },
-            Self::Rejected(rejection) => match rejection {
-                CommittedRejection::Validation { tx, reason, .. } => EFFECT_ENVELOPE_BYTES
-                    .checked_add(tx.data().total_size())?
-                    .checked_add(reason.description_bytes()),
-                CommittedRejection::Membership { tx, .. } => {
-                    EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
+            Self::Rejected(rejection) => {
+                let retained = match rejection {
+                    CommittedRejection::Validation { tx, reason, .. } => EFFECT_ENVELOPE_BYTES
+                        .checked_add(tx.data().total_size())?
+                        .checked_add(reason.description_bytes()),
+                    CommittedRejection::Membership { tx, .. } => {
+                        EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
+                    }
+                    CommittedRejection::Replaced { entry, .. }
+                    | CommittedRejection::CapacityEvicted { entry, .. } => entry.charge_bytes(),
+                    CommittedRejection::ChainConflict {
+                        owner, out_point, ..
+                    } => owner
+                        .charge_bytes()?
+                        .checked_add(out_point.as_slice().len()),
+                    #[cfg(test)]
+                    CommittedRejection::Foundation { tx, .. } => {
+                        EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
+                    }
+                }?;
+                if rejection.should_record_recent_reject() {
+                    retained.checked_add(PENDING_REJECT_INDEX_BYTES)
+                } else {
+                    Some(retained)
                 }
-                CommittedRejection::Replaced { entry, .. }
-                | CommittedRejection::CapacityEvicted { entry, .. } => entry.charge_bytes(),
-                CommittedRejection::ChainConflict {
-                    owner, out_point, ..
-                } => owner
-                    .charge_bytes()?
-                    .checked_add(out_point.as_slice().len()),
-                #[cfg(test)]
-                CommittedRejection::Foundation { tx, .. } => {
-                    EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
-                }
-            },
+            }
             Self::ChainCommitted { .. } => Some(EFFECT_ENVELOPE_BYTES),
-            Self::PeerRevoked { .. } | Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
+            Self::PeerCohortRevoked(revocation) => {
+                let retained =
+                    revocation
+                        .culprit()
+                        .map_or(Some(EFFECT_ENVELOPE_BYTES), |culprit| {
+                            EFFECT_ENVELOPE_BYTES
+                                .checked_add(culprit.tx_hash.0.as_slice().len())?
+                                .checked_add(culprit.reason.description_bytes())
+                        })?;
+                if revocation
+                    .culprit()
+                    .is_some_and(|culprit| culprit.reason.should_record())
+                {
+                    retained.checked_add(PENDING_REJECT_INDEX_BYTES)
+                } else {
+                    Some(retained)
+                }
+            }
+            Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
             Self::ParentTransactionsRequested(request) => {
                 parent_request_charge_bound(request.parents().len())
             }
             Self::GenerationReset => Some(0),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CommittedRecentReject<'effect> {
+    Rejection(&'effect CommittedRejection),
+    PeerBan(&'effect CommittedPeerBanRejection),
+}
+
+impl CommittedRecentReject<'_> {
+    fn raw_hash(self) -> RawTxHash {
+        match self {
+            Self::Rejection(rejection) => rejection.raw_hash(),
+            Self::PeerBan(culprit) => culprit.tx_hash.clone(),
+        }
+    }
+
+    fn public_reject(self) -> CommittedPublicReject {
+        match self {
+            Self::Rejection(rejection) => rejection.public_reject(),
+            Self::PeerBan(culprit) => culprit.reason.clone(),
         }
     }
 }
@@ -505,6 +701,21 @@ impl EffectBatch {
 
     fn publication_steps(&self) -> usize {
         self.publication_steps
+    }
+
+    fn pending_recent_rejects(&self) -> impl Iterator<Item = (usize, CommittedRecentReject<'_>)> {
+        self.effects
+            .iter()
+            .enumerate()
+            .filter_map(|(index, effect)| {
+                effect
+                    .recordable_rejection()
+                    .map(|rejection| (index, rejection))
+            })
+    }
+
+    fn pending_recent_reject_count(&self) -> usize {
+        self.pending_recent_rejects().count()
     }
 }
 
@@ -721,12 +932,14 @@ pub(super) struct EffectObservation {
     pub(super) remote_usage: EffectUsage,
     pub(super) ordinary_usage: EffectUsage,
     pub(super) total_usage: EffectUsage,
+    pub(super) pending_recent_rejects: usize,
     pub(super) closed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum EffectError {
     Full,
+    Allocation,
     Closed,
     StaleLease,
     Projection,
@@ -735,6 +948,38 @@ pub(super) enum EffectError {
 struct AppendPlan {
     envelope: EffectEnvelope,
     usage: EffectRegionUsage,
+}
+
+#[derive(Debug)]
+struct PendingRejectIndex {
+    sequence: ApplySequence,
+    batch: Arc<EffectBatch>,
+    effect_index: usize,
+}
+
+/// Stable O(1) read evidence cloned under the authority read guard. Public
+/// rejection construction and JSON serialization happen only after that guard
+/// is released.
+#[derive(Debug)]
+pub(super) struct PendingRecentReject {
+    expected_hash: RawTxHash,
+    batch: Arc<EffectBatch>,
+    effect_index: usize,
+}
+
+impl PendingRecentReject {
+    pub(super) fn public_reject(self) -> Result<CommittedPublicReject, EffectError> {
+        let rejection = self
+            .batch
+            .effects()
+            .get(self.effect_index)
+            .and_then(CommittedEffect::recordable_rejection)
+            .ok_or(EffectError::Projection)?;
+        if rejection.raw_hash() != self.expected_hash {
+            return Err(EffectError::Projection);
+        }
+        Ok(rejection.public_reject())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -985,6 +1230,10 @@ pub(super) struct EffectLog {
     queued: VecDeque<EffectEnvelope>,
     active: Option<EffectEnvelope>,
     latest_generation_reset: Option<EffectEnvelope>,
+    /// Derived, charged lookup into resident immutable batches. Sequence is
+    /// part of the value so completion of an older rejection cannot erase a
+    /// newer result for the same raw transaction hash.
+    pending_recent_rejects: HashMap<RawTxHash, PendingRejectIndex>,
     usage: EffectRegionUsage,
     closed: bool,
     generation_reset_batch: Arc<EffectBatch>,
@@ -1001,6 +1250,7 @@ impl EffectLog {
             queued,
             active: None,
             latest_generation_reset: None,
+            pending_recent_rejects: HashMap::new(),
             usage: EffectRegionUsage::default(),
             closed: false,
             generation_reset_batch: EffectBatch::reset(),
@@ -1015,6 +1265,7 @@ impl EffectLog {
             queued: VecDeque::with_capacity(limits.regions.total.batches),
             active: None,
             latest_generation_reset: None,
+            pending_recent_rejects: HashMap::new(),
             usage: EffectRegionUsage::default(),
             closed: false,
             generation_reset_batch: EffectBatch::reset(),
@@ -1088,7 +1339,7 @@ impl EffectLog {
     }
 
     pub(super) fn plan_publication(
-        &self,
+        &mut self,
         publication: &EffectPublication,
         sequence: ApplySequence,
     ) -> Result<EffectDelta, EffectError> {
@@ -1102,6 +1353,17 @@ impl EffectLog {
             return Err(EffectError::Projection);
         }
         if self.usage.fits(self.limits.regions, class, bytes) {
+            if self
+                .pending_recent_rejects
+                .try_reserve(publication.batch.pending_recent_reject_count())
+                .is_err()
+            {
+                return if publication.policy.can_reset() {
+                    Ok(self.reset_delta(sequence))
+                } else {
+                    Err(EffectError::Allocation)
+                };
+            }
             let usage = self
                 .usage
                 .checked_charge(class, bytes)
@@ -1131,14 +1393,13 @@ impl EffectLog {
         Ok(self.reset_delta(sequence))
     }
 
-    /// Publish rebuildable critical detail or collapse it to the same
-    /// constant-size generation reset when either the batch shape or current
-    /// journal capacity cannot preserve every item. This is the fail-open
-    /// cleanup path used by administrative owner revocation: state removal
-    /// must not wait for ordinary effect capacity, while consumers still get
-    /// an authoritative reconciliation signal.
-    pub(super) fn plan_critical_rebuildable(
-        &self,
+    /// Publish chain-transition detail or collapse it to the same constant-size
+    /// generation reset when either the batch shape or current journal capacity
+    /// cannot preserve every item. Only chain convergence may use this path:
+    /// the reset rebuilds its authoritative projections, while peer revocation
+    /// and other non-rebuildable security actions require exact publication.
+    pub(super) fn plan_chain_rebuildable(
+        &mut self,
         effects: Vec<CommittedEffect>,
         sequence: ApplySequence,
     ) -> Result<EffectDelta, EffectError> {
@@ -1253,6 +1514,18 @@ impl EffectLog {
             EffectMutation::None => None,
             EffectMutation::Append(plan) => {
                 self.usage = plan.usage;
+                let sequence = plan.envelope.sequence;
+                let batch = Arc::clone(&plan.envelope.batch);
+                for (effect_index, rejection) in batch.pending_recent_rejects() {
+                    self.pending_recent_rejects.insert(
+                        rejection.raw_hash(),
+                        PendingRejectIndex {
+                            sequence,
+                            batch: Arc::clone(&batch),
+                            effect_index,
+                        },
+                    );
+                }
                 self.queued.push_back(plan.envelope);
                 None
             }
@@ -1285,7 +1558,23 @@ impl EffectLog {
         let active = self.active.take()?;
         self.usage = plan.after_usage;
         match plan.disposition {
-            EffectDisposition::Published | EffectDisposition::CircuitDisposed => Some(active.batch),
+            EffectDisposition::Published | EffectDisposition::CircuitDisposed => {
+                for (effect_index, rejection) in active.batch.pending_recent_rejects() {
+                    let hash = rejection.raw_hash();
+                    if self
+                        .pending_recent_rejects
+                        .get(&hash)
+                        .is_some_and(|pending| {
+                            pending.sequence == active.sequence
+                                && pending.effect_index == effect_index
+                                && Arc::ptr_eq(&pending.batch, &active.batch)
+                        })
+                    {
+                        self.pending_recent_rejects.remove(&hash);
+                    }
+                }
+                Some(active.batch)
+            }
             EffectDisposition::Retain => match active.class {
                 Some(_) => {
                     let mut active = active;
@@ -1316,6 +1605,7 @@ impl EffectLog {
             && self.queued.is_empty()
             && self.active.is_none()
             && self.latest_generation_reset.is_none()
+            && self.pending_recent_rejects.is_empty()
             && self.usage == EffectRegionUsage::default()
     }
 
@@ -1336,8 +1626,18 @@ impl EffectLog {
             remote_usage: self.usage.remote,
             ordinary_usage: self.usage.ordinary,
             total_usage: self.usage.total,
+            pending_recent_rejects: self.pending_recent_rejects.len(),
             closed: self.closed,
         }
+    }
+
+    pub(super) fn pending_recent_reject(&self, hash: &RawTxHash) -> Option<PendingRecentReject> {
+        let pending = self.pending_recent_rejects.get(hash)?;
+        Some(PendingRecentReject {
+            expected_hash: hash.clone(),
+            batch: Arc::clone(&pending.batch),
+            effect_index: pending.effect_index,
+        })
     }
 
     pub(super) fn semantically_consistent(&self, next_sequence: ApplySequence) -> bool {
@@ -1391,6 +1691,38 @@ impl EffectLog {
                     .as_ref()
                     .is_none_or(|reset| active.sequence < reset.sequence)
         });
+        let resident = self.queued.iter().chain(self.active.iter());
+        let pending_projection_complete =
+            resident.clone().all(|envelope| {
+                envelope
+                    .batch
+                    .pending_recent_rejects()
+                    .all(|(effect_index, rejection)| {
+                        self.pending_recent_rejects
+                            .get(&rejection.raw_hash())
+                            .is_some_and(|pending| {
+                                pending.sequence > envelope.sequence
+                                    || (pending.sequence == envelope.sequence
+                                        && pending.effect_index >= effect_index
+                                        && Arc::ptr_eq(&pending.batch, &envelope.batch))
+                            })
+                    })
+            }) && self.pending_recent_rejects.iter().all(|(hash, pending)| {
+                pending
+                    .batch
+                    .effects()
+                    .get(pending.effect_index)
+                    .and_then(CommittedEffect::recordable_rejection)
+                    .is_some_and(|rejection| rejection.raw_hash() == *hash)
+                    && self
+                        .queued
+                        .iter()
+                        .chain(self.active.iter())
+                        .any(|envelope| {
+                            envelope.sequence == pending.sequence
+                                && Arc::ptr_eq(&envelope.batch, &pending.batch)
+                        })
+            });
         rebuilt == self.usage
             && self.usage_within_limits()
             && all_sequences_before_clock
@@ -1400,6 +1732,7 @@ impl EffectLog {
                 .latest_generation_reset
                 .as_ref()
                 .is_none_or(|reset| reset.class.is_none() && reset.batch.charge_bytes() == 0)
+            && pending_projection_complete
     }
 
     fn usage_within_limits(&self) -> bool {

@@ -5,21 +5,22 @@ use super::super::{
         EffectPolicy, EffectPublication, RejectionAudience,
     },
     plan::{
-        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, PlanError, StalePlan,
-        TxPoolAuthority,
+        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, MembershipReject,
+        PlanError, StalePlan, TxPoolAuthority,
     },
+    runtime::AuthorityRuntime,
     state::{
         ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash, RejectionKind,
         RemoteDeadline, ValidatedAdmission, WorkPermit,
     },
 };
 use super::foundation::{
-    FixtureCommit, admit_remote, admit_remote_until, limits, owner_version, take_resolve_work, tx,
-    verify_remote_transaction,
+    FixtureCommit, admit_remote, admit_remote_until, genesis_snapshot, limits, owner_version,
+    runtime_config, take_resolve_work, tx, verify_remote_transaction,
 };
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::TransactionView,
+    core::{FeeRate, TransactionView},
     packed::{Byte32, OutPoint},
 };
 use std::{num::NonZeroUsize, sync::Arc};
@@ -52,7 +53,7 @@ fn authority_with_effect_limits(effect_limits: EffectLimits) -> TxPoolAuthority 
 }
 
 #[test]
-fn uak_peer_revocation_over_detail_bound_commits_a_constant_reset() {
+fn uak_peer_revocation_commits_one_constant_size_cohort_effect() {
     let peer = PeerIndex::from(711);
     let mut authority = authority_with_effect_limits(effect_limits(8, 2, 2, 1));
     let first = admit_remote(&mut authority, 1_713, 711);
@@ -60,15 +61,43 @@ fn uak_peer_revocation_over_detail_bound_commits_a_constant_reset() {
 
     let committed = authority
         .plan_peer_revocation_for_foundation(peer)
-        .expect("rebuildable cleanup cannot be blocked by its detail bound")
-        .expect("peer owns a bounded cohort")
+        .expect("one cohort effect fits independently of cohort cardinality")
         .apply();
     assert_eq!(committed.retired_len(), 2);
     assert!(authority.entry(&first).is_none());
     assert!(authority.entry(&second).is_none());
 
     let lease = checkout(&mut authority);
-    assert_eq!(lease.effects(), &[CommittedEffect::GenerationReset]);
+    assert!(matches!(
+        lease.effects(),
+        [CommittedEffect::PeerCohortRevoked(revocation)]
+            if revocation.peer() == peer && revocation.culprit().is_none()
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_peer_revocation_effect_backpressure_is_zero_semantic_mutation() {
+    let peer = PeerIndex::from(718);
+    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
+    let owner = admit_remote(&mut authority, 1_718, 718);
+    for (policy, nonce) in [
+        (EffectPolicy::Remote, 1_719),
+        (EffectPolicy::Trusted, 1_720),
+        (EffectPolicy::CriticalDetail, 1_721),
+    ] {
+        let publication = rejected_publication(&authority, policy, Arc::new(tx(nonce)));
+        drop(publish(&mut authority, &publication));
+    }
+    let before = authority.normalized_snapshot();
+
+    assert_eq!(
+        authority.plan_peer_revocation_for_foundation(peer).err(),
+        Some(PlanError::Backpressure(Backpressure::EffectCapacity))
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.entry(&owner).is_some());
+    assert!(!authority.peer_is_banned_for_reference(peer));
     assert!(authority.primary_projection_consistent());
 }
 
@@ -155,6 +184,152 @@ fn effect_control_sequence(committed: &CommittedDelta) -> ApplySequence {
         panic!("fixture expected an effect-only authority commit");
     };
     *sequence
+}
+
+#[tokio::test]
+async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let transaction = Arc::new(tx(698));
+    let hash = transaction.hash();
+
+    runtime
+        .queue_effect_for_foundation(
+            EffectPolicy::Remote,
+            CommittedEffect::Rejected(CommittedRejection::Foundation {
+                tx: Arc::clone(&transaction),
+                audience: RejectionAudience::foundation(),
+                reason: RejectionKind::Verification,
+            }),
+        )
+        .expect("the first bounded rejection commits");
+    let first = runtime
+        .pending_recent_reject(&hash)
+        .expect("the projection is structurally valid")
+        .expect("a committed rejection is visible before persistence");
+    assert_eq!(
+        runtime
+            .effect_observation_for_foundation()
+            .pending_recent_rejects,
+        1
+    );
+
+    runtime
+        .queue_effect_for_foundation(
+            EffectPolicy::Remote,
+            CommittedEffect::Rejected(CommittedRejection::Foundation {
+                tx: Arc::clone(&transaction),
+                audience: RejectionAudience::foundation(),
+                reason: RejectionKind::Policy,
+            }),
+        )
+        .expect("a newer rejection for the same raw hash commits");
+    let second = runtime
+        .pending_recent_reject(&hash)
+        .expect("the newer projection is structurally valid")
+        .expect("the newer rejection replaces the read projection");
+    assert_ne!(first, second);
+    assert_eq!(
+        runtime
+            .effect_observation_for_foundation()
+            .pending_recent_rejects,
+        1,
+        "one raw hash owns one latest pending projection"
+    );
+
+    let first_lease = runtime
+        .wait_effect_checkout()
+        .await
+        .expect("the first effect checks out")
+        .expect("the effect log remains open");
+    runtime
+        .settle_effect(first_lease.complete_for_foundation().published())
+        .expect("the older effect settles");
+    assert_eq!(
+        runtime
+            .pending_recent_reject(&hash)
+            .expect("older completion preserves a valid projection"),
+        Some(second.clone()),
+        "settling an older sequence must not erase the newer result"
+    );
+
+    let second_lease = runtime
+        .wait_effect_checkout()
+        .await
+        .expect("the second effect checks out")
+        .expect("the effect log remains open");
+    runtime
+        .settle_effect(second_lease.complete_for_foundation().published())
+        .expect("the latest effect settles");
+    assert_eq!(
+        runtime
+            .pending_recent_reject(&hash)
+            .expect("the empty projection remains valid"),
+        None
+    );
+
+    runtime
+        .queue_effect_for_foundation(
+            EffectPolicy::Remote,
+            CommittedEffect::Rejected(CommittedRejection::Membership {
+                tx: transaction,
+                audience: RejectionAudience::foundation(),
+                reason: MembershipReject::CandidateEvicted {
+                    fee_rate: FeeRate::from_u64(1_000),
+                },
+            }),
+        )
+        .expect("transient Full publication still commits its other endpoints");
+    assert_eq!(
+        runtime
+            .pending_recent_reject(&hash)
+            .expect("a non-recordable result cannot corrupt the projection"),
+        None,
+        "transient Full outcomes must not poison recent-reject reads"
+    );
+}
+
+#[test]
+fn uak_pending_recent_reject_uses_effect_position_within_one_batch() {
+    let mut authority = authority_with_effect_limits(effect_limits(2, 1, 1, 2));
+    let transaction = Arc::new(tx(699));
+    let hash = RawTxHash(transaction.hash());
+
+    let publication = authority
+        .effect_publication_for_foundation(
+            EffectPolicy::Remote,
+            vec![
+                CommittedEffect::Rejected(CommittedRejection::Foundation {
+                    tx: Arc::clone(&transaction),
+                    audience: RejectionAudience::foundation(),
+                    reason: RejectionKind::Verification,
+                }),
+                CommittedEffect::Rejected(CommittedRejection::Foundation {
+                    tx: transaction,
+                    audience: RejectionAudience::foundation(),
+                    reason: RejectionKind::Policy,
+                }),
+            ],
+        )
+        .expect("two bounded outcomes may share one raw hash and one batch");
+    drop(publish(&mut authority, &publication));
+    assert!(authority.primary_projection_consistent());
+    let pending = authority
+        .pending_recent_reject(&hash)
+        .expect("the later effect position owns the projection")
+        .public_reject()
+        .expect("the projection is structurally valid");
+    assert_eq!(pending, RejectionKind::Policy.into());
+
+    let lease = checkout(&mut authority);
+    drop(apply_without_handoff(
+        authority
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
+            .expect("the complete batch settles"),
+    ));
+    assert!(authority.pending_recent_reject(&hash).is_none());
+    assert!(authority.primary_projection_consistent());
 }
 
 #[test]

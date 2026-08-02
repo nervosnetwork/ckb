@@ -405,18 +405,53 @@ the same generic session and `AdmissionPlan`. Journal Full/Closed applies
 nothing and publishes the owner as Ready for the level-triggered driver; no
 verified worker waits on effect capacity while holding state.
 
-The session rechecks the immutable ingress peer captured from that exact Ready
-revision. An expiring, non-evicting peer-ban marker is the revocation
-linearization point: new remote admission rechecks it immediately after taking
-kernel ownership, and Ready planning rechecks it before building the Accepted
-mutation. Marker cardinality is coupled to the network's existing unexpired
-ban set; a transaction-residency LRU is deliberately not used because unrelated
-newer bans could evict a live fence. The ban path itself removes the indexed
-ingress cohort in bounded prepared slices.
-Together these edges cover queued admission and Ready-commit races without a
-second lifecycle state. A commit already past the final fence remains valid
-Accepted state; permitting a later peer ban to roll it back would turn network
-administration into a valid-transaction deletion primitive.
+Peer revocation is an administrative transition of the same authority, not a
+second lock or a second lifecycle protocol. One ban Plan/Apply installs the
+expiring, non-evicting peer marker and removes the complete indexed
+`PreAccepted` ingress cohort attributed to that peer. This includes checked-out
+work: its move-only lease remains memory-safe, but its later settlement observes
+a missing/version-stale owner and cannot publish state. `Accepted` membership is
+deliberately outside the cohort. Therefore the authority lock itself decides
+the race: a commit that applies first remains Accepted; a ban that applies first
+removes every not-yet-Accepted owner and makes later work stale.
+
+The marker transition is valid even when that indexed cohort is empty. Cohort
+presence is derived cleanup state, not evidence that the ban happened. This
+linearizes the authority decision against a controller message that was queued
+before the ban but reaches admission afterwards; making marker publication
+conditional on a resident owner would reopen that race.
+
+New Remote admission checks only its ingress peer in that same authority Plan;
+there is no additional hot-path ban mutex, waiting state, cleanup task, or
+population scan. Marker cardinality is coupled to the network's existing
+unexpired ban set and a transaction-residency LRU is forbidden because newer
+bans must not evict an older live revocation decision. First-ban deadlines use
+the fixed network duration and therefore enter one monotonic expiration queue;
+a repeated live decision reuses that lease without extending, shortening or
+adding another expiration owner. New bans prune only the due prefix, making
+cleanup amortized in expired markers rather than rescanning all live peers.
+The ban Apply commits
+one cardinality-independent `PeerCohortRevoked` effect, not one item per removed
+transaction. Its optional culprit is a typed malformed-only value containing
+the exact raw hash and bounded public reason. Publication records that exact
+reject, performs the external network ban for only the time remaining on the
+same committed marker lease, and sends a required relayer
+`GenerationReset`; the reset clears stale known/pending projections without
+creating transaction tombstones or retaining the removed cohort's hashes.
+The same transaction may therefore immediately be admitted from a different,
+non-banned peer. Effect backpressure applies nothing, including the marker, so
+an external consumer never decides whether authority removal happened.
+
+The peer-revocation surface has the following anti-drift proof rules. They are
+architectural constraints, not replaceable implementation details:
+
+| Failure family | Root cause | Permanent constraint |
+|---|---|---|
+| queued ingress crosses a ban | treating a non-empty resident cohort as evidence that revocation occurred | marker publication is valid even for an empty cohort and shares the cohort-removal Apply |
+| partial cleanup or work resurrection | splitting peer attribution, owner removal and lease invalidation across actors | immutable ingress attribution and the complete `PreAccepted` peer index are consumed by one authority Plan/Apply |
+| publisher-created policy | allowing an I/O adapter to infer a ban from a generic malformed rejection | only `PeerCohortRevoked` can construct a network-ban action; the publisher never rereads or re-decides policy |
+| extended or inconsistent ban duration | starting a new duration when delayed I/O finally runs | marker and external call consume one deadline lease, evaluated at the foreign-call boundary |
+| attack-amplified cleanup | emitting one effect per peer-owned transaction or scanning unrelated owners/markers | one cohort effect, one charged per-peer index traversal and due-prefix-only expiry pruning |
 
 ### 7.3 Wait is level-triggered
 
@@ -660,11 +695,29 @@ while holding the journal mutex. Expensive RBF/capacity/kernel planning never
 runs under the journal mutex, and ordinary admission never commits first and
 falls back to `GenerationReset` because a post-Apply bound was wrong.
 
-`GenerationReset` remains a deliberately narrower chain/admin mechanism.
+`GenerationReset` remains a deliberately narrow chain-convergence mechanism.
 Authoritative reorg/clear cannot wait behind callback or relay detail; when its
 bounded detail region is saturated, the state transition commits and the
 constant-size latest-generation record subsumes that observational detail.
-This exception must not be reused by ordinary transaction admission.
+This exception must not be reused by ordinary transaction admission. More
+generally, reset/coalescing is legal only for a projection that the reset can
+rebuild completely. Chain-transition status is rebuildable; its per-item
+recent-reject/callback detail is deliberately best-effort when that rare path
+must collapse to a reset. This is an operational-observation trade-off, not a
+second state authority. Network ban and exact malformed-culprit rejection are
+not rebuildable and must never disappear through that fallback. Peer-cohort
+revocation therefore uses one exact critical effect and treats journal Full as
+zero-mutation backpressure, while only its relayer endpoint carries a required
+generation reset. The publisher cannot infer a ban from a generic rejection:
+only the authority-committed `PeerCohortRevoked` effect may create that external
+action.
+
+The effect surface has two matching anti-drift rules. A derived rejection read
+is identified by `(ApplySequence, effect position, immutable batch identity)`,
+not sequence alone, because one committed batch may contain the same raw hash
+more than once. And allocation pressure in that derived index may collapse
+only chain-rebuildable detail to reset; it cannot weaken exact peer-revocation
+publication or make its state Apply partial.
 
 The publisher drains FIFO order. Full relayer capacity retains the active head;
 individual relay detail may coalesce to `GenerationReset`, which stays pending
@@ -691,9 +744,16 @@ or reorg either observes the `Ok` before its reset/removal or wins first and
 suppresses the stale acknowledgement. Fresh admission success remains part of
 the immutable `AdmissionPlan` batch and has no manual publication gap.
 
-Exactly-once delivery is not claimed. The invariant is: after state Apply, a
-bounded stable record exists until detailed publication succeeds or a newer
-authoritative generation reset subsumes it.
+Exactly-once delivery is not claimed. After state Apply, a bounded stable
+record exists until detailed publication succeeds, a newer authoritative
+generation reset subsumes rebuildable relay detail, or a bounded foreign
+endpoint attempt fails and its stable circuit disposes only that endpoint.
+The last case never reverses authority: in particular, a committed peer fence
+continues rejecting that exact `PeerIndex` ingress session even if the
+network-ban call fails. It does not authenticate a future reconnect as the
+same remote identity; losing the external disconnect/ban may therefore admit a
+new session. That availability/security boundary and lost observability are
+the explicit R2 operational risk, not a successful-publication claim.
 
 A Remote owner that resolves to a complete missing-cell frontier follows the
 same rule. Resolution derives canonical, sorted and deduplicated parent
@@ -1082,7 +1142,7 @@ another mechanism, closes it.
 | ID | Disposition | Current boundary | Closure rule |
 |---|---|---|---|
 | R1 | Mitigate | A genuine pre-Apply primary/projection contradiction is a typed system fault: service stops and the generation is not persisted. | Legal input must remain excluded by private types, narrow result domains and total Apply. A reachable legal path requires redesigning that operation-specific API, never catch/repair control flow. |
-| R2 | Accept | Callback/network detail is bounded and reconcilable, not exactly-once. | Exactly-once would require a durable transactional outbox and idempotent receivers; do not add that protocol without a product requirement. |
+| R2 | Accept | External callback, network-ban and recent-reject delivery is bounded but not exactly-once. Relay state alone is fully reconcilable through `GenerationReset`; a non-rebuildable endpoint action receives one bounded attempt before its per-kind circuit disposes later calls. The committed fence still protects the exact `PeerIndex` ingress session, but a failed network ban can permit a reconnect with a new index and observability can be unavailable. | Exactly-once would require a durable transactional outbox, idempotent endpoint protocol and restart replay. Do not claim delivery or add that failure domain without a product requirement; keep the internal session fence authoritative, never describe it as durable remote identity, and surface circuit state operationally. |
 | R3 | Mitigate | A timed-out blocking endpoint may leave one detached call per endpoint kind until it returns; stable circuits suppress later calls. | Keep endpoint-kind cardinality bounded and authority locks released. Prefer cancellable async APIs when available. |
 | R4 | Accept | Explicit pool persistence is neither a crash-durable WAL nor a cancellable filesystem transaction; shutdown I/O may delay exit. | Keep I/O outside transaction authority. Add timeout/metrics only for an evidenced shutdown SLO; do not move I/O under authority locks. |
 | R5 | Accept | OOM, allocator abort and process corruption are outside in-process recovery. | Process supervision and restart own this boundary. |

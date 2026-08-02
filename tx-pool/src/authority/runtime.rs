@@ -5,6 +5,7 @@
 //! conversion here prevents runtime callers from inventing resource limits,
 //! synthetic chain identities, or replacement policy independently.
 
+use super::rejection::{RecentRejectEncodingError, serialized_recent_reject};
 use super::{
     chain::FinalAdmissionWork,
     effect::{
@@ -27,7 +28,7 @@ use super::{
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{ChainRevision, ChainViewId, ValidatedAdmission, WorkPermit},
+    state::{ChainRevision, ChainViewId, RawTxHash, ValidatedAdmission, WorkPermit},
     validation::{
         FinalAdmissionValidation, FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
         PreparedFinalAdmissionValidation,
@@ -86,6 +87,23 @@ pub(crate) enum RuntimeConfigError {
     EffectConfiguration,
     AuthorityAllocation,
 }
+
+#[derive(Debug)]
+pub(crate) enum AuthorityRecentRejectReadError {
+    Projection,
+    Encoding(RecentRejectEncodingError),
+}
+
+impl std::fmt::Display for AuthorityRecentRejectReadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Projection => formatter.write_str("pending recent-reject projection mismatch"),
+            Self::Encoding(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for AuthorityRecentRejectReadError {}
 
 #[derive(Clone, Copy, Debug)]
 struct AuthorityRuntimeConfig {
@@ -700,6 +718,31 @@ impl AuthorityRuntime {
 
     pub(in crate::authority) fn effects_closed_and_drained(&self) -> bool {
         self.store.read().authority.effects_closed_and_drained()
+    }
+
+    /// Return a rejection already committed to the charged effect log but not
+    /// necessarily persisted yet. Only the immutable batch pointer is cloned
+    /// under the authority guard; public conversion and JSON allocation happen
+    /// after the guard opens.
+    pub(crate) fn pending_recent_reject(
+        &self,
+        hash: &Byte32,
+    ) -> Result<Option<String>, AuthorityRecentRejectReadError> {
+        let pending = {
+            self.store
+                .read()
+                .authority
+                .pending_recent_reject(&RawTxHash(hash.clone()))
+        };
+        let Some(pending) = pending else {
+            return Ok(None);
+        };
+        let public = pending
+            .public_reject()
+            .map_err(|_| AuthorityRecentRejectReadError::Projection)?;
+        serialized_recent_reject(public.reject())
+            .map(Some)
+            .map_err(AuthorityRecentRejectReadError::Encoding)
     }
 
     pub(super) const fn verify_worker_count(&self) -> usize {

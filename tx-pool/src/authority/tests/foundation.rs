@@ -1225,7 +1225,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
     let queued_tx = tx(1_708);
     let queued = admit_remote(&mut authority, 1_708, 708);
     let promoted_tx = tx(1_709);
-    let promoted = admit_remote(&mut authority, 1_709, 708);
+    let promoted = verify_remote_transaction(&mut authority, promoted_tx.clone(), 708, Vec::new());
     apply_without_work(
         authority
             .plan_admission(
@@ -1234,12 +1234,15 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
             )
             .expect("promotion preserves immutable ingress"),
     );
+    assert!(matches!(
+        authority.entry(&promoted),
+        Some(OwnedTx::PreAccepted(entry)) if matches!(entry.phase, PreAcceptedPhase::Ready(_))
+    ));
     let survivor = admit_remote(&mut authority, 1_711, 709);
 
     let revoked = authority
         .plan_peer_revocation_for_foundation(banned)
         .expect("bounded peer cohort plans")
-        .expect("two preaccepted owners are indexed")
         .apply();
     assert!(matches!(
         &revoked.changes,
@@ -1280,17 +1283,17 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
         .apply()
         .into_effect_lease()
         .expect("cleanup has one publisher lease");
-    let revoked_hashes = effect
-        .effects()
-        .iter()
-        .map(|effect| match effect {
-            CommittedEffect::PeerRevoked { tx_hash, peer } if *peer == banned => tx_hash.0.clone(),
-            _ => panic!("fixture expected peer-specific cleanup detail"),
-        })
-        .collect::<HashSet<_>>();
+    assert!(matches!(
+        effect.effects(),
+        [CommittedEffect::PeerCohortRevoked(revocation)]
+            if revocation.peer() == banned && revocation.culprit().is_none()
+    ));
+
+    let blocked = ValidatedAdmission::remote(queued_tx.clone(), banned)
+        .expect("same-peer retry remains structurally valid");
     assert_eq!(
-        revoked_hashes,
-        HashSet::from([queued.0.clone(), promoted.0.clone()])
+        authority.plan_admission(blocked).err(),
+        Some(PlanError::IngressRevoked(banned))
     );
 
     let resubmitted = ValidatedAdmission::remote(queued_tx, survivor_peer)
@@ -1304,7 +1307,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
 }
 
 #[test]
-fn uak_peer_revocation_drains_promoted_active_work_before_delete() {
+fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
     let peer = PeerIndex::from(710);
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_712);
@@ -1329,24 +1332,82 @@ fn uak_peer_revocation_drains_promoted_active_work_before_delete() {
         0,
         "compute attribution alone cannot prove ingress drain"
     );
-    assert_eq!(
-        authority.plan_peer_revocation_for_foundation(peer).err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
-    );
-    assert!(authority.entry(&hash).is_some());
-
-    apply_without_work(
-        authority
-            .apply_settlement(work.internal_failure())
-            .expect("the worker returns its unique settlement capability"),
-    );
     let revoked = authority
         .plan_peer_revocation_for_foundation(peer)
-        .expect("drained cohort plans")
-        .expect("owner remains until Apply")
+        .expect("active cohort plans without a drain protocol")
         .apply();
     assert_eq!(revoked.retired_len(), 1);
     assert!(authority.entry(&hash).is_none());
+    assert_eq!(authority.resources().peer(peer), ResourceVector::default());
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("a removed active owner cannot publish late state");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_generation_replacement_preserves_live_peer_revocation() {
+    let peer = PeerIndex::from(711);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_715);
+    let _ = admit_remote(&mut authority, 1_715, 711);
+    drop(
+        authority
+            .plan_peer_revocation_for_foundation(peer)
+            .expect("peer revocation plans")
+            .apply(),
+    );
+    let receipt = authority
+        .drained_generation_receipt_for_foundation()
+        .expect("revocation leaves no active compute");
+    drop(
+        authority
+            .plan_clear_generation_for_foundation(receipt)
+            .expect("pool clear plans independently of the peer fence")
+            .apply(),
+    );
+
+    let retry = ValidatedAdmission::remote(transaction, peer)
+        .expect("the retry remains structurally valid");
+    assert_eq!(
+        authority.plan_admission(retry).err(),
+        Some(PlanError::IngressRevoked(peer)),
+        "clear must not erase an unrelated live network-security decision"
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_peer_revocation_without_resident_owner_still_fences_queued_ingress() {
+    let peer = PeerIndex::from(714);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(1_722);
+
+    let revoked = authority
+        .plan_peer_revocation_for_foundation(peer)
+        .expect("a ban decision does not depend on a resident cohort")
+        .apply();
+    assert_eq!(revoked.retired_len(), 0);
+    assert!(authority.peer_is_banned_for_reference(peer));
+
+    let queued_before_ban = ValidatedAdmission::remote(transaction.clone(), peer)
+        .expect("an already queued controller message remains structurally valid");
+    assert_eq!(
+        authority.plan_admission(queued_before_ban).err(),
+        Some(PlanError::IngressRevoked(peer)),
+        "the authority marker linearizes the ban against delayed ingress"
+    );
+
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::remote(transaction, PeerIndex::from(715))
+                    .expect("another peer can provide the same transaction"),
+            )
+            .expect("the fence is peer-scoped"),
+    );
     assert!(authority.primary_projection_consistent());
 }
 
@@ -1801,6 +1862,7 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
     let declared_cycles = 200;
     let (hash, verify) =
         checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
+    let cohort_member = admit_remote(&mut authority, 6_270, 627);
     let rejection = verify
         .verified(declared_cycles + 1)
         .expect("declared-cycle mismatch is a typed source-policy settlement");
@@ -1810,6 +1872,17 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
             .expect("current peer-policy rejection terminalizes atomically"),
     );
     assert!(authority.entry(&hash).is_none());
+    assert!(authority.entry(&cohort_member).is_none());
+    assert!(authority.peer_is_banned_for_reference(peer));
+    let pending = authority
+        .pending_recent_reject(&hash)
+        .expect("the same Apply indexes the culprit's committed rejection")
+        .public_reject()
+        .expect("the indexed cohort effect carries exact reject evidence");
+    assert!(matches!(
+        pending.reject(),
+        Reject::DeclaredWrongCycles(200, 201)
+    ));
 
     let checkout = authority
         .plan_effect_checkout_for_foundation()
@@ -1821,17 +1894,28 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
         .expect("rejection checkout returns one effect lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::Rejected(CommittedRejection::Validation {
-            audience: RejectionAudience {
-                ingress_peer: Some(ingress),
-                blame_peer: Some(blame),
-            },
-            reason,
-            ..
-        })] if *ingress == peer
-            && *blame == peer
-            && matches!(reason.reject(), Reject::DeclaredWrongCycles(200, 201))
+        [CommittedEffect::PeerCohortRevoked(revocation)]
+            if revocation.peer() == peer
+                && revocation.culprit().is_some_and(|culprit|
+                    culprit.tx_hash() == &hash
+                        && matches!(culprit.reason().reject(), Reject::DeclaredWrongCycles(200, 201)))
     ));
+
+    let blocked = ValidatedAdmission::remote(transaction.clone(), peer)
+        .expect("same-peer retry remains structurally valid");
+    assert_eq!(
+        authority.plan_admission(blocked).err(),
+        Some(PlanError::IngressRevoked(peer))
+    );
+    let other_peer = PeerIndex::from(6_271);
+    apply_without_work(
+        authority
+            .plan_admission(
+                ValidatedAdmission::remote(transaction, other_peer)
+                    .expect("another peer may provide the same transaction"),
+            )
+            .expect("the ban marker is peer-scoped, not a tx tombstone"),
+    );
     assert_resource_reference(&authority);
 }
 

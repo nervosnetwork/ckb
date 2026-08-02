@@ -49,7 +49,7 @@ REQUIRED_LOCK_ORDER = [
 ]
 REQUIRED_RESIDUAL_RISKS = {
     "R1": "typed_internal_contradiction_controlled_stop",
-    "R2": "bounded_reconcilable_effects_not_exactly_once",
+    "R2": "external_effect_delivery_not_exactly_once",
     "R3": "one_timed_out_blocking_call_per_endpoint_kind",
     "R4": "non_crash_durable_persistence_and_uncancellable_filesystem_io",
     "R5": "process_oom_abort_and_corruption",

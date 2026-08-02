@@ -4,6 +4,10 @@
 //! total state Apply and appends its immutable batch. No capacity token crosses
 //! an await/lock; a supervised publisher isolates fallible endpoints.
 
+pub(crate) use crate::authority::bounded_commit_ban_reason;
+use crate::authority::{
+    MAX_COMMIT_BAN_REASON_BYTES, MAX_RECENT_REJECT_BYTES, serialized_recent_reject,
+};
 use crate::callback::CallbackEvent;
 use crate::component::entry::{TxEntry, TxEntrySnapshot};
 use crate::component::pool_map::Status;
@@ -35,10 +39,7 @@ const CALLBACK_SNAPSHOT_OVERHEAD_BYTES: usize = std::mem::size_of::<TxEntrySnaps
 /// makes the largest-indivisible batch a checked formula, not a heuristic.
 pub(crate) const MAX_POOL_MUTATION_REJECT_BYTES: usize = 256;
 /// Cap the non-consensus peer-ban diagnostic included in a commit batch.
-pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
 /// Cap attacker-controlled verifier diagnostics retained for observability.
-pub(crate) const MAX_RECENT_REJECT_BYTES: usize =
-    crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
 /// Conservative residency charge for the journal's hash-to-envelope
 /// projection used by immediate RPC rejection reads.
 const PENDING_REJECT_INDEX_BYTES: usize = 128;
@@ -89,71 +90,6 @@ pub(crate) fn max_submit_effect_bytes(max_pool_bytes: usize, max_block_bytes: us
         .saturating_add(PENDING_REJECT_INDEX_BYTES)
         .saturating_add(MAX_RECENT_REJECT_BYTES);
     pool_effects.saturating_add(kernel_effects).max(4096)
-}
-
-pub(crate) fn bounded_commit_ban_reason(reject: &Reject) -> String {
-    let mut reason = format!("reject {reject}");
-    if reason.len() > MAX_COMMIT_BAN_REASON_BYTES {
-        let boundary = reason.floor_char_boundary(MAX_COMMIT_BAN_REASON_BYTES);
-        reason.truncate(boundary);
-    }
-    reason
-}
-
-fn bounded_recent_reject(reject: &Reject) -> Reject {
-    let rendered = reject.to_string();
-    if rendered.len() <= MAX_RECENT_REJECT_BYTES {
-        return reject.clone();
-    }
-    Reject::Malformed(
-        "tx-pool".to_string(),
-        format!(
-            "rejection diagnostic omitted after exceeding {} bytes",
-            MAX_RECENT_REJECT_BYTES
-        ),
-    )
-}
-
-/// Convert a rich rejection into the exact bounded payload persisted by the
-/// recent-reject database. Doing this before enqueue detaches every packed or
-/// verifier-owned allocation and makes the journal byte charge exact.
-#[derive(Debug)]
-pub(crate) enum RecentRejectEncodingError {
-    Json(serde_json::Error),
-    FixedFallbackExceedsBound,
-}
-
-impl std::fmt::Display for RecentRejectEncodingError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Json(error) => write!(formatter, "recent-reject JSON encoding failed: {error}"),
-            Self::FixedFallbackExceedsBound => {
-                write!(formatter, "fixed recent-reject fallback exceeds its bound")
-            }
-        }
-    }
-}
-
-pub(crate) fn serialized_recent_reject(
-    reject: &Reject,
-) -> Result<String, RecentRejectEncodingError> {
-    fn serialize(reject: Reject) -> Result<String, RecentRejectEncodingError> {
-        let public: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
-        serde_json::to_string(&public).map_err(RecentRejectEncodingError::Json)
-    }
-
-    let serialized = serialize(bounded_recent_reject(reject))?;
-    if serialized.len() <= MAX_RECENT_REJECT_BYTES {
-        return Ok(serialized);
-    }
-    let fallback = serialize(Reject::Malformed(
-        "tx-pool rejection diagnostic omitted".to_string(),
-        String::new(),
-    ))?;
-    if fallback.len() > MAX_RECENT_REJECT_BYTES {
-        return Err(RecentRejectEncodingError::FixedFallbackExceedsBound);
-    }
-    Ok(fallback)
 }
 
 fn bounded_pool_mutation_reject(reject: &Reject) -> bool {

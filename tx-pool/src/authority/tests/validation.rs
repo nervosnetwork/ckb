@@ -1,5 +1,5 @@
 use super::foundation::{
-    accept_remote_transaction, limits, owner_version, resolved_payload_with_facts,
+    accept_remote_transaction, admit_remote, limits, owner_version, resolved_payload_with_facts,
     verify_remote_transaction_with_payload, verify_remote_transaction_with_payload_under,
 };
 use crate::authority::{
@@ -13,6 +13,7 @@ use crate::authority::{
     },
 };
 use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_network::PeerIndex;
 use ckb_script::TxVerifyEnv;
 use ckb_snapshot::Snapshot;
 use ckb_test_chain_utils::MockStore;
@@ -89,6 +90,48 @@ fn uak_changed_tip_revalidates_header_dependencies() {
     ));
     assert_eq!(committed.retired_len(), 1);
     assert!(authority.entry(&key).is_none());
+}
+
+#[test]
+fn uak_final_malformed_revalidation_revokes_the_complete_peer_cohort() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let peer = 62;
+    let input = OutPoint::new(Byte32::new([62; 32]), 0);
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(input.clone(), u64::MAX))
+        .build();
+    let payload =
+        resolved_payload_with_facts(&transaction, Vec::new(), vec![input], Capacity::shannons(1));
+    let key = verify_remote_transaction_with_payload(&mut authority, transaction, peer, payload);
+    let cohort_member = admit_remote(&mut authority, 6_201, peer);
+    authority.force_chain_view(ChainViewId::new(ChainRevision(1), snapshot.tip_hash()));
+    let work = authority
+        .final_admission_work(&key, owner_version(&authority, &key))
+        .expect("the Ready owner issues final-validation work");
+    let outcome =
+        FinalAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
+            .expect("the authority and snapshot share one view")
+            .validate()
+            .expect("invalid since is a transaction outcome, not an authority fault");
+    let FinalAdmissionValidationOutcome::Rejected(rejection) = &outcome else {
+        panic!("invalid since must be rejected during final revalidation: {outcome:?}");
+    };
+    assert!(rejection.reason().is_malformed());
+
+    let FinalAdmissionDispositionPlan::ValidationRejected(rejection) = authority
+        .plan_final_admission(outcome)
+        .expect("malformed final validation owns one peer-revocation disposition")
+    else {
+        panic!("malformed final validation cannot reach membership");
+    };
+    let (_, committed) = rejection.apply();
+    assert_eq!(committed.retired_len(), 2);
+    assert!(authority.entry(&key).is_none());
+    assert!(authority.entry(&cohort_member).is_none());
+    assert!(authority.peer_is_banned_for_reference(PeerIndex::from(peer)));
+    assert!(authority.pending_recent_reject(&key).is_some());
+    assert!(authority.primary_projection_consistent());
 }
 
 fn authority_at(snapshot: &Snapshot) -> TxPoolAuthority {

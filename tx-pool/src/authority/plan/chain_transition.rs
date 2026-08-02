@@ -1249,7 +1249,7 @@ impl TxPoolAuthority {
         let effect = if effects.is_empty() {
             EffectDelta::default()
         } else {
-            self.effects.plan_critical_rebuildable(effects, sequence)?
+            self.effects.plan_chain_rebuildable(effects, sequence)?
         };
 
         let clocks = AuthorityClocks {

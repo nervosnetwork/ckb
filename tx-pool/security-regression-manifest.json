@@ -7,13 +7,13 @@
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {
     "path": "tx-pool/test-inventory.txt",
-    "unit_test_count": 519,
+    "unit_test_count": 527,
     "integration_spec_count": 150
   },
   "release_blockers": [
     {
       "id": "UNIFIED-AUTHORITY-CUTOVER",
-      "reason": "The Unified Authority Kernel has completed G5.0 worker-boundary closure and is in G5.1 atomic production wiring; production consumer cutover and legacy-owner deletion remain incomplete"
+      "reason": "The Unified Authority Kernel has sealed G5.0 worker ownership, G5.1 commit/effect publication and G5.2 rejection/peer-revocation semantics; G5.3 production ingress, administration and chain-transition cutover plus legacy-owner deletion remain incomplete"
     },
     {
       "id": "CORRECTNESS-ACCEPTANCE",

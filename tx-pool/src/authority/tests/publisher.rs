@@ -1,7 +1,8 @@
 use super::super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-        CommittedRejection, EffectPolicy, ParentTransactionRequest, RejectionAudience,
+        CommittedPeerCohortRevocation, CommittedRejection, EffectPolicy, ParentTransactionRequest,
+        RejectionAudience,
     },
     plan::MembershipReject,
     publisher::{
@@ -16,7 +17,6 @@ use super::foundation::{genesis_snapshot, runtime_config, tx};
 use crate::{
     callback::{CallbackEvent, Callbacks},
     component::entry::TxEntrySnapshot,
-    constants::MALFORMED_TX_BAN_SECONDS,
     error::Reject,
     network::DummyTxPoolNetwork,
     service::TxVerificationResult,
@@ -183,12 +183,10 @@ fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
             .map(|action| &action.reject),
         Some(Reject::Malformed(_, _))
     ));
-    let Some(ban) = validation.ban else {
-        panic!("malformed payload blame must retain the exact peer ban");
-    };
-    assert_eq!(ban.peer, blame);
-    assert_eq!(ban.duration, Duration::from_secs(MALFORMED_TX_BAN_SECONDS));
-    assert!(!ban.reason.is_empty());
+    assert!(
+        validation.ban.is_none(),
+        "a generic rejection compiler cannot invent an uncommitted peer ban"
+    );
     assert!(validation.callback.is_none());
     assert!(validation.relay.is_none());
 
@@ -294,25 +292,43 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     };
     assert_eq!(snapshot, callback_snapshot(&accepted));
 
-    for effect in [
-        CommittedEffect::PeerRevoked {
-            tx_hash: RawTxHash(candidate.hash()),
-            peer,
-        },
-        CommittedEffect::RemoteExpired {
-            tx_hash: RawTxHash(candidate.hash()),
-            peer,
-        },
-    ] {
-        let cleanup = compile_committed_effect(effect);
-        assert!(cleanup.callback.is_none());
-        assert!(cleanup.recent_reject.is_none());
-        assert!(cleanup.ban.is_none());
-        assert!(matches!(
-            cleanup.relay.map(|action| action.result),
-            Some(TxVerificationResult::Reject { .. })
-        ));
-    }
+    let culprit_reason = CommittedPublicReject::new(Reject::Malformed(
+        "peer cohort fixture".to_owned(),
+        String::new(),
+    ));
+    let revocation = CommittedPeerCohortRevocation::malformed_for_foundation(
+        peer,
+        RawTxHash(candidate.hash()),
+        culprit_reason.clone(),
+    )
+    .expect("malformed evidence constructs peer-ban detail");
+    let cleanup = compile_committed_effect(CommittedEffect::PeerCohortRevoked(revocation));
+    assert!(cleanup.callback.is_none());
+    assert!(cleanup.recent_reject.is_some());
+    assert!(cleanup.ban.is_some_and(|ban| {
+        ban.peer() == peer
+            && ban
+                .remaining_duration_at(std::time::Instant::now())
+                .is_some()
+    }));
+    let relay = cleanup.relay.expect("cohort cleanup resets relay state");
+    assert!(relay.is_required());
+    assert!(matches!(
+        relay.result,
+        TxVerificationResult::GenerationReset
+    ));
+
+    let expiry = compile_committed_effect(CommittedEffect::RemoteExpired {
+        tx_hash: RawTxHash(candidate.hash()),
+        peer,
+    });
+    assert!(expiry.callback.is_none());
+    assert!(expiry.recent_reject.is_none());
+    assert!(expiry.ban.is_none());
+    assert!(matches!(
+        expiry.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
 
     let first_parent = RawTxHash(Byte32::new([1; 32]));
     let second_parent = RawTxHash(Byte32::new([2; 32]));
@@ -453,7 +469,7 @@ async fn uak_publisher_relay_disconnect_retains_the_authority_head() {
     runtime
         .queue_effect_for_foundation(
             EffectPolicy::Remote,
-            CommittedEffect::PeerRevoked {
+            CommittedEffect::RemoteExpired {
                 tx_hash: RawTxHash(Byte32::new([12; 32])),
                 peer: PeerIndex::from(84),
             },
@@ -499,7 +515,7 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
     runtime
         .queue_effect_for_foundation(
             EffectPolicy::Remote,
-            CommittedEffect::PeerRevoked {
+            CommittedEffect::RemoteExpired {
                 tx_hash: expected.clone(),
                 peer: PeerIndex::from(81),
             },
@@ -578,7 +594,7 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
         .queue_effects_for_foundation(
             EffectPolicy::Remote,
             vec![
-                CommittedEffect::PeerRevoked {
+                CommittedEffect::RemoteExpired {
                     tx_hash: first.clone(),
                     peer: PeerIndex::from(82),
                 },
@@ -598,7 +614,7 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
     assert!(matches!(
         lease.current(),
         Some(work)
-            if matches!(work.effect, CommittedEffect::PeerRevoked { tx_hash, .. } if tx_hash == &first)
+            if matches!(work.effect, CommittedEffect::RemoteExpired { tx_hash, .. } if tx_hash == &first)
     ));
     let first_effect_index = lease
         .current()

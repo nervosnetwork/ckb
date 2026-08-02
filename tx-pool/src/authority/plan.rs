@@ -2,6 +2,7 @@ mod chain_transition;
 mod membership;
 mod settlement;
 
+use super::ban::{PeerBanDelta, PeerBanError, PeerBanRegistry};
 #[cfg(test)]
 use super::chain::AcceptedProof;
 #[cfg(test)]
@@ -18,9 +19,10 @@ use super::dependency::{
 };
 use super::effect::{
     CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-    CommittedRejection, EffectBatch, EffectBuildError, EffectConfigError, EffectDelta, EffectError,
-    EffectLease, EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectSettlement,
-    ParentTransactionRequest, RejectionAudience,
+    CommittedPeerCohortRevocation, CommittedRejection, EffectBatch, EffectBuildError,
+    EffectConfigError, EffectDelta, EffectError, EffectLease, EffectLimits, EffectLog,
+    EffectPolicy, EffectPublication, EffectSettlement, ParentTransactionRequest,
+    PendingRecentReject, RejectionAudience,
 };
 #[cfg(test)]
 use super::effect::{EffectObservation, EffectSnapshot};
@@ -85,7 +87,7 @@ pub(in crate::authority) use settlement::{
 };
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,6 +141,7 @@ pub(super) struct AuthoritySnapshot {
     scheduler: SchedulerSnapshot,
     dependencies: DependencySnapshot,
     effects: EffectSnapshot,
+    peer_bans: HashMap<ckb_network::PeerIndex, super::ban::PeerBanDeadline>,
     clocks: AuthorityClocks,
 }
 
@@ -158,6 +161,7 @@ impl AuthoritySnapshot {
             && self.scheduler == other.scheduler
             && self.dependencies == other.dependencies
             && self.effects.equivalent_stream(&other.effects)
+            && self.peer_bans == other.peer_bans
             && self.clocks == other.clocks
     }
 }
@@ -174,6 +178,7 @@ pub(super) struct TxPoolAuthority {
     scheduler: FairFrontier,
     dependencies: DependencyFrontier,
     effects: EffectLog,
+    peer_bans: PeerBanRegistry,
     membership_config: MembershipConfig,
     clocks: AuthorityClocks,
 }
@@ -228,6 +233,7 @@ impl TxPoolAuthority {
             scheduler: FairFrontier::new(verify_order),
             dependencies: DependencyFrontier::default(),
             effects,
+            peer_bans: PeerBanRegistry::default(),
             membership_config,
             clocks: AuthorityClocks::first(),
         }
@@ -383,6 +389,11 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
+    pub(super) fn peer_is_banned_for_reference(&self, peer: ckb_network::PeerIndex) -> bool {
+        self.peer_bans.contains_at(peer, Instant::now())
+    }
+
+    #[cfg(test)]
     pub(super) fn source_versions_for_reference(&self) -> (ApplySequence, ApplySequence) {
         (
             self.source_versions.accepted(),
@@ -458,6 +469,7 @@ impl TxPoolAuthority {
             scheduler: self.scheduler.snapshot(),
             dependencies: self.dependencies.snapshot(),
             effects: self.effects.snapshot(),
+            peer_bans: self.peer_bans.snapshot(),
             clocks: self.clocks,
         }
     }
@@ -473,6 +485,7 @@ impl TxPoolAuthority {
             && self.resources.semantically_matches(&self.entries)
             && self.scheduler.semantically_matches(&self.entries)
             && self.dependencies.semantically_matches(&self.entries)
+            && self.peer_bans.semantically_consistent()
             && self
                 .effects
                 .semantically_consistent(self.clocks.next_sequence)
@@ -528,6 +541,7 @@ pub(super) enum PlanError {
     PayloadVariant,
     Membership(MembershipReject),
     Backpressure(Backpressure),
+    IngressRevoked(ckb_network::PeerIndex),
     Stale(StalePlan),
     Fault(AuthorityFault),
     EffectClosed,
@@ -645,9 +659,18 @@ impl From<EffectError> for PlanError {
     fn from(error: EffectError) -> Self {
         match error {
             EffectError::Full => Self::Backpressure(Backpressure::EffectCapacity),
+            EffectError::Allocation => Self::Backpressure(Backpressure::Allocation),
             EffectError::Closed => Self::EffectClosed,
             EffectError::StaleLease => Self::Stale(StalePlan::EffectLease),
             EffectError::Projection => Self::Fault(AuthorityFault::EffectProjection),
+        }
+    }
+}
+
+impl From<PeerBanError> for PlanError {
+    fn from(error: PeerBanError) -> Self {
+        match error {
+            PeerBanError::Allocation => Self::Backpressure(Backpressure::Allocation),
         }
     }
 }
@@ -1017,8 +1040,43 @@ pub(super) enum AdminCause {
     RemoteExpiry { cutoff: RemoteDeadline },
 }
 
+enum AdminPlan {
+    PeerRevocation {
+        marker: PeerBanDelta,
+        revocation: CommittedPeerCohortRevocation,
+    },
+    RemoteExpiry {
+        cutoff: RemoteDeadline,
+    },
+}
+
+enum PeerRevocationEvidence {
+    Administrative,
+    Malformed {
+        tx_hash: RawTxHash,
+        reason: CommittedPublicReject,
+    },
+}
+
+impl AdminPlan {
+    const fn cause(&self) -> AdminCause {
+        match self {
+            Self::PeerRevocation { revocation, .. } => {
+                AdminCause::PeerRevocation(revocation.peer())
+            }
+            Self::RemoteExpiry { cutoff } => AdminCause::RemoteExpiry { cutoff: *cutoff },
+        }
+    }
+}
+
+enum AdminControl {
+    PeerRevocation { marker: PeerBanDelta },
+    RemoteExpiry,
+}
+
 struct AdminDelta {
     cause: AdminCause,
+    control: AdminControl,
     hashes: Vec<RawTxHash>,
     owners: DerivedOwnerDelta,
     resources: ResourceBatchPlan,
@@ -1485,6 +1543,9 @@ impl PreparedApply<'_> {
         authority.scheduler.apply_batch(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
+        if let AdminControl::PeerRevocation { marker } = delta.control {
+            authority.peer_bans.apply(marker);
+        }
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::AdminControl {
@@ -2127,6 +2188,11 @@ impl TxPoolAuthority {
             // publish an old-generation owner.
             return Err(PlanError::Stale(StalePlan::Generation));
         }
+        if let Some(peer) = admission.source.ingress_peer()
+            && self.peer_bans.contains_at(peer, Instant::now())
+        {
+            return Err(PlanError::IngressRevoked(peer));
+        }
         let admission = self.resources.charge_admission(admission)?;
         let key = admission.admission().identity.raw.clone();
         if let Some(existing) = self.entries.get(&key).cloned() {
@@ -2451,6 +2517,19 @@ impl TxPoolAuthority {
     ) -> Result<PreparedValidationRejection<'_>, PlanError> {
         let (subject, reason) = rejection.into_parts();
         let preaccepted = self.final_admission_subject_owner(&subject)?;
+        let audience = RejectionAudience::from_source(preaccepted.source);
+        if reason.is_malformed()
+            && let Some(peer) = audience.blame_peer
+        {
+            let plan = self.plan_peer_revocation(
+                peer,
+                PeerRevocationEvidence::Malformed {
+                    tx_hash: preaccepted.record.identity.raw.clone(),
+                    reason: reason.clone(),
+                },
+            )?;
+            return Ok(PreparedValidationRejection { reason, plan });
+        }
         let policy = if preaccepted.source.ingress_peer().is_some() {
             EffectPolicy::Remote
         } else {
@@ -2462,7 +2541,7 @@ impl TxPoolAuthority {
                 policy,
                 vec![CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx: Arc::clone(&preaccepted.record.tx),
-                    audience: RejectionAudience::from_source(preaccepted.source),
+                    audience,
                     reason: reason.clone(),
                 })],
             )
@@ -2915,7 +2994,7 @@ impl TxPoolAuthority {
     }
 
     fn plan_admission_effects(
-        &self,
+        &mut self,
         accepted: &AcceptedEntry,
         removals: &[MembershipRemoval],
         projection: &ProjectionDelta,
@@ -3302,9 +3381,10 @@ impl TxPoolAuthority {
     fn plan_administrative_removal(
         &mut self,
         mut hashes: Vec<RawTxHash>,
-        cause: AdminCause,
+        plan: AdminPlan,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
+        let cause = plan.cause();
         let mut owner_refs = Vec::new();
         owner_refs
             .try_reserve(hashes.len())
@@ -3317,14 +3397,15 @@ impl TxPoolAuthority {
             let OwnedTx::PreAccepted(entry) = owner else {
                 return Err(PlanError::Fault(AuthorityFault::IndexProjection));
             };
-            match cause {
-                AdminCause::PeerRevocation(peer) => {
-                    if entry.source.ingress_peer() != Some(peer) {
+            match &plan {
+                AdminPlan::PeerRevocation { revocation, .. } => {
+                    if entry.source.ingress_peer() != Some(revocation.peer()) {
                         return Err(PlanError::Fault(AuthorityFault::IndexProjection));
                     }
                 }
-                AdminCause::RemoteExpiry { cutoff } => match entry.source {
-                    PreAcceptedSource::Remote(remote) if remote.residency.expires_at <= cutoff => {}
+                AdminPlan::RemoteExpiry { cutoff } => match entry.source {
+                    PreAcceptedSource::Remote(remote) if remote.residency.expires_at <= *cutoff => {
+                    }
                     PreAcceptedSource::Remote(_)
                     | PreAcceptedSource::Proposal { .. }
                     | PreAcceptedSource::Recovery(_) => {
@@ -3332,7 +3413,9 @@ impl TxPoolAuthority {
                     }
                 },
             }
-            if matches!(&entry.phase, PreAcceptedPhase::Computing(_)) {
+            if matches!(&plan, AdminPlan::RemoteExpiry { .. })
+                && matches!(&entry.phase, PreAcceptedPhase::Computing(_))
+            {
                 return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
             }
             owner_refs.push(owner);
@@ -3343,33 +3426,34 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        let mut effects = Vec::new();
-        effects
-            .try_reserve(owner_refs.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        for owner in &owner_refs {
-            let effect = match cause {
-                AdminCause::PeerRevocation(peer) => CommittedEffect::PeerRevoked {
-                    tx_hash: owner.record().identity.raw.clone(),
-                    peer,
-                },
-                AdminCause::RemoteExpiry { .. } => {
+        let (control, effect) = match plan {
+            AdminPlan::PeerRevocation { marker, revocation } => {
+                let mut effects = Vec::new();
+                effects
+                    .try_reserve(1)
+                    .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+                effects.push(CommittedEffect::PeerCohortRevoked(revocation));
+                let publication = self
+                    .effects
+                    .build_publication(EffectPolicy::CriticalDetail, effects)
+                    .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                let effect = self.effects.plan_publication(&publication, sequence)?;
+                (AdminControl::PeerRevocation { marker }, effect)
+            }
+            AdminPlan::RemoteExpiry { .. } => {
+                let mut effects = Vec::new();
+                effects
+                    .try_reserve(owner_refs.len())
+                    .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+                for owner in &owner_refs {
                     let peer = owner
                         .ingress_peer()
                         .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
-                    CommittedEffect::RemoteExpired {
+                    effects.push(CommittedEffect::RemoteExpired {
                         tx_hash: owner.record().identity.raw.clone(),
                         peer,
-                    }
+                    });
                 }
-            };
-            effects.push(effect);
-        }
-        let effect = match cause {
-            AdminCause::PeerRevocation(_) => {
-                self.effects.plan_critical_rebuildable(effects, sequence)?
-            }
-            AdminCause::RemoteExpiry { .. } => {
                 let prefix = self
                     .effects
                     .build_remote_prefix(effects)
@@ -3386,7 +3470,8 @@ impl TxPoolAuthority {
                 let (publication, selected) = prefix.into_parts();
                 hashes.truncate(selected.get());
                 owner_refs.truncate(selected.get());
-                self.effects.plan_publication(&publication, sequence)?
+                let effect = self.effects.plan_publication(&publication, sequence)?;
+                (AdminControl::RemoteExpiry, effect)
             }
         };
 
@@ -3425,6 +3510,7 @@ impl TxPoolAuthority {
             authority: self,
             delta: AuthorityDelta::Admin(AdminDelta {
                 cause,
+                control,
                 hashes,
                 owners,
                 resources,
@@ -3441,24 +3527,41 @@ impl TxPoolAuthority {
 
     /// Remove the complete bounded pre-accepted cohort owned by one banned
     /// ingress peer. Accepted membership is deliberately absent from the peer
-    /// index: a commit before the external ban fence wins, while a fence-first
-    /// race reaches this transition. Active compute must first return its
-    /// unique settlement capability; it is never made stale by deletion.
+    /// index: a commit that applies first remains Accepted, while a ban that
+    /// applies first removes active work and makes its later lease settlement
+    /// stale under the same authority.
+    fn plan_peer_revocation(
+        &mut self,
+        peer: ckb_network::PeerIndex,
+        evidence: PeerRevocationEvidence,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let mut hashes = Vec::new();
+        if let Some(indexed) = self.indexes.preaccepted_for_peer(peer) {
+            hashes
+                .try_reserve(indexed.len())
+                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+            hashes.extend(indexed.iter().cloned());
+        }
+        hashes.sort_unstable();
+        let marker = self.peer_bans.plan_record(peer, Instant::now())?;
+        let revocation = match evidence {
+            PeerRevocationEvidence::Administrative => {
+                CommittedPeerCohortRevocation::administrative(marker.lease())
+            }
+            PeerRevocationEvidence::Malformed { tx_hash, reason } => {
+                CommittedPeerCohortRevocation::malformed(marker.lease(), tx_hash, reason)
+                    .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?
+            }
+        };
+        self.plan_administrative_removal(hashes, AdminPlan::PeerRevocation { marker, revocation })
+    }
+
+    #[cfg(test)]
     pub(super) fn plan_peer_revocation_for_foundation(
         &mut self,
         peer: ckb_network::PeerIndex,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
-        let Some(indexed) = self.indexes.preaccepted_for_peer(peer) else {
-            return Ok(None);
-        };
-        let mut hashes = Vec::new();
-        hashes
-            .try_reserve(indexed.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        hashes.extend(indexed.iter().cloned());
-        hashes.sort_unstable();
-        self.plan_administrative_removal(hashes, AdminCause::PeerRevocation(peer))
-            .map(Some)
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_peer_revocation(peer, PeerRevocationEvidence::Administrative)
     }
 
     /// Remove up to `limit` inactive Remote owners whose retained residency
@@ -3517,7 +3620,7 @@ impl TxPoolAuthority {
                 Err(PlanError::Fault(AuthorityFault::IndexProjection))
             };
         }
-        self.plan_administrative_removal(hashes, AdminCause::RemoteExpiry { cutoff })
+        self.plan_administrative_removal(hashes, AdminPlan::RemoteExpiry { cutoff })
             .map(Some)
     }
 
@@ -3561,6 +3664,10 @@ impl TxPoolAuthority {
 
     pub(super) fn effects_closed_and_drained(&self) -> bool {
         self.effects.is_closed_and_drained()
+    }
+
+    pub(super) fn pending_recent_reject(&self, hash: &RawTxHash) -> Option<PendingRecentReject> {
+        self.effects.pending_recent_reject(hash)
     }
 
     #[cfg(test)]
@@ -4475,6 +4582,19 @@ impl TxPoolAuthority {
         if !matches!(preaccepted.phase, PreAcceptedPhase::Computing(_)) {
             return Err(PlanError::Stale(StalePlan::Phase));
         }
+        let audience = RejectionAudience::from_source(preaccepted.source);
+        let reason = rejection.into_public();
+        if reason.is_malformed()
+            && let Some(peer) = audience.blame_peer
+        {
+            return self.plan_peer_revocation(
+                peer,
+                PeerRevocationEvidence::Malformed {
+                    tx_hash: preaccepted.record.identity.raw.clone(),
+                    reason,
+                },
+            );
+        }
         let policy = if preaccepted.source.ingress_peer().is_some() {
             EffectPolicy::Remote
         } else {
@@ -4486,8 +4606,8 @@ impl TxPoolAuthority {
                 policy,
                 vec![CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx: Arc::clone(&preaccepted.record.tx),
-                    audience: RejectionAudience::from_source(preaccepted.source),
-                    reason: rejection.into_public(),
+                    audience,
+                    reason,
                 })],
             )
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;

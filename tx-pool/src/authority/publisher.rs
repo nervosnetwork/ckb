@@ -6,6 +6,7 @@
 //! publisher owns one move-only effect lease at a time; cancellation returns
 //! the complete lease to the authority head before the task disappears.
 
+use super::rejection::{bounded_commit_ban_reason, serialized_recent_reject};
 use super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
@@ -18,26 +19,21 @@ use super::{
 use crate::{
     callback::{CallbackEvent, Callbacks},
     component::{entry::TxEntrySnapshot, recent_reject::RecentReject},
-    constants::MALFORMED_TX_BAN_SECONDS,
     error::Reject,
     network::TxPoolNetworkHandle,
-    service::{
-        TxVerificationResult,
-        effects::{bounded_commit_ban_reason, serialized_recent_reject},
-    },
+    service::TxVerificationResult,
     util::compact_packed,
 };
 use ckb_channel::TrySendError;
 use ckb_logger::{error, info};
-use ckb_network::PeerIndex;
-use ckb_types::{core::error::OutPointError, packed::Byte32};
+use ckb_types::packed::Byte32;
 use std::{
     collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const EXTERNAL_EFFECT_TIMEOUT: Duration = Duration::from_secs(1);
@@ -235,8 +231,14 @@ impl AuthorityEffectEndpoints {
             return EndpointDisposition::CircuitDisposed;
         }
         let network = Arc::clone(&self.network);
+        let lease = ban.lease;
         let published = run_blocking_effect(move || {
-            network.ban_peer(ban.peer, ban.duration, ban.reason);
+            // Compute the lease remainder inside the blocking task, at the
+            // actual foreign-call boundary. Queueing delay in Tokio's blocking
+            // pool must not silently extend the authority-owned deadline.
+            if let Some(duration) = lease.remaining_at(Instant::now()) {
+                network.ban_peer(lease.peer(), duration, ban.reason);
+            }
         })
         .await;
         if let Err(failure) = published {
@@ -382,9 +384,20 @@ pub(super) struct RecentRejectAction {
 }
 
 pub(super) struct BanAction {
-    pub(super) peer: PeerIndex,
-    pub(super) duration: Duration,
+    lease: super::ban::PeerBanLease,
     pub(super) reason: String,
+}
+
+impl BanAction {
+    #[cfg(test)]
+    pub(super) const fn peer(&self) -> ckb_network::PeerIndex {
+        self.lease.peer()
+    }
+
+    #[cfg(test)]
+    pub(super) fn remaining_duration_at(&self, now: Instant) -> Option<Duration> {
+        self.lease.remaining_at(now)
+    }
 }
 
 #[derive(Default)]
@@ -409,8 +422,31 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
             })),
             ..Default::default()
         },
-        CommittedEffect::PeerRevoked { tx_hash, .. }
-        | CommittedEffect::RemoteExpired { tx_hash, .. } => CompiledEndpointOutcome {
+        CommittedEffect::PeerCohortRevoked(revocation) => {
+            let recent_reject = revocation.culprit().and_then(|culprit| {
+                culprit
+                    .reason()
+                    .should_record()
+                    .then(|| RecentRejectAction {
+                        tx_hash: compact_hash(culprit.tx_hash()),
+                        reject: culprit.reason().reject().clone(),
+                    })
+            });
+            let ban = revocation.culprit().map(|culprit| BanAction {
+                lease: revocation.lease(),
+                reason: bounded_commit_ban_reason(culprit.reason().reject()),
+            });
+            CompiledEndpointOutcome {
+                recent_reject,
+                ban,
+                // Cohort removal has no transaction tombstone. A required
+                // reset clears every stale known/pending projection so the
+                // same raw transaction can be supplied by another peer.
+                relay: Some(RelayAction::required(TxVerificationResult::GenerationReset)),
+                ..Default::default()
+            }
+        }
+        CommittedEffect::RemoteExpired { tx_hash, .. } => CompiledEndpointOutcome {
             relay: Some(RelayAction::ordinary(TxVerificationResult::Reject {
                 tx_hash: compact_hash(&tx_hash),
             })),
@@ -474,115 +510,60 @@ fn compile_acceptance(acceptance: CommittedAcceptance) -> CompiledEndpointOutcom
 }
 
 fn compile_rejection(rejection: CommittedRejection) -> CompiledEndpointOutcome {
+    let public = rejection.public_reject();
     match rejection {
         CommittedRejection::Validation {
             tx,
             audience,
-            reason,
-        } => {
-            let should_record = reason.should_record();
-            let malformed = reason.is_malformed();
-            let relay_allowed = reason.relay_allowed();
-            compile_preaccepted_rejection(
-                tx,
-                audience,
-                reason.reject().clone(),
-                should_record,
-                malformed,
-                relay_allowed,
-            )
+            reason: _,
         }
-        CommittedRejection::Membership {
+        | CommittedRejection::Membership {
             tx,
             audience,
-            reason,
-        } => {
-            let public = reason.into_public();
-            compile_preaccepted_rejection_from_public(tx, audience, public)
-        }
+            reason: _,
+        } => compile_preaccepted_rejection(tx, audience, public),
         CommittedRejection::Replaced {
             entry,
             audience: _,
-            winner,
-        } => compile_accepted_rejection(
-            entry,
-            Reject::RBFRejected(format!("replaced by tx {}", winner.0)),
-        ),
+            winner: _,
+        } => compile_accepted_rejection(entry, public),
         CommittedRejection::CapacityEvicted {
             entry,
             audience: _,
-            fee_rate,
-        } => compile_accepted_rejection(
-            entry,
-            Reject::Full(format!("the fee_rate for this transaction is: {fee_rate}")),
-        ),
+            fee_rate: _,
+        } => compile_accepted_rejection(entry, public),
         CommittedRejection::ChainConflict {
             owner,
             audience,
-            out_point,
-        } => {
-            let public = Reject::Resolve(OutPointError::Dead(out_point));
-            match owner {
-                CommittedConflictOwner::PreAccepted(tx) => {
-                    compile_preaccepted_rejection_from_public(tx, audience, public)
-                }
-                CommittedConflictOwner::Accepted(entry) => {
-                    compile_accepted_rejection(entry, public)
-                }
+            out_point: _,
+        } => match owner {
+            CommittedConflictOwner::PreAccepted(tx) => {
+                compile_preaccepted_rejection(tx, audience, public)
             }
-        }
+            CommittedConflictOwner::Accepted(entry) => compile_accepted_rejection(entry, public),
+        },
         #[cfg(test)]
         CommittedRejection::Foundation {
             tx,
             audience,
-            reason,
-        } => {
-            let public = super::rejection::CommittedPublicReject::from(reason);
-            compile_preaccepted_rejection_from_public(tx, audience, public.reject().clone())
-        }
+            reason: _,
+        } => compile_preaccepted_rejection(tx, audience, public),
     }
-}
-
-fn compile_preaccepted_rejection_from_public(
-    tx: Arc<ckb_types::core::TransactionView>,
-    audience: RejectionAudience,
-    reject: Reject,
-) -> CompiledEndpointOutcome {
-    let should_record = reject.should_recorded();
-    let malformed = reject.is_malformed_tx();
-    let relay_allowed = reject.is_allowed_relay();
-    compile_preaccepted_rejection(
-        tx,
-        audience,
-        reject,
-        should_record,
-        malformed,
-        relay_allowed,
-    )
 }
 
 fn compile_preaccepted_rejection(
     tx: Arc<ckb_types::core::TransactionView>,
     audience: RejectionAudience,
-    reject: Reject,
-    should_record: bool,
-    malformed: bool,
-    relay_allowed: bool,
+    public: super::rejection::CommittedPublicReject,
 ) -> CompiledEndpointOutcome {
+    let should_record = public.should_record();
+    let relay_allowed = public.relay_allowed();
+    let reject = public.reject().clone();
     let tx_hash = compact_packed(&tx.hash());
     let recent_reject = should_record.then(|| RecentRejectAction {
         tx_hash: tx_hash.clone(),
         reject: reject.clone(),
     });
-    let ban = if malformed {
-        audience.blame_peer.map(|peer| BanAction {
-            peer,
-            duration: Duration::from_secs(MALFORMED_TX_BAN_SECONDS),
-            reason: bounded_commit_ban_reason(&reject),
-        })
-    } else {
-        None
-    };
     // A duplicate is represented by `CommittedAcceptance::Duplicate`. Keep
     // the existing relayer contract defensive here as well: if a future
     // validation producer misclassifies one, it must not turn an accepted
@@ -598,26 +579,26 @@ fn compile_preaccepted_rejection(
     CompiledEndpointOutcome {
         recent_reject,
         callback: None,
-        ban,
+        ban: None,
         relay,
     }
 }
 
 fn compile_accepted_rejection(
     entry: CommittedEntrySnapshot,
-    reject: Reject,
+    public: super::rejection::CommittedPublicReject,
 ) -> CompiledEndpointOutcome {
+    let reject = public.reject().clone();
     let tx_hash = compact_packed(&entry.tx.hash());
-    let recent_reject = reject.should_recorded().then(|| RecentRejectAction {
+    let recent_reject = public.should_record().then(|| RecentRejectAction {
         tx_hash: tx_hash.clone(),
         reject: reject.clone(),
     });
-    let relay =
-        (reject.is_allowed_relay() && !matches!(&reject, Reject::Duplicated(_))).then(|| {
-            RelayAction::ordinary(TxVerificationResult::Reject {
-                tx_hash: tx_hash.clone(),
-            })
-        });
+    let relay = (public.relay_allowed() && !matches!(&reject, Reject::Duplicated(_))).then(|| {
+        RelayAction::ordinary(TxVerificationResult::Reject {
+            tx_hash: tx_hash.clone(),
+        })
+    });
     CompiledEndpointOutcome {
         recent_reject,
         callback: Some(CallbackEvent::Reject(callback_snapshot(&entry), reject)),
