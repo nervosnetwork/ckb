@@ -4,10 +4,11 @@ Status: design frozen; isolated capability implementation in progress
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 Active slice: G5.3b.2
-Next exact action: factor the immutable direct-validation core shared by Local
-and TestAccept, then compile Local through the existing membership Plan while
-TestAccept returns an evaluation receipt with no mutation/effect capability.
-Do not change a legacy production owner before G5.3c.
+Next exact action: extract the owner-free direct resolve/verify capability from
+the existing tx-pool resolver and verifier, feed its immutable result through
+the shared direct-validation core, then compile Local through the existing
+membership Plan while TestAccept returns a read-only evaluation. Do not change
+a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -748,6 +749,22 @@ G5.3b.2 entry-model correction:
   universe (264/264 at this checkpoint), plus an exact publisher regression:
   filter release is an ordinary relay rejection with no callback,
   recent-reject record, or peer ban.
+- Ready, Local, and TestAccept now have one lock-external membership-validation
+  core for proposal position, script rules, location, header, time, DAO, and
+  chain sensitivity. Direct validation produces only a sealed immutable
+  candidate/rejection/reresolve result; it cannot mutate membership, effects,
+  resources, indexes, clocks, peers, or caches. The authority runtime captures
+  its Accepted-origin overlay in the same two-cut/preallocation discipline as
+  Ready validation.
+- Local admission over an active same-raw Remote owner no longer waits for
+  `ActiveWorkDrain`: one membership Apply replaces the exact owner, releases
+  its charge, retires payload outside the guard, and makes the old completion
+  `Stale(Version)`. This reuses the same stale-capability rule as trusted
+  Proposal replacement and introduces no cancellation registry or task.
+- Complete authority evidence after the shared-validation slice is 266/266
+  nextest green. The remaining Local/TestAccept work is owner-free raw
+  resolve/verify construction plus the source-specific immutable/committing
+  boundary outcomes; no production service owner has switched.
 - The G5.3b.1 deep-dive was corrected and absorbed at model level. The chain
   work builder already parks ReplacementHistory on definitive loss, but cause
   and expected-owner kind are still separately authored receipt fields. G5.3b

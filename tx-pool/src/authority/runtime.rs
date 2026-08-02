@@ -9,7 +9,7 @@ use super::rejection::{RecentRejectEncodingError, serialized_recent_reject};
 #[cfg(test)]
 use super::state::ValidatedAdmission;
 use super::{
-    chain::FinalAdmissionWork,
+    chain::{DirectAdmissionWork, FinalAdmissionWork},
     effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
     ingress::{RetainedIngress, RetainedIngressCommit, RetainedIngressRejection},
     plan::{
@@ -30,7 +30,8 @@ use super::{
     scheduler::VerifyOrder,
     state::{ChainRevision, ChainViewId, RawTxHash, WorkPermit},
     validation::{
-        FinalAdmissionValidation, FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
+        DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
+        FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
         PreparedFinalAdmissionValidation,
     },
     work::{CheckedOutWork, ComputeSettlement},
@@ -600,6 +601,24 @@ impl AuthorityRuntime {
 
     pub(super) fn mutation_signal(&self) -> Arc<Notify> {
         Arc::clone(&self.signals.ready)
+    }
+
+    /// Capture and evaluate one already-resolved direct candidate without
+    /// acquiring membership or effect authority. Local and TestAccept share
+    /// this immutable result; only Local may later compile it through Plan.
+    pub(super) fn validate_direct_admission(
+        &self,
+        work: DirectAdmissionWork,
+    ) -> Result<DirectAdmissionValidationOutcome, FinalAdmissionValidationError> {
+        let prepared = {
+            let store = self.store.read();
+            DirectAdmissionValidation::prepare(Arc::clone(&store.snapshot), work)?
+        };
+        let validation = {
+            let store = self.store.read();
+            prepared.complete(AuthorityStoreCaptureSeal(()), &store.authority)?
+        };
+        validation.validate()
     }
 
     pub(in crate::authority) fn claim_effect_publisher(

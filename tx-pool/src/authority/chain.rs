@@ -376,6 +376,14 @@ impl MembershipValidationWork {
         self.verified.payload()
     }
 
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.view
+    }
+
+    pub(super) fn dependency_cut(&self) -> DependencyCut {
+        self.verified.dependency_cut()
+    }
+
     pub(super) fn into_parts(self) -> (ChainViewId, VerifiedFacts) {
         (self.view, self.verified)
     }
@@ -504,6 +512,18 @@ impl DirectAdmissionWork {
         })
     }
 
+    pub(super) fn payload(&self) -> &ResolvedPayload {
+        self.validation.payload()
+    }
+
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.validation.view
+    }
+
+    pub(super) fn into_validation_parts(self) -> (Arc<TransactionView>, MembershipValidationWork) {
+        (self.tx, self.validation)
+    }
+
     #[cfg(test)]
     pub(super) fn validate_for_foundation(
         self,
@@ -530,7 +550,7 @@ pub(super) struct MembershipReceipt {
 
 impl MembershipReceipt {
     pub(super) fn from_validation(
-        _seal: super::validation::FinalAdmissionSeal,
+        _seal: super::validation::AdmissionValidationSeal,
         verified: VerifiedFacts,
         sensitivity: AcceptedChainSensitivity,
         status: AcceptedStatus,
@@ -581,7 +601,7 @@ pub(super) struct FinalAdmissionSubject {
 
 impl FinalAdmissionSubject {
     pub(super) fn new(
-        _seal: super::validation::FinalAdmissionSeal,
+        _seal: super::validation::AdmissionValidationSeal,
         key: RawTxHash,
         expected: EntryVersion,
         view: ChainViewId,
@@ -620,7 +640,7 @@ pub(super) struct FinalAdmissionRejection {
 
 impl FinalAdmissionRejection {
     pub(super) fn new(
-        _seal: super::validation::FinalAdmissionSeal,
+        _seal: super::validation::AdmissionValidationSeal,
         subject: FinalAdmissionSubject,
         reason: CommittedPublicReject,
     ) -> Self {
@@ -643,7 +663,7 @@ pub(super) struct FinalAdmissionRetry {
 
 impl FinalAdmissionRetry {
     pub(super) fn new(
-        _seal: super::validation::FinalAdmissionSeal,
+        _seal: super::validation::AdmissionValidationSeal,
         subject: FinalAdmissionSubject,
     ) -> Self {
         Self { subject }
@@ -656,7 +676,7 @@ impl FinalAdmissionRetry {
 
 impl FinalAdmissionReceipt {
     pub(super) fn from_validation(
-        _seal: super::validation::FinalAdmissionSeal,
+        _seal: super::validation::AdmissionValidationSeal,
         key: RawTxHash,
         expected: EntryVersion,
         membership: MembershipReceipt,
@@ -705,6 +725,14 @@ pub(super) struct DirectAdmissionReceipt {
 }
 
 impl DirectAdmissionReceipt {
+    pub(super) fn from_validation(
+        _seal: super::validation::AdmissionValidationSeal,
+        tx: Arc<TransactionView>,
+        membership: MembershipReceipt,
+    ) -> Self {
+        Self { tx, membership }
+    }
+
     pub(super) fn key(&self) -> &RawTxHash {
         &self.membership.proof().payload().identity().raw
     }
@@ -731,6 +759,90 @@ impl DirectAdmissionReceipt {
     ) {
         let (proof, proposal, accepted_at) = self.membership.into_parts();
         (self.tx, proof, proposal, accepted_at)
+    }
+}
+
+/// Immutable direct-validation subject. It contains no membership, resource,
+/// clock, or effect capability; Local may later consume it through the
+/// authority planner, while TestAccept can return the same evaluation without
+/// acquiring mutation authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DirectAdmissionSubject {
+    tx: Arc<TransactionView>,
+    view: ChainViewId,
+    dependency_cut: DependencyCut,
+}
+
+impl DirectAdmissionSubject {
+    pub(super) fn new(
+        _seal: super::validation::AdmissionValidationSeal,
+        tx: Arc<TransactionView>,
+        view: ChainViewId,
+        dependency_cut: DependencyCut,
+    ) -> Self {
+        Self {
+            tx,
+            view,
+            dependency_cut,
+        }
+    }
+
+    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
+        &self.tx
+    }
+
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.view
+    }
+
+    pub(super) fn dependency_cut(&self) -> DependencyCut {
+        self.dependency_cut
+    }
+
+    pub(super) fn into_transaction(self) -> Arc<TransactionView> {
+        self.tx
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DirectAdmissionRejection {
+    subject: DirectAdmissionSubject,
+    reason: CommittedPublicReject,
+}
+
+impl DirectAdmissionRejection {
+    pub(super) fn new(
+        _seal: super::validation::AdmissionValidationSeal,
+        subject: DirectAdmissionSubject,
+        reason: CommittedPublicReject,
+    ) -> Self {
+        Self { subject, reason }
+    }
+
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        &self.reason
+    }
+
+    pub(super) fn into_parts(self) -> (DirectAdmissionSubject, CommittedPublicReject) {
+        (self.subject, self.reason)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DirectAdmissionRetry {
+    subject: DirectAdmissionSubject,
+}
+
+impl DirectAdmissionRetry {
+    pub(super) fn new(
+        _seal: super::validation::AdmissionValidationSeal,
+        subject: DirectAdmissionSubject,
+    ) -> Self {
+        Self { subject }
+    }
+
+    pub(super) fn into_subject(self) -> DirectAdmissionSubject {
+        self.subject
     }
 }
 

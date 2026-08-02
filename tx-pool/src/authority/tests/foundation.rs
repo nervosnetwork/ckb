@@ -498,6 +498,22 @@ pub(super) fn direct_verified_facts(
     chain_inputs: Vec<OutPoint>,
     fee: Capacity,
 ) -> VerifiedFacts {
+    direct_verified_facts_for_view(
+        transaction,
+        ChainViewId::new(ChainRevision(0), Byte32::zero()),
+        expanded_dependencies,
+        chain_inputs,
+        fee,
+    )
+}
+
+pub(super) fn direct_verified_facts_for_view(
+    transaction: &TransactionView,
+    chain_view: ChainViewId,
+    expanded_dependencies: Vec<OutPoint>,
+    chain_inputs: Vec<OutPoint>,
+    fee: Capacity,
+) -> VerifiedFacts {
     let payload = Arc::new(
         resolved_payload_with_facts(transaction, expanded_dependencies, chain_inputs, fee)
             .into_payload(),
@@ -505,8 +521,8 @@ pub(super) fn direct_verified_facts(
     let serialized_bytes = payload.serialized_bytes();
     let resident_bytes =
         accepted_transaction_charge_bytes(serialized_bytes, payload.resolved_transaction());
-    VerifiedFacts::for_foundation(
-        ChainRevision(0),
+    VerifiedFacts::for_foundation_view(
+        chain_view,
         DependencyCut(ApplySequence(0)),
         payload,
         CandidateMetrics {
@@ -2065,7 +2081,7 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
 }
 
 #[test]
-fn uak_direct_local_waits_for_the_matching_remote_compute_capability() {
+fn uak_direct_local_atomically_stales_the_matching_remote_compute_capability() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let raw = tx(276);
     let remote = raw
@@ -2095,23 +2111,30 @@ fn uak_direct_local_waits_for_the_matching_remote_compute_capability() {
             .apply(),
     );
     let verified = direct_verified_facts(&local, Vec::new(), Vec::new(), Capacity::shannons(2_000));
-    let before = authority.normalized_snapshot();
-    assert_eq!(
-        authority
-            .plan_direct_admission_for_foundation(
-                Arc::new(local),
-                verified,
-                AcceptedStatus::Pending,
-            )
-            .err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-    apply_without_work(
-        authority
-            .apply_settlement(work.internal_failure())
-            .expect("the unique remote capability remains settleable"),
-    );
+    let old_version = owner_version(&authority, &hash);
+    let disposition = authority
+        .plan_direct_admission_for_foundation(
+            Arc::new(local.clone()),
+            verified,
+            AcceptedStatus::Pending,
+        )
+        .expect("validated Local acceptance replaces obsolete active work");
+    let DirectAdmissionDisposition::Accepted(plan) = disposition else {
+        panic!("the direct result must install Accepted ownership");
+    };
+    let committed = apply_committed_without_work(plan);
+    assert_eq!(committed.retired_len(), 1);
+    let owner = authority
+        .entry(&hash)
+        .expect("direct Accepted owner exists");
+    assert_ne!(owner.record().version, old_version);
+    assert_eq!(owner.record().tx.witness_hash(), local.witness_hash());
+
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the obsolete Remote capability is stale after direct acceptance");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    drop(stale);
     assert_resource_reference(&authority);
 }
 

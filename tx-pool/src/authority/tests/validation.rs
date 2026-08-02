@@ -1,15 +1,18 @@
 use super::foundation::{
-    accept_remote_transaction, admit_remote, limits, owner_version, resolved_payload_with_facts,
-    verify_remote_transaction_with_payload, verify_remote_transaction_with_payload_under,
+    accept_remote_transaction, admit_remote, direct_verified_facts_for_view, limits, owner_version,
+    resolved_payload_with_facts, verify_remote_transaction_with_payload,
+    verify_remote_transaction_with_payload_under,
 };
 use crate::authority::{
+    chain::DirectAdmissionWork,
     plan::{
         CandidateDispositionPlan, FinalAdmissionDispositionPlan, IndependentCandidate,
         IndependentCoupling, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork},
     validation::{
-        FinalAdmissionValidation, FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
+        DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
+        FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
     },
 };
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -138,6 +141,86 @@ fn authority_at(snapshot: &Snapshot) -> TxPoolAuthority {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     authority.force_chain_view(ChainViewId::new(ChainRevision(0), snapshot.tip_hash()));
     authority
+}
+
+#[test]
+fn uak_direct_validation_shares_the_final_validator_without_mutation_authority() {
+    let snapshot = genesis_snapshot();
+    let authority = authority_at(&snapshot);
+    let transaction = Arc::new(TransactionBuilder::default().version(6_301u32).build());
+    let verified = direct_verified_facts_for_view(
+        &transaction,
+        authority.chain_view().clone(),
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1),
+    );
+    let work = DirectAdmissionWork::new(
+        Arc::clone(&transaction),
+        authority.chain_view().clone(),
+        verified,
+    )
+    .expect("direct work binds the exact transaction identity");
+    let before = authority.normalized_snapshot();
+    let outcome =
+        DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
+            .expect("direct validation captures one coherent authority cut")
+            .validate()
+            .expect("the immutable direct candidate validates");
+
+    let DirectAdmissionValidationOutcome::Candidate(receipt) = outcome else {
+        panic!("the valid direct candidate must produce a membership receipt");
+    };
+    assert_eq!(
+        receipt.transaction().witness_hash(),
+        transaction.witness_hash()
+    );
+    assert_eq!(receipt.view(), authority.chain_view());
+    assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[test]
+fn uak_direct_validation_returns_a_sealed_rejection_without_mutation() {
+    let snapshot = genesis_snapshot();
+    let authority = authority_at(&snapshot);
+    let input = OutPoint::new(Byte32::new([63; 32]), 0);
+    let transaction = Arc::new(
+        TransactionBuilder::default()
+            .version(6_302u32)
+            .input(CellInput::new(input.clone(), 0))
+            .build(),
+    );
+    let verified = direct_verified_facts_for_view(
+        &transaction,
+        authority.chain_view().clone(),
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1),
+    );
+    let work = DirectAdmissionWork::new(
+        Arc::clone(&transaction),
+        authority.chain_view().clone(),
+        verified,
+    )
+    .expect("direct work binds the exact transaction identity");
+    let before = authority.normalized_snapshot();
+    let outcome =
+        DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
+            .expect("direct validation captures one coherent authority cut")
+            .validate()
+            .expect("missing chain provenance is a transaction outcome");
+
+    assert!(matches!(
+        &outcome,
+        DirectAdmissionValidationOutcome::Rejected(rejection)
+            if matches!(
+                rejection.reason().reject(),
+                crate::error::Reject::Resolve(
+                    ckb_types::core::error::OutPointError::Unknown(out_point)
+                ) if out_point == &input
+            )
+    ));
+    assert_eq!(authority.normalized_snapshot(), before);
 }
 
 #[test]

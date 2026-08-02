@@ -2823,15 +2823,6 @@ impl TxPoolAuthority {
                 PreparedDirectDuplicate { key, plan },
             ));
         }
-        if matches!(
-            &existing,
-            Some(OwnedTx::PreAccepted(PreAcceptedEntry {
-                phase: PreAcceptedPhase::Computing(_),
-                ..
-            }))
-        ) {
-            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-        }
         self.validate_direct_acceptance_evidence(&receipt)?;
 
         let version = self.clocks.next_version;
