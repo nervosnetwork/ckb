@@ -330,6 +330,22 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
         Some(TxVerificationResult::Reject { .. })
     ));
 
+    let released_hash = RawTxHash(candidate.hash());
+    let released = compile_committed_effect(CommittedEffect::RemoteIngressReleased {
+        tx_hash: released_hash.clone(),
+    });
+    assert!(released.callback.is_none());
+    assert!(released.recent_reject.is_none());
+    assert!(released.ban.is_none());
+    let released_relay = released
+        .relay
+        .expect("a released duplicate must leave the relayer known filter");
+    assert!(!released_relay.is_required());
+    assert!(matches!(
+        released_relay.result,
+        TxVerificationResult::Reject { tx_hash } if tx_hash == released_hash.0
+    ));
+
     let first_parent = RawTxHash(Byte32::new([1; 32]));
     let second_parent = RawTxHash(Byte32::new([2; 32]));
     let request = ParentTransactionRequest::new(

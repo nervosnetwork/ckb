@@ -449,6 +449,7 @@ fn effect_sizing_family(effect: &CommittedEffect) -> &'static str {
         CommittedEffect::ChainCommitted { .. } => "chain-rebuildable",
         CommittedEffect::PeerCohortRevoked(_) => "critical-detail",
         CommittedEffect::RemoteExpired { .. } => "remote-prefix",
+        CommittedEffect::RemoteIngressReleased { .. } => "single-envelope",
         CommittedEffect::ParentTransactionsRequested(_) => "parent-request",
         CommittedEffect::GenerationReset => "reserved-reset",
     }

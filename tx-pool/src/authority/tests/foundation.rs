@@ -2252,7 +2252,7 @@ fn uak_direct_local_under_fee_rbf_rejects_without_touching_any_owner() {
 }
 
 #[test]
-fn uak_active_trusted_witness_replacement_waits_for_the_unique_completion() {
+fn uak_active_trusted_witness_replacement_atomically_stales_obsolete_work() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let raw = tx(25);
     let remote = raw
@@ -2281,30 +2281,24 @@ fn uak_active_trusted_witness_replacement_waits_for_the_unique_completion() {
             .expect("remote variant checks out")
             .apply(),
     );
-    let before = authority.normalized_snapshot();
+    let old_version = owner_version(&authority, &hash);
     let replacement =
         ValidatedAdmission::proposal(trusted.clone()).expect("trusted replacement is valid");
-    assert_eq!(
-        authority.plan_admission(replacement).err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-
-    apply_without_work(
-        authority
-            .apply_settlement(work.internal_failure())
-            .expect("the old payload returns its unique completion"),
-    );
-    apply_without_work(
-        authority
-            .plan_admission(
-                ValidatedAdmission::proposal(trusted.clone()).expect("retry replacement is valid"),
-            )
-            .expect("replacement succeeds after active drain"),
-    );
+    let committed = authority
+        .plan_admission(replacement)
+        .expect("trusted payload atomically replaces obsolete active work")
+        .apply();
+    assert_eq!(committed.retired_len(), 1);
+    drop(committed);
     let owner = authority.entry(&hash).expect("replacement owner exists");
+    assert_ne!(owner.record().version, old_version);
     assert_eq!(owner.record().tx.witness_hash(), trusted.witness_hash());
     assert_eq!(owner.payload_blame_peer(), None);
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the old payload completion is stale after replacement");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    drop(stale);
     assert_resource_reference(&authority);
 }
 

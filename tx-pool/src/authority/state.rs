@@ -1506,6 +1506,7 @@ impl ValidatedAdmission {
         Self::remote_with_lease(tx, RemoteResidencyLease::for_foundation(peer), 0)
     }
 
+    #[cfg(test)]
     pub(super) fn remote_with_lease(
         tx: TransactionView,
         residency: RemoteResidencyLease,
@@ -1517,6 +1518,7 @@ impl ValidatedAdmission {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn proposal(tx: TransactionView) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
@@ -1534,6 +1536,14 @@ impl ValidatedAdmission {
             tx,
             PreAcceptedSource::Recovery(RecoveryLease { generation }),
         )
+    }
+
+    pub(super) fn from_retained_ingress(
+        _seal: super::ingress::RetainedIngressSeal,
+        tx: TransactionView,
+        source: PreAcceptedSource,
+    ) -> Result<Self, AdmissionValidationError> {
+        Self::new(tx, source)
     }
 
     fn new(

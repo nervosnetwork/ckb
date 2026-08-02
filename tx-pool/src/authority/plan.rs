@@ -29,6 +29,7 @@ use super::effect::{EffectObservation, EffectSnapshot};
 #[cfg(test)]
 use super::indexes::IndexSnapshot;
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError};
+use super::ingress::{RetainedIngress, RetainedIngressKind, RetainedIngressRejection};
 use super::read::AuthorityReadView;
 use super::rejection::CommittedPublicReject;
 #[cfg(test)]
@@ -1158,6 +1159,17 @@ pub(super) struct PreparedApply<'authority> {
     handoff: CommittedHandoff,
 }
 
+/// Closed result of retained external admission planning. A no-change
+/// Proposal is structurally distinct from a Remote filter release and from an
+/// Accepted duplicate observation, so adapters cannot manufacture a success
+/// acknowledgement from an ambiguous `Duplicate` error.
+pub(super) enum RetainedAdmissionDisposition<'authority> {
+    Retained(PreparedApply<'authority>),
+    AcceptedDuplicate(PreparedApply<'authority>),
+    RemoteReleased(PreparedApply<'authority>),
+    ProposalUnchanged,
+}
+
 /// A prepared compute checkout whose post-Apply capability is present by
 /// construction. Converting the private generic transition before mutation
 /// keeps a missing compute handoff out of the runtime state space.
@@ -2174,7 +2186,101 @@ impl TxPoolAuthority {
         Ok(self.collect_dependency_loss_keys(parents)?.work)
     }
 
+    #[cfg(test)]
     pub(super) fn plan_admission(
+        &mut self,
+        admission: ValidatedAdmission,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.plan_validated_admission(admission)
+    }
+
+    pub(super) fn plan_retained_admission(
+        &mut self,
+        ingress: RetainedIngress,
+    ) -> Result<RetainedAdmissionDisposition<'_>, PlanError> {
+        let (kind, admission) = ingress.into_parts();
+        let key = admission.identity.raw.clone();
+        if let RetainedIngressKind::Remote(peer) = kind
+            && self.peer_bans.contains_at(peer, Instant::now())
+        {
+            return Err(PlanError::IngressRevoked(peer));
+        }
+
+        match kind {
+            RetainedIngressKind::Remote(peer) => match self.entries.get(&key) {
+                Some(OwnedTx::Accepted(_)) => {
+                    return self
+                        .plan_single_effect(
+                            EffectPolicy::Remote,
+                            CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+                                tx_hash: key,
+                                requesting_peer: Some(peer),
+                            }),
+                        )
+                        .map(RetainedAdmissionDisposition::AcceptedDuplicate);
+                }
+                Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) => {
+                    return self
+                        .plan_single_effect(
+                            EffectPolicy::Remote,
+                            CommittedEffect::RemoteIngressReleased { tx_hash: key },
+                        )
+                        .map(RetainedAdmissionDisposition::RemoteReleased);
+                }
+                None => {}
+            },
+            RetainedIngressKind::Proposal => match self.entries.get(&key) {
+                Some(OwnedTx::Accepted(_)) => {
+                    return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
+                }
+                Some(OwnedTx::PreAccepted(entry))
+                    if entry.record.identity.witness == admission.identity.witness
+                        && !matches!(entry.source, PreAcceptedSource::Remote(_)) =>
+                {
+                    return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
+                }
+                Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) | None => {}
+            },
+        }
+
+        self.plan_validated_admission(admission)
+            .map(RetainedAdmissionDisposition::Retained)
+    }
+
+    pub(super) fn plan_retained_ingress_rejection(
+        &mut self,
+        rejection: RetainedIngressRejection,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let (kind, tx, reason) = rejection.into_parts();
+        match kind {
+            RetainedIngressKind::Remote(peer) if reason.is_malformed() => self
+                .plan_peer_revocation(
+                    peer,
+                    PeerRevocationEvidence::Malformed {
+                        tx_hash: RawTxHash(tx.hash()),
+                        reason,
+                    },
+                ),
+            RetainedIngressKind::Remote(peer) => self.plan_single_effect(
+                EffectPolicy::Remote,
+                CommittedEffect::Rejected(CommittedRejection::Validation {
+                    tx,
+                    audience: RejectionAudience::from_owner(Some(peer), Some(peer)),
+                    reason,
+                }),
+            ),
+            RetainedIngressKind::Proposal => self.plan_single_effect(
+                EffectPolicy::Trusted,
+                CommittedEffect::Rejected(CommittedRejection::Validation {
+                    tx,
+                    audience: RejectionAudience::from_owner(None, None),
+                    reason,
+                }),
+            ),
+        }
+    }
+
+    fn plan_validated_admission(
         &mut self,
         admission: ValidatedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
@@ -2242,6 +2348,20 @@ impl TxPoolAuthority {
             sequence,
             None,
         )
+    }
+
+    fn plan_single_effect(
+        &mut self,
+        policy: EffectPolicy,
+        effect: CommittedEffect,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let publication = self
+            .effects
+            .build_publication(policy, vec![effect])
+            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+        let sequence = self.clocks.next_sequence;
+        let effect = self.effects.plan_publication(&publication, sequence)?;
+        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
     }
 
     fn plan_existing_admission(
@@ -2317,9 +2437,6 @@ impl TxPoolAuthority {
                 },
             )
         } else {
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_)) {
-                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-            }
             let version = self.clocks.next_version;
             let promoted = PreAcceptedEntry {
                 record: TxRecord {
@@ -2349,16 +2466,26 @@ impl TxPoolAuthority {
                 },
             )
         };
-        self.prepare_entry_delta(
-            EntryTransition {
-                key,
-                before: Some(existing),
-                after: Some(OwnedTx::PreAccepted(promoted)),
-            },
-            clocks,
-            sequence,
-            None,
-        )
+        let transition = EntryTransition {
+            key,
+            before: Some(existing),
+            after: Some(OwnedTx::PreAccepted(promoted)),
+        };
+        if same_witness {
+            self.prepare_entry_delta(transition, clocks, sequence, None)
+        } else {
+            // The trusted payload replaces the exact owner atomically. A
+            // checked-out worker still holds the old EntryVersion and can
+            // therefore only return a typed stale completion. Carry the old
+            // payload outside the future authority guard instead of waiting
+            // for obsolete work or destroying its last Arc in Apply.
+            self.prepare_entry_delta_with_replacement_retirement(
+                transition,
+                clocks,
+                sequence,
+                EntryReplacementRetirement::OutsideGuard,
+            )
+        }
     }
 
     fn plan_replacement_history_admission(

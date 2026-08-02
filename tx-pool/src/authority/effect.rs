@@ -615,6 +615,13 @@ pub(super) enum CommittedEffect {
         tx_hash: RawTxHash,
         peer: PeerIndex,
     },
+    /// A Remote submission observed an existing not-yet-Accepted raw-hash
+    /// owner. No second owner was created and no Accepted fact was observed;
+    /// the relayer must only release its pending/known filter so another peer
+    /// may supply the transaction later.
+    RemoteIngressReleased {
+        tx_hash: RawTxHash,
+    },
     /// A Remote owner entered `Waiting(Missing)`. The exact request and the
     /// durable wait share one authority Apply, so the relayer cannot observe a
     /// request for a stale lease or lose the only request for a committed wait.
@@ -692,6 +699,7 @@ impl CommittedEffect {
                 }
             }
             Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
+            Self::RemoteIngressReleased { .. } => Some(EFFECT_ENVELOPE_BYTES),
             Self::ParentTransactionsRequested(request) => {
                 parent_request_charge_bound(request.parents().len())
             }

@@ -10,6 +10,7 @@ mod chain;
 mod dependency;
 mod effect;
 mod indexes;
+mod ingress;
 mod plan;
 mod publisher;
 mod read;

@@ -4,8 +4,10 @@ Status: design frozen; isolated capability implementation in progress
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 Active slice: G5.3b.2
-Next exact action: add the sealed production ingress and immutable TestAccept
-validation boundaries. Do not change a legacy production owner before G5.3c.
+Next exact action: factor the immutable direct-validation core shared by Local
+and TestAccept, then compile Local through the existing membership Plan while
+TestAccept returns an evaluation receipt with no mutation/effect capability.
+Do not change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -28,6 +30,28 @@ architecture document.
 - [ ] G5/G6: remove migration scaffolding and stacked tests, then perform one
   whole-architecture drift, snowball, invariant, Rust, compatibility, and
   concurrency review.
+- [ ] G5/G6 manual-publication audit: enumerate every source-to-derived-state
+  synchronization point (state producer/consumer, cause x owner disposition,
+  receipt expectation, effect shape/charge/publisher, source version, wake,
+  and public error mapping). Move semantic choices into one closed compiler or
+  an owner-typed receipt. Any irreducible manual map needs one named semantic
+  owner plus a compile-failing exhaustive regression.
+- [ ] G5/G6 model-minimality gate (runs after production cutover and legacy
+  deletion, before release acceptance): reconstruct the required behavior and
+  attack cases from first principles; prove the remaining authority, state
+  variants, locks, tasks, receipts, clocks, journals, and failure domains are
+  each necessary; detect implementation drift, risk transfer, and snowball
+  complexity; compare at least one strictly smaller candidate encoding. The
+  proof includes concurrency domains, hot-path transition count, lock work,
+  allocations/clones, wake policy, asymptotic/adversarial bounds, and
+  independent-transaction parallelism, using reproducible profiles before a
+  model is selected. No structure survives only because implementation already
+  depends on it.
+- [ ] G5/G6 Rust/code-quality gate (runs only after the model gate freezes the
+  state machine): audit module/file boundaries, concrete type expression,
+  naming, duplicated compilers, manual maps, panic-like operations, errors,
+  clones/allocations, lock scope, test stacking, and documentation. The code
+  must be the clearest direct encoding of the proven model, not merely green.
 - [ ] P9.8: run static, unit, hostile, fault, complexity, and the complete
   managed 150-spec integration acceptance universe.
 - [ ] P10: run reproducible profiling and fixed-binary A/B benchmarks against
@@ -208,9 +232,11 @@ accidental complexity.
   evidence, and repeated same-witness notifications are semantic duplicates.
 - Same-witness promotion may preserve the exact active work capability.
 - A trusted different-witness proposal atomically replaces the exact
-  PreAccepted owner, including Computing, and invalidates the old lease through
-  the common stale-capability rule. It never waits for an obsolete payload to
-  finish before installing the trusted payload.
+  admissible Remote/Proposal PreAccepted owner, including Computing, and
+  invalidates the old lease through the common stale-capability rule. A
+  Recovery owner remains higher-priority chain evidence and is not displaced
+  by a Proposal. The admissible replacement never waits for an obsolete
+  payload to finish before installing the trusted payload.
 - Preserve `NotifyTxBatch` as the only channel input. Its existing checked
   count/byte validation uses the relayer protocol constants; the UAK adapter
   must not reopen a raw `Vec<TransactionView>` entry after that proof.
@@ -471,7 +497,12 @@ One chain administration method owns this complete sequence:
 2. Outside the guard, build canonical attached raw hashes, detached recovery
    transactions, cell conflicts, proposal-window facts, and chain sensitivity.
    Exclude cellbase transactions. Bind every proof to the new snapshot and one
-   internally generated `ChainViewId`.
+   internally generated `ChainViewId`. The validated disposition is owner-
+   typed: `ChainConflict` can name only PreAccepted or Accepted ownership;
+   `Committed` may also name ReplacementHistory; definitive chain loss leaves
+   ReplacementHistory parked. Cause and expected-owner kind must not remain
+   separately authored vectors whose legal cross-product is checked only by
+   the effect compiler.
 3. Validate proposal positions and context-sensitive entries from the new
    snapshot outside the guard.
 4. Re-enter the authority, validate the exact old generation/view/source
@@ -625,6 +656,12 @@ Implement in dependency order, with focused UAK tests after each slice:
 3. [ ] Generalize the total administrative owner batch, add cause-complete
    administrative planners, typed ClearPipeline/ClearPool plans, active-work
    invalidation, bounded Remote and Accepted expiry, and dependency maintenance.
+   Replace every transaction-owner `ActiveWorkDrain` wait with the one exact
+   stale-capability invalidation rule, including chain absorption/removal/
+   recovery/requeue, direct Local replacement, terminalization, clear, and
+   Remote expiry. Keep the effect-log close drain: shutdown publication owns a
+   producer-lifetime barrier, not a transaction-owner transition. A static
+   inventory must prove no other `ActiveWorkDrain` remains.
 4. [ ] Add production chain fact extraction, validation, snapshot Apply, and
    committed short-id handling.
 5. [ ] Add owned query and persistence receipts.
@@ -690,6 +727,34 @@ G5.3b.2 entry-model correction:
   enter authority state only if a named transition later consumes it. Internal
   generation does not justify state whose sole purpose is to compare with
   itself.
+- Retained ingress is now a sealed move-only capability with a closed Remote /
+  Proposal kind. It owns non-contextual validation, compact payload creation,
+  Remote peer/cycle attribution, and the historical 100-block residency
+  deadline; raw `ValidatedAdmission` construction remains test/recovery only.
+- The ingress disposition is source-complete: retention, Accepted observation,
+  PreAccepted filter release, mutation-free repeated Proposal, ordinary
+  rejection, and malformed Remote peer revocation are distinct types. The
+  filter-release effect cannot emit a false Accepted acknowledgement, while an
+  Accepted duplicate must be derived from Accepted ownership in the same Plan
+  cut. Rejection evidence carries its exact compact transaction and source so
+  the peer fence/recent-reject/relay outcome is committed without rereading.
+- A trusted different-witness Proposal now replaces an active PreAccepted
+  Remote/Proposal payload atomically. Recovery remains the higher-priority
+  chain-derived source. For an admissible replacement, the owner version
+  changes, old payload retirement occurs outside the guard, and the obsolete
+  worker completion returns typed stale; there is no drain wait or second
+  cancellation protocol.
+- The isolated ingress slice is covered by the complete authority nextest
+  universe (264/264 at this checkpoint), plus an exact publisher regression:
+  filter release is an ordinary relay rejection with no callback,
+  recent-reject record, or peer ban.
+- The G5.3b.1 deep-dive was corrected and absorbed at model level. The chain
+  work builder already parks ReplacementHistory on definitive loss, but cause
+  and expected-owner kind are still separately authored receipt fields. G5.3b
+  chain work must replace that manual cross-product with owner-typed
+  dispositions. The reported transaction-owner `ActiveWorkDrain` sites are a
+  real stale-capability migration inventory; effect-log close remains the one
+  deliberate producer-lifetime drain and must not be removed with them.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

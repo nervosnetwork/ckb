@@ -6,14 +6,17 @@
 //! synthetic chain identities, or replacement policy independently.
 
 use super::rejection::{RecentRejectEncodingError, serialized_recent_reject};
+#[cfg(test)]
+use super::state::ValidatedAdmission;
 use super::{
     chain::FinalAdmissionWork,
     effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
+    ingress::{RetainedIngress, RetainedIngressCommit, RetainedIngressRejection},
     plan::{
         AuthorityConfigError, AuthorityFault, CandidateBatchError, CandidateDispositionPlan,
         CommittedDelta, ComputeSettlementFailure, EffectSettlementFailure,
         FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, PlanError,
-        SettlementBatch, SettlementPlan, TxPoolAuthority,
+        RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     resolver::{
         ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
@@ -25,7 +28,7 @@ use super::{
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{ChainRevision, ChainViewId, RawTxHash, ValidatedAdmission, WorkPermit},
+    state::{ChainRevision, ChainViewId, RawTxHash, WorkPermit},
     validation::{
         FinalAdmissionValidation, FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
         PreparedFinalAdmissionValidation,
@@ -749,6 +752,7 @@ impl AuthorityRuntime {
         self.verify_workers.get()
     }
 
+    #[cfg(test)]
     pub(in crate::authority) fn admit(
         &self,
         admission: ValidatedAdmission,
@@ -762,6 +766,53 @@ impl AuthorityRuntime {
         drop(committed);
         self.signals.publish_mutation();
         Ok(())
+    }
+
+    pub(super) fn commit_retained_ingress(
+        &self,
+        ingress: RetainedIngress,
+    ) -> Result<RetainedIngressCommit, PlanError> {
+        let (outcome, committed) = {
+            let mut store = self.store.write();
+            match store.authority.plan_retained_admission(ingress)? {
+                RetainedAdmissionDisposition::Retained(plan) => {
+                    (RetainedIngressCommit::Retained, Some(plan.apply()))
+                }
+                RetainedAdmissionDisposition::AcceptedDuplicate(plan) => {
+                    (RetainedIngressCommit::AcceptedDuplicate, Some(plan.apply()))
+                }
+                RetainedAdmissionDisposition::RemoteReleased(plan) => {
+                    (RetainedIngressCommit::RemoteReleased, Some(plan.apply()))
+                }
+                RetainedAdmissionDisposition::ProposalUnchanged => {
+                    (RetainedIngressCommit::ProposalUnchanged, None)
+                }
+            }
+        };
+        let changed = committed.is_some();
+        // Effect and transaction retirement carriers are destroyed only after
+        // the single authority guard is open.
+        drop(committed);
+        if changed {
+            self.signals.publish_mutation();
+        }
+        Ok(outcome)
+    }
+
+    pub(super) fn commit_retained_ingress_rejection(
+        &self,
+        rejection: RetainedIngressRejection,
+    ) -> Result<RetainedIngressCommit, PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_retained_ingress_rejection(rejection)?
+                .apply()
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(RetainedIngressCommit::Rejected)
     }
 
     pub(in crate::authority) fn try_checkout(

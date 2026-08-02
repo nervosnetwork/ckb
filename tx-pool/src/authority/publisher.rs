@@ -452,6 +452,12 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
             })),
             ..Default::default()
         },
+        CommittedEffect::RemoteIngressReleased { tx_hash } => CompiledEndpointOutcome {
+            relay: Some(RelayAction::ordinary(TxVerificationResult::Reject {
+                tx_hash: compact_hash(&tx_hash),
+            })),
+            ..Default::default()
+        },
         CommittedEffect::ParentTransactionsRequested(request) => {
             let parents = request
                 .parents()
