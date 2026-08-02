@@ -37,7 +37,7 @@ use super::{
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{ChainRevision, ChainViewId, RawTxHash, WorkPermit},
+    state::{AcceptedAtMillis, ChainRevision, ChainViewId, RawTxHash, RemoteDeadline, WorkPermit},
     validation::{
         DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
         FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
@@ -84,6 +84,8 @@ const HISTORY_RESOURCE_DIVISOR: usize = 16;
 /// configured ceiling.
 const COMPUTE_RESOURCE_DIVISOR: usize = 4;
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+const ADMIN_MAINTENANCE_SLICE: usize = 32;
+const MILLIS_PER_HOUR: u64 = 60 * 60 * 1_000;
 
 /// Construction capability for a validator job captured from the paired
 /// authority/snapshot store. Its field is private to this module, so no other
@@ -123,7 +125,17 @@ struct AuthorityRuntimeConfig {
     effects: EffectLimits,
     membership: MembershipConfig,
     resolution_policy: ResolutionPolicy,
+    expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
+}
+
+/// Wall-clock retention and bounded maintenance policy compiled once from
+/// process configuration. Callers may trigger maintenance, but cannot invent
+/// a nearby cutoff or silently expand one authority critical section.
+#[derive(Clone, Copy, Debug)]
+struct ExpiryPolicy {
+    accepted_residency_millis: u64,
+    remote_slice: NonZeroUsize,
 }
 
 /// Immutable resolution policy compiled once at runtime assembly. Jobs never
@@ -176,6 +188,11 @@ impl AuthorityRuntimeConfig {
         let pipeline_edges = pipeline_bytes / DEPENDENCY_EDGE_BYTES;
         let verify_workers = NonZeroUsize::new(config.max_tx_verify_workers.max(1))
             .ok_or(RuntimeConfigError::Arithmetic)?;
+        let accepted_residency_millis = u64::from(config.expiry_hours)
+            .checked_mul(MILLIS_PER_HOUR)
+            .ok_or(RuntimeConfigError::Arithmetic)?;
+        let remote_slice =
+            NonZeroUsize::new(ADMIN_MAINTENANCE_SLICE).ok_or(RuntimeConfigError::Arithmetic)?;
         // One ordered resolver preserves dependency fairness. Verification
         // workers opportunistically take ResolveThenVerify when their own
         // verify lane is empty, so no second resolve-worker population or VM
@@ -351,6 +368,10 @@ impl AuthorityRuntimeConfig {
                 compute_bytes_per_work,
                 compute_edges_per_work,
             ),
+            expiry_policy: ExpiryPolicy {
+                accepted_residency_millis,
+                remote_slice,
+            },
             verify_workers,
         })
     }
@@ -480,7 +501,15 @@ pub(crate) struct AuthorityRuntime {
     store: Arc<RwLock<AuthorityStore>>,
     signals: Arc<AuthoritySignals>,
     resolution_policy: ResolutionPolicy,
+    expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use = "maintenance progress determines whether another bounded step is useful"]
+pub(super) enum AuthorityMaintenanceOutcome {
+    Idle,
+    Applied { owners: usize },
 }
 
 #[derive(Debug)]
@@ -687,6 +716,7 @@ impl AuthorityRuntime {
     ) -> Result<Self, RuntimeConfigError> {
         let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
         let resolution_policy = runtime.resolution_policy;
+        let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
         Ok(Self {
             store: Arc::new(RwLock::new(AuthorityStore::from_runtime(
@@ -694,8 +724,132 @@ impl AuthorityRuntime {
             )?)),
             signals: Arc::new(AuthoritySignals::new()),
             resolution_policy,
+            expiry_policy,
             verify_workers,
         })
+    }
+
+    /// Remove one explicit owner through the total administrative compiler.
+    /// Accepted roots include their descendant closure. Active preaccepted
+    /// work is invalidated by ownership loss, so this operation never waits
+    /// for a worker and a late completion is an ordinary stale outcome.
+    pub(super) fn remove_local_transaction(&self, hash: &Byte32) -> Result<bool, PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_local_removal(&RawTxHash(hash.clone()))?
+                .map(|plan| plan.apply())
+        };
+        let changed = committed.is_some();
+        drop(committed);
+        if changed {
+            self.signals.publish_mutation();
+        }
+        Ok(changed)
+    }
+
+    /// Clear only preaccepted and replacement-history ownership. Accepted
+    /// membership and the paired snapshot remain unchanged; advancing the
+    /// generation makes every old compute/recovery capability stale without
+    /// introducing a drain protocol.
+    pub(super) fn clear_pipeline(&self) -> Result<(), PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store.authority.plan_clear_pipeline()?.apply()
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    /// Replace all transaction ownership and its chain evidence under the one
+    /// store guard. The authority derives the next revision from its current
+    /// state; the supplied snapshot contributes only its exact tip and is
+    /// installed in the same indivisible mutation.
+    pub(super) fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), PlanError> {
+        let tip_hash = new_snapshot.tip_hash();
+        let fresh_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
+        let (committed, retired_snapshot, retired_hash_cache) = {
+            let mut store = self.store.write();
+            let committed = store.authority.plan_clear_pool(tip_hash)?.apply();
+            let retired_snapshot = std::mem::replace(&mut store.snapshot, new_snapshot);
+            let retired_hash_cache =
+                std::mem::replace(&mut store.committed_txs_hash_cache, fresh_hash_cache);
+            store.onchain_reconcile_done = false;
+            (committed, retired_snapshot, retired_hash_cache)
+        };
+        drop(committed);
+        drop(retired_snapshot);
+        drop(retired_hash_cache);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    /// Expire one bounded due prefix of retained Remote owners. The wall clock
+    /// and slice are runtime policy, not caller-provided transition evidence.
+    pub(super) fn expire_remote_due(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
+        let cutoff = RemoteDeadline(ckb_systemtime::unix_time().as_secs());
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_remote_expiry(cutoff, self.expiry_policy.remote_slice)?
+                .map(|plan| plan.apply())
+        };
+        let Some(committed) = committed else {
+            return Ok(AuthorityMaintenanceOutcome::Idle);
+        };
+        let owners = committed.changed_owner_count();
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(AuthorityMaintenanceOutcome::Applied { owners })
+    }
+
+    /// Expire the oldest due Accepted root and its full descendant closure.
+    /// One root is selected per Apply; the component and its exact rejection
+    /// effects remain bounded by accepted-pool admission limits.
+    pub(super) fn expire_accepted_due(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
+        let Some(cutoff) = ckb_systemtime::unix_time_as_millis()
+            .checked_sub(self.expiry_policy.accepted_residency_millis)
+            .map(AcceptedAtMillis)
+        else {
+            return Ok(AuthorityMaintenanceOutcome::Idle);
+        };
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_accepted_expiry(cutoff)?
+                .map(|plan| plan.apply())
+        };
+        let Some(committed) = committed else {
+            return Ok(AuthorityMaintenanceOutcome::Idle);
+        };
+        let owners = committed.changed_owner_count();
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(AuthorityMaintenanceOutcome::Applied { owners })
+    }
+
+    /// Advance one dirty dependency edge or completion marker. The dependency
+    /// frontier is level-triggered, so callers may repeat this bounded step
+    /// until `Idle` without owning a second queue or cursor.
+    pub(super) fn maintain_dependency(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_dependency_maintenance()?
+                .map(|plan| plan.apply())
+        };
+        let Some(committed) = committed else {
+            return Ok(AuthorityMaintenanceOutcome::Idle);
+        };
+        let owners = committed.changed_owner_count();
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(AuthorityMaintenanceOutcome::Applied { owners })
     }
 
     pub(super) fn signal_for_permit(&self, permit: WorkPermit) -> Arc<Notify> {
@@ -716,6 +870,15 @@ impl AuthorityRuntime {
     #[cfg(test)]
     pub(super) fn normalized_snapshot_for_foundation(&self) -> super::plan::AuthoritySnapshot {
         self.store.read().authority.normalized_snapshot()
+    }
+
+    #[cfg(test)]
+    pub(super) fn paired_chain_for_foundation(&self) -> (ChainViewId, Arc<Snapshot>) {
+        let store = self.store.read();
+        (
+            store.authority.chain_view().clone(),
+            Arc::clone(&store.snapshot),
+        )
     }
 
     #[cfg(test)]
@@ -1698,8 +1861,8 @@ mod tests {
         runtime_resource_config_error,
     };
     use crate::authority::effect::{
-        CommittedEffect, CommittedRejection, EffectBatchBounds, EffectCapacity, EffectConfigError,
-        EffectLimits, EffectPolicy, RejectionAudience,
+        CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
+        EffectConfigError, EffectLimits, EffectPolicy, RejectionAudience,
     };
     use crate::authority::plan::AuthorityConfigError;
     use crate::authority::resources::ResourceConfigError;
@@ -1771,6 +1934,7 @@ mod tests {
             .expect("the production authority policy fixture is valid");
         assembled.effects = effects;
         let resolution_policy = assembled.resolution_policy;
+        let expiry_policy = assembled.expiry_policy;
         let verify_workers = assembled.verify_workers;
         let store = AuthorityStore::from_runtime(assembled, snapshot)
             .expect("the narrow effect runtime reserves every bounded projection");
@@ -1778,6 +1942,7 @@ mod tests {
             store: Arc::new(ckb_util::RwLock::new(store)),
             signals: Arc::new(AuthoritySignals::new()),
             resolution_policy,
+            expiry_policy,
             verify_workers,
         }
     }
@@ -2003,7 +2168,11 @@ mod tests {
             EffectCapacity::new(1, EFFECT_BYTES),
             EffectCapacity::new(1, EFFECT_BYTES),
             EffectCapacity::new(1, EFFECT_BYTES),
-            EffectBatchBounds::new(1, EFFECT_BYTES, EFFECT_BYTES, EFFECT_BYTES),
+            EffectBatchBounds::new(
+                EffectBatchBound::new(1, EFFECT_BYTES),
+                EffectBatchBound::new(1, EFFECT_BYTES),
+                EffectBatchBound::new(1, EFFECT_BYTES),
+            ),
         )
         .expect("the narrow fixture admits one effect in each region");
         let runtime = runtime_with_effect_limits(&config, snapshot, effects);

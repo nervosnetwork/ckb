@@ -234,7 +234,7 @@ Rust evidence:
 - `target_model_declares_exactly_the_frozen_six_states` (T1, T2, T3)
 - `target_model_generated_commands_preserve_partition_lease_budget_and_indexes` (T1, T2, T3, T4, T5, T6, T7, T8, T11)
 - `target_model_stale_lease_cannot_mutate_a_replaced_witness_owner` (T1, T2, T3, T4, T7, T11)
-- `uak_active_trusted_witness_replacement_waits_for_the_unique_completion` (T1, T2, T3, T4, T7, T8, T11)
+- `uak_active_trusted_witness_replacement_atomically_stales_obsolete_work` (T1, T2, T3, T4, T7, T8, T11)
 - `uak_query_never_splices_two_authority_cuts` (T1, T2, T3, T6, T9, T10, T12, T13)
 - `uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof` (T1, T2, T3, T4, T9, T10, T12, T13)
 
@@ -257,9 +257,9 @@ Rust evidence:
 - `tx_pool_same_tip_resolution_evidence_skips_chain_revalidation` (T6, T8)
 - `uak_changed_tip_revalidates_header_dependencies` (T2, T4, T6, T7, T9)
 - `uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply` (T1, T2, T3, T6, T7)
+- `uak_direct_local_atomically_stales_the_matching_remote_compute_capability` (T1, T2, T3, T6, T11)
 - `uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation` (T1, T2, T6, T7)
 - `uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution` (T1, T2, T3, T6, T7)
-- `uak_direct_local_waits_for_the_matching_remote_compute_capability` (T1, T2, T3, T6, T11)
 - `uak_dropped_direct_local_plan_is_semantically_mutation_free` (T1, T2, T3, T6)
 - `uak_final_admission_refreshes_stale_verification_context` (T6, T9)
 - `uak_final_admission_rejects_a_changed_validation_ruleset` (T6, T9)
@@ -419,7 +419,7 @@ Process-level evidence:
 
 #### `TP-ADMIN-001` — Administrative and hostile-peer terminalization
 
-Minimum command: `cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_fence_never_evicts_an_unexpired_marker|banned_peer_revokes|banned_peer_revocation_plan_uses_immutable_ingress_attribution|peer_ban_removes_promoted_ingress_and_allows_refetch|peer_ban_does_not_rollback_an_already_accepted_transaction|ready_commit_observes_ban_fence_before_acceptance|queued_remote_admission_after_ban_is_removed_and_refetchable|proposal_promotes_active_remote_owner_without_restarting_lease|malformed_remote_preflight|proposal_promoted_remote_clear|live_marker_is_never_shortened|uak_peer_revocation|uak_generation_replacement_preserves_live_peer_revocation|uak_current_remote_cycle_rejection|uak_final_malformed_revalidation)/)'`
+Minimum command: `cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(banned_peer_fence_never_evicts_an_unexpired_marker|banned_peer_revokes|banned_peer_revocation_plan_uses_immutable_ingress_attribution|peer_ban_removes_promoted_ingress_and_allows_refetch|peer_ban_does_not_rollback_an_already_accepted_transaction|ready_commit_observes_ban_fence_before_acceptance|queued_remote_admission_after_ban_is_removed_and_refetchable|proposal_promotes_active_remote_owner_without_restarting_lease|malformed_remote_preflight|proposal_promoted_remote_clear|live_marker_is_never_shortened|uak_peer_revocation|uak_clear_pipeline_preserves_live_peer_revocation|uak_current_remote_cycle_rejection|uak_final_malformed_revalidation)/)'`
 
 Rust evidence:
 
@@ -434,16 +434,16 @@ Rust evidence:
 - `proposal_promotes_active_remote_owner_without_restarting_lease` (T1, T2, T3, T4, T7, T8, T11)
 - `queued_remote_admission_after_ban_is_removed_and_refetchable` (T1, T2, T3, T4, T7, T8, T10, T11)
 - `ready_commit_observes_ban_fence_before_acceptance` (T1, T2, T3, T4, T7, T8, T10, T11)
+- `uak_clear_pipeline_preserves_live_peer_revocation` (T1, T2, T3, T7, T8, T10)
 - `uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution` (T1, T2, T3, T7, T8)
 - `uak_final_malformed_revalidation_revokes_the_complete_peer_cohort` (T1, T2, T3, T4, T7, T8, T10, T11)
-- `uak_generation_replacement_preserves_live_peer_revocation` (T1, T2, T3, T7, T8, T10)
 - `uak_peer_revocation_commits_one_constant_size_cohort_effect` (T1, T2, T3, T7, T8, T10, T11)
 - `uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale` (T1, T2, T3, T4, T7, T8, T10, T11)
 - `uak_peer_revocation_removes_only_preaccepted_ingress_owners` (T1, T2, T3, T4, T7, T8, T10, T11)
 - `uak_peer_revocation_without_resident_owner_still_fences_queued_ingress` (T1, T2, T3, T4, T7, T8, T10, T11)
 - `uak_proposal_promotion_suspends_but_retains_the_remote_deadline` (T1, T2, T3, T4, T7, T8, T11)
 - `uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
-- `uak_remote_expiry_skips_active_work_without_blocking_other_due_owners` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
+- `uak_remote_expiry_removes_active_work_without_a_drain_or_prefix_expansion` (T1, T2, T3, T4, T7, T8, T10, T11, T13)
 
 #### `TP-EFFECT-001` — Statically partitioned stable-state effects
 
@@ -514,9 +514,9 @@ Rust evidence:
 - `uak_chain_conflict_commits_the_canonical_dead_outpoint` (T1, T2, T4, T7, T9, T10, T11, T12, T13)
 - `uak_chain_proposal_demotion_preserves_active_remote_compute_capability` (T1, T2, T3, T4, T7, T8, T9, T11)
 - `uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline` (T1, T2, T3, T4, T7, T8, T9, T10, T11, T12, T13)
-- `uak_chain_receipt_detects_same_version_proposal_source_refresh` (T1, T2, T7, T9, T11)
 - `uak_final_admission_receipt_is_stale_after_chain_view_aba` (T6, T9)
 - `uak_recovery_admission_requires_the_current_generation_capability` (T1, T2, T7, T9, T11)
+- `uak_repeated_proposal_has_no_synthetic_source_revision` (T1, T2, T7, T9, T11)
 
 Process-level evidence:
 

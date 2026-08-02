@@ -14,6 +14,7 @@ use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
     ResourceLedger, ResourceLimits, ResourceSnapshot, ResourceVector,
 };
+use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
@@ -565,6 +566,69 @@ pub(super) fn accept_remote_transaction_with_payload(
     hash
 }
 
+fn accept_remote_transaction_with_payload_at(
+    authority: &mut TxPoolAuthority,
+    transaction: TransactionView,
+    peer: usize,
+    status: AcceptedStatus,
+    payload: FoundationResolution,
+    accepted_at: AcceptedAtMillis,
+) -> RawTxHash {
+    let hash = verify_remote_transaction_with_payload(authority, transaction, peer, payload);
+    let version = owner_version(authority, &hash);
+    apply_without_work(
+        authority
+            .plan_accept_at_for_foundation(&hash, version, status, accepted_at)
+            .expect("timestamped fixture membership plans"),
+    );
+    drain_fixture_effects(authority);
+    hash
+}
+
+fn accepted_parent_child_at(
+    authority: &mut TxPoolAuthority,
+    nonce: u8,
+    parent_at: AcceptedAtMillis,
+    child_at: AcceptedAtMillis,
+) -> (RawTxHash, RawTxHash) {
+    let chain_input = OutPoint::new(Byte32::new([nonce; 32]), 0);
+    let parent_tx = TransactionBuilder::default()
+        .version(u32::from(nonce))
+        .input(CellInput::new(chain_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let parent_payload = resolved_payload_with_facts(
+        &parent_tx,
+        Vec::new(),
+        vec![chain_input],
+        Capacity::shannons(1_000),
+    );
+    let parent = accept_remote_transaction_with_payload_at(
+        authority,
+        parent_tx.clone(),
+        usize::from(nonce),
+        AcceptedStatus::Pending,
+        parent_payload,
+        parent_at,
+    );
+    let child_tx = TransactionBuilder::default()
+        .version(u32::from(nonce) + 1)
+        .input(CellInput::new(OutPoint::new(parent_tx.hash(), 0), 0))
+        .build();
+    let child_payload =
+        resolved_payload_with_facts(&child_tx, Vec::new(), Vec::new(), Capacity::shannons(500));
+    let child = accept_remote_transaction_with_payload_at(
+        authority,
+        child_tx,
+        usize::from(nonce) + 1,
+        AcceptedStatus::Pending,
+        child_payload,
+        child_at,
+    );
+    (parent, child)
+}
+
 pub(super) fn verify_remote_transaction(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
@@ -1105,34 +1169,15 @@ fn uak_accepted_timestamp_is_part_of_the_immutable_source_cut() {
 }
 
 #[test]
-fn uak_generation_swap_requires_a_current_structured_drain() {
+fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let stale_empty = authority
-        .drained_generation_receipt_for_foundation()
-        .expect("an empty generation is drained");
     let active = admit_remote(&mut authority, 1_706, 706);
-    assert_eq!(
-        authority
-            .plan_clear_generation_for_foundation(stale_empty)
-            .err(),
-        Some(PlanError::Stale(StalePlan::SourceVersion))
-    );
-
     let version = owner_version(&authority, &active);
     let (_, work) = take_resolve_work(
         authority
             .plan_checkout_for_foundation(&active, version, WorkPermit::ResolveOnly)
             .expect("active fixture checks out")
             .apply(),
-    );
-    assert_eq!(
-        authority.drained_generation_receipt_for_foundation().err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
-    );
-    apply_without_work(
-        authority
-            .apply_settlement(work.internal_failure())
-            .expect("structured cancellation settles the only capability"),
     );
     let accepted = accept_remote_transaction(
         &mut authority,
@@ -1147,42 +1192,45 @@ fn uak_generation_swap_requires_a_current_structured_drain() {
     ));
 
     let before = authority.normalized_snapshot();
-    let receipt = authority
-        .drained_generation_receipt_for_foundation()
-        .expect("every compute capability has settled");
     drop(
         authority
-            .plan_clear_generation_for_foundation(receipt)
-            .expect("a complete generation replacement plans"),
+            .plan_clear_pipeline()
+            .expect("pipeline clear plans with active work"),
     );
     assert_eq!(authority.normalized_snapshot(), before);
 
     let old_clocks = authority.clocks();
     let old_chain = authority.chain_view().clone();
-    let receipt = authority
-        .drained_generation_receipt_for_foundation()
-        .expect("the dropped plan retained the drain proof conditions");
+    let old_sources = authority.source_versions_for_reference();
     let committed = authority
-        .plan_clear_generation_for_foundation(receipt)
+        .plan_clear_pipeline()
         .expect("clear replans")
         .apply();
-    let CommittedChanges::GenerationControl(sequence) = &committed.changes else {
-        panic!("fixture expected one generation commit");
+    let CommittedChanges::ClearPipelineControl { changed_owners, .. } = committed.changes else {
+        panic!("fixture expected one pipeline-clear commit");
     };
-    let sequence = *sequence;
-    assert_eq!(committed.retired_len(), 2);
-    assert_eq!(authority.owner_count(), 0);
-    assert_eq!(authority.charged_count(), 0);
+    assert_eq!(changed_owners, 1);
+    assert_eq!(committed.retired_len(), 1);
+    assert_eq!(authority.owner_count(), 1);
+    assert_eq!(authority.charged_count(), 1);
+    assert!(authority.entry(&active).is_none());
+    assert!(matches!(
+        authority.entry(&accepted),
+        Some(OwnedTx::Accepted(_))
+    ));
     assert_eq!(authority.generation(), PoolGeneration(1));
     assert_eq!(authority.chain_view(), &old_chain);
-    assert_eq!(
-        authority.source_versions_for_reference(),
-        (sequence, sequence)
-    );
+    assert_eq!(authority.source_versions_for_reference(), old_sources);
     assert_eq!(authority.clocks().next_version, old_clocks.next_version);
     assert_eq!(authority.clocks().next_lease, old_clocks.next_lease);
     assert_eq!(authority.clocks().next_arrival, old_clocks.next_arrival);
     assert!(authority.primary_projection_consistent());
+
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the removed active owner makes its completion stale");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
 
     let reset = authority
         .plan_effect_checkout_for_foundation()
@@ -1195,33 +1243,327 @@ fn uak_generation_swap_requires_a_current_structured_drain() {
 }
 
 #[test]
-fn uak_generation_chain_replacement_requires_the_next_revision() {
+fn uak_clear_pool_derives_the_next_revision_without_draining_active_work() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let wrong = ChainViewId::new(ChainRevision(2), Byte32::new([72; 32]));
-    let receipt = authority
-        .drained_generation_receipt_for_foundation()
-        .expect("empty generation is drained");
-    assert_eq!(
+    let active = admit_remote(&mut authority, 1_709, 709);
+    let version = owner_version(&authority, &active);
+    let (_, work) = take_resolve_work(
         authority
-            .plan_replace_generation_chain_for_foundation(receipt, wrong)
-            .err(),
-        Some(PlanError::Stale(StalePlan::ChainRevision))
+            .plan_checkout_for_foundation(&active, version, WorkPermit::ResolveOnly)
+            .expect("active fixture checks out")
+            .apply(),
     );
-
-    let next = ChainViewId::new(ChainRevision(1), Byte32::new([73; 32]));
-    let receipt = authority
-        .drained_generation_receipt_for_foundation()
-        .expect("failed planning did not consume authority state");
+    let next_tip = Byte32::new([73; 32]);
     let committed = authority
-        .plan_replace_generation_chain_for_foundation(receipt, next.clone())
-        .expect("the next chain revision can replace a drained generation")
+        .plan_clear_pool(next_tip.clone())
+        .expect("clear derives the next chain revision")
         .apply();
     assert!(matches!(
         committed.changes,
-        CommittedChanges::GenerationControl(_)
+        CommittedChanges::ClearPoolControl(_)
     ));
-    assert_eq!(authority.chain_view(), &next);
+    assert_eq!(committed.retired_len(), 1);
+    assert_eq!(authority.owner_count(), 0);
+    assert_eq!(authority.chain_view().revision(), ChainRevision(1));
+    assert_eq!(authority.chain_view().tip().0, next_tip);
     assert_eq!(authority.generation(), PoolGeneration(1));
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the swapped generation rejects late work as stale");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_runtime_clear_scopes_and_snapshot_pairing_are_indivisible() {
+    let original_snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        original_snapshot.consensus(),
+        Arc::clone(&original_snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let (preaccepted, accepted) = runtime.with_authority_for_foundation(|authority| {
+        let preaccepted = admit_remote(authority, 1_731, 731);
+        let accepted = accept_remote_transaction(
+            authority,
+            tx(1_732),
+            732,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+        (preaccepted, accepted)
+    });
+
+    runtime
+        .clear_pipeline()
+        .expect("runtime pipeline clear commits through one authority guard");
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(authority.entry(&preaccepted).is_none());
+        assert!(matches!(
+            authority.entry(&accepted),
+            Some(OwnedTx::Accepted(_))
+        ));
+        assert_eq!(authority.generation(), PoolGeneration(1));
+    });
+    let (pipeline_view, paired_before) = runtime.paired_chain_for_foundation();
+    assert_eq!(pipeline_view.revision(), ChainRevision(0));
+    assert!(Arc::ptr_eq(&paired_before, &original_snapshot));
+
+    let replacement_snapshot = genesis_snapshot();
+    runtime
+        .clear_pool(Arc::clone(&replacement_snapshot))
+        .expect("runtime pool clear commits authority and snapshot together");
+    let (pool_view, paired_after) = runtime.paired_chain_for_foundation();
+    assert_eq!(pool_view.revision(), ChainRevision(1));
+    assert_eq!(pool_view.tip().0, replacement_snapshot.tip_hash());
+    assert!(Arc::ptr_eq(&paired_after, &replacement_snapshot));
+    runtime.with_authority_for_foundation(|authority| {
+        assert_eq!(authority.owner_count(), 0);
+        assert_eq!(authority.generation(), PoolGeneration(2));
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[test]
+fn uak_runtime_local_removal_has_no_active_work_drain() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let (hash, work) = runtime.with_authority_for_foundation(|authority| {
+        let hash = admit_remote(authority, 1_733, 733);
+        let version = owner_version(authority, &hash);
+        let (_, work) = take_resolve_work(
+            authority
+                .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+                .expect("the runtime fixture checks out")
+                .apply(),
+        );
+        (hash, work)
+    });
+
+    assert!(
+        runtime
+            .remove_local_transaction(&hash.0)
+            .expect("active ownership removal is a total transition")
+    );
+    assert!(
+        !runtime
+            .remove_local_transaction(&hash.0)
+            .expect("an absent owner is a normal boolean outcome")
+    );
+    runtime.with_authority_for_foundation(|authority| {
+        let stale = authority
+            .apply_settlement(work.internal_failure())
+            .expect_err("late active work observes missing ownership");
+        assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+        drop(stale);
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[test]
+fn uak_runtime_expiry_owns_wall_clock_policy_and_bounded_progress() {
+    let snapshot = genesis_snapshot();
+    let mut config = runtime_config();
+    config.expiry_hours = 0;
+    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), Arc::clone(&snapshot))
+        .expect("the authority runtime fixture is valid");
+    let (remote, parent, child) = runtime.with_authority_for_foundation(|authority| {
+        let remote = admit_remote_until(authority, 1_734, 734, 0);
+        let (parent, child) =
+            accepted_parent_child_at(authority, 91, AcceptedAtMillis(0), AcceptedAtMillis(1));
+        (remote, parent, child)
+    });
+
+    assert_eq!(
+        runtime
+            .expire_remote_due()
+            .expect("runtime derives the remote cutoff and bounded slice"),
+        AuthorityMaintenanceOutcome::Applied { owners: 1 }
+    );
+    assert_eq!(
+        runtime
+            .expire_accepted_due()
+            .expect("runtime derives the accepted cutoff from expiry_hours"),
+        AuthorityMaintenanceOutcome::Applied { owners: 2 }
+    );
+    assert_eq!(
+        runtime
+            .expire_remote_due()
+            .expect("an empty remote prefix is normal"),
+        AuthorityMaintenanceOutcome::Idle
+    );
+    assert_eq!(
+        runtime
+            .expire_accepted_due()
+            .expect("an empty accepted prefix is normal"),
+        AuthorityMaintenanceOutcome::Idle
+    );
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(authority.entry(&remote).is_none());
+        assert!(authority.entry(&parent).is_none());
+        assert!(authority.entry(&child).is_none());
+        assert_eq!(authority.owner_count(), 0);
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[test]
+fn uak_local_accepted_removal_is_one_total_descendant_transition() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let (parent, child) = accepted_parent_child_at(
+        &mut authority,
+        80,
+        AcceptedAtMillis(10),
+        AcceptedAtMillis(20),
+    );
+
+    let committed = authority
+        .plan_local_removal(&parent)
+        .expect("the complete descendant closure plans")
+        .expect("the root is present")
+        .apply();
+    assert!(matches!(
+        committed.changes,
+        CommittedChanges::AdminControl {
+            cause: AdminCause::LocalRemoval { ref root },
+            changed_owners: 2,
+            ..
+        } if root == &parent
+    ));
+    assert_eq!(committed.retired_len(), 2);
+    assert!(authority.entry(&parent).is_none());
+    assert!(authority.entry(&child).is_none());
+    assert_eq!(authority.owner_count(), 0);
+    assert_eq!(authority.charged_count(), 0);
+    assert!(
+        authority
+            .plan_effect_checkout_for_foundation()
+            .expect("effect lookup remains valid")
+            .is_none(),
+        "trusted local removal must not invent an Accepted rejection"
+    );
+    assert!(
+        authority
+            .plan_local_removal(&parent)
+            .expect("an absent lookup is not a structural error")
+            .is_none()
+    );
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_local_preaccepted_removal_invalidates_work_and_releases_relay_state() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = admit_remote(&mut authority, 1_725, 725);
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("the exact owner checks out")
+            .apply(),
+    );
+
+    let committed = authority
+        .plan_local_removal(&hash)
+        .expect("active removal plans without a drain")
+        .expect("the owner is present")
+        .apply();
+    assert_eq!(committed.retired_len(), 1);
+    assert!(authority.entry(&hash).is_none());
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the removed owner makes late work stale");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
+
+    let effect = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("release checkout plans")
+        .expect("removal commits relay cleanup")
+        .apply()
+        .into_effect_lease()
+        .expect("cleanup has one publisher lease");
+    assert_eq!(
+        effect.effects(),
+        &[CommittedEffect::RemoteIngressReleased { tx_hash: hash }]
+    );
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let (parent, child) = accepted_parent_child_at(
+        &mut authority,
+        82,
+        AcceptedAtMillis(10),
+        AcceptedAtMillis(20),
+    );
+    assert!(
+        authority
+            .plan_accepted_expiry(AcceptedAtMillis(9))
+            .expect("pre-deadline lookup is valid")
+            .is_none()
+    );
+
+    let version = owner_version(&authority, &parent);
+    apply_without_work(
+        authority
+            .plan_status_for_foundation(&parent, version, AcceptedStatus::Gap)
+            .expect("status-only version churn plans"),
+    );
+    drain_fixture_effects(&mut authority);
+
+    let committed = authority
+        .plan_accepted_expiry(AcceptedAtMillis(10))
+        .expect("the stable accepted deadline remains indexed")
+        .expect("the oldest root is due")
+        .apply();
+    assert!(matches!(
+        committed.changes,
+        CommittedChanges::AdminControl {
+            cause: AdminCause::AcceptedExpiry {
+                cutoff: AcceptedAtMillis(10)
+            },
+            changed_owners: 2,
+            ..
+        }
+    ));
+    assert_eq!(committed.retired_len(), 2);
+    assert!(authority.entry(&parent).is_none());
+    assert!(authority.entry(&child).is_none());
+
+    let effect = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("expiry checkout plans")
+        .expect("the atomic removal publishes every exact outcome")
+        .apply()
+        .into_effect_lease()
+        .expect("expiry has one publisher lease");
+    let mut expired = effect
+        .effects()
+        .iter()
+        .map(|effect| match effect {
+            CommittedEffect::Rejected(CommittedRejection::Expired { entry }) => {
+                (RawTxHash(entry.tx.hash()), entry.timestamp)
+            }
+            other => panic!("unexpected expiry effect: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    expired.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    let mut expected = vec![(parent, 10), (child, 20)];
+    expected.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(expired, expected);
+    assert_resource_reference(&authority);
     assert!(authority.primary_projection_consistent());
 }
 
@@ -1361,7 +1703,7 @@ fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
 }
 
 #[test]
-fn uak_generation_replacement_preserves_live_peer_revocation() {
+fn uak_clear_pipeline_preserves_live_peer_revocation() {
     let peer = PeerIndex::from(711);
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_715);
@@ -1372,12 +1714,9 @@ fn uak_generation_replacement_preserves_live_peer_revocation() {
             .expect("peer revocation plans")
             .apply(),
     );
-    let receipt = authority
-        .drained_generation_receipt_for_foundation()
-        .expect("revocation leaves no active compute");
     drop(
         authority
-            .plan_clear_generation_for_foundation(receipt)
+            .plan_clear_pipeline()
             .expect("pool clear plans independently of the peer fence")
             .apply(),
     );
@@ -1435,12 +1774,12 @@ fn uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch() {
 
     assert!(
         authority
-            .plan_remote_expiry_for_foundation(RemoteDeadline(9), slice)
+            .plan_remote_expiry(RemoteDeadline(9), slice)
             .expect("a pre-deadline lookup is valid")
             .is_none()
     );
     let committed = authority
-        .plan_remote_expiry_for_foundation(RemoteDeadline(10), slice)
+        .plan_remote_expiry(RemoteDeadline(10), slice)
         .expect("the due deadline cohort plans")
         .expect("one owner is due")
         .apply();
@@ -1504,7 +1843,7 @@ fn uak_proposal_promotion_suspends_but_retains_the_remote_deadline() {
     let slice = NonZeroUsize::new(4).expect("fixture slice is non-zero");
     assert!(
         authority
-            .plan_remote_expiry_for_foundation(RemoteDeadline(20), slice)
+            .plan_remote_expiry(RemoteDeadline(20), slice)
             .expect("inactive proposal lookup is valid")
             .is_none(),
         "a live proposal lease, not its retained remote base, controls residency"
@@ -1523,7 +1862,7 @@ fn uak_proposal_promotion_suspends_but_retains_the_remote_deadline() {
 }
 
 #[test]
-fn uak_remote_expiry_skips_active_work_without_blocking_other_due_owners() {
+fn uak_remote_expiry_removes_active_work_without_a_drain_or_prefix_expansion() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let active = admit_remote_until(&mut authority, 1_718, 715, 10);
     let inactive = admit_remote_until(&mut authority, 1_719, 716, 11);
@@ -1537,32 +1876,46 @@ fn uak_remote_expiry_skips_active_work_without_blocking_other_due_owners() {
     let slice = NonZeroUsize::new(2).expect("fixture slice is non-zero");
 
     let committed = authority
-        .plan_remote_expiry_for_foundation(RemoteDeadline(12), slice)
-        .expect("bounded scan skips the active due owner")
-        .expect("the later inactive owner remains removable")
+        .plan_remote_expiry(RemoteDeadline(12), slice)
+        .expect("the exact due prefix plans without a drain")
+        .expect("both due owners are removable")
         .apply();
-    assert_eq!(committed.retired_len(), 1);
-    assert!(authority.entry(&active).is_some());
+    assert_eq!(committed.retired_len(), 2);
+    assert!(authority.entry(&active).is_none());
     assert!(authority.entry(&inactive).is_none());
-    assert_eq!(
+    assert!(
         authority
-            .plan_remote_expiry_for_foundation(RemoteDeadline(12), slice)
-            .err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+            .plan_remote_expiry(RemoteDeadline(12), slice)
+            .expect("the drained prefix lookup remains valid")
+            .is_none()
     );
 
-    apply_without_work(
-        authority
-            .apply_settlement(work.internal_failure())
-            .expect("the unique worker returns its charged capability"),
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the removed active owner rejects late settlement as stale");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
+
+    let effect = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("expiry effect checkout plans")
+        .expect("the exact due prefix committed one batch")
+        .apply()
+        .into_effect_lease()
+        .expect("expiry has one publisher lease");
+    assert_eq!(
+        effect.effects(),
+        &[
+            CommittedEffect::RemoteExpired {
+                tx_hash: active,
+                peer: PeerIndex::from(715),
+            },
+            CommittedEffect::RemoteExpired {
+                tx_hash: inactive,
+                peer: PeerIndex::from(716),
+            },
+        ]
     );
-    let committed = authority
-        .plan_remote_expiry_for_foundation(RemoteDeadline(12), slice)
-        .expect("settled owner is now removable")
-        .expect("the retained deadline is still due")
-        .apply();
-    assert_eq!(committed.retired_len(), 1);
-    assert!(authority.entry(&active).is_none());
     assert!(authority.primary_projection_consistent());
 }
 
@@ -2611,7 +2964,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         },
     );
     let changed = owner
-        .with_foundation_phase(
+        .with_preaccepted_phase(
             PreAcceptedPhase::Ready(verified.clone()),
             EntryVersion(9),
             owner.preaccepted_charge().expect("owner is preaccepted"),
@@ -4779,7 +5132,7 @@ fn uak_replacement_history_reserves_raw_edges_until_wake() {
     ));
     assert_eq!(authority.resources().replacement_history().edges, 3);
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("continuous reservation makes wakeup capacity-invariant")
     {
         apply_without_work(plan);
@@ -4865,7 +5218,7 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
         apply_without_work(unrelated);
     }
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("unrelated maintenance remains bounded")
     {
         apply_without_work(plan);
@@ -4881,7 +5234,7 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
         .expect("the exact history trigger has an indexed waiter");
     apply_without_work(released);
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("the exact history trigger remains coherent")
     {
         apply_without_work(plan);
@@ -4951,7 +5304,7 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         .expect("the first exact blocker has an indexed history waiter");
     apply_without_work(first_release);
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("partial availability maintenance remains coherent")
     {
         apply_without_work(plan);
@@ -4970,7 +5323,7 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         .expect("the second exact blocker has an indexed history waiter");
     apply_without_work(second_release);
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("complete availability maintenance remains coherent")
     {
         apply_without_work(plan);
@@ -5092,7 +5445,7 @@ fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
 
     let mut rounds = 0usize;
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("dependency maintenance remains coherent")
     {
         apply_without_work(plan);
@@ -6125,16 +6478,6 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
         panic!("resolve-only permit returns resolve work");
     };
 
-    let active_version = owner_version(&authority, &hash);
-    let before_active_removal = authority.normalized_snapshot();
-    assert_eq!(
-        authority
-            .plan_terminalize_for_foundation(&hash, active_version)
-            .err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
-    );
-    assert_eq!(authority.normalized_snapshot(), before_active_removal);
-
     let settlement = resolve.rejected(RejectionKind::Policy);
     let stale_token = SettlementToken {
         hash: settlement.token.hash.clone(),
@@ -6143,8 +6486,8 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
     };
     apply_without_work(
         authority
-            .apply_settlement(settlement)
-            .expect("the active incarnation settles before retirement"),
+            .plan_terminalize_for_foundation(&hash, owner_version(&authority, &hash))
+            .expect("active terminalization invalidates the exact owner"),
     );
     assert!(authority.entry(&hash).is_none());
     apply_without_work(

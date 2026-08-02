@@ -408,6 +408,17 @@ impl MembershipValidationWork {
         rules: ScriptVerificationRules,
         sensitivity: AcceptedChainSensitivity,
     ) -> Result<MembershipReceipt, AdmissionEvidenceError> {
+        self.validate_at_for_foundation(status, rules, sensitivity, AcceptedAtMillis::FOUNDATION)
+    }
+
+    #[cfg(test)]
+    fn validate_at_for_foundation(
+        self,
+        status: AcceptedStatus,
+        rules: ScriptVerificationRules,
+        sensitivity: AcceptedChainSensitivity,
+        accepted_at: AcceptedAtMillis,
+    ) -> Result<MembershipReceipt, AdmissionEvidenceError> {
         let context = self
             .verified
             .verification_context()
@@ -422,7 +433,7 @@ impl MembershipValidationWork {
                 sensitivity,
             },
             proposal: ProposalContextReceipt::from_validation(status),
-            accepted_at: AcceptedAtMillis::FOUNDATION,
+            accepted_at,
         })
     }
 }
@@ -477,6 +488,26 @@ impl FinalAdmissionWork {
             rules,
             AcceptedChainSensitivity::Stable,
         )
+    }
+
+    #[cfg(test)]
+    pub(super) fn validate_at_for_foundation(
+        self,
+        status: AcceptedStatus,
+        rules: ScriptVerificationRules,
+        accepted_at: AcceptedAtMillis,
+    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
+        Ok(FinalAdmissionReceipt {
+            key: self.key,
+            expected: self.expected,
+            membership: self.validation.validate_at_for_foundation(
+                status,
+                rules,
+                AcceptedChainSensitivity::Stable,
+                accepted_at,
+            )?,
+            payload_relation: ReadyPayloadRelation::Shared,
+        })
     }
 
     #[cfg(test)]

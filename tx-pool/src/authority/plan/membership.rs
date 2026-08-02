@@ -697,6 +697,36 @@ impl MembershipProjection {
 }
 
 impl TxPoolAuthority {
+    /// Complete Accepted descendant closure for a trusted administrative
+    /// removal. Unlike RBF/capacity policy, this compatibility operation is
+    /// bounded by actual resident ownership and may remove a whole component.
+    /// The returned order is children-first, although the total batch compiler
+    /// does not depend on mutation order.
+    pub(super) fn administrative_descendant_closure(
+        &self,
+        root: &RawTxHash,
+    ) -> Result<Vec<RawTxHash>, super::PlanError> {
+        if !matches!(self.entries.get(root), Some(OwnedTx::Accepted(_))) {
+            return Err(super::PlanError::Stale(super::StalePlan::Phase));
+        }
+        let roots = BTreeSet::from([root.clone()]);
+        let closure = self.bounded_descendant_postorder(
+            &roots,
+            &HashSet::new(),
+            self.entries.len(),
+            ComponentLimitKind::Mutation,
+        );
+        match closure {
+            // `remaining_limit` is the complete owner population, so a real
+            // Accepted closure cannot reach the policy limit. Treat such a
+            // result as a projection fault instead of a public mutation rule.
+            Err(super::PlanError::Membership(_)) => Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            )),
+            other => other,
+        }
+    }
+
     pub(super) fn prepare_membership(
         &mut self,
         hash: &RawTxHash,

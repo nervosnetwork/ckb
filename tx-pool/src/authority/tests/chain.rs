@@ -17,7 +17,7 @@ use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
     admit_remote_until, apply_without_work, assert_membership_reference, assert_resource_reference,
     independent_batch, limits, missing_keys, owner_version, resolved_payload,
-    resolved_payload_with_facts, tx, verify_remote_transaction,
+    resolved_payload_with_facts, take_resolve_work, tx, verify_remote_transaction,
     verify_remote_transaction_with_payload,
 };
 use ckb_types::{
@@ -311,7 +311,7 @@ fn park_missing(authority: &mut TxPoolAuthority, hash: &RawTxHash, dependency: D
 
 fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) {
     while let Some(plan) = authority
-        .plan_dependency_maintenance_for_foundation()
+        .plan_dependency_maintenance()
         .expect("dependency maintenance remains coherent")
     {
         apply_without_work(plan);
@@ -1937,7 +1937,7 @@ fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline()
             )
     ));
     let expired = authority
-        .plan_remote_expiry_for_foundation(
+        .plan_remote_expiry(
             RemoteDeadline(10),
             NonZeroUsize::new(1).expect("fixture slice is non-zero"),
         )
@@ -2086,7 +2086,7 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
 }
 
 #[test]
-fn uak_chain_trusted_proposal_expiry_requires_only_its_active_owner_to_drain() {
+fn uak_chain_trusted_proposal_expiry_invalidates_active_work_without_a_drain() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_729);
     let admission = ValidatedAdmission::proposal(transaction.clone())
@@ -2097,14 +2097,16 @@ fn uak_chain_trusted_proposal_expiry_requires_only_its_active_owner_to_drain() {
             .plan_admission(admission)
             .expect("trusted proposal enters preacceptance"),
     );
-    let _work = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            owner_version(&authority, &hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("trusted proposal checks out")
-        .apply();
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("trusted proposal checks out")
+            .apply(),
+    );
     let proposal = ProposalId(transaction.proposal_short_id());
     let facts = ChainTransitionFacts::for_foundation(
         next_view(85),
@@ -2119,12 +2121,17 @@ fn uak_chain_trusted_proposal_expiry_requires_only_its_active_owner_to_drain() {
         .expect("read-only validation does not cancel active work")
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the final proposal position is exhaustive");
-    let before = authority.normalized_snapshot();
-    assert_eq!(
-        authority.plan_chain_transition(receipt).err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("proposal expiry removes the active owner atomically"),
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.entry(&hash).is_none());
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the old proposal capability is stale after terminalization");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
     assert!(authority.primary_projection_consistent());
 }
 
@@ -2355,14 +2362,16 @@ fn uak_chain_recovery_receipt_proves_targeted_vacancy() {
 }
 
 #[test]
-fn uak_chain_work_requires_targeted_active_owner_drain_and_never_applies_a_prefix() {
+fn uak_chain_commit_invalidates_targeted_active_work_without_a_prefix() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 551, 551);
     let version = owner_version(&authority, &hash);
-    let _active = authority
-        .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
-        .expect("affected owner checks out")
-        .apply();
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("affected owner checks out")
+            .apply(),
+    );
     let transaction = authority
         .entry(&hash)
         .expect("owner remains")
@@ -2378,17 +2387,79 @@ fn uak_chain_work_requires_targeted_active_owner_drain_and_never_applies_a_prefi
         ChainPackagingMode::ObserveOnly,
     )
     .expect("attached active owner is canonical");
-    let before = authority.normalized_snapshot();
     let receipt = authority
         .chain_validation_work(facts)
         .expect("read-only validation may capture an active owner")
         .validate_for_foundation(Vec::new())
         .expect("the committed hash needs no proposal lookup");
-    assert_eq!(
-        authority.plan_chain_transition(receipt).err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("the committed active owner is removed in the total chain Apply"),
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.entry(&hash).is_none());
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the attached-block removal invalidates its old capability");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    drop(stale);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_chain_direct_recovery_replaces_active_owner_and_stales_old_work() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = output_transaction(552);
+    let admission =
+        ValidatedAdmission::remote(transaction.clone(), ckb_network::PeerIndex::from(552))
+            .expect("active detached transaction is a valid remote admission");
+    let hash = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("the preexisting owner enters preacceptance"),
+    );
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("the preexisting owner checks out")
+            .apply(),
+    );
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(89),
+        block_changes(Vec::new(), vec![transaction]),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("the direct detached transaction is canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("validation captures the active owner version")
+        .validate_for_foundation(Vec::new())
+        .expect("direct recovery requires no proposal facts");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("trusted recovery replaces active ownership atomically"),
+    );
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    let stale = authority
+        .apply_settlement(work.internal_failure())
+        .expect_err("the replaced active incarnation cannot publish old work");
+    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    drop(stale);
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
 }
 
 #[test]

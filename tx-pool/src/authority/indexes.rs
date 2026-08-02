@@ -3,7 +3,9 @@
 //! Every index transition is compiled from the same owner before/after set.
 //! Callers cannot update proposal and ingress-peer views independently.
 
-use super::state::{EntryVersion, OwnedTx, ProposalId, RawTxHash, RemoteDeadline};
+use super::state::{
+    AcceptedAtMillis, EntryVersion, OwnedTx, ProposalId, RawTxHash, RemoteDeadline,
+};
 use ckb_network::PeerIndex;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -14,6 +16,14 @@ struct DeadlineKey {
     version: EntryVersion,
 }
 
+/// Accepted expiry is tied to the immutable admission timestamp, not the OCC
+/// version. Status-only version changes therefore do not churn this index.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct AcceptedDeadlineKey {
+    accepted_at: AcceptedAtMillis,
+    hash: RawTxHash,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DueRemote {
     pub(super) expires_at: RemoteDeadline,
@@ -22,11 +32,18 @@ pub(super) struct DueRemote {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DueAccepted {
+    pub(super) accepted_at: AcceptedAtMillis,
+    pub(super) hash: RawTxHash,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct IndexSnapshot {
     pub(super) by_proposal: HashMap<ProposalId, RawTxHash>,
     pub(super) preaccepted_by_peer: HashMap<PeerIndex, HashSet<RawTxHash>>,
     pub(super) context_sensitive_accepted: HashSet<RawTxHash>,
     deadlines: BTreeSet<DeadlineKey>,
+    accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +60,7 @@ struct IndexFact {
     preaccepted_peer: Option<PeerIndex>,
     context_sensitive_accepted: bool,
     active_deadline: Option<RemoteDeadline>,
+    accepted_at: Option<AcceptedAtMillis>,
     version: EntryVersion,
 }
 
@@ -63,11 +81,16 @@ impl IndexFact {
             OwnedTx::PreAccepted(entry) => entry.source.active_remote_deadline(),
             OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => None,
         };
+        let accepted_at = match owner {
+            OwnedTx::Accepted(entry) => Some(entry.accepted_at),
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
+        };
         Ok(Self {
             proposal: owner.record().identity.proposal.clone(),
             preaccepted_peer,
             context_sensitive_accepted,
             active_deadline,
+            accepted_at,
             version: owner.record().version,
         })
     }
@@ -77,6 +100,13 @@ impl IndexFact {
             expires_at,
             hash: hash.clone(),
             version: self.version,
+        })
+    }
+
+    fn accepted_deadline_key(&self, hash: &RawTxHash) -> Option<AcceptedDeadlineKey> {
+        self.accepted_at.map(|accepted_at| AcceptedDeadlineKey {
+            accepted_at,
+            hash: hash.clone(),
         })
     }
 }
@@ -99,6 +129,8 @@ pub(super) struct IndexDelta {
     context_insertions: Vec<RawTxHash>,
     deadline_removals: Vec<DeadlineKey>,
     deadline_insertions: Vec<DeadlineKey>,
+    accepted_deadline_removals: Vec<AcceptedDeadlineKey>,
+    accepted_deadline_insertions: Vec<AcceptedDeadlineKey>,
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +139,7 @@ pub(super) struct AuthorityIndexes {
     preaccepted_by_peer: HashMap<PeerIndex, HashSet<RawTxHash>>,
     context_sensitive_accepted: HashSet<RawTxHash>,
     deadlines: BTreeSet<DeadlineKey>,
+    accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
 }
 
 impl AuthorityIndexes {
@@ -145,12 +178,35 @@ impl AuthorityIndexes {
         Ok(due)
     }
 
+    pub(super) fn due_accepted(
+        &self,
+        cutoff: AcceptedAtMillis,
+        limit: usize,
+    ) -> Result<Vec<DueAccepted>, IndexError> {
+        let mut due = Vec::new();
+        due.try_reserve(limit.min(self.accepted_deadlines.len()))
+            .map_err(|_| IndexError::Allocation)?;
+        for deadline in self
+            .accepted_deadlines
+            .iter()
+            .take_while(|deadline| deadline.accepted_at <= cutoff)
+            .take(limit)
+        {
+            due.push(DueAccepted {
+                accepted_at: deadline.accepted_at,
+                hash: deadline.hash.clone(),
+            });
+        }
+        Ok(due)
+    }
+
     pub(super) fn snapshot(&self) -> IndexSnapshot {
         IndexSnapshot {
             by_proposal: self.by_proposal.clone(),
             preaccepted_by_peer: self.preaccepted_by_peer.clone(),
             context_sensitive_accepted: self.context_sensitive_accepted.clone(),
             deadlines: self.deadlines.clone(),
+            accepted_deadlines: self.accepted_deadlines.clone(),
         }
     }
 
@@ -187,6 +243,12 @@ impl AuthorityIndexes {
             if before
                 .deadline_key(key)
                 .is_some_and(|deadline| !self.deadlines.contains(&deadline))
+            {
+                return Err(IndexError::Projection);
+            }
+            if before
+                .accepted_deadline_key(key)
+                .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
             {
                 return Err(IndexError::Projection);
             }
@@ -313,6 +375,23 @@ impl AuthorityIndexes {
                 delta.deadline_insertions.push(deadline);
             }
         }
+        let before_accepted_deadline = before
+            .as_ref()
+            .and_then(|fact| fact.accepted_deadline_key(key));
+        let after_accepted_deadline = after
+            .as_ref()
+            .and_then(|fact| fact.accepted_deadline_key(key));
+        if before_accepted_deadline != after_accepted_deadline {
+            if let Some(deadline) = before_accepted_deadline {
+                delta.accepted_deadline_removals.push(deadline);
+            }
+            if let Some(deadline) = after_accepted_deadline {
+                if self.accepted_deadlines.contains(&deadline) {
+                    return Err(IndexError::Projection);
+                }
+                delta.accepted_deadline_insertions.push(deadline);
+            }
+        }
         Ok(delta)
     }
 
@@ -358,6 +437,8 @@ impl AuthorityIndexes {
         let mut context_insertions = Vec::new();
         let mut deadline_removals = Vec::new();
         let mut deadline_insertions = Vec::new();
+        let mut accepted_deadline_removals = Vec::new();
+        let mut accepted_deadline_insertions = Vec::new();
         proposal_removals
             .try_reserve(changes.len())
             .map_err(|_| IndexError::Allocation)?;
@@ -382,6 +463,12 @@ impl AuthorityIndexes {
         deadline_insertions
             .try_reserve(changes.len())
             .map_err(|_| IndexError::Allocation)?;
+        accepted_deadline_removals
+            .try_reserve(changes.len())
+            .map_err(|_| IndexError::Allocation)?;
+        accepted_deadline_insertions
+            .try_reserve(changes.len())
+            .map_err(|_| IndexError::Allocation)?;
 
         for change in &changes {
             if let Some(before) = &change.before {
@@ -404,6 +491,12 @@ impl AuthorityIndexes {
                 if before
                     .deadline_key(&change.key)
                     .is_some_and(|deadline| !self.deadlines.contains(&deadline))
+                {
+                    return Err(IndexError::Projection);
+                }
+                if before
+                    .accepted_deadline_key(&change.key)
+                    .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
                 {
                     return Err(IndexError::Projection);
                 }
@@ -465,6 +558,22 @@ impl AuthorityIndexes {
                     deadline_insertions.push(deadline);
                 }
             }
+            let before_accepted_deadline = change
+                .before
+                .as_ref()
+                .and_then(|fact| fact.accepted_deadline_key(&change.key));
+            let after_accepted_deadline = change
+                .after
+                .as_ref()
+                .and_then(|fact| fact.accepted_deadline_key(&change.key));
+            if before_accepted_deadline != after_accepted_deadline {
+                if let Some(deadline) = before_accepted_deadline {
+                    accepted_deadline_removals.push(deadline);
+                }
+                if let Some(deadline) = after_accepted_deadline {
+                    accepted_deadline_insertions.push(deadline);
+                }
+            }
         }
 
         let removed_deadlines = deadline_removals.iter().collect::<HashSet<_>>();
@@ -472,6 +581,21 @@ impl AuthorityIndexes {
             || deadline_insertions.iter().collect::<HashSet<_>>().len() != deadline_insertions.len()
             || deadline_insertions.iter().any(|deadline| {
                 self.deadlines.contains(deadline) && !removed_deadlines.contains(deadline)
+            })
+        {
+            return Err(IndexError::Projection);
+        }
+
+        let removed_accepted_deadlines = accepted_deadline_removals.iter().collect::<HashSet<_>>();
+        if removed_accepted_deadlines.len() != accepted_deadline_removals.len()
+            || accepted_deadline_insertions
+                .iter()
+                .collect::<HashSet<_>>()
+                .len()
+                != accepted_deadline_insertions.len()
+            || accepted_deadline_insertions.iter().any(|deadline| {
+                self.accepted_deadlines.contains(deadline)
+                    && !removed_accepted_deadlines.contains(deadline)
             })
         {
             return Err(IndexError::Projection);
@@ -597,6 +721,8 @@ impl AuthorityIndexes {
             context_insertions,
             deadline_removals,
             deadline_insertions,
+            accepted_deadline_removals,
+            accepted_deadline_insertions,
         })
     }
 
@@ -641,6 +767,12 @@ impl AuthorityIndexes {
         for deadline in delta.deadline_insertions {
             self.deadlines.insert(deadline);
         }
+        for deadline in delta.accepted_deadline_removals {
+            self.accepted_deadlines.remove(&deadline);
+        }
+        for deadline in delta.accepted_deadline_insertions {
+            self.accepted_deadlines.insert(deadline);
+        }
     }
 
     #[cfg(test)]
@@ -675,6 +807,10 @@ impl AuthorityIndexes {
             match owner {
                 OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {}
                 OwnedTx::Accepted(entry) => {
+                    expected.accepted_deadlines.insert(AcceptedDeadlineKey {
+                        accepted_at: entry.accepted_at,
+                        hash: key.clone(),
+                    });
                     if entry.proof.sensitivity().requires_reorg_revalidation() {
                         expected.context_sensitive_accepted.insert(key.clone());
                     }
@@ -685,5 +821,6 @@ impl AuthorityIndexes {
             && self.preaccepted_by_peer == expected.preaccepted_by_peer
             && self.context_sensitive_accepted == expected.context_sensitive_accepted
             && self.deadlines == expected.deadlines
+            && self.accepted_deadlines == expected.accepted_deadlines
     }
 }

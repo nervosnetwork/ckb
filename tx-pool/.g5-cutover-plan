@@ -1,15 +1,13 @@
 # G5 Production Cutover Recovery Plan
 
-Status: design frozen; isolated capability implementation in progress
+Status: design frozen; G5.3b.3 acceptance complete, checkpoint pending
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
-G5.3b.2 checkpoint: pending stage freeze
+G5.3b.2 checkpoint: bff9e5da2
 Active slice: G5.3b.3
-Next exact action: inventory every administrative producer and current
-`AdminDelta` consumer, then freeze one cause-complete total-owner batch plus
-distinct ClearPipeline/ClearPool Plans before implementation. Preserve the
-stale-capability rule, bounded expiry/maintenance slices, effect capacity, and
-post-guard retirement. Do not change a legacy production owner before G5.3c.
+Next exact action: freeze the accepted G5.3b.3 administrative checkpoint, then
+enter isolated G5.3b.4 chain-boundary construction. Do not change a legacy
+production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -459,34 +457,30 @@ rule because it governs producers, not transaction ownership.
 
 ### 7.4 Bounded maintenance
 
-The dependency controller already owns a dirty-key cursor and one-edge
-maintenance Plan. Production currently exposes only foundation/test wrappers.
-Add one runtime maintenance step that:
+The dependency controller owns the only dirty-key cursor and one-edge
+maintenance Plan. The runtime exposes one level-triggered maintenance step
+that:
 
 - checks one authoritative dependency ticket under the guard;
 - applies at most one bounded edge action and its exact wake/reject transition;
 - publishes a lossy wake hint only after Apply;
 - never scans the owner population and never relies on edge-trigger timing.
 
-Remote expiry uses the ordered deadline index and a fixed batch limit. Active
-owners may be skipped within the globally bounded active-work allowance, or may
-be invalidated only if expiry policy explicitly chooses cancellation. It must
-not turn one slow worker into an unbounded due-prefix scan or a maintenance
-livelock.
+Remote expiry uses the ordered deadline index and a runtime-owned fixed batch
+limit. Due Computing owners are removed with their exact charge; their later
+move-only completion is stale. No active owner is skipped, so worker timing
+cannot expand the due-prefix scan or create maintenance livelock.
 
 Accepted expiry is not optional: current production applies configured
-`expiry_hours` and removes each expired root plus descendants. `AcceptedEntry`
-already owns `AcceptedAtMillis`, but UAK has no accepted deadline index or
-removal cause. Add one payload-free `BTreeSet` deadline projection derived in
-the same owner index Plan. Its key includes a typed millisecond deadline, raw
-hash, and entry version. A bounded maintenance slice selects due roots,
-deduplicates overlapping descendant closures, and removes a bounded leaf-first
-prefix. The expired root remains the level-triggered deadline until its closure
-is empty, so no extra continuation owner or retry queue is needed; each
-intermediate pool remains causally valid because descendants are removed before
-parents. This replaces the legacy full-pool scan without changing expiry
-policy. Remote-second and Accepted-millisecond deadlines remain distinct
-newtypes; no implicit unit conversion is allowed.
+`expiry_hours` and removes each expired root plus descendants. A payload-free
+`BTreeSet` projection derives `(AcceptedAtMillis, raw_hash)` from the same owner
+index Plan. Entry version is deliberately absent because status-only OCC churn
+cannot change admission time. One step selects the oldest due root and removes
+its complete bounded descendant closure in one total Apply; no partial causal
+state, continuation owner, retry queue, or full-pool scan exists. Equal-time
+roots use raw-hash order deterministically and converge over repeated level
+steps. Remote-second and Accepted-millisecond deadlines remain distinct
+newtypes; the runtime owns all wall-clock sampling and unit conversion.
 
 The maintenance worker owns only a timer and level hints. It owns no queue,
 retry count, or transaction state.
@@ -655,7 +649,7 @@ Implement in dependency order, with focused UAK tests after each slice:
    the legacy journal's different envelope formula stays isolated until its
    G5.3c deletion.
 2. [x] Add production ingress and immutable TestAccept validation.
-3. [ ] Generalize the total administrative owner batch, add cause-complete
+3. [x] Generalize the total administrative owner batch, add cause-complete
    administrative planners, typed ClearPipeline/ClearPool plans, active-work
    invalidation, bounded Remote and Accepted expiry, and dependency maintenance.
    Replace every transaction-owner `ActiveWorkDrain` wait with the one exact
@@ -864,6 +858,119 @@ G5.3b.2 entry-model correction:
   construction that retained plus owner-free work cannot exceed the shared
   transient partition. Consensus-valid work rejected by this envelope remains
   eligible for block validation outside tx-pool admission.
+
+G5.3b.3 entry design:
+
+- The administrative causes are removals, not arbitrary owner replacements.
+  Keep their policy algebra closed to peer revocation, Remote expiry, explicit
+  local removal, and Accepted expiry. Do not add a generic `(before, after)`
+  command whose `after` values have no business producer. One shared
+  owner-removal batch compiles exact index, resource, scheduler, dependency,
+  source-version, optional Accepted-membership, and retirement deltas.
+- `AdminDelta` and `ClearPipelineDelta` consume that same removal batch, but
+  remain distinct types. `AdminDelta` owns cause-specific effects and the peer
+  marker. `ClearPipelineDelta` additionally advances the generation and owns
+  exactly one rebuildable reset effect. ClearPool remains the separate O(1)
+  whole-generation/snapshot replacement. No optional clear scope or Boolean
+  selects semantics at Apply.
+- Accepted local removal expands one exact root through the canonical bounded
+  descendant graph compiler. PreAccepted and ReplacementHistory local removal
+  remove only that exact owner. Every Computing owner is removed with its
+  charge in the same Apply; its later move-only completion is ordinary stale
+  work. No cancellation registry, drain wait, or phase-specific exception is
+  permitted.
+- Accepted expiry uses a derived ordered `AcceptedAtMillis` index. The key is
+  `(accepted_at, raw_hash)` and deliberately excludes `EntryVersion`, because
+  status-only version changes do not change expiry. One maintenance Apply
+  removes the complete descendant closure of the oldest due root; the component
+  bound makes the work finite while avoiding partial causal removal. Every
+  removed Accepted entry emits the historical `Reject::Expiry(accepted_at)`
+  outcome from its pre-Apply committed snapshot.
+- Remote expiry consumes the existing ordered deadline index and removes up to
+  the typed slice limit including Computing owners. Skipping active owners is
+  deleted: the active population no longer expands the due-prefix scan and one
+  slow worker cannot create a maintenance livelock.
+- ClearPipeline deliberately pays a trusted rare-path O(resident owners) total
+  removal compilation and O(removed owners) Apply rather than add a global
+  non-Accepted index or split every hot proposal/dependency lookup. The work is
+  bounded by the configured resident ledger, clones no Accepted payload into a
+  second authority, uses one generation-reset effect, and destroys retired
+  payloads after the guard opens. Hostile operation-count acceptance must make
+  this cost visible. If measurement later rejects the bound, storage splitting
+  is a model redesign, not a repair index added to the hot path.
+- Explicit local removal is also a trusted rare slow path. Its full Accepted
+  closure is bounded by actual Accepted residency rather than the smaller RBF
+  victim limit, matching compatibility. Remote/Proposal PreAccepted removal
+  releases the exact relayer filter; Accepted local removal invents no public
+  rejection. ClearPipeline uses the generation reset for complete filter
+  cleanup.
+- Removal dependency publication is compiled from the projected final set:
+  every removed producer publishes definitive loss, and every input released
+  by Accepted removal publishes availability only when its chain cell or
+  surviving Accepted parent still exists. Accepted membership cannot depend on
+  a PreAccepted producer, so clearing PreAccepted/history cannot strand an
+  Accepted consumer.
+
+G5.3b.3 phase review:
+
+- The implementation retains one owner map and one paired snapshot. Local
+  removal, peer revocation, Remote expiry, Accepted expiry, ClearPipeline, and
+  ClearPool all compile under `TxPoolAuthority`; runtime methods expose no
+  authority mutation closure, caller-supplied revision, cutoff, or maintenance
+  slice. No legacy production owner is written.
+- The administrative cause algebra remains smaller than the lifecycle algebra:
+  four typed removal causes share one `OwnerRemovalBatch`, while chain, RBF,
+  capacity, and generation policy retain their own evidence. This removes the
+  manual resource/index/scheduler/dependency/source publication cross-product
+  without creating a generic arbitrary-owner mutation API.
+- Transaction-owner removal and replacement no longer wait for active work.
+  Proposal witness replacement, direct Local replacement, terminalization,
+  Remote expiry, clear, chain absorption/removal/recovery/requeue all invalidate
+  the exact old generation/version capability. Late settlement is typed stale.
+  Static inventory leaves `ActiveWorkDrain` only in effect-log close, where it
+  is the required producer-lifetime barrier.
+- ClearPipeline is the deliberate O(resident owners) trusted slow path and
+  preserves Accepted membership, the paired snapshot, and live peer fences.
+  ClearPool builds an empty generation and committed-hash cache before taking
+  the guard, then performs authority, snapshot, cache, and reconcile-marker
+  swaps under one guard and destroys the retired generation, snapshot, and LRU
+  outside. No cancellation task, pause lock, repair scan, or second clear
+  protocol was added.
+- Remote expiry is a fixed 32-owner due-prefix transition. Accepted expiry
+  chooses one oldest `(accepted_at, raw_hash)` root and atomically removes its
+  complete descendant closure; status-only version changes cannot churn the
+  deadline index. Equal timestamps converge deterministically by raw hash.
+  Dependency maintenance advances exactly one level-triggered edge or marker.
+- Accepted expiry detail is non-rebuildable and may cover the complete accepted
+  pool, so production effect sizing derives CriticalDetail count and bytes from
+  the configured pool byte ceiling and the minimum serialized transaction
+  size. Remote, Trusted, and Critical effect classes have separate closed shape
+  bounds; capacity failure precedes Apply and mutates nothing.
+- The lock model is unchanged: validation, VM work, endpoint I/O, snapshot/LRU
+  construction, payload destruction, and retired-generation destruction remain
+  outside the authority guard. The only full-owner work under the guard is the
+  documented trusted clear/local-removal/Accepted-expiry slow path; ordinary
+  admission and independent compute concurrency are not serialized further.
+- The full authority universe is 290/290 nextest green and the complete
+  `ckb-tx-pool --lib` universe is 565/565 green. The internal-feature discovery
+  inventory contains 566 tests. Formatting, diff integrity, production Clippy,
+  review-guide, document, test-layout, and security-manifest gates pass; the
+  production authority panic-like-operation scan has zero matches.
+- Test evidence was migrated rather than aliased after semantics changed from
+  drain waiting to atomic stale-capability invalidation. The generated review
+  guide and sorted inventory now fail closed against zero-match or stale test
+  anchors. This closes a traceability drift found by the phase gate rather than
+  weakening the validator.
+- Whole-model review found no new authority, resident state, lock, task, queue,
+  retry owner, fallback, or public state. The accepted-deadline index is the one
+  new derived projection and has an exact source, update compiler, rebuild
+  check, deterministic order, and pool-residency bound. All added runtime
+  outcomes are derived from exhaustive committed-change receipts.
+- Deferred performance evidence is explicit rather than hidden: P9.8 must
+  operation-count full accepted closures and ClearPipeline, and P10 must profile
+  their lock duration. If those trusted slow-path bounds are rejected, the
+  response is a storage/model redesign, not a hot-path repair index. No timing
+  performance claim is made at this checkpoint.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

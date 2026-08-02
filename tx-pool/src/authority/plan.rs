@@ -55,16 +55,16 @@ use super::scheduler::{
 #[cfg(test)]
 use super::source::PoolTemplateVersions;
 use super::source::{AuthoritySourceVersions, SourceVersionDelta};
-#[cfg(test)]
-use super::state::{AcceptedAtMillis, AcceptedStatus, TxIdentity};
 use super::state::{
-    AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival, AuthorityClocks,
-    ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut, DependencyKey,
-    DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PayloadPolicy,
-    PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
-    QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError,
-    TxRecord, ValidatedAdmission,
+    AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
+    AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut,
+    DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx,
+    PayloadPolicy, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
+    ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry,
+    ReplacementHistoryError, TxRecord, ValidatedAdmission,
 };
+#[cfg(test)]
+use super::state::{AcceptedStatus, TxIdentity};
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
     CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementRejection,
@@ -91,7 +91,7 @@ pub(in crate::authority) use membership::{RemovalCause, StatusCounts};
 pub(in crate::authority) use settlement::{
     CandidateBatchError, IndependentCandidate, SettlementBatch, SettlementPlan,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
 
@@ -602,21 +602,6 @@ pub(super) struct EffectSettlementFailure {
     settlement: EffectSettlement,
 }
 
-/// Proof that the current generation has no outstanding compute capability.
-/// It is move-only and rebound against generation, chain and owner-source
-/// identity before a replacement can be planned.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct DrainedGenerationReceipt {
-    generation: PoolGeneration,
-    chain_view: ChainViewId,
-    owner_source: ApplySequence,
-}
-
-enum GenerationChainTarget {
-    Preserve,
-    Install(ChainViewId),
-}
-
 impl EffectSettlementFailure {
     pub(super) fn error(&self) -> &PlanError {
         &self.error
@@ -708,7 +693,11 @@ pub(super) enum CommittedChanges {
     IndependentRun(Vec<CommittedChange>),
     DependencyControl(ApplySequence),
     EffectControl(ApplySequence),
-    GenerationControl(ApplySequence),
+    ClearPipelineControl {
+        sequence: ApplySequence,
+        changed_owners: usize,
+    },
+    ClearPoolControl(ApplySequence),
     AdminControl {
         sequence: ApplySequence,
         cause: AdminCause,
@@ -778,6 +767,24 @@ enum ChangedOwnerRetirement {
 }
 
 impl CommittedDelta {
+    /// Count authoritative owner locations changed by this committed Apply.
+    /// This is derived from the closed committed-change receipt, not from
+    /// retirement storage, whose size may differ for shared shells.
+    pub(in crate::authority) fn changed_owner_count(&self) -> usize {
+        match &self.changes {
+            CommittedChanges::One(_) => 1,
+            CommittedChanges::IndependentRun(changes) => changes.len(),
+            CommittedChanges::DependencyControl(_) | CommittedChanges::EffectControl(_) => 0,
+            CommittedChanges::ClearPipelineControl { changed_owners, .. }
+            | CommittedChanges::AdminControl { changed_owners, .. }
+            | CommittedChanges::ChainControl { changed_owners, .. } => *changed_owners,
+            CommittedChanges::ClearPoolControl(_) => self
+                .retired_generation
+                .as_ref()
+                .map_or(0, RetiredGeneration::owner_count),
+        }
+    }
+
     pub(in crate::authority) fn retired_len(&self) -> usize {
         self.retired.len().saturating_add(
             self.retired_generation
@@ -1045,7 +1052,7 @@ impl FreshGeneration {
     }
 }
 
-struct GenerationDelta {
+struct ClearPoolDelta {
     generation: PoolGeneration,
     chain_view: ChainViewId,
     fresh: FreshGeneration,
@@ -1055,10 +1062,20 @@ struct GenerationDelta {
     sequence: ApplySequence,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ClearPipelineDelta {
+    generation: PoolGeneration,
+    removal: OwnerRemovalBatch,
+    effect: EffectDelta,
+    clocks: AuthorityClocks,
+    sequence: ApplySequence,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AdminCause {
     PeerRevocation(ckb_network::PeerIndex),
     RemoteExpiry { cutoff: RemoteDeadline },
+    LocalRemoval { root: RawTxHash },
+    AcceptedExpiry { cutoff: AcceptedAtMillis },
 }
 
 enum AdminPlan {
@@ -1068,6 +1085,13 @@ enum AdminPlan {
     },
     RemoteExpiry {
         cutoff: RemoteDeadline,
+    },
+    LocalRemoval {
+        root: RawTxHash,
+    },
+    AcceptedExpiry {
+        root: RawTxHash,
+        cutoff: AcceptedAtMillis,
     },
 }
 
@@ -1080,33 +1104,44 @@ enum PeerRevocationEvidence {
 }
 
 impl AdminPlan {
-    const fn cause(&self) -> AdminCause {
+    fn cause(&self) -> AdminCause {
         match self {
             Self::PeerRevocation { revocation, .. } => {
                 AdminCause::PeerRevocation(revocation.peer())
             }
             Self::RemoteExpiry { cutoff } => AdminCause::RemoteExpiry { cutoff: *cutoff },
+            Self::LocalRemoval { root } => AdminCause::LocalRemoval { root: root.clone() },
+            Self::AcceptedExpiry { cutoff, .. } => AdminCause::AcceptedExpiry { cutoff: *cutoff },
         }
     }
 }
 
 enum AdminControl {
     PeerRevocation { marker: PeerBanDelta },
-    RemoteExpiry,
+    None,
 }
 
 struct AdminDelta {
     cause: AdminCause,
     control: AdminControl,
+    removal: OwnerRemovalBatch,
+    effect: EffectDelta,
+    clocks: AuthorityClocks,
+    sequence: ApplySequence,
+}
+
+/// Complete authoritative and derived transition for a set of owners moving
+/// to Nowhere. Administrative causes and generation control reuse this one
+/// compiler, so resource release, membership removal, dependency publication,
+/// source versions, and retirement cannot acquire separate manual maps.
+struct OwnerRemovalBatch {
     hashes: Vec<RawTxHash>,
     owners: DerivedOwnerDelta,
     resources: ResourceBatchPlan,
+    membership: ProjectionDelta,
     scheduler: SchedulerBatchDelta,
     dependency: DependencyBatchDelta,
-    effect: EffectDelta,
     retired: Vec<OwnedTx>,
-    clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 struct ChainOwnerUpdate {
@@ -1134,7 +1169,8 @@ enum AuthorityDelta {
     Independent(IndependentDelta),
     Dependency(DependencyOnlyDelta),
     Effect(EffectOnlyDelta),
-    Generation(GenerationDelta),
+    ClearPipeline(ClearPipelineDelta),
+    ClearPool(ClearPoolDelta),
     Admin(AdminDelta),
     Chain(ChainDelta),
 }
@@ -1387,7 +1423,8 @@ impl PreparedApply<'_> {
             AuthorityDelta::Independent(delta) => Self::apply_independent(authority, delta),
             AuthorityDelta::Dependency(delta) => Self::apply_dependency(authority, delta),
             AuthorityDelta::Effect(delta) => Self::apply_effect(authority, delta, handoff),
-            AuthorityDelta::Generation(delta) => Self::apply_generation(authority, delta),
+            AuthorityDelta::ClearPipeline(delta) => Self::apply_clear_pipeline(authority, delta),
+            AuthorityDelta::ClearPool(delta) => Self::apply_clear_pool(authority, delta),
             AuthorityDelta::Admin(delta) => Self::apply_admin(authority, delta),
             AuthorityDelta::Chain(delta) => Self::apply_chain(authority, delta),
         }
@@ -1539,7 +1576,7 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_generation(authority: &mut TxPoolAuthority, delta: GenerationDelta) -> CommittedDelta {
+    fn apply_clear_pool(authority: &mut TxPoolAuthority, delta: ClearPoolDelta) -> CommittedDelta {
         let FreshGeneration {
             entries,
             indexes,
@@ -1562,7 +1599,7 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::GenerationControl(delta.sequence),
+            changes: CommittedChanges::ClearPoolControl(delta.sequence),
             handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired: Vec::new(),
@@ -1571,22 +1608,33 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> CommittedDelta {
-        let changed_owners = delta.hashes.len();
-        let mut retired = delta.retired;
-        for hash in &delta.hashes {
-            if let Some(owner) = authority.entries.remove(hash) {
-                retired.push(owner);
-            }
-        }
-        authority.indexes.apply(delta.owners.indexes);
-        authority.source_versions.apply(delta.owners.sources);
-        authority.resources.apply_batch(delta.resources);
-        authority.scheduler.apply_batch(delta.scheduler);
-        authority.dependencies.apply_batch(delta.dependency);
+    fn apply_clear_pipeline(
+        authority: &mut TxPoolAuthority,
+        delta: ClearPipelineDelta,
+    ) -> CommittedDelta {
+        let (changed_owners, retired) = Self::apply_owner_removal(authority, delta.removal);
+        authority.generation = delta.generation;
         let retired_effect = authority.effects.apply(delta.effect);
-        if let AdminControl::PeerRevocation { marker } = delta.control {
-            authority.peer_bans.apply(marker);
+        authority.clocks = delta.clocks;
+        CommittedDelta {
+            changes: CommittedChanges::ClearPipelineControl {
+                sequence: delta.sequence,
+                changed_owners,
+            },
+            handoff: CommittedHandoff::None,
+            removals: Vec::new(),
+            retired,
+            retired_effect,
+            retired_generation: None,
+        }
+    }
+
+    fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> CommittedDelta {
+        let (changed_owners, retired) = Self::apply_owner_removal(authority, delta.removal);
+        let retired_effect = authority.effects.apply(delta.effect);
+        match delta.control {
+            AdminControl::PeerRevocation { marker } => authority.peer_bans.apply(marker),
+            AdminControl::None => {}
         }
         authority.clocks = delta.clocks;
         CommittedDelta {
@@ -1601,6 +1649,26 @@ impl PreparedApply<'_> {
             retired_effect,
             retired_generation: None,
         }
+    }
+
+    fn apply_owner_removal(
+        authority: &mut TxPoolAuthority,
+        removal: OwnerRemovalBatch,
+    ) -> (usize, Vec<OwnedTx>) {
+        let changed_owners = removal.hashes.len();
+        let mut retired = removal.retired;
+        for hash in &removal.hashes {
+            if let Some(owner) = authority.entries.remove(hash) {
+                retired.push(owner);
+            }
+        }
+        authority.indexes.apply(removal.owners.indexes);
+        authority.source_versions.apply(removal.owners.sources);
+        authority.resources.apply_batch(removal.resources);
+        authority.membership.apply(removal.membership);
+        authority.scheduler.apply_batch(removal.scheduler);
+        authority.dependencies.apply_batch(removal.dependency);
+        (changed_owners, retired)
     }
 
     fn apply_chain(authority: &mut TxPoolAuthority, delta: ChainDelta) -> CommittedDelta {
@@ -1943,6 +2011,65 @@ impl TxPoolAuthority {
                     }
                 };
                 if chain_backed || surviving_pool_parent {
+                    available.push(DependencyKey::Cell(input.clone()));
+                }
+            }
+        }
+        Ok(available)
+    }
+
+    /// Availability created by a total administrative removal. The projected
+    /// final owner set is the authority: an input is released only when its
+    /// current Accepted spender leaves and the backing cell survives on chain
+    /// or under a non-removed Accepted parent.
+    fn collect_released_administrative_inputs(
+        &self,
+        removals: &BTreeSet<RawTxHash>,
+    ) -> Result<Vec<DependencyKey>, PlanError> {
+        let capacity = removals.iter().try_fold(0usize, |total, hash| {
+            let entry = match self.entries.get(hash) {
+                Some(OwnedTx::Accepted(entry)) => entry,
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+            };
+            total
+                .checked_add(entry.proof.payload().footprint.inputs().len())
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
+        })?;
+        let mut available = Vec::new();
+        available
+            .try_reserve(capacity)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for hash in removals {
+            let entry = match self.entries.get(hash) {
+                Some(OwnedTx::Accepted(entry)) => entry,
+                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+            };
+            for input in entry.proof.payload().footprint.inputs() {
+                if self.membership.spender(input) != Some(hash) {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                let chain_backed = entry.proof.is_chain_input(input);
+                let parent = RawTxHash(input.tx_hash());
+                let surviving_parent = if removals.contains(&parent) {
+                    false
+                } else {
+                    match self.entries.get(&parent) {
+                        Some(OwnedTx::Accepted(parent)) => {
+                            let index: u32 = input.index().unpack();
+                            usize::try_from(index)
+                                .ok()
+                                .is_some_and(|index| index < parent.record.tx.outputs().len())
+                        }
+                        Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                            false
+                        }
+                    }
+                };
+                if chain_backed || surviving_parent {
                     available.push(DependencyKey::Cell(input.clone()));
                 }
             }
@@ -2594,6 +2721,21 @@ impl TxPoolAuthority {
         let receipt = self
             .final_admission_work(key, expected)?
             .validate_for_foundation(status, ScriptVerificationRules::V0)
+            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
+        self.plan_accept(receipt)
+    }
+
+    #[cfg(test)]
+    pub(super) fn plan_accept_at_for_foundation(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        status: AcceptedStatus,
+        accepted_at: AcceptedAtMillis,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        let receipt = self
+            .final_admission_work(key, expected)?
+            .validate_at_for_foundation(status, ScriptVerificationRules::V0, accepted_at)
             .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
         self.plan_accept(receipt)
     }
@@ -3505,12 +3647,9 @@ impl TxPoolAuthority {
         if existing.record().version != expected {
             return Err(PlanError::Stale(StalePlan::Version));
         }
-        let OwnedTx::PreAccepted(preaccepted) = &existing else {
+        let OwnedTx::PreAccepted(_) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
-        if matches!(preaccepted.phase, PreAcceptedPhase::Computing(_)) {
-            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-        }
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
             next_sequence: next_sequence(sequence)?,
@@ -3570,61 +3709,53 @@ impl TxPoolAuthority {
         self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
     }
 
-    pub(super) fn drained_generation_receipt_for_foundation(
-        &self,
-    ) -> Result<DrainedGenerationReceipt, PlanError> {
-        if self.resources.preaccepted().active_work != 0 {
-            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-        }
-        Ok(DrainedGenerationReceipt {
-            generation: self.generation,
-            chain_view: self.chain_view.clone(),
-            owner_source: self.source_versions.owners(),
+    /// Clear only executable and retained pre-pool ownership. Accepted
+    /// membership and the paired chain view remain authoritative; generation
+    /// advance invalidates every old Recovery capability, while exact
+    /// version/lease checks make late compute settlement ordinary stale work.
+    pub(super) fn plan_clear_pipeline(&mut self) -> Result<PreparedApply<'_>, PlanError> {
+        let mut hashes = Vec::new();
+        hashes
+            .try_reserve(self.entries.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        hashes.extend(self.entries.iter().filter_map(|(hash, owner)| {
+            matches!(
+                owner,
+                OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)
+            )
+            .then(|| hash.clone())
+        }));
+        hashes.sort_unstable();
+
+        let generation = next_generation(self.generation)?;
+        let sequence = self.clocks.next_sequence;
+        let clocks = AuthorityClocks {
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        let effect = self.effects.plan_generation_reset(sequence)?;
+        let removal = self.plan_owner_removal_batch(hashes, sequence)?;
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::ClearPipeline(ClearPipelineDelta {
+                generation,
+                removal,
+                effect,
+                clocks,
+                sequence,
+            }),
+            handoff: CommittedHandoff::None,
         })
     }
 
-    pub(super) fn plan_clear_generation_for_foundation(
+    /// Replace the complete pool generation and install exactly the validated
+    /// next chain view. This is an O(1) authority swap; active capabilities
+    /// are invalidated by missing ownership, not by a drain protocol.
+    pub(super) fn plan_clear_pool(
         &mut self,
-        receipt: DrainedGenerationReceipt,
+        tip_hash: ckb_types::packed::Byte32,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_generation_replacement(receipt, GenerationChainTarget::Preserve)
-    }
-
-    pub(super) fn plan_replace_generation_chain_for_foundation(
-        &mut self,
-        receipt: DrainedGenerationReceipt,
-        chain_view: ChainViewId,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_generation_replacement(receipt, GenerationChainTarget::Install(chain_view))
-    }
-
-    fn plan_generation_replacement(
-        &mut self,
-        receipt: DrainedGenerationReceipt,
-        target: GenerationChainTarget,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.effects.ensure_open()?;
-        if receipt.generation != self.generation {
-            return Err(PlanError::Stale(StalePlan::Generation));
-        }
-        if receipt.chain_view != self.chain_view {
-            return Err(PlanError::Stale(StalePlan::ChainRevision));
-        }
-        if receipt.owner_source != self.source_versions.owners() {
-            return Err(PlanError::Stale(StalePlan::SourceVersion));
-        }
-        if self.resources.preaccepted().active_work != 0 {
-            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-        }
-        let chain_view = match target {
-            GenerationChainTarget::Preserve => self.chain_view.clone(),
-            GenerationChainTarget::Install(chain_view) => {
-                if chain_view.revision() != next_chain_revision(self.chain_revision())? {
-                    return Err(PlanError::Stale(StalePlan::ChainRevision));
-                }
-                chain_view
-            }
-        };
+        let chain_view = ChainViewId::new(next_chain_revision(self.chain_revision())?, tip_hash);
         let generation = next_generation(self.generation)?;
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -3636,7 +3767,7 @@ impl TxPoolAuthority {
         let fresh = FreshGeneration::empty(&self.resources, &self.scheduler);
         Ok(PreparedApply {
             authority: self,
-            delta: AuthorityDelta::Generation(GenerationDelta {
+            delta: AuthorityDelta::ClearPool(ClearPoolDelta {
                 generation,
                 chain_view,
                 fresh,
@@ -3656,40 +3787,81 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
         let cause = plan.cause();
-        let mut owner_refs = Vec::new();
-        owner_refs
-            .try_reserve(hashes.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let unique = hashes.iter().collect::<HashSet<_>>();
+        if unique.len() != hashes.len() {
+            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+        }
         for hash in &hashes {
             let owner = self
                 .entries
                 .get(hash)
                 .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
-            let OwnedTx::PreAccepted(entry) = owner else {
-                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
-            };
             match &plan {
                 AdminPlan::PeerRevocation { revocation, .. } => {
+                    let OwnedTx::PreAccepted(entry) = owner else {
+                        return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+                    };
                     if entry.source.ingress_peer() != Some(revocation.peer()) {
                         return Err(PlanError::Fault(AuthorityFault::IndexProjection));
                     }
                 }
-                AdminPlan::RemoteExpiry { cutoff } => match entry.source {
-                    PreAcceptedSource::Remote(remote) if remote.residency.expires_at <= *cutoff => {
-                    }
-                    PreAcceptedSource::Remote(_)
-                    | PreAcceptedSource::Proposal { .. }
-                    | PreAcceptedSource::Recovery(_) => {
+                AdminPlan::RemoteExpiry { cutoff } => match owner {
+                    OwnedTx::PreAccepted(entry) => match entry.source {
+                        PreAcceptedSource::Remote(remote)
+                            if remote.residency.expires_at <= *cutoff => {}
+                        PreAcceptedSource::Remote(_)
+                        | PreAcceptedSource::Proposal { .. }
+                        | PreAcceptedSource::Recovery(_) => {
+                            return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+                        }
+                    },
+                    OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => {
                         return Err(PlanError::Fault(AuthorityFault::IndexProjection));
                     }
                 },
+                AdminPlan::LocalRemoval { root } => {
+                    if !hashes.iter().any(|hash| hash == root) {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                    }
+                }
+                AdminPlan::AcceptedExpiry { .. } => {
+                    if !matches!(owner, OwnedTx::Accepted(_)) {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                    }
+                }
             }
-            if matches!(&plan, AdminPlan::RemoteExpiry { .. })
-                && matches!(&entry.phase, PreAcceptedPhase::Computing(_))
-            {
-                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+        }
+
+        match &plan {
+            AdminPlan::LocalRemoval { root } => {
+                let root_owner = self
+                    .entries
+                    .get(root)
+                    .ok_or(PlanError::Stale(StalePlan::Missing))?;
+                match root_owner {
+                    OwnedTx::Accepted(_) => {
+                        if hashes.iter().any(|hash| {
+                            !matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_)))
+                        }) {
+                            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                        }
+                    }
+                    OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {
+                        if hashes.as_slice() != std::slice::from_ref(root) {
+                            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                        }
+                    }
+                }
             }
-            owner_refs.push(owner);
+            AdminPlan::AcceptedExpiry { root, cutoff } => {
+                let Some(OwnedTx::Accepted(entry)) = self.entries.get(root) else {
+                    return Err(PlanError::Stale(StalePlan::Phase));
+                };
+                if entry.accepted_at > *cutoff {
+                    return Err(PlanError::Stale(StalePlan::SourceVersion));
+                }
+            }
+            AdminPlan::PeerRevocation { .. } | AdminPlan::RemoteExpiry { .. } => {}
         }
 
         let sequence = self.clocks.next_sequence;
@@ -3714,9 +3886,13 @@ impl TxPoolAuthority {
             AdminPlan::RemoteExpiry { .. } => {
                 let mut effects = Vec::new();
                 effects
-                    .try_reserve(owner_refs.len())
+                    .try_reserve(hashes.len())
                     .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-                for owner in &owner_refs {
+                for hash in &hashes {
+                    let owner = self
+                        .entries
+                        .get(hash)
+                        .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
                     let peer = owner
                         .ingress_peer()
                         .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
@@ -3740,12 +3916,102 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
                 let (publication, selected) = prefix.into_parts();
                 hashes.truncate(selected.get());
-                owner_refs.truncate(selected.get());
                 let effect = self.effects.plan_publication(&publication, sequence)?;
-                (AdminControl::RemoteExpiry, effect)
+                (AdminControl::None, effect)
+            }
+            AdminPlan::LocalRemoval { root } => {
+                let root_owner = self
+                    .entries
+                    .get(&root)
+                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+                let effect = match root_owner {
+                    OwnedTx::PreAccepted(_) => {
+                        let publication = self
+                            .effects
+                            .build_publication(
+                                EffectPolicy::Trusted,
+                                vec![CommittedEffect::RemoteIngressReleased { tx_hash: root }],
+                            )
+                            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                        self.effects.plan_publication(&publication, sequence)?
+                    }
+                    OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => EffectDelta::default(),
+                };
+                (AdminControl::None, effect)
+            }
+            AdminPlan::AcceptedExpiry { .. } => {
+                let mut effects = Vec::new();
+                effects
+                    .try_reserve(hashes.len())
+                    .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+                for hash in &hashes {
+                    let owner = self
+                        .entries
+                        .get(hash)
+                        .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+                    let OwnedTx::Accepted(entry) = owner else {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                    };
+                    effects.push(CommittedEffect::Rejected(CommittedRejection::Expired {
+                        entry: self.committed_entry_before(entry)?,
+                    }));
+                }
+                let publication = self
+                    .effects
+                    .build_publication(EffectPolicy::CriticalDetail, effects)
+                    .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                let effect = self.effects.plan_publication(&publication, sequence)?;
+                (AdminControl::None, effect)
             }
         };
 
+        let removal = self.plan_owner_removal_batch(hashes, sequence)?;
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Admin(AdminDelta {
+                cause,
+                control,
+                removal,
+                effect,
+                clocks,
+                sequence,
+            }),
+            handoff: CommittedHandoff::None,
+        })
+    }
+
+    fn plan_owner_removal_batch(
+        &mut self,
+        hashes: Vec<RawTxHash>,
+        sequence: ApplySequence,
+    ) -> Result<OwnerRemovalBatch, PlanError> {
+        let unique = hashes.iter().collect::<HashSet<_>>();
+        if unique.len() != hashes.len() {
+            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+        }
+        let accepted_removals = hashes
+            .iter()
+            .filter_map(|hash| {
+                matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_))).then(|| hash.clone())
+            })
+            .collect::<BTreeSet<_>>();
+        if hashes.iter().any(|hash| !self.entries.contains_key(hash)) {
+            return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+        }
+        let membership = self.prepare_chain_projection(&accepted_removals, &HashMap::new())?;
+        let available = self.collect_released_administrative_inputs(&accepted_removals)?;
+
+        let mut owner_refs = Vec::new();
+        owner_refs
+            .try_reserve(hashes.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for hash in &hashes {
+            owner_refs.push(
+                self.entries
+                    .get(hash)
+                    .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?,
+            );
+        }
         let mut resource_changes = Vec::new();
         resource_changes
             .try_reserve(hashes.len())
@@ -3759,14 +4025,20 @@ impl TxPoolAuthority {
         let resources = self.resources.plan_batch(resource_changes)?;
         let scheduler = self
             .scheduler
-            .plan_batch(owner_refs.iter().map(|owner| (Some(*owner), None)))?;
-        let dependency_control = self.plan_dependency_loss(owner_refs.iter().copied(), sequence)?;
+            .plan_batch(owner_refs.iter().copied().map(|owner| (Some(owner), None)))?;
+        let lost = self
+            .collect_dependency_loss_keys(owner_refs.iter().copied())?
+            .keys;
+        let dependency_control = self
+            .dependencies
+            .plan_events(available, lost, DependencyCut(sequence))?
+            .unwrap_or_default();
         let dependency = self
             .dependencies
-            .plan_replacements(owner_refs.iter().map(|owner| (Some(*owner), None)))?
+            .plan_replacements(owner_refs.iter().copied().map(|owner| (Some(owner), None)))?
             .with_control(dependency_control);
         let sources = self.source_versions.plan_replacements(
-            owner_refs.iter().map(|owner| (Some(*owner), None)),
+            owner_refs.iter().copied().map(|owner| (Some(owner), None)),
             sequence,
         );
         let indexes = self.indexes.plan_replacements(
@@ -3777,22 +4049,14 @@ impl TxPoolAuthority {
         )?;
         let owners = DerivedOwnerDelta { indexes, sources };
         let retired = retired_buffer(hashes.len())?;
-        Ok(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Admin(AdminDelta {
-                cause,
-                control,
-                hashes,
-                owners,
-                resources,
-                scheduler,
-                dependency,
-                effect,
-                retired,
-                clocks,
-                sequence,
-            }),
-            handoff: CommittedHandoff::None,
+        Ok(OwnerRemovalBatch {
+            hashes,
+            owners,
+            resources,
+            membership,
+            scheduler,
+            dependency,
+            retired,
         })
     }
 
@@ -3835,21 +4099,61 @@ impl TxPoolAuthority {
         self.plan_peer_revocation(peer, PeerRevocationEvidence::Administrative)
     }
 
-    /// Remove up to `limit` inactive Remote owners whose retained residency
-    /// lease has elapsed. Computing owners keep their unique settlement
-    /// capability and are skipped; the scan expansion is bounded by the
-    /// globally charged active-work population, so one slow worker cannot
-    /// head-of-line block unrelated expiry.
-    pub(super) fn plan_remote_expiry_for_foundation(
+    /// Remove one explicit owner. Accepted roots include their complete
+    /// descendant closure; transient/history roots remove only the named
+    /// owner and publish dependency loss for bounded maintenance.
+    pub(super) fn plan_local_removal(
+        &mut self,
+        root: &RawTxHash,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let Some(owner) = self.entries.get(root) else {
+            return Ok(None);
+        };
+        let hashes = match owner {
+            OwnedTx::Accepted(_) => self.administrative_descendant_closure(root)?,
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => vec![root.clone()],
+        };
+        self.plan_administrative_removal(hashes, AdminPlan::LocalRemoval { root: root.clone() })
+            .map(Some)
+    }
+
+    /// Expire the oldest due Accepted root and its complete descendant
+    /// closure in one Apply. One root per maintenance step keeps effect and
+    /// graph work bounded by the accepted component invariant.
+    pub(super) fn plan_accepted_expiry(
+        &mut self,
+        cutoff: AcceptedAtMillis,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        let Some(due) = self.indexes.due_accepted(cutoff, 1)?.pop() else {
+            return Ok(None);
+        };
+        let Some(OwnedTx::Accepted(entry)) = self.entries.get(&due.hash) else {
+            return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+        };
+        if entry.accepted_at != due.accepted_at || entry.accepted_at > cutoff {
+            return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+        }
+        let hashes = self.administrative_descendant_closure(&due.hash)?;
+        self.plan_administrative_removal(
+            hashes,
+            AdminPlan::AcceptedExpiry {
+                root: due.hash,
+                cutoff,
+            },
+        )
+        .map(Some)
+    }
+
+    /// Remove up to `limit` Remote owners whose retained residency lease has
+    /// elapsed. Computing owners are removed with their exact charge; a later
+    /// move-only completion observes stale ownership. Expiry never waits for a
+    /// worker or expands the due-prefix scan by the active population.
+    pub(super) fn plan_remote_expiry(
         &mut self,
         cutoff: RemoteDeadline,
         limit: NonZeroUsize,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
-        let scan_limit = limit
-            .get()
-            .checked_add(self.resources.preaccepted().active_work)
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let due = self.indexes.due_remote(cutoff, scan_limit)?;
+        let due = self.indexes.due_remote(cutoff, limit.get())?;
         if due.is_empty() {
             return Ok(None);
         }
@@ -3857,7 +4161,6 @@ impl TxPoolAuthority {
         hashes
             .try_reserve(limit.get())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        let mut blocked = false;
         for candidate in due {
             let owner = self
                 .entries
@@ -3875,21 +4178,10 @@ impl TxPoolAuthority {
             if remote.residency.expires_at != candidate.expires_at {
                 return Err(PlanError::Fault(AuthorityFault::IndexProjection));
             }
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_)) {
-                blocked = true;
-                continue;
-            }
             hashes.push(candidate.hash);
-            if hashes.len() == limit.get() {
-                break;
-            }
         }
         if hashes.is_empty() {
-            return if blocked {
-                Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
-            } else {
-                Err(PlanError::Fault(AuthorityFault::IndexProjection))
-            };
+            return Err(PlanError::Fault(AuthorityFault::IndexProjection));
         }
         self.plan_administrative_removal(hashes, AdminPlan::RemoteExpiry { cutoff })
             .map(Some)
@@ -3994,6 +4286,7 @@ impl TxPoolAuthority {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn plan_dependency_availability_for_foundation(
         &mut self,
         keys: Vec<DependencyKey>,
@@ -4021,7 +4314,7 @@ impl TxPoolAuthority {
         }))
     }
 
-    pub(super) fn plan_dependency_maintenance_for_foundation(
+    pub(super) fn plan_dependency_maintenance(
         &mut self,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
         self.effects.ensure_open()?;
@@ -4063,7 +4356,7 @@ impl TxPoolAuthority {
         let version = self.clocks.next_version;
         let after = match existing.clone() {
             OwnedTx::PreAccepted(preaccepted) => existing
-                .with_foundation_phase(
+                .with_preaccepted_phase(
                     PreAcceptedPhase::Queued(QueuedWork::Resolve),
                     version,
                     preaccepted.original_charge(),
@@ -4397,7 +4690,7 @@ impl TxPoolAuthority {
         let active_dependencies = preaccepted.dependencies().clone();
         let attribution = preaccepted.source.compute_attribution();
         let after = existing
-            .with_foundation_phase(
+            .with_preaccepted_phase(
                 PreAcceptedPhase::Computing(super::state::ActiveWork {
                     lease,
                     chain_view: self.chain_view.clone(),
@@ -4810,7 +5103,7 @@ impl TxPoolAuthority {
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let after = existing
-            .with_foundation_phase(phase, version, retained_charge)
+            .with_preaccepted_phase(phase, version, retained_charge)
             .map_err(PlanError::Stale)?;
         let clocks = AuthorityClocks {
             next_version: next_version(version)?,
@@ -5063,7 +5356,7 @@ impl TxPoolAuthority {
 }
 
 impl OwnedTx {
-    pub(super) fn with_foundation_phase(
+    pub(super) fn with_preaccepted_phase(
         &self,
         phase: PreAcceptedPhase,
         version: EntryVersion,

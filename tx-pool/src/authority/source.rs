@@ -51,10 +51,6 @@ impl AuthoritySourceVersions {
         }
     }
 
-    pub(super) fn owners(self) -> ApplySequence {
-        self.owners
-    }
-
     pub(super) fn accepted(self) -> ApplySequence {
         self.accepted
     }

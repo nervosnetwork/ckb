@@ -91,33 +91,45 @@ impl EffectCapacity {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct EffectBatchBounds {
+pub(super) struct EffectBatchBound {
     max_effects: usize,
-    remote_bytes: usize,
-    trusted_bytes: usize,
-    critical_bytes: usize,
+    max_bytes: usize,
+}
+
+impl EffectBatchBound {
+    pub(super) const fn new(max_effects: usize, max_bytes: usize) -> Self {
+        Self {
+            max_effects,
+            max_bytes,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct EffectBatchBounds {
+    remote: EffectBatchBound,
+    trusted: EffectBatchBound,
+    critical: EffectBatchBound,
 }
 
 impl EffectBatchBounds {
     pub(super) const fn new(
-        max_effects: usize,
-        remote_bytes: usize,
-        trusted_bytes: usize,
-        critical_bytes: usize,
+        remote: EffectBatchBound,
+        trusted: EffectBatchBound,
+        critical: EffectBatchBound,
     ) -> Self {
         Self {
-            max_effects,
-            remote_bytes,
-            trusted_bytes,
-            critical_bytes,
+            remote,
+            trusted,
+            critical,
         }
     }
 
-    fn bytes_for(self, class: EffectClass) -> usize {
+    fn for_class(self, class: EffectClass) -> EffectBatchBound {
         match class {
-            EffectClass::Remote => self.remote_bytes,
-            EffectClass::Trusted => self.trusted_bytes,
-            EffectClass::Critical => self.critical_bytes,
+            EffectClass::Remote => self.remote,
+            EffectClass::Trusted => self.trusted,
+            EffectClass::Critical => self.critical,
         }
     }
 }
@@ -183,10 +195,9 @@ impl EffectLimits {
             ),
             EffectCapacity::new(1, critical_effect_bytes),
             EffectBatchBounds::new(
-                max_admission_effects,
-                ordinary_effect_bytes,
-                admission_effect_bytes,
-                critical_effect_bytes,
+                EffectBatchBound::new(max_admission_effects, ordinary_effect_bytes),
+                EffectBatchBound::new(max_admission_effects, admission_effect_bytes),
+                EffectBatchBound::new(max_pool_effects, critical_effect_bytes),
             ),
         )
     }
@@ -200,16 +211,15 @@ impl EffectLimits {
         if remote.batches == 0 || remote.bytes == 0 {
             return Err(EffectConfigError::EmptyRemoteRegion);
         }
-        if bounds.max_effects == 0
-            || bounds.remote_bytes == 0
-            || bounds.trusted_bytes == 0
-            || bounds.critical_bytes == 0
+        if [bounds.remote, bounds.trusted, bounds.critical]
+            .iter()
+            .any(|bound| bound.max_effects == 0 || bound.max_bytes == 0)
         {
             return Err(EffectConfigError::EmptyBatchBound);
         }
-        if EFFECT_ENVELOPE_BYTES > bounds.remote_bytes
-            || EFFECT_ENVELOPE_BYTES > bounds.trusted_bytes
-            || EFFECT_ENVELOPE_BYTES > bounds.critical_bytes
+        if EFFECT_ENVELOPE_BYTES > bounds.remote.max_bytes
+            || EFFECT_ENVELOPE_BYTES > bounds.trusted.max_bytes
+            || EFFECT_ENVELOPE_BYTES > bounds.critical.max_bytes
         {
             return Err(EffectConfigError::IndivisibleBatch);
         }
@@ -219,9 +229,9 @@ impl EffectLimits {
         let total = ordinary
             .checked_add(critical_headroom)
             .ok_or(EffectConfigError::Arithmetic)?;
-        if bounds.remote_bytes > remote.bytes
-            || bounds.trusted_bytes > ordinary.bytes
-            || bounds.critical_bytes > total.bytes
+        if bounds.remote.max_bytes > remote.bytes
+            || bounds.trusted.max_bytes > ordinary.bytes
+            || bounds.critical.max_bytes > total.bytes
         {
             return Err(EffectConfigError::IndivisibleBatch);
         }
@@ -239,17 +249,21 @@ impl EffectLimits {
                 EffectCapacity::new(12, 128 * 1024),
                 EffectCapacity::new(14, 192 * 1024),
             ),
-            bounds: EffectBatchBounds::new(16, 32 * 1024, 64 * 1024, 128 * 1024),
+            bounds: EffectBatchBounds::new(
+                EffectBatchBound::new(16, 32 * 1024),
+                EffectBatchBound::new(16, 64 * 1024),
+                EffectBatchBound::new(64, 128 * 1024),
+            ),
         }
     }
 
-    fn max_batch_bytes(self, class: EffectClass) -> usize {
-        self.bounds.bytes_for(class)
+    fn batch_bound(self, class: EffectClass) -> EffectBatchBound {
+        self.bounds.for_class(class)
     }
 
     #[cfg(test)]
     pub(super) fn max_batch_bytes_for_foundation(self, policy: EffectPolicy) -> usize {
-        self.max_batch_bytes(policy.class())
+        self.batch_bound(policy.class()).max_bytes
     }
 }
 
@@ -392,6 +406,10 @@ pub(super) enum CommittedRejection {
         audience: RejectionAudience,
         fee_rate: FeeRate,
     },
+    /// Accepted residency elapsed. Descendants removed with an expired root
+    /// retain their own admission timestamp in the committed snapshot, exactly
+    /// matching the historical callback and recent-reject contract.
+    Expired { entry: CommittedEntrySnapshot },
     /// An attached chain transaction invalidated a resident owner.
     ChainConflict {
         owner: CommittedConflictOwner,
@@ -411,7 +429,9 @@ impl CommittedRejection {
     fn raw_hash(&self) -> RawTxHash {
         let hash = match self {
             Self::Validation { tx, .. } | Self::Membership { tx, .. } => tx.hash(),
-            Self::Replaced { entry, .. } | Self::CapacityEvicted { entry, .. } => entry.tx.hash(),
+            Self::Replaced { entry, .. }
+            | Self::CapacityEvicted { entry, .. }
+            | Self::Expired { entry } => entry.tx.hash(),
             Self::ChainConflict { owner, .. } => match owner {
                 CommittedConflictOwner::PreAccepted(tx) => tx.hash(),
                 CommittedConflictOwner::Accepted(entry) => entry.tx.hash(),
@@ -438,6 +458,7 @@ impl CommittedRejection {
             Self::CapacityEvicted { fee_rate, .. } => CommittedPublicReject::new(Reject::Full(
                 format!("the fee_rate for this transaction is: {fee_rate}"),
             )),
+            Self::Expired { entry } => CommittedPublicReject::new(Reject::Expiry(entry.timestamp)),
             Self::ChainConflict { out_point, .. } => CommittedPublicReject::new(Reject::Resolve(
                 ckb_types::core::error::OutPointError::Dead(out_point.clone()),
             )),
@@ -454,6 +475,7 @@ impl CommittedRejection {
             Self::Validation { reason, .. } => reason.should_record(),
             Self::Membership { reason, .. } => reason.should_record_recent_reject(),
             Self::Replaced { .. } | Self::ChainConflict { .. } => true,
+            Self::Expired { .. } => true,
             Self::CapacityEvicted { .. } => false,
             #[cfg(test)]
             Self::Foundation { .. } => true,
@@ -662,7 +684,8 @@ impl CommittedEffect {
                         EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
                     }
                     CommittedRejection::Replaced { entry, .. }
-                    | CommittedRejection::CapacityEvicted { entry, .. } => entry.charge_bytes(),
+                    | CommittedRejection::CapacityEvicted { entry, .. }
+                    | CommittedRejection::Expired { entry } => entry.charge_bytes(),
                     CommittedRejection::ChainConflict {
                         owner, out_point, ..
                     } => owner
@@ -755,7 +778,8 @@ impl EffectBatch {
         if effects.is_empty() {
             return Err(EffectBuildError::Empty);
         }
-        if effects.len() > limits.bounds.max_effects {
+        let bound = limits.batch_bound(class);
+        if effects.len() > bound.max_effects {
             return Err(EffectBuildError::TooMany);
         }
         if effects
@@ -772,7 +796,7 @@ impl EffectBatch {
             total.checked_add(effect.charge_bytes()?)
         });
         let charge_bytes = charge_bytes.ok_or(EffectBuildError::Arithmetic)?;
-        if charge_bytes > limits.max_batch_bytes(class) {
+        if charge_bytes > bound.max_bytes {
             return Err(EffectBuildError::TooLarge);
         }
         Ok(Arc::new(Self {
@@ -1411,15 +1435,16 @@ impl EffectLog {
     ) -> Result<Option<RemoteEffectPrefix>, EffectBuildError> {
         let mut selected = 0usize;
         let mut bytes = 0usize;
+        let bound = self.limits.batch_bound(EffectClass::Remote);
         for effect in &effects {
-            if selected == self.limits.bounds.max_effects {
+            if selected == bound.max_effects {
                 break;
             }
             let effect_bytes = effect.charge_bytes().ok_or(EffectBuildError::Arithmetic)?;
             let next_bytes = bytes
                 .checked_add(effect_bytes)
                 .ok_or(EffectBuildError::Arithmetic)?;
-            if next_bytes > self.limits.bounds.remote_bytes {
+            if next_bytes > bound.max_bytes {
                 if selected == 0 {
                     return Err(EffectBuildError::TooLarge);
                 }
@@ -1460,9 +1485,8 @@ impl EffectLog {
         self.validate_new_sequence(sequence)?;
         let class = publication.policy.class();
         let bytes = publication.batch.charge_bytes();
-        if publication.batch.effects().len() > self.limits.bounds.max_effects
-            || bytes > self.limits.max_batch_bytes(class)
-        {
+        let bound = self.limits.batch_bound(class);
+        if publication.batch.effects().len() > bound.max_effects || bytes > bound.max_bytes {
             return Err(EffectError::Projection);
         }
         if self.usage.fits(self.limits.regions, class, bytes) {

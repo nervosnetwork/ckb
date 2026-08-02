@@ -1,9 +1,9 @@
 use super::super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-        CommittedRejection, EffectBatchBounds, EffectBuildError, EffectCapacity, EffectConfigError,
-        EffectLease, EffectLimits, EffectPolicy, EffectPublication, ParentTransactionRequest,
-        RejectionAudience,
+        CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectBuildError, EffectCapacity,
+        EffectConfigError, EffectLease, EffectLimits, EffectPolicy, EffectPublication,
+        ParentTransactionRequest, RejectionAudience,
     },
     plan::{
         AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, MembershipReject,
@@ -42,10 +42,9 @@ fn effect_limits(
         EffectCapacity::new(trusted_headroom, EFFECT_BYTES),
         EffectCapacity::new(critical_headroom, EFFECT_BYTES),
         EffectBatchBounds::new(
-            max_effects,
-            EFFECT_BYTES,
-            EFFECT_BYTES * 2,
-            EFFECT_BYTES * 3,
+            EffectBatchBound::new(max_effects, EFFECT_BYTES),
+            EffectBatchBound::new(max_effects, EFFECT_BYTES * 2),
+            EffectBatchBound::new(max_effects, EFFECT_BYTES * 3),
         ),
     )
     .expect("fixture effect regions admit every indivisible batch")
@@ -115,7 +114,7 @@ fn uak_remote_expiry_effect_backpressure_is_zero_mutation() {
 
     assert_eq!(
         authority
-            .plan_remote_expiry_for_foundation(
+            .plan_remote_expiry(
                 RemoteDeadline(10),
                 NonZeroUsize::new(1).expect("fixture slice is non-zero"),
             )
@@ -343,7 +342,11 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
             EffectCapacity::new(0, EFFECT_BYTES),
             EffectCapacity::new(1, EFFECT_BYTES),
             EffectCapacity::new(1, EFFECT_BYTES),
-            EffectBatchBounds::new(1, EFFECT_BYTES, EFFECT_BYTES, EFFECT_BYTES),
+            EffectBatchBounds::new(
+                EffectBatchBound::new(1, EFFECT_BYTES),
+                EffectBatchBound::new(1, EFFECT_BYTES),
+                EffectBatchBound::new(1, EFFECT_BYTES),
+            ),
         ),
         Err(EffectConfigError::EmptyRemoteRegion)
     );
@@ -352,7 +355,11 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
             EffectCapacity::new(1, 64),
             EffectCapacity::new(0, 0),
             EffectCapacity::new(0, 0),
-            EffectBatchBounds::new(1, 65, 64, 64),
+            EffectBatchBounds::new(
+                EffectBatchBound::new(1, 65),
+                EffectBatchBound::new(1, 64),
+                EffectBatchBound::new(1, 64),
+            ),
         ),
         Err(EffectConfigError::IndivisibleBatch)
     );
@@ -390,6 +397,40 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
         narrow.effect_publication_for_foundation(EffectPolicy::Remote, Vec::new()),
         Err(EffectBuildError::Empty)
     ));
+}
+
+#[test]
+fn uak_effect_shape_bounds_are_class_specific() {
+    let limits = EffectLimits::partitioned(
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectBatchBounds::new(
+            EffectBatchBound::new(1, EFFECT_BYTES),
+            EffectBatchBound::new(1, EFFECT_BYTES),
+            EffectBatchBound::new(3, EFFECT_BYTES),
+        ),
+    )
+    .expect("each region proves its own indivisible batch shape");
+    let authority = authority_with_effect_limits(limits);
+    let effects = vec![
+        CommittedEffect::RemoteIngressReleased {
+            tx_hash: RawTxHash(Byte32::new([31; 32])),
+        },
+        CommittedEffect::RemoteIngressReleased {
+            tx_hash: RawTxHash(Byte32::new([32; 32])),
+        },
+    ];
+
+    assert_eq!(
+        authority
+            .effect_publication_for_foundation(EffectPolicy::Trusted, effects.clone())
+            .expect_err("trusted admission remains bounded to one outcome"),
+        EffectBuildError::TooMany
+    );
+    authority
+        .effect_publication_for_foundation(EffectPolicy::CriticalDetail, effects)
+        .expect("critical detail may retain the larger proven all-owner shape");
 }
 
 #[test]
@@ -443,6 +484,7 @@ fn effect_sizing_family(effect: &CommittedEffect) -> &'static str {
             CommittedRejection::Membership { .. } => "bounded-membership",
             CommittedRejection::Replaced { .. } => "trusted-admission",
             CommittedRejection::CapacityEvicted { .. } => "trusted-admission",
+            CommittedRejection::Expired { .. } => "critical-detail",
             CommittedRejection::ChainConflict { .. } => "chain-rebuildable",
             CommittedRejection::Foundation { .. } => "foundation-only",
         },

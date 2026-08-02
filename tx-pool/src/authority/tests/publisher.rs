@@ -254,6 +254,23 @@ fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
         evicted.relay.map(|action| action.result),
         Some(TxVerificationResult::Reject { .. })
     ));
+
+    let expired = entry(4_103);
+    let expiry = compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Expired {
+        entry: expired.clone(),
+    }));
+    let Some(CallbackEvent::Reject(snapshot, Reject::Expiry(22))) = expiry.callback else {
+        panic!("accepted expiry must publish its exact admission timestamp");
+    };
+    assert_eq!(snapshot, callback_snapshot(&expired));
+    assert!(matches!(
+        expiry.recent_reject.as_ref().map(|action| &action.reject),
+        Some(Reject::Expiry(22))
+    ));
+    assert!(matches!(
+        expiry.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
 }
 
 #[test]

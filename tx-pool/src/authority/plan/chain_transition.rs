@@ -933,12 +933,8 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         removal_hashes.extend(removals.iter().map(|removal| removal.hash.clone()));
         for hash in &receipt.committed {
-            let Some(owner) = self.entries.get(hash) else {
+            if !self.entries.contains_key(hash) {
                 continue;
-            };
-            if matches!(owner, OwnedTx::PreAccepted(entry) if matches!(entry.phase, PreAcceptedPhase::Computing(_)))
-            {
-                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
             }
             if removal_hashes.insert(hash.clone()) {
                 removals.push(ChainRemoval {
@@ -981,10 +977,6 @@ impl TxPoolAuthority {
                 .get(&removal.hash)
                 .cloned()
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
-            if matches!(&before, OwnedTx::PreAccepted(entry) if matches!(entry.phase, PreAcceptedPhase::Computing(_)))
-            {
-                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-            }
             changes.push(PreparedOwnerChange {
                 key: removal.hash.clone(),
                 before: Some(before),
@@ -993,10 +985,6 @@ impl TxPoolAuthority {
         }
         for recovery in receipt.recoveries {
             let key = recovery.key().clone();
-            if matches!(self.entries.get(&key), Some(OwnedTx::PreAccepted(entry)) if matches!(entry.phase, PreAcceptedPhase::Computing(_)))
-            {
-                return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-            }
             let before = self.entries.get(&key).cloned();
             let after = match recovery {
                 ChainRecoveryReceipt::Trusted(admission) => {
@@ -1431,9 +1419,6 @@ fn requeued_existing_owner(
     version: EntryVersion,
     arrival: Arrival,
 ) -> Result<OwnedTx, PlanError> {
-    if matches!(entry.phase, PreAcceptedPhase::Computing(_)) {
-        return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
-    }
     entry.record.version = version;
     entry.record.arrival = arrival;
     entry.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);

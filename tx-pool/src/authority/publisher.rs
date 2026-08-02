@@ -538,6 +538,7 @@ fn compile_rejection(rejection: CommittedRejection) -> CompiledEndpointOutcome {
             audience: _,
             fee_rate: _,
         } => compile_accepted_rejection(entry, public),
+        CommittedRejection::Expired { entry } => compile_accepted_rejection(entry, public),
         CommittedRejection::ChainConflict {
             owner,
             audience,

@@ -4,6 +4,7 @@ use super::super::{
         TxPoolAuthority,
     },
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
+    runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime},
     state::{
         AcceptedStatus, DependencyKey, EntryVersion, OwnedTx, PoolGeneration, PreAcceptedPhase,
         QueuedWork, RawTxHash, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifyCapability,
@@ -11,7 +12,7 @@ use super::super::{
     },
     work::{CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork},
 };
-use super::foundation::{FixtureCommit, direct_verified_facts};
+use super::foundation::{FixtureCommit, direct_verified_facts, genesis_snapshot, runtime_config};
 use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
@@ -193,7 +194,7 @@ fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) -> usize {
     let mut primary_requeues = 0;
     for _ in 0..64 {
         let Some(plan) = authority
-            .plan_dependency_maintenance_for_foundation()
+            .plan_dependency_maintenance()
             .expect("dependency maintenance planning is valid")
         else {
             return primary_requeues;
@@ -203,6 +204,75 @@ fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) -> usize {
         }
     }
     panic!("dependency maintenance did not converge within the fixture bound");
+}
+
+#[test]
+fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let hash = runtime.with_authority_for_foundation(|authority| {
+        let dependency = OutPoint::new(Byte32::new([0x9a; 32]), 0);
+        let key = DependencyKey::Cell(dependency.clone());
+        let hash = admit(
+            authority,
+            ValidatedAdmission::remote(input_transaction(699, dependency), PeerIndex::from(89))
+                .expect("runtime dependency admission is valid"),
+        );
+        let work = checkout_resolve(authority, &hash);
+        apply_without_work(
+            authority
+                .apply_settlement(
+                    work.missing(vec![key.clone()])
+                        .expect("the missing edge fits the compute grant"),
+                )
+                .expect("the missing owner enters dependency wait"),
+        );
+        apply_without_work(
+            authority
+                .plan_dependency_availability_for_foundation(vec![key.clone()])
+                .expect("availability event planning is valid")
+                .expect("the live waiter creates one dirty level"),
+        );
+        hash
+    });
+
+    assert_eq!(
+        runtime
+            .maintain_dependency()
+            .expect("the first bounded step requeues one owner"),
+        AuthorityMaintenanceOutcome::Applied { owners: 1 }
+    );
+    assert_eq!(
+        runtime
+            .maintain_dependency()
+            .expect("the second bounded step completes the dirty key"),
+        AuthorityMaintenanceOutcome::Applied { owners: 0 }
+    );
+    assert_eq!(
+        runtime
+            .maintain_dependency()
+            .expect("the level-triggered frontier becomes idle"),
+        AuthorityMaintenanceOutcome::Idle
+    );
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(matches!(
+            authority.entry(&hash),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+        ));
+        assert!(
+            authority
+                .dependency_maintenance_observation_for_foundation()
+                .expect("the dependency projection remains readable")
+                .is_none()
+        );
+        assert!(authority.primary_projection_consistent());
+    });
 }
 
 #[test]
@@ -1125,7 +1195,7 @@ fn uak_dirty_maintenance_cannot_outlive_its_last_charged_edge() {
     assert_eq!(drain_dependency_maintenance(&mut authority), 1);
     assert!(
         authority
-            .plan_dependency_maintenance_for_foundation()
+            .plan_dependency_maintenance()
             .expect("empty dirty frontier is valid")
             .is_none(),
         "removing the final expanded edge also removes its dirty traversal"
@@ -1183,7 +1253,7 @@ fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
         observed.insert(key);
         apply_without_work(
             authority
-                .plan_dependency_maintenance_for_foundation()
+                .plan_dependency_maintenance()
                 .expect("maintenance planning is valid")
                 .expect("the observed step remains current"),
         );
@@ -1269,7 +1339,7 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
         }
         apply_without_work(
             authority
-                .plan_dependency_maintenance_for_foundation()
+                .plan_dependency_maintenance()
                 .expect("maintenance planning is valid")
                 .expect("the observed step remains current"),
         );
