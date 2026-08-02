@@ -389,6 +389,15 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
 }
 
 #[test]
+fn uak_production_effect_sizing_is_checked_and_authority_owned() {
+    assert!(EffectLimits::production(1_000_000, 250_000, 500_000, 100).is_ok());
+    assert_eq!(
+        EffectLimits::production(usize::MAX, 1, 1, 1),
+        Err(EffectConfigError::Arithmetic)
+    );
+}
+
+#[test]
 fn uak_compute_outcome_survives_effect_backpressure() {
     let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
     let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(710)));

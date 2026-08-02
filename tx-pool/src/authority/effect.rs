@@ -8,14 +8,14 @@ use super::{
 use crate::error::Reject;
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::{Capacity, FeeRate, TransactionView},
+    core::{Capacity, FeeRate, TransactionBuilder, TransactionView},
     packed::OutPoint,
     prelude::Entity,
 };
 use std::{
     collections::{HashMap, VecDeque},
     num::NonZeroUsize,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 const EFFECT_ENVELOPE_BYTES: usize = 128;
@@ -31,6 +31,39 @@ const PARENT_TRANSACTION_HASH_BYTES: usize = 64;
 /// one callback-compatible accepted-entry snapshot.
 const COMMITTED_ENTRY_SNAPSHOT_OVERHEAD_BYTES: usize =
     std::mem::size_of::<CommittedEntrySnapshot>() + 64;
+
+fn minimum_serialized_transaction_bytes() -> usize {
+    static MINIMUM: LazyLock<usize> = LazyLock::new(|| {
+        TransactionBuilder::default()
+            .build()
+            .data()
+            .serialized_size_in_block()
+            .max(1)
+    });
+    *MINIMUM
+}
+
+/// Checked upper bound for one UAK effect batch retaining `max_effects`
+/// transaction outcomes whose packed transactions total `transaction_bytes`.
+///
+/// This formula deliberately uses the UAK committed snapshot and rejection
+/// envelope, not the legacy service journal's `TxEntrySnapshot`. Keeping the
+/// bound beside the values it charges prevents a later endpoint or snapshot
+/// change from silently invalidating startup capacity validation.
+fn effect_batch_charge_bound(
+    transaction_bytes: usize,
+    max_effects: usize,
+) -> Result<usize, EffectConfigError> {
+    let per_effect_metadata = EFFECT_ENVELOPE_BYTES
+        .checked_add(COMMITTED_ENTRY_SNAPSHOT_OVERHEAD_BYTES)
+        .and_then(|bytes| bytes.checked_add(PENDING_REJECT_INDEX_BYTES))
+        .and_then(|bytes| bytes.checked_add(crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES))
+        .ok_or(EffectConfigError::Arithmetic)?;
+    max_effects
+        .checked_mul(per_effect_metadata)
+        .and_then(|metadata| transaction_bytes.checked_add(metadata))
+        .ok_or(EffectConfigError::Arithmetic)
+}
 
 pub(super) fn parent_request_charge_bound(parent_count: usize) -> Option<usize> {
     parent_count
@@ -105,6 +138,59 @@ pub(super) struct EffectLimits {
 }
 
 impl EffectLimits {
+    pub(super) fn production(
+        max_pool_bytes: usize,
+        retained_preaccepted_bytes: usize,
+        max_block_bytes: usize,
+        max_parent_count: usize,
+    ) -> Result<Self, EffectConfigError> {
+        let max_admission_effects = crate::constants::MAX_POOL_MUTATION_CANDIDATES
+            .checked_add(1)
+            .ok_or(EffectConfigError::Arithmetic)?;
+        let admission_transaction_bytes = max_pool_bytes
+            .checked_add(max_block_bytes)
+            .ok_or(EffectConfigError::Arithmetic)?
+            .min(
+                max_admission_effects
+                    .checked_mul(max_block_bytes)
+                    .ok_or(EffectConfigError::Arithmetic)?,
+            );
+        let admission_effect_bytes =
+            effect_batch_charge_bound(admission_transaction_bytes, max_admission_effects)?
+                .max(4_096);
+
+        let max_pool_effects = max_pool_bytes.div_ceil(minimum_serialized_transaction_bytes());
+        let critical_effect_bytes =
+            effect_batch_charge_bound(max_pool_bytes, max_pool_effects)?.max(4_096);
+        let parent_request_effect_bytes =
+            parent_request_charge_bound(max_parent_count).ok_or(EffectConfigError::Arithmetic)?;
+        let resident_effect_bytes = max_pool_bytes
+            .checked_add(retained_preaccepted_bytes)
+            .and_then(|bytes| bytes.checked_mul(2))
+            .ok_or(EffectConfigError::Arithmetic)?;
+        let ordinary_effect_bytes = resident_effect_bytes
+            .max(admission_effect_bytes)
+            .max(parent_request_effect_bytes);
+
+        Self::partitioned(
+            EffectCapacity::new(
+                crate::constants::EFFECT_JOURNAL_REMOTE_MAX_BATCHES,
+                ordinary_effect_bytes,
+            ),
+            EffectCapacity::new(
+                crate::constants::EFFECT_TRUSTED_HEADROOM_BATCHES,
+                admission_effect_bytes,
+            ),
+            EffectCapacity::new(1, critical_effect_bytes),
+            EffectBatchBounds::new(
+                max_admission_effects,
+                ordinary_effect_bytes,
+                admission_effect_bytes,
+                critical_effect_bytes,
+            ),
+        )
+    }
+
     pub(super) fn partitioned(
         remote: EffectCapacity,
         trusted_headroom: EffectCapacity,

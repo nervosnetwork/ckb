@@ -8,10 +8,7 @@
 use super::rejection::{RecentRejectEncodingError, serialized_recent_reject};
 use super::{
     chain::FinalAdmissionWork,
-    effect::{
-        EffectBatchBounds, EffectCapacity, EffectConfigError, EffectLease, EffectLimits,
-        EffectSettlement, parent_request_charge_bound,
-    },
+    effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
     plan::{
         AuthorityConfigError, AuthorityFault, CandidateBatchError, CandidateDispositionPlan,
         CommittedDelta, ComputeSettlementFailure, EffectSettlementFailure,
@@ -286,7 +283,7 @@ impl AuthorityRuntimeConfig {
             compute,
             residency,
         )
-        .map_err(|_: ResourceConfigError| RuntimeConfigError::ResourceConfiguration)?
+        .map_err(runtime_resource_config_error)?
         .with_replacement_history_limit(ResourceVector::new(
             REPLACEMENT_HISTORY_MAX_ENTRIES
                 .min((retained_entries / HISTORY_RESOURCE_DIVISOR).max(1)),
@@ -294,53 +291,21 @@ impl AuthorityRuntimeConfig {
             (retained_edges / HISTORY_RESOURCE_DIVISOR).max(1),
             0,
         ))
-        .map_err(|_: ResourceConfigError| RuntimeConfigError::ResourceConfiguration)?;
+        .map_err(runtime_resource_config_error)?;
 
-        let resident_effect_bytes = config
-            .max_tx_pool_size
-            .checked_add(retained_bytes)
-            .and_then(|bytes| bytes.checked_mul(2))
-            .ok_or(RuntimeConfigError::Arithmetic)?;
-        let submit_effect_bytes = crate::service::effects::max_submit_effect_bytes(
+        let effects = EffectLimits::production(
             config.max_tx_pool_size,
+            retained_bytes,
             consensus.max_block_bytes() as usize,
-        );
-        let reorg_effect_bytes =
-            crate::service::effects::max_pool_mutation_effect_bytes(config.max_tx_pool_size)
-                .max(4_096);
-        if submit_effect_bytes == usize::MAX || reorg_effect_bytes == usize::MAX {
-            return Err(RuntimeConfigError::Arithmetic);
-        }
-        // A complete missing frontier is a non-rebuildable committed detail.
-        // Size its one-effect Remote batch from the same per-work edge grant
-        // that bounds resolution, so every legal missing receipt can wait for
-        // capacity but can never fail the journal's indivisible-batch shape.
-        let parent_request_effect_bytes = parent_request_charge_bound(compute_edges_per_work)
-            .ok_or(RuntimeConfigError::Arithmetic)?;
-        let ordinary_effect_bytes = resident_effect_bytes
-            .max(submit_effect_bytes)
-            .max(parent_request_effect_bytes);
-        let max_effects = crate::constants::MAX_POOL_MUTATION_CANDIDATES
-            .checked_add(1)
-            .ok_or(RuntimeConfigError::Arithmetic)?;
-        let effects = EffectLimits::partitioned(
-            EffectCapacity::new(
-                crate::constants::EFFECT_JOURNAL_REMOTE_MAX_BATCHES,
-                ordinary_effect_bytes,
-            ),
-            EffectCapacity::new(
-                crate::constants::EFFECT_TRUSTED_HEADROOM_BATCHES,
-                submit_effect_bytes,
-            ),
-            EffectCapacity::new(1, reorg_effect_bytes),
-            EffectBatchBounds::new(
-                max_effects,
-                ordinary_effect_bytes,
-                submit_effect_bytes,
-                reorg_effect_bytes,
-            ),
+            compute_edges_per_work,
         )
-        .map_err(|_: EffectConfigError| RuntimeConfigError::EffectConfiguration)?;
+        .map_err(|error| match error {
+            EffectConfigError::Arithmetic => RuntimeConfigError::Arithmetic,
+            EffectConfigError::EmptyRemoteRegion
+            | EffectConfigError::EmptyBatchBound
+            | EffectConfigError::IndivisibleBatch
+            | EffectConfigError::Allocation => RuntimeConfigError::EffectConfiguration,
+        })?;
 
         let verify_order = match config.verify_ordering {
             VerifyOrdering::ArrivalTime => VerifyOrder::Arrival,
@@ -374,6 +339,41 @@ fn checked_fraction(
         .checked_mul(numerator)
         .and_then(|scaled| scaled.checked_div(denominator))
         .ok_or(RuntimeConfigError::Arithmetic)
+}
+
+/// Preserve the source error algebra at the runtime assembly boundary.  In
+/// particular, checked-capacity overflow is not a malformed resource policy.
+/// An exhaustive match also makes a future resource error fail compilation
+/// here instead of being silently folded into the wrong startup diagnosis.
+fn runtime_resource_config_error(error: ResourceConfigError) -> RuntimeConfigError {
+    match error {
+        ResourceConfigError::TransientComputeOverflow => RuntimeConfigError::Arithmetic,
+        ResourceConfigError::LimitHierarchy
+        | ResourceConfigError::MissingComputeCapacity
+        | ResourceConfigError::NonMonotonicComputeEnvelope => {
+            RuntimeConfigError::ResourceConfiguration
+        }
+    }
+}
+
+/// Authority construction currently allocates only the already-validated
+/// effect queue, but keep this conversion exhaustive so moving validation
+/// ownership cannot erase the distinction between arithmetic, configuration,
+/// and allocation failures again.
+fn runtime_authority_config_error(error: AuthorityConfigError) -> RuntimeConfigError {
+    match error {
+        AuthorityConfigError::Effect(EffectConfigError::Arithmetic) => {
+            RuntimeConfigError::Arithmetic
+        }
+        AuthorityConfigError::Effect(
+            EffectConfigError::EmptyRemoteRegion
+            | EffectConfigError::EmptyBatchBound
+            | EffectConfigError::IndivisibleBatch,
+        ) => RuntimeConfigError::EffectConfiguration,
+        AuthorityConfigError::Effect(EffectConfigError::Allocation) => {
+            RuntimeConfigError::AuthorityAllocation
+        }
+    }
 }
 
 /// The single physical lock domain of the production tx-pool.
@@ -1164,7 +1164,7 @@ impl AuthorityStore {
             runtime.membership,
             chain_view,
         )
-        .map_err(|_: AuthorityConfigError| RuntimeConfigError::AuthorityAllocation)?;
+        .map_err(runtime_authority_config_error)?;
         Ok(Self {
             authority,
             snapshot,
@@ -1242,12 +1242,15 @@ mod tests {
     use super::{
         AuthorityComputeJob, AuthorityComputeOutcome, AuthorityReadyOutcome, AuthorityRuntime,
         AuthorityRuntimeConfig, AuthorityRuntimeError, AuthoritySignals, AuthorityStore,
-        PREACCEPTED_ENTRY_BYTES, PlanError, RuntimeConfigError,
+        PREACCEPTED_ENTRY_BYTES, PlanError, RuntimeConfigError, runtime_authority_config_error,
+        runtime_resource_config_error,
     };
     use crate::authority::effect::{
-        CommittedEffect, CommittedRejection, EffectBatchBounds, EffectCapacity, EffectLimits,
-        EffectPolicy, RejectionAudience,
+        CommittedEffect, CommittedRejection, EffectBatchBounds, EffectCapacity, EffectConfigError,
+        EffectLimits, EffectPolicy, RejectionAudience,
     };
+    use crate::authority::plan::AuthorityConfigError;
+    use crate::authority::resources::ResourceConfigError;
     use crate::authority::state::{
         ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RejectionKind,
         ValidatedAdmission, VerifyCapability, WorkPermit,
@@ -1802,6 +1805,30 @@ mod tests {
         assert_eq!(
             AuthorityRuntimeConfig::from_runtime(&config, &consensus).err(),
             Some(RuntimeConfigError::Arithmetic)
+        );
+    }
+
+    #[test]
+    fn runtime_configuration_error_conversions_preserve_failure_domains() {
+        assert_eq!(
+            runtime_resource_config_error(ResourceConfigError::TransientComputeOverflow),
+            RuntimeConfigError::Arithmetic
+        );
+        assert_eq!(
+            runtime_resource_config_error(ResourceConfigError::LimitHierarchy),
+            RuntimeConfigError::ResourceConfiguration
+        );
+        assert_eq!(
+            runtime_authority_config_error(AuthorityConfigError::Effect(
+                EffectConfigError::Arithmetic,
+            )),
+            RuntimeConfigError::Arithmetic
+        );
+        assert_eq!(
+            runtime_authority_config_error(AuthorityConfigError::Effect(
+                EffectConfigError::Allocation,
+            )),
+            RuntimeConfigError::AuthorityAllocation
         );
     }
 }

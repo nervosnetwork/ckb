@@ -1,11 +1,11 @@
 # G5 Production Cutover Recovery Plan
 
-Status: design frozen
+Status: design frozen; isolated capability implementation in progress
 Base checkpoint: c1650d596
-Active slice: G5.3b.1
-Next exact action: extract the shared bounded effect-sizing and rejection
-conversion helpers behind the isolated UAK boundary. Do not change a legacy
-production owner before G5.3c.
+G5.3a checkpoint: d7c67a705
+Active slice: G5.3b.2
+Next exact action: add the sealed production ingress and immutable TestAccept
+validation boundaries. Do not change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -614,18 +614,43 @@ must be removed when the normative documents are synchronized.
 
 Implement in dependency order, with focused UAK tests after each slice:
 
-1. Move shared effect sizing and rejection conversion helpers out of legacy
-   service modules so UAK has no dependency on code scheduled for deletion.
-2. Add production ingress and immutable TestAccept validation.
-3. Generalize the total administrative owner batch, add cause-complete
+1. [x] Seal production effect sizing beside the UAK committed effect types so
+   UAK has no dependency on the legacy service journal. The bounded rejection
+   compiler was already authority-owned and remains the one shared compiler;
+   the legacy journal's different envelope formula stays isolated until its
+   G5.3c deletion.
+2. [ ] Add production ingress and immutable TestAccept validation.
+3. [ ] Generalize the total administrative owner batch, add cause-complete
    administrative planners, typed ClearPipeline/ClearPool plans, active-work
    invalidation, bounded Remote and Accepted expiry, and dependency maintenance.
-4. Add production chain fact extraction, validation, snapshot Apply, and
+4. [ ] Add production chain fact extraction, validation, snapshot Apply, and
    committed short-id handling.
-5. Add owned query and persistence receipts.
-6. Add the pure template packer and block-assembler source receipt.
-7. Add the complete new topology assembly in isolated constructors, but do not
+5. [ ] Add owned query and persistence receipts.
+6. [ ] Add the pure template packer and block-assembler source receipt.
+7. [ ] Add the complete new topology assembly in isolated constructors, but do not
    start it from production builder yet.
+
+G5.3b.1 phase review:
+
+- Root cause: effect-capacity validation moved from the legacy runtime into the
+  authority-owned constructor, while the runtime retained a wildcard error
+  conversion. The success path changed ownership, but the complete error
+  algebra and its consumer did not move together, so checked arithmetic was
+  silently reclassified as generic effect configuration.
+- Correction: runtime assembly now uses exhaustive conversions for effect,
+  resource, and authority construction errors. A future variant therefore
+  breaks compilation at the boundary instead of inheriting an accidental
+  failure policy.
+- Bounded same-class audit: allocation-only `try_reserve` contractions are
+  intentionally `Backpressure::Allocation`; resource, index, dependency, and
+  effect runtime errors already use exhaustive semantic mappings. Effect batch
+  build failures remain authority faults only where the production sizing
+  proof guarantees every legal batch shape; remote expiry uses its typed
+  bounded-prefix constructor and chain detail has its explicit rebuildable
+  reset path. No second legal-input semantic collapse was found.
+- Reusable lesson: when validation ownership moves, review the producer enum,
+  every conversion, and the final failure policy as one change. Success-path
+  compilation and one overflow test are not sufficient evidence.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that
