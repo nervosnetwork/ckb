@@ -1,10 +1,11 @@
 use super::*;
 use crate::authority::chain::{
-    ChainExpectedOwner, ChainOwnerExpectation, ChainProposalSubject, ChainRecoveryReceipt,
-    ChainRecoveryWork, ChainRemoval, ChainRemovalCause, ChainStatusSubject, ChainTransitionFacts,
-    ChainTransitionReceipt, ChainValidationWork, ProposalContextReceipt,
+    ChainCommittedOwner, ChainConflictOwner, ChainPackagingMode, ChainProposalSubject,
+    ChainRecoveryOwner, ChainRecoveryReceipt, ChainRecoveryWork, ChainRemoval, ChainStatusSubject,
+    ChainTransitionFacts, ChainTransitionReceipt, ChainValidationWork, ExpectedPreAcceptedOwner,
+    ProposalContextReceipt,
 };
-use crate::authority::state::DependencySetError;
+use crate::authority::state::{AcceptedStatus, DependencySetError};
 use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
     cmp::Reverse,
@@ -267,8 +268,9 @@ impl<'facts> CausalCompiler<'facts> {
 
 impl TxPoolAuthority {
     /// Select the complete bounded owner slice affected by one chain change.
-    /// This is a read-only command: snapshot validation and recovery admission
-    /// construction occur after its guard has been released.
+    /// This is a read-only command. Production retains the same chain-only
+    /// upgradable read while validating immutable snapshot proposal evidence,
+    /// so no writer can invalidate this owner slice before the final upgrade.
     pub(in crate::authority) fn chain_validation_work(
         &self,
         facts: ChainTransitionFacts,
@@ -363,12 +365,22 @@ impl TxPoolAuthority {
         // A genuine detach can move tip height/epoch/median-time independently
         // of explicit producer loss. Only validation-proven contextual owners
         // enter this derived index; stable Accepted membership remains O(1).
-        if facts.accepted_validity.requires_revalidation() {
-            for hash in self.indexes.context_sensitive_accepted() {
-                if !matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_))) {
-                    return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+        match facts.accepted_validity {
+            crate::authority::chain::AcceptedValidityTransition::Preserved => {}
+            crate::authority::chain::AcceptedValidityTransition::ContextChanged => {
+                for hash in self.indexes.context_sensitive_accepted() {
+                    if !matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_))) {
+                        return Err(PlanError::Fault(AuthorityFault::IndexProjection));
+                    }
+                    causal.seed_accepted(hash.clone(), CausalDisposition::Recovery)?;
                 }
-                causal.seed_accepted(hash.clone(), CausalDisposition::Recovery)?;
+            }
+            crate::authority::chain::AcceptedValidityTransition::RulesChanged => {
+                for (hash, owner) in &self.entries {
+                    if matches!(owner, OwnedTx::Accepted(_)) {
+                        causal.seed_accepted(hash.clone(), CausalDisposition::Recovery)?;
+                    }
+                }
             }
         }
 
@@ -413,43 +425,55 @@ impl TxPoolAuthority {
             )
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for hash in &attached_hashes {
-            if self.entries.contains_key(hash) {
-                removals.push(ChainRemoval {
+            if let Some(owner) = self.entries.get(hash) {
+                removals.push(ChainRemoval::Committed {
                     hash: hash.clone(),
-                    cause: ChainRemovalCause::Committed,
+                    expected: chain_committed_owner(owner),
                 });
             }
         }
         for (hash, disposition) in &dispositions {
-            let cause = match disposition {
+            let removal = match disposition {
                 CausalDisposition::ForcePending => continue,
-                CausalDisposition::Recovery => ChainRemovalCause::Recovery,
+                CausalDisposition::Recovery => {
+                    let Some(OwnedTx::Accepted(entry)) = self.entries.get(hash) else {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                    };
+                    ChainRemoval::Recovery {
+                        hash: hash.clone(),
+                        expected: entry.record.version,
+                    }
+                }
                 CausalDisposition::ChainConflictRemoval { out_point } => {
-                    ChainRemovalCause::ChainConflict {
+                    let Some(owner) = self.entries.get(hash) else {
+                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                    };
+                    ChainRemoval::ChainConflict {
+                        hash: hash.clone(),
+                        expected: chain_conflict_owner(owner)?,
                         out_point: out_point.clone(),
                     }
                 }
             };
-            removals.push(ChainRemoval {
-                hash: hash.clone(),
-                cause,
-            });
+            removals.push(removal);
         }
         for (hash, disposition) in &preaccepted_dispositions {
             match disposition {
                 PreacceptedDisposition::Requeue => {}
                 PreacceptedDisposition::ChainConflictRemoval { out_point } => {
-                    removals.push(ChainRemoval {
+                    let Some(OwnedTx::PreAccepted(entry)) = self.entries.get(hash) else {
+                        return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+                    };
+                    removals.push(ChainRemoval::ChainConflict {
                         hash: hash.clone(),
-                        cause: ChainRemovalCause::ChainConflict {
-                            out_point: out_point.clone(),
-                        },
+                        expected: ChainConflictOwner::PreAccepted(expected_preaccepted(entry)),
+                        out_point: out_point.clone(),
                     });
                 }
             }
         }
-        removals.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
-        removals.dedup_by(|left, right| left.hash == right.hash);
+        removals.sort_unstable_by(|left, right| left.hash().cmp(right.hash()));
+        removals.dedup_by(|left, right| left.hash() == right.hash());
 
         // Status is meaningful only for owners whose projected final state is
         // still Accepted. Besides terminal removals, every direct detached
@@ -465,13 +489,51 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
             )
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        non_status_hashes.extend(removals.iter().map(|removal| removal.hash.clone()));
+        non_status_hashes.extend(removals.iter().map(|removal| removal.hash().clone()));
         non_status_hashes.extend(detached_hashes.iter().cloned());
+        let indexed_proposal_count = self
+            .indexes
+            .accepted_proposals(AcceptedStatus::Gap)
+            .len()
+            .checked_add(match facts.packaging {
+                ChainPackagingMode::Package => self
+                    .indexes
+                    .accepted_proposals(AcceptedStatus::Pending)
+                    .len(),
+                ChainPackagingMode::ObserveOnly => 0,
+            })
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let proposal_capacity = facts
+            .changed_proposals
+            .len()
+            .checked_add(indexed_proposal_count)
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let mut proposal_candidates = Vec::new();
+        proposal_candidates
+            .try_reserve(proposal_capacity)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        proposal_candidates.extend(facts.changed_proposals.iter().cloned());
+        proposal_candidates.extend(
+            self.indexes
+                .accepted_proposals(AcceptedStatus::Gap)
+                .iter()
+                .cloned(),
+        );
+        if facts.packaging == ChainPackagingMode::Package {
+            proposal_candidates.extend(
+                self.indexes
+                    .accepted_proposals(AcceptedStatus::Pending)
+                    .iter()
+                    .cloned(),
+            );
+        }
+        proposal_candidates.sort_unstable();
+        proposal_candidates.dedup();
+
         let mut status_subjects = HashMap::<RawTxHash, ChainStatusSubject>::new();
         status_subjects
             .try_reserve(
-                facts
-                    .changed_proposals
+                proposal_candidates
                     .len()
                     .checked_add(dispositions.len())
                     .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
@@ -481,7 +543,7 @@ impl TxPoolAuthority {
         proposal_subjects
             .try_reserve(facts.changed_proposals.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        for proposal in &facts.changed_proposals {
+        for proposal in &proposal_candidates {
             let Some(hash) = self.indexes.proposal_owner(proposal) else {
                 continue;
             };
@@ -494,6 +556,7 @@ impl TxPoolAuthority {
                         hash.clone(),
                         ChainStatusSubject {
                             hash: hash.clone(),
+                            expected: entry.record.version,
                             proposal: proposal.clone(),
                             before: entry.status(),
                             baseline: super::super::chain::ProposalStatusBaseline::Current,
@@ -504,6 +567,7 @@ impl TxPoolAuthority {
                     PreAcceptedSource::Proposal { base, .. } => {
                         proposal_subjects.push(ChainProposalSubject {
                             hash: hash.clone(),
+                            expected: expected_preaccepted(entry),
                             proposal: proposal.clone(),
                             base,
                         });
@@ -538,6 +602,7 @@ impl TxPoolAuthority {
                 })
                 .or_insert_with(|| ChainStatusSubject {
                     hash: hash.clone(),
+                    expected: entry.record.version,
                     proposal: entry.record.identity.proposal.clone(),
                     before: entry.status(),
                     baseline: super::super::chain::ProposalStatusBaseline::DetachedProposal,
@@ -564,30 +629,31 @@ impl TxPoolAuthority {
             &dispositions,
             &preaccepted_dispositions,
         )?;
-        let mut expectations = self.chain_expectations(
-            &removals,
-            &recovery_transactions,
-            &preaccepted_dispositions,
-            &status_subjects,
-            &proposal_subjects,
-        )?;
-        expectations.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
         let mut recoveries = Vec::new();
         recoveries
             .try_reserve(recovery_transactions.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        recoveries.extend(recovery_transactions.into_iter().map(|transaction| {
+        for transaction in recovery_transactions {
             let hash = RawTxHash(transaction.hash());
             let requeue_existing = match preaccepted_dispositions.get(&hash) {
                 Some(PreacceptedDisposition::Requeue) => !detached_hashes.contains(&hash),
                 Some(PreacceptedDisposition::ChainConflictRemoval { .. }) | None => false,
             };
             if requeue_existing {
-                ChainRecoveryWork::RequeueExisting(hash)
+                let Some(OwnedTx::PreAccepted(entry)) = self.entries.get(&hash) else {
+                    return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+                };
+                recoveries.push(ChainRecoveryWork::RequeueExisting {
+                    hash,
+                    expected: expected_preaccepted(entry),
+                });
             } else {
-                ChainRecoveryWork::Trusted(transaction)
+                recoveries.push(ChainRecoveryWork::Trusted {
+                    expected: chain_recovery_owner(self.entries.get(&hash)),
+                    transaction,
+                });
             }
-        }));
+        }
 
         let mut committed = Vec::new();
         committed
@@ -604,9 +670,6 @@ impl TxPoolAuthority {
             generation: self.generation,
             old_view: self.chain_view.clone(),
             new_view: facts.new_view,
-            accepted_source: self.source_versions.accepted(),
-            status_source: self.source_versions.status(),
-            expectations,
             committed,
             removals,
             recoveries,
@@ -745,50 +808,6 @@ impl TxPoolAuthority {
         topological_recoveries(by_hash)
     }
 
-    fn chain_expectations(
-        &self,
-        removals: &[ChainRemoval],
-        recoveries: &[TransactionView],
-        preaccepted_dispositions: &HashMap<RawTxHash, PreacceptedDisposition>,
-        statuses: &[ChainStatusSubject],
-        proposals: &[ChainProposalSubject],
-    ) -> Result<Vec<ChainOwnerExpectation>, PlanError> {
-        let capacity = removals
-            .len()
-            .checked_add(recoveries.len())
-            .and_then(|count| count.checked_add(preaccepted_dispositions.len()))
-            .and_then(|count| count.checked_add(statuses.len()))
-            .and_then(|count| count.checked_add(proposals.len()))
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let mut expected = HashMap::new();
-        expected
-            .try_reserve(capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        for hash in removals
-            .iter()
-            .map(|removal| &removal.hash)
-            .chain(preaccepted_dispositions.keys())
-            .chain(statuses.iter().map(|subject| &subject.hash))
-            .chain(proposals.iter().map(|subject| &subject.hash))
-        {
-            insert_expectation(&mut expected, hash.clone(), self.entries.get(hash))?;
-        }
-        for transaction in recoveries {
-            let hash = RawTxHash(transaction.hash());
-            insert_expectation(&mut expected, hash.clone(), self.entries.get(&hash))?;
-        }
-        let mut result = Vec::new();
-        result
-            .try_reserve(expected.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        result.extend(
-            expected
-                .into_iter()
-                .map(|(hash, expected)| ChainOwnerExpectation { hash, expected }),
-        );
-        Ok(result)
-    }
-
     fn chain_dependency_events(
         &self,
         attached: &[TransactionView],
@@ -817,15 +836,15 @@ impl TxPoolAuthority {
             )?;
         }
         for removal in removals {
-            match &removal.cause {
-                ChainRemovalCause::Committed => continue,
-                ChainRemovalCause::ChainConflict { .. }
-                | ChainRemovalCause::Recovery
-                | ChainRemovalCause::ProposalWindowExpired => {}
+            match removal {
+                ChainRemoval::Committed { .. } => continue,
+                ChainRemoval::ChainConflict { .. }
+                | ChainRemoval::Recovery { .. }
+                | ChainRemoval::ProposalWindowExpired { .. } => {}
             }
             let owner = self
                 .entries
-                .get(&removal.hash)
+                .get(removal.hash())
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             // Accepted owns the pool overlay, so its removal both releases
             // inputs and removes produced outputs. A PreAccepted producer
@@ -887,32 +906,7 @@ impl TxPoolAuthority {
         {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
-        if receipt.accepted_source != self.source_versions.accepted()
-            || receipt.status_source != self.source_versions.status()
-        {
-            return Err(PlanError::Stale(StalePlan::SourceVersion));
-        }
-        for expectation in &receipt.expectations {
-            match (&expectation.expected, self.entries.get(&expectation.hash)) {
-                (ChainExpectedOwner::Vacant, None) => {}
-                (
-                    ChainExpectedOwner::PreAccepted { version, source },
-                    Some(OwnedTx::PreAccepted(entry)),
-                ) if entry.record.version == *version && entry.source == *source => {}
-                (ChainExpectedOwner::Accepted(expected), Some(OwnedTx::Accepted(entry)))
-                    if entry.record.version == *expected => {}
-                (
-                    ChainExpectedOwner::ReplacementHistory(expected),
-                    Some(OwnedTx::ReplacementHistory(entry)),
-                ) if entry.record().version == *expected => {}
-                (ChainExpectedOwner::Vacant, Some(_))
-                | (ChainExpectedOwner::PreAccepted { .. }, Some(_) | None)
-                | (ChainExpectedOwner::Accepted(_), Some(_) | None)
-                | (ChainExpectedOwner::ReplacementHistory(_), Some(_) | None) => {
-                    return Err(PlanError::Stale(StalePlan::Version));
-                }
-            }
-        }
+        validate_chain_receipt_owners(&self.entries, &receipt)?;
 
         // A preaccepted owner may arrive for an attached raw hash while the
         // lock-outside receipt is being validated. Committed raw hashes need
@@ -931,19 +925,19 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
             )
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        removal_hashes.extend(removals.iter().map(|removal| removal.hash.clone()));
+        removal_hashes.extend(removals.iter().map(|removal| removal.hash().clone()));
         for hash in &receipt.committed {
-            if !self.entries.contains_key(hash) {
+            let Some(owner) = self.entries.get(hash) else {
                 continue;
-            }
+            };
             if removal_hashes.insert(hash.clone()) {
-                removals.push(ChainRemoval {
+                removals.push(ChainRemoval::Committed {
                     hash: hash.clone(),
-                    cause: ChainRemovalCause::Committed,
+                    expected: chain_committed_owner(owner),
                 });
             }
         }
-        removals.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
+        removals.sort_unstable_by(|left, right| left.hash().cmp(right.hash()));
 
         let sequence = self.clocks.next_sequence;
         let mut version = self.clocks.next_version;
@@ -969,16 +963,16 @@ impl TxPoolAuthority {
             }
         }
         for removal in &removals {
-            if recovery_hashes.contains(&removal.hash) {
+            if recovery_hashes.contains(removal.hash()) {
                 continue;
             }
             let before = self
                 .entries
-                .get(&removal.hash)
+                .get(removal.hash())
                 .cloned()
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
             changes.push(PreparedOwnerChange {
-                key: removal.hash.clone(),
+                key: removal.hash().clone(),
                 before: Some(before),
                 after: None,
             });
@@ -987,11 +981,11 @@ impl TxPoolAuthority {
             let key = recovery.key().clone();
             let before = self.entries.get(&key).cloned();
             let after = match recovery {
-                ChainRecoveryReceipt::Trusted(admission) => {
+                ChainRecoveryReceipt::Trusted { admission, .. } => {
                     let admission = self.resources.charge_admission(admission)?;
                     queued_recovery_owner(admission, version, arrival)
                 }
-                ChainRecoveryReceipt::RequeueExisting(_) => {
+                ChainRecoveryReceipt::RequeueExisting { .. } => {
                     let Some(OwnedTx::PreAccepted(entry)) = before.clone() else {
                         return Err(PlanError::Stale(StalePlan::Phase));
                     };
@@ -1007,7 +1001,8 @@ impl TxPoolAuthority {
             });
         }
 
-        for key in receipt.proposal_demotions {
+        for demotion in receipt.proposal_demotions {
+            let key = demotion.hash;
             let before = self
                 .entries
                 .get(&key)
@@ -1024,8 +1019,8 @@ impl TxPoolAuthority {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
             // A source-only demotion preserves EntryVersion and any unique
-            // compute capability. The exact source in ChainExpectedOwner is
-            // the OCC fact that makes this safe despite the unchanged token.
+            // compute capability. The owner-typed demotion carries the exact
+            // source fact that makes this safe despite the unchanged token.
             after.source = PreAcceptedSource::Remote(remote);
             changes.push(PreparedOwnerChange {
                 key,
@@ -1038,7 +1033,9 @@ impl TxPoolAuthority {
         status_after
             .try_reserve(receipt.statuses.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        for (hash, status) in receipt.statuses {
+        for change in receipt.statuses {
+            let hash = change.hash;
+            let status = change.after;
             let before = self
                 .entries
                 .get(&hash)
@@ -1117,17 +1114,17 @@ impl TxPoolAuthority {
         let mut available = receipt.available;
         let mut lost = receipt.lost;
         for removal in &removals {
-            match &removal.cause {
-                ChainRemovalCause::ProposalWindowExpired => {
+            match removal {
+                ChainRemoval::ProposalWindowExpired { .. } => {
                     let owner = self
                         .entries
-                        .get(&removal.hash)
+                        .get(removal.hash())
                         .ok_or(PlanError::Stale(StalePlan::Missing))?;
                     append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
                 }
-                ChainRemovalCause::Committed
-                | ChainRemovalCause::ChainConflict { .. }
-                | ChainRemovalCause::Recovery => {}
+                ChainRemoval::Committed { .. }
+                | ChainRemoval::ChainConflict { .. }
+                | ChainRemoval::Recovery { .. } => {}
             }
         }
         lost.sort_unstable();
@@ -1173,10 +1170,10 @@ impl TxPoolAuthority {
         for removal in &removals {
             let owner = self
                 .entries
-                .get(&removal.hash)
+                .get(removal.hash())
                 .ok_or(PlanError::Stale(StalePlan::Missing))?;
-            match &removal.cause {
-                ChainRemovalCause::Committed => {
+            match removal {
+                ChainRemoval::Committed { .. } => {
                     // Accepted membership already settled the relayer at
                     // admission, while replacement history is deliberately
                     // invisible. Only an in-flight Remote owner needs its
@@ -1190,7 +1187,7 @@ impl TxPoolAuthority {
                         });
                     }
                 }
-                ChainRemovalCause::ChainConflict { out_point } => {
+                ChainRemoval::ChainConflict { out_point, .. } => {
                     let audience = RejectionAudience::from_owner(
                         owner.ingress_peer(),
                         owner.payload_blame_peer(),
@@ -1214,7 +1211,7 @@ impl TxPoolAuthority {
                         },
                     ));
                 }
-                ChainRemovalCause::Recovery | ChainRemovalCause::ProposalWindowExpired => {}
+                ChainRemoval::Recovery { .. } | ChainRemoval::ProposalWindowExpired { .. } => {}
             }
         }
         let mut status_effect_keys = Vec::new();
@@ -1278,6 +1275,157 @@ impl TxPoolAuthority {
             handoff: CommittedHandoff::None,
         })
     }
+
+    /// Capture the parent-first recovery payload before consuming a detailed
+    /// receipt. The runtime retains this bounded value only across the final
+    /// detailed Plan attempt, so an unrepresentable transition can converge
+    /// through the one fresh-generation fallback without reconstructing
+    /// semantic causes after the receipt has been consumed.
+    pub(in crate::authority) fn chain_generation_recoveries(
+        &self,
+        receipt: &ChainTransitionReceipt,
+    ) -> Result<Vec<TransactionView>, PlanError> {
+        let mut transactions = Vec::new();
+        transactions
+            .try_reserve(receipt.recoveries.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for recovery in &receipt.recoveries {
+            let transaction = match recovery {
+                ChainRecoveryReceipt::Trusted { admission, .. } => admission.tx.as_ref().clone(),
+                ChainRecoveryReceipt::RequeueExisting { hash, .. } => self
+                    .entries
+                    .get(hash)
+                    .map(|owner| owner.record().tx.as_ref().clone())
+                    .ok_or(PlanError::Stale(StalePlan::Missing))?,
+            };
+            transactions.push(transaction);
+        }
+        Ok(transactions)
+    }
+
+    /// Replace an over-bound chain transition with the largest closure-safe
+    /// parent-first recovery prefix in a fresh generation. The scratch
+    /// authority reuses the ordinary admission and every derived projection
+    /// compiler; the live authority changes only through the final O(1)
+    /// generation swap and emits one rebuildable GenerationReset effect.
+    pub(in crate::authority) fn plan_chain_generation_replacement(
+        &mut self,
+        new_view: ChainViewId,
+        transactions: Vec<TransactionView>,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        self.effects.ensure_open()?;
+        if new_view.revision() != next_chain_revision(self.chain_revision())? {
+            return Err(PlanError::Stale(StalePlan::ChainRevision));
+        }
+
+        let generation = next_generation(self.generation)?;
+        let ordered = canonical_recovery_transactions(transactions)?;
+        let scratch_effects =
+            EffectLog::new(self.effects.limits()).map_err(|error| match error {
+                EffectConfigError::Allocation => PlanError::Backpressure(Backpressure::Allocation),
+                EffectConfigError::EmptyRemoteRegion
+                | EffectConfigError::EmptyBatchBound
+                | EffectConfigError::Arithmetic
+                | EffectConfigError::IndivisibleBatch => {
+                    PlanError::Fault(AuthorityFault::EffectProjection)
+                }
+            })?;
+        let mut scratch = TxPoolAuthority::assemble(
+            self.resources.limits(),
+            self.scheduler.verify_order(),
+            scratch_effects,
+            self.membership_config,
+            new_view.clone(),
+        );
+        scratch.generation = generation;
+        scratch.clocks = self.clocks;
+
+        for transaction in ordered {
+            let admission = ValidatedAdmission::recovery(transaction, generation).map_err(
+                |error| match error {
+                    super::super::state::AdmissionValidationError::ResourceAllocation => {
+                        PlanError::Backpressure(Backpressure::Allocation)
+                    }
+                    super::super::state::AdmissionValidationError::EmptyTransaction
+                    | super::super::state::AdmissionValidationError::ResourceArithmetic => {
+                        PlanError::Fault(AuthorityFault::ResourceProjection)
+                    }
+                },
+            )?;
+            match scratch.plan_validated_admission(admission) {
+                Ok(plan) => drop(plan.apply()),
+                Err(PlanError::Backpressure(
+                    Backpressure::TotalResources
+                    | Backpressure::ComputeResources
+                    | Backpressure::ProposalCollision,
+                )) => break,
+                Err(PlanError::Duplicate | PlanError::PayloadVariant) => {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let fresh = FreshGeneration {
+            entries: scratch.entries,
+            indexes: scratch.indexes,
+            resources: scratch.resources,
+            membership: scratch.membership,
+            scheduler: scratch.scheduler,
+            dependencies: scratch.dependencies,
+        };
+        let sequence = self.clocks.next_sequence;
+        // Scratch admission sequences are compiler-local: queued Resolve
+        // owners and their primary projections retain no dependency/effect
+        // cut from those intermediate Applies. The generation swap publishes
+        // every external source at `sequence`, so the live clock advances
+        // exactly once while versions and arrivals retain their monotonic
+        // values from the compiled prefix.
+        let clocks = AuthorityClocks {
+            next_version: scratch.clocks.next_version,
+            next_arrival: scratch.clocks.next_arrival,
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        let sources = self.source_versions.plan_generation_replacement(sequence);
+        let effect = self.effects.plan_generation_reset(sequence)?;
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::ClearPool(ClearPoolDelta {
+                generation,
+                chain_view: new_view,
+                fresh,
+                sources,
+                effect,
+                clocks,
+                sequence,
+            }),
+            handoff: CommittedHandoff::None,
+        })
+    }
+}
+
+fn canonical_recovery_transactions(
+    transactions: Vec<TransactionView>,
+) -> Result<Vec<TransactionView>, PlanError> {
+    let mut by_hash = HashMap::new();
+    by_hash
+        .try_reserve(transactions.len())
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    for transaction in transactions {
+        let dependencies = declared_dependencies(&transaction)?;
+        let replaced = by_hash.insert(
+            RawTxHash(transaction.hash()),
+            RecoveryCandidate {
+                transaction,
+                dependencies,
+            },
+        );
+        if replaced.is_some() {
+            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+        }
+    }
+    topological_recoveries(by_hash)
 }
 
 fn chain_resource_error(error: ResourceError) -> PlanError {
@@ -1309,29 +1457,158 @@ fn chain_index_error(error: IndexError) -> PlanError {
     }
 }
 
-fn insert_expectation(
-    expectations: &mut HashMap<RawTxHash, ChainExpectedOwner>,
-    hash: RawTxHash,
-    owner: Option<&OwnedTx>,
-) -> Result<(), PlanError> {
-    let expected = match owner {
-        Some(OwnedTx::PreAccepted(entry)) => ChainExpectedOwner::PreAccepted {
-            version: entry.record.version,
-            source: entry.source,
-        },
-        Some(OwnedTx::Accepted(entry)) => ChainExpectedOwner::Accepted(entry.record.version),
-        Some(OwnedTx::ReplacementHistory(entry)) => {
-            ChainExpectedOwner::ReplacementHistory(entry.record().version)
-        }
-        None => ChainExpectedOwner::Vacant,
-    };
-    if let Some(previous) = expectations.get(&hash) {
-        if previous != &expected {
-            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-        }
-        return Ok(());
+fn expected_preaccepted(entry: &PreAcceptedEntry) -> ExpectedPreAcceptedOwner {
+    ExpectedPreAcceptedOwner {
+        version: entry.record.version,
+        source: entry.source,
     }
-    expectations.insert(hash, expected);
+}
+
+fn chain_recovery_owner(owner: Option<&OwnedTx>) -> ChainRecoveryOwner {
+    match owner {
+        Some(OwnedTx::PreAccepted(entry)) => {
+            ChainRecoveryOwner::PreAccepted(expected_preaccepted(entry))
+        }
+        Some(OwnedTx::Accepted(entry)) => ChainRecoveryOwner::Accepted(entry.record.version),
+        Some(OwnedTx::ReplacementHistory(entry)) => {
+            ChainRecoveryOwner::ReplacementHistory(entry.record().version)
+        }
+        None => ChainRecoveryOwner::Vacant,
+    }
+}
+
+fn chain_committed_owner(owner: &OwnedTx) -> ChainCommittedOwner {
+    match owner {
+        OwnedTx::PreAccepted(entry) => {
+            ChainCommittedOwner::PreAccepted(expected_preaccepted(entry))
+        }
+        OwnedTx::Accepted(entry) => ChainCommittedOwner::Accepted(entry.record.version),
+        OwnedTx::ReplacementHistory(entry) => {
+            ChainCommittedOwner::ReplacementHistory(entry.record().version)
+        }
+    }
+}
+
+fn chain_conflict_owner(owner: &OwnedTx) -> Result<ChainConflictOwner, PlanError> {
+    match owner {
+        OwnedTx::PreAccepted(entry) => {
+            Ok(ChainConflictOwner::PreAccepted(expected_preaccepted(entry)))
+        }
+        OwnedTx::Accepted(entry) => Ok(ChainConflictOwner::Accepted(entry.record.version)),
+        OwnedTx::ReplacementHistory(_) => {
+            Err(PlanError::Fault(AuthorityFault::MembershipProjection))
+        }
+    }
+}
+
+fn expected_preaccepted_matches(
+    expected: ExpectedPreAcceptedOwner,
+    owner: Option<&OwnedTx>,
+) -> bool {
+    matches!(
+        owner,
+        Some(OwnedTx::PreAccepted(entry))
+            if entry.record.version == expected.version && entry.source == expected.source
+    )
+}
+
+fn recovery_owner_matches(expected: ChainRecoveryOwner, owner: Option<&OwnedTx>) -> bool {
+    match (expected, owner) {
+        (ChainRecoveryOwner::Vacant, None) => true,
+        (ChainRecoveryOwner::PreAccepted(expected), owner) => {
+            expected_preaccepted_matches(expected, owner)
+        }
+        (ChainRecoveryOwner::Accepted(expected), Some(OwnedTx::Accepted(entry))) => {
+            entry.record.version == expected
+        }
+        (
+            ChainRecoveryOwner::ReplacementHistory(expected),
+            Some(OwnedTx::ReplacementHistory(entry)),
+        ) => entry.record().version == expected,
+        (ChainRecoveryOwner::Vacant, Some(_))
+        | (ChainRecoveryOwner::Accepted(_), Some(_) | None)
+        | (ChainRecoveryOwner::ReplacementHistory(_), Some(_) | None) => false,
+    }
+}
+
+fn committed_owner_matches(expected: ChainCommittedOwner, owner: Option<&OwnedTx>) -> bool {
+    match (expected, owner) {
+        (ChainCommittedOwner::PreAccepted(expected), owner) => {
+            expected_preaccepted_matches(expected, owner)
+        }
+        (ChainCommittedOwner::Accepted(expected), Some(OwnedTx::Accepted(entry))) => {
+            entry.record.version == expected
+        }
+        (
+            ChainCommittedOwner::ReplacementHistory(expected),
+            Some(OwnedTx::ReplacementHistory(entry)),
+        ) => entry.record().version == expected,
+        (ChainCommittedOwner::Accepted(_), Some(_) | None)
+        | (ChainCommittedOwner::ReplacementHistory(_), Some(_) | None) => false,
+    }
+}
+
+fn conflict_owner_matches(expected: ChainConflictOwner, owner: Option<&OwnedTx>) -> bool {
+    match (expected, owner) {
+        (ChainConflictOwner::PreAccepted(expected), owner) => {
+            expected_preaccepted_matches(expected, owner)
+        }
+        (ChainConflictOwner::Accepted(expected), Some(OwnedTx::Accepted(entry))) => {
+            entry.record.version == expected
+        }
+        (ChainConflictOwner::Accepted(_), Some(_) | None) => false,
+    }
+}
+
+fn validate_chain_receipt_owners(
+    entries: &HashMap<RawTxHash, OwnedTx>,
+    receipt: &ChainTransitionReceipt,
+) -> Result<(), PlanError> {
+    for removal in &receipt.removals {
+        let owner = entries.get(removal.hash());
+        let matches = match removal {
+            ChainRemoval::Committed { expected, .. } => committed_owner_matches(*expected, owner),
+            ChainRemoval::Recovery { expected, .. } => {
+                matches!(owner, Some(OwnedTx::Accepted(entry)) if entry.record.version == *expected)
+            }
+            ChainRemoval::ChainConflict { expected, .. } => {
+                conflict_owner_matches(*expected, owner)
+            }
+            ChainRemoval::ProposalWindowExpired { expected, .. } => {
+                expected_preaccepted_matches(*expected, owner)
+            }
+        };
+        if !matches {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+    }
+    for recovery in &receipt.recoveries {
+        let matches = match recovery {
+            ChainRecoveryReceipt::Trusted {
+                admission,
+                expected,
+            } => recovery_owner_matches(*expected, entries.get(&admission.identity.raw)),
+            ChainRecoveryReceipt::RequeueExisting { hash, expected } => {
+                expected_preaccepted_matches(*expected, entries.get(hash))
+            }
+        };
+        if !matches {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+    }
+    for status in &receipt.statuses {
+        if !matches!(
+            entries.get(&status.hash),
+            Some(OwnedTx::Accepted(entry)) if entry.record.version == status.expected
+        ) {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+    }
+    for demotion in &receipt.proposal_demotions {
+        if !expected_preaccepted_matches(demotion.expected, entries.get(&demotion.hash)) {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+    }
     Ok(())
 }
 

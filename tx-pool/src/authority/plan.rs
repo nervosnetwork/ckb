@@ -3718,13 +3718,17 @@ impl TxPoolAuthority {
         hashes
             .try_reserve(self.entries.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        hashes.extend(self.entries.iter().filter_map(|(hash, owner)| {
-            matches!(
-                owner,
-                OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)
-            )
-            .then(|| hash.clone())
-        }));
+        hashes.extend(
+            self.entries
+                .iter()
+                .filter(|(_, owner)| {
+                    matches!(
+                        owner,
+                        OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)
+                    )
+                })
+                .map(|(hash, _)| hash.clone()),
+        );
         hashes.sort_unstable();
 
         let generation = next_generation(self.generation)?;
@@ -3991,9 +3995,8 @@ impl TxPoolAuthority {
         }
         let accepted_removals = hashes
             .iter()
-            .filter_map(|hash| {
-                matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_))).then(|| hash.clone())
-            })
+            .filter(|hash| matches!(self.entries.get(*hash), Some(OwnedTx::Accepted(_))))
+            .cloned()
             .collect::<BTreeSet<_>>();
         if hashes.iter().any(|hash| !self.entries.contains_key(hash)) {
             return Err(PlanError::Fault(AuthorityFault::IndexProjection));

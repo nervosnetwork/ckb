@@ -12,18 +12,22 @@ use super::rejection::{
 #[cfg(test)]
 use super::state::ValidatedAdmission;
 use super::{
-    chain::{DirectAdmissionWork, FinalAdmissionWork},
+    chain::{
+        AcceptedValidityTransition, ChainTransitionFacts, ChainValidationError,
+        DirectAdmissionWork, FinalAdmissionWork,
+    },
+    chain_boundary::{ChainBoundaryError, ChainUpdateCommand, CommittedChainUpdate},
     effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
     ingress::{
         DirectCommand, DirectTransaction, RetainedIngress, RetainedIngressCommit,
         RetainedIngressRejection, direct,
     },
     plan::{
-        AuthorityConfigError, AuthorityFault, CandidateBatchError, CandidateDispositionPlan,
-        CommittedDelta, ComputeSettlementFailure, DirectAdmissionDisposition,
-        DirectAdmissionEvaluation, EffectSettlementFailure, FinalAdmissionDispositionPlan,
-        IndependentCandidate, MembershipConfig, MembershipReject, PlanError,
-        RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
+        AuthorityConfigError, AuthorityFault, Backpressure, CandidateBatchError,
+        CandidateDispositionPlan, CommittedDelta, ComputeSettlementFailure,
+        DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectSettlementFailure,
+        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, MembershipReject,
+        PlanError, RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     resolver::{
         DirectComputationError, DirectResolutionEvaluation, DirectResolutionJob,
@@ -37,11 +41,14 @@ use super::{
         ResourceVector,
     },
     scheduler::VerifyOrder,
-    state::{AcceptedAtMillis, ChainRevision, ChainViewId, RawTxHash, RemoteDeadline, WorkPermit},
+    state::{
+        AcceptedAtMillis, AcceptedStatus, ChainRevision, ChainViewId, RawTxHash, RemoteDeadline,
+        WorkPermit,
+    },
     validation::{
         DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
         FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
-        PreparedFinalAdmissionValidation,
+        PreparedFinalAdmissionValidation, verification_environment,
     },
     work::{CheckedOutWork, ComputeSettlement},
 };
@@ -51,8 +58,8 @@ use ckb_snapshot::Snapshot;
 use ckb_types::core::FeeRate;
 use ckb_types::core::{EntryCompleted, TransactionView};
 use ckb_types::packed::{Byte32, ProposalShortId};
-use ckb_util::RwLock;
-use ckb_verification::cache::Completed;
+use ckb_util::{RwLock, parking_lot::RwLockUpgradableReadGuard};
+use ckb_verification::cache::{Completed, ScriptVerificationRules};
 use lru::LruCache;
 use std::{
     num::NonZeroUsize,
@@ -786,6 +793,118 @@ impl AuthorityRuntime {
         Ok(())
     }
 
+    /// Commit one ordered chain transition against the exact supplied
+    /// snapshot. The upgradable read excludes intervening writers while the
+    /// semantic disposition and proposal evidence are compiled, without
+    /// adding a gate to ordinary admission. After upgrade, only capacity and
+    /// derived-projection preparation plus total Apply remain.
+    pub(super) fn apply_chain_update(
+        &self,
+        command: ChainUpdateCommand,
+    ) -> Result<CommittedChainUpdate, ChainBoundaryError> {
+        let ChainUpdateCommand {
+            blocks,
+            changed_proposals,
+            detached_proposals,
+            committed_hashes,
+            candidate_uncles,
+            had_detached_chain,
+            packaging,
+            snapshot,
+        } = command;
+        let store = self.store.upgradable_read();
+        let next_revision = store
+            .authority
+            .chain_revision()
+            .0
+            .checked_add(1)
+            .map(ChainRevision)
+            .ok_or(ChainBoundaryError::CounterExhausted)?;
+        let old_environment = verification_environment(AcceptedStatus::Pending, &store.snapshot);
+        let new_environment = verification_environment(AcceptedStatus::Pending, &snapshot);
+        let old_rules =
+            ScriptVerificationRules::from_env(store.snapshot.consensus(), &old_environment);
+        let new_rules = ScriptVerificationRules::from_env(snapshot.consensus(), &new_environment);
+        let accepted_validity = if old_rules != new_rules {
+            AcceptedValidityTransition::RulesChanged
+        } else if had_detached_chain {
+            AcceptedValidityTransition::ContextChanged
+        } else {
+            AcceptedValidityTransition::Preserved
+        };
+        let new_view = ChainViewId::new(next_revision, snapshot.tip_hash());
+        let facts = ChainTransitionFacts::from_chain_update(
+            new_view.clone(),
+            blocks,
+            changed_proposals,
+            detached_proposals,
+            accepted_validity,
+            packaging.authority_mode(),
+        )
+        .map_err(|error| match error {
+            super::chain::ChainFactsError::Allocation => ChainBoundaryError::Allocation,
+            super::chain::ChainFactsError::DuplicateTransaction
+            | super::chain::ChainFactsError::DuplicateHeader => ChainBoundaryError::InvalidFacts,
+        })?;
+        let mut detached_recoveries = Vec::new();
+        detached_recoveries
+            .try_reserve(facts.detached.len())
+            .map_err(|_| ChainBoundaryError::Allocation)?;
+        detached_recoveries.extend(facts.detached.iter().cloned());
+        let receipt = match store.authority.chain_validation_work(facts) {
+            Ok(work) => Some(work.validate(&snapshot).map_err(|error| match error {
+                ChainValidationError::Allocation
+                | ChainValidationError::RecoveryAdmission(
+                    super::state::AdmissionValidationError::ResourceAllocation,
+                ) => ChainBoundaryError::Allocation,
+                ChainValidationError::SnapshotMismatch
+                | ChainValidationError::MissingProposalPosition
+                | ChainValidationError::UnexpectedProposalPosition
+                | ChainValidationError::DuplicateProposalPosition => {
+                    ChainBoundaryError::InvalidSnapshotEvidence
+                }
+                ChainValidationError::RecoveryAdmission(
+                    super::state::AdmissionValidationError::EmptyTransaction
+                    | super::state::AdmissionValidationError::ResourceArithmetic,
+                ) => ChainBoundaryError::InvalidFacts,
+            })?),
+            Err(PlanError::Backpressure(Backpressure::GenerationReplacement)) => None,
+            Err(error) => return Err(error.into()),
+        };
+        let fallback_recoveries = match &receipt {
+            Some(receipt) => store.authority.chain_generation_recoveries(receipt)?,
+            None => detached_recoveries,
+        };
+
+        let mut store = RwLockUpgradableReadGuard::upgrade(store);
+        let committed = match receipt {
+            Some(receipt) => match store.authority.plan_chain_transition(receipt) {
+                Ok(plan) => plan.apply(),
+                Err(PlanError::Backpressure(Backpressure::GenerationReplacement)) => store
+                    .authority
+                    .plan_chain_generation_replacement(new_view, fallback_recoveries)?
+                    .apply(),
+                Err(error) => return Err(error.into()),
+            },
+            None => store
+                .authority
+                .plan_chain_generation_replacement(new_view, fallback_recoveries)?
+                .apply(),
+        };
+        let retired_snapshot = std::mem::replace(&mut store.snapshot, Arc::clone(&snapshot));
+        for (proposal, hash) in committed_hashes {
+            store.committed_txs_hash_cache.put(proposal, hash);
+        }
+        drop(store);
+        drop(committed);
+        drop(retired_snapshot);
+        self.signals.publish_mutation();
+        Ok(CommittedChainUpdate {
+            candidate_uncles,
+            snapshot,
+        })
+    }
+
     /// Expire one bounded due prefix of retained Remote owners. The wall clock
     /// and slice are runtime policy, not caller-provided transition evidence.
     pub(super) fn expire_remote_due(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
@@ -879,6 +998,18 @@ impl AuthorityRuntime {
             store.authority.chain_view().clone(),
             Arc::clone(&store.snapshot),
         )
+    }
+
+    #[cfg(test)]
+    pub(super) fn committed_hash_for_foundation(
+        &self,
+        proposal: &ProposalShortId,
+    ) -> Option<Byte32> {
+        self.store
+            .write()
+            .committed_txs_hash_cache
+            .get(proposal)
+            .cloned()
     }
 
     #[cfg(test)]

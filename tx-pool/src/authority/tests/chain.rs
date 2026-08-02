@@ -3,9 +3,11 @@ use super::super::{
         ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, FinalAdmissionError,
         ProposalWindowPosition,
     },
+    chain_boundary::{ChainPackaging as RuntimeChainPackaging, ChainUpdateCommand},
     effect::{CommittedEffect, CommittedRejection},
-    plan::{Backpressure, PlanError, StalePlan, TxPoolAuthority},
+    plan::{AuthorityFault, Backpressure, PlanError, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
+    runtime::AuthorityRuntime,
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PayloadPolicy,
         PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, RemoteDeadline,
@@ -16,18 +18,22 @@ use super::super::{
 use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
     admit_remote_until, apply_without_work, assert_membership_reference, assert_resource_reference,
-    independent_batch, limits, missing_keys, owner_version, resolved_payload,
-    resolved_payload_with_facts, take_resolve_work, tx, verify_remote_transaction,
+    genesis_snapshot, independent_batch, limits, missing_keys, owner_version, resolved_payload,
+    resolved_payload_with_facts, runtime_config, take_resolve_work, tx, verify_remote_transaction,
     verify_remote_transaction_with_payload,
 };
 use ckb_types::{
     bytes::Bytes,
-    core::{Capacity, FeeRate, TransactionBuilder, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
+    core::{BlockBuilder, Capacity, FeeRate, TransactionBuilder, TransactionView},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId},
     prelude::{Builder, Entity, Pack},
 };
 use ckb_verification::cache::ScriptVerificationRules;
-use std::{collections::HashSet, num::NonZeroUsize};
+use std::{
+    collections::{HashSet, VecDeque},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 #[test]
 fn uak_final_admission_refreshes_stale_verification_context() {
@@ -471,6 +477,7 @@ fn uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child() {
         Vec::new(),
     );
     let child_tx = child_transaction(502, &parent_tx);
+    let child_proposal = ProposalId(child_tx.proposal_short_id());
     let child = accept_remote_transaction(
         &mut authority,
         child_tx,
@@ -484,14 +491,14 @@ fn uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child() {
         block_changes(vec![parent_tx], Vec::new()),
         Vec::new(),
         Vec::new(),
-        ChainPackagingMode::Package,
+        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached facts are canonical");
     let receipt = authority
         .chain_validation_work(facts)
         .expect("committed parent produces one bounded work slice")
-        .validate_for_foundation(Vec::new())
-        .expect("no status validation is required");
+        .validate_for_foundation(vec![(child_proposal, ProposalWindowPosition::Gap)])
+        .expect("the surviving Gap child is reconciled against the new window");
     apply_without_work(
         authority
             .plan_chain_transition(receipt)
@@ -1538,10 +1545,10 @@ fn uak_rules_transition_cannot_claim_monotonic_accepted_validity() {
         ChainPackagingMode::ObserveOnly,
     )
     .expect("an extension without block deltas is canonical")
-    .revalidate_context_for_foundation();
+    .revalidate_all_for_foundation();
     let receipt = authority
         .chain_validation_work(facts)
-        .expect("typed context invalidation selects only its derived index")
+        .expect("typed rules invalidation selects every Accepted proof")
         .validate_for_foundation(Vec::new())
         .expect("context recovery requires no proposal facts");
     apply_without_work(
@@ -1557,7 +1564,9 @@ fn uak_rules_transition_cannot_claim_monotonic_accepted_validity() {
     ));
     assert!(matches!(
         authority.entry(&stable),
-        Some(OwnedTx::Accepted(_))
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(authority.primary_projection_consistent());
 }
@@ -1857,7 +1866,7 @@ fn uak_chain_reconcile_demotes_gap_outside_the_new_window() {
     let facts = ChainTransitionFacts::for_foundation(
         next_view(55),
         block_changes(Vec::new(), Vec::new()),
-        vec![proposal.clone(), promoted_proposal.clone()],
+        Vec::new(),
         Vec::new(),
         ChainPackagingMode::Package,
     )
@@ -1884,6 +1893,226 @@ fn uak_chain_reconcile_demotes_gap_outside_the_new_window() {
         Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Proposed
     ));
     assert_membership_reference(&authority);
+}
+
+#[test]
+fn uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = output_transaction(1_754);
+    let hash = accept_remote_transaction(
+        &mut authority,
+        transaction.clone(),
+        1_754,
+        AcceptedStatus::Gap,
+        Vec::new(),
+    );
+    let proposal = ProposalId(transaction.proposal_short_id());
+    let facts = ChainTransitionFacts::for_foundation(
+        next_view(84),
+        block_changes(Vec::new(), Vec::new()),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("proposal observation facts are canonical");
+    let receipt = authority
+        .chain_validation_work(facts)
+        .expect("the Accepted status index selects Gap membership")
+        .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
+        .expect("the new window position covers the indexed Gap owner");
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("Gap demotion and chain view install are atomic"),
+    );
+
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Pending
+    ));
+    assert_membership_reference(&authority);
+}
+
+#[test]
+fn uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let transaction = output_transaction(1_755);
+    let hash = runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(
+            authority,
+            transaction,
+            1_755,
+            AcceptedStatus::Gap,
+            Vec::new(),
+        )
+    });
+    let command = ChainUpdateCommand::new(
+        VecDeque::new(),
+        VecDeque::new(),
+        HashSet::new(),
+        Arc::clone(&snapshot),
+        RuntimeChainPackaging::Package,
+    )
+    .expect("empty block facts are a valid chain command");
+    let committed = runtime
+        .apply_chain_update(command)
+        .expect("the paired snapshot and authority commit in one boundary");
+
+    assert!(committed.candidate_uncles.is_empty());
+    assert_eq!(committed.snapshot.tip_hash(), snapshot.tip_hash());
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(matches!(
+            authority.entry(&hash),
+            Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Pending
+        ));
+        assert_membership_reference(authority);
+    });
+}
+
+#[test]
+fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let transaction = output_transaction(1_756);
+    let proposal = transaction.proposal_short_id();
+    let raw_hash = transaction.hash();
+    let attached = BlockBuilder::default().transaction(transaction).build();
+    let command = ChainUpdateCommand::new(
+        VecDeque::new(),
+        VecDeque::from([attached]),
+        HashSet::new(),
+        Arc::clone(&snapshot),
+        RuntimeChainPackaging::ObserveOnly,
+    )
+    .expect("attached block facts are a valid chain command");
+    let committed = runtime
+        .apply_chain_update(command)
+        .expect("cache, authority and snapshot share one commit cut");
+
+    assert!(committed.candidate_uncles.is_empty());
+    assert_eq!(
+        runtime.committed_hash_for_foundation(&proposal),
+        Some(raw_hash)
+    );
+    let (view, paired_snapshot) = runtime.paired_chain_for_foundation();
+    assert_eq!(view.revision(), ChainRevision(1));
+    assert_eq!(view.tip().0, paired_snapshot.tip_hash());
+}
+
+#[test]
+fn uak_runtime_chain_boundary_preserves_block_order_for_short_id_collisions() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let proposal = ProposalShortId::new([9; 10]);
+    let first = Byte32::new([1; 32]);
+    let second = Byte32::new([2; 32]);
+    let mut command = ChainUpdateCommand::new(
+        VecDeque::new(),
+        VecDeque::new(),
+        HashSet::new(),
+        Arc::clone(&snapshot),
+        RuntimeChainPackaging::ObserveOnly,
+    )
+    .expect("empty block facts are a valid chain command");
+    command.committed_hashes = vec![
+        (proposal.clone(), first),
+        (proposal.clone(), second.clone()),
+    ];
+
+    let committed = runtime
+        .apply_chain_update(command)
+        .expect("cache writes share the ordered chain commit");
+    drop(committed);
+    assert_eq!(
+        runtime.committed_hash_for_foundation(&proposal),
+        Some(second)
+    );
+}
+
+#[test]
+fn uak_runtime_chain_boundary_converges_an_unrepresentable_recovery_batch() {
+    let constrained = ResourceLimits::new(
+        ResourceVector::new(1, 64 * 1024, 64, 1),
+        ResourceVector::new(1, 64 * 1024, 64, 1),
+        ResourceVector::new(1, 64 * 1024, 64, 1),
+        AcceptedResources::new(4, 256 * 1024, 256 * 1024, 1_000),
+        ComputeLimits::new(64 * 1024, 64 * 1024, 64),
+    )
+    .expect("one-at-a-time ingress and larger accepted membership are valid");
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    let parent = output_transaction(1_757);
+    let child = child_transaction(1_758, &parent);
+    let parent_hash = accept_remote_transaction(
+        &mut authority,
+        parent.clone(),
+        1_757,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    accept_remote_transaction(
+        &mut authority,
+        child.clone(),
+        1_758,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let old_generation = authority.generation();
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    runtime.with_authority_for_foundation(|slot| *slot = authority);
+    let detached = BlockBuilder::default()
+        .transaction(parent)
+        .transaction(child)
+        .build();
+    let command = ChainUpdateCommand::new(
+        VecDeque::from([detached]),
+        VecDeque::new(),
+        HashSet::new(),
+        Arc::clone(&snapshot),
+        RuntimeChainPackaging::ObserveOnly,
+    )
+    .expect("detached block facts form one sealed chain command");
+
+    let committed = runtime
+        .apply_chain_update(command)
+        .expect("the boundary converts detailed resource overflow into a fresh generation");
+    drop(committed);
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(authority.generation().0 > old_generation.0);
+        assert_eq!(authority.chain_revision(), ChainRevision(1));
+        assert_eq!(authority.owner_count(), 1);
+        assert!(authority.entry(&parent_hash).is_some());
+        assert!(authority.entries_for_reference().values().all(|owner| {
+            matches!(
+                owner,
+                OwnedTx::PreAccepted(entry)
+                    if matches!(entry.source, PreAcceptedSource::Recovery(lease)
+                        if lease.generation == authority.generation())
+            )
+        }));
+        assert_resource_reference(authority);
+    });
 }
 
 #[test]
@@ -2268,8 +2497,8 @@ fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
 }
 
 #[test]
-fn uak_chain_receipt_stales_on_accepted_change_but_not_unrelated_preacceptance() {
-    let mut stale_authority = TxPoolAuthority::for_foundation(limits());
+fn uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners() {
+    let mut accepted_authority = TxPoolAuthority::for_foundation(limits());
     let facts = ChainTransitionFacts::for_foundation(
         next_view(56),
         block_changes(Vec::new(), Vec::new()),
@@ -2278,24 +2507,25 @@ fn uak_chain_receipt_stales_on_accepted_change_but_not_unrelated_preacceptance()
         ChainPackagingMode::ObserveOnly,
     )
     .expect("empty facts are canonical");
-    let stale_receipt = stale_authority
+    let accepted_receipt = accepted_authority
         .chain_validation_work(facts)
-        .expect("empty work captures source versions")
+        .expect("empty work has no owner expectations")
         .validate_for_foundation(Vec::new())
         .expect("empty work validates");
-    accept_remote_transaction(
-        &mut stale_authority,
+    let accepted = accept_remote_transaction(
+        &mut accepted_authority,
         output_transaction(542),
         542,
         AcceptedStatus::Pending,
         Vec::new(),
     );
-    let before = stale_authority.normalized_snapshot();
-    assert_eq!(
-        stale_authority.plan_chain_transition(stale_receipt).err(),
-        Some(PlanError::Stale(StalePlan::SourceVersion))
+    apply_without_work(
+        accepted_authority
+            .plan_chain_transition(accepted_receipt)
+            .expect("an unrelated Accepted owner does not stale the chain cut"),
     );
-    assert_eq!(stale_authority.normalized_snapshot(), before);
+    assert!(accepted_authority.entry(&accepted).is_some());
+    assert_eq!(accepted_authority.chain_revision(), ChainRevision(1));
 
     let mut compatible_authority = TxPoolAuthority::for_foundation(limits());
     let facts = ChainTransitionFacts::for_foundation(
@@ -2308,7 +2538,7 @@ fn uak_chain_receipt_stales_on_accepted_change_but_not_unrelated_preacceptance()
     .expect("empty facts are canonical");
     let receipt = compatible_authority
         .chain_validation_work(facts)
-        .expect("empty work captures accepted sources only")
+        .expect("empty work has no owner expectations")
         .validate_for_foundation(Vec::new())
         .expect("empty work validates");
     let unrelated = admit_remote(&mut compatible_authority, 543, 543);
@@ -2541,7 +2771,7 @@ fn uak_direct_detached_owners_do_not_consume_the_causal_bound() {
 }
 
 #[test]
-fn uak_unrepresentable_recovery_set_requires_generation_replacement() {
+fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
     let constrained = ResourceLimits::new(
         ResourceVector::new(1, 64 * 1024, 64, 1),
         ResourceVector::new(1, 64 * 1024, 64, 1),
@@ -2551,20 +2781,26 @@ fn uak_unrepresentable_recovery_set_requires_generation_replacement() {
     )
     .expect("one-at-a-time ingress and larger accepted membership are valid");
     let mut authority = TxPoolAuthority::for_foundation(constrained);
-    let left = output_transaction(1_301);
-    let right = output_transaction(1_302);
-    for (peer, transaction) in [(1_301, left.clone()), (1_302, right.clone())] {
-        accept_remote_transaction(
-            &mut authority,
-            transaction,
-            peer,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        );
-    }
+    let parent = output_transaction(1_301);
+    let child = child_transaction(1_302, &parent);
+    let parent_hash = accept_remote_transaction(
+        &mut authority,
+        parent.clone(),
+        1_301,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    accept_remote_transaction(
+        &mut authority,
+        child.clone(),
+        1_302,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let next = next_view(69);
     let facts = ChainTransitionFacts::for_foundation(
-        next_view(69),
-        block_changes(Vec::new(), vec![left, right]),
+        next.clone(),
+        block_changes(Vec::new(), vec![parent, child]),
         Vec::new(),
         Vec::new(),
         ChainPackagingMode::ObserveOnly,
@@ -2575,12 +2811,56 @@ fn uak_unrepresentable_recovery_set_requires_generation_replacement() {
         .expect("block facts fit the causal bound")
         .validate_for_foundation(Vec::new())
         .expect("recoveries require no proposal facts");
+    let fallback = authority
+        .chain_generation_recoveries(&receipt)
+        .expect("fallback payload is captured from the sealed receipt");
     let before = authority.normalized_snapshot();
+    let before_clocks = authority.clocks();
     assert_eq!(
         authority.plan_chain_transition(receipt).err(),
         Some(PlanError::Backpressure(Backpressure::GenerationReplacement))
     );
     assert_eq!(authority.normalized_snapshot(), before);
+
+    let old_generation = authority.generation();
+    let duplicate = fallback
+        .first()
+        .expect("the detached recovery set contains its parent")
+        .clone();
+    assert_eq!(
+        authority
+            .plan_chain_generation_replacement(next.clone(), vec![duplicate.clone(), duplicate],)
+            .err(),
+        Some(PlanError::Fault(AuthorityFault::MembershipProjection)),
+        "duplicate recovery evidence is a structural fault, not a capacity prefix"
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    let committed = authority
+        .plan_chain_generation_replacement(next, fallback)
+        .expect("fresh recovery generation plans")
+        .apply();
+    assert!(authority.generation().0 > old_generation.0);
+    assert_eq!(authority.chain_revision(), ChainRevision(1));
+    assert_eq!(authority.owner_count(), 1);
+    assert!(authority.entry(&parent_hash).is_some());
+    assert_eq!(
+        authority.clocks().next_sequence.0,
+        before_clocks.next_sequence.0 + 1,
+        "one external generation swap consumes one Apply sequence"
+    );
+    assert!(authority.entries_for_reference().values().all(|owner| {
+        matches!(
+            owner,
+            OwnedTx::PreAccepted(entry)
+                if matches!(entry.source, PreAcceptedSource::Recovery(lease)
+                    if lease.generation == authority.generation())
+                    && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+        )
+    }));
+    assert!(matches!(
+        committed.changes,
+        super::super::plan::CommittedChanges::ClearPoolControl(_)
+    ));
     assert_resource_reference(&authority);
 }
 
@@ -2616,8 +2896,9 @@ fn uak_over_bound_causal_union_requires_generation_replacement_without_a_prefix(
         TransactionBuilder::default().version(999u32),
         |builder, input| builder.input(CellInput::new(input, 0)),
     );
+    let next = next_view(61);
     let facts = ChainTransitionFacts::for_foundation(
-        next_view(61),
+        next.clone(),
         block_changes(vec![attached.build()], Vec::new()),
         Vec::new(),
         Vec::new(),
@@ -2630,6 +2911,15 @@ fn uak_over_bound_causal_union_requires_generation_replacement_without_a_prefix(
         Some(PlanError::Backpressure(Backpressure::GenerationReplacement))
     );
     assert_eq!(authority.normalized_snapshot(), before);
+
+    let committed = authority
+        .plan_chain_generation_replacement(next, Vec::new())
+        .expect("over-bound causal work converges through an empty fresh recovery cohort")
+        .apply();
+    drop(committed);
+    assert_eq!(authority.chain_revision(), ChainRevision(1));
+    assert_eq!(authority.owner_count(), 0);
+    assert_resource_reference(&authority);
 }
 
 #[test]

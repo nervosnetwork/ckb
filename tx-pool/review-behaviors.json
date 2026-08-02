@@ -260,7 +260,9 @@
         "tx-pool/src/service.rs",
         "tx-pool/src/service/pipeline_ops.rs",
         "tx-pool/src/authority/chain.rs",
+        "tx-pool/src/authority/chain_boundary.rs",
         "tx-pool/src/authority/plan/chain_transition.rs",
+        "tx-pool/src/authority/runtime.rs",
         "tx-pool/src/authority/state.rs"
       ],
       "required_behavior": "One chain-authoritative reorg phase switches snapshot/membership once, combines detached transactions with the complete bounded accepted descendant closure of detached producers, installs one charged parent-first Recovery-source plan in the ordinary six-state kernel, carries the canonical conflicting outpoint into every chain-conflict terminal effect, and journals the immediate reset plus level-triggered template generations.",
@@ -272,7 +274,7 @@
         "Are duplicate/collision handling, full/witness identity, non-reused versions and clear epoch ordering exact?",
         "Does chain-conflict evidence remain a required typed field from causal selection through the committed effect, with a deterministic join for multiple cells?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale|uak_recovery_admission_requires|uak_chain_conflict_commits_the_canonical_dead_outpoint)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(reorg_publishes|overlapping_detached|accepted_reorg_recovery|reorg_replays_detached_parent|over_bound_reorg|recovery_batch|empty_generation_recovery|failed_block_assembler|clear_during_reorg|cross_authority_query|uak_final_admission_receipt_is_stale|uak_recovery_admission_requires|uak_chain_conflict_commits_the_canonical_dead_outpoint|uak_rules_transition|uak_chain_receipt_ignores|uak_unrepresentable_recovery_set_converges|uak_runtime_chain_boundary_converges)/)'",
       "performance_bound": "The single graph traversal/transfer stops at fixed mutation and recovery bounds and uses one generation reset beyond them; no recovery lock, replay worker, duplicate accepted traversal or full-block payload owner remains."
     },
     {
@@ -361,7 +363,7 @@
         "Can any configured notification script accumulate live owned children in proportion to template update rate?",
         "Does HTTP notification remain cancellable and bounded by visible trusted configuration rather than transaction ownership?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle|uak_template|uak_accepted_timestamp)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle|uak_template|uak_accepted_timestamp|uak_chain_observation_reconciles|uak_runtime_chain_boundary_reconciles)/)'",
       "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."
     },
     {
@@ -605,6 +607,10 @@
     {"test": "uak_repeated_proposal_has_no_synthetic_source_revision", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
     {"test": "uak_recovery_admission_requires_the_current_generation_capability", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T11"]},
     {"test": "uak_chain_conflict_commits_the_canonical_dead_outpoint", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T4", "T7", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_rules_transition_cannot_claim_monotonic_accepted_validity", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T5", "T6", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T7", "T9", "T10", "T11"]},
+    {"test": "uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_runtime_chain_boundary_converges_an_unrepresentable_recovery_batch", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
 
     {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["T7", "T9", "T10", "T12", "T13"]},
@@ -654,6 +660,8 @@
     {"test": "uak_dropped_reset_build_remains_level_triggered_until_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T7", "T9", "T10", "T12", "T13"]},
     {"test": "uak_requested_reset_fences_an_older_full_before_reset_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T9", "T10", "T12", "T13"]},
     {"test": "uak_template_cycle_fallback_preserves_descendant_aware_strength", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T1", "T2", "T4", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T1", "T2", "T4", "T9", "T10", "T12", "T13"]},
 
     {"test": "short_id_collision_is_backpressure_not_aliasing", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T8"]},
     {"test": "full_hash_lookup_does_not_alias_a_proposal_short_id_collision", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T6"]},
@@ -664,6 +672,8 @@
     {"test": "proposal_witness_variant_replaces_remote_payload_at_authoritative_handoff", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11"]},
     {"test": "uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T7", "T8", "T11"]},
     {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
+    {"test": "uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T9"]},
+    {"test": "uak_runtime_chain_boundary_preserves_block_order_for_short_id_collisions", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T9"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},

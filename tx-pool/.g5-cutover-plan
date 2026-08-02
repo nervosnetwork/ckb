@@ -1,12 +1,13 @@
 # G5 Production Cutover Recovery Plan
 
-Status: design frozen; G5.3b.3 acceptance complete, checkpoint pending
+Status: design frozen; G5.3b.4 checkpoint ready
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
-Active slice: G5.3b.3
-Next exact action: freeze the accepted G5.3b.3 administrative checkpoint, then
-enter isolated G5.3b.4 chain-boundary construction. Do not change a legacy
+G5.3b.3 checkpoint: 71b629676
+Active slice: G5.3b.4
+Next exact action: freeze the reviewed G5.3b.4 chain-transition checkpoint,
+then start G5.3b.5 owned query and persistence receipts. Do not change a legacy
 production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
@@ -489,33 +490,39 @@ retry count, or transaction state.
 
 One chain administration method owns this complete sequence:
 
-1. Capture the old AuthorityStore view and the attached/detached block facts.
-2. Outside the guard, build canonical attached raw hashes, detached recovery
-   transactions, cell conflicts, proposal-window facts, and chain sensitivity.
-   Exclude cellbase transactions. Bind every proof to the new snapshot and one
-   internally generated `ChainViewId`. The validated disposition is owner-
-   typed: `ChainConflict` can name only PreAccepted or Accepted ownership;
-   `Committed` may also name ReplacementHistory; definitive chain loss leaves
-   ReplacementHistory parked. Cause and expected-owner kind must not remain
-   separately authored vectors whose legal cross-product is checked only by
-   the effect compiler.
-3. Validate proposal positions and context-sensitive entries from the new
-   snapshot outside the guard.
-4. Re-enter the authority, validate the exact old generation/view/source
-   receipts, compile the total owner/resource/index/dependency/effect Plan, and
-   atomically Apply it with the new snapshot.
-5. Update the bounded committed short-id cache and startup reconciliation marker
-   as chain-administration metadata in the same store cut.
-6. Open the guard and then publish wake hints and hand the immutable source
-   receipt to the block assembler and fee estimator.
+1. Outside the guard, extract and canonicalize attached/detached transactions,
+   headers, proposal deltas, compact committed short-id mappings, and candidate
+   uncles. Exclude cellbase transactions. The supplied new snapshot is the sole
+   chain-state input.
+2. Acquire the authority store's one upgradable-read capability. It excludes
+   intervening writers without adding a lock to ordinary admission, while
+   coherent RPC readers may continue. Derive the next `ChainViewId`, proposal
+   reconciliation subjects, and rules/tip validity transition from the old and
+   new paired snapshots. A rules-generation transition revalidates all Accepted
+   owners; a non-monotonic tip transition revalidates only the derived
+   context-sensitive set.
+3. Under that same stable read capability, compute the bounded causal Plan and
+   validate proposal positions from the immutable new snapshot. This work does
+   no VM execution, endpoint I/O, database read, callback, or legacy mutation.
+   The validated disposition is owner-typed: `ChainConflict` can name only
+   PreAccepted or Accepted ownership; `Committed` may also name
+   ReplacementHistory; definitive chain loss leaves ReplacementHistory parked.
+   Cause and expected-owner kind cannot remain separately authored vectors.
+4. Atomically upgrade the capability to the store write guard. No writer can
+   occupy the validation-to-Apply interval, so chain progress needs no retry
+   actor, admission pause protocol, epoch check, or starvation-prone global
+   source OCC loop. Apply the total owner/resource/index/dependency/effect Plan
+   and install the exact new snapshot in one store cut.
+5. Update the bounded committed short-id cache in the same store cut. Open the
+   guard before dropping retired payload/snapshot data, publishing wake hints,
+   or handing immutable source receipts to the block assembler and fee
+   estimator.
 
-The first post-startup chain administration also performs the existing one-shot
-reconciliation against the fresh snapshot: entries committed during persisted
-replay and entries whose chain inputs/deps are no longer available are removed
-or reclassified through the same typed chain/removal compiler. The
-`onchain_reconcile_done` marker is paired with the snapshot in AuthorityStore;
-it is not a second lifecycle authority and cannot be set before the matching
-Apply succeeds.
+Persisted replay and on-chain zombie reconciliation belong to topology startup,
+not to every chain transition. G5.3b.7 must replay persistence and perform one
+explicit reconciliation before opening ingress/workers. This removes the
+`onchain_reconcile_done` mutable marker and the first-block database scan from
+the chain path rather than retaining a second lifecycle convention.
 
 Detached recovery is one parent-first combined set. An unrepresentable bounded
 set uses only the rebuildable generation-reset fallback; exact ban or malformed
@@ -971,6 +978,109 @@ G5.3b.3 phase review:
   their lock duration. If those trusted slow-path bounds are rejected, the
   response is a storage/model redesign, not a hot-path repair index. No timing
   performance claim is made at this checkpoint.
+
+G5.3b.4 entry design:
+
+- The earlier unlock/relock chain receipt design carried global Accepted/status
+  source cuts. Under continuous valid admission, unrelated source movement
+  could stale every attempt and turn an authoritative ordered reorg into a
+  retry livelock. Adding an epoch, pause bit, cancellation registry, or shared
+  hot-path gate would transfer the risk and reduce ordinary concurrency.
+- The Rust-native replacement is one chain-only upgradable-read capability.
+  It preserves coherent-reader concurrency, excludes all intervening writers,
+  atomically upgrades for Apply, and adds no acquisition to ordinary admission.
+  The rare reorg path already requires an indivisible ownership/snapshot cut;
+  the capability expresses that fact directly instead of simulating it with
+  clocks and retries.
+- Block traversal, cellbase filtering, block/header/proposal canonicalization,
+  compact short-id extraction, and candidate-uncle construction occur before
+  the guard. The guarded Plan may perform only bounded in-memory owner/graph
+  work and immutable proposal-table lookup. VM work, store/database lookup,
+  callbacks, fee-estimator I/O, template building, and payload destruction are
+  outside.
+- Proposal reconciliation cannot rely only on block-supplied proposal IDs. Gap
+  must always be reconsidered and Pending must be reconsidered in packaging
+  mode, or the original stranded-Gap liveness bug returns. Add one payload-free
+  status/proposal derived index updated by the existing owner replacement
+  compiler; do not scan the full pool or add a second status authority.
+- Replace parallel `ChainRemovalCause` plus `ChainExpectedOwner` vectors with
+  owner-typed actions. Accepted recovery, Accepted conflict, PreAccepted
+  conflict, trusted Proposal expiry, and committed owner kinds each carry only
+  their legal evidence. Status changes, Proposal-to-Remote demotion, trusted
+  recovery, and existing-owner requeue carry their own exact owner expectation;
+  no action borrows an unrelated expectation table.
+- Compare the old and new snapshot script-rule generations explicitly. A
+  hard-fork rules transition selects every Accepted owner for revalidation;
+  detached/non-monotonic tip movement selects only validation-proven
+  tip-context-sensitive owners; a monotonic extension preserves both sets.
+- The committed short-id cache is bounded derived metadata. Attached
+  `(proposal_short_id, raw_hash)` pairs are compacted before the guard and
+  inserted with authority and snapshot Apply. Cache lookup never decides
+  membership and remains collision-checked by the final raw hash.
+- Startup reconciliation moves to the not-yet-open topology boundary. The new
+  service must replay persisted entries, reconcile once against the paired
+  snapshot, then expose ingress. This deletes the marker and avoids database
+  access under the chain capability.
+- If the bounded causal compiler reports `GenerationReplacement`, the chain
+  command remains retained and must converge through one rebuildable fresh-
+  generation Plan. Exact detail may collapse only to the generation-reset
+  effect; the fallback cannot silently drop detached recovery or publish a
+  partially updated snapshot. This is a required G5.3b.4 acceptance case, not
+  a later service patch.
+- The implemented boundary separates its proof and cost domains precisely:
+  block extraction and cache/candidate-uncle construction occur before the
+  guard; semantic owner, causal, validation, and proposal planning occurs while
+  one chain-only upgradable read excludes writers; the detailed path upgrades
+  only for fallible derived-capacity reservation and total Apply. The bounded
+  `GenerationReplacement` slow path builds a fresh parent-first recovery prefix
+  with the ordinary admission compiler under the exclusive chain cut, then
+  performs one O(1) generation swap. This trusted rare-path cost is explicit;
+  it does not add a lock, retry, queue, task, or ordinary-admission acquisition.
+
+G5.3b.4 phase review:
+
+- One ordered chain command now owns fact extraction, validation, owner-typed
+  Plan, total authority/snapshot/cache Apply, and the candidate-uncle handoff.
+  The legacy production path is unchanged until G5.3c; no shadow write or
+  alternate membership authority was added.
+- The original stranded-Gap bug is closed at its semantic owner. The Accepted
+  proposal-status index is payload-free derived state, maintained by the same
+  owner replacement compiler and checked against a rebuild. Every Gap owner is
+  re-evaluated on a chain observation, while Pending is additionally selected
+  in packaging mode. Uncle proposal filtering remains a bounded template rule,
+  not a transaction-status authority.
+- Owner-typed chain actions make illegal cause-by-owner combinations
+  unrepresentable. Accepted recovery, Accepted or PreAccepted chain conflict,
+  committed removal, status transition, Proposal demotion, trusted recovery,
+  and exact requeue each carry only their legal version evidence. The former
+  global source-token retry was deleted, so unrelated admission cannot stale or
+  livelock an ordered reorg.
+- Accepted validity is explicit: monotonic compatible extension preserves
+  proof, contextual change revalidates the indexed context-sensitive subset,
+  and script-rule change revalidates every Accepted owner. The paired snapshot
+  and proof evidence cannot describe different chain cuts.
+- The short-id cache preserves attached block and transaction order so a
+  collision has the same deterministic last-write result as the legacy
+  sequential update. It is bounded derived metadata and never decides
+  membership or substitutes for raw or witness transaction identity.
+- An over-bound causal transition converges through the existing generation-
+  reset compatibility behavior. The fresh authority reuses ordinary admission,
+  retains the largest parent-first prefix, publishes one GenerationReset, and
+  advances the live Apply sequence exactly once. Duplicate raw hashes or
+  witness variants are structural faults, not silently truncated capacity.
+- Whole-model review found one new resident structure only: the proposal-status
+  derived index. No authority, task, queue, retry protocol, cancellation state,
+  or ordinary-admission lock was added. Block traversal, candidate-uncle/cache
+  construction, external I/O, VM work, callbacks, and retired destruction stay
+  outside the guard. The rare fresh-generation compiler remains an explicit
+  chain-only slow-path cost for later operation-count/profile acceptance.
+- The complete internal-feature universe is 571/571 nextest green. Formatting,
+  diff integrity, review-guide, document, test-layout, security-manifest, and
+  interim strict Clippy gates pass. The fully strict no-allow Clippy gate is not
+  claimed before G5.3c because isolated not-yet-wired UAK production surfaces
+  are intentionally dead and the existing large-result types remain visible;
+  those allowances must reach zero at the G5/G6 Rust gate rather than be hidden
+  behind hundreds of annotations.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

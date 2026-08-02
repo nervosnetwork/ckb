@@ -1417,6 +1417,10 @@ impl EffectLog {
         }
     }
 
+    pub(super) fn limits(&self) -> EffectLimits {
+        self.limits
+    }
+
     pub(super) fn build_publication(
         &self,
         policy: EffectPolicy,

@@ -7,6 +7,7 @@
 
 mod ban;
 mod chain;
+mod chain_boundary;
 mod dependency;
 mod effect;
 mod indexes;
