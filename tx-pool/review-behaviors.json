@@ -285,7 +285,10 @@
         "tx-pool/src/persisted.rs",
         "tx-pool/src/component/pre_pool/recovery.rs",
         "tx-pool/src/component/pool_map.rs",
-        "tx-pool/src/process/reorg.rs"
+        "tx-pool/src/process/reorg.rs",
+        "tx-pool/src/authority/read.rs",
+        "tx-pool/src/authority/query.rs",
+        "tx-pool/src/authority/runtime.rs"
       ],
       "required_behavior": "Under one TxPool-read then PrePoolKernel snapshot boundary, persistence copies causal-parent-first accepted entries plus every retained/leased recovery-source payload into a bounded v2 envelope, releases authority locks, and serializes atomic writers without draining live state; startup also accepts the legacy v1 vector and revalidates every transaction.",
       "hostile_case": "Save racing detached replay/clear, an active recovery lease, malformed or oversized disk data, writer failure or expanded dep-group ordering must not persist an ownership gap, allocate from an unbounded length, lose the previous atomic file, drain the live pool or serialize children before required parents.",
@@ -296,6 +299,28 @@
       ],
       "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal -E 'test(/(save_pool_captures_complete_reorg_ownership|dependent_chain_survives_save_and_restart|dispatcher_channel_close|persisted_file_orders|persistence_v2_rejects_oversized|persistence_loader_accepts_legacy|uak_persistence_receipt|uak_dropped_persistence)/)'",
       "performance_bound": "Shutdown-only clone/sort work stays off admission paths; do not add a continuously maintained persistence projection."
+    },
+    {
+      "id": "TP-QUERY-001",
+      "title": "Coherent bounded public projections",
+      "change_surfaces": [
+        "tx-pool/src/service/controller.rs",
+        "tx-pool/src/service/dispatch.rs",
+        "tx-pool/src/authority/read.rs",
+        "tx-pool/src/authority/query.rs",
+        "tx-pool/src/authority/runtime.rs"
+      ],
+      "required_behavior": "Every tx-pool status, payload, aggregate, graph detail and paired chain fact is compiled from one borrowed authority cut into an owned receipt. Replacement history remains private and falls through to recent-reject semantics; accepted Gap remains RPC Pending; compact and live-cell storage lookup, fee computation, sorting and payload destruction occur after the authority guard is released.",
+      "hostile_case": "A clear, reorg, replacement, short-ID lookup, large pool query or slow database read must not splice owner generations, expose history as live Pending, fabricate verification facts, hold the authority during external storage work, turn a cold query into O(pool squared) work or make a projection a second membership authority.",
+      "reviewer_questions": [
+        "Does each service response come from one authority/snapshot cut rather than several independently locked reads?",
+        "Are raw hashes authoritative while proposal short IDs use only the unique collision-checked index?",
+        "Are database access, topological sorting, fee simulation and large object destruction outside the authority guard?",
+        "Do single-item queries use indexed or bounded graph work, and do full-vector queries perform at most one ordered population traversal?",
+        "Are ReplacementHistory, Pending, Gap, Proposed, cycles, fees and timestamps mapped exactly to the established RPC compatibility surface?"
+      ],
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(uak_owned_transaction_query|uak_owned_pool_queries|uak_resolved_preaccepted_query|uak_live_cell_receipt|uak_compact_receipt|uak_fee_receipt)/)'",
+      "performance_bound": "Single-item owner and graph lookups are indexed or explicitly bounded; full-pool DTOs use one O(pool) traversal and bounded allocation, while database I/O, persistence ordering and fee simulation execute after the authority read guard opens."
     },
     {
       "id": "TP-DEFECT-001",
@@ -421,6 +446,12 @@
     {"test": "randomized_public_transitions_always_match_full_rebuild", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "uak_query_never_splices_two_authority_cuts", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T10", "T12", "T13"]},
     {"test": "uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T4", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee", "behavior_id": "TP-QUERY-001", "invariants": ["T1", "T2", "T3", "T6", "T7", "T8", "T12"]},
+    {"test": "uak_owned_pool_queries_share_one_status_and_aggregate_cut", "behavior_id": "TP-QUERY-001", "invariants": ["T1", "T2", "T3", "T6", "T8", "T9", "T12"]},
+    {"test": "uak_resolved_preaccepted_query_uses_current_proposal_window", "behavior_id": "TP-QUERY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T12"]},
+    {"test": "uak_live_cell_receipt_releases_authority_before_storage_lookup", "behavior_id": "TP-QUERY-001", "invariants": ["T1", "T2", "T6", "T8", "T9", "T10", "T12"]},
+    {"test": "uak_compact_receipt_releases_authority_before_storage_lookup", "behavior_id": "TP-QUERY-001", "invariants": ["T1", "T2", "T8", "T9", "T10", "T12"]},
+    {"test": "uak_fee_receipt_is_owned_and_mutation_independent", "behavior_id": "TP-QUERY-001", "invariants": ["T1", "T2", "T6", "T8", "T9", "T12"]},
 
     {"test": "target_model_exercises_every_plan_outcome_without_partial_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
     {"test": "pipeline_commit_worker_waits_for_the_pool_sequencer", "behavior_id": "TP-COMMIT-001", "invariants": ["T5", "T6"]},
@@ -620,6 +651,7 @@
     {"test": "persistence_loader_accepts_legacy_v1_vector", "behavior_id": "TP-PERSIST-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T4", "T6", "T8", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "uak_dropped_persistence_receipt_has_no_authority_effect", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T4", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_persistence_receipt_is_owned_and_mutation_independent", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T4", "T8", "T9", "T10", "T11", "T12", "T13"]},
 
     {"test": "journal_accounting_drift_returns_typed_fault_without_partial_completion", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "authoritative_generation_swap_preserves_aba_clocks", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T9", "T10", "T11", "T12", "T13"]},

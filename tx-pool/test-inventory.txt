@@ -248,6 +248,13 @@ authority::tests::publisher::uak_relay_disconnect_is_typed_and_does_not_claim_pu
 authority::tests::publisher::uak_required_parent_detail_never_degrades_under_relay_saturation
 authority::tests::publisher::uak_retained_batch_resumes_at_its_first_unprocessed_endpoint
 authority::tests::publisher::uak_unregistered_callback_is_not_dispatched_to_the_foreign_worker
+authority::tests::query::uak_compact_receipt_releases_authority_before_storage_lookup
+authority::tests::query::uak_fee_receipt_is_owned_and_mutation_independent
+authority::tests::query::uak_live_cell_receipt_releases_authority_before_storage_lookup
+authority::tests::query::uak_owned_pool_queries_share_one_status_and_aggregate_cut
+authority::tests::query::uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee
+authority::tests::query::uak_persistence_receipt_is_owned_and_mutation_independent
+authority::tests::query::uak_resolved_preaccepted_query_uses_current_proposal_window
 authority::tests::read::uak_dropped_persistence_receipt_has_no_authority_effect
 authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first
 authority::tests::read::uak_query_never_splices_two_authority_cuts

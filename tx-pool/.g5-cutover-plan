@@ -1,14 +1,16 @@
 # G5 Production Cutover Recovery Plan
 
-Status: design frozen; G5.3b.4 checkpoint ready
+Status: design frozen; G5.3b.5 checkpoint ready
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
 G5.3b.3 checkpoint: 71b629676
-Active slice: G5.3b.4
-Next exact action: freeze the reviewed G5.3b.4 chain-transition checkpoint,
-then start G5.3b.5 owned query and persistence receipts. Do not change a legacy
-production owner before G5.3c.
+G5.3b.4 checkpoint: 1641bdfa3
+Active slice: G5.3b.5
+Next exact action: freeze G5.3b.5, record its commit below, then implement the
+G5.3b.6 pure template packer and block-assembler source receipt without
+serializing full/reset construction with uncle/proposal/transaction partial
+work. Do not change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -665,7 +667,7 @@ Implement in dependency order, with focused UAK tests after each slice:
    Remote expiry. Keep the effect-log close drain: shutdown publication owns a
    producer-lifetime barrier, not a transaction-owner transition. A static
    inventory must prove no other `ActiveWorkDrain` remains.
-4. [ ] Add production chain fact extraction, validation, snapshot Apply, and
+4. [x] Add production chain fact extraction, validation, snapshot Apply, and
    committed short-id handling.
 5. [ ] Add owned query and persistence receipts.
 6. [ ] Add the pure template packer and block-assembler source receipt.
@@ -1082,6 +1084,86 @@ G5.3b.4 phase review:
   those allowances must reach zero at the G5/G6 Rust gate rather than be hidden
   behind hundreds of annotations.
 
+G5.3b.5 entry design:
+
+- A borrowed `AuthorityReadView` remains the sole compiler over the primary
+  owner map. Production runtime methods may return only concrete owned receipts;
+  they cannot expose the guard, `OwnedTx`, or a generic read closure.
+- Implement four cohesive receipt groups, not one adapter per RPC: (1) exact
+  owner/status/payload lookup; (2) pool summary, ids, entry information and
+  troubleshooting detail from membership projections; (3) compact-block and
+  live-cell overlay captures paired with the exact snapshot/cache cut; and (4)
+  persistence and fee-estimation captures whose sorting or external work runs
+  after the guard opens.
+- ReplacementHistory remains internally discoverable but never maps to public
+  Pending/Proposed. Status adapters must fall through to the existing pending
+  and durable recent-reject endpoint. Compact reconstruction may retrieve its
+  retained bytes, matching the old bounded conflict-history behavior.
+- Fresh-proposal filtering and compact fetch consume the same collision-aware
+  proposal index. Short id alone never proves raw identity; exact raw-hash RPC
+  lookup does not route through short id. Cache fallback retains the final raw
+  hash check against the paired snapshot outside the guard.
+- Live-cell capture records only Accepted spend/producer overlay facts plus an
+  `Arc<Snapshot>` under the guard. Transaction output extraction and chain
+  database/data lookup run after release. PreAccepted and ReplacementHistory
+  are not live-cell providers.
+- Persistence captures only Accepted and Recovery owners, clones bounded Arc
+  payload handles and relation facts under one cut, then performs topological
+  ordering, byte cloning and writer I/O outside. ReplacementHistory, Remote and
+  Proposal PreAccepted owners never cross restart as trusted evidence.
+- Query allocation is bounded by configured owner residency. Single-item
+  status/live-cell/detail queries stay O(1) or bounded graph/index work and do
+  not clone the full pool. Full-vector endpoints are explicit cold reads whose
+  payload destruction happens after the guard.
+
+G5.3b.5 phase review:
+
+- One borrowed `AuthorityReadView` remains the only owner/projection compiler,
+  while `AuthorityRuntime` pairs it with the exact snapshot and short-id cache
+  under one read guard. Service-facing methods return concrete owned DTOs or
+  receipts; no guard, `OwnedTx`, mutation closure or generic read escapes.
+- No mutable state, lock, task, queue, retry, cache, version, repair scan or
+  fallback authority was added. Accepted resources and replacement policy are
+  copied facts from the same authority cut. Recent reject, chain storage, fee
+  simulation and persistence output remain external consumers of committed
+  state.
+- Public compatibility was checked against the legacy implementation rather
+  than inferred from field names. `total_tx_size` remains accepted serialized
+  bytes despite the public type's stale count wording; Pending includes Gap;
+  only missing-dependency waiters count as orphan; Proposed entries exclude a
+  replacement fee; graph counts, score, timestamp and cycles retain their
+  existing units. ReplacementHistory falls through to recent reject and never
+  acquires a public pool status.
+- Resolve-complete PreAccepted owners derive Proposed from the paired current
+  proposal window. The performance-critical `ResolveThenVerify` continuation
+  deliberately has no intermediate authority transition or shared stage bit,
+  so its brief ambiguous Computing interval remains conservatively Pending.
+  This preserves one-owner execution and the established same-lane
+  continuation rather than adding hot-path publication only for a best-effort
+  RPC observation.
+- Live-cell and compact-block receipts capture only the bounded requested
+  overlay plus the paired snapshot/cache cut. Database reads and transaction
+  materialization run after the guard and recheck raw hash plus proposal ID.
+  Persistence captures bounded Arc handles and relation facts, then performs
+  parent-first sorting outside. Fee simulation likewise runs outside.
+- The first query encoding exposed an O(pool squared) accepted-order lookup.
+  It was removed without another reverse index: single-item reads reconstruct
+  the canonical key and check the BTreeSet in O(log pool), while full ordered
+  projections validate each yielded key in one O(pool) traversal. Owner summary
+  counts, latest timestamp and verify-queue count share one scan.
+- Query tests were split by behavior rather than stacked. The new
+  `TP-QUERY-001` registry entry binds owner/status, aggregate, live-cell,
+  compact-block and fee receipts to exact review evidence; persistence keeps
+  its existing semantic owner. Every minimum-command arm remains non-empty.
+- The complete internal-feature universe is 578/578 nextest green. Formatting,
+  diff integrity, review-guide, document, test-layout, security-manifest and
+  interim strict Clippy gates pass. The same pre-cutover dead-code and existing
+  large-result allowances remain temporary and must reach zero after G5.3c.
+- Production behavior is still unchanged because these capabilities remain
+  isolated behind UAK tests. The only remaining G5.3b capabilities are the
+  pure template packer/source receipt and production topology assembly; the
+  coordinated owner cutover remains G5.3c.
+
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that
 keeps that suffix must be `#[cfg(test)]`. Add a static documentation/CI check so
@@ -1296,7 +1378,6 @@ Open production blockers:
 - authority-level non-starving clear/reorg active-work invalidation proof;
 - production dependency and expiry maintenance driver;
 - chain fact extraction, validation, paired snapshot Apply, and short-id cache;
-- service-facing coherent reads and persistence;
 - pure bounded CPFP template packer and block-assembler source cut;
 - coordinated topology, dispatch, shutdown, and legacy-owner deletion;
 - synchronized final architecture/contracts/review inventory;

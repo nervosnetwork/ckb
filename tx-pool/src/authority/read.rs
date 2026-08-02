@@ -8,15 +8,22 @@
 use super::template::{AuthorityTemplateReadReceipt, TemplateReadError};
 use super::{
     indexes::AuthorityIndexes,
-    plan::MembershipProjection,
+    plan::{
+        AcceptedOrderKey, AncestorAggregate, DescendantAggregate, MembershipConfig,
+        MembershipProjection,
+    },
+    resources::AcceptedResources,
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
         EntryVersion, KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
-        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, TxIdentity,
+        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, TxIdentity, WorkPermit,
     },
+    validation::proposal_status,
 };
+use ckb_snapshot::Snapshot;
 use ckb_types::core::{Capacity, TransactionView};
+use ckb_types::packed::OutPoint;
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap},
@@ -31,6 +38,18 @@ pub(super) struct AuthorityReadCut {
 }
 
 impl AuthorityReadCut {
+    pub(super) fn new(
+        generation: PoolGeneration,
+        chain_view: ChainViewId,
+        next_apply_sequence: ApplySequence,
+    ) -> Self {
+        Self {
+            generation,
+            chain_view,
+            next_apply_sequence,
+        }
+    }
+
     pub(super) fn generation(&self) -> PoolGeneration {
         self.generation
     }
@@ -119,22 +138,30 @@ impl<'authority> AuthorityReadEntry<'authority> {
     /// load-bearing boundary: the production query adapter must continue to
     /// the existing recent-reject lookup instead of inventing a live-pool RPC
     /// status for a retained victim.
-    pub(super) fn rpc_status(&self) -> Option<AuthorityRpcStatus> {
-        match self.state() {
-            AuthorityReadState::Accepted(AcceptedStatus::Proposed) => {
-                Some(AuthorityRpcStatus::Proposed)
-            }
-            AuthorityReadState::ReplacementHistory => None,
-            AuthorityReadState::PreAccepted(
-                PreAcceptedReadPhase::ResolveQueued
-                | PreAcceptedReadPhase::VerifyQueued
-                | PreAcceptedReadPhase::Computing
-                | PreAcceptedReadPhase::WaitingMissing
-                | PreAcceptedReadPhase::Ready,
-            )
-            | AuthorityReadState::Accepted(AcceptedStatus::Pending | AcceptedStatus::Gap) => {
-                Some(AuthorityRpcStatus::Pending)
-            }
+    pub(super) fn rpc_status(&self, snapshot: &Snapshot) -> Option<AuthorityRpcStatus> {
+        match self.owner {
+            OwnedTx::Accepted(entry) => Some(rpc_status_for_accepted(entry.status())),
+            OwnedTx::PreAccepted(entry) => Some(match &entry.phase {
+                PreAcceptedPhase::Queued(QueuedWork::Verify(_))
+                | PreAcceptedPhase::Computing(super::state::ActiveWork {
+                    permit: WorkPermit::VerifyOnly(_),
+                    ..
+                })
+                | PreAcceptedPhase::Ready(_) => rpc_status_for_accepted(proposal_status(
+                    snapshot,
+                    &entry.record.identity.proposal.0,
+                )),
+                // ResolveThenVerify intentionally keeps one compute lease and
+                // performs no intermediate authority transition. It therefore
+                // remains conservatively Pending while either stage may own
+                // that capability; adding shared stage state only for RPC
+                // would weaken the one-owner and continuation performance
+                // model.
+                PreAcceptedPhase::Queued(QueuedWork::Resolve)
+                | PreAcceptedPhase::Computing(_)
+                | PreAcceptedPhase::Waiting(_) => AuthorityRpcStatus::Pending,
+            }),
+            OwnedTx::ReplacementHistory(_) => None,
         }
     }
 
@@ -167,11 +194,59 @@ impl<'authority> AuthorityReadEntry<'authority> {
         }
     }
 
+    pub(super) fn transaction_status_cycles(&self) -> Option<u64> {
+        match self.owner {
+            OwnedTx::Accepted(entry) => Some(entry.proof.metrics().cost.cycles),
+            OwnedTx::PreAccepted(entry) => match &entry.phase {
+                PreAcceptedPhase::Ready(verified) => Some(verified.metrics().cost.cycles),
+                PreAcceptedPhase::Waiting(_) => match entry.source.payload_policy() {
+                    super::state::PayloadPolicy::RemoteDeclaredCycles(cycles) => Some(cycles),
+                    super::state::PayloadPolicy::Trusted => Some(0),
+                },
+                PreAcceptedPhase::Queued(_) | PreAcceptedPhase::Computing(_) => None,
+            },
+            OwnedTx::ReplacementHistory(_) => None,
+        }
+    }
+
     pub(super) fn accepted_at(&self) -> Option<AcceptedAtMillis> {
         match self.owner {
             OwnedTx::Accepted(entry) => Some(entry.accepted_at),
             OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
         }
+    }
+}
+
+fn rpc_status_for_accepted(status: AcceptedStatus) -> AuthorityRpcStatus {
+    match status {
+        AcceptedStatus::Proposed => AuthorityRpcStatus::Proposed,
+        AcceptedStatus::Pending | AcceptedStatus::Gap => AuthorityRpcStatus::Pending,
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct AcceptedReadEntry<'authority> {
+    entry: &'authority super::state::AcceptedEntry,
+    ancestor: AncestorAggregate,
+    descendant: DescendantAggregate,
+    order: AcceptedOrderKey,
+}
+
+impl<'authority> AcceptedReadEntry<'authority> {
+    pub(super) fn entry(&self) -> &'authority super::state::AcceptedEntry {
+        self.entry
+    }
+
+    pub(super) fn ancestor(&self) -> AncestorAggregate {
+        self.ancestor
+    }
+
+    pub(super) fn descendant(&self) -> DescendantAggregate {
+        self.descendant
+    }
+
+    pub(super) fn order(&self) -> &AcceptedOrderKey {
+        &self.order
     }
 }
 
@@ -190,9 +265,12 @@ pub(super) struct AuthorityReadSummary {
     pub(super) waiting_missing: usize,
     pub(super) replacement_history: usize,
     pub(super) ready: usize,
+    pub(super) verify_queued: usize,
     pub(super) accepted_pending: usize,
     pub(super) accepted_gap: usize,
     pub(super) accepted_proposed: usize,
+    pub(super) accepted_resources: AcceptedResources,
+    pub(super) latest_accepted_at: Option<AcceptedAtMillis>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,28 +287,28 @@ pub(super) struct AuthorityReadView<'authority> {
     entries: &'authority HashMap<RawTxHash, OwnedTx>,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
+    accepted_resources: AcceptedResources,
+    membership_config: MembershipConfig,
     template_sources: PoolTemplateVersions,
 }
 
 impl<'authority> AuthorityReadView<'authority> {
     pub(super) fn new(
-        generation: PoolGeneration,
-        chain_view: ChainViewId,
-        next_apply_sequence: ApplySequence,
+        cut: AuthorityReadCut,
         entries: &'authority HashMap<RawTxHash, OwnedTx>,
         indexes: &'authority AuthorityIndexes,
         membership: &'authority MembershipProjection,
+        accepted_resources: AcceptedResources,
+        membership_config: MembershipConfig,
         template_sources: PoolTemplateVersions,
     ) -> Self {
         Self {
-            cut: AuthorityReadCut {
-                generation,
-                chain_view,
-                next_apply_sequence,
-            },
+            cut,
             entries,
             indexes,
             membership,
+            accepted_resources,
+            membership_config,
             template_sources,
         }
     }
@@ -241,6 +319,81 @@ impl<'authority> AuthorityReadView<'authority> {
 
     pub(super) fn entry_by_raw(&self, hash: &RawTxHash) -> Option<AuthorityReadEntry<'authority>> {
         self.entries.get(hash).map(AuthorityReadEntry::new)
+    }
+
+    pub(super) fn accepted_entry_by_raw(
+        &self,
+        hash: &RawTxHash,
+    ) -> Result<Option<AcceptedReadEntry<'authority>>, AuthorityReadError> {
+        let Some(owner) = self.entries.get(hash) else {
+            return Ok(None);
+        };
+        let OwnedTx::Accepted(entry) = owner else {
+            return Ok(None);
+        };
+        let ancestor = self
+            .membership
+            .ancestor_aggregate(hash)
+            .ok_or(AuthorityReadError::Projection)?;
+        let descendant = self
+            .membership
+            .descendant_aggregate(hash)
+            .ok_or(AuthorityReadError::Projection)?;
+        let order = AcceptedOrderKey::new(entry, ancestor);
+        if !self.membership.contains_accepted_order(&order) {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(Some(AcceptedReadEntry {
+            entry,
+            ancestor,
+            descendant,
+            order,
+        }))
+    }
+
+    pub(super) fn accepted_entry_for_order(
+        &self,
+        order: &AcceptedOrderKey,
+    ) -> Result<AcceptedReadEntry<'authority>, AuthorityReadError> {
+        let OwnedTx::Accepted(entry) = self
+            .entries
+            .get(order.hash())
+            .ok_or(AuthorityReadError::Projection)?
+        else {
+            return Err(AuthorityReadError::Projection);
+        };
+        let ancestor = self
+            .membership
+            .ancestor_aggregate(order.hash())
+            .ok_or(AuthorityReadError::Projection)?;
+        let descendant = self
+            .membership
+            .descendant_aggregate(order.hash())
+            .ok_or(AuthorityReadError::Projection)?;
+        let current_order = AcceptedOrderKey::new(entry, ancestor);
+        if &current_order != order {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(AcceptedReadEntry {
+            entry,
+            ancestor,
+            descendant,
+            order: current_order,
+        })
+    }
+
+    pub(super) fn accepted_spends(&self, out_point: &OutPoint) -> bool {
+        self.membership.spender(out_point).is_some()
+    }
+
+    pub(super) fn minimum_replacement_rate(&self) -> Option<ckb_types::core::FeeRate> {
+        self.membership_config.minimum_replacement_rate()
+    }
+
+    pub(super) fn accepted_order(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &'authority AcceptedOrderKey> + '_ {
+        self.membership.accepted_order()
     }
 
     pub(super) fn entry_by_proposal(
@@ -332,15 +485,27 @@ impl<'authority> AuthorityReadView<'authority> {
         };
         for owner in self.entries.values() {
             match owner {
-                OwnedTx::Accepted(entry) => match entry.status() {
-                    AcceptedStatus::Pending => increment(&mut summary.accepted_pending)?,
-                    AcceptedStatus::Gap => increment(&mut summary.accepted_gap)?,
-                    AcceptedStatus::Proposed => increment(&mut summary.accepted_proposed)?,
-                },
+                OwnedTx::Accepted(entry) => {
+                    match entry.status() {
+                        AcceptedStatus::Pending => increment(&mut summary.accepted_pending)?,
+                        AcceptedStatus::Gap => increment(&mut summary.accepted_gap)?,
+                        AcceptedStatus::Proposed => increment(&mut summary.accepted_proposed)?,
+                    }
+                    summary.latest_accepted_at = Some(
+                        summary
+                            .latest_accepted_at
+                            .map_or(entry.accepted_at, |latest| latest.max(entry.accepted_at)),
+                    );
+                }
                 OwnedTx::PreAccepted(entry) => {
                     increment(&mut summary.preaccepted)?;
                     match &entry.phase {
-                        PreAcceptedPhase::Queued(_) => increment(&mut summary.queued)?,
+                        PreAcceptedPhase::Queued(work) => {
+                            increment(&mut summary.queued)?;
+                            if matches!(work, QueuedWork::Verify(_)) {
+                                increment(&mut summary.verify_queued)?;
+                            }
+                        }
                         PreAcceptedPhase::Computing(_) => increment(&mut summary.computing)?,
                         PreAcceptedPhase::Waiting(_) => {
                             increment(&mut summary.waiting_missing)?;
@@ -358,6 +523,15 @@ impl<'authority> AuthorityReadView<'authority> {
             || summary.accepted_gap != counts.gap
             || summary.accepted_proposed != counts.proposed
         {
+            return Err(AuthorityReadError::Projection);
+        }
+        summary.accepted_resources = self.accepted_resources;
+        let accepted_count = counts
+            .pending
+            .checked_add(counts.gap)
+            .and_then(|count| count.checked_add(counts.proposed))
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if accepted_count != self.accepted_resources.entries {
             return Err(AuthorityReadError::Projection);
         }
         Ok(summary)

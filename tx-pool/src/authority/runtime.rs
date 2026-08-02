@@ -29,6 +29,10 @@ use super::{
         FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, MembershipReject,
         PlanError, RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
+    query::{
+        AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
+        CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
+    },
     resolver::{
         DirectComputationError, DirectResolutionEvaluation, DirectResolutionJob,
         DirectResolutionPreparation, DirectResolutionProbeObservation, DirectVerificationRequest,
@@ -57,7 +61,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::FeeRate;
 use ckb_types::core::{EntryCompleted, TransactionView};
-use ckb_types::packed::{Byte32, ProposalShortId};
+use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_util::{RwLock, parking_lot::RwLockUpgradableReadGuard};
 use ckb_verification::cache::{Completed, ScriptVerificationRules};
 use lru::LruCache;
@@ -734,6 +738,122 @@ impl AuthorityRuntime {
             expiry_policy,
             verify_workers,
         })
+    }
+
+    pub(crate) fn transaction_lookup(
+        &self,
+        hash: &Byte32,
+    ) -> Result<AuthorityTransactionLookup, AuthorityQueryError> {
+        let store = self.store.read();
+        super::query::transaction_lookup(
+            &store.authority.read_view(),
+            &store.snapshot,
+            &RawTxHash(hash.clone()),
+        )
+        .map_err(Into::into)
+    }
+
+    pub(crate) fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityQueryError> {
+        let store = self.store.read();
+        let summary = store.authority.read_view().summary()?;
+        AuthorityPoolSummary::capture(&store.snapshot, summary).map_err(Into::into)
+    }
+
+    pub(crate) fn filter_fresh_proposals(
+        &self,
+        mut proposals: Vec<ProposalShortId>,
+    ) -> Result<Vec<ProposalShortId>, AuthorityQueryError> {
+        let store = self.store.read();
+        super::query::filter_fresh_proposals(&store.authority.read_view(), &mut proposals)?;
+        Ok(proposals)
+    }
+
+    pub(crate) fn capture_compact_block(
+        &self,
+        mut requested: Vec<ProposalShortId>,
+    ) -> Result<CompactBlockReadReceipt, AuthorityQueryError> {
+        requested.sort_unstable();
+        requested.dedup();
+        let store = self.store.read();
+        let view = store.authority.read_view();
+        let mut committed = Vec::new();
+        committed
+            .try_reserve(requested.len())
+            .map_err(|_| AuthorityQueryError::Allocation)?;
+        for proposal in &requested {
+            if view
+                .entry_by_proposal(&super::state::ProposalId(proposal.clone()))?
+                .is_none()
+                && let Some(hash) = store.committed_txs_hash_cache.peek(proposal)
+            {
+                committed.push((proposal.clone(), hash.clone()));
+            }
+        }
+        CompactBlockReadReceipt::capture(&view, Arc::clone(&store.snapshot), &requested, committed)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn accepted_with_cycles(
+        &self,
+        mut requested: Vec<ProposalShortId>,
+    ) -> Result<
+        std::collections::HashMap<ProposalShortId, (TransactionView, u64)>,
+        AuthorityQueryError,
+    > {
+        requested.sort_unstable();
+        requested.dedup();
+        let store = self.store.read();
+        super::query::accepted_with_cycles(&store.authority.read_view(), &requested)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn pool_ids(
+        &self,
+    ) -> Result<ckb_types::core::tx_pool::TxPoolIds, AuthorityQueryError> {
+        let store = self.store.read();
+        super::query::pool_ids(&store.authority.read_view()).map_err(Into::into)
+    }
+
+    pub(crate) fn all_entry_info(
+        &self,
+    ) -> Result<ckb_types::core::tx_pool::TxPoolEntryInfo, AuthorityQueryError> {
+        let store = self.store.read();
+        super::query::all_entry_info(&store.authority.read_view()).map_err(Into::into)
+    }
+
+    pub(crate) fn pool_detail(
+        &self,
+        hash: &Byte32,
+    ) -> Result<Option<ckb_types::core::tx_pool::PoolTxDetailInfo>, AuthorityQueryError> {
+        let store = self.store.read();
+        super::query::pool_detail(&store.authority.read_view(), &RawTxHash(hash.clone()))
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn live_cell_receipt(&self, out_point: OutPoint) -> LiveCellReadReceipt {
+        let store = self.store.read();
+        LiveCellReadReceipt::capture(
+            &store.authority.read_view(),
+            Arc::clone(&store.snapshot),
+            out_point,
+        )
+    }
+
+    pub(crate) fn persistence_receipt(&self) -> Result<PersistenceReceipt, AuthorityQueryError> {
+        let store = self.store.read();
+        PersistenceReceipt::capture(&store.authority.read_view()).map_err(Into::into)
+    }
+
+    pub(crate) fn fee_estimate_receipt(
+        &self,
+    ) -> Result<FeeEstimateReadReceipt, AuthorityQueryError> {
+        let store = self.store.read();
+        FeeEstimateReadReceipt::capture(
+            &store.authority.read_view(),
+            &store.snapshot,
+            self.resolution_policy.min_fee_rate,
+        )
+        .map_err(Into::into)
     }
 
     /// Remove one explicit owner through the total administrative compiler.

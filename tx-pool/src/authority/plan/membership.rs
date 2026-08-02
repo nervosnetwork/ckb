@@ -68,6 +68,13 @@ impl MembershipConfig {
         self.max_component
     }
 
+    pub(in crate::authority) fn minimum_replacement_rate(self) -> Option<FeeRate> {
+        match self.replacement {
+            ReplacementPolicy::Disabled => None,
+            ReplacementPolicy::Enabled { minimum_rate } => Some(minimum_rate),
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn testing_with_replacement(minimum_rate: FeeRate) -> Self {
         Self::from_runtime(
@@ -231,6 +238,10 @@ impl AcceptedOrderKey {
 
     pub(in crate::authority) fn hash(&self) -> &RawTxHash {
         &self.hash
+    }
+
+    pub(in crate::authority) fn score(&self) -> &AncestorsScoreSortKey {
+        &self.score
     }
 }
 
@@ -546,15 +557,21 @@ impl MembershipProjection {
         self.counts
     }
 
-    pub(super) fn spender(&self, input: &OutPoint) -> Option<&RawTxHash> {
+    pub(in crate::authority) fn spender(&self, input: &OutPoint) -> Option<&RawTxHash> {
         self.spenders.get(input)
     }
 
-    pub(super) fn ancestor_aggregate(&self, hash: &RawTxHash) -> Option<AncestorAggregate> {
+    pub(in crate::authority) fn ancestor_aggregate(
+        &self,
+        hash: &RawTxHash,
+    ) -> Option<AncestorAggregate> {
         self.ancestor_aggregates.get(hash).copied()
     }
 
-    pub(super) fn descendant_aggregate(&self, hash: &RawTxHash) -> Option<DescendantAggregate> {
+    pub(in crate::authority) fn descendant_aggregate(
+        &self,
+        hash: &RawTxHash,
+    ) -> Option<DescendantAggregate> {
         self.descendant_aggregates.get(hash).copied()
     }
 
@@ -570,6 +587,10 @@ impl MembershipProjection {
         &self,
     ) -> impl DoubleEndedIterator<Item = &AcceptedOrderKey> {
         self.accepted_order.iter()
+    }
+
+    pub(in crate::authority) fn contains_accepted_order(&self, key: &AcceptedOrderKey) -> bool {
+        self.accepted_order.contains(key)
     }
 
     pub(in crate::authority) fn eviction_order_for(

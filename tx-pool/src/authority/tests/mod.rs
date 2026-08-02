@@ -5,6 +5,7 @@ mod effect;
 mod foundation;
 mod ingress;
 mod publisher;
+mod query;
 mod read;
 mod resolver;
 mod template;

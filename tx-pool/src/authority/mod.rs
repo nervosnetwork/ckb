@@ -14,6 +14,7 @@ mod indexes;
 mod ingress;
 mod plan;
 mod publisher;
+pub(crate) mod query;
 mod read;
 mod rejection;
 mod resolver;

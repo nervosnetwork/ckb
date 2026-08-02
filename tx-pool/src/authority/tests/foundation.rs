@@ -4826,11 +4826,12 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
     let summary = view.summary().expect("history has an explicit read state");
     assert_eq!(summary.owners, 3);
     assert_eq!(summary.replacement_history, 2);
+    let snapshot = genesis_snapshot();
     for hash in [&victim, &child] {
         assert!(
             view.entry_by_raw(hash)
                 .expect("replacement history remains internally queryable")
-                .rpc_status()
+                .rpc_status(&snapshot)
                 .is_none(),
             "replacement history must not acquire a live-pool RPC status"
         );

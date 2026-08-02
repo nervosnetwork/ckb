@@ -365,12 +365,16 @@ impl TxPoolAuthority {
     /// accepted/preaccepted collections.
     pub(super) fn read_view(&self) -> AuthorityReadView<'_> {
         AuthorityReadView::new(
-            self.generation,
-            self.chain_view.clone(),
-            self.clocks.next_sequence,
+            super::read::AuthorityReadCut::new(
+                self.generation,
+                self.chain_view.clone(),
+                self.clocks.next_sequence,
+            ),
             &self.entries,
             &self.indexes,
             &self.membership,
+            self.resources.accepted(),
+            self.membership_config,
             self.source_versions.template(),
         )
     }

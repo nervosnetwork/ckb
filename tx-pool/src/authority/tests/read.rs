@@ -8,7 +8,7 @@ use super::super::{
 };
 use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
-    apply_without_work, limits, owner_version, resolved_payload_with_facts, tx,
+    apply_without_work, genesis_snapshot, limits, owner_version, resolved_payload_with_facts, tx,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -30,13 +30,14 @@ struct QueryCut {
 
 fn materialize_query(authority: &TxPoolAuthority, hash: &RawTxHash) -> QueryCut {
     let view = authority.read_view();
+    let snapshot = genesis_snapshot();
     let entry = view.entry_by_raw(hash).expect("fixture owner is visible");
     let ids = view.pool_ids().expect("derived status counts are coherent");
     let summary = view.summary().expect("derived owner counts are coherent");
     QueryCut {
         next_sequence: view.cut().next_apply_sequence().0,
         state: entry.state(),
-        rpc_status: entry.rpc_status(),
+        rpc_status: entry.rpc_status(&snapshot),
         pending: ids.pending,
         proposed: ids.proposed,
         accepted_gap: summary.accepted_gap,
@@ -138,7 +139,10 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
         entry.state(),
         AuthorityReadState::PreAccepted(PreAcceptedReadPhase::ResolveQueued)
     );
-    assert_eq!(entry.rpc_status(), Some(AuthorityRpcStatus::Pending));
+    assert_eq!(
+        entry.rpc_status(&genesis_snapshot()),
+        Some(AuthorityRpcStatus::Pending)
+    );
     assert_eq!(entry.fee(), None);
     assert_eq!(entry.cycles(), None);
     assert_eq!(entry.accepted_at(), None);
