@@ -958,7 +958,7 @@ pub(super) enum ChainRemovalCause {
         out_point: OutPoint,
     },
     Recovery,
-    ProposalLeaseExpired,
+    ProposalWindowExpired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1140,7 +1140,7 @@ impl ChainValidationWork {
                 ProposalBase::Remote(_) => proposal_demotions.push(subject.hash),
                 ProposalBase::Trusted => removals.push(ChainRemoval {
                     hash: subject.hash,
-                    cause: ChainRemovalCause::ProposalLeaseExpired,
+                    cause: ChainRemovalCause::ProposalWindowExpired,
                 }),
             }
         }

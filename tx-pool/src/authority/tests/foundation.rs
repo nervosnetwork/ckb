@@ -20,10 +20,9 @@ use super::super::state::{
     CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId,
     DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
     FoundationResolution, InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx,
-    PayloadPolicy, PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
-    ProposalContextId, ProposalLease, QueuedWork, RawTxHash, RejectionKind, RemoteDeadline,
-    RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
-    VerifyCapability, VerifyCycleClass, WorkPermit,
+    PayloadPolicy, PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork,
+    RawTxHash, RejectionKind, RemoteDeadline, RemoteResidencyLease, ResolvedPayload, TxIdentity,
+    ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
@@ -1229,8 +1228,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(promoted_tx, ProposalContextId(8))
-                    .expect("promotion fixture is valid"),
+                ValidatedAdmission::proposal(promoted_tx).expect("promotion fixture is valid"),
             )
             .expect("promotion preserves immutable ingress"),
     );
@@ -1315,8 +1313,7 @@ fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction, ProposalContextId(9))
-                    .expect("promotion fixture is valid"),
+                ValidatedAdmission::proposal(transaction).expect("promotion fixture is valid"),
             )
             .expect("promotion plans"),
     );
@@ -1483,8 +1480,7 @@ fn uak_proposal_promotion_suspends_but_retains_the_remote_deadline() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction, ProposalContextId(10))
-                    .expect("proposal fixture is valid"),
+                ValidatedAdmission::proposal(transaction).expect("proposal fixture is valid"),
             )
             .expect("same-witness promotion plans"),
     );
@@ -1581,8 +1577,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
         panic!("continuous permit returns continuous resolve work");
     };
 
-    let duplicate = ValidatedAdmission::proposal(transaction, ProposalContextId(3))
-        .expect("fixture promotion is valid");
+    let duplicate = ValidatedAdmission::proposal(transaction).expect("fixture promotion is valid");
     apply_without_work(
         authority
             .plan_admission(duplicate)
@@ -1597,9 +1592,6 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
             if matches!(
                 entry.source,
                 PreAcceptedSource::Proposal {
-                    lease: ProposalLease {
-                        context: ProposalContextId(3),
-                    },
                     base: ProposalBase::Remote(_),
                 }
             )
@@ -1690,8 +1682,8 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
                 == PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
     ));
 
-    let replacement = ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(9))
-        .expect("trusted replacement is valid");
+    let replacement =
+        ValidatedAdmission::proposal(trusted.clone()).expect("trusted replacement is valid");
     apply_without_work(
         authority
             .plan_admission(replacement)
@@ -1714,9 +1706,6 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
             if matches!(
                 entry.source,
                 PreAcceptedSource::Proposal {
-                    lease: ProposalLease {
-                        context: ProposalContextId(9),
-                    },
                     base: ProposalBase::Remote(remote),
                 } if remote.residency.peer == peer
                     && remote.payload_policy == PayloadPolicy::Trusted
@@ -1750,7 +1739,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction, ProposalContextId(626))
+                ValidatedAdmission::proposal(transaction)
                     .expect("same-witness proposal is trusted"),
             )
             .expect("proposal promotion preserves the active compute lease"),
@@ -1826,7 +1815,7 @@ fn uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction, ProposalContextId(628))
+                ValidatedAdmission::proposal(transaction)
                     .expect("same-witness proposal is trusted"),
             )
             .expect("proposal promotion preserves the active compute lease"),
@@ -2293,8 +2282,8 @@ fn uak_active_trusted_witness_replacement_waits_for_the_unique_completion() {
             .apply(),
     );
     let before = authority.normalized_snapshot();
-    let replacement = ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(10))
-        .expect("trusted replacement is valid");
+    let replacement =
+        ValidatedAdmission::proposal(trusted.clone()).expect("trusted replacement is valid");
     assert_eq!(
         authority.plan_admission(replacement).err(),
         Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
@@ -2309,8 +2298,7 @@ fn uak_active_trusted_witness_replacement_waits_for_the_unique_completion() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(trusted.clone(), ProposalContextId(10))
-                    .expect("retry replacement is valid"),
+                ValidatedAdmission::proposal(trusted.clone()).expect("retry replacement is valid"),
             )
             .expect("replacement succeeds after active drain"),
     );
@@ -2341,7 +2329,7 @@ fn uak_accepted_or_recovery_ownership_cannot_be_replaced_by_a_proposal_witness()
         Vec::new(),
     );
     let before = accepted_authority.normalized_snapshot();
-    let accepted_variant = ValidatedAdmission::proposal(second.clone(), ProposalContextId(11))
+    let accepted_variant = ValidatedAdmission::proposal(second.clone())
         .expect("accepted duplicate variant is structurally valid");
     assert_eq!(
         accepted_authority.plan_admission(accepted_variant).err(),
@@ -2363,7 +2351,7 @@ fn uak_accepted_or_recovery_ownership_cannot_be_replaced_by_a_proposal_witness()
             .expect("recovery variant enters ownership"),
     );
     let before = recovery_authority.normalized_snapshot();
-    let proposal_variant = ValidatedAdmission::proposal(second, ProposalContextId(12))
+    let proposal_variant = ValidatedAdmission::proposal(second)
         .expect("lower-priority proposal variant is structurally valid");
     assert_eq!(
         recovery_authority.plan_admission(proposal_variant).err(),
@@ -2421,8 +2409,7 @@ fn uak_stale_membership_plan_is_semantically_mutation_free() {
 #[test]
 fn uak_terminal_outcome_and_effect_commit_together() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let admission = ValidatedAdmission::proposal(tx(6), ProposalContextId(5))
-        .expect("fixture admission is valid");
+    let admission = ValidatedAdmission::proposal(tx(6)).expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -5175,8 +5162,8 @@ fn uak_replacement_history_requires_trusted_proposal_to_promote() {
         Some(OwnedTx::ReplacementHistory(_))
     ));
 
-    let proposal = ValidatedAdmission::proposal(victim_tx, ProposalContextId(85))
-        .expect("trusted proposal retry is valid ingress");
+    let proposal =
+        ValidatedAdmission::proposal(victim_tx).expect("trusted proposal retry is valid ingress");
     apply_without_work(
         authority
             .plan_admission(proposal)
@@ -7078,8 +7065,8 @@ fn uak_fair_frontier_round_robins_owners_only_after_apply() {
     let peer_a_first = admit_remote(&mut authority, 601, 61);
     let peer_a_second = admit_remote(&mut authority, 602, 61);
     let peer_b = admit_remote(&mut authority, 603, 62);
-    let trusted_admission = ValidatedAdmission::proposal(tx(604), ProposalContextId(1))
-        .expect("fixture proposal admission is valid");
+    let trusted_admission =
+        ValidatedAdmission::proposal(tx(604)).expect("fixture proposal admission is valid");
     let trusted = trusted_admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -7113,8 +7100,8 @@ fn uak_fair_frontier_round_robins_owners_only_after_apply() {
 #[test]
 fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let proposal_admission = ValidatedAdmission::proposal(tx(611), ProposalContextId(1))
-        .expect("fixture proposal admission is valid");
+    let proposal_admission =
+        ValidatedAdmission::proposal(tx(611)).expect("fixture proposal admission is valid");
     let proposal = proposal_admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -7169,8 +7156,8 @@ fn uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote()
             .expect("peer A work settles"),
     );
 
-    let trusted_admission = ValidatedAdmission::proposal(tx(620), ProposalContextId(2))
-        .expect("fixture proposal admission is valid");
+    let trusted_admission =
+        ValidatedAdmission::proposal(tx(620)).expect("fixture proposal admission is valid");
     let trusted = trusted_admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -7295,8 +7282,8 @@ fn uak_fair_frontier_skips_saturated_peer_without_blocking_new_peer() {
 #[test]
 fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
     const COMPUTE_BYTES: usize = 256;
-    let proposal = ValidatedAdmission::proposal(tx(613), ProposalContextId(1))
-        .expect("fixture proposal admission is valid");
+    let proposal =
+        ValidatedAdmission::proposal(tx(613)).expect("fixture proposal admission is valid");
     let recovery = ValidatedAdmission::recovery(tx(614), PoolGeneration(0))
         .expect("fixture recovery admission is valid");
     let remote = ValidatedAdmission::remote(tx(615), PeerIndex::from(66))
@@ -7379,8 +7366,8 @@ fn uak_proposal_promotion_separates_peer_residency_from_trusted_compute() {
         ValidatedAdmission::remote(tx(617), peer).expect("active remote fixture is valid");
     let promoted_admission =
         ValidatedAdmission::remote(tx(618), peer).expect("promoted remote fixture is valid");
-    let trusted_admission = ValidatedAdmission::proposal(tx(619), ProposalContextId(2))
-        .expect("trusted proposal fixture is valid");
+    let trusted_admission =
+        ValidatedAdmission::proposal(tx(619)).expect("trusted proposal fixture is valid");
     let remote = add_resources(
         active_admission.charge_for_foundation(),
         promoted_admission.charge_for_foundation(),
@@ -7407,7 +7394,7 @@ fn uak_proposal_promotion_separates_peer_residency_from_trusted_compute() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(tx(618), ProposalContextId(3))
+                ValidatedAdmission::proposal(tx(618))
                     .expect("proposal promotion carries chain provenance"),
             )
             .expect("promotion changes policy without erasing ingress"),
@@ -7548,7 +7535,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(stale_tx, ProposalContextId(901))
+                ValidatedAdmission::proposal(stale_tx)
                     .expect("the queued remote owner can gain trusted proposal priority"),
             )
             .expect("promotion moves the same queue slot to the trusted owner"),

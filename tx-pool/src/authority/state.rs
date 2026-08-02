@@ -120,9 +120,6 @@ impl TxIdentity {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ProposalContextId(pub(super) u64);
-
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct RemoteDeadline(pub(super) u64);
 
@@ -141,11 +138,6 @@ impl RemoteResidencyLease {
     pub(super) const fn for_foundation(peer: PeerIndex) -> Self {
         Self::new(peer, RemoteDeadline(u64::MAX))
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ProposalLease {
-    pub(super) context: ProposalContextId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -204,10 +196,7 @@ pub(super) enum ProposalBase {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PreAcceptedSource {
     Remote(RemoteBase),
-    Proposal {
-        lease: ProposalLease,
-        base: ProposalBase,
-    },
+    Proposal { base: ProposalBase },
     Recovery(RecoveryLease),
 }
 
@@ -1528,14 +1517,10 @@ impl ValidatedAdmission {
         )
     }
 
-    pub(super) fn proposal(
-        tx: TransactionView,
-        context: ProposalContextId,
-    ) -> Result<Self, AdmissionValidationError> {
+    pub(super) fn proposal(tx: TransactionView) -> Result<Self, AdmissionValidationError> {
         Self::new(
             tx,
             PreAcceptedSource::Proposal {
-                lease: ProposalLease { context },
                 base: ProposalBase::Trusted,
             },
         )

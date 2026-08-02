@@ -821,7 +821,7 @@ impl TxPoolAuthority {
                 ChainRemovalCause::Committed => continue,
                 ChainRemovalCause::ChainConflict { .. }
                 | ChainRemovalCause::Recovery
-                | ChainRemovalCause::ProposalLeaseExpired => {}
+                | ChainRemovalCause::ProposalWindowExpired => {}
             }
             let owner = self
                 .entries
@@ -1130,7 +1130,7 @@ impl TxPoolAuthority {
         let mut lost = receipt.lost;
         for removal in &removals {
             match &removal.cause {
-                ChainRemovalCause::ProposalLeaseExpired => {
+                ChainRemovalCause::ProposalWindowExpired => {
                     let owner = self
                         .entries
                         .get(&removal.hash)
@@ -1226,7 +1226,7 @@ impl TxPoolAuthority {
                         },
                     ));
                 }
-                ChainRemovalCause::Recovery | ChainRemovalCause::ProposalLeaseExpired => {}
+                ChainRemovalCause::Recovery | ChainRemovalCause::ProposalWindowExpired => {}
             }
         }
         let mut status_effect_keys = Vec::new();

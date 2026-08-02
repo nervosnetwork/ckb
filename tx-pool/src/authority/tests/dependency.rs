@@ -6,8 +6,8 @@ use super::super::{
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
         AcceptedStatus, DependencyKey, EntryVersion, OwnedTx, PoolGeneration, PreAcceptedPhase,
-        ProposalContextId, QueuedWork, RawTxHash, ResolvedPayload, TxIdentity, ValidatedAdmission,
-        VerifyCapability, WorkPermit,
+        QueuedWork, RawTxHash, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifyCapability,
+        WorkPermit,
     },
     work::{CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork},
 };
@@ -290,8 +290,7 @@ fn uak_parent_acceptance_publishes_output_availability_atomically() {
     let key = DependencyKey::Cell(parent_output.clone());
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx, ProposalContextId(12))
-            .expect("parent proposal is valid"),
+        ValidatedAdmission::proposal(parent_tx).expect("parent proposal is valid"),
     );
     let child = admit(
         &mut authority,
@@ -392,8 +391,7 @@ fn uak_coalesced_loss_then_availability_wakes_a_post_loss_waiter() {
     let key = DependencyKey::Cell(parent_output.clone());
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx, ProposalContextId(9))
-            .expect("coalesced-event parent proposal is valid"),
+        ValidatedAdmission::proposal(parent_tx).expect("coalesced-event parent proposal is valid"),
     );
     let early_child = admit(
         &mut authority,
@@ -473,13 +471,13 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
         let parent_admission = if recovery {
             ValidatedAdmission::recovery(parent_tx.clone(), PoolGeneration(0))
         } else {
-            ValidatedAdmission::proposal(parent_tx.clone(), ProposalContextId(1))
+            ValidatedAdmission::proposal(parent_tx.clone())
         }
         .expect("trusted parent admission is valid");
         let child_admission = if recovery {
             ValidatedAdmission::recovery(child_tx.clone(), PoolGeneration(0))
         } else {
-            ValidatedAdmission::proposal(child_tx.clone(), ProposalContextId(1))
+            ValidatedAdmission::proposal(child_tx.clone())
         }
         .expect("trusted child admission is valid");
         let parent = admit(&mut authority, parent_admission);
@@ -552,8 +550,7 @@ fn uak_dependency_maintenance_never_revokes_active_compute_capability() {
     let dependency = DependencyKey::Cell(parent_output.clone());
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx, ProposalContextId(6))
-            .expect("active-consumer parent admission is valid"),
+        ValidatedAdmission::proposal(parent_tx).expect("active-consumer parent admission is valid"),
     );
     let child = admit(
         &mut authority,
@@ -603,13 +600,11 @@ fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
     let unrelated_tx = input_transaction(716, unrelated_input.clone());
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx, ProposalContextId(5))
-            .expect("parent proposal is valid"),
+        ValidatedAdmission::proposal(parent_tx).expect("parent proposal is valid"),
     );
     let child = admit(
         &mut authority,
-        ValidatedAdmission::proposal(child_tx, ProposalContextId(5))
-            .expect("child proposal is valid"),
+        ValidatedAdmission::proposal(child_tx).expect("child proposal is valid"),
     );
     let unrelated = admit(
         &mut authority,
@@ -677,8 +672,7 @@ fn uak_unindexed_expansion_loss_cannot_validate_old_resolution() {
     let child_tx = input_transaction(721, chain_input.clone());
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx.clone(), ProposalContextId(2))
-            .expect("parent proposal is valid"),
+        ValidatedAdmission::proposal(parent_tx.clone()).expect("parent proposal is valid"),
     );
     let child = admit(
         &mut authority,
@@ -755,13 +749,11 @@ fn uak_dependency_loss_is_exact_key_scoped() {
     let unrelated_tx = input_transaction(742, unrelated_input.clone());
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx, ProposalContextId(3))
-            .expect("parent proposal is valid"),
+        ValidatedAdmission::proposal(parent_tx).expect("parent proposal is valid"),
     );
     let _dependent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(dependent_tx, ProposalContextId(3))
-            .expect("dependent proposal is valid"),
+        ValidatedAdmission::proposal(dependent_tx).expect("dependent proposal is valid"),
     );
     let unrelated = admit(
         &mut authority,
@@ -817,8 +809,7 @@ fn uak_membership_removal_publishes_dependency_loss_atomically() {
     let child_tx = input_transaction(751, OutPoint::new(victim_tx.hash(), 0));
     let child = admit(
         &mut authority,
-        ValidatedAdmission::proposal(child_tx, ProposalContextId(4))
-            .expect("preaccepted child proposal is valid"),
+        ValidatedAdmission::proposal(child_tx).expect("preaccepted child proposal is valid"),
     );
     let child_settlement = verified_settlement(
         checkout_continuous(&mut authority, &child),
@@ -1158,17 +1149,13 @@ fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
     let invalid_index = OutPoint::new(parent_tx.hash(), 9);
     let parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(parent_tx, ProposalContextId(10))
-            .expect("parent admission is valid"),
+        ValidatedAdmission::proposal(parent_tx).expect("parent admission is valid"),
     );
     for (version, dependency) in [(791, actual.clone()), (792, invalid_index.clone())] {
         let _child = admit(
             &mut authority,
-            ValidatedAdmission::proposal(
-                input_transaction(version, dependency),
-                ProposalContextId(10),
-            )
-            .expect("child admission is valid"),
+            ValidatedAdmission::proposal(input_transaction(version, dependency))
+                .expect("child admission is valid"),
         );
     }
 
@@ -1230,31 +1217,26 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
     let sparse_key = DependencyKey::Cell(sparse_outpoint.clone());
     let popular_parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(popular_parent_tx, ProposalContextId(11))
-            .expect("popular parent admission is valid"),
+        ValidatedAdmission::proposal(popular_parent_tx).expect("popular parent admission is valid"),
     );
     let sparse_parent = admit(
         &mut authority,
-        ValidatedAdmission::proposal(sparse_parent_tx, ProposalContextId(11))
-            .expect("sparse parent admission is valid"),
+        ValidatedAdmission::proposal(sparse_parent_tx).expect("sparse parent admission is valid"),
     );
     for offset in 0..POPULAR_READERS {
         let _child = admit(
             &mut authority,
-            ValidatedAdmission::proposal(
-                input_transaction(810 + offset as u32, popular_outpoint.clone()),
-                ProposalContextId(11),
-            )
+            ValidatedAdmission::proposal(input_transaction(
+                810 + offset as u32,
+                popular_outpoint.clone(),
+            ))
             .expect("popular child admission is valid"),
         );
     }
     let _sparse_child = admit(
         &mut authority,
-        ValidatedAdmission::proposal(
-            input_transaction(820, sparse_outpoint),
-            ProposalContextId(11),
-        )
-        .expect("sparse child admission is valid"),
+        ValidatedAdmission::proposal(input_transaction(820, sparse_outpoint))
+            .expect("sparse child admission is valid"),
     );
 
     for parent in [&popular_parent, &sparse_parent] {

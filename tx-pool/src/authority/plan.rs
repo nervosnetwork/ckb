@@ -2268,7 +2268,6 @@ impl TxPoolAuthority {
         };
         let same_witness = entry.record.identity.witness == admission.identity.witness;
         let PreAcceptedSource::Proposal {
-            lease: proposal,
             base: ProposalBase::Trusted,
         } = admission.source
         else {
@@ -2281,11 +2280,8 @@ impl TxPoolAuthority {
 
         let proposal_base = match entry.source {
             PreAcceptedSource::Remote(remote) => ProposalBase::Remote(remote),
-            PreAcceptedSource::Proposal {
-                lease: current,
-                base,
-            } => {
-                if same_witness && current == proposal {
+            PreAcceptedSource::Proposal { base } => {
+                if same_witness {
                     return Err(PlanError::Duplicate);
                 }
                 base
@@ -2311,7 +2307,6 @@ impl TxPoolAuthority {
             // that capability between resource partitions.
             let mut promoted = entry.clone();
             promoted.source = PreAcceptedSource::Proposal {
-                lease: proposal,
                 base: trusted_proposal_base,
             };
             (
@@ -2334,7 +2329,6 @@ impl TxPoolAuthority {
                     arrival: entry.record.arrival,
                 },
                 source: PreAcceptedSource::Proposal {
-                    lease: proposal,
                     base: trusted_proposal_base,
                 },
                 basis: AdmissionBasis::new(
@@ -2377,7 +2371,6 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let same_witness = history.record().identity.witness == admission.identity.witness;
         let PreAcceptedSource::Proposal {
-            lease: proposal,
             base: ProposalBase::Trusted,
         } = admission.source
         else {
@@ -2393,7 +2386,6 @@ impl TxPoolAuthority {
         let promoted = if same_witness {
             let mut promoted = history.into_recovery(self.generation, version);
             promoted.source = PreAcceptedSource::Proposal {
-                lease: proposal,
                 base: ProposalBase::Trusted,
             };
             promoted
@@ -2406,7 +2398,6 @@ impl TxPoolAuthority {
                     arrival,
                 },
                 source: PreAcceptedSource::Proposal {
-                    lease: proposal,
                     base: ProposalBase::Trusted,
                 },
                 basis: AdmissionBasis::new(

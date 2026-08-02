@@ -8,9 +8,8 @@ use super::super::{
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PayloadPolicy,
-        PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalContextId, ProposalId,
-        QueuedWork, RawTxHash, RemoteDeadline, TxIdentity, ValidatedAdmission, VerifyCapability,
-        WorkPermit,
+        PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, RemoteDeadline,
+        TxIdentity, ValidatedAdmission, VerifyCapability, WorkPermit,
     },
     work::CheckedOutWork,
 };
@@ -1895,7 +1894,7 @@ fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline()
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(25))
+                ValidatedAdmission::proposal(transaction.clone())
                     .expect("proposal fixture is valid"),
             )
             .expect("remote owner promotes without losing its base"),
@@ -1958,7 +1957,7 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(26))
+                ValidatedAdmission::proposal(transaction.clone())
                     .expect("proposal fixture is valid"),
             )
             .expect("remote owner promotes"),
@@ -2013,8 +2012,8 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
 fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let parent_tx = output_transaction(1_727);
-    let parent_admission = ValidatedAdmission::proposal(parent_tx.clone(), ProposalContextId(27))
-        .expect("trusted proposal fixture is valid");
+    let parent_admission =
+        ValidatedAdmission::proposal(parent_tx.clone()).expect("trusted proposal fixture is valid");
     let parent = parent_admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -2090,7 +2089,7 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
 fn uak_chain_trusted_proposal_expiry_requires_only_its_active_owner_to_drain() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_729);
-    let admission = ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(29))
+    let admission = ValidatedAdmission::proposal(transaction.clone())
         .expect("trusted proposal fixture is valid");
     let hash = admission.identity.raw.clone();
     apply_without_work(
@@ -2130,14 +2129,14 @@ fn uak_chain_trusted_proposal_expiry_requires_only_its_active_owner_to_drain() {
 }
 
 #[test]
-fn uak_chain_receipt_detects_same_version_proposal_source_refresh() {
+fn uak_repeated_proposal_has_no_synthetic_source_revision() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_730);
     let hash = admit_remote_until(&mut authority, 1_730, 730, 20);
     apply_without_work(
         authority
             .plan_admission(
-                ValidatedAdmission::proposal(transaction.clone(), ProposalContextId(30))
+                ValidatedAdmission::proposal(transaction.clone())
                     .expect("initial proposal fixture is valid"),
             )
             .expect("remote owner promotes"),
@@ -2158,31 +2157,27 @@ fn uak_chain_receipt_detects_same_version_proposal_source_refresh() {
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the final proposal position is exhaustive");
 
-    apply_without_work(
-        authority
-            .plan_admission(
-                ValidatedAdmission::proposal(transaction, ProposalContextId(31))
-                    .expect("refreshed proposal fixture is valid"),
-            )
-            .expect("same-witness lease refresh preserves EntryVersion"),
-    );
-    assert_eq!(owner_version(&authority, &hash), version);
     let before = authority.normalized_snapshot();
     assert_eq!(
-        authority.plan_chain_transition(receipt).err(),
-        Some(PlanError::Stale(StalePlan::Version))
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(transaction)
+                    .expect("repeated proposal fixture is valid"),
+            )
+            .err(),
+        Some(PlanError::Duplicate)
     );
     assert_eq!(authority.normalized_snapshot(), before);
+    assert_eq!(owner_version(&authority, &hash), version);
+    apply_without_work(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("a duplicate notification cannot stale the chain receipt"),
+    );
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(
-                entry.source,
-                PreAcceptedSource::Proposal {
-                    lease,
-                    base: ProposalBase::Remote(_),
-                } if lease.context == ProposalContextId(31)
-            )
+            if matches!(entry.source, PreAcceptedSource::Remote(_))
     ));
     assert!(authority.primary_projection_consistent());
 }

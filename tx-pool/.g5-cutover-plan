@@ -86,7 +86,7 @@ API break. They must not be instantiated as a production membership owner.
 | `BlockTemplate` | return the latest valid block-assembler projection without making template state authoritative | immutable template receipt plus assembler | pure packer and source-cut adapter |
 | `SubmitRemoteTx` | bounded asynchronous admission; peer attribution and deadline are internal | admission Plan/Apply | production ingress constructor and result mapping |
 | malformed remote input | install peer fence and remove only that peer's PreAccepted cohort, including active work; Accepted remains | peer-revocation Plan/Apply plus exact effect | production boundary already modeled, service call missing |
-| `NotifyTxs` | trusted Proposal admission with internally derived proposal context; the existing `NotifyTxBatch` count/byte proof remains the channel capability | admission Plan/Apply | consume the existing bounded batch and add proposal evidence |
+| `NotifyTxs` | trusted Proposal admission; the existing `NotifyTxBatch` count/byte proof remains the channel capability | admission Plan/Apply | consume the bounded batch and derive proposal-window evidence from the paired snapshot |
 | `SubmitLocalTx` | synchronous validate and return final result; this is intentional compatibility behavior | direct admission Plan/Apply | production direct validation and typed active-work collision policy |
 | `SubmitLocalTestTx` | integration submission uses the same synchronous Local path and definitive result | direct admission Plan/Apply | internal endpoint mapping only |
 | `TestAcceptTx` | run the same validation and policy evaluation without mutation or effect | immutable evaluation receipt | read-only production evaluator |
@@ -202,8 +202,10 @@ accidental complexity.
 
 ### 6.2 Proposal
 
-- Derive proposal validity from the paired snapshot and proposal-window rules;
-  do not accept a caller-provided lease or context token.
+- Derive proposal validity from the paired snapshot and proposal-window rules.
+  Proposal notifications carry no synthetic lease/context token: the
+  transaction proposal short ID and chain view are the complete validity
+  evidence, and repeated same-witness notifications are semantic duplicates.
 - Same-witness promotion may preserve the exact active work capability.
 - A trusted different-witness proposal atomically replaces the exact
   PreAccepted owner, including Computing, and invalidates the old lease through
@@ -671,6 +673,23 @@ G5.3b.1 phase review:
   non-rebuildable administrative batch, including Accepted expiry, must either
   prove its slice is within the global shape count or introduce a typed bounded
   prefix; a large critical byte region alone does not relax `max_effects`.
+
+G5.3b.2 entry-model correction:
+
+- A full producer/consumer audit found that `ProposalContextId` and
+  `ProposalLease` had no proposal-window, expiry, validation, publication, or
+  compatibility consumer. The only observable operation was equality between
+  caller-supplied fixture numbers, which created same-version source refreshes
+  with no business or attack semantics.
+- The token was deleted instead of assigning it a new runtime clock. Proposal
+  validity remains owned by the proposal short ID plus the paired chain view;
+  repeated same-witness notification is a mutation-free duplicate. The chain
+  removal cause is consequently named `ProposalWindowExpired`, describing the
+  actual consensus-derived event rather than a nonexistent lease.
+- This is the ingress rule for the rest of G5.3b.2: a caller-visible fact may
+  enter authority state only if a named transition later consumes it. Internal
+  generation does not justify state whose sole purpose is to compare with
+  itself.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

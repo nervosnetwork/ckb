@@ -2,8 +2,8 @@ use super::super::{
     plan::TxPoolAuthority,
     read::{AuthorityReadState, AuthorityRpcStatus, PreAcceptedReadPhase},
     state::{
-        AcceptedAtMillis, AcceptedStatus, PoolGeneration, PreAcceptedSource, ProposalContextId,
-        RawTxHash, ValidatedAdmission,
+        AcceptedAtMillis, AcceptedStatus, PoolGeneration, PreAcceptedSource, RawTxHash,
+        ValidatedAdmission,
     },
 };
 use super::foundation::{
@@ -237,8 +237,8 @@ fn uak_persistence_receipt_is_coherent_and_parent_first() {
 
     // Volatile Remote and Proposal owners are intentionally excluded.
     let _remote = admit_remote(&mut authority, 707, 5);
-    let proposal = ValidatedAdmission::proposal(tx(708), ProposalContextId(8))
-        .expect("fixture proposal admission is valid");
+    let proposal =
+        ValidatedAdmission::proposal(tx(708)).expect("fixture proposal admission is valid");
     apply_without_work(
         authority
             .plan_admission(proposal)
