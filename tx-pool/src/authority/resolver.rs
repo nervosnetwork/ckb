@@ -8,8 +8,18 @@
 //! cache.
 
 use super::{
+    chain::{
+        CellLocationReceipt, DirectAdmissionWork, TimeContextReceipt, VerificationContextReceipt,
+    },
+    ingress::{DirectCommand, DirectTransaction},
     plan::TxPoolAuthority,
-    state::{DependencyKey, OwnedTx, PayloadPolicy, RawTxHash, VerifyCycleClass},
+    rejection::DirectTransactionRejection,
+    resources::AcceptedCost,
+    state::{
+        ApplySequence, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
+        DependencySetError, FootprintError, InputEvidenceError, OwnedTx, PayloadPolicy, RawTxHash,
+        ResolvedPayload, VerifyCycleClass,
+    },
     validation::{proposal_status, verification_environment},
     work::{
         ComputeSettlement, ContinuousResolution, ContinuousResolveWork, ContinuousVerifyWork,
@@ -26,7 +36,7 @@ use ckb_script::{ChunkCommand, TxVerifyEnv};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
-        DepType, FeeRate, TransactionView,
+        Capacity, DepType, FeeRate, TransactionView,
         cell::{
             CellMetaBuilder, CellProvider, CellStatus, HeaderChecker, OverlayCellProvider,
             ResolvedDep, ResolvedTransaction, SYSTEM_CELL, resolve_transaction_with_cell_providers,
@@ -49,24 +59,49 @@ enum CellRole {
     Dependency,
 }
 
+/// Proof that a direct resolved payload passed the same tx-pool resolver,
+/// footprint, fee, and residency checks as retained work without acquiring a
+/// resident owner.
+pub(super) struct DirectResolutionSeal(());
+
+/// Proof that direct script verification used the snapshot-bound tx-pool
+/// rules and cache identity. It is intentionally distinct from block
+/// verification evidence.
+pub(super) struct DirectVerificationSeal(());
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DirectComputationError {
+    StaleView,
+    ResourceUnavailable,
+    InvalidEvidence,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct MissingCell {
+struct CellQuery {
     out_point: OutPoint,
+    producer: RawTxHash,
     role: CellRole,
+}
+
+impl CellQuery {
+    fn new(out_point: OutPoint, role: CellRole) -> Self {
+        Self {
+            producer: RawTxHash(compact_packed(&out_point.tx_hash())),
+            out_point: compact_packed(&out_point),
+            role,
+        }
+    }
 }
 
 #[derive(Debug)]
 struct AcceptedOverlay {
     producers: HashMap<RawTxHash, Arc<TransactionView>>,
     spent_inputs: HashSet<OutPoint>,
+    initial_queries: Vec<CellQuery>,
 }
 
 impl AcceptedOverlay {
-    fn capture(
-        authority: &TxPoolAuthority,
-        tx: &TransactionView,
-        max_edges: usize,
-    ) -> Result<Self, ResolutionExecutionKind> {
+    fn prepare(tx: &TransactionView, max_edges: usize) -> Result<Self, ResolutionExecutionKind> {
         let direct_edges = tx
             .inputs()
             .len()
@@ -80,6 +115,7 @@ impl AcceptedOverlay {
         let mut overlay = Self {
             producers: HashMap::new(),
             spent_inputs: HashSet::new(),
+            initial_queries: Vec::new(),
         };
         overlay
             .producers
@@ -89,13 +125,40 @@ impl AcceptedOverlay {
             .spent_inputs
             .try_reserve(tx.inputs().len())
             .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        overlay
+            .initial_queries
+            .try_reserve(direct_edges)
+            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        overlay.initial_queries.extend(
+            tx.input_pts_iter()
+                .map(|out_point| CellQuery::new(out_point, CellRole::Input)),
+        );
+        overlay.initial_queries.extend(
+            tx.cell_deps_iter()
+                .map(|cell_dep| CellQuery::new(cell_dep.out_point(), CellRole::Dependency)),
+        );
 
-        for out_point in tx.input_pts_iter() {
-            overlay.capture_cell(authority, &out_point, CellRole::Input);
+        Ok(overlay)
+    }
+
+    fn populate_initial(&mut self, authority: &TxPoolAuthority) {
+        let Self {
+            producers,
+            spent_inputs,
+            initial_queries,
+        } = self;
+        for query in initial_queries.iter() {
+            Self::capture_cell(producers, spent_inputs, authority, query);
         }
-        for cell_dep in tx.cell_deps_iter() {
-            overlay.capture_cell(authority, &cell_dep.out_point(), CellRole::Dependency);
-        }
+    }
+
+    fn capture(
+        authority: &TxPoolAuthority,
+        tx: &TransactionView,
+        max_edges: usize,
+    ) -> Result<Self, ResolutionExecutionKind> {
+        let mut overlay = Self::prepare(tx, max_edges)?;
+        overlay.populate_initial(authority);
         Ok(overlay)
     }
 
@@ -112,32 +175,36 @@ impl AcceptedOverlay {
     /// Observe only the transaction-bounded Accepted cut. Capacity was
     /// reserved before the authority guard was acquired, so this read cannot
     /// allocate while it blocks an authoritative writer.
-    fn observe_enrichment(&mut self, authority: &TxPoolAuthority, missing: &[MissingCell]) -> bool {
+    fn observe_enrichment(&mut self, authority: &TxPoolAuthority, missing: &[CellQuery]) -> bool {
         let before_producers = self.producers.len();
         let before_spends = self.spent_inputs.len();
         for cell in missing {
-            self.capture_cell(authority, &cell.out_point, cell.role);
+            Self::capture_cell(&mut self.producers, &mut self.spent_inputs, authority, cell);
         }
         self.producers.len() != before_producers || self.spent_inputs.len() != before_spends
     }
 
-    fn capture_cell(&mut self, authority: &TxPoolAuthority, out_point: &OutPoint, role: CellRole) {
-        if role == CellRole::Input && authority.accepted_spender(out_point).is_some() {
-            self.spent_inputs.insert(compact_packed(out_point));
+    fn capture_cell(
+        producers: &mut HashMap<RawTxHash, Arc<TransactionView>>,
+        spent_inputs: &mut HashSet<OutPoint>,
+        authority: &TxPoolAuthority,
+        query: &CellQuery,
+    ) {
+        if query.role == CellRole::Input && authority.accepted_spender(&query.out_point).is_some() {
+            spent_inputs.insert(query.out_point.clone());
         }
-        let hash = RawTxHash(compact_packed(&out_point.tx_hash()));
-        if self.producers.contains_key(&hash) {
+        if producers.contains_key(&query.producer) {
             return;
         }
-        let Some(OwnedTx::Accepted(entry)) = authority.entry(&hash) else {
+        let Some(OwnedTx::Accepted(entry)) = authority.entry(&query.producer) else {
             return;
         };
-        let index: u32 = out_point.index().unpack();
+        let index: u32 = query.out_point.index().unpack();
         let Some(index) = usize::try_from(index).ok() else {
             return;
         };
         if index < entry.record.tx.outputs().len() {
-            self.producers.insert(hash, Arc::clone(&entry.record.tx));
+            producers.insert(query.producer.clone(), Arc::clone(&entry.record.tx));
         }
     }
 
@@ -275,11 +342,128 @@ pub(super) struct ResolutionJob {
     overlay: AcceptedOverlay,
 }
 
+/// Owner-free synchronous resolution against one paired chain/Accepted cut.
+/// Local and TestAccept share this capability; it cannot settle retained work
+/// or mutate the authority.
+#[derive(Debug)]
+#[must_use = "direct resolution must verify, reject, or complete bounded enrichment"]
+pub(super) struct DirectResolutionJob {
+    tx: Arc<TransactionView>,
+    command: DirectCommand,
+    view: ChainViewId,
+    accepted_source: ApplySequence,
+    dependency_cut: DependencyCut,
+    snapshot: Arc<Snapshot>,
+    overlay: AcceptedOverlay,
+    max_resident_bytes: usize,
+    max_edges: usize,
+}
+
+#[derive(Debug)]
+#[must_use = "prepared direct resolution must complete against one authority cut"]
+pub(super) struct PreparedDirectResolutionJob {
+    tx: Arc<TransactionView>,
+    command: DirectCommand,
+    overlay: AcceptedOverlay,
+    max_resident_bytes: usize,
+    max_edges: usize,
+}
+
+#[derive(Debug)]
+#[must_use = "direct preparation must continue or return its exact policy rejection"]
+pub(super) enum DirectResolutionPreparation {
+    Prepared(PreparedDirectResolutionJob),
+    Rejected(DirectTransactionRejection),
+}
+
+#[derive(Debug)]
+#[must_use = "direct resolution output must be verified, rejected, or enriched"]
+pub(super) enum DirectResolutionEvaluation {
+    Verify(DirectVerificationRequest),
+    Rejected(DirectTransactionRejection),
+    Enrich(DirectResolutionProbe),
+}
+
+#[derive(Debug)]
+#[must_use = "direct missing resolution must be observed or rejected"]
+pub(super) struct DirectResolutionProbe {
+    job: DirectResolutionJob,
+    missing: Vec<CellQuery>,
+}
+
+#[derive(Debug)]
+struct DirectResolvedCandidate {
+    tx: Arc<TransactionView>,
+    command: DirectCommand,
+    view: ChainViewId,
+    accepted_source: ApplySequence,
+    dependency_cut: DependencyCut,
+    snapshot: Arc<Snapshot>,
+    payload: Arc<ResolvedPayload>,
+    location: CellLocationReceipt,
+}
+
+#[derive(Debug)]
+#[must_use = "direct verification request must execute under its sealed rules"]
+pub(crate) struct DirectVerificationRequest {
+    candidate: DirectResolvedCandidate,
+    environment: Arc<TxVerifyEnv>,
+    cache_key: TxVerificationCacheKey,
+    max_cycles: u64,
+}
+
+#[derive(Debug)]
+#[must_use = "direct verification must feed validation or return its exact rejection"]
+pub(super) enum DirectVerificationOutcome {
+    Candidate(DirectVerifiedCandidate),
+    Rejected(DirectTransactionRejection),
+}
+
+/// One verified direct candidate and its still-sealed cache consequence.
+///
+/// The cache update is intentionally inseparable from the admission work here.
+/// Only the Local committing boundary may release it after an Accepted Apply;
+/// TestAccept and every non-accepting disposition consume it without
+/// publication. This makes cache publication follow authoritative membership
+/// instead of relying on a service-call ordering convention.
+#[derive(Debug)]
+#[must_use = "verified direct evidence must be committed or evaluated"]
+pub(super) struct DirectVerifiedCandidate {
+    command: DirectCommand,
+    work: DirectAdmissionWork,
+    cache_update: Option<VerificationCacheUpdate>,
+    cache_hit: bool,
+}
+
+impl DirectVerifiedCandidate {
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        DirectCommand,
+        DirectAdmissionWork,
+        Option<VerificationCacheUpdate>,
+        bool,
+    ) {
+        (self.command, self.work, self.cache_update, self.cache_hit)
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_cache_update_for_foundation(
+        mut self,
+        key: TxVerificationCacheKey,
+        completed: Completed,
+    ) -> Self {
+        self.cache_update = Some(VerificationCacheUpdate { key, completed });
+        self.cache_hit = false;
+        self
+    }
+}
+
 #[derive(Debug)]
 #[must_use = "a missing resolution must be enriched or settled"]
 pub(super) struct ResolutionProbe {
     job: ResolutionJob,
-    missing: Vec<MissingCell>,
+    missing: Vec<CellQuery>,
 }
 
 #[derive(Debug)]
@@ -321,6 +505,24 @@ impl ResolutionExecutionFailure {
     pub(super) fn into_settlement(self) -> ComputeSettlement {
         self.settlement
     }
+}
+
+enum ResolutionAttempt {
+    Resolved(ResolvedTransaction),
+    Missing { permissive_inputs: bool },
+    Rejected(OutPointError),
+    ResourceUnavailable,
+}
+
+enum ResolveAgainstCutError {
+    Rejected(OutPointError),
+    ResourceUnavailable,
+}
+
+struct ResolvedComputation {
+    transaction: Arc<ResolvedTransaction>,
+    fee: Capacity,
+    resident_bytes: usize,
 }
 
 impl ResolutionJob {
@@ -378,57 +580,31 @@ impl ResolutionJob {
         min_fee_rate: FeeRate,
         large_cycle_threshold: u64,
     ) -> Result<ResolutionEvaluation, ResolutionExecutionFailure> {
-        let has_pool_conflict = self
-            .work
-            .transaction()
-            .input_pts_iter()
-            .any(|out_point| self.overlay.is_spent(&out_point));
-        let strict = self.resolve(false);
-        let resolved = match strict {
-            Ok(resolved) => resolved,
-            Err(OutPointError::Dead(out_point)) if self.overlay.is_spent(&out_point) => {
-                match self.resolve(true) {
-                    Ok(resolved) => resolved,
-                    Err(OutPointError::Unknown(_)) => return self.missing_probe(true),
-                    Err(error) => {
-                        return Ok(ResolutionEvaluation::Settle(
-                            self.work.rejected(Reject::Resolve(error)),
-                        ));
-                    }
+        let resolved =
+            match resolve_candidate(self.work.transaction(), &self.snapshot, &self.overlay) {
+                ResolutionAttempt::Resolved(resolved) => resolved,
+                ResolutionAttempt::Missing { permissive_inputs } => {
+                    return self.missing_probe(permissive_inputs);
                 }
-            }
-            // The consensus resolver stops on the first missing input. A
-            // later input may already be spent by Accepted membership, so an
-            // `Unknown` result does not prove this is a non-RBF orphan. The
-            // bounded overlay knows the complete direct input set and makes
-            // that distinction without a second authority read.
-            Err(OutPointError::Unknown(_)) if has_pool_conflict => match self.resolve(true) {
-                Ok(resolved) => resolved,
-                Err(OutPointError::Unknown(_)) => return self.missing_probe(true),
-                Err(error) => {
+                ResolutionAttempt::Rejected(error) => {
                     return Ok(ResolutionEvaluation::Settle(
                         self.work.rejected(Reject::Resolve(error)),
                     ));
                 }
-            },
-            Err(OutPointError::Unknown(_)) => return self.missing_probe(false),
-            Err(error) => {
-                return Ok(ResolutionEvaluation::Settle(
-                    self.work.rejected(Reject::Resolve(error)),
-                ));
-            }
-        };
-
-        let tx_size = self.work.transaction().data().serialized_size_in_block();
-        let resolved =
-            crate::resolved_tx::compact_resolved_transaction_for_residency(Arc::new(resolved));
-        let fee = match check_tx_fee_with_min_fee_rate(
+                ResolutionAttempt::ResourceUnavailable => {
+                    return Err(ResolutionExecutionFailure {
+                        kind: ResolutionExecutionKind::ResourceUnavailable,
+                        settlement: self.work.retry(),
+                    });
+                }
+            };
+        let resolved = match finish_resolution(
             &self.snapshot,
-            &resolved,
-            tx_size,
+            resolved,
+            self.work.transaction().data().serialized_size_in_block(),
             min_fee_rate,
         ) {
-            Ok(fee) => fee,
+            Ok(resolved) => resolved,
             Err(reject) => {
                 return Ok(ResolutionEvaluation::Settle(self.work.rejected(reject)));
             }
@@ -441,9 +617,13 @@ impl ResolutionJob {
                 VerifyCycleClass::Small
             }
         };
-        let resident_bytes = resolved_transaction_charge_bytes(tx_size, &resolved);
         self.work.resolved(
-            ResolutionEvidence::new(resolved, fee, resident_bytes, verify_class),
+            ResolutionEvidence::new(
+                resolved.transaction,
+                resolved.fee,
+                resolved.resident_bytes,
+                verify_class,
+            ),
             self.snapshot,
         )
     }
@@ -452,28 +632,6 @@ impl ResolutionJob {
     /// checked-out capability; it cannot leave the owner in `Computing`.
     pub(super) fn retry(self) -> ComputeSettlement {
         self.work.retry()
-    }
-
-    fn resolve(&self, permissive_inputs: bool) -> Result<ResolvedTransaction, OutPointError> {
-        let input_overlay = SparsePoolCellProvider {
-            overlay: &self.overlay,
-            observe_spends: !permissive_inputs,
-        };
-        let dependency_overlay = SparsePoolCellProvider {
-            overlay: &self.overlay,
-            observe_spends: false,
-        };
-        let input_provider = OverlayCellProvider::new(&input_overlay, self.snapshot.as_ref());
-        let dependency_provider =
-            OverlayCellProvider::new(&dependency_overlay, self.snapshot.as_ref());
-        let mut seen_inputs = HashSet::with_capacity(self.work.transaction().inputs().len());
-        resolve_transaction_with_cell_providers(
-            self.work.transaction().clone(),
-            &mut seen_inputs,
-            &input_provider,
-            &dependency_provider,
-            self.snapshot.as_ref(),
-        )
     }
 
     fn missing_probe(
@@ -498,138 +656,524 @@ impl ResolutionJob {
         }
     }
 
-    fn collect_missing(
-        &self,
-        permissive_inputs: bool,
-    ) -> Result<Vec<MissingCell>, MissingScanError> {
-        let tx = self.work.transaction();
-        let max_edges = self.work.grant_edges();
-        let direct_edges = tx
-            .inputs()
-            .len()
-            .checked_add(tx.cell_deps().len())
-            .and_then(|count| count.checked_add(tx.header_deps().len()))
+    fn collect_missing(&self, permissive_inputs: bool) -> Result<Vec<CellQuery>, MissingScanError> {
+        collect_missing_against_cut(
+            self.work.transaction(),
+            &self.snapshot,
+            &self.overlay,
+            self.work.grant_edges(),
+            permissive_inputs,
+        )
+    }
+}
+
+fn resolve_against_cut(
+    tx: &TransactionView,
+    snapshot: &Snapshot,
+    overlay: &AcceptedOverlay,
+    permissive_inputs: bool,
+) -> Result<ResolvedTransaction, ResolveAgainstCutError> {
+    let input_overlay = SparsePoolCellProvider {
+        overlay,
+        observe_spends: !permissive_inputs,
+    };
+    let dependency_overlay = SparsePoolCellProvider {
+        overlay,
+        observe_spends: false,
+    };
+    let input_provider = OverlayCellProvider::new(&input_overlay, snapshot);
+    let dependency_provider = OverlayCellProvider::new(&dependency_overlay, snapshot);
+    let mut seen_inputs = HashSet::new();
+    seen_inputs
+        .try_reserve(tx.inputs().len())
+        .map_err(|_| ResolveAgainstCutError::ResourceUnavailable)?;
+    resolve_transaction_with_cell_providers(
+        tx.clone(),
+        &mut seen_inputs,
+        &input_provider,
+        &dependency_provider,
+        snapshot,
+    )
+    .map_err(ResolveAgainstCutError::Rejected)
+}
+
+/// Resolve strict and permissive RBF evidence through one shared decision
+/// table. Retained work and owner-free direct work must not drift on whether
+/// an early unknown input can hide a later Accepted conflict.
+fn resolve_candidate(
+    tx: &TransactionView,
+    snapshot: &Snapshot,
+    overlay: &AcceptedOverlay,
+) -> ResolutionAttempt {
+    let has_pool_conflict = tx
+        .input_pts_iter()
+        .any(|out_point| overlay.is_spent(&out_point));
+    match resolve_against_cut(tx, snapshot, overlay, false) {
+        Ok(resolved) => ResolutionAttempt::Resolved(resolved),
+        Err(ResolveAgainstCutError::Rejected(OutPointError::Dead(out_point)))
+            if overlay.is_spent(&out_point) =>
+        {
+            permissive_resolution(tx, snapshot, overlay)
+        }
+        // The consensus resolver stops on the first missing input. A later
+        // input may already be spent by Accepted membership, so `Unknown`
+        // alone cannot classify the transaction as a non-RBF orphan.
+        Err(ResolveAgainstCutError::Rejected(OutPointError::Unknown(_))) if has_pool_conflict => {
+            permissive_resolution(tx, snapshot, overlay)
+        }
+        Err(ResolveAgainstCutError::Rejected(OutPointError::Unknown(_))) => {
+            ResolutionAttempt::Missing {
+                permissive_inputs: false,
+            }
+        }
+        Err(ResolveAgainstCutError::Rejected(error)) => ResolutionAttempt::Rejected(error),
+        Err(ResolveAgainstCutError::ResourceUnavailable) => ResolutionAttempt::ResourceUnavailable,
+    }
+}
+
+fn permissive_resolution(
+    tx: &TransactionView,
+    snapshot: &Snapshot,
+    overlay: &AcceptedOverlay,
+) -> ResolutionAttempt {
+    match resolve_against_cut(tx, snapshot, overlay, true) {
+        Ok(resolved) => ResolutionAttempt::Resolved(resolved),
+        Err(ResolveAgainstCutError::Rejected(OutPointError::Unknown(_))) => {
+            ResolutionAttempt::Missing {
+                permissive_inputs: true,
+            }
+        }
+        Err(ResolveAgainstCutError::Rejected(error)) => ResolutionAttempt::Rejected(error),
+        Err(ResolveAgainstCutError::ResourceUnavailable) => ResolutionAttempt::ResourceUnavailable,
+    }
+}
+
+fn finish_resolution(
+    snapshot: &Snapshot,
+    resolved: ResolvedTransaction,
+    tx_size: usize,
+    min_fee_rate: FeeRate,
+) -> Result<ResolvedComputation, Reject> {
+    let transaction =
+        crate::resolved_tx::compact_resolved_transaction_for_residency(Arc::new(resolved));
+    let fee = check_tx_fee_with_min_fee_rate(snapshot, &transaction, tx_size, min_fee_rate)?;
+    let resident_bytes = resolved_transaction_charge_bytes(tx_size, &transaction);
+    Ok(ResolvedComputation {
+        transaction,
+        fee,
+        resident_bytes,
+    })
+}
+
+fn collect_missing_against_cut(
+    tx: &TransactionView,
+    snapshot: &Snapshot,
+    overlay: &AcceptedOverlay,
+    max_edges: usize,
+    permissive_inputs: bool,
+) -> Result<Vec<CellQuery>, MissingScanError> {
+    let direct_edges = tx
+        .inputs()
+        .len()
+        .checked_add(tx.cell_deps().len())
+        .and_then(|count| count.checked_add(tx.header_deps().len()))
+        .ok_or(MissingScanError::ResourceUnavailable)?;
+    if direct_edges > max_edges {
+        return Err(MissingScanError::ComputeBudget);
+    }
+    let mut missing = Vec::new();
+    missing
+        .try_reserve(direct_edges)
+        .map_err(|_| MissingScanError::ResourceUnavailable)?;
+
+    let input_overlay = SparsePoolCellProvider {
+        overlay,
+        observe_spends: !permissive_inputs,
+    };
+    let dependency_overlay = SparsePoolCellProvider {
+        overlay,
+        observe_spends: false,
+    };
+    let input_provider = OverlayCellProvider::new(&input_overlay, snapshot);
+    let dependency_provider = OverlayCellProvider::new(&dependency_overlay, snapshot);
+
+    for out_point in tx.input_pts_iter() {
+        collect_cell_status(
+            input_provider.cell(&out_point, false),
+            out_point,
+            CellRole::Input,
+            &mut missing,
+        )?;
+    }
+
+    let mut edge_count = tx
+        .inputs()
+        .len()
+        .checked_add(tx.header_deps().len())
+        .ok_or(MissingScanError::ResourceUnavailable)?;
+    for cell_dep in tx.cell_deps_iter() {
+        if SYSTEM_CELL
+            .get()
+            .is_some_and(|system| system.contains_key(&cell_dep))
+        {
+            let cached_edges = match SYSTEM_CELL.get().and_then(|system| system.get(&cell_dep)) {
+                Some(ResolvedDep::Cell(_)) => 1,
+                Some(ResolvedDep::Group(_, cells)) => cells
+                    .len()
+                    .checked_add(1)
+                    .ok_or(MissingScanError::ResourceUnavailable)?,
+                None => 0,
+            };
+            edge_count = edge_count
+                .checked_add(cached_edges)
+                .ok_or(MissingScanError::ResourceUnavailable)?;
+            if edge_count > max_edges {
+                return Err(MissingScanError::ComputeBudget);
+            }
+            continue;
+        }
+
+        let out_point = cell_dep.out_point();
+        let eager_load = cell_dep.dep_type() == DepType::DepGroup.into();
+        let direct = dependency_provider.cell(&out_point, eager_load);
+        edge_count = edge_count
+            .checked_add(1)
             .ok_or(MissingScanError::ResourceUnavailable)?;
-        if direct_edges > max_edges {
+        if edge_count > max_edges {
             return Err(MissingScanError::ComputeBudget);
         }
-        let mut missing = Vec::new();
-        missing
-            .try_reserve(direct_edges)
-            .map_err(|_| MissingScanError::ResourceUnavailable)?;
-
-        let input_overlay = SparsePoolCellProvider {
-            overlay: &self.overlay,
-            observe_spends: !permissive_inputs,
+        let CellStatus::Live(cell) = direct else {
+            collect_cell_status(direct, out_point, CellRole::Dependency, &mut missing)?;
+            continue;
         };
-        let dependency_overlay = SparsePoolCellProvider {
-            overlay: &self.overlay,
-            observe_spends: false,
-        };
-        let input_provider = OverlayCellProvider::new(&input_overlay, self.snapshot.as_ref());
-        let dependency_provider =
-            OverlayCellProvider::new(&dependency_overlay, self.snapshot.as_ref());
-
-        for out_point in tx.input_pts_iter() {
-            collect_cell_status(
-                input_provider.cell(&out_point, false),
+        if !eager_load {
+            continue;
+        }
+        let Some(data) = cell.mem_cell_data.as_ref() else {
+            return Err(MissingScanError::Reject(OutPointError::InvalidDepGroup(
                 out_point,
-                CellRole::Input,
+            )));
+        };
+        let members = OutPointVec::from_slice(data).map_err(|_| {
+            MissingScanError::Reject(OutPointError::InvalidDepGroup(out_point.clone()))
+        })?;
+        if members.is_empty() {
+            return Err(MissingScanError::Reject(OutPointError::InvalidDepGroup(
+                out_point,
+            )));
+        }
+        edge_count = edge_count
+            .checked_add(members.len())
+            .ok_or(MissingScanError::ResourceUnavailable)?;
+        if edge_count > max_edges {
+            return Err(MissingScanError::ComputeBudget);
+        }
+        missing
+            .try_reserve(members.len())
+            .map_err(|_| MissingScanError::ResourceUnavailable)?;
+        for member in members.into_iter() {
+            collect_cell_status(
+                dependency_provider.cell(&member, false),
+                member,
+                CellRole::Dependency,
                 &mut missing,
             )?;
         }
+    }
 
-        let mut edge_count = tx
-            .inputs()
-            .len()
-            .checked_add(tx.header_deps().len())
-            .ok_or(MissingScanError::ResourceUnavailable)?;
-        for cell_dep in tx.cell_deps_iter() {
-            if SYSTEM_CELL
-                .get()
-                .is_some_and(|system| system.contains_key(&cell_dep))
-            {
-                let cached_edges = match SYSTEM_CELL.get().and_then(|system| system.get(&cell_dep))
-                {
-                    Some(ResolvedDep::Cell(_)) => 1,
-                    Some(ResolvedDep::Group(_, cells)) => cells
-                        .len()
-                        .checked_add(1)
-                        .ok_or(MissingScanError::ResourceUnavailable)?,
-                    None => 0,
-                };
-                edge_count = edge_count
-                    .checked_add(cached_edges)
-                    .ok_or(MissingScanError::ResourceUnavailable)?;
-                if edge_count > max_edges {
-                    return Err(MissingScanError::ComputeBudget);
-                }
-                continue;
-            }
+    for header in tx.header_deps_iter() {
+        if let Err(error) = snapshot.check_valid(&header) {
+            return Err(MissingScanError::Reject(error));
+        }
+    }
+    if missing.is_empty() {
+        return Err(MissingScanError::ResourceUnavailable);
+    }
+    missing.sort_unstable_by(|left, right| {
+        left.out_point
+            .cmp(&right.out_point)
+            .then_with(|| (left.role as u8).cmp(&(right.role as u8)))
+    });
+    missing.dedup();
+    Ok(missing)
+}
 
-            let out_point = cell_dep.out_point();
-            let eager_load = cell_dep.dep_type() == DepType::DepGroup.into();
-            let direct = dependency_provider.cell(&out_point, eager_load);
-            edge_count = edge_count
-                .checked_add(1)
-                .ok_or(MissingScanError::ResourceUnavailable)?;
-            if edge_count > max_edges {
-                return Err(MissingScanError::ComputeBudget);
+impl DirectResolutionJob {
+    pub(super) fn prepare(
+        direct: DirectTransaction,
+        max_resident_bytes: usize,
+        max_edges: usize,
+    ) -> Result<DirectResolutionPreparation, DirectComputationError> {
+        let (tx, command) = direct.into_parts();
+        let overlay = match AcceptedOverlay::prepare(&tx, max_edges) {
+            Ok(overlay) => overlay,
+            Err(ResolutionExecutionKind::ComputeBudget) => {
+                return Ok(DirectResolutionPreparation::Rejected(
+                    direct_resource_rejection(tx, command),
+                ));
             }
-            let CellStatus::Live(cell) = direct else {
-                collect_cell_status(direct, out_point, CellRole::Dependency, &mut missing)?;
-                continue;
-            };
-            if !eager_load {
-                continue;
+            Err(ResolutionExecutionKind::ResourceUnavailable) => {
+                return Err(DirectComputationError::ResourceUnavailable);
             }
-            let Some(data) = cell.mem_cell_data.as_ref() else {
-                return Err(MissingScanError::Reject(OutPointError::InvalidDepGroup(
-                    out_point,
-                )));
-            };
-            let members = OutPointVec::from_slice(data).map_err(|_| {
-                MissingScanError::Reject(OutPointError::InvalidDepGroup(out_point.clone()))
-            })?;
-            if members.is_empty() {
-                return Err(MissingScanError::Reject(OutPointError::InvalidDepGroup(
-                    out_point,
-                )));
+            Err(
+                ResolutionExecutionKind::StaleView | ResolutionExecutionKind::InvalidReceipt(_),
+            ) => return Err(DirectComputationError::InvalidEvidence),
+        };
+        Ok(DirectResolutionPreparation::Prepared(
+            PreparedDirectResolutionJob {
+                tx,
+                command,
+                overlay,
+                max_resident_bytes,
+                max_edges,
+            },
+        ))
+    }
+
+    #[cfg(test)]
+    fn prepare_transaction_for_foundation(
+        tx: Arc<TransactionView>,
+        max_resident_bytes: usize,
+        max_edges: usize,
+    ) -> Result<PreparedDirectResolutionJob, DirectComputationError> {
+        let overlay = AcceptedOverlay::prepare(&tx, max_edges).map_err(|kind| match kind {
+            ResolutionExecutionKind::ResourceUnavailable => {
+                DirectComputationError::ResourceUnavailable
             }
-            edge_count = edge_count
-                .checked_add(members.len())
-                .ok_or(MissingScanError::ResourceUnavailable)?;
-            if edge_count > max_edges {
-                return Err(MissingScanError::ComputeBudget);
+            ResolutionExecutionKind::ComputeBudget
+            | ResolutionExecutionKind::StaleView
+            | ResolutionExecutionKind::InvalidReceipt(_) => DirectComputationError::InvalidEvidence,
+        })?;
+        Ok(PreparedDirectResolutionJob {
+            tx,
+            command: DirectCommand::TestAccept,
+            overlay,
+            max_resident_bytes,
+            max_edges,
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn capture_for_foundation(
+        authority: &TxPoolAuthority,
+        snapshot: Arc<Snapshot>,
+        tx: Arc<TransactionView>,
+        max_resident_bytes: usize,
+        max_edges: usize,
+    ) -> Result<Self, DirectComputationError> {
+        let mut prepared =
+            Self::prepare_transaction_for_foundation(tx, max_resident_bytes, max_edges)?;
+        if snapshot.tip_hash() != authority.chain_view().tip().0 {
+            return Err(DirectComputationError::StaleView);
+        }
+        prepared.overlay.populate_initial(authority);
+        Ok(Self {
+            tx: prepared.tx,
+            command: prepared.command,
+            view: authority.chain_view().clone(),
+            accepted_source: authority.accepted_source_cut(),
+            dependency_cut: authority.dependency_observation_cut(),
+            snapshot,
+            overlay: prepared.overlay,
+            max_resident_bytes: prepared.max_resident_bytes,
+            max_edges: prepared.max_edges,
+        })
+    }
+
+    pub(super) fn evaluate(
+        self,
+        min_fee_rate: FeeRate,
+    ) -> Result<DirectResolutionEvaluation, DirectComputationError> {
+        let resolved = match resolve_candidate(&self.tx, &self.snapshot, &self.overlay) {
+            ResolutionAttempt::Resolved(resolved) => resolved,
+            ResolutionAttempt::Missing { permissive_inputs } => {
+                return self.missing_probe(permissive_inputs);
             }
-            missing
-                .try_reserve(members.len())
-                .map_err(|_| MissingScanError::ResourceUnavailable)?;
-            for member in members.into_iter() {
-                collect_cell_status(
-                    dependency_provider.cell(&member, false),
-                    member,
-                    CellRole::Dependency,
-                    &mut missing,
-                )?;
+            ResolutionAttempt::Rejected(error) => {
+                return Ok(self.rejected(Reject::Resolve(error)));
+            }
+            ResolutionAttempt::ResourceUnavailable => {
+                return Err(DirectComputationError::ResourceUnavailable);
+            }
+        };
+        let resolved = match finish_resolution(
+            &self.snapshot,
+            resolved,
+            self.tx.data().serialized_size_in_block(),
+            min_fee_rate,
+        ) {
+            Ok(resolved) => resolved,
+            Err(reject) => return Ok(self.rejected(reject)),
+        };
+        if resolved.resident_bytes > self.max_resident_bytes {
+            return Ok(self.resource_rejected());
+        }
+        let payload = match ResolvedPayload::from_direct_resolution(
+            DirectResolutionSeal(()),
+            resolved.transaction,
+            self.max_edges,
+            resolved.fee,
+            resolved.resident_bytes,
+        ) {
+            Ok(payload) => Arc::new(payload),
+            Err(
+                InputEvidenceError::Footprint(FootprintError::TooManyEdges)
+                | InputEvidenceError::DependencySet(DependencySetError::TooMany),
+            ) => return Ok(self.resource_rejected()),
+            Err(InputEvidenceError::DependencySet(DependencySetError::Allocation)) => {
+                return Err(DirectComputationError::ResourceUnavailable);
+            }
+            Err(_) => return Err(DirectComputationError::InvalidEvidence),
+        };
+        let location = CellLocationReceipt::from_resolution(&self.view, &payload);
+        let status = proposal_status(&self.snapshot, &self.tx.proposal_short_id());
+        let environment = Arc::new(verification_environment(status, &self.snapshot));
+        let rules = ScriptVerificationRules::from_env(self.snapshot.consensus(), &environment);
+        let cache_key = TxVerificationCacheKey::from_transaction(&self.tx, rules);
+        let max_cycles = self.snapshot.consensus().max_block_cycles();
+        Ok(DirectResolutionEvaluation::Verify(
+            DirectVerificationRequest {
+                candidate: DirectResolvedCandidate {
+                    tx: self.tx,
+                    command: self.command,
+                    view: self.view,
+                    accepted_source: self.accepted_source,
+                    dependency_cut: self.dependency_cut,
+                    snapshot: self.snapshot,
+                    payload,
+                    location,
+                },
+                environment,
+                cache_key,
+                max_cycles,
+            },
+        ))
+    }
+
+    fn missing_probe(
+        self,
+        permissive_inputs: bool,
+    ) -> Result<DirectResolutionEvaluation, DirectComputationError> {
+        match collect_missing_against_cut(
+            &self.tx,
+            &self.snapshot,
+            &self.overlay,
+            self.max_edges,
+            permissive_inputs,
+        ) {
+            Ok(missing) => Ok(DirectResolutionEvaluation::Enrich(DirectResolutionProbe {
+                job: self,
+                missing,
+            })),
+            Err(MissingScanError::Reject(error)) => Ok(self.rejected(Reject::Resolve(error))),
+            Err(MissingScanError::ComputeBudget) => Ok(self.resource_rejected()),
+            Err(MissingScanError::ResourceUnavailable) => {
+                Err(DirectComputationError::ResourceUnavailable)
             }
         }
+    }
 
-        for header in tx.header_deps_iter() {
-            if let Err(error) = self.snapshot.check_valid(&header) {
-                return Err(MissingScanError::Reject(error));
-            }
+    fn rejected(self, reason: Reject) -> DirectResolutionEvaluation {
+        DirectResolutionEvaluation::Rejected(DirectTransactionRejection::accepted_cut(
+            self.tx,
+            self.command,
+            reason,
+            self.view,
+            self.accepted_source,
+        ))
+    }
+
+    fn resource_rejected(self) -> DirectResolutionEvaluation {
+        self.rejected(Reject::Full(
+            "transaction exceeds the tx-pool compute residency envelope".to_owned(),
+        ))
+    }
+}
+
+fn direct_resource_rejection(
+    tx: Arc<TransactionView>,
+    command: DirectCommand,
+) -> DirectTransactionRejection {
+    DirectTransactionRejection::stable(
+        tx,
+        command,
+        Reject::Full("transaction exceeds the tx-pool compute residency envelope".to_owned()),
+    )
+}
+
+impl PreparedDirectResolutionJob {
+    pub(super) fn complete(
+        mut self,
+        _seal: super::runtime::AuthorityStoreCaptureSeal,
+        snapshot: Arc<Snapshot>,
+        authority: &TxPoolAuthority,
+    ) -> DirectResolutionJob {
+        self.overlay.populate_initial(authority);
+        DirectResolutionJob {
+            tx: self.tx,
+            command: self.command,
+            view: authority.chain_view().clone(),
+            accepted_source: authority.accepted_source_cut(),
+            dependency_cut: authority.dependency_observation_cut(),
+            snapshot,
+            overlay: self.overlay,
+            max_resident_bytes: self.max_resident_bytes,
+            max_edges: self.max_edges,
         }
-        if missing.is_empty() {
-            return Err(MissingScanError::ResourceUnavailable);
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "direct enrichment observation must retry or reject the immutable request"]
+pub(super) enum DirectResolutionProbeObservation {
+    Retry(DirectResolutionJob),
+    Rejected(DirectTransactionRejection),
+}
+
+impl DirectResolutionProbe {
+    pub(super) fn prepare_enrichment(mut self) -> Result<Self, DirectComputationError> {
+        self.job
+            .overlay
+            .reserve_enrichment(self.missing.len())
+            .map_err(|_| DirectComputationError::ResourceUnavailable)?;
+        Ok(self)
+    }
+
+    pub(super) fn observe(
+        mut self,
+        authority: &TxPoolAuthority,
+    ) -> Result<DirectResolutionProbeObservation, DirectComputationError> {
+        if authority.chain_view() != &self.job.view {
+            return Err(DirectComputationError::StaleView);
         }
-        missing.sort_unstable_by(|left, right| {
-            left.out_point
-                .cmp(&right.out_point)
-                .then_with(|| (left.role as u8).cmp(&(right.role as u8)))
-        });
-        missing.dedup();
-        Ok(missing)
+        if self
+            .job
+            .overlay
+            .observe_enrichment(authority, &self.missing)
+        {
+            self.job.dependency_cut = authority.dependency_observation_cut();
+            return Ok(DirectResolutionProbeObservation::Retry(self.job));
+        }
+        let Some(first) = self.missing.first() else {
+            return Err(DirectComputationError::InvalidEvidence);
+        };
+        Ok(DirectResolutionProbeObservation::Rejected(
+            DirectTransactionRejection::accepted_cut(
+                self.job.tx,
+                self.job.command,
+                Reject::Resolve(OutPointError::Unknown(first.out_point.clone())),
+                self.job.view,
+                self.job.accepted_source,
+            ),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(super) fn missing_keys_for_foundation(&self) -> Vec<DependencyKey> {
+        self.missing
+            .iter()
+            .map(|missing| DependencyKey::Cell(missing.out_point.clone()))
+            .collect()
     }
 }
 
@@ -696,13 +1240,13 @@ fn collect_cell_status(
     status: CellStatus,
     out_point: OutPoint,
     role: CellRole,
-    missing: &mut Vec<MissingCell>,
+    missing: &mut Vec<CellQuery>,
 ) -> Result<(), MissingScanError> {
     match status {
         CellStatus::Live(_) => Ok(()),
         CellStatus::Dead => Err(MissingScanError::Reject(OutPointError::Dead(out_point))),
         CellStatus::Unknown => {
-            missing.push(MissingCell { out_point, role });
+            missing.push(CellQuery::new(out_point, role));
             Ok(())
         }
     }
@@ -798,6 +1342,12 @@ pub(crate) struct TxPoolVerificationRequest {
 pub(crate) struct VerificationCacheUpdate {
     pub(crate) key: TxVerificationCacheKey,
     pub(crate) completed: Completed,
+}
+
+impl VerificationCacheUpdate {
+    pub(crate) fn into_parts(self) -> (TxVerificationCacheKey, Completed) {
+        (self.key, self.completed)
+    }
 }
 
 #[derive(Debug)]
@@ -979,5 +1529,93 @@ impl TxPoolVerificationRequest {
             cache_update,
             cache_hit: cache_entry.is_some(),
         })
+    }
+}
+
+impl DirectVerificationRequest {
+    pub(crate) fn cache_key(&self) -> &TxVerificationCacheKey {
+        &self.cache_key
+    }
+
+    pub(crate) async fn execute(
+        self,
+        cache_entry: Option<Completed>,
+        command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
+    ) -> Result<DirectVerificationOutcome, DirectComputationError> {
+        let Self {
+            candidate,
+            environment,
+            cache_key,
+            max_cycles,
+        } = self;
+        let DirectResolvedCandidate {
+            tx,
+            command,
+            view,
+            accepted_source,
+            dependency_cut,
+            snapshot,
+            payload,
+            location,
+        } = candidate;
+        let completed = match verify_rtx(
+            snapshot,
+            Arc::clone(payload.resolved_transaction()),
+            environment,
+            &cache_entry,
+            max_cycles,
+            command_rx,
+        )
+        .await
+        {
+            Ok(completed) => completed,
+            Err(reason) => {
+                return Ok(DirectVerificationOutcome::Rejected(
+                    DirectTransactionRejection::accepted_cut(
+                        tx,
+                        command,
+                        reason,
+                        view,
+                        accepted_source,
+                    ),
+                ));
+            }
+        };
+        let context = VerificationContextReceipt::from_validation(
+            view.clone(),
+            location,
+            TimeContextReceipt::from_validation(cache_key.script_rules()),
+        )
+        .map_err(|_| DirectComputationError::InvalidEvidence)?;
+        let fee = payload.fee();
+        let serialized_bytes = payload.serialized_bytes();
+        let (payload, accepted_resident_bytes) =
+            ResolvedPayload::compact_after_direct_verification(payload, DirectVerificationSeal(()));
+        let metrics = CandidateMetrics {
+            fee,
+            cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, completed.cycles),
+        };
+        let verified = super::state::VerifiedFacts::from_direct_verification(
+            DirectVerificationSeal(()),
+            dependency_cut,
+            payload,
+            context,
+            metrics,
+        );
+        let work = DirectAdmissionWork::new(tx, view, verified)
+            .map_err(|_| DirectComputationError::InvalidEvidence)?;
+        let cache_hit = cache_entry.is_some();
+        let cache_update = (!cache_hit).then_some(VerificationCacheUpdate {
+            key: cache_key,
+            completed,
+        });
+        Ok(DirectVerificationOutcome::Candidate(
+            DirectVerifiedCandidate {
+                command,
+                work,
+                cache_update,
+                cache_hit,
+            },
+        ))
     }
 }

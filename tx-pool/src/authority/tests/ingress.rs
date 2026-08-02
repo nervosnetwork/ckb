@@ -1,6 +1,9 @@
 use super::super::{
     effect::CommittedEffect,
-    ingress::{RetainedIngressCommit, RetainedIngressError, proposal, remote_at_for_foundation},
+    ingress::{
+        DirectCommand, RetainedIngressCommit, RetainedIngressError, direct, proposal,
+        remote_at_for_foundation,
+    },
     plan::{RetainedAdmissionDisposition, TxPoolAuthority},
     runtime::AuthorityRuntime,
     state::{PayloadPolicy, PreAcceptedSource, ProposalBase, RemoteDeadline},
@@ -93,6 +96,30 @@ fn uak_retained_ingress_rejects_malformed_transactions_before_retention() {
         RetainedIngressError::Rejected(ref rejected)
             if rejected.reason_for_foundation().is_malformed()
     ));
+}
+
+#[test]
+fn uak_direct_ingress_seals_non_contextual_validation_without_retention() {
+    let consensus = ConsensusBuilder::default().build();
+    let transaction = ingress_tx(9);
+    let expected = transaction.witness_hash();
+    let validated = direct(&transaction, &consensus, DirectCommand::TestAccept)
+        .expect("a valid direct transaction acquires the computation capability");
+    let (validated, command) = validated.into_parts();
+    assert_eq!(command, DirectCommand::TestAccept);
+    assert_eq!(validated.witness_hash(), expected);
+
+    let cellbase = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .build();
+    let rejection = direct(&cellbase, &consensus, DirectCommand::Local)
+        .expect_err("a malformed direct transaction cannot enter resolution");
+    assert_eq!(rejection.command(), DirectCommand::Local);
+    assert_eq!(
+        rejection.transaction().witness_hash(),
+        cellbase.witness_hash()
+    );
+    assert!(rejection.reason().is_malformed());
 }
 
 #[test]
@@ -305,23 +332,13 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
     let transaction = ingress_tx(7);
     assert_eq!(
         runtime
-            .submit_remote_ingress(
-                transaction.clone(),
-                0,
-                PeerIndex::from(26),
-                snapshot.consensus(),
-            )
+            .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(26),)
             .expect("first Remote ingress commits"),
         RetainedIngressCommit::Retained
     );
     assert_eq!(
         runtime
-            .submit_remote_ingress(
-                transaction.clone(),
-                0,
-                PeerIndex::from(27),
-                snapshot.consensus(),
-            )
+            .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(27),)
             .expect("duplicate Remote ingress commits its release"),
         RetainedIngressCommit::RemoteReleased
     );
@@ -329,13 +346,13 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
     let proposal = ingress_tx(8);
     assert_eq!(
         runtime
-            .submit_proposal_ingress(proposal.clone(), snapshot.consensus())
+            .submit_proposal_ingress(proposal.clone())
             .expect("first Proposal ingress commits"),
         RetainedIngressCommit::Retained
     );
     assert_eq!(
         runtime
-            .submit_proposal_ingress(proposal, snapshot.consensus())
+            .submit_proposal_ingress(proposal)
             .expect("repeated Proposal ingress is deterministic"),
         RetainedIngressCommit::ProposalUnchanged
     );
@@ -345,7 +362,7 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
         .build();
     assert_eq!(
         runtime
-            .submit_remote_ingress(malformed, 0, PeerIndex::from(28), snapshot.consensus())
+            .submit_remote_ingress(malformed, 0, PeerIndex::from(28))
             .expect("malformed Remote ingress commits its peer disposition"),
         RetainedIngressCommit::Rejected
     );

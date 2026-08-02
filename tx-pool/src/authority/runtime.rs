@@ -5,23 +5,32 @@
 //! conversion here prevents runtime callers from inventing resource limits,
 //! synthetic chain identities, or replacement policy independently.
 
-use super::rejection::{RecentRejectEncodingError, serialized_recent_reject};
+use super::rejection::{
+    CommittedPublicReject, DirectTransactionRejection, RecentRejectEncodingError,
+    serialized_recent_reject,
+};
 #[cfg(test)]
 use super::state::ValidatedAdmission;
 use super::{
     chain::{DirectAdmissionWork, FinalAdmissionWork},
     effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
-    ingress::{RetainedIngress, RetainedIngressCommit, RetainedIngressRejection},
+    ingress::{
+        DirectCommand, DirectTransaction, RetainedIngress, RetainedIngressCommit,
+        RetainedIngressRejection, direct,
+    },
     plan::{
         AuthorityConfigError, AuthorityFault, CandidateBatchError, CandidateDispositionPlan,
-        CommittedDelta, ComputeSettlementFailure, EffectSettlementFailure,
-        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, PlanError,
+        CommittedDelta, ComputeSettlementFailure, DirectAdmissionDisposition,
+        DirectAdmissionEvaluation, EffectSettlementFailure, FinalAdmissionDispositionPlan,
+        IndependentCandidate, MembershipConfig, MembershipReject, PlanError,
         RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     resolver::{
-        ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
-        TxPoolVerificationRequest, VerificationCacheUpdate, VerificationExecutionKind,
-        VerificationJob,
+        DirectComputationError, DirectResolutionEvaluation, DirectResolutionJob,
+        DirectResolutionPreparation, DirectResolutionProbeObservation, DirectVerificationRequest,
+        DirectVerifiedCandidate, ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob,
+        ResolutionProbeObservation, TxPoolVerificationRequest, VerificationCacheUpdate,
+        VerificationExecutionKind, VerificationJob,
     },
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
@@ -40,6 +49,7 @@ use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::FeeRate;
+use ckb_types::core::{EntryCompleted, TransactionView};
 use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_util::RwLock;
 use ckb_verification::cache::Completed;
@@ -123,13 +133,21 @@ struct AuthorityRuntimeConfig {
 struct ResolutionPolicy {
     min_fee_rate: FeeRate,
     large_cycle_threshold: u64,
+    direct_max_resident_bytes: usize,
+    direct_max_edges: usize,
 }
 
 impl ResolutionPolicy {
-    fn from_runtime(config: &TxPoolConfig) -> Self {
+    fn from_runtime(
+        config: &TxPoolConfig,
+        direct_max_resident_bytes: usize,
+        direct_max_edges: usize,
+    ) -> Self {
         Self {
             min_fee_rate: config.min_fee_rate,
             large_cycle_threshold: config.max_tx_verify_cycles,
+            direct_max_resident_bytes,
+            direct_max_edges,
         }
     }
 }
@@ -328,7 +346,11 @@ impl AuthorityRuntimeConfig {
             verify_order,
             effects,
             membership,
-            resolution_policy: ResolutionPolicy::from_runtime(config),
+            resolution_policy: ResolutionPolicy::from_runtime(
+                config,
+                compute_bytes_per_work,
+                compute_edges_per_work,
+            ),
             verify_workers,
         })
     }
@@ -492,6 +514,11 @@ impl AuthorityComputeJob {
             AuthorityComputeKind::Verification(job) => job.retry(),
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn retry_for_foundation(self) -> ComputeSettlement {
+        self.retry()
+    }
 }
 
 #[derive(Debug)]
@@ -534,6 +561,82 @@ pub(in crate::authority) enum ReadyValidationError {
 pub(crate) enum AuthorityComputeOutcome {
     Settled,
     Verification(TxPoolVerificationRequest),
+}
+
+#[derive(Debug)]
+#[must_use = "direct computation must continue verification or return its exact rejection"]
+pub(super) enum AuthorityDirectResolutionOutcome {
+    Verification(DirectVerificationRequest),
+    Rejected(DirectTransactionRejection),
+}
+
+#[derive(Debug)]
+pub(super) enum DirectAdmissionRejectionKind {
+    Validation(CommittedPublicReject),
+    Membership(MembershipReject),
+}
+
+#[derive(Debug)]
+#[must_use = "Local disposition is the committed synchronous outcome or an exact retry"]
+pub(super) enum AuthorityLocalAdmissionOutcome {
+    Accepted(EntryCompleted),
+    Duplicate(RawTxHash),
+    Rejected(DirectAdmissionRejectionKind),
+    Retry(Arc<TransactionView>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "TestAccept evaluation is read-only and must be returned or retried"]
+pub(super) enum AuthorityTestAcceptOutcome {
+    Accepted(EntryCompleted),
+    Duplicate(RawTxHash),
+    RejectedValidation(CommittedPublicReject),
+    RejectedMembership(MembershipReject),
+    Retry,
+}
+
+#[derive(Debug)]
+pub(super) enum AuthorityDirectAdmissionError {
+    Validation(FinalAdmissionValidationError),
+    Plan(PlanError),
+}
+
+#[derive(Debug)]
+#[must_use = "direct rejection settlement preserves the sealed command semantics"]
+pub(super) enum AuthorityDirectRejectionExecution {
+    Local(CommittedPublicReject),
+    TestAccept(CommittedPublicReject),
+}
+
+#[derive(Debug)]
+#[must_use = "direct admission settlement preserves the sealed command semantics"]
+pub(super) enum AuthorityDirectAdmissionExecution {
+    Local(AuthorityLocalAdmissionExecution),
+    TestAccept(AuthorityTestAcceptOutcome),
+}
+
+/// A synchronous Local outcome plus the only cache consequence that may be
+/// published by its caller. `cache_update` is present only after an Accepted
+/// membership Apply completed; every other disposition consumes the verified
+/// cache evidence inside the authority boundary.
+#[derive(Debug)]
+#[must_use = "the Local result and its post-commit cache consequence must be handled"]
+pub(super) struct AuthorityLocalAdmissionExecution {
+    outcome: AuthorityLocalAdmissionOutcome,
+    cache_update: Option<VerificationCacheUpdate>,
+    cache_hit: bool,
+}
+
+impl AuthorityLocalAdmissionExecution {
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        AuthorityLocalAdmissionOutcome,
+        Option<VerificationCacheUpdate>,
+        bool,
+    ) {
+        (self.outcome, self.cache_update, self.cache_hit)
+    }
 }
 
 #[derive(Debug)]
@@ -603,22 +706,301 @@ impl AuthorityRuntime {
         Arc::clone(&self.signals.ready)
     }
 
+    /// Capture the immutable consensus paired with the authority snapshot.
+    /// Ingress callers cannot substitute a separately sourced consensus for
+    /// non-contextual validation.
+    pub(super) fn paired_consensus(&self) -> Arc<Consensus> {
+        self.store.read().snapshot.cloned_consensus()
+    }
+
+    #[cfg(test)]
+    pub(super) fn normalized_snapshot_for_foundation(&self) -> super::plan::AuthoritySnapshot {
+        self.store.read().authority.normalized_snapshot()
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_authority_for_foundation<T>(
+        &self,
+        inspect: impl FnOnce(&mut TxPoolAuthority) -> T,
+    ) -> T {
+        inspect(&mut self.store.write().authority)
+    }
+
     /// Capture and evaluate one already-resolved direct candidate without
     /// acquiring membership or effect authority. Local and TestAccept share
     /// this immutable result; only Local may later compile it through Plan.
-    pub(super) fn validate_direct_admission(
+    fn validate_direct_admission(
         &self,
         work: DirectAdmissionWork,
     ) -> Result<DirectAdmissionValidationOutcome, FinalAdmissionValidationError> {
-        let prepared = {
+        let snapshot = {
             let store = self.store.read();
-            DirectAdmissionValidation::prepare(Arc::clone(&store.snapshot), work)?
+            Arc::clone(&store.snapshot)
         };
+        let prepared = DirectAdmissionValidation::prepare(snapshot, work)?;
         let validation = {
             let store = self.store.read();
             prepared.complete(AuthorityStoreCaptureSeal(()), &store.authority)?
         };
         validation.validate()
+    }
+
+    /// Publish a stable or still-current direct ingress/compute rejection for
+    /// Local. The validity fence and effect append are one authoritative
+    /// Plan/Apply; a stale chain or dependency observation commits nothing.
+    fn commit_direct_transaction_rejection(
+        &self,
+        rejection: DirectTransactionRejection,
+    ) -> Result<CommittedPublicReject, PlanError> {
+        let (reason, committed) = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_direct_transaction_rejection(rejection)?
+                .apply()
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(reason)
+    }
+
+    /// Evaluate the same direct rejection for TestAccept without publishing
+    /// an effect. A stale rejection is returned as stale work so the caller
+    /// recomputes from its original transaction.
+    fn evaluate_direct_transaction_rejection(
+        &self,
+        rejection: DirectTransactionRejection,
+    ) -> Result<CommittedPublicReject, PlanError> {
+        let store = self.store.read();
+        store
+            .authority
+            .direct_rejection_is_current(rejection.validity())?;
+        Ok(rejection.reason().clone())
+    }
+
+    /// Commit one final synchronous Local disposition. Candidate membership,
+    /// same-raw PreAccepted replacement, RBF/capacity policy, resource charge,
+    /// and publication are applied atomically under the sole authority. A
+    /// rules transition asks the caller to recompute and performs no Apply.
+    fn commit_direct_admission(
+        &self,
+        outcome: DirectAdmissionValidationOutcome,
+    ) -> Result<AuthorityLocalAdmissionOutcome, PlanError> {
+        let (outcome, committed) = match outcome {
+            DirectAdmissionValidationOutcome::Candidate(receipt) => {
+                let completed = receipt.completed();
+                let mut store = self.store.write();
+                match store.authority.plan_direct_admission(receipt)? {
+                    DirectAdmissionDisposition::Accepted(plan) => (
+                        AuthorityLocalAdmissionOutcome::Accepted(completed),
+                        Some(plan.apply()),
+                    ),
+                    DirectAdmissionDisposition::Duplicate(plan) => {
+                        let (key, committed) = plan.apply();
+                        (
+                            AuthorityLocalAdmissionOutcome::Duplicate(key),
+                            Some(committed),
+                        )
+                    }
+                    DirectAdmissionDisposition::Rejected(plan) => {
+                        let (reason, committed) = plan.apply();
+                        (
+                            AuthorityLocalAdmissionOutcome::Rejected(
+                                DirectAdmissionRejectionKind::Membership(reason),
+                            ),
+                            Some(committed),
+                        )
+                    }
+                }
+            }
+            DirectAdmissionValidationOutcome::Rejected(rejection) => {
+                let mut store = self.store.write();
+                let (reason, committed) = store
+                    .authority
+                    .plan_direct_validation_rejection(rejection)?
+                    .apply();
+                (
+                    AuthorityLocalAdmissionOutcome::Rejected(
+                        DirectAdmissionRejectionKind::Validation(reason),
+                    ),
+                    Some(committed),
+                )
+            }
+            DirectAdmissionValidationOutcome::Reresolve(retry) => (
+                AuthorityLocalAdmissionOutcome::Retry(retry.into_subject().into_transaction()),
+                None,
+            ),
+        };
+        let changed = committed.is_some();
+        drop(committed);
+        if changed {
+            self.signals.publish_mutation();
+        }
+        Ok(outcome)
+    }
+
+    /// Evaluate one final TestAccept disposition from the same validation and
+    /// membership policy while holding only a read guard. No mutating Plan,
+    /// effect, cache update, clock increment, or owner is constructed.
+    fn evaluate_direct_admission(
+        &self,
+        outcome: DirectAdmissionValidationOutcome,
+    ) -> Result<AuthorityTestAcceptOutcome, PlanError> {
+        let store = self.store.read();
+        match outcome {
+            DirectAdmissionValidationOutcome::Candidate(receipt) => {
+                match store.authority.evaluate_direct_admission(receipt)? {
+                    DirectAdmissionEvaluation::Accepted(completed) => {
+                        Ok(AuthorityTestAcceptOutcome::Accepted(completed))
+                    }
+                    DirectAdmissionEvaluation::Duplicate(key) => {
+                        Ok(AuthorityTestAcceptOutcome::Duplicate(key))
+                    }
+                    DirectAdmissionEvaluation::Rejected(reason) => {
+                        Ok(AuthorityTestAcceptOutcome::RejectedMembership(reason))
+                    }
+                }
+            }
+            DirectAdmissionValidationOutcome::Rejected(rejection) => store
+                .authority
+                .evaluate_direct_validation_rejection(rejection)
+                .map(AuthorityTestAcceptOutcome::RejectedValidation),
+            DirectAdmissionValidationOutcome::Reresolve(_) => Ok(AuthorityTestAcceptOutcome::Retry),
+        }
+    }
+
+    /// Settle one source-sealed direct rejection. Local publishes the rejection
+    /// through the authoritative effect log; TestAccept only validates the
+    /// evidence cut. Callers cannot choose the behavior after computation.
+    pub(super) fn settle_direct_transaction_rejection(
+        &self,
+        rejection: DirectTransactionRejection,
+    ) -> Result<AuthorityDirectRejectionExecution, PlanError> {
+        match rejection.command() {
+            DirectCommand::Local => self
+                .commit_direct_transaction_rejection(rejection)
+                .map(AuthorityDirectRejectionExecution::Local),
+            DirectCommand::TestAccept => self
+                .evaluate_direct_transaction_rejection(rejection)
+                .map(AuthorityDirectRejectionExecution::TestAccept),
+        }
+    }
+
+    /// Validate and settle one source-sealed verified direct capability. The
+    /// optional cache update remains sealed until the exact Local Accepted
+    /// Apply succeeds. TestAccept consumes the same evidence without owner,
+    /// effect, clock, or cache mutation.
+    pub(super) fn settle_verified_direct_admission(
+        &self,
+        candidate: DirectVerifiedCandidate,
+    ) -> Result<AuthorityDirectAdmissionExecution, AuthorityDirectAdmissionError> {
+        let (command, work, pending_cache_update, cache_hit) = candidate.into_parts();
+        let validated = self
+            .validate_direct_admission(work)
+            .map_err(AuthorityDirectAdmissionError::Validation)?;
+        match command {
+            DirectCommand::Local => {
+                let outcome = self
+                    .commit_direct_admission(validated)
+                    .map_err(AuthorityDirectAdmissionError::Plan)?;
+                let cache_update = matches!(&outcome, AuthorityLocalAdmissionOutcome::Accepted(_))
+                    .then_some(pending_cache_update)
+                    .flatten();
+                Ok(AuthorityDirectAdmissionExecution::Local(
+                    AuthorityLocalAdmissionExecution {
+                        outcome,
+                        cache_update,
+                        cache_hit,
+                    },
+                ))
+            }
+            DirectCommand::TestAccept => self
+                .evaluate_direct_admission(validated)
+                .map(AuthorityDirectAdmissionExecution::TestAccept)
+                .map_err(AuthorityDirectAdmissionError::Plan),
+        }
+    }
+
+    /// Non-contextually validate and resolve a synchronous Local/TestAccept
+    /// transaction without creating a retained owner. Missing-frontier
+    /// enrichment rereads only the bounded Accepted overlay and keeps all
+    /// allocation outside the authority guard.
+    pub(super) fn resolve_local_transaction(
+        &self,
+        tx: &ckb_types::core::TransactionView,
+    ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
+        self.resolve_direct_transaction(tx, DirectCommand::Local)
+    }
+
+    pub(super) fn resolve_test_accept_transaction(
+        &self,
+        tx: &ckb_types::core::TransactionView,
+    ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
+        self.resolve_direct_transaction(tx, DirectCommand::TestAccept)
+    }
+
+    fn resolve_direct_transaction(
+        &self,
+        tx: &ckb_types::core::TransactionView,
+        command: DirectCommand,
+    ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
+        let consensus = self.paired_consensus();
+        let direct = match direct(tx, &consensus, command) {
+            Ok(direct) => direct,
+            Err(rejection) => {
+                return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+            }
+        };
+        self.prepare_direct_resolution(direct)
+    }
+
+    fn prepare_direct_resolution(
+        &self,
+        direct: DirectTransaction,
+    ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
+        let prepared = match DirectResolutionJob::prepare(
+            direct,
+            self.resolution_policy.direct_max_resident_bytes,
+            self.resolution_policy.direct_max_edges,
+        )? {
+            DirectResolutionPreparation::Prepared(prepared) => prepared,
+            DirectResolutionPreparation::Rejected(rejection) => {
+                return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+            }
+        };
+        let mut job = {
+            let store = self.store.read();
+            prepared.complete(
+                AuthorityStoreCaptureSeal(()),
+                Arc::clone(&store.snapshot),
+                &store.authority,
+            )
+        };
+        loop {
+            let evaluation =
+                crate::util::block_offload(|| job.evaluate(self.resolution_policy.min_fee_rate))?;
+            match evaluation {
+                DirectResolutionEvaluation::Verify(request) => {
+                    return Ok(AuthorityDirectResolutionOutcome::Verification(request));
+                }
+                DirectResolutionEvaluation::Rejected(rejection) => {
+                    return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+                }
+                DirectResolutionEvaluation::Enrich(probe) => {
+                    let prepared = probe.prepare_enrichment()?;
+                    let observation = {
+                        let store = self.store.read();
+                        prepared.observe(&store.authority)?
+                    };
+                    match observation {
+                        DirectResolutionProbeObservation::Retry(retry) => job = retry,
+                        DirectResolutionProbeObservation::Rejected(rejection) => {
+                            return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub(in crate::authority) fn claim_effect_publisher(

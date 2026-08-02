@@ -1,9 +1,20 @@
-use super::foundation::{accept_remote_transaction, apply_without_work, limits, owner_version};
+use super::foundation::{
+    accept_remote_transaction, accept_remote_transaction_with_payload, apply_without_work, limits,
+    owner_version, resolved_payload_with_facts, runtime_config,
+};
 use crate::authority::{
-    plan::TxPoolAuthority,
+    ingress::{DirectCommand, direct},
+    plan::{PlanError, StalePlan, TxPoolAuthority},
     resolver::{
+        DirectResolutionEvaluation, DirectResolutionJob, DirectResolutionPreparation,
+        DirectResolutionProbeObservation, DirectVerificationOutcome, DirectVerifiedCandidate,
         ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
         VerificationJob,
+    },
+    runtime::{
+        AuthorityDirectAdmissionExecution, AuthorityDirectRejectionExecution,
+        AuthorityDirectResolutionOutcome, AuthorityLocalAdmissionOutcome, AuthorityRuntime,
+        AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind,
     },
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PreAcceptedPhase,
@@ -23,8 +34,54 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec},
     prelude::{Builder, Entity, Pack, Unpack},
 };
-use ckb_verification::cache::{Completed, ScriptVerificationRules};
+use ckb_verification::cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey};
 use std::sync::Arc;
+
+async fn verified_direct_candidate(
+    runtime: &AuthorityRuntime,
+    transaction: &ckb_types::core::TransactionView,
+    command: DirectCommand,
+) -> DirectVerifiedCandidate {
+    let resolution = match command {
+        DirectCommand::Local => runtime.resolve_local_transaction(transaction),
+        DirectCommand::TestAccept => runtime.resolve_test_accept_transaction(transaction),
+    };
+    let request = match resolution.expect("direct resolution has sufficient host resources") {
+        AuthorityDirectResolutionOutcome::Verification(request) => request,
+        AuthorityDirectResolutionOutcome::Rejected(rejection) => panic!(
+            "fixture transaction must reach verification: {:?}",
+            rejection.reason().reject()
+        ),
+    };
+    let DirectVerificationOutcome::Candidate(candidate) = request
+        .execute(
+            Some(Completed {
+                cycles: 0,
+                fee: Capacity::zero(),
+            }),
+            None,
+        )
+        .await
+        .expect("direct verification executes under the captured rules")
+    else {
+        panic!("fixture transaction must remain a verified candidate")
+    };
+    candidate
+}
+
+async fn verified_local_candidate(
+    runtime: &AuthorityRuntime,
+    transaction: &ckb_types::core::TransactionView,
+) -> DirectVerifiedCandidate {
+    verified_direct_candidate(runtime, transaction, DirectCommand::Local).await
+}
+
+async fn verified_test_accept_candidate(
+    runtime: &AuthorityRuntime,
+    transaction: &ckb_types::core::TransactionView,
+) -> DirectVerifiedCandidate {
+    verified_direct_candidate(runtime, transaction, DirectCommand::TestAccept).await
+}
 
 fn genesis_snapshot() -> Arc<Snapshot> {
     let consensus = Arc::new(ConsensusBuilder::default().build());
@@ -394,4 +451,607 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
             .apply_settlement(execution.settlement)
             .expect("the exact verification capability settles"),
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let parent = output_tx(813, 1_000, Bytes::new());
+    accept_remote_transaction(
+        &mut authority,
+        parent.clone(),
+        93,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let child = Arc::new(spending_tx(814, [OutPoint::new(parent.hash(), 0)], 900));
+    let child_key = crate::authority::state::RawTxHash(child.hash());
+    let before = authority.normalized_snapshot();
+    let job = DirectResolutionJob::capture_for_foundation(
+        &authority,
+        Arc::clone(&snapshot),
+        Arc::clone(&child),
+        1 << 20,
+        1_000,
+    )
+    .expect("the direct cut captures the accepted parent without retaining the child");
+    let DirectResolutionEvaluation::Verify(request) = job
+        .evaluate(FeeRate::zero())
+        .expect("the accepted output resolves under the paired cut")
+    else {
+        panic!("the direct child must continue to verification")
+    };
+    let expected_rules = ScriptVerificationRules::from_env(
+        snapshot.consensus(),
+        &TxVerifyEnv::new_submit(snapshot.tip_header()),
+    );
+    let witness_hash: [u8; 32] = child.witness_hash().unpack();
+    assert_eq!(request.cache_key().witness_hash(), &witness_hash);
+    assert_eq!(request.cache_key().script_rules(), expected_rules);
+
+    let DirectVerificationOutcome::Candidate(candidate) = request
+        .execute(
+            Some(Completed {
+                cycles: 0,
+                fee: Capacity::zero(),
+            }),
+            None,
+        )
+        .await
+        .expect("the snapshot-bound direct request verifies")
+    else {
+        panic!("the cached direct verification must produce admission work")
+    };
+    let (command, work, cache_update, cache_hit) = candidate.into_parts();
+    assert_eq!(command, DirectCommand::TestAccept);
+    assert!(cache_hit);
+    assert!(cache_update.is_none());
+    assert_eq!(work.payload().identity().raw, child_key);
+    assert!(authority.entry(&child_key).is_none());
+    assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[test]
+fn uak_direct_resolution_terminalizes_an_unchanged_missing_frontier() {
+    let snapshot = genesis_snapshot();
+    let authority = authority_at(&snapshot);
+    let missing = OutPoint::new(Byte32::new([0xb1; 32]), 0);
+    let tx = Arc::new(spending_tx(815, [missing.clone()], 1));
+    let before = authority.normalized_snapshot();
+    let job = DirectResolutionJob::capture_for_foundation(
+        &authority,
+        Arc::clone(&snapshot),
+        tx,
+        1 << 20,
+        1_000,
+    )
+    .expect("the direct request captures a coherent empty overlay");
+    let DirectResolutionEvaluation::Enrich(probe) = job
+        .evaluate(FeeRate::zero())
+        .expect("missing evidence is a transaction outcome")
+    else {
+        panic!("the first pass must expose the missing frontier")
+    };
+    assert_eq!(
+        probe.missing_keys_for_foundation(),
+        vec![DependencyKey::Cell(missing.clone())]
+    );
+    let DirectResolutionProbeObservation::Rejected(rejection) = probe
+        .prepare_enrichment()
+        .expect("bounded enrichment reserves outside the authority cut")
+        .observe(&authority)
+        .expect("the authority view remains current")
+    else {
+        panic!("an unchanged missing direct input must reject, not become resident")
+    };
+    assert!(matches!(
+        rejection.reason().reject(),
+        crate::error::Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(out_point))
+            if out_point == &missing
+    ));
+    assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[test]
+fn uak_direct_edge_budget_is_a_policy_rejection_not_a_runtime_fault() {
+    let snapshot = genesis_snapshot();
+    let input = OutPoint::new(Byte32::new([0xb3; 32]), 0);
+    let transaction = spending_tx(0, [input], 1);
+    let direct = direct(
+        &transaction,
+        snapshot.consensus(),
+        DirectCommand::TestAccept,
+    )
+    .expect("the transaction passes non-contextual validation");
+    let DirectResolutionPreparation::Rejected(rejection) =
+        DirectResolutionJob::prepare(direct, 1 << 20, 0)
+            .expect("hostile edge count is an ordinary preparation outcome")
+    else {
+        panic!("the zero-edge envelope must reject before resolution")
+    };
+    assert!(matches!(
+        rejection.reason().reject(),
+        crate::error::Reject::Full(_)
+    ));
+}
+
+#[test]
+fn uak_direct_permissive_rbf_never_fabricates_a_chain_cell() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let parent = output_tx(816, 1_000, Bytes::new());
+    let parent_out = OutPoint::new(parent.hash(), 0);
+    accept_remote_transaction(
+        &mut authority,
+        parent,
+        94,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    accept_remote_transaction(
+        &mut authority,
+        spending_tx(817, [parent_out.clone()], 900),
+        95,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let unknown = OutPoint::new(Byte32::new([0xb2; 32]), 0);
+    let replacement = Arc::new(spending_tx(818, [unknown.clone(), parent_out], 800));
+    let before = authority.normalized_snapshot();
+    let job = DirectResolutionJob::capture_for_foundation(
+        &authority,
+        Arc::clone(&snapshot),
+        replacement,
+        1 << 20,
+        1_000,
+    )
+    .expect("the direct RBF cut captures the accepted spender");
+    let DirectResolutionEvaluation::Enrich(probe) = job
+        .evaluate(FeeRate::zero())
+        .expect("permissive RBF still consults the chain snapshot")
+    else {
+        panic!("the unknown chain input cannot become resolved evidence")
+    };
+    assert_eq!(
+        probe.missing_keys_for_foundation(),
+        vec![DependencyKey::Cell(unknown.clone())]
+    );
+    let DirectResolutionProbeObservation::Rejected(rejection) = probe
+        .prepare_enrichment()
+        .expect("the bounded missing frontier is reservable")
+        .observe(&authority)
+        .expect("the paired authority view remains current")
+    else {
+        panic!("no accepted producer can satisfy the unknown chain input")
+    };
+    assert!(matches!(
+        rejection.reason().reject(),
+        crate::error::Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(out_point))
+            if out_point == &unknown
+    ));
+    assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_runtime_direct_path_is_owner_free_until_membership_plan() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(819, 1_000, Bytes::new());
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(
+            authority,
+            parent.clone(),
+            96,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+    });
+    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+    let before = runtime.normalized_snapshot_for_foundation();
+    let outcome = runtime
+        .resolve_test_accept_transaction(&transaction)
+        .expect("non-contextual validation and direct resolution succeed");
+    let request = match outcome {
+        AuthorityDirectResolutionOutcome::Verification(request) => request,
+        AuthorityDirectResolutionOutcome::Rejected(rejection) => {
+            panic!(
+                "the valid direct transaction must continue to verification: {:?}",
+                rejection.reason().reject()
+            )
+        }
+    };
+    let DirectVerificationOutcome::Candidate(candidate) = request
+        .execute(
+            Some(Completed {
+                cycles: 0,
+                fee: Capacity::zero(),
+            }),
+            None,
+        )
+        .await
+        .expect("direct verification produces immutable admission work")
+    else {
+        panic!("the valid direct transaction must remain a candidate")
+    };
+    let AuthorityDirectAdmissionExecution::TestAccept(outcome) = runtime
+        .settle_verified_direct_admission(candidate)
+        .expect("the direct candidate validates against a coherent final cut")
+    else {
+        panic!("the TestAccept source must preserve read-only settlement semantics")
+    };
+    assert!(matches!(outcome, AuthorityTestAcceptOutcome::Accepted(_)));
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_test_accept_is_read_only_and_local_applies_the_same_policy() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(820, 1_000, Bytes::new());
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(
+            authority,
+            parent.clone(),
+            97,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+    });
+    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+
+    let test_accept = verified_test_accept_candidate(&runtime, &transaction).await;
+    let before = runtime.normalized_snapshot_for_foundation();
+    let AuthorityDirectAdmissionExecution::TestAccept(AuthorityTestAcceptOutcome::Accepted(
+        completed,
+    )) = runtime
+        .settle_verified_direct_admission(test_accept)
+        .expect("read-only membership policy accepts the candidate")
+    else {
+        panic!("the valid independent candidate must be accepted")
+    };
+    assert_eq!(completed.cycles, 0);
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+
+    let local = verified_local_candidate(&runtime, &transaction).await;
+    let AuthorityDirectAdmissionExecution::Local(local) = runtime
+        .settle_verified_direct_admission(local)
+        .expect("Local compiles the same policy result into one Apply")
+    else {
+        panic!("the Local source must preserve Local settlement semantics")
+    };
+    let (AuthorityLocalAdmissionOutcome::Accepted(local_completed), cache_update, cache_hit) =
+        local.into_parts()
+    else {
+        panic!("the same candidate must commit for Local")
+    };
+    assert!(cache_hit);
+    assert!(cache_update.is_none());
+    assert_eq!(local_completed, completed);
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(matches!(
+            authority.entry(&crate::authority::state::RawTxHash(transaction.hash())),
+            Some(OwnedTx::Accepted(_))
+        ));
+    });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_direct_cache_update_is_released_only_after_local_acceptance() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(821, 1_000, Bytes::new());
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(
+            authority,
+            parent.clone(),
+            105,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+    });
+    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+    let completed = Completed {
+        cycles: 0,
+        fee: Capacity::zero(),
+    };
+    let rules = ScriptVerificationRules::from_env(
+        snapshot.consensus(),
+        &TxVerifyEnv::new_submit(snapshot.tip_header()),
+    );
+    let cache_key = TxVerificationCacheKey::from_transaction(&transaction, rules);
+
+    let test_accept = verified_test_accept_candidate(&runtime, &transaction)
+        .await
+        .with_cache_update_for_foundation(cache_key, completed);
+    let before = runtime.normalized_snapshot_for_foundation();
+    assert!(matches!(
+        runtime
+            .settle_verified_direct_admission(test_accept)
+            .expect("TestAccept consumes verification evidence without publication"),
+        AuthorityDirectAdmissionExecution::TestAccept(AuthorityTestAcceptOutcome::Accepted(_))
+    ));
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+
+    let local = verified_local_candidate(&runtime, &transaction)
+        .await
+        .with_cache_update_for_foundation(cache_key, completed);
+    let AuthorityDirectAdmissionExecution::Local(local) = runtime
+        .settle_verified_direct_admission(local)
+        .expect("Local accepts and unlocks the post-commit cache consequence")
+    else {
+        panic!("the Local source must preserve Local settlement semantics")
+    };
+    let (outcome, cache_update, cache_hit) = local.into_parts();
+    assert!(matches!(
+        outcome,
+        AuthorityLocalAdmissionOutcome::Accepted(_)
+    ));
+    assert!(!cache_hit);
+    assert_eq!(
+        cache_update.map(|update| update.into_parts()),
+        Some((cache_key, completed))
+    );
+
+    let duplicate = verified_local_candidate(&runtime, &transaction)
+        .await
+        .with_cache_update_for_foundation(cache_key, completed);
+    let AuthorityDirectAdmissionExecution::Local(duplicate) = runtime
+        .settle_verified_direct_admission(duplicate)
+        .expect("an Accepted duplicate is a committed acknowledgement only")
+    else {
+        panic!("the Local source must preserve Local settlement semantics")
+    };
+    let (outcome, cache_update, _) = duplicate.into_parts();
+    assert!(matches!(
+        outcome,
+        AuthorityLocalAdmissionOutcome::Duplicate(_)
+    ));
+    assert!(cache_update.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_test_accept_treats_every_owner_phase_as_a_read_only_duplicate() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(822, 1_000, Bytes::new());
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(
+            authority,
+            parent.clone(),
+            98,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+    });
+    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+    let validated = verified_test_accept_candidate(&runtime, &transaction).await;
+    runtime
+        .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(99))
+        .expect("the same raw transaction becomes a retained Remote owner");
+    let before = runtime.normalized_snapshot_for_foundation();
+    assert!(matches!(
+        runtime
+            .settle_verified_direct_admission(validated)
+            .expect("duplicate evaluation is a normal read-only outcome"),
+        AuthorityDirectAdmissionExecution::TestAccept(AuthorityTestAcceptOutcome::Duplicate(
+            key
+        )) if key == crate::authority::state::RawTxHash(transaction.hash())
+    ));
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+}
+
+#[test]
+fn uak_direct_missing_rejection_stales_when_the_parent_becomes_available() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(824, 1_000, Bytes::new());
+    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+    let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
+        .resolve_local_transaction(&transaction)
+        .expect("the unchanged missing frontier is a transaction outcome")
+    else {
+        panic!("the missing parent must not reach verification")
+    };
+
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(authority, parent, 100, AcceptedStatus::Pending, Vec::new());
+    });
+    let before = runtime.normalized_snapshot_for_foundation();
+    let result = runtime.settle_direct_transaction_rejection(rejection);
+    assert!(
+        matches!(result, Err(PlanError::Stale(StalePlan::SourceVersion))),
+        "new parent availability must stale the missing proof: {result:?}"
+    );
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+}
+
+#[test]
+fn uak_stable_direct_rejection_is_read_only_for_test_accept_and_atomic_for_local() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let transaction = TransactionBuilder::default().version(1u32).build();
+
+    let AuthorityDirectResolutionOutcome::Rejected(test_rejection) = runtime
+        .resolve_test_accept_transaction(&transaction)
+        .expect("non-contextual rejection is a stable transaction outcome")
+    else {
+        panic!("a non-zero transaction version must reject before resolution")
+    };
+    let before = runtime.normalized_snapshot_for_foundation();
+    let AuthorityDirectRejectionExecution::TestAccept(reason) = runtime
+        .settle_direct_transaction_rejection(test_rejection)
+        .expect("TestAccept may return stable evidence without mutation")
+    else {
+        panic!("the TestAccept source must preserve read-only settlement semantics")
+    };
+    assert!(matches!(
+        reason.reject(),
+        crate::error::Reject::Verification(_)
+    ));
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+
+    let AuthorityDirectResolutionOutcome::Rejected(local_rejection) = runtime
+        .resolve_local_transaction(&transaction)
+        .expect("the same stable rejection is reproducible")
+    else {
+        panic!("a non-zero transaction version must reject before resolution")
+    };
+    assert!(matches!(
+        runtime
+            .settle_direct_transaction_rejection(local_rejection)
+            .expect("Local publishes the rejection in one effect-only Apply"),
+        AuthorityDirectRejectionExecution::Local(_)
+    ));
+    assert!(
+        runtime
+            .pending_recent_reject(&transaction.hash())
+            .expect("the committed rejection has a valid public projection")
+            .is_some(),
+        "the rejection effect must be visible immediately after Apply"
+    );
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(
+            authority
+                .entry(&crate::authority::state::RawTxHash(transaction.hash()))
+                .is_none()
+        );
+    });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_test_accept_and_local_share_exact_rbf_rejection_policy() {
+    let snapshot = genesis_snapshot();
+    let mut config = runtime_config();
+    config.min_rbf_rate = FeeRate::from_u64(1);
+    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(826, 1_000, Bytes::new());
+    let input = OutPoint::new(parent.hash(), 0);
+    let existing = spending_tx(827, [input.clone()], 900);
+    let existing_hash = crate::authority::state::RawTxHash(existing.hash());
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(authority, parent, 101, AcceptedStatus::Pending, Vec::new());
+        accept_remote_transaction_with_payload(
+            authority,
+            existing.clone(),
+            102,
+            AcceptedStatus::Pending,
+            resolved_payload_with_facts(&existing, Vec::new(), Vec::new(), Capacity::shannons(100)),
+        );
+    });
+    let replacement = spending_tx(0, [input], 950);
+
+    let test_accept = verified_test_accept_candidate(&runtime, &replacement).await;
+    let before = runtime.normalized_snapshot_for_foundation();
+    let AuthorityDirectAdmissionExecution::TestAccept(
+        AuthorityTestAcceptOutcome::RejectedMembership(test_reason),
+    ) = runtime
+        .settle_verified_direct_admission(test_accept)
+        .expect("RBF policy rejection is a read-only TestAccept outcome")
+    else {
+        panic!("the under-fee replacement must be rejected by membership policy")
+    };
+    assert!(
+        matches!(
+            test_reason,
+            crate::authority::plan::MembershipReject::InsufficientReplacementFee { .. }
+        ),
+        "unexpected RBF rejection: {test_reason:?}"
+    );
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
+
+    let local = verified_local_candidate(&runtime, &replacement).await;
+    let AuthorityDirectAdmissionExecution::Local(local) = runtime
+        .settle_verified_direct_admission(local)
+        .expect("Local commits the same RBF rejection and its effect atomically")
+    else {
+        panic!("the Local source must preserve Local settlement semantics")
+    };
+    let (
+        AuthorityLocalAdmissionOutcome::Rejected(DirectAdmissionRejectionKind::Membership(
+            local_reason,
+        )),
+        cache_update,
+        _,
+    ) = local.into_parts()
+    else {
+        panic!("the under-fee replacement must remain a membership rejection")
+    };
+    assert!(cache_update.is_none());
+    assert!(matches!(
+        local_reason,
+        crate::authority::plan::MembershipReject::InsufficientReplacementFee { .. }
+    ));
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(matches!(
+            authority.entry(&existing_hash),
+            Some(OwnedTx::Accepted(_))
+        ));
+        assert!(
+            authority
+                .entry(&crate::authority::state::RawTxHash(replacement.hash()))
+                .is_none()
+        );
+    });
+    assert!(
+        runtime
+            .pending_recent_reject(&replacement.hash())
+            .expect("the RBF rejection projects to the recent-reject surface")
+            .is_some()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_local_atomically_replaces_same_raw_active_remote_owner() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("the production runtime fixture is valid");
+    let parent = output_tx(828, 1_000, Bytes::new());
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction(
+            authority,
+            parent.clone(),
+            103,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+    });
+    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+    let local = verified_local_candidate(&runtime, &transaction).await;
+    runtime
+        .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(104))
+        .expect("the Remote owner is retained before Local wins");
+    let active = runtime
+        .try_checkout(WorkPermit::ResolveOnly)
+        .expect("the retained scheduler remains healthy")
+        .expect("the Remote owner enters active resolve work");
+
+    let AuthorityDirectAdmissionExecution::Local(local) = runtime
+        .settle_verified_direct_admission(local)
+        .expect("Local replaces the exact same-raw active owner in one Apply")
+    else {
+        panic!("the Local source must preserve Local settlement semantics")
+    };
+    assert!(matches!(
+        local.into_parts().0,
+        AuthorityLocalAdmissionOutcome::Accepted(_)
+    ));
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(matches!(
+            authority.entry(&crate::authority::state::RawTxHash(transaction.hash())),
+            Some(OwnedTx::Accepted(_))
+        ));
+        assert_eq!(authority.resources().preaccepted().active_work, 0);
+    });
+    let stale = runtime
+        .settle(active.retry_for_foundation())
+        .expect_err("the displaced Remote lease must be stale");
+    assert!(matches!(stale.error(), PlanError::Stale(_)));
 }

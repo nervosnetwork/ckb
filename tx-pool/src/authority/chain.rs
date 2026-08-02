@@ -384,6 +384,19 @@ impl MembershipValidationWork {
         self.verified.dependency_cut()
     }
 
+    pub(super) fn with_validated_dependency_cut(
+        self,
+        seal: super::validation::AdmissionValidationSeal,
+        dependency_cut: DependencyCut,
+    ) -> Self {
+        Self {
+            view: self.view,
+            verified: self
+                .verified
+                .with_validated_dependency_cut(seal, dependency_cut),
+        }
+    }
+
     pub(super) fn into_parts(self) -> (ChainViewId, VerifiedFacts) {
         (self.view, self.verified)
     }
@@ -749,6 +762,14 @@ impl DirectAdmissionReceipt {
         self.membership.proof()
     }
 
+    pub(super) fn completed(&self) -> ckb_types::core::EntryCompleted {
+        let metrics = self.proof().metrics();
+        ckb_types::core::EntryCompleted {
+            cycles: metrics.cost.cycles,
+            fee: metrics.fee,
+        }
+    }
+
     pub(super) fn into_membership_parts(
         self,
     ) -> (
@@ -770,7 +791,7 @@ impl DirectAdmissionReceipt {
 pub(super) struct DirectAdmissionSubject {
     tx: Arc<TransactionView>,
     view: ChainViewId,
-    dependency_cut: DependencyCut,
+    accepted_source: ApplySequence,
 }
 
 impl DirectAdmissionSubject {
@@ -778,25 +799,21 @@ impl DirectAdmissionSubject {
         _seal: super::validation::AdmissionValidationSeal,
         tx: Arc<TransactionView>,
         view: ChainViewId,
-        dependency_cut: DependencyCut,
+        accepted_source: ApplySequence,
     ) -> Self {
         Self {
             tx,
             view,
-            dependency_cut,
+            accepted_source,
         }
-    }
-
-    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
-        &self.tx
     }
 
     pub(super) fn view(&self) -> &ChainViewId {
         &self.view
     }
 
-    pub(super) fn dependency_cut(&self) -> DependencyCut {
-        self.dependency_cut
+    pub(super) fn accepted_source(&self) -> ApplySequence {
+        self.accepted_source
     }
 
     pub(super) fn into_transaction(self) -> Arc<TransactionView> {

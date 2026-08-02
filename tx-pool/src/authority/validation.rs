@@ -182,6 +182,8 @@ pub(super) struct DirectAdmissionValidation {
     work: DirectAdmissionWork,
     snapshot: Arc<Snapshot>,
     overlay: AcceptedOriginOverlay,
+    accepted_source: super::state::ApplySequence,
+    dependency_cut: super::state::DependencyCut,
 }
 
 /// First half of an OCC capture. The candidate identifies how much overlay
@@ -276,6 +278,8 @@ impl PreparedDirectAdmissionValidation {
             work: self.work,
             snapshot: self.snapshot,
             overlay: self.overlay,
+            accepted_source: authority.accepted_source_cut(),
+            dependency_cut: authority.dependency_observation_cut(),
         })
     }
 }
@@ -380,14 +384,17 @@ impl DirectAdmissionValidation {
             work,
             snapshot,
             overlay,
+            accepted_source,
+            dependency_cut,
         } = self;
         let (tx, validation) = work.into_validation_parts();
         let seal = AdmissionValidationSeal(());
+        let validation = validation.with_validated_dependency_cut(seal, dependency_cut);
         let subject = DirectAdmissionSubject::new(
             seal,
             Arc::clone(&tx),
             validation.view().clone(),
-            validation.dependency_cut(),
+            accepted_source,
         );
         match validate_membership(validation, snapshot, overlay, seal)? {
             MembershipValidationOutcome::Candidate { membership, .. } => {

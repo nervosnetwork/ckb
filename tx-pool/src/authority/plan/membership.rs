@@ -534,7 +534,7 @@ struct AncestorDelta {
     order_insertions: Vec<AcceptedOrderKey>,
 }
 
-struct EvictionPlan {
+pub(super) struct MembershipEvaluation {
     removals: Vec<SelectedRemoval>,
     candidate_parents: HashSet<RawTxHash>,
     candidate_children: HashSet<RawTxHash>,
@@ -725,13 +725,35 @@ impl TxPoolAuthority {
         hash: &RawTxHash,
         candidate: &AcceptedEntry,
     ) -> Result<PreparedMembership, super::PlanError> {
+        let evaluation = self.evaluate_membership_candidate(hash, candidate)?;
+        self.compile_membership_evaluation(hash, candidate, evaluation)
+    }
+
+    /// Evaluate RBF, graph, and capacity policy without constructing an
+    /// authoritative mutation. Local Plan and TestAccept share this exact
+    /// read-only decision; only Local compiles the result into projection and
+    /// ownership deltas.
+    pub(super) fn evaluate_membership_candidate(
+        &self,
+        hash: &RawTxHash,
+        candidate: &AcceptedEntry,
+    ) -> Result<MembershipEvaluation, super::PlanError> {
         let mandatory = rbf::replacement_removals(self, candidate)?;
-        let EvictionPlan {
+        eviction::complete_removals(self, hash, candidate, mandatory)
+    }
+
+    fn compile_membership_evaluation(
+        &mut self,
+        hash: &RawTxHash,
+        candidate: &AcceptedEntry,
+        evaluation: MembershipEvaluation,
+    ) -> Result<PreparedMembership, super::PlanError> {
+        let MembershipEvaluation {
             removals: selected_removals,
             candidate_parents,
             candidate_children,
             aggregate,
-        } = eviction::complete_removals(self, hash, candidate, mandatory)?;
+        } = evaluation;
         let projection = self.prepare_projection_change(
             hash,
             candidate,

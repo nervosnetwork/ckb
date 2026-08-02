@@ -6,14 +6,17 @@
 //! terminalization and committed publication without translating it to a
 //! lossy class in between.
 
+use super::ingress::DirectCommand;
 use super::state::RawTxHash;
+use super::state::{ApplySequence, ChainViewId};
 use crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
 use crate::error::Reject;
 use ckb_jsonrpc_types::PoolTransactionReject;
 use ckb_types::{
-    core::{Capacity, FeeRate, error::OutPointError},
+    core::{Capacity, FeeRate, TransactionView, error::OutPointError},
     packed::OutPoint,
 };
+use std::sync::Arc;
 
 const MAX_DYNAMIC_REJECT_TEXT_BYTES: usize = MAX_TX_POOL_REJECT_DESCRIPTION_BYTES - 128;
 pub(crate) const MAX_COMMIT_BAN_REASON_BYTES: usize = 1024;
@@ -168,6 +171,86 @@ impl CommittedPublicReject {
 impl From<Reject> for CommittedPublicReject {
     fn from(reject: Reject) -> Self {
         Self::new(reject)
+    }
+}
+
+/// Exact pre-membership outcome shared by direct ingress, resolution, and
+/// script verification. It retains the transaction needed by Local effect
+/// publication while TestAccept may return the same reason without acquiring
+/// an authority owner.
+#[derive(Debug)]
+pub(super) struct DirectTransactionRejection {
+    tx: Arc<TransactionView>,
+    command: DirectCommand,
+    reason: CommittedPublicReject,
+    validity: DirectRejectionValidity,
+}
+
+/// Exact authority evidence that keeps an owner-free rejection valid until a
+/// Local publication or a TestAccept return. Stable ingress facts need no
+/// chain fence. Chain-bound direct rejections use the existing Accepted source
+/// cut because owner-free work is deliberately absent from the resident
+/// dependency frontier; registering a synthetic consumer would turn this
+/// read-only path into another lifecycle owner.
+#[derive(Clone, Debug)]
+pub(super) enum DirectRejectionValidity {
+    Stable,
+    AcceptedCut {
+        view: ChainViewId,
+        accepted: ApplySequence,
+    },
+}
+
+impl DirectTransactionRejection {
+    pub(super) fn stable(tx: Arc<TransactionView>, command: DirectCommand, reason: Reject) -> Self {
+        Self {
+            tx,
+            command,
+            reason: CommittedPublicReject::new(reason),
+            validity: DirectRejectionValidity::Stable,
+        }
+    }
+
+    pub(super) fn accepted_cut(
+        tx: Arc<TransactionView>,
+        command: DirectCommand,
+        reason: Reject,
+        view: ChainViewId,
+        accepted: ApplySequence,
+    ) -> Self {
+        Self {
+            tx,
+            command,
+            reason: CommittedPublicReject::new(reason),
+            validity: DirectRejectionValidity::AcceptedCut { view, accepted },
+        }
+    }
+
+    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
+        &self.tx
+    }
+
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        &self.reason
+    }
+
+    pub(super) fn validity(&self) -> &DirectRejectionValidity {
+        &self.validity
+    }
+
+    pub(super) fn command(&self) -> DirectCommand {
+        self.command
+    }
+
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Arc<TransactionView>,
+        DirectCommand,
+        CommittedPublicReject,
+        DirectRejectionValidity,
+    ) {
+        (self.tx, self.command, self.reason, self.validity)
     }
 }
 

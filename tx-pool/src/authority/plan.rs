@@ -8,8 +8,9 @@ use super::chain::AcceptedProof;
 #[cfg(test)]
 use super::chain::{AdmissionEvidenceError, DirectAdmissionWork};
 use super::chain::{
-    DirectAdmissionReceipt, FinalAdmissionReceipt, FinalAdmissionRejection, FinalAdmissionRetry,
-    FinalAdmissionSubject, FinalAdmissionWork, ReadyPayloadRelation,
+    DirectAdmissionReceipt, DirectAdmissionRejection, FinalAdmissionReceipt,
+    FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
+    ReadyPayloadRelation,
 };
 #[cfg(test)]
 use super::dependency::DependencySnapshot;
@@ -29,12 +30,16 @@ use super::effect::{EffectObservation, EffectSnapshot};
 #[cfg(test)]
 use super::indexes::IndexSnapshot;
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError};
-use super::ingress::{RetainedIngress, RetainedIngressKind, RetainedIngressRejection};
+use super::ingress::{
+    DirectCommand, RetainedIngress, RetainedIngressKind, RetainedIngressRejection,
+};
 use super::read::AuthorityReadView;
-use super::rejection::CommittedPublicReject;
 #[cfg(test)]
 pub(in crate::authority) use super::rejection::ComponentLimitKind;
 pub(in crate::authority) use super::rejection::MembershipReject;
+use super::rejection::{
+    CommittedPublicReject, DirectRejectionValidity, DirectTransactionRejection,
+};
 #[cfg(test)]
 use super::resources::ResourceSnapshot;
 use super::resources::{
@@ -69,7 +74,7 @@ use crate::error::Reject;
 #[cfg(test)]
 use ckb_types::core::TransactionView;
 use ckb_types::{
-    core::{error::OutPointError, tx_pool::get_transaction_weight},
+    core::{EntryCompleted, error::OutPointError, tx_pool::get_transaction_weight},
     prelude::Unpack,
 };
 #[cfg(test)]
@@ -330,6 +335,21 @@ impl TxPoolAuthority {
 
     pub(super) fn chain_view(&self) -> &ChainViewId {
         &self.chain_view
+    }
+
+    /// Dependency evidence captured outside an Apply observes every sequence
+    /// strictly before `next_sequence`. A concurrent Apply consumes
+    /// `next_sequence`, so its loss event is newer than this cut and makes the
+    /// direct receipt stale instead of being mistaken for already observed.
+    pub(super) fn dependency_observation_cut(&self) -> DependencyCut {
+        DependencyCut(ApplySequence(self.clocks.next_sequence.0.saturating_sub(1)))
+    }
+
+    /// Coherent Accepted-membership source cut for owner-free direct work.
+    /// Unlike the dependency frontier, this version also advances when no
+    /// resident consumer has registered the changed outpoint.
+    pub(super) fn accepted_source_cut(&self) -> ApplySequence {
+        self.source_versions.accepted()
     }
 
     pub(super) fn generation(&self) -> PoolGeneration {
@@ -1274,6 +1294,16 @@ pub(super) enum DirectAdmissionDisposition<'authority> {
     Accepted(PreparedApply<'authority>),
     Duplicate(PreparedDirectDuplicate<'authority>),
     Rejected(PreparedDirectRejection<'authority>),
+}
+
+/// Pure final-membership policy result for TestAccept. This type cannot be
+/// applied and carries no projection/effect delta; Local compiles the same
+/// evaluator result through `prepare_membership_candidate` instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum DirectAdmissionEvaluation {
+    Accepted(EntryCompleted),
+    Duplicate(RawTxHash),
+    Rejected(MembershipReject),
 }
 
 #[must_use = "direct duplicate outcome must be applied exactly once"]
@@ -2795,7 +2825,7 @@ impl TxPoolAuthority {
         }
     }
 
-    fn plan_direct_admission(
+    pub(super) fn plan_direct_admission(
         &mut self,
         receipt: DirectAdmissionReceipt,
     ) -> Result<DirectAdmissionDisposition<'_>, PlanError> {
@@ -2840,26 +2870,7 @@ impl TxPoolAuthority {
             next_arrival,
             ..self.clocks
         };
-        let provenance = existing.as_ref().and_then(OwnedTx::ingress_peer).map_or(
-            AcceptedProvenance::Trusted,
-            |ingress| AcceptedProvenance::Peer {
-                ingress,
-                payload_policy: PayloadPolicy::Trusted,
-            },
-        );
-        let (tx, proof, proposal, accepted_at) = receipt.into_membership_parts();
-        let accepted = AcceptedEntry {
-            record: TxRecord {
-                tx,
-                identity: proof.payload().identity().clone(),
-                version,
-                arrival,
-            },
-            provenance,
-            proof,
-            proposal,
-            accepted_at,
-        };
+        let accepted = Self::direct_candidate(receipt, existing.as_ref(), version, arrival);
         let prepared = match self.prepare_membership_candidate(&key, &accepted) {
             Ok(prepared) => prepared,
             Err(PlanError::Membership(reason)) => {
@@ -2907,6 +2918,157 @@ impl TxPoolAuthority {
         }))
     }
 
+    /// Run the exact Local membership policy as a read-only TestAccept
+    /// evaluation. Existing ownership is a duplicate regardless of phase;
+    /// no owner, resource, clock, projection, or effect capability is
+    /// acquired and no prepared mutation is constructed then discarded.
+    pub(super) fn evaluate_direct_admission(
+        &self,
+        receipt: DirectAdmissionReceipt,
+    ) -> Result<DirectAdmissionEvaluation, PlanError> {
+        let key = receipt.key().clone();
+        if self.entries.contains_key(&key) {
+            return Ok(DirectAdmissionEvaluation::Duplicate(key));
+        }
+        self.validate_direct_acceptance_evidence(&receipt)?;
+        if self
+            .indexes
+            .proposal_owner(&receipt.proof().payload().identity().proposal)
+            .is_some()
+        {
+            return Err(PlanError::Backpressure(Backpressure::ProposalCollision));
+        }
+        let completed = receipt.completed();
+        let accepted = Self::direct_candidate(
+            receipt,
+            None,
+            self.clocks.next_version,
+            self.clocks.next_arrival,
+        );
+        match self.evaluate_membership_candidate(&key, &accepted) {
+            Ok(_evaluation) => Ok(DirectAdmissionEvaluation::Accepted(completed)),
+            Err(PlanError::Membership(reason)) => Ok(DirectAdmissionEvaluation::Rejected(reason)),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn direct_candidate(
+        receipt: DirectAdmissionReceipt,
+        existing: Option<&OwnedTx>,
+        version: EntryVersion,
+        arrival: Arrival,
+    ) -> AcceptedEntry {
+        let provenance = existing.and_then(OwnedTx::ingress_peer).map_or(
+            AcceptedProvenance::Trusted,
+            |ingress| AcceptedProvenance::Peer {
+                ingress,
+                payload_policy: PayloadPolicy::Trusted,
+            },
+        );
+        let (tx, proof, proposal, accepted_at) = receipt.into_membership_parts();
+        AcceptedEntry {
+            record: TxRecord {
+                tx,
+                identity: proof.payload().identity().clone(),
+                version,
+                arrival,
+            },
+            provenance,
+            proof,
+            proposal,
+            accepted_at,
+        }
+    }
+
+    /// Commit an owner-free ingress/resolve/verify rejection only while its
+    /// sealed validity evidence still matches this authority cut.
+    pub(super) fn plan_direct_transaction_rejection(
+        &mut self,
+        rejection: DirectTransactionRejection,
+    ) -> Result<PreparedValidationRejection<'_>, PlanError> {
+        let (tx, command, reason, validity) = rejection.into_parts();
+        if command != DirectCommand::Local {
+            return Err(PlanError::Fault(AuthorityFault::EffectProjection));
+        }
+        self.validate_direct_rejection_validity(&validity)?;
+        let plan = self.plan_single_effect(
+            EffectPolicy::Trusted,
+            CommittedEffect::Rejected(CommittedRejection::Validation {
+                tx,
+                audience: RejectionAudience::default(),
+                reason: reason.clone(),
+            }),
+        )?;
+        Ok(PreparedValidationRejection { reason, plan })
+    }
+
+    /// Commit a final direct-validation rejection only if the exact positive
+    /// dependency proof consumed by the validator remains current.
+    pub(super) fn plan_direct_validation_rejection(
+        &mut self,
+        rejection: DirectAdmissionRejection,
+    ) -> Result<PreparedValidationRejection<'_>, PlanError> {
+        let (subject, reason) = rejection.into_parts();
+        self.validate_direct_admission_subject(&subject)?;
+        let tx = subject.into_transaction();
+        let plan = self.plan_single_effect(
+            EffectPolicy::Trusted,
+            CommittedEffect::Rejected(CommittedRejection::Validation {
+                tx,
+                audience: RejectionAudience::default(),
+                reason: reason.clone(),
+            }),
+        )?;
+        Ok(PreparedValidationRejection { reason, plan })
+    }
+
+    pub(super) fn evaluate_direct_validation_rejection(
+        &self,
+        rejection: DirectAdmissionRejection,
+    ) -> Result<CommittedPublicReject, PlanError> {
+        let (subject, reason) = rejection.into_parts();
+        self.validate_direct_admission_subject(&subject)?;
+        Ok(reason)
+    }
+
+    fn validate_direct_admission_subject(
+        &self,
+        subject: &super::chain::DirectAdmissionSubject,
+    ) -> Result<(), PlanError> {
+        if subject.view() != &self.chain_view {
+            return Err(PlanError::Stale(StalePlan::ChainRevision));
+        }
+        if subject.accepted_source() != self.source_versions.accepted() {
+            return Err(PlanError::Stale(StalePlan::SourceVersion));
+        }
+        Ok(())
+    }
+
+    pub(super) fn direct_rejection_is_current(
+        &self,
+        validity: &DirectRejectionValidity,
+    ) -> Result<(), PlanError> {
+        self.validate_direct_rejection_validity(validity)
+    }
+
+    fn validate_direct_rejection_validity(
+        &self,
+        validity: &DirectRejectionValidity,
+    ) -> Result<(), PlanError> {
+        match validity {
+            DirectRejectionValidity::Stable => Ok(()),
+            DirectRejectionValidity::AcceptedCut { view, accepted } => {
+                if view != &self.chain_view {
+                    return Err(PlanError::Stale(StalePlan::ChainRevision));
+                }
+                if accepted != &self.source_versions.accepted() {
+                    return Err(PlanError::Stale(StalePlan::SourceVersion));
+                }
+                Ok(())
+            }
+        }
+    }
+
     fn validate_direct_acceptance_evidence(
         &self,
         receipt: &DirectAdmissionReceipt,
@@ -2920,7 +3082,7 @@ impl TxPoolAuthority {
         }
         if !self
             .dependencies
-            .proof_is_current(proof.payload().dependencies(), proof.dependency_cut())
+            .owner_free_proof_is_current(proof.payload().dependencies(), proof.dependency_cut())
         {
             return Err(PlanError::Stale(StalePlan::Dependency));
         }

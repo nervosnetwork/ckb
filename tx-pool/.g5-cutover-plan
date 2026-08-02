@@ -3,12 +3,13 @@
 Status: design frozen; isolated capability implementation in progress
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
-Active slice: G5.3b.2
-Next exact action: extract the owner-free direct resolve/verify capability from
-the existing tx-pool resolver and verifier, feed its immutable result through
-the shared direct-validation core, then compile Local through the existing
-membership Plan while TestAccept returns a read-only evaluation. Do not change
-a legacy production owner before G5.3c.
+G5.3b.2 checkpoint: pending stage freeze
+Active slice: G5.3b.3
+Next exact action: inventory every administrative producer and current
+`AdminDelta` consumer, then freeze one cause-complete total-owner batch plus
+distinct ClearPipeline/ClearPool Plans before implementation. Preserve the
+stale-capability rule, bounded expiry/maintenance slices, effect capacity, and
+post-guard retirement. Do not change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -653,7 +654,7 @@ Implement in dependency order, with focused UAK tests after each slice:
    compiler was already authority-owned and remains the one shared compiler;
    the legacy journal's different envelope formula stays isolated until its
    G5.3c deletion.
-2. [ ] Add production ingress and immutable TestAccept validation.
+2. [x] Add production ingress and immutable TestAccept validation.
 3. [ ] Generalize the total administrative owner batch, add cause-complete
    administrative planners, typed ClearPipeline/ClearPool plans, active-work
    invalidation, bounded Remote and Accepted expiry, and dependency maintenance.
@@ -772,6 +773,97 @@ G5.3b.2 entry-model correction:
   dispositions. The reported transaction-owner `ActiveWorkDrain` sites are a
   real stale-capability migration inventory; effect-log close remains the one
   deliberate producer-lifetime drain and must not be removed with them.
+- Owner-free direct resolve/verify is now shared by Local and TestAccept. It
+  captures one exact snapshot, one sparse Accepted overlay and its existing
+  Accepted source version, performs VM work outside the authority guard, and
+  returns only sealed validation evidence or a typed rejection. Strict and
+  permissive RBF resolution use one decision table; hostile edge overflow is a
+  bounded policy rejection, not an authority fault.
+- Dependency-frontier evidence was deliberately rejected for direct rejection
+  validity. Frontier levels are resident-consumer observations and can retire
+  when no owner exists; creating a synthetic direct observer would violate the
+  owner-free model. Direct resolver/verification rejection instead uses the
+  existing Accepted source version captured with its overlay. Stable structural
+  rejection is source-independent. A stale rejection commits no effect and is
+  recomputed.
+- Successful direct candidates do not depend on a global Accepted source cut:
+  the shared final membership evaluator rechecks every candidate input and
+  dependency against the current Accepted projection. Final validation also
+  renews the owner-free dependency observation cut from the same authority
+  capture. Apply checks that cut against both indexed dependency levels and the
+  unindexed definitive-loss watermark, so a loss published before the consumer
+  exists cannot create a surviving Accepted consumer. This preserves unrelated
+  independent-transaction concurrency without fabricating a synthetic direct
+  owner.
+- TestAccept now calls the same read-only membership evaluator as Local without
+  compiling a mutating Plan. Local alone compiles that evaluation into the
+  preallocated projection/resource/effect delta and one Apply. Exact regressions
+  cover read-only acceptance, every-owner duplicate observation, stale missing
+  rejection, stable rejection publication, identical RBF policy rejection, and
+  atomic replacement of a same-raw active Remote owner.
+- The optional verification-cache update is sealed inside the move-only
+  verified direct capability. It is released only by a successful Local
+  Accepted Apply; TestAccept, duplicate, rejection, retry and stale outcomes
+  consume it without cache publication. Cache identity remains the witness hash
+  plus exact `ScriptVerificationRules`.
+- Local versus TestAccept is now a transient closed `DirectCommand` capability,
+  fixed before non-contextual validation and carried through resolution,
+  verification, rejection and final validation. One exhaustive runtime
+  settlement performs either Local Apply/effect/cache semantics or TestAccept
+  read-only semantics. A caller cannot choose mutation after computation, and
+  the source introduces no resident state, lock, task, queue or resource owner.
+- Direct and retained ingress no longer accept caller-supplied consensus.
+  Non-contextual validation and resolution use the consensus cloned from the
+  exact snapshot paired with `AuthorityStore`; snapshot and consensus
+  provenance therefore cannot drift at the service boundary.
+- Focused G5.3b.2 evidence is 40/40 nextest green for ingress, resolver and
+  final validation after source sealing. The complete authority universe is
+  281/281 green and the complete `ckb-tx-pool --lib` universe is 556/556 green.
+  `cargo fmt --all -- --check`, `git diff --check`, and production-feature
+  `cargo clippy -p ckb-tx-pool --lib` complete successfully. Repository-wide
+  `--all-features` is not a valid Clippy configuration because the RocksDB
+  `portable` and `march_native` features are intentionally mutually exclusive.
+- The stage-level lock/resource review found two encoding defects before
+  checkpoint: direct final-validation allocated its origin bitset during the
+  first authority read cut, and resolver input deduplication used infallible
+  capacity allocation. Both now follow one rule: reserve with a typed failure
+  outside the guard, populate only preallocated storage under the guard, and
+  retain large query-vector destruction for after the guard opens. Allocation
+  pressure is `ResourceUnavailable`/`Allocation`, never a transaction-policy
+  lie or a process abort owned by this layer.
+- Direct work is owner-free but not allowed to become an unbounded production
+  resource population. The stage review rejected the dispatcher limit alone as
+  a proof: it bounds direct work in isolation but can overlap the complete
+  retained compute partition. G5.3b topology assembly must therefore issue one
+  shared transient compute-execution permit across retained workers, Local,
+  TestAccept and direct reorg replay, with the per-work byte/edge envelope and
+  total permit count derived by one checked formula. This permit owns execution
+  resources only, never transaction membership; no alternate entry point may
+  bypass it. The production topology is incomplete until a constructive test
+  saturates retained and direct work together without exceeding the configured
+  transient partition.
+- The whole-model G5.3b.2 review found no second membership authority, resident
+  state, queue, task, retry protocol, or mutation fallback. `DirectCommand` is
+  fixed before validation and consumed exhaustively at one settlement boundary;
+  only Local can construct Apply/effect/cache consequences. Direct evidence is
+  fenced by exact chain, Accepted-origin and dependency-loss evidence without
+  globally serializing unrelated Accepted changes.
+- Two review points remain. TestAccept membership evaluation holds a coherent
+  authority read cut during bounded RBF/graph policy work; changing that Plan
+  model requires profile evidence and stays in the post-cutover model gate.
+  Verification cache lookup still crosses one manually checked request-key
+  boundary shared with retained verification. Unlike the profiling question,
+  this known evidence-binding gap must converge to one key-bound cache receipt
+  during isolated topology assembly, before G5.3c can make the path production
+  reachable. The later manual-publication audit still checks the complete
+  source/receipt/effect surface. Neither issue justifies a second membership
+  authority.
+- The direct compute residency envelope is an intentional tx-pool resource
+  policy for hostile count/byte/edge shapes, not consensus validation. Topology
+  assembly must document the hardware/configuration bound and prove by
+  construction that retained plus owner-free work cannot exceed the shared
+  transient partition. Consensus-valid work rejected by this envelope remains
+  eligible for block validation outside tx-pool admission.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

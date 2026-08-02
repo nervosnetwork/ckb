@@ -1,15 +1,19 @@
 use super::foundation::{
-    accept_remote_transaction, admit_remote, direct_verified_facts_for_view, limits, owner_version,
-    resolved_payload_with_facts, verify_remote_transaction_with_payload,
+    accept_remote_transaction, admit_remote, apply_without_work, direct_verified_facts_for_view,
+    limits, owner_version, resolved_payload_with_facts, verify_remote_transaction_with_payload,
     verify_remote_transaction_with_payload_under,
 };
 use crate::authority::{
     chain::DirectAdmissionWork,
     plan::{
-        CandidateDispositionPlan, FinalAdmissionDispositionPlan, IndependentCandidate,
-        IndependentCoupling, SettlementBatch, SettlementPlan, TxPoolAuthority,
+        CandidateDispositionPlan, DirectAdmissionDisposition, FinalAdmissionDispositionPlan,
+        IndependentCandidate, IndependentCoupling, PlanError, SettlementBatch, SettlementPlan,
+        StalePlan, TxPoolAuthority,
     },
-    state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork},
+    state::{
+        AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork,
+        ValidatedAdmission,
+    },
     validation::{
         DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
         FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
@@ -24,7 +28,7 @@ use ckb_types::{
     U256,
     core::{Capacity, TransactionBuilder},
     packed::{Byte32, CellInput, CellOutput, OutPoint},
-    prelude::Pack,
+    prelude::{Builder, Entity, Pack},
 };
 use ckb_verification::cache::ScriptVerificationRules;
 use std::sync::Arc;
@@ -221,6 +225,123 @@ fn uak_direct_validation_returns_a_sealed_rejection_without_mutation() {
             )
     ));
     assert_eq!(authority.normalized_snapshot(), before);
+}
+
+#[test]
+fn uak_direct_validation_rejection_stales_with_its_accepted_source_cut() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let input = OutPoint::new(Byte32::new([64; 32]), 0);
+    let transaction = Arc::new(
+        TransactionBuilder::default()
+            .version(6_303u32)
+            .input(CellInput::new(input, 0))
+            .build(),
+    );
+    let verified = direct_verified_facts_for_view(
+        &transaction,
+        authority.chain_view().clone(),
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1),
+    );
+    let work = DirectAdmissionWork::new(
+        Arc::clone(&transaction),
+        authority.chain_view().clone(),
+        verified,
+    )
+    .expect("direct work binds the exact transaction identity");
+    let outcome =
+        DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
+            .expect("direct validation captures one coherent authority cut")
+            .validate()
+            .expect("missing chain provenance is a transaction outcome");
+    let DirectAdmissionValidationOutcome::Rejected(rejection) = outcome else {
+        panic!("the fixture must produce a sealed final-validation rejection")
+    };
+
+    accept_remote_transaction(
+        &mut authority,
+        TransactionBuilder::default().version(6_304u32).build(),
+        64,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    assert!(matches!(
+        authority.plan_direct_validation_rejection(rejection),
+        Err(PlanError::Stale(StalePlan::SourceVersion))
+    ));
+}
+
+#[test]
+fn uak_direct_final_validation_reissues_the_dependency_observation_cut() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let parent = TransactionBuilder::default()
+        .output(CellOutput::new_builder().build())
+        .build();
+    let parent_output = OutPoint::new(parent.hash(), 0);
+    let admission = ValidatedAdmission::remote(parent, PeerIndex::from(65))
+        .expect("the dependency-loss fixture is a valid retained admission");
+    let parent_key = admission.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(admission)
+            .expect("the parent acquires one retained owner"),
+    );
+    let parent_version = owner_version(&authority, &parent_key);
+    apply_without_work(
+        authority
+            .plan_terminalize_for_foundation(&parent_key, parent_version)
+            .expect("terminal parent removal publishes definitive dependency loss"),
+    );
+
+    let transaction = Arc::new(
+        TransactionBuilder::default()
+            .input(CellInput::new(parent_output.clone(), 0))
+            .build(),
+    );
+    let old_verified = direct_verified_facts_for_view(
+        &transaction,
+        authority.chain_view().clone(),
+        Vec::new(),
+        vec![parent_output],
+        Capacity::shannons(1),
+    );
+    assert!(matches!(
+        authority.plan_direct_admission_for_foundation(
+            Arc::clone(&transaction),
+            old_verified.clone(),
+            AcceptedStatus::Pending,
+        ),
+        Err(PlanError::Stale(StalePlan::Dependency))
+    ));
+
+    let work = DirectAdmissionWork::new(
+        Arc::clone(&transaction),
+        authority.chain_view().clone(),
+        old_verified,
+    )
+    .expect("direct work binds the exact transaction identity");
+    let outcome =
+        DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
+            .expect("final validation captures the post-loss authority cut")
+            .validate()
+            .expect("same-tip positive chain evidence remains valid");
+    let DirectAdmissionValidationOutcome::Candidate(receipt) = outcome else {
+        panic!("final validation must reissue a current candidate receipt")
+    };
+    assert_eq!(
+        receipt.proof().dependency_cut(),
+        authority.dependency_observation_cut()
+    );
+    let DirectAdmissionDisposition::Accepted(plan) = authority
+        .plan_direct_admission(receipt)
+        .expect("the refreshed cut is current at the membership boundary")
+    else {
+        panic!("the independent direct transaction must be accepted")
+    };
+    drop(plan);
 }
 
 #[test]

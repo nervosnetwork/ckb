@@ -593,6 +593,16 @@ impl ResolvedPayload {
         Self::from_resolved_parts(resolved, max_edges, fee, resolved_resident_bytes)
     }
 
+    pub(super) fn from_direct_resolution(
+        _seal: super::resolver::DirectResolutionSeal,
+        resolved: Arc<ResolvedTransaction>,
+        max_edges: usize,
+        fee: Capacity,
+        resolved_resident_bytes: usize,
+    ) -> Result<Self, InputEvidenceError> {
+        Self::from_resolved_parts(resolved, max_edges, fee, resolved_resident_bytes)
+    }
+
     #[cfg(test)]
     pub(super) fn for_foundation(
         tx: &TransactionView,
@@ -744,6 +754,17 @@ impl ResolvedPayload {
         payload: Arc<Self>,
         _seal: super::work::VerificationSeal,
     ) -> (Arc<Self>, usize) {
+        Self::compact_verified(payload)
+    }
+
+    pub(super) fn compact_after_direct_verification(
+        payload: Arc<Self>,
+        _seal: super::resolver::DirectVerificationSeal,
+    ) -> (Arc<Self>, usize) {
+        Self::compact_verified(payload)
+    }
+
+    fn compact_verified(payload: Arc<Self>) -> (Arc<Self>, usize) {
         let mut payload = match Arc::try_unwrap(payload) {
             Ok(payload) => payload,
             Err(shared) => (*shared).clone(),
@@ -944,6 +965,24 @@ impl VerifiedFacts {
         }
     }
 
+    pub(super) fn from_direct_verification(
+        _seal: super::resolver::DirectVerificationSeal,
+        dependency_cut: DependencyCut,
+        payload: Arc<ResolvedPayload>,
+        context: VerificationContextReceipt,
+        metrics: CandidateMetrics,
+    ) -> Self {
+        let rules = context.rules();
+        Self {
+            dependency_cut,
+            content: CellContentReceipt::from_resolution(payload),
+            context,
+            script: ScriptReceipt::from_verification(rules),
+            verify_class: VerifyCycleClass::Small,
+            metrics,
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn for_foundation(
         chain_revision: ChainRevision,
@@ -1023,6 +1062,20 @@ impl VerifiedFacts {
             return None;
         }
         Some(Self { context, ..self })
+    }
+
+    /// Rebind dependency observation only after the final validator has
+    /// rechecked every resolved cell against the authority cut that issued
+    /// `dependency_cut`. Script and cell-content evidence remain unchanged.
+    pub(super) fn with_validated_dependency_cut(
+        self,
+        _seal: super::validation::AdmissionValidationSeal,
+        dependency_cut: DependencyCut,
+    ) -> Self {
+        Self {
+            dependency_cut,
+            ..self
+        }
     }
 
     /// Rebind immutable content to freshly validated cell locations. Only the

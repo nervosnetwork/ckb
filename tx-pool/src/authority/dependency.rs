@@ -355,6 +355,22 @@ impl DependencyFrontier {
         })
     }
 
+    /// Validate evidence produced before the transaction owned a dependency
+    /// slot. A loss for an unregistered key is retained only in the global
+    /// unindexed level, so direct admission must check both that level and all
+    /// key-specific levels before it creates the first resident consumer.
+    pub(super) fn owner_free_proof_is_current(
+        &self,
+        dependencies: &KnownDependencies,
+        cut: DependencyCut,
+    ) -> bool {
+        self.proof_is_current(dependencies, cut)
+            && self
+                .unindexed
+                .last_definitive_loss
+                .is_none_or(|loss| loss <= cut)
+    }
+
     pub(super) fn resolution_is_current(
         &self,
         baseline: &KnownDependencies,

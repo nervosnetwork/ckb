@@ -1,6 +1,6 @@
 use super::{
     AcceptedOrderKey, AggregateDelta, AncestorAggregate, ComponentLimitKind, DescendantAggregate,
-    EvictionOrderKey, EvictionPlan, MembershipReject, RemovalCause, SelectedRemoval,
+    EvictionOrderKey, MembershipEvaluation, MembershipReject, RemovalCause, SelectedRemoval,
 };
 use crate::authority::{
     plan::{AuthorityFault, Backpressure, PlanError, TxPoolAuthority},
@@ -14,7 +14,7 @@ pub(super) fn complete_removals(
     candidate_hash: &RawTxHash,
     candidate: &AcceptedEntry,
     mandatory: Vec<RawTxHash>,
-) -> Result<EvictionPlan, PlanError> {
+) -> Result<MembershipEvaluation, PlanError> {
     let candidate_fee_rate =
         EvictionOrderKey::new(candidate, DescendantAggregate::one(candidate)).fee_rate;
     let mut removed = HashSet::new();
@@ -116,7 +116,7 @@ pub(super) fn complete_removals(
             .try_reserve(1)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         eviction_insertions.push(EvictionOrderKey::new(candidate, candidate_aggregate));
-        return Ok(EvictionPlan {
+        return Ok(MembershipEvaluation {
             removals,
             candidate_parents,
             candidate_children,
@@ -219,7 +219,7 @@ pub(super) fn complete_removals(
 
     let aggregate = virtual_projection.finish(authority, candidate_hash, &removals)?;
     candidate_children.retain(|child| !removed.contains(child));
-    Ok(EvictionPlan {
+    Ok(MembershipEvaluation {
         removals,
         candidate_parents,
         candidate_children,

@@ -8,7 +8,7 @@
 
 use super::{
     plan::PlanError,
-    rejection::CommittedPublicReject,
+    rejection::{CommittedPublicReject, DirectTransactionRejection},
     runtime::AuthorityRuntime,
     state::{
         AdmissionValidationError, PreAcceptedSource, ProposalBase, RemoteBase, RemoteDeadline,
@@ -35,6 +35,30 @@ pub(super) struct RetainedIngressSeal(());
 pub(super) struct RetainedIngress {
     kind: RetainedIngressKind,
     admission: ValidatedAdmission,
+}
+
+/// Non-contextually validated direct transaction. Local and TestAccept may
+/// share the later owner-free computation, but only this ingress module can
+/// construct the capability from caller-controlled bytes.
+#[derive(Debug)]
+pub(super) struct DirectTransaction {
+    tx: Arc<TransactionView>,
+    command: DirectCommand,
+}
+
+impl DirectTransaction {
+    pub(super) fn into_parts(self) -> (Arc<TransactionView>, DirectCommand) {
+        (self.tx, self.command)
+    }
+}
+
+/// Closed synchronous command semantics carried by owner-free validation.
+/// It is not resident pool state: it only prevents a later caller from
+/// choosing mutation after computation has already started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DirectCommand {
+    Local,
+    TestAccept,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +189,20 @@ pub(super) fn proposal(
     .map_err(RetainedIngressError::Admission)
 }
 
+/// Validate and compact a synchronous Local/TestAccept transaction before it
+/// can enter owner-free resolution. Rejection retains the exact transaction
+/// for Local publication without creating an authority owner.
+pub(super) fn direct(
+    tx: &TransactionView,
+    consensus: &Consensus,
+    command: DirectCommand,
+) -> Result<DirectTransaction, DirectTransactionRejection> {
+    let tx = Arc::new(tx.clone().into_compact());
+    non_contextual_verify(consensus, &tx)
+        .map_err(|reason| DirectTransactionRejection::stable(Arc::clone(&tx), command, reason))?;
+    Ok(DirectTransaction { tx, command })
+}
+
 fn validate_non_contextual(
     tx: &Arc<TransactionView>,
     kind: RetainedIngressKind,
@@ -187,9 +225,9 @@ impl AuthorityRuntime {
         tx: TransactionView,
         declared_cycles: Cycle,
         peer: PeerIndex,
-        consensus: &Consensus,
     ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
-        match remote(tx, declared_cycles, peer, consensus) {
+        let consensus = self.paired_consensus();
+        match remote(tx, declared_cycles, peer, &consensus) {
             Ok(ingress) => self
                 .commit_retained_ingress(ingress)
                 .map_err(RetainedIngressBoundaryError::Plan),
@@ -205,9 +243,9 @@ impl AuthorityRuntime {
     pub(super) fn submit_proposal_ingress(
         &self,
         tx: TransactionView,
-        consensus: &Consensus,
     ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
-        match proposal(tx, consensus) {
+        let consensus = self.paired_consensus();
+        match proposal(tx, &consensus) {
             Ok(ingress) => self
                 .commit_retained_ingress(ingress)
                 .map_err(RetainedIngressBoundaryError::Plan),
