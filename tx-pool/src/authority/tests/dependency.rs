@@ -215,31 +215,7 @@ fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
         Arc::clone(&snapshot),
     )
     .expect("the authority runtime fixture is valid");
-    let hash = runtime.with_authority_for_foundation(|authority| {
-        let dependency = OutPoint::new(Byte32::new([0x9a; 32]), 0);
-        let key = DependencyKey::Cell(dependency.clone());
-        let hash = admit(
-            authority,
-            ValidatedAdmission::remote(input_transaction(699, dependency), PeerIndex::from(89))
-                .expect("runtime dependency admission is valid"),
-        );
-        let work = checkout_resolve(authority, &hash);
-        apply_without_work(
-            authority
-                .apply_settlement(
-                    work.missing(vec![key.clone()])
-                        .expect("the missing edge fits the compute grant"),
-                )
-                .expect("the missing owner enters dependency wait"),
-        );
-        apply_without_work(
-            authority
-                .plan_dependency_availability_for_foundation(vec![key.clone()])
-                .expect("availability event planning is valid")
-                .expect("the live waiter creates one dirty level"),
-        );
-        hash
-    });
+    let hash = seed_runtime_dependency_maintenance(&runtime);
 
     assert_eq!(
         runtime
@@ -273,6 +249,34 @@ fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
         );
         assert!(authority.primary_projection_consistent());
     });
+}
+
+pub(super) fn seed_runtime_dependency_maintenance(runtime: &AuthorityRuntime) -> RawTxHash {
+    runtime.with_authority_for_foundation(|authority| {
+        let dependency = OutPoint::new(Byte32::new([0x9a; 32]), 0);
+        let key = DependencyKey::Cell(dependency.clone());
+        let hash = admit(
+            authority,
+            ValidatedAdmission::remote(input_transaction(699, dependency), PeerIndex::from(89))
+                .expect("runtime dependency admission is valid"),
+        );
+        let work = checkout_resolve(authority, &hash);
+        apply_without_work(
+            authority
+                .apply_settlement(
+                    work.missing(vec![key.clone()])
+                        .expect("the missing edge fits the compute grant"),
+                )
+                .expect("the missing owner enters dependency wait"),
+        );
+        apply_without_work(
+            authority
+                .plan_dependency_availability_for_foundation(vec![key.clone()])
+                .expect("availability event planning is valid")
+                .expect("the live waiter creates one dirty level"),
+        );
+        hash
+    })
 }
 
 #[test]

@@ -167,20 +167,24 @@
         "tx-pool/src/service/stages/runner.rs",
         "tx-pool/src/authority/state.rs",
         "tx-pool/src/authority/work.rs",
-        "tx-pool/src/authority/plan.rs"
+        "tx-pool/src/authority/plan.rs",
+        "tx-pool/src/authority/runtime.rs",
+        "tx-pool/src/authority/worker.rs"
       ],
-      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart. A successful Resolve or Verify completion may check out only the next same-lane lease inside the same kernel mutation; VerifyLease carries both the checkout capability and the exact remote declared-cycle or trusted payload policy, so completion cannot widen either. Every negative verification result is bound to both the checked-out chain view and payload policy. Apply compares that validity domain with the current owner: an unchanged policy terminalizes, while a racing same-witness trusted promotion retains the resolved payload and requeues Verify. The applied-completion type keeps a later checkout fault distinct from completion failure, and pause, cancellation or command loss completes at most that already-owned continuation without checking out another.",
-      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; a same-witness Proposal racing either a remote cycle-ceiling verification failure or a declared-cycle mismatch must not publish stale blame or lose its trusted payload; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work, drop an already checked-out continuation nor create a respawn loop.",
+      "required_behavior": "Readiness is derived after each transition from the authoritative capability-aware checkout predicate; internal job computation returns a typed settlement and re-arms retained work, while loss of worker/command authority requests controlled service shutdown rather than panic recovery or model restart. A successful Resolve or Verify completion may check out only the next same-lane lease inside the same kernel mutation; VerifyLease carries both the checkout capability and the exact remote declared-cycle or trusted payload policy, so completion cannot widen either. Every negative verification result is bound to both the checked-out chain view and payload policy. Apply compares that validity domain with the current owner: an unchanged policy terminalizes, while a racing same-witness trusted promotion retains the resolved payload and requeues Verify. The applied-completion type keeps a later checkout fault distinct from completion failure, and pause, cancellation or command loss completes at most that already-owned continuation without checking out another. The UAK shares one checked N+1 transient compute gate across retained and synchronous direct work; a permit is acquired before any checkout/capture and remains linear through settlement or staleness. Remote expiry, one Accepted expiry closure and dependency maintenance run as three bounded authority levels in every fair round; the driver owns no queue/cursor and suspends when all levels are idle.",
+      "hostile_case": "A capped peer backlog must not self-wake into mutex-starving livelock; a small-only worker must not consume the only wake for large work; a same-witness Proposal racing either a remote cycle-ceiling verification failure or a declared-cycle mismatch must not publish stale blame or lose its trusted payload; cancellation, zero workers, a consumed Notify around a typed job failure or a permanently closed command channel must neither strand executable work, drop an already checked-out continuation nor create a respawn loop. A direct flood mixed with retained verification must not exceed the configured transient partition or leave a checked-out capability waiting behind the gate. Continuous Remote expiry, Accepted expiry or dependency work must not starve either sibling lane, and an idle maintenance driver must not poll the authority.",
       "reviewer_questions": [
         "Does notification mean at least one worker of this capability can execute now?",
         "Can a consumed wake be reconstructed from authoritative state after subscribe or a typed job failure?",
         "Does any internal worker use panic plus catch_unwind as control flow instead of a typed result?",
         "Can a completion continuation cross a stage/lane, hide whether Apply succeeded, or bypass the capability-aware fair queue?",
         "Does a Verify lease seal its exact payload policy, and can Apply distinguish a current peer claim from one superseded by a trusted promotion?",
-        "Does pause, cancellation or command loss finish at most the already checked-out continuation and prevent another checkout?"
+        "Does pause, cancellation or command loss finish at most the already checked-out continuation and prevent another checkout?",
+        "Does every retained and direct compute path acquire the same checked transient permit before checkout or capture and retain it through settlement?",
+        "Does maintenance read all three bounded levels per round and wait on a level hint or wall-clock tick without owning a second work list?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses|uak_stale_dependency_head|uak_stale_remote_cycle_rejection|uak_remote_verify_failure)/)'",
-      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; successful completion reuses one kernel acquisition for a same-lane checkout; worker count is configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(owner_fairness_and_active_caps|expiry_batch_is_bounded|worker_|zero_verify_worker|stage_completion_checks_out_same_lane|checked_out_continuation|verify_continuation_uses|uak_stale_dependency_head|uak_stale_remote_cycle_rejection|uak_remote_verify_failure|runtime_shared_compute_gate|uak_maintenance_driver|uak_idle_maintenance)/)'",
+      "performance_bound": "Readiness checks inspect bounded owner heads/caps only; successful completion reuses one kernel acquisition for a same-lane checkout; worker count and transient compute are configuration-bounded; no restart generation, polling loop, per-item task or queue-wide scan. Each maintenance critical section is one configured Remote slice, one bounded Accepted closure or one dependency edge/marker, with one cooperative yield after a complete fair round."
     },
     {
       "id": "TP-ADMIN-001",
@@ -401,16 +405,19 @@
       "change_surfaces": [
         "tx-pool/src/process/submit/mod.rs",
         "tx-pool/src/component/pre_pool/mod.rs",
-        "tx-pool/src/component/pool_map.rs"
+        "tx-pool/src/component/pool_map.rs",
+        "tx-pool/src/authority/resolver.rs",
+        "tx-pool/src/authority/runtime.rs"
       ],
-      "required_behavior": "Ownership and duplicate boundaries use full raw hashes, proposal short IDs remain non-authoritative indexes, and verification-cache proofs are keyed only by the exact witness hash through TxVerificationCacheKey.",
-      "hostile_case": "Short-ID collisions or same-raw/different-witness variants must not alias accepted/cache/history ownership, obtain a false duplicate success or reuse an invalid verification proof during reorg.",
+      "required_behavior": "Ownership and duplicate boundaries use full raw hashes, proposal short IDs remain non-authoritative indexes, and verification-cache proofs are keyed only by the exact witness hash plus ScriptVerificationRules through TxVerificationCacheKey. A prepared tx-pool verification request must bind its own exact cache lookup before execution; callers cannot provide a separately sampled nearby Completed value.",
+      "hostile_case": "Short-ID collisions or same-raw/different-witness variants must not alias accepted/cache/history ownership, obtain a false duplicate success or reuse an invalid verification proof during normal admission or reorg. A cached result for request A must not be pairable with request B even when their surrounding snapshot and policy are identical.",
       "reviewer_questions": [
         "Is a short ID used only where collision-aware lookup semantics are explicit?",
         "Can any cache call construct a key from raw hash or arbitrary bytes?",
-        "Does reorg recovery query the exact transaction witness variant?"
+        "Does reorg recovery query the exact transaction witness variant?",
+        "Can only a cache-bound request execute, making the request identity and lookup result constructive evidence rather than a call-site convention?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(short_id_collision|full_hash_lookup|proposal_witness_variant|trusted_conflict_resubmission|verification_cache_isolated|reorg_recovery_reads_cache)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --lib -E 'test(/(short_id_collision|full_hash_lookup|proposal_witness_variant|trusted_conflict_resubmission|verification_cache_isolated|reorg_recovery_reads_cache|uak_verification_cache_lookup)/)'",
       "performance_bound": "Use compact full hashes/typed cache keys without retaining packed backing; collision handling remains indexed and bounded."
     },
     {
@@ -718,6 +725,11 @@
     {"test": "trusted_conflict_resubmission_refreshes_the_exact_witness_owner", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6"]},
     {"test": "uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T9"]},
     {"test": "uak_runtime_chain_boundary_preserves_block_order_for_short_id_collisions", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T9"]},
+    {"test": "uak_verification_cache_lookup_cannot_substitute_a_nearby_request", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T7", "T11"]},
+
+    {"test": "runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_idle_maintenance_driver_waits_instead_of_spinning", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_maintenance_driver_fairly_drains_every_preexisting_level", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},

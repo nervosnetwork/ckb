@@ -8,11 +8,14 @@ G5.3b.3 checkpoint: 71b629676
 G5.3b.4 checkpoint: 1641bdfa3
 G5.3b.5 checkpoint: bfa1ddced
 G5.3b.6 checkpoint: c11055968
+G5.3b.7 slices 1-2 checkpoint: f812aaf95
 Active slice: G5.3b.7
-Next exact action: add the bounded level-triggered maintenance driver and its
-fairness/cancellation/no-idle-spin tests. Continue through the isolated block-
-assembler and lifecycle topology constructors without switching the production
-builder. Do not dual-write or change a legacy production owner before G5.3c.
+Next exact action: add the production-shaped block-assembler adapter and
+convergence driver without starting it. Preserve concurrent full/reset build,
+short publication ordering, full priority, reset fencing and optimistic
+partial/uncle publication. Continue through the isolated lifecycle topology
+constructor without switching the production builder. Do not dual-write or
+change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -1338,7 +1341,7 @@ G5.3b.7 implementation slices and gates:
    executors through it. Constructively saturate it with mixed retained and
    direct work; prove the next execution cannot start until one exact permit is
    released and that no checkout capability waits behind the gate.
-3. [ ] Add the bounded level-triggered maintenance driver and cancellation
+3. [x] Add the bounded level-triggered maintenance driver and cancellation
    tests, including Remote/Accepted/dependency fairness and no idle hot loop.
 4. [ ] Add the production-shaped block-assembler adapter and convergence driver
    without starting it. Regress full/reset priority, partial OCC, uncle source
@@ -1409,6 +1412,36 @@ G5.3b.7 slices 1-2 review:
   dead-code until production cutover; they are explicitly deferred to the
   post-cutover G5/G6 Rust gate so this slice does not add speculative `Box`
   allocation to hot capability paths before migration code is deleted.
+
+G5.3b.7 slice 3 review:
+
+- One maintenance task drains the authoritative Remote-expiry,
+  Accepted-expiry and dependency levels in a fixed fair round. It owns only a
+  wall-clock timer and coalesced mutation hint; it introduces no queue, cursor,
+  retry ledger, population mirror or membership fact.
+- Each round executes all three existing bounded Plan/Apply operations before
+  yielding. A continuously productive lane therefore cannot starve either
+  sibling. Allocation pressure receives the existing one-millisecond bounded
+  retry, while effect-capacity pressure sleeps until publication changes the
+  authority; neither condition becomes a structural fault.
+- The driver subscribes before reading the levels, so a wake racing an idle cut
+  is retained. With no work it suspends until an authority mutation, the
+  one-second wall-clock expiry tick or cancellation. A regression observes one
+  initial round and proves no idle polling before the first tick.
+- Cancellation is checked before every round and in every suspension. No guard
+  crosses an await and every critical section remains the bounded authority
+  transition already owned by its level. Resolver, verifier, Ready and block
+  template construction remain separate concurrent tasks.
+- A constructive three-lane regression starts with due Remote work, an
+  Accepted parent/child expiry closure and one dirty dependency key. All three
+  converge under one driver while the primary projection remains consistent.
+- Focused maintenance, worker-settlement and lifecycle tests pass 4/4. The
+  complete authority selector passes 312/312 (589 total library tests, 276
+  intentionally excluded), and the generated review guide, 589-name inventory,
+  documentation, test-layout and security-manifest validators are green.
+  `cargo fmt --all -- --check` and `git diff --check` are green. The four new
+  exact regressions are registered under the identity and worker behavior
+  owners rather than existing as unowned test fixtures.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

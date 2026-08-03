@@ -21,10 +21,13 @@ use ckb_async_runtime::Handle;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{future::pending, ops::ControlFlow, sync::Arc, time::Duration};
 use tokio::sync::{Notify, RwLock, mpsc, watch};
 
 const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(1);
+const MAINTENANCE_EXPIRY_TICK: Duration = Duration::from_secs(1);
 
 /// Background tasks owned by one authority generation. Their `Result` is
 /// intentionally retained so supervision can distinguish clean cancellation
@@ -33,6 +36,7 @@ pub(crate) struct AuthorityWorkerHandles {
     pub(crate) resolver: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
     pub(crate) verifiers: Vec<tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>>,
     pub(crate) ready: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
+    pub(crate) maintenance: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
 }
 
 #[derive(Debug)]
@@ -141,10 +145,15 @@ impl AuthorityRuntime {
         let runtime = self.clone();
         let ready_cancel = cancel.child_token();
         let ready = handle.spawn(async move { run_ready_driver(runtime, ready_cancel).await });
+        let runtime = self.clone();
+        let maintenance_cancel = cancel.child_token();
+        let maintenance =
+            handle.spawn(async move { run_maintenance_driver(runtime, maintenance_cancel).await });
         Ok(AuthorityWorkerHandles {
             resolver,
             verifiers,
             ready,
+            maintenance,
         })
     }
 }
@@ -430,6 +439,106 @@ async fn run_ready_driver(
             _ = notified => {}
             _ = retry_delay => {}
         }
+    }
+}
+
+/// Drain the three authoritative maintenance levels in bounded fair rounds.
+/// The driver owns no queue, cursor or population mirror: every round asks the
+/// authority for at most one configured Remote slice, one Accepted root and
+/// one dependency edge/marker. A wake is only a hint and is subscribed before
+/// the level reads; the timer exists solely because wall-clock expiry can
+/// become due without an authority mutation.
+pub(in crate::authority) async fn run_maintenance_driver(
+    runtime: AuthorityRuntime,
+    cancel: CancellationToken,
+) -> Result<(), AuthorityWorkerFault> {
+    run_maintenance_driver_loop(runtime, cancel, || {}).await
+}
+
+#[cfg(test)]
+pub(in crate::authority) async fn run_maintenance_driver_for_foundation(
+    runtime: AuthorityRuntime,
+    cancel: CancellationToken,
+    rounds: Arc<AtomicUsize>,
+) -> Result<(), AuthorityWorkerFault> {
+    run_maintenance_driver_loop(runtime, cancel, move || {
+        rounds.fetch_add(1, AtomicOrdering::Relaxed);
+    })
+    .await
+}
+
+async fn run_maintenance_driver_loop(
+    runtime: AuthorityRuntime,
+    cancel: CancellationToken,
+    mut observe_round: impl FnMut(),
+) -> Result<(), AuthorityWorkerFault> {
+    let start = tokio::time::Instant::now() + MAINTENANCE_EXPIRY_TICK;
+    let mut expiry = tokio::time::interval_at(start, MAINTENANCE_EXPIRY_TICK);
+    expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        if cancel.is_cancelled() {
+            return Ok(());
+        }
+
+        // Subscribe before reading every level. A mutation between the last
+        // Idle result and suspension is therefore observed, while coalescing
+        // repeated hints cannot lose authoritative work.
+        let signal = runtime.mutation_signal();
+        let notified = signal.notified();
+        observe_round();
+        let step = run_maintenance_round(&runtime)?;
+        match step {
+            WorkerStep::Progress => {
+                tokio::task::yield_now().await;
+            }
+            WorkerStep::Wait => {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = notified => {}
+                    _ = expiry.tick() => {}
+                }
+            }
+            WorkerStep::Backoff => {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = notified => {}
+                    _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
+                }
+            }
+        }
+    }
+}
+
+fn run_maintenance_round(runtime: &AuthorityRuntime) -> Result<WorkerStep, AuthorityWorkerFault> {
+    let remote = classify_maintenance_result(runtime.expire_remote_due())?;
+    let accepted = classify_maintenance_result(runtime.expire_accepted_due())?;
+    let dependency = classify_maintenance_result(runtime.maintain_dependency())?;
+    Ok(merge_maintenance_steps(
+        merge_maintenance_steps(remote, accepted),
+        dependency,
+    ))
+}
+
+fn classify_maintenance_result(
+    result: Result<super::runtime::AuthorityMaintenanceOutcome, PlanError>,
+) -> Result<WorkerStep, AuthorityWorkerFault> {
+    match result {
+        Ok(super::runtime::AuthorityMaintenanceOutcome::Applied { .. }) => Ok(WorkerStep::Progress),
+        Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::Wait),
+        Err(PlanError::Backpressure(Backpressure::Allocation)) => Ok(WorkerStep::Backoff),
+        Err(PlanError::Backpressure(_)) => Ok(WorkerStep::Wait),
+        Err(error) => Err(AuthorityWorkerFault::runtime(AuthorityRuntimeError::Plan(
+            error,
+        ))),
+    }
+}
+
+fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
+    match (left, right) {
+        (WorkerStep::Progress, _) | (_, WorkerStep::Progress) => WorkerStep::Progress,
+        (WorkerStep::Backoff, _) | (_, WorkerStep::Backoff) => WorkerStep::Backoff,
+        (WorkerStep::Wait, WorkerStep::Wait) => WorkerStep::Wait,
     }
 }
 

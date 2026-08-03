@@ -611,7 +611,7 @@ fn accept_remote_transaction_with_payload_at(
     hash
 }
 
-fn accepted_parent_child_at(
+pub(super) fn accepted_parent_child_at(
     authority: &mut TxPoolAuthority,
     nonce: u8,
     parent_at: AcceptedAtMillis,

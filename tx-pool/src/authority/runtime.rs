@@ -2923,6 +2923,11 @@ mod tests {
             .await
             .expect("Ready driver task remains healthy")
             .expect("Ready driver exits without a structural fault");
+        handles
+            .maintenance
+            .await
+            .expect("maintenance task remains healthy")
+            .expect("maintenance exits without a structural fault");
         assert_eq!(
             runtime
                 .store
@@ -3031,6 +3036,11 @@ mod tests {
             .await
             .expect("Ready driver task remains healthy")
             .expect("Ready driver exits without a structural fault");
+        handles
+            .maintenance
+            .await
+            .expect("maintenance task remains healthy")
+            .expect("maintenance exits without a structural fault");
     }
 
     #[tokio::test]
