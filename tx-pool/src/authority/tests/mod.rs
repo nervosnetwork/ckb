@@ -4,6 +4,7 @@ mod dependency;
 mod effect;
 mod foundation;
 mod ingress;
+mod packing;
 mod publisher;
 mod query;
 mod read;

@@ -912,10 +912,31 @@ Template state has two forms:
 - coalesced uncle/proposal/transaction dirty generations applied concurrently
   and optimistically through version checks.
 
+Construction begins with one `AuthorityTemplateReadReceipt` captured under the
+accepted authority guard. It owns immutable resolved payload handles, exact
+ancestor aggregates and deterministic order facts from that same cut. After
+the guard opens, the pure packer builds a short-lived index overlay and applies
+the established policy: exact serialized-byte/cycle limits, ancestor-inclusive
+CPFP score, dynamic descendant re-scoring, parent-first selection, the 4,000
+consecutive non-fitting-package bound, and the shared bounded conditional
+reader-before-spender/SCC kernel. The overlay is never written back and is not
+a second membership or dependency graph. The result retains only selected,
+block-bounded payload handles and recomputes exact totals after cycle shedding.
+
+Candidate uncles remain a separate bounded template input, not transaction
+ownership. Preparation returns selected candidates, a sealed stale-prune
+capability and an opaque source receipt as one move-only result from one
+candidate snapshot. Accepted
+insertions advance this semantic source. Applying stale pruning does not: the
+paired chain cut already proves those candidates absent from the constructed
+template, and a future chain change advances the independent chain source.
+Joining this receipt with pool source versions in `TemplateSourceCut` is the
+only candidate/pool coupling; callers cannot manufacture an uncle version.
+
 ```mermaid
 flowchart TB
     ResetEvent["Chain/admin Reset<br/>generation-tagged snapshot"] --> ResetBuild["Build reset template<br/>without publication guard"]
-    FullEvent["High-priority full reconcile"] --> FullBuild["Build full template<br/>from TxPool + candidate-uncle authority"]
+    FullEvent["High-priority full reconcile"] --> FullBuild["Build full template<br/>from UAK read receipt + candidate-uncle receipt"]
 
     UncleDirty["Uncle dirty generation"] --> UncleBuild["Build uncle delta<br/>and refresh proposals"]
     ProposalDirty["Proposal dirty generation"] --> ProposalBuild["Build proposal delta"]
@@ -1149,7 +1170,7 @@ another mechanism, closes it.
 | R4 | Accept | Explicit pool persistence is neither a crash-durable WAL nor a cancellable filesystem transaction; shutdown I/O may delay exit. | Keep I/O outside transaction authority. Add timeout/metrics only for an evidenced shutdown SLO; do not move I/O under authority locks. |
 | R5 | Accept | OOM, allocator abort and process corruption are outside in-process recovery. | Process supervision and restart own this boundary. |
 | R6 | Mitigate | The public controller retains its compatible `Vec<TransactionView>` input, but the dispatcher message accepts only `NotifyTxBatch`, proven against the relayer's shared count and serialized-byte limits before channel admission. Caller-side allocation occurs outside tx-pool ownership. | Keep the protocol constants centralized in `ckb-constant` and the validated newtype as the sole message payload; never reconstruct a raw batch behind the controller boundary. |
-| R7 | Improve with evidence | `TxSelector` stops after 4,000 consecutive non-fitting packages, bounding CPU while permitting bounded template underfill. | Change only through a resumable cursor or fit-aware index with packing-quality and CPU/RSS A/B evidence; removing the cap is invalid. |
+| R7 | Improve with evidence | The pure template packer stops after 4,000 consecutive non-fitting packages, bounding CPU while permitting bounded template underfill. | Change only through a resumable cursor or fit-aware index with packing-quality and CPU/RSS A/B evidence; removing the cap is invalid. |
 | R8 | Mitigate | Static low-cardinality metrics project kernel residency, terminal rejection classes, service-failure boundaries and effect-region usage from already-maintained counters. Exporter availability, alert thresholds and operator response remain deployment concerns. | Keep metric publication outside authority locks and outside all state/control decisions. Add no metric-owned cache, scan, dynamic label or retry path; validate alert policy in deployment configuration. |
 | R9 | Accept for compatibility | A legacy or hand-authored v1 persistence file may order a child before an expanded dep-group parent and lose that local mempool child during serial replay. | A future fix must be a versioned batch-resolve/retry loader, not another raw ordering heuristic. Chain state is unaffected. |
 | R10 | Accept | Raw `Wait(Conflict)` cannot know expanded dep-group, header context or maturity until re-resolution. | Accepted/verified victims retain exact expanded edges. Do not retain another verified owner or contextual wake protocol without a concrete liveness counterexample. |

@@ -16,8 +16,9 @@ use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 use crate::service::{BlockAssemblerResetJournal, PendingBlockAssemblerReset};
 use crate::util::block_offload;
+pub(crate) use candidate_uncles::CandidateUncleSourceReceipt;
 pub use candidate_uncles::CandidateUncles;
-use candidate_uncles::PreparedUncles;
+use candidate_uncles::{CandidateUnclePrune, PreparedUncles};
 use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_error::{AnyError, InternalErrorKind};
@@ -58,7 +59,7 @@ pub(crate) use state::{CurrentTemplate, ResetEpoch, TemplateRevision, TemplateSi
 /// the plan and becomes visible only if the matching reset token is applied.
 pub(crate) struct PreparedResetTemplate {
     template: CurrentTemplate,
-    stale_uncles: Vec<UncleBlockView>,
+    stale_uncles: CandidateUnclePrune,
 }
 
 /// Block generator
@@ -207,7 +208,7 @@ impl BlockAssembler {
         let expected_reset_epoch = current.reset_epoch;
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
-        let (prepared_uncles, stale_uncles) = self
+        let (prepared_uncles, stale_uncles, _source) = self
             .prepare_uncles(&current.snapshot, &current.epoch)
             .into_parts();
 
@@ -311,7 +312,7 @@ impl BlockAssembler {
         );
 
         let swapped = self
-            .try_publish_full(new_current, expected_reset_epoch, stale_uncles)
+            .try_publish_full(new_current, expected_reset_epoch, Some(stale_uncles))
             .await?;
 
         Ok(swapped)
@@ -323,19 +324,20 @@ impl BlockAssembler {
         &self,
         mut new_current: CurrentTemplate,
         expected_revision: TemplateRevision,
-        stale_uncles: Vec<UncleBlockView>,
+        stale_uncles: Option<CandidateUnclePrune>,
     ) -> Result<bool, BlockAssemblerError> {
         let mut guard = self.current.write().await;
         if guard.revision != expected_revision {
             return Ok(false);
         }
-        if !stale_uncles.is_empty() {
-            self.candidate_uncles.lock().prune(stale_uncles);
-        }
-        new_current.revision = guard
+        let next_revision = guard
             .revision
             .next()
             .ok_or(BlockAssemblerError::CounterExhausted("template revision"))?;
+        if let Some(stale_uncles) = stale_uncles {
+            self.candidate_uncles.lock().prune(stale_uncles);
+        }
+        new_current.revision = next_revision;
         new_current.reset_epoch = guard.reset_epoch;
         *guard = Arc::new(new_current);
         Ok(true)
@@ -348,19 +350,20 @@ impl BlockAssembler {
         &self,
         mut new_current: CurrentTemplate,
         expected_reset_epoch: ResetEpoch,
-        stale_uncles: Vec<UncleBlockView>,
+        stale_uncles: Option<CandidateUnclePrune>,
     ) -> Result<bool, BlockAssemblerError> {
         let mut guard = self.current.write().await;
         if guard.reset_epoch != expected_reset_epoch {
             return Ok(false);
         }
-        if !stale_uncles.is_empty() {
-            self.candidate_uncles.lock().prune(stale_uncles);
-        }
-        new_current.revision = guard
+        let next_revision = guard
             .revision
             .next()
             .ok_or(BlockAssemblerError::CounterExhausted("template revision"))?;
+        if let Some(stale_uncles) = stale_uncles {
+            self.candidate_uncles.lock().prune(stale_uncles);
+        }
+        new_current.revision = next_revision;
         new_current.reset_epoch = guard.reset_epoch;
         *guard = Arc::new(new_current);
         Ok(true)
@@ -378,7 +381,8 @@ impl BlockAssembler {
             .ok_or(BlockAssemblerError::MissingTipEpoch)?
             .epoch();
 
-        let (uncles, stale_uncles) = self.prepare_uncles(&snapshot, &current_epoch).into_parts();
+        let (uncles, stale_uncles, _source) =
+            self.prepare_uncles(&snapshot, &current_epoch).into_parts();
         let new_blank = Self::build_base_template(
             &self.config,
             &self.work_id,
@@ -437,7 +441,7 @@ impl BlockAssembler {
         &self,
         current: Arc<CurrentTemplate>,
         revision: TemplateRevision,
-        stale_uncles: Vec<UncleBlockView>,
+        stale_uncles: Option<CandidateUnclePrune>,
         label: &'static str,
         update: TemplateContentUpdate,
         size: TemplateSize,
@@ -483,7 +487,7 @@ impl BlockAssembler {
             return Ok(true);
         }
 
-        let (prepared, stale_uncles) = self
+        let (prepared, stale_uncles, _source) = self
             .prepare_uncles(&current.snapshot, &current.epoch)
             .into_parts();
         let proposals: HashSet<ProposalShortId> =
@@ -521,7 +525,7 @@ impl BlockAssembler {
         self.apply_partial_update(
             current,
             revision,
-            stale_uncles,
+            Some(stale_uncles),
             "update_uncles",
             TemplateContentUpdate::Uncles { uncles },
             size,
@@ -577,7 +581,7 @@ impl BlockAssembler {
         self.apply_partial_update(
             current,
             revision,
-            Vec::new(),
+            None,
             "update_proposals",
             TemplateContentUpdate::Proposals { uncles, proposals },
             size,
@@ -693,7 +697,7 @@ impl BlockAssembler {
                 self.apply_partial_update(
                     current,
                     revision,
-                    Vec::new(),
+                    None,
                     "update_transactions",
                     TemplateContentUpdate::Transactions {
                         transactions: checked_txs,

@@ -43,7 +43,7 @@ use ckb_types::{
     U256,
     bytes::Bytes,
     core::{
-        Capacity, EpochNumberWithFraction, FeeRate, TransactionBuilder, TransactionInfo,
+        Capacity, Cycle, EpochNumberWithFraction, FeeRate, TransactionBuilder, TransactionInfo,
         TransactionView,
         cell::{CellMetaBuilder, ResolvedTransaction},
         tx_pool::get_transaction_weight,
@@ -566,6 +566,32 @@ pub(super) fn accept_remote_transaction_with_payload(
     hash
 }
 
+pub(super) fn accept_remote_transaction_with_payload_and_cycles(
+    authority: &mut TxPoolAuthority,
+    transaction: TransactionView,
+    peer: usize,
+    status: AcceptedStatus,
+    payload: FoundationResolution,
+    cycles: Cycle,
+) -> super::super::state::RawTxHash {
+    let hash = verify_remote_transaction_with_payload_under_and_cycles(
+        authority,
+        transaction,
+        peer,
+        payload,
+        ScriptVerificationRules::V0,
+        cycles,
+    );
+    let version = owner_version(authority, &hash);
+    apply_without_work(
+        authority
+            .plan_accept_for_foundation(&hash, version, status)
+            .expect("fixture membership plans"),
+    );
+    drain_fixture_effects(authority);
+    hash
+}
+
 fn accept_remote_transaction_with_payload_at(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
@@ -661,8 +687,30 @@ pub(super) fn verify_remote_transaction_with_payload_under(
     payload: FoundationResolution,
     rules: ScriptVerificationRules,
 ) -> super::super::state::RawTxHash {
-    let admission = ValidatedAdmission::remote(transaction, PeerIndex::from(peer))
-        .expect("fixture admission is valid");
+    verify_remote_transaction_with_payload_under_and_cycles(
+        authority,
+        transaction,
+        peer,
+        payload,
+        rules,
+        0,
+    )
+}
+
+fn verify_remote_transaction_with_payload_under_and_cycles(
+    authority: &mut TxPoolAuthority,
+    transaction: TransactionView,
+    peer: usize,
+    payload: FoundationResolution,
+    rules: ScriptVerificationRules,
+    cycles: Cycle,
+) -> super::super::state::RawTxHash {
+    let admission = ValidatedAdmission::remote_with_lease(
+        transaction,
+        RemoteResidencyLease::for_foundation(PeerIndex::from(peer)),
+        cycles,
+    )
+    .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
     apply_without_work(
         authority
@@ -687,7 +735,7 @@ pub(super) fn verify_remote_transaction_with_payload_under(
         authority
             .apply_settlement(
                 verify
-                    .verified_under(0, rules)
+                    .verified_under(cycles, rules)
                     .expect("fixture verification metrics are valid"),
             )
             .expect("fixture verification settles"),

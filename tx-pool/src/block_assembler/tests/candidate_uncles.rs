@@ -46,12 +46,44 @@ fn fill_to_capacity(container: &mut CandidateUncles, lowest_has_room: bool) {
 fn basic_insert_and_remove() {
     let mut candidates = CandidateUncles::new();
     let block = uncle(0, 0);
+    let initial = candidates.source_version;
     assert!(candidates.insert(block.clone()));
+    let inserted = candidates.source_version;
+    assert!(inserted > initial);
     assert_eq!(candidates.len(), 1);
     assert!(!candidates.insert(block.clone()));
+    assert_eq!(candidates.source_version, inserted);
     assert!(candidates.remove_by_number(&block));
+    assert!(candidates.source_version > inserted);
     assert!(candidates.is_empty());
     assert!(candidates.map.is_empty());
+}
+
+#[test]
+fn candidate_uncle_source_version_exhaustion_is_typed_and_mutation_free() {
+    let mut candidates = CandidateUncles::new();
+    candidates.source_version = CandidateUncleVersion(u64::MAX);
+    let block = uncle(0, 0);
+
+    assert_eq!(
+        candidates.try_insert(block.clone()),
+        Err(CandidateUncleMutationError::SourceVersionExhausted)
+    );
+    assert!(candidates.is_empty());
+    assert_eq!(candidates.source_version, CandidateUncleVersion(u64::MAX));
+
+    candidates.source_version = CandidateUncleVersion(0);
+    assert!(
+        candidates
+            .try_insert(block.clone())
+            .expect("fixture source version has capacity")
+    );
+    candidates.source_version = CandidateUncleVersion(u64::MAX);
+    assert_eq!(
+        candidates.try_remove_by_number(&block),
+        Err(CandidateUncleMutationError::SourceVersionExhausted)
+    );
+    assert!(candidates.contains(&block));
 }
 
 #[test]

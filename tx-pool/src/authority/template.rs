@@ -7,7 +7,7 @@
 //! owner of rebuildable output.
 
 use super::{
-    plan::{AcceptedOrderKey, EvictionOrderKey, MembershipProjection},
+    plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection},
     read::AuthorityReadCut,
     source::PoolTemplateVersions,
     state::{
@@ -15,6 +15,7 @@ use super::{
         RawTxHash,
     },
 };
+use crate::block_assembler::CandidateUncleSourceReceipt;
 use ckb_types::{
     core::cell::ResolvedTransaction,
     packed::{OutPoint, ProposalShortId},
@@ -52,6 +53,7 @@ pub(super) struct TemplateCandidate {
     status: AcceptedStatus,
     accepted_at: AcceptedAtMillis,
     metrics: CandidateMetrics,
+    ancestors: AncestorAggregate,
     resolved: Arc<ResolvedTransaction>,
     parents: Vec<RawTxHash>,
     order: AcceptedOrderKey,
@@ -83,6 +85,10 @@ impl TemplateCandidate {
         &self.metrics
     }
 
+    pub(super) fn ancestors(&self) -> AncestorAggregate {
+        self.ancestors
+    }
+
     pub(super) fn resolved(&self) -> &Arc<ResolvedTransaction> {
         &self.resolved
     }
@@ -103,6 +109,7 @@ struct CapturedAccepted {
     status: AcceptedStatus,
     accepted_at: AcceptedAtMillis,
     metrics: CandidateMetrics,
+    ancestors: AncestorAggregate,
     resolved: Arc<ResolvedTransaction>,
     parents: Vec<RawTxHash>,
     order: AcceptedOrderKey,
@@ -153,6 +160,9 @@ impl AuthorityTemplateReadReceipt {
             let parent_set = membership
                 .parents(hash)
                 .ok_or(TemplateReadError::Projection)?;
+            let ancestors = membership
+                .ancestor_aggregate(hash)
+                .ok_or(TemplateReadError::Projection)?;
             let eviction = membership
                 .eviction_order_for(hash, entry)
                 .ok_or(TemplateReadError::Projection)?;
@@ -167,6 +177,7 @@ impl AuthorityTemplateReadReceipt {
                 status: entry.status(),
                 accepted_at: entry.accepted_at,
                 metrics: entry.proof.metrics().clone(),
+                ancestors,
                 resolved: Arc::clone(entry.proof.payload().resolved_transaction()),
                 parents,
                 order: order.clone(),
@@ -188,7 +199,7 @@ impl AuthorityTemplateReadReceipt {
         &self.cut
     }
 
-    pub(super) fn source_cut(&self, uncles: CandidateUncleVersion) -> TemplateSourceCut {
+    pub(super) fn source_cut(&self, uncles: CandidateUncleSourceReceipt) -> TemplateSourceCut {
         TemplateSourceCut::new(self.sources, uncles)
     }
 
@@ -215,6 +226,7 @@ impl AuthorityTemplateReadReceipt {
                 status: entry.status,
                 accepted_at: entry.accepted_at,
                 metrics: entry.metrics,
+                ancestors: entry.ancestors,
                 resolved: entry.resolved,
                 parents: entry.parents,
                 order: entry.order,
@@ -234,7 +246,7 @@ impl TemplateSelectionReceipt {
         &self.cut
     }
 
-    pub(super) fn source_cut(&self, uncles: CandidateUncleVersion) -> TemplateSourceCut {
+    pub(super) fn source_cut(&self, uncles: CandidateUncleSourceReceipt) -> TemplateSourceCut {
         TemplateSourceCut::new(self.sources, uncles)
     }
 
@@ -312,6 +324,25 @@ impl TemplateSelectionReceipt {
         &self,
         dependency_budget: usize,
     ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
+        let by_hash = self.candidate_index()?;
+        let causally_selected = self.causally_eligible_proposed(&by_hash)?;
+        let selected =
+            self.order_conditionally_safe(causally_selected, &by_hash, dependency_budget)?;
+        let mut ordered = Vec::new();
+        ordered
+            .try_reserve(selected.len())
+            .map_err(|_| TemplateReadError::Allocation)?;
+        for index in selected {
+            ordered.push(
+                self.candidates
+                    .get(index)
+                    .ok_or(TemplateReadError::Projection)?,
+            );
+        }
+        Ok(ordered)
+    }
+
+    pub(super) fn candidate_index(&self) -> Result<HashMap<RawTxHash, usize>, TemplateReadError> {
         let mut by_hash = HashMap::new();
         by_hash
             .try_reserve(self.candidates.len())
@@ -321,13 +352,22 @@ impl TemplateSelectionReceipt {
                 return Err(TemplateReadError::Projection);
             }
         }
+        Ok(by_hash)
+    }
 
+    /// Proposed candidates whose complete causal ancestor closure is also
+    /// Proposed, returned in deterministic parent-first order. Packing and the
+    /// unbounded test projection share this one eligibility compiler.
+    pub(super) fn causally_eligible_proposed(
+        &self,
+        by_hash: &HashMap<RawTxHash, usize>,
+    ) -> Result<Vec<usize>, TemplateReadError> {
         let mut eligible = Vec::new();
         eligible
             .try_reserve(self.candidates.len())
             .map_err(|_| TemplateReadError::Allocation)?;
         eligible.resize(self.candidates.len(), false);
-        let causal = causal_indices(&self.candidates, &by_hash)?;
+        let causal = causal_indices(&self.candidates, by_hash)?;
         for index in &causal {
             let candidate = self
                 .candidates
@@ -354,8 +394,8 @@ impl TemplateSelectionReceipt {
                 candidate.status == AcceptedStatus::Proposed && parents_eligible;
         }
 
-        let mut causally_selected = Vec::new();
-        causally_selected
+        let mut selected = Vec::new();
+        selected
             .try_reserve(causal.len())
             .map_err(|_| TemplateReadError::Allocation)?;
         for index in causal {
@@ -364,23 +404,18 @@ impl TemplateSelectionReceipt {
                 .copied()
                 .ok_or(TemplateReadError::Projection)?
             {
-                causally_selected.push(index);
+                selected.push(index);
             }
         }
-        let selected =
-            self.order_conditionally_safe(causally_selected, &by_hash, dependency_budget)?;
-        let mut ordered = Vec::new();
-        ordered
-            .try_reserve(selected.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
-        for index in selected {
-            ordered.push(
-                self.candidates
-                    .get(index)
-                    .ok_or(TemplateReadError::Projection)?,
-            );
-        }
-        Ok(ordered)
+        Ok(selected)
+    }
+
+    pub(super) fn order_packed_indices(
+        &self,
+        selected: Vec<usize>,
+        by_hash: &HashMap<RawTxHash, usize>,
+    ) -> Result<Vec<usize>, TemplateReadError> {
+        self.order_conditionally_safe(selected, by_hash, SELECTED_DEP_ORDERING_BUDGET)
     }
 
     fn order_conditionally_safe(
@@ -1030,33 +1065,17 @@ fn drop_causal_descendants(
     Ok(())
 }
 
-/// Version of the block assembler's bounded candidate-uncle authority.
-///
-/// Candidate uncles are not transaction-pool ownership, so their version is
-/// captured separately and joined with a coherent authority receipt only for
-/// pure template construction.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct CandidateUncleVersion(u64);
-
-impl CandidateUncleVersion {
-    pub(super) const INITIAL: Self = Self(0);
-
-    pub(super) fn next(self) -> Option<Self> {
-        self.0.checked_add(1).map(Self)
-    }
-}
-
 /// Complete level input for template convergence. Pool versions are captured
 /// with accepted payloads under one authority read guard; the uncle version
 /// comes from the block assembler's independent bounded candidate authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TemplateSourceCut {
     pool: PoolTemplateVersions,
-    uncles: CandidateUncleVersion,
+    uncles: CandidateUncleSourceReceipt,
 }
 
 impl TemplateSourceCut {
-    fn new(pool: PoolTemplateVersions, uncles: CandidateUncleVersion) -> Self {
+    fn new(pool: PoolTemplateVersions, uncles: CandidateUncleSourceReceipt) -> Self {
         Self { pool, uncles }
     }
 
@@ -1086,7 +1105,7 @@ struct TransactionSourceCut {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct UncleSourceCut {
-    candidates: CandidateUncleVersion,
+    candidates: CandidateUncleSourceReceipt,
     chain: ApplySequence,
     proposals: ApplySequence,
 }

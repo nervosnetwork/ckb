@@ -1,31 +1,39 @@
 use super::super::{
     chain::{ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, ProposalWindowPosition},
+    packing::TemplatePackingLimits,
     plan::TxPoolAuthority,
     state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, ProposalId, RawTxHash},
     template::{
-        CandidateUncleVersion, TemplateComponent, TemplateConvergence, TemplateConvergenceError,
-        TemplatePublication, TemplateSourceCut,
+        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePublication,
+        TemplateSourceCut,
     },
 };
 use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
-    apply_without_work, assert_membership_reference, limits, owner_version,
+    apply_without_work, assert_membership_reference, genesis_snapshot, limits, owner_version,
     resolved_payload_with_facts, tx,
 };
+use crate::block_assembler::{CandidateUncleSourceReceipt, CandidateUncles};
 use ckb_types::{
     bytes::Bytes,
-    core::{Capacity, TransactionBuilder, TransactionView},
+    core::{BlockBuilder, Capacity, TransactionBuilder, TransactionView},
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
 use std::collections::HashSet;
 
-fn source_cut(authority: &TxPoolAuthority, uncles: CandidateUncleVersion) -> TemplateSourceCut {
+fn source_cut(authority: &TxPoolAuthority, uncles: &CandidateUncles) -> TemplateSourceCut {
     let receipt = authority
         .read_view()
         .capture_template()
         .expect("fixture authority has a coherent template projection");
-    receipt.source_cut(uncles)
+    receipt.source_cut(candidate_uncle_source(uncles))
+}
+
+fn candidate_uncle_source(uncles: &CandidateUncles) -> CandidateUncleSourceReceipt {
+    let snapshot = genesis_snapshot();
+    let epoch = snapshot.consensus().genesis_epoch_ext().clone();
+    uncles.prepare_uncles(&snapshot, &epoch).into_parts().2
 }
 
 fn output_transaction(version: u32) -> TransactionView {
@@ -151,16 +159,17 @@ fn uak_template_read_receipt_shares_order_and_complete_resolved_payload() {
         .read_view()
         .capture_template()
         .expect("accepted payload and source versions share one read cut");
+    let candidate_uncles = CandidateUncles::new();
     assert_eq!(receipt.selected_len(), 3);
     let captured_cut = receipt.cut().next_apply_sequence();
-    let captured_sources = receipt.source_cut(CandidateUncleVersion::INITIAL);
+    let captured_sources = receipt.source_cut(candidate_uncle_source(&candidate_uncles));
     let receipt = receipt
         .into_selection()
         .expect("ranking runs over the owned receipt outside authority");
     assert_eq!(receipt.candidates().len(), 3);
     assert_eq!(receipt.cut().next_apply_sequence(), captured_cut);
     assert_eq!(
-        receipt.source_cut(CandidateUncleVersion::INITIAL),
+        receipt.source_cut(candidate_uncle_source(&candidate_uncles)),
         captured_sources
     );
     for candidate in receipt.candidates() {
@@ -464,12 +473,13 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
     );
     assert_membership_reference(&authority);
 
-    let selected = authority
+    let selection = authority
         .read_view()
         .capture_template()
         .expect("the conditional cycle shares one authority cut")
         .into_selection()
-        .expect("the immutable selection receipt is coherent")
+        .expect("the immutable selection receipt is coherent");
+    let selected = selection
         .proposed_parent_first()
         .expect("conditional cycles are a bounded packing condition")
         .into_iter()
@@ -481,10 +491,18 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
         !selected.contains(&weaker_child),
         "a causal descendant cannot survive a shed producer"
     );
+    let packed = selection
+        .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
+        .expect("the production packer shares the bounded cycle kernel")
+        .entries()
+        .iter()
+        .map(|entry| entry.hash().clone())
+        .collect::<Vec<_>>();
+    assert_eq!(packed, selected);
 }
 
 #[test]
-fn uak_template_cycle_fallback_preserves_descendant_aware_strength() {
+fn uak_template_cycle_shedding_preserves_descendant_aware_strength() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let left_cell = OutPoint::new(Byte32::new([90; 32]), 0);
     let right_cell = OutPoint::new(Byte32::new([91; 32]), 0);
@@ -608,8 +626,8 @@ fn uak_template_dependency_budget_cannot_censor_later_independent_work() {
 #[test]
 fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let uncle_zero = CandidateUncleVersion::INITIAL;
-    let empty = source_cut(&authority, uncle_zero);
+    let mut candidate_uncles = CandidateUncles::new();
+    let empty = source_cut(&authority, &candidate_uncles);
     let mut convergence = TemplateConvergence::new(empty);
     let old_full = convergence.begin_full(empty);
 
@@ -620,7 +638,7 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
         AcceptedStatus::Pending,
         Vec::new(),
     );
-    let pending = source_cut(&authority, uncle_zero);
+    let pending = source_cut(&authority, &candidate_uncles);
     let newer_partial = convergence.begin_partial(TemplateComponent::Proposals, pending);
     assert_eq!(
         convergence
@@ -676,7 +694,7 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     // No notification is modeled here. The next level read still discovers
     // the exact Pending->Gap source changes and makes work visible.
     set_status(&mut authority, &accepted, AcceptedStatus::Gap);
-    let gap = source_cut(&authority, uncle_zero);
+    let gap = source_cut(&authority, &candidate_uncles);
     convergence.observe_sources(gap);
     assert!(convergence.is_pending(TemplateComponent::Proposals));
     assert!(!convergence.is_pending(TemplateComponent::Transactions));
@@ -692,10 +710,12 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     }
     assert!(convergence.is_converged());
 
-    let uncle_one = uncle_zero
-        .next()
-        .expect("fixture uncle version has capacity");
-    let uncle_changed = source_cut(&authority, uncle_one);
+    assert!(
+        candidate_uncles
+            .try_insert(BlockBuilder::default().build().as_uncle())
+            .expect("fixture candidate source version has capacity")
+    );
+    let uncle_changed = source_cut(&authority, &candidate_uncles);
     convergence.observe_sources(uncle_changed);
     assert!(!convergence.is_pending(TemplateComponent::Proposals));
     assert!(!convergence.is_pending(TemplateComponent::Transactions));
@@ -758,7 +778,8 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
 #[test]
 fn uak_template_counter_exhaustion_is_typed_and_mutation_free() {
     let authority = TxPoolAuthority::for_foundation(limits());
-    let sources = source_cut(&authority, CandidateUncleVersion::INITIAL);
+    let candidate_uncles = CandidateUncles::new();
+    let sources = source_cut(&authority, &candidate_uncles);
 
     let mut revision = TemplateConvergence::new(sources);
     revision.force_revision_for_foundation(u64::MAX);
@@ -783,7 +804,8 @@ fn uak_template_counter_exhaustion_is_typed_and_mutation_free() {
 #[test]
 fn uak_dropped_reset_build_remains_level_triggered_until_publication() {
     let authority = TxPoolAuthority::for_foundation(limits());
-    let sources = source_cut(&authority, CandidateUncleVersion::INITIAL);
+    let candidate_uncles = CandidateUncles::new();
+    let sources = source_cut(&authority, &candidate_uncles);
     let mut convergence = TemplateConvergence::new(sources);
     let initial = convergence.begin_full(sources);
     assert_eq!(
@@ -830,7 +852,8 @@ fn uak_dropped_reset_build_remains_level_triggered_until_publication() {
 #[test]
 fn uak_requested_reset_fences_an_older_full_before_reset_publication() {
     let authority = TxPoolAuthority::for_foundation(limits());
-    let sources = source_cut(&authority, CandidateUncleVersion::INITIAL);
+    let candidate_uncles = CandidateUncles::new();
+    let sources = source_cut(&authority, &candidate_uncles);
     let mut convergence = TemplateConvergence::new(sources);
     let initial = convergence.begin_full(sources);
     assert_eq!(

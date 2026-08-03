@@ -12,6 +12,7 @@ mod dependency;
 mod effect;
 mod indexes;
 mod ingress;
+mod packing;
 mod plan;
 mod publisher;
 pub(crate) mod query;

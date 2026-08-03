@@ -243,6 +243,10 @@ impl AcceptedOrderKey {
     pub(in crate::authority) fn score(&self) -> &AncestorsScoreSortKey {
         &self.score
     }
+
+    pub(in crate::authority) fn arrival(&self) -> Arrival {
+        self.arrival
+    }
 }
 
 impl Ord for AcceptedOrderKey {

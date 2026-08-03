@@ -374,22 +374,26 @@
       "title": "Block-template liveness and priority",
       "change_surfaces": [
         "tx-pool/src/block_assembler",
+        "tx-pool/src/authority/packing.rs",
+        "tx-pool/src/authority/template.rs",
         "tx-pool/src/pool.rs",
         "tx-pool/src/process/reorg.rs"
       ],
-      "required_behavior": "Reset and full rebuild retain one ordered publication authority without serializing their construction: a full rebuild derives uncle content from the bounded candidate authority, wins over racing partial revisions but cannot cross a newer reset epoch, while reset consumes its exact generation token. Uncle, proposal and transaction partial updates remain concurrent revision-checked OCC, and every successful full/reset replacement reissues all three optimistic dirty generations so valid recovered transactions always regain a proposal/commit path. External template scripts are observational, own at most one live child per configured command and terminate that child on timeout; HTTP notification work remains cancellable and outside authority locks.",
-      "hostile_case": "Detached uncle proposals, stale Gap status, an update_full/partial race or stale partial acknowledgement must not make a valid transaction RPC-pending but forever absent from normal get_block_template mining, nor serialize independent partial work behind full calculation. A hung notification script must not turn repeated template updates into unbounded child processes, and a hung HTTP endpoint must not retain tx-pool authority past its configured timeout.",
+      "required_behavior": "Reset and full rebuild retain one ordered publication authority without serializing their construction: a full rebuild derives uncle content from the bounded candidate authority, wins over racing partial revisions but cannot cross a newer reset epoch, while reset consumes its exact generation token. Uncle, proposal and transaction partial updates remain concurrent revision-checked OCC, and every successful full/reset replacement reissues all three optimistic dirty generations so valid recovered transactions always regain a proposal/commit path. Transaction packing is a pure, short-lived consumer of one coherent authority receipt: it preserves exact byte/cycle limits, ancestor-inclusive CPFP ordering, dynamic descendant re-scoring, parent-first inclusion, bounded conditional-cycle shedding and the 4,000 consecutive-failure work bound without creating another graph or owner. Candidate-uncle preparation carries an opaque exact source receipt; insertions advance that source, while committed pruning proven selection-neutral by the paired chain cut does not manufacture redundant source work. External template scripts are observational, own at most one live child per configured command and terminate that child on timeout; HTTP notification work remains cancellable and outside authority locks.",
+      "hostile_case": "Detached uncle proposals, stale Gap status, an oversized or cyclic CPFP shape, candidate-source counter exhaustion, an update_full/partial race or stale partial acknowledgement must not make a valid transaction RPC-pending but forever absent from normal get_block_template mining, exceed consensus limits, publish an invalid dependency order, mutate before a typed failure, or serialize independent partial work behind full calculation. A hung notification script must not turn repeated template updates into unbounded child processes, and a hung HTTP endpoint must not retain tx-pool authority past its configured timeout.",
       "reviewer_questions": [
         "Does the co-located revision/reset epoch preserve full-over-partial priority and reset-over-stale-full authority while re-dirtying uncle/proposal/transaction generations after replacement?",
         "Does a full rebuild derive detached uncles from the candidate authority instead of copying the reset template's transient blank projection?",
         "Can uncle proposal filtering exclude the sole proposal path of a recovered transaction?",
         "Are Gap/Pending/Proposed transitions reflected to assembler selection?",
+        "Does the pure packer consume only one coherent accepted receipt, preserve exact CPFP/limit policy and reuse the bounded conditional-ordering kernel rather than storing another graph?",
+        "Does candidate-uncle state expose only opaque source receipts, with typed mutation failure and selection-neutral stale pruning?",
         "Do uncle/proposal/transaction calculations remain concurrent with a waiting full rebuild and publish only through version checks?",
         "Can any configured notification script accumulate live owned children in proportion to template update rate?",
         "Does HTTP notification remain cancellable and bounded by visible trusted configuration rather than transaction ownership?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle|uak_template|uak_accepted_timestamp|uak_chain_observation_reconciles|uak_runtime_chain_boundary_reconciles)/)'",
-      "performance_bound": "Keep optimistic CAS updates and bounded selection; do not serialize every delta behind full rebuild or remove bounded packing safeguards without measurements."
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(reorg_demotes_stale_gap|pending_proposals_filter|full_reset_and_partial_priority_use_template_owned_tokens|full_rebuild_derives_uncles_from_candidate_authority|reorg_refresh_recovers_when_blank_reset_precedes_candidate_retention|full_rebuild_reissues_every_optimistic_delta|one_configured_script_owns_at_most_one_live_process_slot|selected_reader|conditional_cycle|uak_template|uak_accepted_timestamp|uak_chain_observation_reconciles|uak_runtime_chain_boundary_reconciles|candidate_uncle_receipt|candidate_uncle_source)/)'",
+      "performance_bound": "Keep pure packing and graph work outside authority locks, optimistic CAS partial updates concurrent with full/reset construction, bounded descendant/SCC work and the 4,000-failure safeguard; do not add a persistent template graph, serialize every delta behind full rebuild or remove bounds without profiling and fixed-binary A/B evidence."
     },
     {
       "id": "TP-IDENTITY-001",
@@ -691,7 +695,15 @@
     {"test": "uak_template_receipts_repair_overwrite_and_delayed_delta", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "uak_dropped_reset_build_remains_level_triggered_until_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T7", "T9", "T10", "T12", "T13"]},
     {"test": "uak_requested_reset_fences_an_older_full_before_reset_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T9", "T10", "T12", "T13"]},
-    {"test": "uak_template_cycle_fallback_preserves_descendant_aware_strength", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_cycle_shedding_preserves_descendant_aware_strength", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_packer_rescores_descendants_after_shared_parent_selection", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_packer_aggregates_multi_parent_descendant_adjustments", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_packer_bounds_non_fitting_work_without_changing_the_policy", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T8", "T10", "T12", "T13"]},
+    {"test": "uak_template_packer_bounds_long_conditional_scc_fallback", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_template_packer_requires_proposed_ancestors_and_orders_conditional_edges", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T4", "T8", "T10", "T11", "T12", "T13"]},
+    {"test": "candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T2", "T3", "T8", "T9", "T10", "T12", "T13"]},
+    {"test": "candidate_uncle_source_version_exhaustion_is_typed_and_mutation_free", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T3", "T7", "T8", "T10", "T12", "T13"]},
     {"test": "uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T1", "T2", "T4", "T9", "T10", "T12", "T13"]},
     {"test": "uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T1", "T2", "T4", "T9", "T10", "T12", "T13"]},
 

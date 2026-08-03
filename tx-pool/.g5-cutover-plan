@@ -1,16 +1,19 @@
 # G5 Production Cutover Recovery Plan
 
-Status: design frozen; G5.3b.5 checkpoint ready
+Status: design frozen; G5.3b.6 checkpoint ready
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
 G5.3b.3 checkpoint: 71b629676
 G5.3b.4 checkpoint: 1641bdfa3
-Active slice: G5.3b.5
-Next exact action: freeze G5.3b.5, record its commit below, then implement the
-G5.3b.6 pure template packer and block-assembler source receipt without
-serializing full/reset construction with uncle/proposal/transaction partial
-work. Do not change a legacy production owner before G5.3c.
+G5.3b.5 checkpoint: bfa1ddced
+G5.3b.6 checkpoint: this commit
+Active slice: G5.3b.7
+Next exact action: inventory the complete production task/endpoint topology,
+then assemble one isolated AuthorityRuntime topology constructor without
+switching the production builder. Preserve the existing full/reset publication
+order and concurrent partial construction. Do not dual-write or change a
+legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -669,8 +672,8 @@ Implement in dependency order, with focused UAK tests after each slice:
    inventory must prove no other `ActiveWorkDrain` remains.
 4. [x] Add production chain fact extraction, validation, snapshot Apply, and
    committed short-id handling.
-5. [ ] Add owned query and persistence receipts.
-6. [ ] Add the pure template packer and block-assembler source receipt.
+5. [x] Add owned query and persistence receipts.
+6. [x] Add the pure template packer and block-assembler source receipt.
 7. [ ] Add the complete new topology assembly in isolated constructors, but do not
    start it from production builder yet.
 
@@ -1163,6 +1166,106 @@ G5.3b.5 phase review:
   isolated behind UAK tests. The only remaining G5.3b capabilities are the
   pure template packer/source receipt and production topology assembly; the
   coordinated owner cutover remains G5.3c.
+
+G5.3b.6 entry design:
+
+- Preserve one authoritative accepted graph and build only a short-lived pure
+  packing overlay from `AuthorityTemplateReadReceipt`. The overlay may contain
+  candidate indices, remaining ancestor aggregates, a derived score index and
+  a bounded descendants cache; it is never written back and owns no payload,
+  membership, status, clock, lock, task or wake protocol.
+- Capture exact ancestor aggregates and stable arrival/hash tie-break facts in
+  the same authority cut as each immutable resolved payload. Validate those
+  facts against the captured causal graph while packing. A mismatch is a typed
+  pre-publication projection error, not an assertion or a skipped candidate.
+- Port the existing package policy, not its legacy storage encoding: exact
+  serialized-byte and cycle limits, ancestor-inclusive CPFP score, deterministic
+  tie breaking, parent-first inclusion, dynamic descendant re-scoring, and the
+  4,000 consecutive non-fitting-package work bound. Do not copy the legacy
+  oversized-candidate reinsertion state: selecting an ancestor moves the same
+  cost from the remaining package to the selected total, so an initially
+  oversized union cannot become fitting. This algebraic invariant removes one
+  redundant state without changing the selectable set.
+- Apply conditional dependency reader-before-spender ordering only after the
+  causal package set is chosen. Reuse the one selected-set graph/SCC kernel in
+  `authority/template.rs`; do not add a persistent dependency graph or a second
+  cycle policy. Recompute final bytes/cycles after bounded SCC shedding.
+- The packing result owns only the selected, block-bounded `Arc` payloads and
+  exact metrics needed by DAO calculation, JSON projection and the internal
+  `PackageTxs` compatibility adapter. Unselected receipt payloads are released
+  before external chain/database work.
+- Candidate uncles remain a separate bounded block-assembler authority. Its
+  read receipt must carry the exact source version used to prepare selected and
+  stale candidates; the pool and uncle receipts join only in
+  `TemplateSourceCut`. No caller manually fabricates a candidate-uncle version.
+- Full/reset/partial construction remains lock-external. Full ignores racing
+  partial revisions but is fenced by the requested reset epoch; partial
+  proposal/transaction/uncle publication keeps revision OCC. Source coverage
+  is level-triggered so a dropped build or overwritten partial remains pending.
+- Acceptance evidence must cover CPFP re-ranking, exact-fit and one-over
+  byte/cycle limits, missing/non-Proposed ancestors, parent-first and
+  conditional ordering, multi-parent shared-descendant adjustment, bounded
+  consecutive failures, the production SCC fallback under admissible hostile
+  edge limits, deterministic source convergence, and an actual
+  candidate-uncle receipt. The whole-phase review must confirm no second
+  authority/graph, no new long-held lock and no loss of full/reset versus
+  partial concurrency before checkpointing.
+
+G5.3b.6 phase review:
+
+- The 670-line production packer is a pure consumer of one owned authority
+  receipt. It adds no persistent owner, graph, index, lock, task, clock, wake,
+  retry or repair path. The legacy selector it replaces is 806 production
+  lines; its deletion remains coupled to G5.3c, so temporary pre-cutover line
+  growth is not treated as final architecture cost.
+- Observable packing policy is preserved: exact serialized-byte/cycle limits,
+  ancestor-inclusive CPFP score, parent-first inclusion, dynamic descendant
+  re-scoring, deterministic tie breaking, 4,000 consecutive non-fitting
+  attempts and the shared bounded conditional-order/SCC compiler. The legacy
+  oversized-candidate reinsertion state was not copied because selected cost
+  plus the remaining ancestor package cannot become smaller than the original
+  package union. Final totals are recomputed after conditional shedding.
+- Whole-model review removed two duplicated facts before freeze. Arrival is
+  read from the canonical `AcceptedOrderKey` instead of being captured a
+  second time. Candidate-uncle selected values, sealed prune capability and
+  opaque source receipt are consumed from one `PreparedUncles` result; there
+  is no independent source-version getter or constructible initial token.
+- Candidate mutation validates duplicates and per-height capacity before any
+  global eviction. Accepted insertions and explicit removals advance one
+  checked semantic source; exhaustion is typed and mutation-free. Stale prune
+  is source-neutral because its paired chain cut proves the removed candidates
+  absent from selection, while any future chain change advances the chain
+  source. Revision/reset counter capacity is validated before prune, so a
+  failed publication cannot partially mutate the candidate authority.
+- Full/reset/partial construction and scheduling were not serialized or moved
+  under a new actor. Only the existing short publication boundary joins
+  current-template replacement with sealed prune; full still wins partial
+  revision races, reset still fences full by epoch, and partial work remains
+  optimistic and independently constructible. Candidate cloning is bounded by
+  the existing 128-entry hard authority cap.
+- The old dense-clique fallback fixture is illegal under UAK's per-transaction
+  footprint bound and was correctly rejected as `TooManyEdges`; the bound was
+  not weakened for a test. A 66-member bidirectional ring uses only two hostile
+  deps per transaction yet requires 65 sequential SCC rounds, exercising the
+  real production fallback. Separate regressions cover multi-parent aggregate
+  adjustment, exact fits, CPFP re-ranking, non-fitting work, proposal status,
+  conditional ordering, source exhaustion and stale publication.
+- Production static search found no new panic/assert/unwrap/expect/unreachable
+  control path in the changed production surface. Arithmetic and allocation
+  failures are typed before publication. The only compatibility adapter that
+  cannot expose source-counter exhaustion is the historical public
+  `CandidateUncles::insert`; G5.3b.7 production assembly must use `try_insert`,
+  while the counter is unreachable from external input in practice.
+- Complete evidence at freeze: 585/585 internal-feature nextest tests pass;
+  strict interim Clippy, formatting, diff integrity, production static-safety,
+  test-layout, documentation, review-guide and security-manifest gates pass.
+  The manifest binds 266 unique Rust tests / 1,631 invariant references and
+  retains the same three explicit release blockers. Integration and controlled
+  performance claims remain P9.8/P10 work, not inferred from this phase.
+- The 200,000-member descendants cache can fall back to a transient bounded
+  BFS allocation and the 4,000-failure rule may underfill a near-full block.
+  Both are established bounded policy, not new ownership state; optimize only
+  from P10 profile/packing-quality evidence after production cutover.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

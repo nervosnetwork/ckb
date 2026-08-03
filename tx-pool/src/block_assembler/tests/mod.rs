@@ -137,7 +137,7 @@ fn uncle_size_matches_basic_block_size_basis() {
 /// the main chain or embedded as an uncle. Read-only preparation itself must
 /// not mutate the live cache because its publication token may lose a race.
 #[test]
-fn prepare_uncles_removes_main_chain_and_embedded_candidates() {
+fn candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral() {
     let snapshot = genesis_snapshot();
     let consensus = snapshot.consensus();
     let epoch_ext = consensus.genesis_epoch_ext().clone();
@@ -159,15 +159,27 @@ fn prepare_uncles_removes_main_chain_and_embedded_candidates() {
     candidate_uncles.insert(off_chain.clone());
     assert_eq!(candidate_uncles.len(), 2);
 
-    let (uncles, stale) = candidate_uncles
+    let prepared = candidate_uncles.prepare_uncles(&snapshot, &epoch_ext);
+    let (uncles, stale, captured_source) = prepared.into_parts();
+    let current_source = candidate_uncles
         .prepare_uncles(&snapshot, &epoch_ext)
-        .into_parts();
+        .into_parts()
+        .2;
+    assert_eq!(captured_source, current_source);
 
     assert!(
         candidate_uncles.contains(&genesis_uncle),
         "read-only preparation cannot prune before publication"
     );
     candidate_uncles.prune(stale);
+    assert_eq!(
+        candidate_uncles
+            .prepare_uncles(&snapshot, &epoch_ext)
+            .into_parts()
+            .2,
+        captured_source,
+        "pruning candidates proven absent from this chain cut cannot dirty an equivalent template source"
+    );
 
     // The genesis uncle is on the main chain: must be removed.
     assert!(
@@ -374,7 +386,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
         notify_count: Arc::new(AtomicU64::new(0)),
     };
     let original = assembler.current.read().await.clone();
-    let stale_candidate = BlockBuilder::default().build().as_uncle();
+    let stale_candidate = original.snapshot.consensus().genesis_block().as_uncle();
     assert!(
         assembler
             .candidate_uncles
@@ -400,7 +412,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     let partial = at_time(&original, 11);
     assert!(
         assembler
-            .try_publish_partial(partial, original.revision, Vec::new())
+            .try_publish_partial(partial, original.revision, None)
             .await
             .unwrap()
     );
@@ -408,7 +420,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     let full = at_time(&original, 22);
     assert!(
         assembler
-            .try_publish_full(full, original.reset_epoch, Vec::new())
+            .try_publish_full(full, original.reset_epoch, None)
             .await
             .unwrap(),
         "full publication ignores a partial-only revision race"
@@ -418,7 +430,7 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     let stale_partial = at_time(&original, 33);
     assert!(
         !assembler
-            .try_publish_partial(stale_partial, original.revision, Vec::new())
+            .try_publish_partial(stale_partial, original.revision, None)
             .await
             .unwrap(),
         "partial publication cannot overwrite newer full content"
@@ -438,13 +450,13 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     };
 
     let pre_reset_full = at_time(&original, 55);
+    let stale_cleanup = assembler
+        .prepare_uncles(&original.snapshot, &original.epoch)
+        .into_parts()
+        .1;
     assert!(
         !assembler
-            .try_publish_full(
-                pre_reset_full,
-                original.reset_epoch,
-                vec![stale_candidate.clone()],
-            )
+            .try_publish_full(pre_reset_full, original.reset_epoch, Some(stale_cleanup),)
             .await
             .unwrap(),
         "a full build captured before reset cannot cross its epoch"
@@ -456,13 +468,13 @@ async fn full_reset_and_partial_priority_use_template_owned_tokens() {
     );
 
     let post_reset_full = at_time(&reset, 66);
+    let stale_cleanup = assembler
+        .prepare_uncles(&reset.snapshot, &reset.epoch)
+        .into_parts()
+        .1;
     assert!(
         assembler
-            .try_publish_full(
-                post_reset_full,
-                reset.reset_epoch,
-                vec![stale_candidate.clone()],
-            )
+            .try_publish_full(post_reset_full, reset.reset_epoch, Some(stale_cleanup),)
             .await
             .unwrap(),
         "a full build captured after reset publishes normally"
