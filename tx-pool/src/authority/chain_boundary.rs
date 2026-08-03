@@ -7,7 +7,7 @@
 
 use super::{
     chain::{ChainBlockChanges, ChainPackagingMode},
-    plan::PlanError,
+    plan::{AuthorityFault, Backpressure, PlanError},
     state::ProposalId,
 };
 use ckb_snapshot::Snapshot;
@@ -39,15 +39,40 @@ impl ChainPackaging {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ChainBoundaryError {
     Allocation,
+    EffectCapacity,
+    LifecycleClosed,
     CounterExhausted,
     InvalidFacts,
     InvalidSnapshotEvidence,
-    Authority(PlanError),
+    Fault(AuthorityFault),
 }
 
 impl From<PlanError> for ChainBoundaryError {
     fn from(error: PlanError) -> Self {
-        Self::Authority(error)
+        match error {
+            PlanError::Backpressure(Backpressure::Allocation) => Self::Allocation,
+            PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
+            PlanError::EffectClosed => Self::LifecycleClosed,
+            PlanError::Fault(AuthorityFault::CounterExhausted) => Self::CounterExhausted,
+            PlanError::Fault(fault) => Self::Fault(fault),
+            PlanError::Backpressure(Backpressure::ProposalCollision) => {
+                Self::Fault(AuthorityFault::IndexProjection)
+            }
+            PlanError::Backpressure(
+                Backpressure::TotalResources
+                | Backpressure::RemoteResources
+                | Backpressure::PeerResources
+                | Backpressure::AcceptedResources,
+            ) => Self::Fault(AuthorityFault::ResourceProjection),
+            PlanError::Backpressure(
+                Backpressure::ComputeResources | Backpressure::GenerationReplacement,
+            ) => Self::Fault(AuthorityFault::SchedulerProjection),
+            PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::IngressRevoked(_)
+            | PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
+        }
     }
 }
 

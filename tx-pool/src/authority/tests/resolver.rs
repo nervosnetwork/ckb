@@ -4,24 +4,26 @@ use super::foundation::{
 };
 use crate::authority::{
     ingress::{DirectCommand, direct},
-    plan::{PlanError, StalePlan, TxPoolAuthority},
+    plan::TxPoolAuthority,
     resolver::{
         DirectResolutionEvaluation, DirectResolutionJob, DirectResolutionPreparation,
         DirectResolutionProbeObservation, DirectVerificationOutcome, ResolutionEvaluation,
         ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation, VerificationJob,
     },
     runtime::{
-        AuthorityDirectAdmissionExecution, AuthorityDirectRejectionExecution,
-        AuthorityDirectResolutionOutcome, AuthorityDirectVerificationOutcome,
-        AuthorityDirectVerifiedCandidate, AuthorityLocalAdmissionOutcome, AuthorityRuntime,
-        AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind,
+        AuthorityDirectAdmissionError, AuthorityDirectAdmissionExecution,
+        AuthorityDirectRejectionExecution, AuthorityDirectResolutionOutcome,
+        AuthorityDirectVerificationOutcome, AuthorityDirectVerifiedCandidate,
+        AuthorityLocalAdmissionOutcome, AuthorityRuntime, AuthorityTestAcceptOutcome,
+        DirectAdmissionRejectionKind,
     },
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PreAcceptedPhase,
         QueuedWork, ValidatedAdmission, VerifyCapability, WorkPermit,
     },
-    work::CheckedOutWork,
+    work::{CheckedOutWork, ResolutionEvidence, SettlementNext, SettlementRejection},
 };
+use crate::error::Reject;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::PeerIndex;
 use ckb_script::TxVerifyEnv;
@@ -30,7 +32,7 @@ use ckb_test_chain_utils::MockStore;
 use ckb_types::{
     U256,
     bytes::Bytes,
-    core::{Capacity, DepType, FeeRate, TransactionBuilder},
+    core::{Capacity, DepType, FeeRate, TransactionBuilder, cell::ResolvedTransaction},
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec},
     prelude::{Builder, Entity, Pack, Unpack},
 };
@@ -235,6 +237,90 @@ fn uak_resolution_job_rejects_a_mixed_snapshot_view() {
             .apply_settlement(failure.into_settlement())
             .expect("the exact active capability retries under the authority view"),
     );
+}
+
+#[test]
+fn uak_duplicate_inputs_are_a_malformed_outcome_not_an_authority_fault() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let input = OutPoint::new(Byte32::new([0x80; 32]), 0);
+    let transaction = spending_tx(800, [input.clone(), input], 1);
+    let work = checkout_resolve(&mut authority, transaction.clone(), 80);
+    let settlement = work
+        .resolved(ResolutionEvidence::for_foundation(
+            Arc::new(ResolvedTransaction::dummy_resolve(transaction)),
+            Capacity::zero(),
+            1_024,
+            crate::authority::state::VerifyCycleClass::Small,
+        ))
+        .expect("duplicate inputs are a deterministic transaction outcome");
+    let SettlementNext::Rejected(SettlementRejection::ChainBound(reason)) = settlement.next else {
+        panic!("duplicate inputs must not become retry or structural evidence")
+    };
+    assert!(matches!(reason.reject(), Reject::Malformed(..)));
+}
+
+#[test]
+fn uak_verify_checkout_requeues_resolution_from_an_old_chain_view_before_vm() {
+    let old_snapshot = genesis_snapshot();
+    let mut authority = authority_at(&old_snapshot);
+    let transaction = TransactionBuilder::default().version(811u32).build();
+    let key = crate::authority::state::RawTxHash(transaction.hash());
+    let resolve = checkout_resolve(&mut authority, transaction, 811);
+    let ResolutionEvaluation::Settle(settlement) =
+        ResolutionJob::capture_resolve(&authority, Arc::clone(&old_snapshot), resolve)
+            .expect("the original resolve checkout uses the paired snapshot")
+            .evaluate(FeeRate::zero(), u64::MAX)
+            .expect("the fixture resolution is valid")
+    else {
+        panic!("resolve-only work must enqueue verification")
+    };
+    apply_without_work(
+        authority
+            .apply_settlement(settlement)
+            .expect("the old-view resolution settles as queued verification"),
+    );
+
+    let consensus = old_snapshot.cloned_consensus();
+    let new_header = old_snapshot
+        .tip_header()
+        .as_advanced_builder()
+        .nonce(1u128.pack())
+        .build();
+    let new_snapshot = Arc::new(Snapshot::new(
+        new_header.clone(),
+        U256::zero(),
+        consensus.genesis_epoch_ext().clone(),
+        MockStore::default().store().get_snapshot(),
+        Default::default(),
+        consensus,
+    ));
+    authority.force_chain_view(ChainViewId::new(ChainRevision(1), new_header.hash()));
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &key,
+            owner_version(&authority, &key),
+            WorkPermit::VerifyOnly(VerifyCapability::Any),
+        )
+        .expect("the stale queued verification can be checked out without a pool scan")
+        .apply();
+    let CheckedOutWork::Verify(work) = checkout.into_work().expect("verify work exists") else {
+        panic!("verify-only checkout must carry verification work")
+    };
+    let failure = VerificationJob::from_checkout(work, new_snapshot)
+        .expect_err("old location evidence must be rejected before VM execution");
+    assert_eq!(failure.kind(), ResolutionExecutionKind::StaleView);
+    apply_without_work(
+        authority
+            .apply_settlement(failure.into_settlement())
+            .expect("the exact stale capability requeues for resolution"),
+    );
+    assert!(matches!(
+        authority.entry(&key),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
 }
 
 #[test]
@@ -464,11 +550,7 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
         },
     );
 
-    let execution = request
-        .bind_cache(&cache)
-        .execute(None)
-        .await
-        .expect("the exact cached proof revalidates under the paired snapshot");
+    let execution = request.bind_cache(&cache).execute(None).await;
     assert!(execution.cache_hit);
     assert!(execution.cache_update.is_none());
     apply_without_work(
@@ -500,11 +582,7 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
         checkout_verification_job(&mut authority, Arc::clone(&snapshot), requested_tx, 93)
             .prepare();
 
-    let execution = request
-        .bind_cache(&cache)
-        .execute(None)
-        .await
-        .expect("the exact request executes after a non-matching cache lookup");
+    let execution = request.bind_cache(&cache).execute(None).await;
     assert!(!execution.cache_hit);
     assert!(execution.cache_update.is_some());
     apply_without_work(
@@ -930,7 +1008,7 @@ fn uak_direct_missing_rejection_stales_when_the_parent_becomes_available() {
     let before = runtime.normalized_snapshot_for_foundation();
     let result = runtime.settle_direct_transaction_rejection(rejection);
     assert!(
-        matches!(result, Err(PlanError::Stale(StalePlan::SourceVersion))),
+        matches!(result, Err(AuthorityDirectAdmissionError::Stale)),
         "new parent availability must stale the missing proof: {result:?}"
     );
     assert_eq!(runtime.normalized_snapshot_for_foundation(), before);

@@ -375,12 +375,14 @@ The reverse comparisons for arrival/hash are intentional because the driver
 selects the greatest key. Revision is globally unique, so a later transaction-
 size comparison would be unreachable rather than an additional ordering rule.
 There is deliberately no time-dependent aging: source and fee preference are
-stable, Remote residency remains deadline/budget bounded, and only bounded
-chain-derived Proposal/Recovery ingress can outrank Remote. Under sustained
-overload a lower-fee Remote candidate can therefore wait until its residency
-deadline, matching fee-market preference at the cost of strict per-candidate
-fairness; controlled performance acceptance must measure saturation throughput
-and tail latency. Dynamic aging
+stable, Remote residency remains deadline/budget bounded, and every individual
+chain transition contributes only bounded Proposal/Recovery ingress. Under a
+continuously replenished stronger Ready workload, strict per-candidate fairness
+is not promised: a lower-fee Remote candidate may wait until its residency
+deadline, and a weaker trusted candidate drains when the finite stronger
+frontier stops being replenished. This matches fee-market preference while
+making saturation throughput and tail latency explicit P10 acceptance
+measurements. Dynamic aging
 would require periodic reindexing of every Ready key and is not justified
 without evidence that this explicit trade-off is unacceptable.
 

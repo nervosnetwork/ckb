@@ -9,7 +9,7 @@ use crate::service::TxVerificationResult;
 use ckb_types::packed::Byte32;
 use ckb_util::Mutex;
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     mem::size_of,
     sync::{
         Arc,
@@ -66,12 +66,14 @@ pub(super) struct AuthorityRelayReceiver {
 pub(super) fn authority_relay_mailbox(
     max_items: usize,
     max_bytes: usize,
+    max_parents: usize,
 ) -> Result<(AuthorityRelaySink, AuthorityRelayReceiver), RelayMailboxConfigError> {
     if max_items < MIN_RELAY_MAILBOX_ITEMS {
         return Err(RelayMailboxConfigError::ItemLimit);
     }
+    let parent_frontier_bytes = relay_parent_frontier_bytes(max_parents)?;
     let minimum_bytes = relay_result_bytes(&TxVerificationResult::GenerationReset)
-        .and_then(|bytes| bytes.checked_mul(MIN_RELAY_MAILBOX_ITEMS))
+        .and_then(|reset| reset.checked_add(parent_frontier_bytes))
         .ok_or(RelayMailboxConfigError::ByteLimit)?;
     if max_bytes < minimum_bytes {
         return Err(RelayMailboxConfigError::ByteLimit);
@@ -92,6 +94,23 @@ pub(super) fn authority_relay_mailbox(
         },
         AuthorityRelayReceiver { inner },
     ))
+}
+
+fn relay_parent_frontier_bytes(max_parents: usize) -> Result<usize, RelayMailboxConfigError> {
+    let mut parents = HashSet::<Byte32>::new();
+    parents
+        .try_reserve(max_parents)
+        .map_err(|_| RelayMailboxConfigError::Allocation)?;
+    parents
+        .capacity()
+        .checked_mul(
+            size_of::<Byte32>()
+                .checked_add(RELAY_PARENT_SLOT_OVERHEAD)
+                .ok_or(RelayMailboxConfigError::ByteLimit)?,
+        )
+        .ok_or(RelayMailboxConfigError::ByteLimit)?
+        .checked_add(size_of::<TxVerificationResult>())
+        .ok_or(RelayMailboxConfigError::ByteLimit)
 }
 
 impl AuthorityRelaySink {

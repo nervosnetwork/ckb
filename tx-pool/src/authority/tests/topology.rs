@@ -18,7 +18,6 @@ use super::super::{
 use super::foundation::{admit_remote, genesis_snapshot, runtime_config, tx};
 use crate::{callback::Callbacks, network::DummyTxPoolNetwork, service::TxVerificationResult};
 use ckb_async_runtime::Handle;
-use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::{
@@ -74,7 +73,7 @@ fn start_with_endpoints(
 }
 
 fn relay_mailbox(max_items: usize) -> (AuthorityRelaySink, AuthorityRelayReceiver) {
-    authority_relay_mailbox(max_items, 1024 * 1024)
+    authority_relay_mailbox(max_items, 1024 * 1024, 1_024)
         .expect("the topology relay mailbox fixture is valid")
 }
 
@@ -105,7 +104,6 @@ async fn uak_topology_clean_shutdown_drains_effects_before_persistence() {
             EffectPolicy::Remote,
             CommittedEffect::RemoteExpired {
                 tx_hash: expected.clone(),
-                peer: PeerIndex::from(71),
             },
         )
         .expect("the committed effect fits the bounded journal");
@@ -134,7 +132,6 @@ async fn uak_topology_relay_disconnect_is_local_degradation_not_shutdown() {
             EffectPolicy::Remote,
             CommittedEffect::RemoteExpired {
                 tx_hash: RawTxHash(Byte32::new([72; 32])),
-                peer: PeerIndex::from(72),
             },
         )
         .expect("the committed effect fits the bounded journal");
@@ -229,7 +226,6 @@ async fn uak_topology_relay_overflow_cannot_pin_effect_blocked_compute() {
             EffectPolicy::Remote,
             CommittedEffect::RemoteExpired {
                 tx_hash: RawTxHash(Byte32::new([73; 32])),
-                peer: PeerIndex::from(73),
             },
         )
         .expect("the first effect occupies the only remote slot");

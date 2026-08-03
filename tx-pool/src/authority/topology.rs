@@ -6,7 +6,7 @@
 //! by the state they own instead of by a generic `is_finished` rule.
 
 use super::{
-    plan::PlanError,
+    plan::EffectCloseError,
     publisher::{
         AuthorityEffectEndpoints, AuthorityEffectPublisherFault,
         run_claimed_authority_effect_publisher,
@@ -57,7 +57,7 @@ pub(in crate::authority) enum AuthorityGenerationFault {
     Publisher(AuthorityEffectPublisherFault),
     PublisherJoin(tokio::task::JoinError),
     PublisherClosed,
-    EffectClose(PlanError),
+    EffectClose(EffectCloseError),
     EffectDrain,
     ShutdownTimeout,
 }

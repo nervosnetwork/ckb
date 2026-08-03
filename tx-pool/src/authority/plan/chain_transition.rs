@@ -5,7 +5,7 @@ use crate::authority::chain::{
     ChainTransitionFacts, ChainTransitionReceipt, ChainValidationWork, ExpectedPreAcceptedOwner,
     ProposalContextReceipt,
 };
-use crate::authority::state::{AcceptedStatus, DependencySetError};
+use crate::authority::state::{AcceptedStatus, DependencySetError, RemoteBase};
 use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
     cmp::Reverse,
@@ -1012,7 +1012,7 @@ impl TxPoolAuthority {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
             let PreAcceptedSource::Proposal {
-                base: ProposalBase::Remote(remote),
+                base: ProposalBase::Remote(residency),
                 ..
             } = after.source
             else {
@@ -1021,7 +1021,10 @@ impl TxPoolAuthority {
             // A source-only demotion preserves EntryVersion and any unique
             // compute capability. The owner-typed demotion carries the exact
             // source fact that makes this safe despite the unchanged token.
-            after.source = PreAcceptedSource::Remote(remote);
+            after.source = PreAcceptedSource::Remote(RemoteBase {
+                residency,
+                payload_policy: PayloadPolicy::Trusted,
+            });
             changes.push(PreparedOwnerChange {
                 key,
                 before: Some(before),
@@ -1176,8 +1179,10 @@ impl TxPoolAuthority {
                 ChainRemoval::Committed { .. } => {
                     // Accepted membership already settled the relayer at
                     // admission, while replacement history is deliberately
-                    // invisible. Only an in-flight Remote owner needs its
-                    // pending filter cleared when the chain wins the race.
+                    // invisible. Only an in-flight Remote owner needs a
+                    // successful verification result when the chain wins the
+                    // race; this preserves known/original-peer semantics
+                    // without inventing an Accepted callback.
                     if let OwnedTx::PreAccepted(_) = owner
                         && let Some(ingress_peer) = owner.ingress_peer()
                     {
@@ -1188,14 +1193,11 @@ impl TxPoolAuthority {
                     }
                 }
                 ChainRemoval::ChainConflict { out_point, .. } => {
-                    let audience = RejectionAudience::from_owner(
-                        owner.ingress_peer(),
-                        owner.payload_blame_peer(),
-                    );
                     let conflict_owner = match owner {
-                        OwnedTx::PreAccepted(entry) => {
-                            CommittedConflictOwner::PreAccepted(Arc::clone(&entry.record.tx))
-                        }
+                        OwnedTx::PreAccepted(entry) => CommittedConflictOwner::PreAccepted {
+                            tx: Arc::clone(&entry.record.tx),
+                            audience: RejectionAudience::from_source(entry.source),
+                        },
                         OwnedTx::Accepted(entry) => {
                             CommittedConflictOwner::Accepted(self.committed_entry_before(entry)?)
                         }
@@ -1206,7 +1208,6 @@ impl TxPoolAuthority {
                     effects.push(CommittedEffect::Rejected(
                         CommittedRejection::ChainConflict {
                             owner: conflict_owner,
-                            audience,
                             out_point: out_point.clone(),
                         },
                     ));

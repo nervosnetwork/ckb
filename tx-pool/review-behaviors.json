@@ -50,7 +50,7 @@
         "Can any ordinary error occur after accepted-pool Apply begins?",
         "Is an uncertain authoritative mutation escalated instead of downgraded to a transaction reject?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence|uak_direct_local|uak_dropped_direct_local|uak_final_admission|uak_final_validation|uak_changed_tip_revalidates|uak_same_tip_unproven|uak_pool_origin_refresh|uak_script_rule_change|uak_matching_completion)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(verified_commit|pipeline_commit_worker|local_submit_bypasses|target_model_exercises_every_plan_outcome|sparse_plan_matches|accepted_duplicate_relay|resolution_evidence|uak_direct_local|uak_dropped_direct_local|uak_final_admission|uak_final_validation|uak_changed_tip_revalidates|uak_same_tip_unproven|uak_pool_origin_refresh|uak_script_rule_change|uak_matching_resolution)/)'",
       "performance_bound": "Reuse the existing pool sequencer and fold only the adjacent verified/Ready ceremony; do not add a normal-path recovery lock, second admission implementation, commit queue or population-sized reconciliation."
     },
     {
@@ -88,14 +88,15 @@
         "tx-pool/src/authority/effect.rs",
         "tx-pool/src/authority/runtime.rs"
       ],
-      "required_behavior": "Raw, resolved and accepted exact dependency keys—including the complete direct missing-cell frontier, headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection. A Remote transition to Waiting(Missing) commits one canonical transaction-parent request in the same Apply; trusted sources retain the same wait without manufacturing network work.",
-      "hostile_case": "A cell provider reporting only its first miss, duplicate missing outputs from one parent, late-discovered parents, effect backpressure, conditional reader/spender cycles, reversed arrival order, stale resolved children or parent replacement must not strand a child, make RelayV3 reject an unrequested parent, hot-loop resolution, lose its wake edge or let a template commit an invalid order.",
+      "required_behavior": "Raw, resolved and accepted exact dependency keys—including the complete direct missing-cell frontier, headers and expanded dep-group members—remain one canonical primary fact: availability wakes children and definitive loss invalidates them atomically while by-parent is only a derived projection. A Remote transition to Waiting(Missing) commits one canonical transaction-parent request in the same Apply; trusted sources may wait only on a missing parent already owned by the pre-pool and manufacture no network work. Because that disposition is source policy, a Remote-to-Proposal promotion cannot reuse an external-parent Waiting observation: it returns to the existing Resolve level and is adjudicated once under trusted policy.",
+      "hostile_case": "A cell provider reporting only its first miss, duplicate missing outputs from one parent, late-discovered parents, effect backpressure, conditional reader/spender cycles, reversed arrival order, stale resolved children, parent replacement or source promotion of a Remote external-parent waiter must not strand a child, make RelayV3 reject an unrequested parent, hot-loop resolution, lose its wake edge or let a template commit an invalid order.",
       "reviewer_questions": [
         "Are input, cell-dep, header-dep and expanded dep-group roles intentionally distinguished?",
         "Does parent success/failure update reverse edges, accounting and child location in one transition?",
+        "Can a source transition reuse its current wait only when the destination policy admits the same missing evidence, with Remote-to-Proposal otherwise returning to Resolve?",
         "Are cascade size and maintenance work explicitly bounded?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_remote_missing|uak_direct_parent_acceptance|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(parent_commit_before_wait|parent_loss|successive_expanded_parent_losses|terminalized_superseded_parent|dependency_epochs|dep_reader|selected_reader|conditional_cycle|dep_group|unknown_outpoint|uak_remote_missing|uak_proposal_promotion_reclassifies_remote_missing_wait|uak_direct_parent_acceptance|uak_chain_tip_not_revision|uak_coupled_membership_requires|uak_template_orders_selected|uak_template_sheds)/)'",
       "performance_bound": "Use bounded indexed parent/child buckets and maintenance slices; never poll all waiting transactions or scan the pool for dependents."
     },
     {
@@ -252,7 +253,7 @@
         "Does every potentially blocking foreign endpoint have a bounded timeout/circuit, and does every authority-dependent acknowledgement retain its read/write capability until journal append?",
         "Does cancellation retain a typed endpoint-step cursor in the sole effect authority, retrying at most the currently unacknowledged endpoint rather than replaying completed earlier endpoints?"
       ],
-      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing|runtime_effect|uak_effect_compiler|uak_ordinary_relay|uak_required_parent_detail|uak_relay_disconnect|uak_publisher_relay_disconnect|uak_effect_publisher_claim|uak_cancelled_publisher|uak_retained_batch|uak_cancelled_later_endpoint|uak_unregistered_callback|uak_callback_uses|uak_pending_recent_reject)/)'",
+      "minimum_command": "cargo nextest run -p ckb-tx-pool --features internal --lib -E 'test(/(journal_usage|journal_sequence|full_journal|ordinary_full|remote_byte_ceiling|proposal_ready_commit|critical_headroom|authoritative_apply|authoritative_generation_reset|closed_journal_rejects_generation_reset|generation_reset_register|full_relayer|hung_callback|hung_network_endpoint|accepted_duplicate_relay|replacement_publisher|close_wakes|idle_publisher|uak_remote_missing|runtime_effect|uak_effect_compiler|uak_ordinary_relay|uak_required_parent_detail|uak_relay_disconnect|uak_publisher_relay_disconnect|uak_effect_publisher_claim|uak_cancelled_publisher|uak_retained_batch|uak_retained_later_endpoint|uak_unregistered_callback|uak_callback_uses|uak_pending_recent_reject)/)'",
       "performance_bound": "One bounded journal publisher, one bounded callback endpoint worker, four fixed endpoint steps per semantic outcome and at most one timed-out detached call per blocking endpoint circuit; endpoint progress is local while I/O runs and takes no authority lock until completion or cancellation retention. Recordable rejection reads use one O(1) charged hash lookup and clone only an Arc under the guard. Admission/accounting remains O(1), with no per-effect retry task, unbounded channel, callback-under-lock or busy retry."
     },
     {
@@ -496,7 +497,8 @@
     {"test": "tx_pool_resolution_evidence_requires_chain_provenance", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T8"]},
     {"test": "uak_final_admission_refreshes_stale_verification_context", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
     {"test": "uak_final_admission_rejects_a_changed_validation_ruleset", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T9"]},
-    {"test": "uak_matching_completion_settles_and_refreshes_across_chain_view_change", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T11"]},
+    {"test": "uak_matching_resolution_completion_requeues_across_a_chain_view_change", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T11"]},
+    {"test": "uak_verify_checkout_requeues_resolution_from_an_old_chain_view_before_vm", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T8", "T9", "T11"]},
     {"test": "uak_changed_tip_revalidates_header_dependencies", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T4", "T6", "T7", "T9"]},
     {"test": "uak_final_validation_rejects_a_mixed_authority_snapshot_cut", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9"]},
     {"test": "uak_final_validation_reuses_same_tip_positive_location_evidence", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8"]},
@@ -517,6 +519,7 @@
     {"test": "successive_expanded_parent_losses_keep_exact_causal_keys_in_wait", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
     {"test": "remote_parent_wait_and_unknown_parents_effect_are_one_transition", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T7", "T11"]},
     {"test": "uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_proposal_promotion_reclassifies_remote_missing_wait_under_trusted_policy", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T11", "T13"]},
     {"test": "sort_txs_by_dependencies_orders_parents_before_children", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11"]},
     {"test": "pipeline_accepts_dep_reader_after_in_flight_spender", "behavior_id": "TP-DEP-001", "invariants": ["T1", "T2", "T4", "T6", "T7", "T11"]},
     {"test": "selected_reader_is_ordered_before_spender", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T11", "T12", "T13"]},
@@ -596,6 +599,8 @@
     {"test": "uak_clear_pipeline_preserves_live_peer_revocation", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10"]},
     {"test": "uak_peer_revocation_without_resident_owner_still_fences_queued_ingress", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11"]},
     {"test": "uak_final_malformed_revalidation_revokes_the_complete_peer_cohort", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11"]},
+    {"test": "uak_local_non_remote_preaccepted_removal_does_not_release_relay_state", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T10", "T11"]},
+    {"test": "uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "full_journal_does_not_run_the_state_apply_closure", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10"]},
     {"test": "ordinary_full_is_mutation_free_and_does_not_install_reset", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10"]},
@@ -621,18 +626,21 @@
     {"test": "runtime_effect_facade_retains_and_drains_a_closed_log_in_sequence", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "runtime_effect_close_wakes_an_idle_level_waiter", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "uak_effect_compiler_preserves_acceptance_and_chain_endpoint_semantics", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T4", "T7", "T10", "T12"]},
-    {"test": "uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T4", "T7", "T8", "T10"]},
+    {"test": "uak_effect_compiler_keeps_rejection_owner_and_ingress_attribution_typed", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T4", "T7", "T8", "T10"]},
     {"test": "uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T4", "T7", "T9", "T10", "T11", "T12"]},
-    {"test": "uak_ordinary_relay_saturation_publishes_reset_before_disposal", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
-    {"test": "uak_required_parent_detail_never_degrades_under_relay_saturation", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T4", "T7", "T8", "T10", "T11"]},
-    {"test": "uak_relay_disconnect_is_typed_and_does_not_claim_publication", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T10", "T11"]},
-    {"test": "uak_publisher_relay_disconnect_retains_the_authority_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T3", "T7", "T10", "T11"]},
+    {"test": "uak_ordinary_relay_saturation_reconciles_and_retains_later_results", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_required_parent_detail_follows_reset_after_relay_saturation", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T4", "T7", "T8", "T10", "T11"]},
+    {"test": "uak_relay_disconnect_opens_a_stable_external_circuit", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T10", "T11"]},
+    {"test": "uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T3", "T7", "T10", "T11"]},
     {"test": "uak_effect_publisher_claim_is_move_only_and_exclusive", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T7", "T10"]},
     {"test": "uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
     {"test": "uak_retained_batch_resumes_at_its_first_unprocessed_endpoint", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
-    {"test": "uak_cancelled_later_endpoint_does_not_replay_completed_callback", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
-    {"test": "uak_unregistered_callback_is_not_dispatched_to_the_foreign_worker", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10"]},
+    {"test": "uak_retained_later_endpoint_does_not_replay_completed_callback_cursor", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T10", "T11"]},
+    {"test": "uak_unregistered_callback_does_not_enter_the_blocking_boundary", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10"]},
     {"test": "uak_callback_uses_the_production_timeout_and_opens_one_stable_circuit", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8", "T10", "T11"]},
+    {"test": "uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_relay_mailbox_overflow_orders_reset_before_the_current_result", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_relay_parent_rebuild_pages_the_authoritative_missing_level", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "reorg_publishes_only_the_final_status_after_multiple_transitions", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},
     {"test": "overlapping_detached_proposals_requeue_each_descendant_once", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10", "T12", "T13"]},
@@ -657,6 +665,7 @@
     {"test": "uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T7", "T9", "T10", "T11"]},
     {"test": "uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "uak_runtime_chain_boundary_converges_an_unrepresentable_recovery_batch", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_chain_boundary_retains_ordered_backpressure_without_open_plan_errors", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T2", "T7", "T9", "T10", "T12", "T13"]},
 
     {"test": "save_pool_captures_complete_reorg_ownership", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "dispatcher_channel_close_quiesces_workers_and_persists_pool", "behavior_id": "TP-PERSIST-001", "invariants": ["T7", "T9", "T10", "T12", "T13"]},
@@ -677,6 +686,11 @@
     {"test": "verify_phase_capacity_growth_is_public_rejection", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11"]},
     {"test": "ingress_structural_fault_is_not_a_transaction_or_peer_rejection", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T4", "T7", "T9", "T10", "T11", "T12", "T13"]},
     {"test": "direct_submission_system_fault_is_not_transaction_policy", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T4", "T7", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "runtime_stale_plan_disposition_depends_on_the_producer_boundary", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T9", "T10", "T11", "T13"]},
+    {"test": "uak_duplicate_inputs_are_a_malformed_outcome_not_an_authority_fault", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T4", "T7", "T10", "T11"]},
+    {"test": "uak_allocation_failure_discards_result_without_retaining_compute_capability", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_topology_forbids_persistence_only_after_authority_integrity_loss", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T9", "T10", "T11", "T12", "T13"]},
+    {"test": "uak_topology_derived_timeout_does_not_forbid_persistence", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T2", "T3", "T7", "T9", "T10", "T11", "T12", "T13"]},
 
     {"test": "conflict_closure_ignores_ghost_link_nodes", "behavior_id": "TP-POOL-001", "invariants": ["T6"]},
     {"test": "status_counter_underflow_returns_typed_fault_without_partial_removal", "behavior_id": "TP-POOL-001", "invariants": ["T6"]},
@@ -723,6 +737,8 @@
     {"test": "uak_template_driver_rechecks_candidate_source_and_filters_proposal_conflicts", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "uak_template_driver_publishes_the_exact_latest_reset_generation", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T2", "T3", "T9", "T10", "T12", "T13"]},
     {"test": "uak_template_drivers_cancel_cleanly_without_idle_publication", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T7", "T8", "T10", "T13"]},
+    {"test": "uak_template_source_probe_skips_irrelevant_population_captures", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T2", "T3", "T8", "T9", "T10", "T12", "T13"]},
+    {"test": "uak_template_rebuild_failure_retains_the_last_projection_and_lane", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T2", "T3", "T7", "T9", "T10", "T12", "T13"]},
 
     {"test": "short_id_collision_is_backpressure_not_aliasing", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T8"]},
     {"test": "full_hash_lookup_does_not_alias_a_proposal_short_id_collision", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T3", "T6"]},
@@ -740,6 +756,7 @@
     {"test": "runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "uak_idle_maintenance_driver_waits_instead_of_spinning", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
     {"test": "uak_maintenance_driver_fairly_drains_every_preexisting_level", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T4", "T7", "T8", "T10", "T11", "T13"]},
+    {"test": "uak_released_allocation_failure_backs_off_before_recompute", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},
 
     {"test": "owner_fairness_and_active_caps_do_not_scan_a_capped_prefix", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10", "T11", "T13"]},
     {"test": "uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T7", "T8", "T10", "T11", "T13"]},

@@ -7,7 +7,10 @@ use super::state::{
     AcceptedAtMillis, AcceptedStatus, OwnedTx, ProposalId, RawTxHash, RemoteDeadline,
 };
 use ckb_network::PeerIndex;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    ops::Bound::{Excluded, Unbounded},
+};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct DeadlineKey {
@@ -54,7 +57,7 @@ impl AcceptedProposalIndex {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct DueRemote {
     pub(super) expires_at: RemoteDeadline,
     pub(super) hash: RawTxHash,
@@ -258,6 +261,35 @@ impl AuthorityIndexes {
             });
         }
         Ok(due)
+    }
+
+    /// Scan one bounded page of all retained Remote owners in immutable
+    /// deadline/hash order. A caller pairs the opaque cursor with an
+    /// authority read cut; if that cut changes, it restarts from the first
+    /// page rather than treating this derived index as an authority.
+    pub(super) fn remote_page_into(
+        &self,
+        after: Option<&DueRemote>,
+        limit: usize,
+        page: &mut Vec<DueRemote>,
+    ) -> Result<bool, IndexError> {
+        page.clear();
+        if page.capacity() < limit.min(self.deadlines.len()) {
+            return Err(IndexError::Allocation);
+        }
+        let after = after.map(|cursor| DeadlineKey {
+            expires_at: cursor.expires_at,
+            hash: cursor.hash.clone(),
+        });
+        let start = after.as_ref().map_or(Unbounded, Excluded);
+        let mut entries = self.deadlines.range((start, Unbounded));
+        for deadline in entries.by_ref().take(limit) {
+            page.push(DueRemote {
+                expires_at: deadline.expires_at,
+                hash: deadline.hash.clone(),
+            });
+        }
+        Ok(entries.next().is_some())
     }
 
     pub(super) fn due_accepted(

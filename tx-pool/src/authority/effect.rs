@@ -286,6 +286,18 @@ pub(super) enum EffectPolicy {
 }
 
 impl EffectPolicy {
+    /// Select publication capacity from the authority that currently drives
+    /// the owner, not from immutable ingress attribution. A transaction
+    /// promoted from Remote to Proposal still reports its result to the
+    /// original peer, but proposal-driven progress must remain available when
+    /// the peer-controlled journal region is saturated.
+    pub(super) const fn for_preaccepted_source(source: PreAcceptedSource) -> Self {
+        match source {
+            PreAcceptedSource::Remote(_) => Self::Remote,
+            PreAcceptedSource::Proposal { .. } | PreAcceptedSource::Recovery(_) => Self::Trusted,
+        }
+    }
+
     const fn class(self) -> EffectClass {
         match self {
             Self::Remote => EffectClass::Remote,
@@ -364,14 +376,19 @@ pub(super) enum CommittedAcceptance {
 /// callback and relay policy and therefore cannot be inferred after Apply.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum CommittedConflictOwner {
-    PreAccepted(Arc<TransactionView>),
+    PreAccepted {
+        tx: Arc<TransactionView>,
+        audience: RejectionAudience,
+    },
     Accepted(CommittedEntrySnapshot),
 }
 
 impl CommittedConflictOwner {
     fn charge_bytes(&self) -> Option<usize> {
         match self {
-            Self::PreAccepted(tx) => EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size()),
+            Self::PreAccepted { tx, .. } => {
+                EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
+            }
             Self::Accepted(entry) => entry.charge_bytes(),
         }
     }
@@ -397,13 +414,11 @@ pub(super) enum CommittedRejection {
     /// winner identity remain committed even when recovery history is kept.
     Replaced {
         entry: CommittedEntrySnapshot,
-        audience: RejectionAudience,
         winner: RawTxHash,
     },
     /// Accepted-pool capacity removed an Accepted member.
     CapacityEvicted {
         entry: CommittedEntrySnapshot,
-        audience: RejectionAudience,
         fee_rate: FeeRate,
     },
     /// Accepted residency elapsed. Descendants removed with an expired root
@@ -413,7 +428,6 @@ pub(super) enum CommittedRejection {
     /// An attached chain transaction invalidated a resident owner.
     ChainConflict {
         owner: CommittedConflictOwner,
-        audience: RejectionAudience,
         out_point: OutPoint,
     },
     /// Foundation-only bounded effect fixture.
@@ -433,7 +447,7 @@ impl CommittedRejection {
             | Self::CapacityEvicted { entry, .. }
             | Self::Expired { entry } => entry.tx.hash(),
             Self::ChainConflict { owner, .. } => match owner {
-                CommittedConflictOwner::PreAccepted(tx) => tx.hash(),
+                CommittedConflictOwner::PreAccepted { tx, .. } => tx.hash(),
                 CommittedConflictOwner::Accepted(entry) => entry.tx.hash(),
             },
             #[cfg(test)]
@@ -485,8 +499,7 @@ impl CommittedRejection {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct RejectionAudience {
-    pub(super) ingress_peer: Option<PeerIndex>,
-    pub(super) blame_peer: Option<PeerIndex>,
+    ingress_peer: Option<PeerIndex>,
 }
 
 /// Exact, bounded malformed-input evidence attached to an ingress-cohort
@@ -626,26 +639,25 @@ impl RejectionAudience {
     pub(super) const fn from_source(source: PreAcceptedSource) -> Self {
         Self {
             ingress_peer: source.ingress_peer(),
-            blame_peer: source.payload_blame_peer(),
         }
     }
 
-    pub(super) const fn from_owner(
-        ingress_peer: Option<PeerIndex>,
-        blame_peer: Option<PeerIndex>,
-    ) -> Self {
-        Self {
-            ingress_peer,
-            blame_peer,
-        }
+    pub(super) const fn from_ingress(ingress_peer: Option<PeerIndex>) -> Self {
+        Self { ingress_peer }
+    }
+
+    pub(super) const fn has_ingress(self) -> bool {
+        self.ingress_peer.is_some()
+    }
+
+    #[cfg(test)]
+    pub(super) const fn ingress_peer(self) -> Option<PeerIndex> {
+        self.ingress_peer
     }
 
     #[cfg(test)]
     pub(super) const fn foundation() -> Self {
-        Self {
-            ingress_peer: None,
-            blame_peer: None,
-        }
+        Self { ingress_peer: None }
     }
 }
 
@@ -653,9 +665,10 @@ impl RejectionAudience {
 pub(super) enum CommittedEffect {
     Accepted(CommittedAcceptance),
     Rejected(CommittedRejection),
-    /// The transaction became canonical while it still had a local owner.
-    /// This clears pending relay/callback projections without manufacturing a
-    /// pool status or a rejection record.
+    /// The transaction became canonical while it still had an in-flight
+    /// Remote owner. This settles the relayer's verification projection as a
+    /// successful known transaction without manufacturing a pool status,
+    /// callback or rejection record.
     ChainCommitted {
         tx_hash: RawTxHash,
         ingress_peer: PeerIndex,
@@ -671,7 +684,6 @@ pub(super) enum CommittedEffect {
     /// capacity work and does not imply hostile-peer policy.
     RemoteExpired {
         tx_hash: RawTxHash,
-        peer: PeerIndex,
     },
     /// A duplicate Remote submission was not retained, or a remote-attributed
     /// not-yet-Accepted owner was removed. No Accepted fact is published; the
@@ -1112,8 +1124,18 @@ pub(super) enum EffectError {
     Full,
     Allocation,
     Closed,
+    Projection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectSettlementPlanError {
     StaleLease,
     Projection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectClosePlanError {
+    AlreadyClosed,
 }
 
 struct AppendPlan {
@@ -1610,9 +1632,9 @@ impl EffectLog {
         }))
     }
 
-    pub(super) fn plan_checkout(&self) -> Result<Option<(EffectDelta, EffectLease)>, EffectError> {
+    pub(super) fn plan_checkout(&self) -> Option<(EffectDelta, EffectLease)> {
         if self.active.is_some() {
-            return Ok(None);
+            return None;
         }
         let queued = self.queued.front();
         let reset = self.latest_generation_reset.as_ref();
@@ -1622,9 +1644,9 @@ impl EffectLog {
             }
             (Some(queued), _) => (CheckoutSource::Queued, queued),
             (None, Some(reset)) => (CheckoutSource::GenerationReset, reset),
-            (None, None) => return Ok(None),
+            (None, None) => return None,
         };
-        Ok(Some((
+        Some((
             EffectDelta(EffectMutation::Checkout(CheckoutPlan { source })),
             EffectLease {
                 token: EffectToken {
@@ -1634,30 +1656,33 @@ impl EffectLog {
                 batch: Arc::clone(&envelope.batch),
                 processed: envelope.processed,
             },
-        )))
+        ))
     }
 
     pub(super) fn plan_settlement(
         &self,
         settlement: &EffectSettlement,
-    ) -> Result<EffectDelta, EffectError> {
-        let active = self.active.as_ref().ok_or(EffectError::StaleLease)?;
+    ) -> Result<EffectDelta, EffectSettlementPlanError> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or(EffectSettlementPlanError::StaleLease)?;
         if active.sequence != settlement.token.sequence
             || !Arc::ptr_eq(&active.batch, &settlement.batch)
             || active.processed != settlement.token.processed
         {
-            return Err(EffectError::StaleLease);
+            return Err(EffectSettlementPlanError::StaleLease);
         }
         if settlement.processed < active.processed
             || settlement.processed.0 > active.batch.publication_steps()
         {
-            return Err(EffectError::Projection);
+            return Err(EffectSettlementPlanError::Projection);
         }
         let disposition = match settlement.disposition {
             EffectDisposition::Published | EffectDisposition::CircuitDisposed
                 if !settlement.processed.is_complete(&active.batch) =>
             {
-                return Err(EffectError::Projection);
+                return Err(EffectSettlementPlanError::Projection);
             }
             EffectDisposition::Retain if settlement.processed.is_complete(&active.batch) => {
                 EffectDisposition::Published
@@ -1673,7 +1698,7 @@ impl EffectLog {
             }
             EffectDisposition::Retain => Some(self.usage),
         }
-        .ok_or(EffectError::Projection)?;
+        .ok_or(EffectSettlementPlanError::Projection)?;
         Ok(EffectDelta(EffectMutation::Settle(SettlementPlan {
             disposition,
             processed: settlement.processed,
@@ -1681,9 +1706,9 @@ impl EffectLog {
         })))
     }
 
-    pub(super) fn plan_close(&self) -> Result<EffectDelta, EffectError> {
+    pub(super) fn plan_close(&self) -> Result<EffectDelta, EffectClosePlanError> {
         if self.closed {
-            return Err(EffectError::Closed);
+            return Err(EffectClosePlanError::AlreadyClosed);
         }
         Ok(EffectDelta(EffectMutation::Close))
     }

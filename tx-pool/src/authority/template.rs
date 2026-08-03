@@ -1146,7 +1146,7 @@ pub(super) struct TemplateSourceCut {
 }
 
 impl TemplateSourceCut {
-    fn new(pool: PoolTemplateVersions, uncles: CandidateUncleSourceReceipt) -> Self {
+    pub(super) fn new(pool: PoolTemplateVersions, uncles: CandidateUncleSourceReceipt) -> Self {
         Self {
             pool: TemplatePoolSourceCut(pool),
             uncles,
@@ -1173,6 +1173,10 @@ impl TemplateSourceCut {
 }
 
 impl TemplatePoolSourceCut {
+    pub(super) fn new(versions: PoolTemplateVersions) -> Self {
+        Self(versions)
+    }
+
     fn join(self, incoming: Self) -> Self {
         Self(PoolTemplateVersions {
             proposals: self.0.proposals.max(incoming.0.proposals),
@@ -1372,6 +1376,37 @@ impl TemplateConvergence {
 
     fn observe_pool_sources(&mut self, sources: TemplatePoolSourceCut) {
         self.desired.pool = self.desired.pool.join(sources);
+    }
+
+    /// O(1) gate for the ordered reset/full lane. Accepted selection changes
+    /// are handled by optimistic component lanes; a full capture is necessary
+    /// only for a new chain source, an unpublished reset, or an explicit
+    /// component escalation. Observing the joined source here makes the level
+    /// durable without turning the probe into a second template authority.
+    pub(super) fn replacement_needs_capture(
+        &mut self,
+        sources: TemplateSourceCut,
+        published_reset: ResetEpoch,
+    ) -> bool {
+        self.observe_sources(sources);
+        self.desired.chain_source() > self.desired_reset_chain
+            || self.desired_reset != published_reset
+            || self.full_required.is_some()
+    }
+
+    pub(super) fn proposals_need_capture(&mut self, sources: TemplatePoolSourceCut) -> bool {
+        self.observe_pool_sources(sources);
+        self.is_pending(TemplateComponent::Proposals)
+    }
+
+    pub(super) fn transactions_need_capture(&mut self, sources: TemplatePoolSourceCut) -> bool {
+        self.observe_pool_sources(sources);
+        self.is_pending(TemplateComponent::Transactions)
+    }
+
+    pub(super) fn uncles_need_capture(&mut self, sources: TemplateSourceCut) -> bool {
+        self.observe_sources(sources);
+        self.is_pending(TemplateComponent::Uncles)
     }
 
     pub(super) fn begin_full(&mut self, sources: TemplateSourceCut) -> FullTemplateBuild {

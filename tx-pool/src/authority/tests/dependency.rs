@@ -153,9 +153,7 @@ fn verified_settlement_with_fee(
     else {
         panic!("dependency fixture fits the continuous compute grant");
     };
-    verify
-        .verified(0)
-        .expect("dependency fixture verification metrics are valid")
+    verify.verified(0)
 }
 
 fn accept_remote(

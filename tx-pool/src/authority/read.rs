@@ -7,7 +7,8 @@
 
 use super::template::{AuthorityTemplateReadReceipt, TemplateReadError};
 use super::{
-    indexes::AuthorityIndexes,
+    effect::ParentTransactionRequest,
+    indexes::{AuthorityIndexes, DueRemote, IndexError},
     plan::{
         AcceptedOrderKey, AncestorAggregate, DescendantAggregate, MembershipConfig,
         MembershipProjection,
@@ -16,17 +17,20 @@ use super::{
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
-        EntryVersion, KnownDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
-        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, TxIdentity, WorkPermit,
+        DependencySetError, EntryVersion, KnownDependencies, ObservedDependencies, OwnedTx,
+        PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash,
+        TxIdentity, WorkPermit,
     },
     validation::proposal_status,
 };
+use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::{Capacity, TransactionView};
 use ckb_types::packed::OutPoint;
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap},
+    num::NonZeroUsize,
     sync::Arc,
 };
 
@@ -60,6 +64,121 @@ impl AuthorityReadCut {
 
     pub(super) fn next_apply_sequence(&self) -> ApplySequence {
         self.next_apply_sequence
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RelayParentRebuildCut(ApplySequence);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct RelayParentRebuildCursor {
+    cut: RelayParentRebuildCut,
+    remote: DueRemote,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RelayParentRebuildError {
+    StaleCut,
+    Allocation,
+    Projection,
+}
+
+struct MissingParentCapture {
+    peer: PeerIndex,
+    observed: ObservedDependencies,
+}
+
+pub(super) struct RelayParentRebuildScratch {
+    remote: Vec<DueRemote>,
+    missing: Vec<MissingParentCapture>,
+}
+
+impl RelayParentRebuildScratch {
+    pub(super) fn try_new(limit: NonZeroUsize) -> Result<Self, RelayParentRebuildError> {
+        let mut remote = Vec::new();
+        let mut missing = Vec::new();
+        remote
+            .try_reserve(limit.get())
+            .map_err(|_| RelayParentRebuildError::Allocation)?;
+        missing
+            .try_reserve(limit.get())
+            .map_err(|_| RelayParentRebuildError::Allocation)?;
+        Ok(Self { remote, missing })
+    }
+}
+
+#[must_use = "captured relay evidence must be compiled after releasing the authority guard"]
+pub(super) struct PreparedRelayParentRebuildPage {
+    cut: RelayParentRebuildCut,
+    remote: Vec<DueRemote>,
+    missing: Vec<MissingParentCapture>,
+    next: Option<RelayParentRebuildCursor>,
+}
+
+impl PreparedRelayParentRebuildPage {
+    pub(super) fn finish(self) -> Result<RelayParentRebuildPage, RelayParentRebuildError> {
+        let Self {
+            cut,
+            remote: _remote,
+            missing,
+            next,
+        } = self;
+        let mut requests = Vec::new();
+        requests
+            .try_reserve(missing.len())
+            .map_err(|_| RelayParentRebuildError::Allocation)?;
+        for capture in missing {
+            let parents = capture.observed.parent_transactions()?;
+            if let Some(request) = ParentTransactionRequest::new(capture.peer, parents) {
+                requests.push(request);
+            }
+        }
+        Ok(RelayParentRebuildPage {
+            cut,
+            requests,
+            next,
+        })
+    }
+}
+
+#[must_use = "a relay rebuild page must be consumed or its continuation retained"]
+pub(super) struct RelayParentRebuildPage {
+    cut: RelayParentRebuildCut,
+    requests: Vec<ParentTransactionRequest>,
+    next: Option<RelayParentRebuildCursor>,
+}
+
+impl RelayParentRebuildPage {
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        RelayParentRebuildCut,
+        Vec<ParentTransactionRequest>,
+        Option<RelayParentRebuildCursor>,
+    ) {
+        (self.cut, self.requests, self.next)
+    }
+}
+
+impl From<IndexError> for RelayParentRebuildError {
+    fn from(error: IndexError) -> Self {
+        match error {
+            IndexError::Allocation => Self::Allocation,
+            IndexError::ProposalCollision | IndexError::Projection | IndexError::Arithmetic => {
+                Self::Projection
+            }
+        }
+    }
+}
+
+impl From<DependencySetError> for RelayParentRebuildError {
+    fn from(error: DependencySetError) -> Self {
+        match error {
+            DependencySetError::Allocation => Self::Allocation,
+            DependencySetError::Empty
+            | DependencySetError::TooMany
+            | DependencySetError::Arithmetic => Self::Projection,
+        }
     }
 }
 
@@ -289,6 +408,7 @@ pub(super) struct AuthorityReadView<'authority> {
     membership: &'authority MembershipProjection,
     accepted_resources: AcceptedResources,
     membership_config: MembershipConfig,
+    relay_parent_source: ApplySequence,
     template_sources: PoolTemplateVersions,
 }
 
@@ -300,6 +420,7 @@ impl<'authority> AuthorityReadView<'authority> {
         membership: &'authority MembershipProjection,
         accepted_resources: AcceptedResources,
         membership_config: MembershipConfig,
+        relay_parent_source: ApplySequence,
         template_sources: PoolTemplateVersions,
     ) -> Self {
         Self {
@@ -309,12 +430,85 @@ impl<'authority> AuthorityReadView<'authority> {
             membership,
             accepted_resources,
             membership_config,
+            relay_parent_source,
             template_sources,
         }
     }
 
     pub(super) fn cut(&self) -> &AuthorityReadCut {
         &self.cut
+    }
+
+    /// Capture one bounded scan page of the current Remote missing-parent
+    /// level. The cursor is valid only for the exact relay-parent source cut
+    /// that produced it. A relevant owner transition forces the derived
+    /// relayer projection to restart; unrelated effect and owner transitions
+    /// cannot starve a bounded rebuild.
+    ///
+    /// Scratch capacity is acquired before the caller takes the authority
+    /// read guard. This method therefore performs no fallible allocation while
+    /// holding the guard; parent-list allocation happens in `finish` after the
+    /// guard is released.
+    pub(super) fn capture_relay_parent_rebuild(
+        &self,
+        cursor: Option<RelayParentRebuildCursor>,
+        limit: NonZeroUsize,
+        mut scratch: RelayParentRebuildScratch,
+    ) -> Result<PreparedRelayParentRebuildPage, RelayParentRebuildError> {
+        let cut = RelayParentRebuildCut(self.relay_parent_source);
+        let after = match cursor {
+            Some(cursor) if cursor.cut != cut => return Err(RelayParentRebuildError::StaleCut),
+            Some(cursor) => Some(cursor.remote),
+            None => None,
+        };
+        let has_more =
+            self.indexes
+                .remote_page_into(after.as_ref(), limit.get(), &mut scratch.remote)?;
+
+        for due in &scratch.remote {
+            let OwnedTx::PreAccepted(entry) = self
+                .entries
+                .get(&due.hash)
+                .ok_or(RelayParentRebuildError::Projection)?
+            else {
+                return Err(RelayParentRebuildError::Projection);
+            };
+            if entry.source.active_remote_deadline() != Some(due.expires_at) {
+                return Err(RelayParentRebuildError::Projection);
+            }
+            let PreAcceptedPhase::Waiting(observed) = &entry.phase else {
+                continue;
+            };
+            let peer = entry
+                .source
+                .ingress_peer()
+                .ok_or(RelayParentRebuildError::Projection)?;
+            scratch.missing.push(MissingParentCapture {
+                peer,
+                observed: observed.clone(),
+            });
+        }
+
+        let next = if has_more {
+            let remote = scratch
+                .remote
+                .last()
+                .cloned()
+                .ok_or(RelayParentRebuildError::Projection)?;
+            Some(RelayParentRebuildCursor { cut, remote })
+        } else {
+            None
+        };
+        Ok(PreparedRelayParentRebuildPage {
+            cut,
+            remote: scratch.remote,
+            missing: scratch.missing,
+            next,
+        })
+    }
+
+    pub(super) fn relay_parent_rebuild_cut_is_current(&self, cut: &RelayParentRebuildCut) -> bool {
+        cut.0 == self.relay_parent_source
     }
 
     pub(super) fn entry_by_raw(&self, hash: &RawTxHash) -> Option<AuthorityReadEntry<'authority>> {

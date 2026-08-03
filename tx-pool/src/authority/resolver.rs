@@ -13,18 +13,18 @@ use super::{
     },
     ingress::{DirectCommand, DirectTransaction},
     plan::TxPoolAuthority,
-    rejection::DirectTransactionRejection,
+    rejection::{DirectTransactionRejection, duplicate_inputs_reject},
     resources::AcceptedCost,
     state::{
         ApplySequence, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
-        DependencySetError, FootprintError, InputEvidenceError, OwnedTx, PayloadPolicy, RawTxHash,
+        InputEvidenceDisposition, InputEvidenceError, OwnedTx, PayloadPolicy, RawTxHash,
         ResolvedPayload, VerifyCycleClass,
     },
     validation::{proposal_status, verification_environment},
     work::{
         ComputeSettlement, ContinuousResolution, ContinuousResolveWork, ContinuousVerifyWork,
         ReceiptFailure, ResolutionEvidence, ResolutionReceiptError, ResolveWork,
-        VerificationReceiptError, VerifyWork,
+        SnapshotBoundVerifyWork, VerifyWork,
     },
 };
 use crate::{
@@ -70,6 +70,11 @@ pub(super) struct DirectResolutionSeal(());
 /// rules and cache identity. It is intentionally distinct from block
 /// verification evidence.
 pub(super) struct DirectVerificationSeal(());
+
+/// Production capability for constructing resolution evidence. Its private
+/// field keeps the evidence producer inside this resolver; test fixtures use
+/// the separately cfg-gated constructor in `work`.
+pub(super) struct ResolutionEvidenceSeal(());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DirectComputationError {
@@ -481,7 +486,19 @@ pub(super) enum ResolutionExecutionKind {
     StaleView,
     ComputeBudget,
     ResourceUnavailable,
-    InvalidReceipt(ResolutionReceiptError),
+    InvalidReceipt(ResolutionReceiptDefect),
+}
+
+/// Closed programmer-defect subset of resolution receipt failures.
+///
+/// Allocation pressure is deliberately absent: the resolver converts it to
+/// `ResourceUnavailable` before this type is constructed, so a worker cannot
+/// accidentally promote a legal allocator failure to generation invalidation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResolutionReceiptDefect {
+    TransactionMismatch,
+    InvalidEvidence(InputEvidenceError),
+    EmptyDependencies,
 }
 
 #[derive(Debug)]
@@ -493,7 +510,22 @@ pub(super) struct ResolutionExecutionFailure {
 
 impl ResolutionExecutionFailure {
     fn from_resolution_receipt(failure: ReceiptFailure<ResolutionReceiptError>) -> Self {
-        let kind = ResolutionExecutionKind::InvalidReceipt(*failure.error());
+        let kind = match *failure.error() {
+            ResolutionReceiptError::DependencyAllocation => {
+                ResolutionExecutionKind::ResourceUnavailable
+            }
+            ResolutionReceiptError::TransactionMismatch => ResolutionExecutionKind::InvalidReceipt(
+                ResolutionReceiptDefect::TransactionMismatch,
+            ),
+            ResolutionReceiptError::InvalidEvidence(error) => {
+                ResolutionExecutionKind::InvalidReceipt(ResolutionReceiptDefect::InvalidEvidence(
+                    error,
+                ))
+            }
+            ResolutionReceiptError::EmptyDependencies => {
+                ResolutionExecutionKind::InvalidReceipt(ResolutionReceiptDefect::EmptyDependencies)
+            }
+        };
         Self {
             kind,
             settlement: failure.into_settlement(),
@@ -620,7 +652,8 @@ impl ResolutionJob {
             }
         };
         self.work.resolved(
-            ResolutionEvidence::new(
+            ResolutionEvidence::from_resolution(
+                ResolutionEvidenceSeal(()),
                 resolved.transaction,
                 resolved.fee,
                 resolved.resident_bytes,
@@ -1018,14 +1051,20 @@ impl DirectResolutionJob {
             resolved.resident_bytes,
         ) {
             Ok(payload) => Arc::new(payload),
-            Err(
-                InputEvidenceError::Footprint(FootprintError::TooManyEdges)
-                | InputEvidenceError::DependencySet(DependencySetError::TooMany),
-            ) => return Ok(self.resource_rejected()),
-            Err(InputEvidenceError::DependencySet(DependencySetError::Allocation)) => {
-                return Err(DirectComputationError::ResourceUnavailable);
-            }
-            Err(_) => return Err(DirectComputationError::InvalidEvidence),
+            Err(error) => match error.disposition() {
+                InputEvidenceDisposition::MalformedTransaction => {
+                    return Ok(self.rejected(duplicate_inputs_reject()));
+                }
+                InputEvidenceDisposition::ResourceDenied => {
+                    return Ok(self.resource_rejected());
+                }
+                InputEvidenceDisposition::ResourceUnavailable => {
+                    return Err(DirectComputationError::ResourceUnavailable);
+                }
+                InputEvidenceDisposition::Structural => {
+                    return Err(DirectComputationError::InvalidEvidence);
+                }
+            },
         };
         let location = CellLocationReceipt::from_resolution(&self.view, &payload);
         let status = proposal_status(&self.snapshot, &self.tx.proposal_short_id());
@@ -1254,68 +1293,6 @@ fn collect_cell_status(
     }
 }
 
-#[derive(Debug)]
-enum VerifyLeaseWork {
-    Verify(VerifyWork),
-    Continuous(ContinuousVerifyWork),
-}
-
-impl VerifyLeaseWork {
-    fn transaction(&self) -> &TransactionView {
-        match self {
-            Self::Verify(work) => work.transaction(),
-            Self::Continuous(work) => work.transaction(),
-        }
-    }
-
-    fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
-        match self {
-            Self::Verify(work) => work.resolved_transaction(),
-            Self::Continuous(work) => work.resolved_transaction(),
-        }
-    }
-
-    fn payload_policy(&self) -> PayloadPolicy {
-        match self {
-            Self::Verify(work) => work.payload_policy(),
-            Self::Continuous(work) => work.payload_policy(),
-        }
-    }
-
-    fn chain_view(&self) -> &super::state::ChainViewId {
-        match self {
-            Self::Verify(work) => work.chain_view(),
-            Self::Continuous(work) => work.chain_view(),
-        }
-    }
-
-    fn verified(
-        self,
-        cycles: u64,
-        time: super::chain::TimeContextReceipt,
-    ) -> Result<ComputeSettlement, super::work::ReceiptFailure<super::work::VerificationReceiptError>>
-    {
-        match self {
-            Self::Verify(work) => work.verified_with_time_context(cycles, time),
-            Self::Continuous(work) => work.verified_with_time_context(cycles, time),
-        }
-    }
-
-    fn rejected(self, reason: Reject) -> ComputeSettlement {
-        match self {
-            Self::Verify(work) => work.rejected(reason),
-            Self::Continuous(work) => work.rejected(reason),
-        }
-    }
-
-    fn retry(self) -> ComputeSettlement {
-        match self {
-            Self::Verify(work) => work.internal_failure(),
-            Self::Continuous(work) => work.internal_failure(),
-        }
-    }
-}
-
 /// Script-verification capability paired with the snapshot used to resolve its
 /// retained cell metadata. The production runner derives the verification
 /// environment and cache rules from this object; callers cannot pass a nearby
@@ -1323,7 +1300,7 @@ impl VerifyLeaseWork {
 #[derive(Debug)]
 #[must_use = "verification work must produce one settlement"]
 pub(super) struct VerificationJob {
-    work: VerifyLeaseWork,
+    work: SnapshotBoundVerifyWork,
     snapshot: Arc<Snapshot>,
 }
 
@@ -1381,46 +1358,23 @@ pub(in crate::authority) struct VerificationExecution {
     pub(in crate::authority) cache_hit: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum VerificationExecutionKind {
-    InvalidReceipt(VerificationReceiptError),
-}
-
-#[derive(Debug)]
-#[must_use = "failed verification execution still owns the exact retry settlement"]
-pub(in crate::authority) struct VerificationExecutionFailure {
-    kind: VerificationExecutionKind,
-    settlement: ComputeSettlement,
-}
-
-impl VerificationExecutionFailure {
-    pub(in crate::authority) fn kind(&self) -> VerificationExecutionKind {
-        self.kind
-    }
-
-    pub(in crate::authority) fn into_settlement(self) -> ComputeSettlement {
-        self.settlement
-    }
-}
-
 impl VerificationJob {
     pub(super) fn from_checkout(
         work: VerifyWork,
         snapshot: Arc<Snapshot>,
     ) -> Result<Self, ResolutionExecutionFailure> {
-        let work = VerifyLeaseWork::Verify(work);
-        if snapshot.tip_hash() != work.chain_view().tip().0 {
-            return Err(ResolutionExecutionFailure {
+        let work = work
+            .bind_current(&snapshot.tip_hash())
+            .map_err(|settlement| ResolutionExecutionFailure {
                 kind: ResolutionExecutionKind::StaleView,
-                settlement: work.retry(),
-            });
-        }
+                settlement,
+            })?;
         Ok(Self { work, snapshot })
     }
 
     fn from_continuation(work: ContinuousVerifyWork, snapshot: Arc<Snapshot>) -> Self {
         Self {
-            work: VerifyLeaseWork::Continuous(work),
+            work: work.into_current(),
             snapshot,
         }
     }
@@ -1462,9 +1416,8 @@ impl VerificationJob {
         self,
         cycles: u64,
         rules: ckb_verification::cache::ScriptVerificationRules,
-    ) -> Result<ComputeSettlement, super::work::ReceiptFailure<super::work::VerificationReceiptError>>
-    {
-        self.work.verified(
+    ) -> ComputeSettlement {
+        self.work.verified_with_time_context(
             cycles,
             super::chain::TimeContextReceipt::from_validation(rules),
         )
@@ -1475,7 +1428,7 @@ impl VerificationJob {
     }
 
     pub(super) fn retry(self) -> ComputeSettlement {
-        self.work.retry()
+        self.work.internal_failure()
     }
 }
 
@@ -1506,7 +1459,7 @@ impl CacheBoundTxPoolVerification {
     pub(in crate::authority) async fn execute(
         self,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Result<VerificationExecution, VerificationExecutionFailure> {
+    ) -> VerificationExecution {
         let CacheBoundTxPoolVerification {
             request:
                 TxPoolVerificationRequest {
@@ -1532,40 +1485,31 @@ impl CacheBoundTxPoolVerification {
         let completed = match verified {
             Ok(completed) => completed,
             Err(reject) => {
-                return Ok(VerificationExecution {
+                return VerificationExecution {
                     settlement: work.rejected(reject),
                     cache_update: None,
                     cache_hit: cache_entry.is_some(),
-                });
+                };
             }
         };
         let policy_accepts_cycles = match policy {
             PayloadPolicy::RemoteDeclaredCycles(declared) => declared == completed.cycles,
             PayloadPolicy::Trusted => true,
         };
-        let settlement = match work.verified(
+        let settlement = work.verified_with_time_context(
             completed.cycles,
             super::chain::TimeContextReceipt::from_validation(cache_key.script_rules()),
-        ) {
-            Ok(settlement) => settlement,
-            Err(failure) => {
-                let kind = VerificationExecutionKind::InvalidReceipt(*failure.error());
-                return Err(VerificationExecutionFailure {
-                    kind,
-                    settlement: failure.into_settlement(),
-                });
-            }
-        };
+        );
         let cache_update =
             (cache_entry.is_none() && policy_accepts_cycles).then_some(VerificationCacheUpdate {
                 key: cache_key,
                 completed,
             });
-        Ok(VerificationExecution {
+        VerificationExecution {
             settlement,
             cache_update,
             cache_hit: cache_entry.is_some(),
-        })
+        }
     }
 }
 

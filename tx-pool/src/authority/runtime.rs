@@ -23,16 +23,20 @@ use super::{
         RetainedIngressRejection, direct,
     },
     plan::{
-        AuthorityConfigError, AuthorityFault, Backpressure, CandidateBatchError,
-        CandidateDispositionPlan, CommittedDelta, ComputeCancellation, ComputeCancellationError,
-        ComputeSettlementFailure, DirectAdmissionDisposition, DirectAdmissionEvaluation,
-        EffectSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
-        MembershipConfig, MembershipReject, PlanError, RetainedAdmissionDisposition,
-        SettlementBatch, SettlementPlan, TxPoolAuthority,
+        AuthorityConfigError, AuthorityFault, Backpressure, CandidateDispositionPlan,
+        CommittedDelta, ComputeCancellation, ComputeCancellationError, ComputeSettlementFailure,
+        DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectCheckoutError,
+        EffectCloseError, EffectSettlementFailure, FinalAdmissionDispositionPlan,
+        IndependentCandidate, MembershipConfig, MembershipReject, PlanError,
+        RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
         CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
+    },
+    read::{
+        RelayParentRebuildCursor, RelayParentRebuildCut, RelayParentRebuildError,
+        RelayParentRebuildPage, RelayParentRebuildScratch,
     },
     resolver::{
         CacheBoundDirectVerification, CacheBoundTxPoolVerification, DirectComputationError,
@@ -40,7 +44,7 @@ use super::{
         DirectResolutionProbeObservation, DirectVerificationOutcome, DirectVerificationRequest,
         DirectVerifiedCandidate, ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob,
         ResolutionProbeObservation, TxPoolVerificationRequest, VerificationCacheUpdate,
-        VerificationExecutionKind, VerificationJob,
+        VerificationJob,
     },
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
@@ -69,6 +73,8 @@ use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_util::{RwLock, parking_lot::RwLockUpgradableReadGuard};
 use ckb_verification::cache::ScriptVerificationRules;
 use lru::LruCache;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::{
     num::NonZeroUsize,
     ops::ControlFlow,
@@ -464,37 +470,24 @@ pub(crate) struct AuthorityStore {
 /// the store guard, and subscribes before that attempt so a concurrent Apply
 /// cannot be missed.
 struct AuthoritySignals {
-    resolve: Arc<Notify>,
-    verify: Arc<Notify>,
-    ready: Arc<Notify>,
+    mutation: Arc<Notify>,
     effect_publisher_running: AtomicBool,
 }
 
 impl AuthoritySignals {
     fn new() -> Self {
         Self {
-            resolve: Arc::new(Notify::new()),
-            verify: Arc::new(Notify::new()),
-            ready: Arc::new(Notify::new()),
+            mutation: Arc::new(Notify::new()),
             effect_publisher_running: AtomicBool::new(false),
-        }
-    }
-
-    fn for_permit(&self, permit: WorkPermit) -> &Arc<Notify> {
-        match permit {
-            WorkPermit::ResolveOnly | WorkPermit::ResolveThenVerify(_) => &self.resolve,
-            WorkPermit::VerifyOnly(_) => &self.verify,
         }
     }
 
     fn publish_mutation(&self) {
         // Publication occurs only after the authority guard has opened and
-        // retirement carriers have been destroyed. Waking both lanes avoids
-        // a hand-maintained transition-to-signal table; Notify coalesces hints
-        // while the scheduler remains the sole level authority.
-        self.resolve.notify_waiters();
-        self.verify.notify_waiters();
-        self.ready.notify_waiters();
+        // retirement carriers have been destroyed. One shared hint avoids a
+        // hand-maintained transition-to-signal table and duplicate wake
+        // publication; each consumer reads its own authoritative level.
+        self.mutation.notify_waiters();
     }
 }
 
@@ -526,7 +519,55 @@ pub(crate) struct AuthorityRuntime {
     resolution_policy: ResolutionPolicy,
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
-    transient_compute: Arc<Semaphore>,
+    transient_compute: ComputeGate,
+    #[cfg(test)]
+    template_captures: Arc<AtomicUsize>,
+}
+
+/// Private count-only execution gate. No close operation is exposed: service
+/// shutdown cancels waiters, so Tokio's semaphore-close state cannot become a
+/// third runtime outcome or a background-lane quarantine protocol.
+#[derive(Clone)]
+struct ComputeGate {
+    permits: Arc<Semaphore>,
+}
+
+impl ComputeGate {
+    fn new(permits: NonZeroUsize) -> Self {
+        Self {
+            permits: Arc::new(Semaphore::new(permits.get())),
+        }
+    }
+
+    async fn acquire(&self, cancel: &CancellationToken) -> Option<OwnedSemaphorePermit> {
+        let acquire = Arc::clone(&self.permits).acquire_owned();
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => None,
+            result = acquire => {
+                // `ComputeGate` exposes no close capability. An acquire error
+                // therefore has the same only legal disposition as topology
+                // cancellation and cannot be triggered by transaction input.
+                let permit = result.ok()?;
+                if cancel.is_cancelled() {
+                    drop(permit);
+                    None
+                } else {
+                    Some(permit)
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn try_acquire(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.permits).try_acquire_owned().ok()
+    }
+
+    #[cfg(test)]
+    fn available_permits(&self) -> usize {
+        self.permits.available_permits()
+    }
 }
 
 /// One slot in the tx-pool-only transient compute partition. It carries no
@@ -544,6 +585,162 @@ pub(in crate::authority) struct AuthorityComputeExecutionPermit {
 pub(super) enum AuthorityMaintenanceOutcome {
     Idle,
     Applied { owners: usize },
+}
+
+/// Closed progress contract shared by authority-owned background drivers.
+///
+/// A driver may retry only after an observed stale cut, allocator recovery or
+/// effect capacity publication. Every other producer outcome is translated at
+/// the authority boundary into a structural fault, so adding a broad
+/// `PlanError` variant cannot silently create a retry loop in a worker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityDriverError {
+    Stale,
+    Allocation,
+    EffectCapacity,
+    LifecycleClosed,
+    Fault(AuthorityFault),
+}
+
+/// Closed result for synchronous administrative commands planned entirely
+/// under the authority write guard. These commands carry no lock-external OCC
+/// evidence, so stale or membership-only planner outcomes are structural;
+/// allocator and effect-capacity pressure remain retryable service outcomes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum AuthorityAdministrationError {
+    Allocation,
+    EffectCapacity,
+    LifecycleClosed,
+    Fault(AuthorityFault),
+}
+
+impl AuthorityAdministrationError {
+    fn from_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Backpressure(Backpressure::Allocation) => Self::Allocation,
+            PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
+            PlanError::EffectClosed => Self::LifecycleClosed,
+            PlanError::Fault(fault) => Self::Fault(fault),
+            PlanError::Backpressure(Backpressure::ProposalCollision) => {
+                Self::Fault(AuthorityFault::IndexProjection)
+            }
+            PlanError::Backpressure(
+                Backpressure::TotalResources
+                | Backpressure::RemoteResources
+                | Backpressure::PeerResources
+                | Backpressure::AcceptedResources,
+            ) => Self::Fault(AuthorityFault::ResourceProjection),
+            PlanError::Backpressure(
+                Backpressure::ComputeResources | Backpressure::GenerationReplacement,
+            ) => Self::Fault(AuthorityFault::SchedulerProjection),
+            PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::IngressRevoked(_)
+            | PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
+        }
+    }
+}
+
+impl AuthorityDriverError {
+    /// Translate a Plan that consumes lock-external OCC evidence. A stale
+    /// owner or view is an ordinary concurrent outcome only at this boundary.
+    fn from_ready_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Stale(_) => Self::Stale,
+            PlanError::Backpressure(Backpressure::Allocation) => Self::Allocation,
+            PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
+            PlanError::EffectClosed => Self::LifecycleClosed,
+            PlanError::Fault(fault) => Self::Fault(fault),
+            PlanError::Backpressure(Backpressure::ProposalCollision) => {
+                Self::Fault(AuthorityFault::IndexProjection)
+            }
+            PlanError::Backpressure(
+                Backpressure::TotalResources
+                | Backpressure::RemoteResources
+                | Backpressure::PeerResources
+                | Backpressure::AcceptedResources,
+            ) => Self::Fault(AuthorityFault::ResourceProjection),
+            PlanError::Backpressure(
+                Backpressure::ComputeResources | Backpressure::GenerationReplacement,
+            ) => Self::Fault(AuthorityFault::SchedulerProjection),
+            PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::IngressRevoked(_) => Self::Fault(AuthorityFault::MembershipProjection),
+        }
+    }
+
+    /// Translate maintenance planned entirely under one authority write
+    /// guard. No external receipt can race this Plan, so a stale owner here
+    /// proves a producer/projection contradiction instead of useful progress.
+    fn from_maintenance_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
+            error => Self::from_ready_plan(error),
+        }
+    }
+
+    fn from_validation_defect(error: FinalAdmissionValidationError) -> Self {
+        match error {
+            FinalAdmissionValidationError::StaleView => {
+                Self::Fault(AuthorityFault::MembershipProjection)
+            }
+            FinalAdmissionValidationError::Allocation => Self::Allocation,
+            FinalAdmissionValidationError::Arithmetic => {
+                Self::Fault(AuthorityFault::ResourceProjection)
+            }
+            FinalAdmissionValidationError::MissingChainLocation(_)
+            | FinalAdmissionValidationError::CellContentMismatch(_)
+            | FinalAdmissionValidationError::ContextReceipt => {
+                Self::Fault(AuthorityFault::MembershipProjection)
+            }
+        }
+    }
+
+    /// The scheduler selection and first Ready capture share one immutable
+    /// authority read cut. Stale ownership at this boundary is therefore a
+    /// scheduler projection defect, not lock-external OCC progress.
+    fn from_initial_ready_capture(error: FinalAdmissionCaptureError) -> Self {
+        match error {
+            FinalAdmissionCaptureError::Plan(PlanError::Stale(_)) => {
+                Self::Fault(AuthorityFault::SchedulerProjection)
+            }
+            FinalAdmissionCaptureError::Plan(error) => Self::from_ready_plan(error),
+            FinalAdmissionCaptureError::Validation(error) => Self::from_validation_defect(error),
+            FinalAdmissionCaptureError::Allocation => Self::Allocation,
+        }
+    }
+
+    /// Preparation owns the snapshot and Ready work captured from the same
+    /// cut. A stale view here cannot be caused by a concurrent writer.
+    fn from_ready_preparation(error: FinalAdmissionCaptureError) -> Self {
+        match error {
+            FinalAdmissionCaptureError::Validation(error) => Self::from_validation_defect(error),
+            FinalAdmissionCaptureError::Allocation => Self::Allocation,
+            FinalAdmissionCaptureError::Plan(_) => Self::Fault(AuthorityFault::SchedulerProjection),
+        }
+    }
+
+    /// The second Ready read deliberately crosses a lock-external preparation
+    /// window, so exact owner/view staleness is an ordinary OCC miss here.
+    fn from_ready_recheck(error: FinalAdmissionCaptureError) -> Self {
+        match error {
+            FinalAdmissionCaptureError::Plan(error) => Self::from_ready_plan(error),
+            FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::StaleView) => {
+                Self::Stale
+            }
+            FinalAdmissionCaptureError::Validation(error) => Self::from_validation_defect(error),
+            FinalAdmissionCaptureError::Allocation => Self::Allocation,
+        }
+    }
+
+    fn from_ready_validation(error: ReadyValidationError) -> Self {
+        match error {
+            ReadyValidationError::Candidate(error) => Self::from_validation_defect(error),
+            ReadyValidationError::Allocation => Self::Allocation,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -618,14 +815,31 @@ impl AuthorityVerificationRequest {
 }
 
 #[derive(Debug)]
-pub(in crate::authority) enum AuthorityRuntimeError {
-    Plan(PlanError),
-    Capture(ResolutionExecutionKind),
-    Execution(ResolutionExecutionKind),
-    Verification(VerificationExecutionKind),
-    FinalCapture(FinalAdmissionCaptureError),
-    ReadyValidation(ReadyValidationError),
-    ComputeGateClosed,
+pub(in crate::authority) enum AuthorityComputeError {
+    Allocation,
+    ComputeCapacity,
+    EffectCapacity,
+    LifecycleClosed,
+    Fault(AuthorityFault),
+    Resolution(ResolutionExecutionKind),
+}
+
+impl AuthorityComputeError {
+    /// Checkout selects and consumes its scheduler ticket under one authority
+    /// write guard. Unlike Ready validation, it has no lock-external OCC cut;
+    /// a stale ticket therefore cannot be retried as ordinary progress.
+    fn from_checkout_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Stale(_) => Self::Fault(AuthorityFault::SchedulerProjection),
+            error => match AuthorityDriverError::from_ready_plan(error) {
+                AuthorityDriverError::Stale => Self::Fault(AuthorityFault::SchedulerProjection),
+                AuthorityDriverError::Allocation => Self::Allocation,
+                AuthorityDriverError::EffectCapacity => Self::EffectCapacity,
+                AuthorityDriverError::LifecycleClosed => Self::LifecycleClosed,
+                AuthorityDriverError::Fault(fault) => Self::Fault(fault),
+            },
+        }
+    }
 }
 
 /// Semantic result whose exact linear capability was being committed when
@@ -636,7 +850,6 @@ pub(in crate::authority) enum AuthorityRuntimeError {
 pub(in crate::authority) enum SettlementOrigin {
     Capture(ResolutionExecutionKind),
     Resolution(ResolutionExecutionKind),
-    Verification(VerificationExecutionKind),
     Completion,
 }
 
@@ -685,8 +898,6 @@ impl AuthorityPendingSettlement {
 pub(in crate::authority) enum ReadyValidationError {
     Candidate(FinalAdmissionValidationError),
     Allocation,
-    Empty,
-    Batch(CandidateBatchError),
 }
 
 #[derive(Debug)]
@@ -796,10 +1007,55 @@ pub(super) enum AuthorityTestAcceptOutcome {
     Retry,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AuthorityDirectAdmissionError {
-    Validation(FinalAdmissionValidationError),
-    Plan(PlanError),
+    Stale,
+    ResourceUnavailable,
+    EffectCapacity,
+    ProposalCollision,
+    LifecycleClosed,
+    Fault(AuthorityFault),
+}
+
+impl AuthorityDirectAdmissionError {
+    fn from_validation(error: FinalAdmissionValidationError) -> Self {
+        match error {
+            FinalAdmissionValidationError::StaleView => Self::Stale,
+            FinalAdmissionValidationError::Allocation => Self::ResourceUnavailable,
+            FinalAdmissionValidationError::Arithmetic => {
+                Self::Fault(AuthorityFault::ResourceProjection)
+            }
+            FinalAdmissionValidationError::MissingChainLocation(_)
+            | FinalAdmissionValidationError::CellContentMismatch(_)
+            | FinalAdmissionValidationError::ContextReceipt => {
+                Self::Fault(AuthorityFault::MembershipProjection)
+            }
+        }
+    }
+
+    fn from_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Stale(_) => Self::Stale,
+            PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
+            PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
+            PlanError::Backpressure(Backpressure::ProposalCollision) => Self::ProposalCollision,
+            PlanError::EffectClosed => Self::LifecycleClosed,
+            PlanError::Fault(fault) => Self::Fault(fault),
+            PlanError::Backpressure(
+                Backpressure::TotalResources
+                | Backpressure::RemoteResources
+                | Backpressure::PeerResources
+                | Backpressure::AcceptedResources,
+            ) => Self::Fault(AuthorityFault::ResourceProjection),
+            PlanError::Backpressure(
+                Backpressure::ComputeResources | Backpressure::GenerationReplacement,
+            ) => Self::Fault(AuthorityFault::SchedulerProjection),
+            PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::IngressRevoked(_) => Self::Fault(AuthorityFault::MembershipProjection),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -867,18 +1123,23 @@ pub(in crate::authority) enum AuthorityComputeCheckout {
 }
 
 #[must_use = "captured Ready validation work must be validated or discarded as stale"]
-struct ReadyValidationBatch(Vec<FinalAdmissionValidation>);
+struct ReadyValidationBatch {
+    head: FinalAdmissionValidation,
+    tail: Vec<FinalAdmissionValidation>,
+}
 
 #[must_use = "Ready work must be preallocated and rechecked against one later authority cut"]
 struct ReadyWorkBatch {
     snapshot: Arc<Snapshot>,
-    works: Vec<FinalAdmissionWork>,
+    head: FinalAdmissionWork,
+    tail: Vec<FinalAdmissionWork>,
 }
 
 #[must_use = "prepared Ready work must complete its OCC capture"]
 struct PreparedReadyValidationBatch {
-    prepared: Vec<PreparedFinalAdmissionValidation>,
-    completed: Vec<FinalAdmissionValidation>,
+    head: PreparedFinalAdmissionValidation,
+    tail: Vec<PreparedFinalAdmissionValidation>,
+    completed_tail: Vec<FinalAdmissionValidation>,
 }
 
 enum ReadyDisposition {
@@ -903,7 +1164,7 @@ impl AuthorityRuntime {
         let resolution_policy = runtime.resolution_policy;
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
-        let transient_compute = Arc::new(Semaphore::new(runtime.transient_compute_permits.get()));
+        let transient_compute = ComputeGate::new(runtime.transient_compute_permits);
         Ok(Self {
             store: Arc::new(RwLock::new(AuthorityStore::from_runtime(
                 runtime, snapshot,
@@ -913,6 +1174,8 @@ impl AuthorityRuntime {
             expiry_policy,
             verify_workers,
             transient_compute,
+            #[cfg(test)]
+            template_captures: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -1050,6 +1313,8 @@ impl AuthorityRuntime {
     pub(in crate::authority) fn template_input(
         &self,
     ) -> Result<AuthorityTemplateInput, TemplateReadError> {
+        #[cfg(test)]
+        self.template_captures.fetch_add(1, Ordering::Relaxed);
         let (snapshot, receipt) = {
             let store = self.store.read();
             (
@@ -1058,6 +1323,11 @@ impl AuthorityRuntime {
             )
         };
         AuthorityTemplateInput::from_capture(snapshot, receipt)
+    }
+
+    #[cfg(test)]
+    pub(super) fn template_capture_count_for_foundation(&self) -> usize {
+        self.template_captures.load(Ordering::Relaxed)
     }
 
     /// Exact chain source used only at the short template publication Apply.
@@ -1076,16 +1346,55 @@ impl AuthorityRuntime {
         self.store.read().authority.template_source_versions()
     }
 
+    /// Capture one bounded page of the authoritative Remote missing-parent
+    /// level for relayer reconciliation. Buffer reservation occurs before the
+    /// authority guard; request compilation occurs after it. A caller must
+    /// retain the returned cursor until the page stream ends and then validate
+    /// the returned cut before declaring the derived relay view converged.
+    pub(in crate::authority) fn relay_parent_rebuild_page(
+        &self,
+        cursor: Option<RelayParentRebuildCursor>,
+        scan_limit: NonZeroUsize,
+    ) -> Result<RelayParentRebuildPage, RelayParentRebuildError> {
+        let scratch = RelayParentRebuildScratch::try_new(scan_limit)?;
+        let prepared = {
+            let store = self.store.read();
+            store
+                .authority
+                .read_view()
+                .capture_relay_parent_rebuild(cursor, scan_limit, scratch)?
+        };
+        prepared.finish()
+    }
+
+    /// Validate the completed rebuild against the current relay-parent source.
+    /// False is ordinary OCC staleness: the relayer restarts from the first
+    /// page and never asks the authority to retain a derived cursor.
+    pub(in crate::authority) fn relay_parent_rebuild_cut_is_current(
+        &self,
+        cut: &RelayParentRebuildCut,
+    ) -> bool {
+        self.store
+            .read()
+            .authority
+            .read_view()
+            .relay_parent_rebuild_cut_is_current(cut)
+    }
+
     /// Remove one explicit owner through the total administrative compiler.
     /// Accepted roots include their descendant closure. Active preaccepted
     /// work is invalidated by ownership loss, so this operation never waits
     /// for a worker and a late completion is an ordinary stale outcome.
-    pub(super) fn remove_local_transaction(&self, hash: &Byte32) -> Result<bool, PlanError> {
+    pub(super) fn remove_local_transaction(
+        &self,
+        hash: &Byte32,
+    ) -> Result<bool, AuthorityAdministrationError> {
         let committed = {
             let mut store = self.store.write();
             store
                 .authority
-                .plan_local_removal(&RawTxHash(hash.clone()))?
+                .plan_local_removal(&RawTxHash(hash.clone()))
+                .map_err(AuthorityAdministrationError::from_plan)?
                 .map(|plan| plan.apply())
         };
         let changed = committed.is_some();
@@ -1100,10 +1409,14 @@ impl AuthorityRuntime {
     /// membership and the paired snapshot remain unchanged; advancing the
     /// generation makes every old compute/recovery capability stale without
     /// introducing a drain protocol.
-    pub(super) fn clear_pipeline(&self) -> Result<(), PlanError> {
+    pub(super) fn clear_pipeline(&self) -> Result<(), AuthorityAdministrationError> {
         let committed = {
             let mut store = self.store.write();
-            store.authority.plan_clear_pipeline()?.apply()
+            store
+                .authority
+                .plan_clear_pipeline()
+                .map_err(AuthorityAdministrationError::from_plan)?
+                .apply()
         };
         drop(committed);
         self.signals.publish_mutation();
@@ -1114,12 +1427,19 @@ impl AuthorityRuntime {
     /// store guard. The authority derives the next revision from its current
     /// state; the supplied snapshot contributes only its exact tip and is
     /// installed in the same indivisible mutation.
-    pub(super) fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), PlanError> {
+    pub(super) fn clear_pool(
+        &self,
+        new_snapshot: Arc<Snapshot>,
+    ) -> Result<(), AuthorityAdministrationError> {
         let tip_hash = new_snapshot.tip_hash();
         let fresh_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
         let (committed, retired_snapshot, retired_hash_cache) = {
             let mut store = self.store.write();
-            let committed = store.authority.plan_clear_pool(tip_hash)?.apply();
+            let committed = store
+                .authority
+                .plan_clear_pool(tip_hash)
+                .map_err(AuthorityAdministrationError::from_plan)?
+                .apply();
             let retired_snapshot = std::mem::replace(&mut store.snapshot, new_snapshot);
             let retired_hash_cache =
                 std::mem::replace(&mut store.committed_txs_hash_cache, fresh_hash_cache);
@@ -1247,13 +1567,16 @@ impl AuthorityRuntime {
 
     /// Expire one bounded due prefix of retained Remote owners. The wall clock
     /// and slice are runtime policy, not caller-provided transition evidence.
-    pub(super) fn expire_remote_due(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
+    pub(super) fn expire_remote_due(
+        &self,
+    ) -> Result<AuthorityMaintenanceOutcome, AuthorityDriverError> {
         let cutoff = RemoteDeadline(ckb_systemtime::unix_time().as_secs());
         let committed = {
             let mut store = self.store.write();
             store
                 .authority
-                .plan_remote_expiry(cutoff, self.expiry_policy.remote_slice)?
+                .plan_remote_expiry(cutoff, self.expiry_policy.remote_slice)
+                .map_err(AuthorityDriverError::from_maintenance_plan)?
                 .map(|plan| plan.apply())
         };
         let Some(committed) = committed else {
@@ -1268,7 +1591,9 @@ impl AuthorityRuntime {
     /// Expire the oldest due Accepted root and its full descendant closure.
     /// One root is selected per Apply; the component and its exact rejection
     /// effects remain bounded by accepted-pool admission limits.
-    pub(super) fn expire_accepted_due(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
+    pub(super) fn expire_accepted_due(
+        &self,
+    ) -> Result<AuthorityMaintenanceOutcome, AuthorityDriverError> {
         let Some(cutoff) = ckb_systemtime::unix_time_as_millis()
             .checked_sub(self.expiry_policy.accepted_residency_millis)
             .map(AcceptedAtMillis)
@@ -1279,7 +1604,8 @@ impl AuthorityRuntime {
             let mut store = self.store.write();
             store
                 .authority
-                .plan_accepted_expiry(cutoff)?
+                .plan_accepted_expiry(cutoff)
+                .map_err(AuthorityDriverError::from_maintenance_plan)?
                 .map(|plan| plan.apply())
         };
         let Some(committed) = committed else {
@@ -1294,12 +1620,15 @@ impl AuthorityRuntime {
     /// Advance one dirty dependency edge or completion marker. The dependency
     /// frontier is level-triggered, so callers may repeat this bounded step
     /// until `Idle` without owning a second queue or cursor.
-    pub(super) fn maintain_dependency(&self) -> Result<AuthorityMaintenanceOutcome, PlanError> {
+    pub(super) fn maintain_dependency(
+        &self,
+    ) -> Result<AuthorityMaintenanceOutcome, AuthorityDriverError> {
         let committed = {
             let mut store = self.store.write();
             store
                 .authority
-                .plan_dependency_maintenance()?
+                .plan_dependency_maintenance()
+                .map_err(AuthorityDriverError::from_maintenance_plan)?
                 .map(|plan| plan.apply())
         };
         let Some(committed) = committed else {
@@ -1311,12 +1640,8 @@ impl AuthorityRuntime {
         Ok(AuthorityMaintenanceOutcome::Applied { owners })
     }
 
-    pub(super) fn signal_for_permit(&self, permit: WorkPermit) -> Arc<Notify> {
-        Arc::clone(self.signals.for_permit(permit))
-    }
-
     pub(super) fn mutation_signal(&self) -> Arc<Notify> {
-        Arc::clone(&self.signals.ready)
+        Arc::clone(&self.signals.mutation)
     }
 
     /// Acquire one shared tx-pool execution slot before any retained checkout
@@ -1326,30 +1651,19 @@ impl AuthorityRuntime {
     pub(in crate::authority) async fn acquire_compute_execution(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<Option<AuthorityComputeExecutionPermit>, AuthorityRuntimeError> {
-        let acquire = Arc::clone(&self.transient_compute).acquire_owned();
-        tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Ok(None),
-            result = acquire => {
-                let permit = result.map_err(|_| AuthorityRuntimeError::ComputeGateClosed)?;
-                if cancel.is_cancelled() {
-                    drop(permit);
-                    Ok(None)
-                } else {
-                    Ok(Some(AuthorityComputeExecutionPermit { _permit: permit }))
-                }
-            }
-        }
+    ) -> Option<AuthorityComputeExecutionPermit> {
+        self.transient_compute
+            .acquire(cancel)
+            .await
+            .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
     }
 
     #[cfg(test)]
     pub(super) fn try_compute_execution_for_foundation(
         &self,
     ) -> Option<AuthorityComputeExecutionPermit> {
-        Arc::clone(&self.transient_compute)
-            .try_acquire_owned()
-            .ok()
+        self.transient_compute
+            .try_acquire()
             .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
     }
 
@@ -1364,11 +1678,11 @@ impl AuthorityRuntime {
         permit: WorkPermit,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         let execution = self
             .try_compute_execution_for_foundation()
-            .ok_or(AuthorityRuntimeError::ComputeGateClosed)?;
+            .ok_or(AuthorityComputeError::ComputeCapacity)?;
         match self.try_checkout(permit, execution)? {
             ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
             ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
@@ -1571,7 +1885,7 @@ impl AuthorityRuntime {
     pub(super) fn settle_direct_transaction_rejection(
         &self,
         rejection: AuthorityDirectRejection,
-    ) -> Result<AuthorityDirectRejectionExecution, PlanError> {
+    ) -> Result<AuthorityDirectRejectionExecution, AuthorityDirectAdmissionError> {
         let AuthorityDirectRejection {
             rejection,
             execution,
@@ -1579,10 +1893,12 @@ impl AuthorityRuntime {
         let result = match rejection.command() {
             DirectCommand::Local => self
                 .commit_direct_transaction_rejection(rejection)
-                .map(AuthorityDirectRejectionExecution::Local),
+                .map(AuthorityDirectRejectionExecution::Local)
+                .map_err(AuthorityDirectAdmissionError::from_plan),
             DirectCommand::TestAccept => self
                 .evaluate_direct_transaction_rejection(rejection)
-                .map(AuthorityDirectRejectionExecution::TestAccept),
+                .map(AuthorityDirectRejectionExecution::TestAccept)
+                .map_err(AuthorityDirectAdmissionError::from_plan),
         };
         drop(execution);
         result
@@ -1603,12 +1919,12 @@ impl AuthorityRuntime {
         let (command, work, pending_cache_update, cache_hit) = candidate.into_parts();
         let validated = self
             .validate_direct_admission(work)
-            .map_err(AuthorityDirectAdmissionError::Validation)?;
+            .map_err(AuthorityDirectAdmissionError::from_validation)?;
         let result = match command {
             DirectCommand::Local => {
                 let outcome = self
                     .commit_direct_admission(validated)
-                    .map_err(AuthorityDirectAdmissionError::Plan)?;
+                    .map_err(AuthorityDirectAdmissionError::from_plan)?;
                 let cache_update = matches!(&outcome, AuthorityLocalAdmissionOutcome::Accepted(_))
                     .then_some(pending_cache_update)
                     .flatten();
@@ -1623,7 +1939,7 @@ impl AuthorityRuntime {
             DirectCommand::TestAccept => self
                 .evaluate_direct_admission(validated)
                 .map(AuthorityDirectAdmissionExecution::TestAccept)
-                .map_err(AuthorityDirectAdmissionError::Plan),
+                .map_err(AuthorityDirectAdmissionError::from_plan),
         };
         drop(execution);
         result
@@ -1774,7 +2090,7 @@ impl AuthorityRuntime {
             })
     }
 
-    fn try_effect_checkout(&self) -> Result<EffectCheckoutState, PlanError> {
+    fn try_effect_checkout(&self) -> Result<EffectCheckoutState, EffectCheckoutError> {
         let (lease, retirement) = {
             let mut store = self.store.write();
             let Some(plan) = store.authority.plan_effect_checkout()? else {
@@ -1792,7 +2108,7 @@ impl AuthorityRuntime {
         self.signals.publish_mutation();
         lease
             .map(EffectCheckoutState::Lease)
-            .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))
+            .ok_or(EffectCheckoutError::Projection)
     }
 
     /// Wait for the next committed effect capability. `None` means the log is
@@ -1801,7 +2117,7 @@ impl AuthorityRuntime {
     /// and there is no suspension point after checkout succeeds.
     pub(in crate::authority) async fn wait_effect_checkout(
         &self,
-    ) -> Result<Option<EffectLease>, PlanError> {
+    ) -> Result<Option<EffectLease>, EffectCheckoutError> {
         loop {
             let signal = self.mutation_signal();
             let notified = signal.notified();
@@ -1829,7 +2145,7 @@ impl AuthorityRuntime {
     /// Close effect production after every state producer and compute
     /// capability has drained. Already committed queued/active effects remain
     /// checkout-able until `effects_closed_and_drained` becomes true.
-    pub(in crate::authority) fn close_effects(&self) -> Result<(), PlanError> {
+    pub(in crate::authority) fn close_effects(&self) -> Result<(), EffectCloseError> {
         let retirement = {
             let mut store = self.store.write();
             store.authority.plan_effect_close()?.apply()
@@ -1995,14 +2311,14 @@ impl AuthorityRuntime {
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         let (result, checkout_retirement, settlement_retirement) = {
             let mut store = self.store.write();
             let plan = store
                 .authority
                 .plan_checkout_next(permit)
-                .map_err(AuthorityRuntimeError::Plan)?;
+                .map_err(AuthorityComputeError::from_checkout_plan)?;
             let Some(plan) = plan else {
                 return Ok(ControlFlow::Continue(AuthorityComputeCheckout::Idle(
                     execution,
@@ -2034,7 +2350,7 @@ impl AuthorityRuntime {
                     let kind = failure.kind();
                     match store.authority.apply_settlement(failure.into_settlement()) {
                         Ok(settlement) => (
-                            Err(AuthorityRuntimeError::Capture(kind)),
+                            Err(AuthorityComputeError::Resolution(kind)),
                             checkout,
                             Some(settlement),
                         ),
@@ -2062,14 +2378,14 @@ impl AuthorityRuntime {
     fn finish_checkout(
         result: Result<
             ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
-            AuthorityRuntimeError,
+            AuthorityComputeError,
         >,
         checkout_retirement: super::plan::CommittedDelta,
         settlement_retirement: Option<super::plan::CommittedDelta>,
         signals: &AuthoritySignals,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         drop(checkout_retirement);
         drop(settlement_retirement);
@@ -2086,12 +2402,12 @@ impl AuthorityRuntime {
         cancel: &CancellationToken,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         loop {
-            let signal = Arc::clone(self.signals.for_permit(permit));
+            let signal = self.mutation_signal();
             let notified = signal.notified();
-            let Some(execution) = self.acquire_compute_execution(cancel).await? else {
+            let Some(execution) = self.acquire_compute_execution(cancel).await else {
                 return Ok(ControlFlow::Continue(None));
             };
             match self.try_checkout(permit, execution)? {
@@ -2171,7 +2487,7 @@ impl AuthorityRuntime {
         job: AuthorityComputeJob,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         let AuthorityComputeJob { inner, execution } = job;
         match inner {
@@ -2191,7 +2507,7 @@ impl AuthorityRuntime {
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         loop {
             let policy = self.resolution_policy;
@@ -2274,13 +2590,13 @@ impl AuthorityRuntime {
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         let kind = failure.kind();
         match self.settle(failure.into_settlement()) {
             Ok(()) => {
                 drop(execution);
-                Err(AuthorityRuntimeError::Execution(kind))
+                Err(AuthorityComputeError::Resolution(kind))
             }
             Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
                 failure,
@@ -2300,46 +2616,29 @@ impl AuthorityRuntime {
         command_rx: Option<&mut watch::Receiver<ckb_script::ChunkCommand>>,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, AuthorityVerificationOutcome>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         let AuthorityCacheBoundVerification {
             request,
             execution: compute_execution,
         } = request;
-        match request.execute(command_rx).await {
-            Ok(verification) => {
-                let cache_update = verification.cache_update;
-                let cache_hit = verification.cache_hit;
-                let result = self.settle(verification.settlement);
-                match result {
-                    Ok(()) => {
-                        drop(compute_execution);
-                        Ok(ControlFlow::Continue(AuthorityVerificationOutcome {
-                            cache_update,
-                            cache_hit,
-                        }))
-                    }
-                    Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
-                        failure,
-                        SettlementOrigin::Completion,
-                        compute_execution,
-                    ))),
-                }
+        let verification = request.execute(command_rx).await;
+        let cache_update = verification.cache_update;
+        let cache_hit = verification.cache_hit;
+        let result = self.settle(verification.settlement);
+        match result {
+            Ok(()) => {
+                drop(compute_execution);
+                Ok(ControlFlow::Continue(AuthorityVerificationOutcome {
+                    cache_update,
+                    cache_hit,
+                }))
             }
-            Err(failure) => {
-                let kind = failure.kind();
-                match self.settle(failure.into_settlement()) {
-                    Ok(()) => {
-                        drop(compute_execution);
-                        Err(AuthorityRuntimeError::Verification(kind))
-                    }
-                    Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
-                        failure,
-                        SettlementOrigin::Verification(kind),
-                        compute_execution,
-                    ))),
-                }
-            }
+            Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
+                failure,
+                SettlementOrigin::Completion,
+                compute_execution,
+            ))),
         }
     }
 
@@ -2349,38 +2648,40 @@ impl AuthorityRuntime {
     /// disposed and the next iteration captures a fresh coherent cut.
     pub(in crate::authority) fn try_drive_ready(
         &self,
-    ) -> Result<AuthorityReadyOutcome, AuthorityRuntimeError> {
+    ) -> Result<AuthorityReadyOutcome, AuthorityDriverError> {
         let Some(work) = ({
             let store = self.store.read();
             store.capture_ready_work_batch()
         })
-        .map_err(AuthorityRuntimeError::FinalCapture)?
+        .map_err(AuthorityDriverError::from_initial_ready_capture)?
         else {
             return Ok(AuthorityReadyOutcome::Idle);
         };
         let prepared = work
             .prepare()
-            .map_err(AuthorityRuntimeError::FinalCapture)?;
+            .map_err(AuthorityDriverError::from_ready_preparation)?;
         let batch = {
             let store = self.store.read();
             store.complete_ready_batch(prepared)
         }
-        .map_err(AuthorityRuntimeError::FinalCapture)?;
+        .map_err(AuthorityDriverError::from_ready_recheck)?;
 
         let disposition = batch
             .validate()
-            .map_err(AuthorityRuntimeError::ReadyValidation)?;
+            .map_err(AuthorityDriverError::from_ready_validation)?;
         let (owners, committed) = {
             let mut store = self.store.write();
             match disposition {
                 ReadyDisposition::Candidates(batch) => {
-                    let batch_len = batch.len();
                     let plan = store
                         .authority
                         .plan_settlement(&batch)
-                        .map_err(AuthorityRuntimeError::Plan)?;
+                        .map_err(AuthorityDriverError::from_ready_plan)?;
                     match plan {
-                        SettlementPlan::IndependentRun(plan) => (batch_len, plan.apply()),
+                        SettlementPlan::IndependentRun(plan) => {
+                            let committed = plan.apply();
+                            (committed.changed_owner_count(), committed)
+                        }
                         SettlementPlan::CoupledComponent {
                             disposition,
                             reason: _,
@@ -2391,7 +2692,7 @@ impl AuthorityRuntime {
                     let plan = store
                         .authority
                         .plan_final_admission(outcome)
-                        .map_err(AuthorityRuntimeError::Plan)?;
+                        .map_err(AuthorityDriverError::from_ready_plan)?;
                     (1, apply_final_disposition(plan))
                 }
             }
@@ -2411,34 +2712,40 @@ pub(super) enum FoundationEffectQueueError {
 
 impl ReadyWorkBatch {
     fn prepare(self) -> Result<PreparedReadyValidationBatch, FinalAdmissionCaptureError> {
-        let mut prepared = Vec::new();
-        prepared
-            .try_reserve(self.works.len())
+        let head = FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), self.head)
+            .map_err(FinalAdmissionCaptureError::Validation)?;
+        let mut tail = Vec::new();
+        tail.try_reserve(self.tail.len())
             .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
-        let mut completed = Vec::new();
-        completed
-            .try_reserve(self.works.len())
+        let mut completed_tail = Vec::new();
+        completed_tail
+            .try_reserve(self.tail.len())
             .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
-        for work in self.works {
-            prepared.push(
+        for work in self.tail {
+            tail.push(
                 FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), work)
                     .map_err(FinalAdmissionCaptureError::Validation)?,
             );
         }
         Ok(PreparedReadyValidationBatch {
-            prepared,
-            completed,
+            head,
+            tail,
+            completed_tail,
         })
     }
 }
 
 impl ReadyValidationBatch {
     fn validate(self) -> Result<ReadyDisposition, ReadyValidationError> {
+        let head = self
+            .head
+            .validate()
+            .map_err(ReadyValidationError::Candidate)?;
         let mut outcomes = Vec::new();
         outcomes
-            .try_reserve(self.0.len())
+            .try_reserve(self.tail.len())
             .map_err(|_| ReadyValidationError::Allocation)?;
-        for validation in self.0 {
+        for validation in self.tail {
             outcomes.push(
                 validation
                     .validate()
@@ -2446,10 +2753,6 @@ impl ReadyValidationBatch {
             );
         }
 
-        let mut outcomes = outcomes.into_iter();
-        let Some(head) = outcomes.next() else {
-            return Err(ReadyValidationError::Empty);
-        };
         let head = match head {
             FinalAdmissionValidationOutcome::Candidate(head) => head,
             other @ (FinalAdmissionValidationOutcome::Rejected(_)
@@ -2457,31 +2760,29 @@ impl ReadyValidationBatch {
                 return Ok(ReadyDisposition::Head(other));
             }
         };
-        let mut candidates = Vec::new();
-        candidates
-            .try_reserve(outcomes.len().saturating_add(1))
+        let head = IndependentCandidate::new(head);
+        let mut tail = Vec::new();
+        tail.try_reserve(outcomes.len())
             .map_err(|_| ReadyValidationError::Allocation)?;
-        candidates.push(IndependentCandidate::new(head));
         for outcome in outcomes {
             match outcome {
                 FinalAdmissionValidationOutcome::Candidate(candidate) => {
-                    candidates.push(IndependentCandidate::new(candidate));
+                    tail.push(IndependentCandidate::new(candidate));
                 }
                 FinalAdmissionValidationOutcome::Rejected(_)
                 | FinalAdmissionValidationOutcome::Reresolve(_) => {
                     // The strongest Ready owner remains the only admissible
                     // action from this cut. Drop weaker receipts and re-read
                     // after its disposition commits.
-                    let head = candidates.swap_remove(0).into_receipt();
                     return Ok(ReadyDisposition::Head(
-                        FinalAdmissionValidationOutcome::Candidate(head),
+                        FinalAdmissionValidationOutcome::Candidate(head.into_receipt()),
                     ));
                 }
             }
         }
-        SettlementBatch::new(candidates)
-            .map(ReadyDisposition::Candidates)
-            .map_err(ReadyValidationError::Batch)
+        Ok(ReadyDisposition::Candidates(
+            SettlementBatch::from_validated_ready(head, tail),
+        ))
     }
 }
 
@@ -2538,16 +2839,19 @@ impl AuthorityStore {
     fn capture_ready_work_batch(
         &self,
     ) -> Result<Option<ReadyWorkBatch>, FinalAdmissionCaptureError> {
-        let candidates = self.authority.ready_candidates();
-        if candidates.is_empty() {
+        let mut candidates = self.authority.ready_candidates().into_iter();
+        let Some((head_key, head_expected)) = candidates.next() else {
             return Ok(None);
-        }
-        let mut works = Vec::new();
-        works
-            .try_reserve(candidates.len())
+        };
+        let head = self
+            .authority
+            .final_admission_work(&head_key, head_expected)
+            .map_err(FinalAdmissionCaptureError::Plan)?;
+        let mut tail = Vec::new();
+        tail.try_reserve(candidates.len())
             .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
         for (key, expected) in candidates {
-            works.push(
+            tail.push(
                 self.authority
                     .final_admission_work(&key, expected)
                     .map_err(FinalAdmissionCaptureError::Plan)?,
@@ -2555,7 +2859,8 @@ impl AuthorityStore {
         }
         Ok(Some(ReadyWorkBatch {
             snapshot: Arc::clone(&self.snapshot),
-            works,
+            head,
+            tail,
         }))
     }
 
@@ -2566,18 +2871,29 @@ impl AuthorityStore {
         &self,
         mut batch: PreparedReadyValidationBatch,
     ) -> Result<ReadyValidationBatch, FinalAdmissionCaptureError> {
-        for prepared in batch.prepared {
+        let head_work = self
+            .authority
+            .final_admission_work(batch.head.key(), batch.head.expected())
+            .map_err(FinalAdmissionCaptureError::Plan)?;
+        let head = batch
+            .head
+            .complete(AuthorityStoreCaptureSeal(()), &self.authority, head_work)
+            .map_err(FinalAdmissionCaptureError::Validation)?;
+        for prepared in batch.tail {
             let work = self
                 .authority
                 .final_admission_work(prepared.key(), prepared.expected())
                 .map_err(FinalAdmissionCaptureError::Plan)?;
-            batch.completed.push(
+            batch.completed_tail.push(
                 prepared
                     .complete(AuthorityStoreCaptureSeal(()), &self.authority, work)
                     .map_err(FinalAdmissionCaptureError::Validation)?,
             );
         }
-        Ok(ReadyValidationBatch(batch.completed))
+        Ok(ReadyValidationBatch {
+            head,
+            tail: batch.completed_tail,
+        })
     }
 
     pub(crate) fn committed_txs_hash_cache(&mut self) -> &mut LruCache<ProposalShortId, Byte32> {
@@ -2596,23 +2912,25 @@ impl AuthorityStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthorityComputeCheckout, AuthorityComputeJob, AuthorityComputeOutcome,
-        AuthorityComputeSettlement, AuthorityDirectRejectionExecution,
-        AuthorityDirectResolutionOutcome, AuthorityReadyOutcome, AuthorityRuntime,
-        AuthorityRuntimeConfig, AuthorityRuntimeError, PREACCEPTED_ENTRY_BYTES, PlanError,
-        RuntimeConfigError, SettlementOrigin, runtime_authority_config_error,
-        runtime_resource_config_error,
+        AuthorityAdministrationError, AuthorityComputeCheckout, AuthorityComputeError,
+        AuthorityComputeJob, AuthorityComputeOutcome, AuthorityComputeSettlement,
+        AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
+        AuthorityDirectResolutionOutcome, AuthorityDriverError, AuthorityReadyOutcome,
+        AuthorityRuntime, AuthorityRuntimeConfig, FinalAdmissionCaptureError,
+        PREACCEPTED_ENTRY_BYTES, PlanError, ReadyValidationError, RuntimeConfigError,
+        SettlementOrigin, runtime_authority_config_error, runtime_resource_config_error,
     };
     use crate::authority::effect::{
         CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
         EffectConfigError, EffectLimits, EffectPolicy, RejectionAudience,
     };
-    use crate::authority::plan::AuthorityConfigError;
+    use crate::authority::plan::{AuthorityConfigError, AuthorityFault, Backpressure, StalePlan};
     use crate::authority::resources::ResourceConfigError;
     use crate::authority::state::{
         ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RejectionKind,
         ValidatedAdmission, VerifyCapability, WorkPermit,
     };
+    use crate::authority::validation::FinalAdmissionValidationError;
     use ckb_app_config::{TxPoolConfig, VerifyOrdering};
     use ckb_async_runtime::Handle;
     use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -2759,6 +3077,80 @@ mod tests {
     }
 
     #[test]
+    fn runtime_stale_plan_disposition_depends_on_the_producer_boundary() {
+        assert!(matches!(
+            AuthorityDriverError::from_ready_plan(PlanError::Stale(StalePlan::Version)),
+            AuthorityDriverError::Stale
+        ));
+        assert!(matches!(
+            AuthorityDriverError::from_maintenance_plan(PlanError::Stale(StalePlan::Version)),
+            AuthorityDriverError::Fault(AuthorityFault::MembershipProjection)
+        ));
+        assert!(matches!(
+            AuthorityComputeError::from_checkout_plan(PlanError::Stale(StalePlan::Version)),
+            AuthorityComputeError::Fault(AuthorityFault::SchedulerProjection)
+        ));
+        assert!(matches!(
+            AuthorityDriverError::from_initial_ready_capture(FinalAdmissionCaptureError::Plan(
+                PlanError::Stale(StalePlan::Version),
+            )),
+            AuthorityDriverError::Fault(AuthorityFault::SchedulerProjection)
+        ));
+        assert!(matches!(
+            AuthorityDriverError::from_ready_preparation(FinalAdmissionCaptureError::Validation(
+                FinalAdmissionValidationError::StaleView,
+            ),),
+            AuthorityDriverError::Fault(AuthorityFault::MembershipProjection)
+        ));
+        assert!(matches!(
+            AuthorityDriverError::from_ready_recheck(FinalAdmissionCaptureError::Plan(
+                PlanError::Stale(StalePlan::Version),
+            )),
+            AuthorityDriverError::Stale
+        ));
+        assert!(matches!(
+            AuthorityDriverError::from_ready_validation(ReadyValidationError::Candidate(
+                FinalAdmissionValidationError::StaleView,
+            )),
+            AuthorityDriverError::Fault(AuthorityFault::MembershipProjection)
+        ));
+        assert_eq!(
+            AuthorityDirectAdmissionError::from_validation(
+                FinalAdmissionValidationError::StaleView,
+            ),
+            AuthorityDirectAdmissionError::Stale
+        );
+        assert_eq!(
+            AuthorityDirectAdmissionError::from_plan(PlanError::Backpressure(
+                Backpressure::ProposalCollision,
+            )),
+            AuthorityDirectAdmissionError::ProposalCollision
+        );
+        assert_eq!(
+            AuthorityDirectAdmissionError::from_plan(PlanError::Backpressure(
+                Backpressure::EffectCapacity,
+            )),
+            AuthorityDirectAdmissionError::EffectCapacity
+        );
+        assert_eq!(
+            AuthorityAdministrationError::from_plan(PlanError::Backpressure(
+                Backpressure::Allocation,
+            )),
+            AuthorityAdministrationError::Allocation
+        );
+        assert_eq!(
+            AuthorityAdministrationError::from_plan(PlanError::Backpressure(
+                Backpressure::EffectCapacity,
+            )),
+            AuthorityAdministrationError::EffectCapacity
+        );
+        assert_eq!(
+            AuthorityAdministrationError::from_plan(PlanError::Stale(StalePlan::Version)),
+            AuthorityAdministrationError::Fault(AuthorityFault::MembershipProjection)
+        );
+    }
+
+    #[test]
     fn runtime_resolution_uses_assembled_policy_and_settles_before_returning() {
         let runtime = runtime();
         let admission = admission(904, 94);
@@ -2898,7 +3290,6 @@ mod tests {
             .await
             .expect("one released slot wakes exactly one waiter")
             .expect("the compute waiter task remains healthy")
-            .expect("the compute gate remains open")
             .expect("the compute waiter was not cancelled");
 
         assert!(matches!(
@@ -3217,7 +3608,7 @@ mod tests {
 
         assert!(matches!(
             runtime.try_checkout_for_foundation(WorkPermit::ResolveOnly),
-            Err(AuthorityRuntimeError::Capture(
+            Err(AuthorityComputeError::Resolution(
                 super::super::resolver::ResolutionExecutionKind::StaleView
             ))
         ));

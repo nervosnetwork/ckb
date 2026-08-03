@@ -7,7 +7,7 @@ use super::super::{
     },
     plan::{
         AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, ComputeSettlementRecovery,
-        MembershipReject, PlanError, StalePlan, TxPoolAuthority,
+        EffectCloseError, EffectSettlementError, MembershipReject, PlanError, TxPoolAuthority,
     },
     rejection::CommittedPublicReject,
     runtime::AuthorityRuntime,
@@ -528,7 +528,6 @@ fn uak_production_effect_sizing_constructively_covers_trusted_rbf_shape() {
     effects.extend((0..victims).map(|_| {
         CommittedEffect::Rejected(CommittedRejection::Replaced {
             entry: entry.clone(),
-            audience: RejectionAudience::foundation(),
             winner: winner.clone(),
         })
     }));
@@ -611,8 +610,10 @@ fn uak_production_effect_sizing_constructively_covers_non_rebuildable_shapes() {
     // classifier. Chain conflict/status/commit batches are intentionally
     // guarded by CriticalRebuildable and collapse to GenerationReset.
     let chain = CommittedEffect::Rejected(CommittedRejection::ChainConflict {
-        owner: CommittedConflictOwner::PreAccepted(transaction),
-        audience: RejectionAudience::foundation(),
+        owner: CommittedConflictOwner::PreAccepted {
+            tx: transaction,
+            audience: RejectionAudience::foundation(),
+        },
         out_point: OutPoint::new(Byte32::new([3; 32]), u32::MAX),
     });
     assert_eq!(effect_sizing_family(&chain), "chain-rebuildable");
@@ -687,7 +688,7 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
             audience,
             reason,
             ..
-        })] if audience.ingress_peer == Some(PeerIndex::from(73))
+        })] if audience.ingress_peer() == Some(PeerIndex::from(73))
             && *reason == RejectionKind::Policy.into()
     ));
     assert!(authority.primary_projection_consistent());
@@ -845,7 +846,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let stale = authority
         .apply_effect_settlement_for_foundation(unrelated_lease.retain())
         .expect_err("an unrelated effect lease is stale");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::EffectLease));
+    assert_eq!(stale.error(), EffectSettlementError::StaleLease);
     assert_eq!(authority.normalized_snapshot(), before_stale);
 
     let resumable_sequence = authority.clocks().next_sequence;
@@ -854,10 +855,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let exhausted = authority
         .apply_effect_settlement_for_foundation(lease.retain())
         .expect_err("counter exhaustion cannot consume the publisher capability");
-    assert_eq!(
-        exhausted.error(),
-        &PlanError::Fault(AuthorityFault::CounterExhausted)
-    );
+    assert_eq!(exhausted.error(), EffectSettlementError::CounterExhausted);
     assert_eq!(authority.normalized_snapshot(), before_exhaustion);
     authority.force_next_sequence(resumable_sequence);
 
@@ -1054,7 +1052,7 @@ fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
     );
     assert_eq!(
         authority.plan_effect_close_for_foundation().err(),
-        Some(PlanError::EffectClosed)
+        Some(EffectCloseError::AlreadyClosed)
     );
 
     for _ in 0..2 {
@@ -1091,7 +1089,7 @@ fn uak_effect_close_requires_every_compute_capability_to_settle() {
     let before = authority.normalized_snapshot();
     assert_eq!(
         authority.plan_effect_close_for_foundation().err(),
-        Some(PlanError::Backpressure(Backpressure::ActiveWorkDrain))
+        Some(EffectCloseError::ActiveWork)
     );
     assert_eq!(authority.normalized_snapshot(), before);
 

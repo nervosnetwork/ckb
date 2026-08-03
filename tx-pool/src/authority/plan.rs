@@ -21,9 +21,9 @@ use super::dependency::{
 use super::effect::{
     CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
     CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease, EffectBatch,
-    EffectBuildError, EffectConfigError, EffectDelta, EffectError, EffectLease, EffectLimits,
-    EffectLog, EffectPolicy, EffectPublication, EffectSettlement, ParentTransactionRequest,
-    PendingRecentReject, RejectionAudience,
+    EffectBuildError, EffectClosePlanError, EffectConfigError, EffectDelta, EffectError,
+    EffectLease, EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectSettlement,
+    EffectSettlementPlanError, ParentTransactionRequest, PendingRecentReject, RejectionAudience,
 };
 #[cfg(test)]
 use super::effect::{EffectObservation, EffectSnapshot};
@@ -86,9 +86,9 @@ pub(in crate::authority) use membership::{
 pub(in crate::authority) use membership::{IndependentCoupling, MembershipSnapshot};
 use membership::{MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use membership::{RemovalCause, StatusCounts};
-pub(in crate::authority) use settlement::{
-    CandidateBatchError, IndependentCandidate, SettlementBatch, SettlementPlan,
-};
+#[cfg(test)]
+pub(in crate::authority) use settlement::CandidateBatchError;
+pub(in crate::authority) use settlement::{IndependentCandidate, SettlementBatch, SettlementPlan};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
@@ -373,6 +373,7 @@ impl TxPoolAuthority {
             &self.membership,
             self.resources.accepted(),
             self.membership_config,
+            self.source_versions.relay_parents(),
             self.source_versions.template(),
         )
     }
@@ -532,7 +533,6 @@ pub(super) enum Backpressure {
     PeerResources,
     AcceptedResources,
     ComputeResources,
-    ActiveWorkDrain,
     GenerationReplacement,
     EffectCapacity,
     Allocation,
@@ -546,7 +546,6 @@ pub(super) enum StalePlan {
     ChainRevision,
     Lease,
     Dependency,
-    EffectLease,
     Generation,
     SourceVersion,
 }
@@ -613,7 +612,6 @@ impl ComputeSettlementRecovery {
                 | Backpressure::PeerResources
                 | Backpressure::AcceptedResources
                 | Backpressure::ComputeResources
-                | Backpressure::ActiveWorkDrain
                 | Backpressure::GenerationReplacement),
             ) => Self::Structural(PlanError::Backpressure(pressure)),
             PlanError::Duplicate => Self::Structural(PlanError::Duplicate),
@@ -682,19 +680,39 @@ pub(super) enum ComputeCancellationError {
     EffectClosed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectCheckoutError {
+    CounterExhausted,
+    Projection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectSettlementError {
+    StaleLease,
+    Projection,
+    CounterExhausted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectCloseError {
+    ActiveWork,
+    AlreadyClosed,
+    CounterExhausted,
+}
+
 /// Effect settlement has the same linear handoff rule as compute: planning
 /// failure must return the publisher capability instead of silently leaving
 /// an active effect without its only completion.
 #[derive(Debug)]
 #[must_use = "a failed effect settlement still owns the active effect capability"]
 pub(super) struct EffectSettlementFailure {
-    error: PlanError,
+    error: EffectSettlementError,
     settlement: EffectSettlement,
 }
 
 impl EffectSettlementFailure {
-    pub(super) fn error(&self) -> &PlanError {
-        &self.error
+    pub(super) fn error(&self) -> EffectSettlementError {
+        self.error
     }
 
     pub(super) fn into_settlement(self) -> EffectSettlement {
@@ -757,7 +775,6 @@ impl From<EffectError> for PlanError {
             EffectError::Full => Self::Backpressure(Backpressure::EffectCapacity),
             EffectError::Allocation => Self::Backpressure(Backpressure::Allocation),
             EffectError::Closed => Self::EffectClosed,
-            EffectError::StaleLease => Self::Stale(StalePlan::EffectLease),
             EffectError::Projection => Self::Fault(AuthorityFault::EffectProjection),
         }
     }
@@ -801,10 +818,6 @@ pub(super) enum CommittedChanges {
 }
 
 #[derive(Debug, Default)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "boxing the move-only compute handoff would add one allocation to every successful hot-path checkout"
-)]
 pub(super) enum CommittedHandoff {
     #[default]
     None,
@@ -2516,7 +2529,7 @@ impl TxPoolAuthority {
                 EffectPolicy::Remote,
                 CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx,
-                    audience: RejectionAudience::from_owner(Some(peer), Some(peer)),
+                    audience: RejectionAudience::from_ingress(Some(peer)),
                     reason,
                 }),
             ),
@@ -2524,7 +2537,7 @@ impl TxPoolAuthority {
                 EffectPolicy::Trusted,
                 CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx,
-                    audience: RejectionAudience::from_owner(None, None),
+                    audience: RejectionAudience::from_ingress(None),
                     reason,
                 }),
             ),
@@ -2650,7 +2663,7 @@ impl TxPoolAuthority {
         };
 
         let proposal_base = match entry.source {
-            PreAcceptedSource::Remote(remote) => ProposalBase::Remote(remote),
+            PreAcceptedSource::Remote(remote) => ProposalBase::Remote(remote.residency),
             PreAcceptedSource::Proposal { base } => {
                 if same_witness {
                     return Err(PlanError::Duplicate);
@@ -2667,10 +2680,6 @@ impl TxPoolAuthority {
         };
 
         let sequence = self.clocks.next_sequence;
-        let trusted_proposal_base = match proposal_base {
-            ProposalBase::Trusted => ProposalBase::Trusted,
-            ProposalBase::Remote(remote) => ProposalBase::Remote(remote.with_trusted_payload()),
-        };
         let (promoted, clocks) = if same_witness {
             // A policy-only promotion/refresh preserves EntryVersion and the
             // exact active lease. ActiveWork has already sealed its compute
@@ -2678,8 +2687,19 @@ impl TxPoolAuthority {
             // that capability between resource partitions.
             let mut promoted = entry.clone();
             promoted.source = PreAcceptedSource::Proposal {
-                base: trusted_proposal_base,
+                base: proposal_base,
             };
+            if matches!(promoted.phase, PreAcceptedPhase::Waiting(_)) {
+                // Missing-dependency disposition is source policy: Remote may
+                // wait for an external parent, while Proposal may wait only
+                // for a parent already owned by the pre-pool. Reusing the old
+                // Waiting observation after promotion would remove the owner
+                // from both Remote expiry/relay rebuild and executable work.
+                // Return to the existing Resolve level so the new source is
+                // adjudicated once; no extra state or repair scan is needed.
+                promoted.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);
+                promoted.charge = promoted.original_charge();
+            }
             (
                 promoted,
                 AuthorityClocks {
@@ -2697,7 +2717,7 @@ impl TxPoolAuthority {
                     arrival: entry.record.arrival,
                 },
                 source: PreAcceptedSource::Proposal {
-                    base: trusted_proposal_base,
+                    base: proposal_base,
                 },
                 basis: AdmissionBasis::new(
                     admission.dependencies,
@@ -2901,9 +2921,10 @@ impl TxPoolAuthority {
     ) -> Result<PreparedValidationRejection<'_>, PlanError> {
         let (subject, reason) = rejection.into_parts();
         let preaccepted = self.final_admission_subject_owner(&subject)?;
+        let blame_peer = preaccepted.source.payload_blame_peer();
         let audience = RejectionAudience::from_source(preaccepted.source);
         if reason.is_malformed()
-            && let Some(peer) = audience.blame_peer
+            && let Some(peer) = blame_peer
         {
             let plan = self.plan_peer_revocation(
                 peer,
@@ -2914,11 +2935,7 @@ impl TxPoolAuthority {
             )?;
             return Ok(PreparedValidationRejection { reason, plan });
         }
-        let policy = if preaccepted.source.ingress_peer().is_some() {
-            EffectPolicy::Remote
-        } else {
-            EffectPolicy::Trusted
-        };
+        let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
         let publication = self
             .effects
             .build_publication(
@@ -2991,11 +3008,7 @@ impl TxPoolAuthority {
                 let OwnedTx::PreAccepted(preaccepted) = existing else {
                     return Err(PlanError::Stale(StalePlan::Phase));
                 };
-                let policy = if preaccepted.source.ingress_peer().is_some() {
-                    EffectPolicy::Remote
-                } else {
-                    EffectPolicy::Trusted
-                };
+                let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
                 let publication = self
                     .effects
                     .build_publication(
@@ -3194,13 +3207,11 @@ impl TxPoolAuthority {
         version: EntryVersion,
         arrival: Arrival,
     ) -> AcceptedEntry {
-        let provenance = existing.and_then(OwnedTx::ingress_peer).map_or(
-            AcceptedProvenance::Trusted,
-            |ingress| AcceptedProvenance::Peer {
-                ingress,
-                payload_policy: PayloadPolicy::Trusted,
-            },
-        );
+        let provenance = existing
+            .and_then(OwnedTx::ingress_peer)
+            .map_or(AcceptedProvenance::Trusted, |ingress| {
+                AcceptedProvenance::Peer { ingress }
+            });
         let (tx, proof, proposal, accepted_at) = receipt.into_membership_parts();
         AcceptedEntry {
             record: TxRecord {
@@ -3382,11 +3393,7 @@ impl TxPoolAuthority {
             accepted_at,
         };
         let prepared = self.prepare_membership(&key, preaccepted, &accepted)?;
-        let effect_policy = if preaccepted.source.ingress_peer().is_some() {
-            EffectPolicy::Remote
-        } else {
-            EffectPolicy::Trusted
-        };
+        let effect_policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
         self.compile_membership_delta(MembershipCompilation {
             key,
             existing: Some(existing),
@@ -3530,19 +3537,15 @@ impl TxPoolAuthority {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             };
             let entry = self.committed_entry_before(removed)?;
-            let audience =
-                RejectionAudience::from_owner(owner.ingress_peer(), owner.payload_blame_peer());
             let rejection = match removal.cause {
                 RemovalCause::Replacement => CommittedRejection::Replaced {
                     entry,
-                    audience,
                     winner: accepted.record.identity.raw.clone(),
                 },
                 RemovalCause::Capacity => {
                     let cost = removed.proof.metrics().cost;
                     CommittedRejection::CapacityEvicted {
                         entry,
-                        audience,
                         fee_rate: ckb_types::core::FeeRate::calculate(
                             removed.proof.metrics().fee,
                             get_transaction_weight(cost.serialized_bytes, cost.cycles),
@@ -3987,16 +3990,8 @@ impl TxPoolAuthority {
                     .try_reserve(hashes.len())
                     .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
                 for hash in &hashes {
-                    let owner = self
-                        .entries
-                        .get(hash)
-                        .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
-                    let peer = owner
-                        .ingress_peer()
-                        .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?;
                     effects.push(CommittedEffect::RemoteExpired {
-                        tx_hash: owner.record().identity.raw.clone(),
-                        peer,
+                        tx_hash: hash.clone(),
                     });
                 }
                 let prefix = self
@@ -4281,13 +4276,20 @@ impl TxPoolAuthority {
             .map(Some)
     }
 
-    pub(super) fn plan_effect_checkout(&mut self) -> Result<Option<PreparedApply<'_>>, PlanError> {
-        let Some((effect, lease)) = self.effects.plan_checkout()? else {
+    pub(super) fn plan_effect_checkout(
+        &mut self,
+    ) -> Result<Option<PreparedApply<'_>>, EffectCheckoutError> {
+        let Some((effect, lease)) = self.effects.plan_checkout() else {
             return Ok(None);
         };
         let sequence = self.clocks.next_sequence;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::Effect(lease))
-            .map(Some)
+        let next = next_sequence(sequence).map_err(|_| EffectCheckoutError::CounterExhausted)?;
+        Ok(Some(self.prepared_effect_only(
+            effect,
+            sequence,
+            next,
+            CommittedHandoff::Effect(lease),
+        )))
     }
 
     pub(super) fn apply_effect_settlement(
@@ -4298,25 +4300,34 @@ impl TxPoolAuthority {
             Ok(effect) => effect,
             Err(error) => {
                 return Err(EffectSettlementFailure {
-                    error: error.into(),
+                    error: match error {
+                        EffectSettlementPlanError::StaleLease => EffectSettlementError::StaleLease,
+                        EffectSettlementPlanError::Projection => EffectSettlementError::Projection,
+                    },
                     settlement,
                 });
             }
         };
         let sequence = self.clocks.next_sequence;
-        match self.prepare_effect_only(effect, sequence, CommittedHandoff::None) {
-            Ok(plan) => Ok(plan.apply()),
-            Err(error) => Err(EffectSettlementFailure { error, settlement }),
-        }
+        let next = next_sequence(sequence).map_err(|_| EffectSettlementFailure {
+            error: EffectSettlementError::CounterExhausted,
+            settlement,
+        })?;
+        Ok(self
+            .prepared_effect_only(effect, sequence, next, CommittedHandoff::None)
+            .apply())
     }
 
-    pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, PlanError> {
+    pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, EffectCloseError> {
         if self.resources.preaccepted().active_work != 0 {
-            return Err(PlanError::Backpressure(Backpressure::ActiveWorkDrain));
+            return Err(EffectCloseError::ActiveWork);
         }
-        let effect = self.effects.plan_close()?;
+        let effect = self.effects.plan_close().map_err(|error| match error {
+            EffectClosePlanError::AlreadyClosed => EffectCloseError::AlreadyClosed,
+        })?;
         let sequence = self.clocks.next_sequence;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+        let next = next_sequence(sequence).map_err(|_| EffectCloseError::CounterExhausted)?;
+        Ok(self.prepared_effect_only(effect, sequence, next, CommittedHandoff::None))
     }
 
     pub(super) fn effects_closed_and_drained(&self) -> bool {
@@ -4330,7 +4341,7 @@ impl TxPoolAuthority {
     #[cfg(test)]
     pub(super) fn plan_effect_checkout_for_foundation(
         &mut self,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+    ) -> Result<Option<PreparedApply<'_>>, EffectCheckoutError> {
         self.plan_effect_checkout()
     }
 
@@ -4345,7 +4356,7 @@ impl TxPoolAuthority {
     #[cfg(test)]
     pub(super) fn plan_effect_close_for_foundation(
         &mut self,
-    ) -> Result<PreparedApply<'_>, PlanError> {
+    ) -> Result<PreparedApply<'_>, EffectCloseError> {
         self.plan_effect_close()
     }
 
@@ -4369,7 +4380,21 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        Ok(PreparedApply {
+        Ok(self.prepared_effect_only(effect, sequence, clocks.next_sequence, handoff))
+    }
+
+    fn prepared_effect_only(
+        &mut self,
+        effect: EffectDelta,
+        sequence: ApplySequence,
+        next_sequence: ApplySequence,
+        handoff: CommittedHandoff,
+    ) -> PreparedApply<'_> {
+        let clocks = AuthorityClocks {
+            next_sequence,
+            ..self.clocks
+        };
+        PreparedApply {
             authority: self,
             delta: AuthorityDelta::Effect(EffectOnlyDelta {
                 effect,
@@ -4377,7 +4402,7 @@ impl TxPoolAuthority {
                 sequence,
             }),
             handoff,
-        })
+        }
     }
 
     #[cfg(test)]
@@ -5029,28 +5054,35 @@ impl TxPoolAuthority {
                     if resolved.dependency_cut() != dependency_cut {
                         return Err(PlanError::Fault(AuthorityFault::DependencyProjection).into());
                     }
-                    let dependencies = resolved.payload().dependencies().clone();
-                    let retained_charge = self
-                        .resources
-                        .retained_entry_charge(
-                            preaccepted,
-                            resolved.payload().resolved_resident_bytes(),
-                            dependencies.len(),
-                        )
-                        .map_err(|_| PlanError::Fault(AuthorityFault::ResourceProjection))?;
-                    if self.dependencies.resolution_is_current(
-                        preaccepted.dependencies(),
-                        &dependencies,
-                        dependency_cut,
-                    ) {
-                        SettlementDisposition::Retain {
-                            phase: PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
-                            charge: retained_charge,
-                        }
-                    } else {
+                    if !chain_state_is_current {
                         SettlementDisposition::Retain {
                             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
                             charge: raw_charge,
+                        }
+                    } else {
+                        let dependencies = resolved.payload().dependencies().clone();
+                        let retained_charge = self
+                            .resources
+                            .retained_entry_charge(
+                                preaccepted,
+                                resolved.payload().resolved_resident_bytes(),
+                                dependencies.len(),
+                            )
+                            .map_err(|_| PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                        if self.dependencies.resolution_is_current(
+                            preaccepted.dependencies(),
+                            &dependencies,
+                            dependency_cut,
+                        ) {
+                            SettlementDisposition::Retain {
+                                phase: PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+                                charge: retained_charge,
+                            }
+                        } else {
+                            SettlementDisposition::Retain {
+                                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                charge: raw_charge,
+                            }
                         }
                     }
                 }
@@ -5347,10 +5379,11 @@ impl TxPoolAuthority {
         if !matches!(preaccepted.phase, PreAcceptedPhase::Computing(_)) {
             return Err(PlanError::Stale(StalePlan::Phase));
         }
+        let blame_peer = preaccepted.source.payload_blame_peer();
         let audience = RejectionAudience::from_source(preaccepted.source);
         let reason = rejection.into_public();
         if reason.is_malformed()
-            && let Some(peer) = audience.blame_peer
+            && let Some(peer) = blame_peer
         {
             return self.plan_peer_revocation(
                 peer,
@@ -5360,11 +5393,7 @@ impl TxPoolAuthority {
                 },
             );
         }
-        let policy = if preaccepted.source.ingress_peer().is_some() {
-            EffectPolicy::Remote
-        } else {
-            EffectPolicy::Trusted
-        };
+        let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
         let publication = self
             .effects
             .build_publication(

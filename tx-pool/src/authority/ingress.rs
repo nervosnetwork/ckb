@@ -7,7 +7,7 @@
 //! or dependency charge into authority state.
 
 use super::{
-    plan::PlanError,
+    plan::{AuthorityFault, Backpressure, PlanError},
     rejection::{CommittedPublicReject, DirectTransactionRejection},
     runtime::AuthorityRuntime,
     state::{
@@ -117,10 +117,78 @@ impl RetainedIngressRejection {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RetainedIngressBackpressure {
+    TotalResources,
+    RemoteResources,
+    PeerResources,
+    ComputeResources,
+    EffectCapacity,
+    ProposalCollision,
+}
+
+/// Closed service-boundary result for retained Remote and Proposal ingress.
+///
+/// The open planner error family is intentionally consumed here. Legal peer
+/// policy, bounded capacity and allocator pressure remain local outcomes;
+/// only a contradiction in the already-sealed authority projection is a
+/// structural fault. This prevents the production cutover from inventing a
+/// fail-stop policy for a later `PlanError` variant.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum RetainedIngressBoundaryError {
-    Admission(AdmissionValidationError),
-    Plan(PlanError),
+    InvalidEvidence,
+    ResourceUnavailable,
+    Backpressure(RetainedIngressBackpressure),
+    PeerRevoked(PeerIndex),
+    LifecycleClosed,
+    Fault(AuthorityFault),
+}
+
+impl RetainedIngressBoundaryError {
+    pub(super) fn from_admission(error: AdmissionValidationError) -> Self {
+        match error {
+            AdmissionValidationError::ResourceAllocation => Self::ResourceUnavailable,
+            AdmissionValidationError::EmptyTransaction
+            | AdmissionValidationError::ResourceArithmetic => Self::InvalidEvidence,
+        }
+    }
+
+    pub(super) fn from_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Backpressure(Backpressure::TotalResources) => {
+                Self::Backpressure(RetainedIngressBackpressure::TotalResources)
+            }
+            PlanError::Backpressure(Backpressure::RemoteResources) => {
+                Self::Backpressure(RetainedIngressBackpressure::RemoteResources)
+            }
+            PlanError::Backpressure(Backpressure::PeerResources) => {
+                Self::Backpressure(RetainedIngressBackpressure::PeerResources)
+            }
+            PlanError::Backpressure(Backpressure::ComputeResources) => {
+                Self::Backpressure(RetainedIngressBackpressure::ComputeResources)
+            }
+            PlanError::Backpressure(Backpressure::EffectCapacity) => {
+                Self::Backpressure(RetainedIngressBackpressure::EffectCapacity)
+            }
+            PlanError::Backpressure(Backpressure::ProposalCollision) => {
+                Self::Backpressure(RetainedIngressBackpressure::ProposalCollision)
+            }
+            PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
+            PlanError::IngressRevoked(peer) => Self::PeerRevoked(peer),
+            PlanError::EffectClosed => Self::LifecycleClosed,
+            PlanError::Fault(fault) => Self::Fault(fault),
+            PlanError::Backpressure(Backpressure::AcceptedResources) => {
+                Self::Fault(AuthorityFault::ResourceProjection)
+            }
+            PlanError::Backpressure(Backpressure::GenerationReplacement) => {
+                Self::Fault(AuthorityFault::SchedulerProjection)
+            }
+            PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
+        }
+    }
 }
 
 /// Validate and seal one Remote admission using the production wall-clock
@@ -230,12 +298,12 @@ impl AuthorityRuntime {
         match remote(tx, declared_cycles, peer, &consensus) {
             Ok(ingress) => self
                 .commit_retained_ingress(ingress)
-                .map_err(RetainedIngressBoundaryError::Plan),
+                .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Rejected(rejection)) => self
                 .commit_retained_ingress_rejection(rejection)
-                .map_err(RetainedIngressBoundaryError::Plan),
+                .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Admission(error)) => {
-                Err(RetainedIngressBoundaryError::Admission(error))
+                Err(RetainedIngressBoundaryError::from_admission(error))
             }
         }
     }
@@ -248,12 +316,12 @@ impl AuthorityRuntime {
         match proposal(tx, &consensus) {
             Ok(ingress) => self
                 .commit_retained_ingress(ingress)
-                .map_err(RetainedIngressBoundaryError::Plan),
+                .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Rejected(rejection)) => self
                 .commit_retained_ingress_rejection(rejection)
-                .map_err(RetainedIngressBoundaryError::Plan),
+                .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Admission(error)) => {
-                Err(RetainedIngressBoundaryError::Admission(error))
+                Err(RetainedIngressBoundaryError::from_admission(error))
             }
         }
     }

@@ -11,8 +11,8 @@ use super::{
     source::PoolTemplateVersions,
     template::{
         AuthorityTemplateInput, FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild,
-        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePublication,
-        TemplateReadError,
+        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePoolSourceCut,
+        TemplatePublication, TemplateReadError, TemplateSourceCut,
     },
 };
 use crate::{
@@ -348,6 +348,9 @@ impl AuthorityBlockAssembler {
     pub(in crate::authority) async fn drive_replacement_once(
         &self,
     ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
+        if !self.replacement_needs_capture().await {
+            return Ok(AuthorityTemplateStep::Idle);
+        }
         let input = self.runtime.template_input()?;
         let current = self.assembler.current.read().await.clone();
         if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
@@ -366,6 +369,9 @@ impl AuthorityBlockAssembler {
         &self,
         component: TemplateComponent,
     ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
+        if !self.component_needs_capture(component) {
+            return Ok(AuthorityTemplateStep::Idle);
+        }
         let input = self.runtime.template_input()?;
         let current = self.assembler.current.read().await.clone();
         if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
@@ -380,6 +386,40 @@ impl AuthorityBlockAssembler {
             return Ok(AuthorityTemplateStep::Idle);
         };
         self.publish_partial(prepared).await
+    }
+
+    /// Read only monotonic source levels before capturing the accepted
+    /// population. Pool and candidate-uncle versions keep their independent
+    /// owners; the convergence projection joins the mixed cut conservatively.
+    async fn replacement_needs_capture(&self) -> bool {
+        let published_reset = self.assembler.current.read().await.reset_epoch;
+        let sources = self.template_source_probe();
+        self.convergence
+            .lock()
+            .replacement_needs_capture(sources, published_reset)
+    }
+
+    fn component_needs_capture(&self, component: TemplateComponent) -> bool {
+        match component {
+            TemplateComponent::Proposals => {
+                let pool = TemplatePoolSourceCut::new(self.runtime.template_source_versions());
+                self.convergence.lock().proposals_need_capture(pool)
+            }
+            TemplateComponent::Transactions => {
+                let pool = TemplatePoolSourceCut::new(self.runtime.template_source_versions());
+                self.convergence.lock().transactions_need_capture(pool)
+            }
+            TemplateComponent::Uncles => {
+                let sources = self.template_source_probe();
+                self.convergence.lock().uncles_need_capture(sources)
+            }
+        }
+    }
+
+    fn template_source_probe(&self) -> TemplateSourceCut {
+        let pool = self.runtime.template_source_versions();
+        let uncles = self.assembler.candidate_uncles.lock().source_receipt();
+        TemplateSourceCut::new(pool, uncles)
     }
 
     async fn retry_source_cut(&self) -> TemplateRetrySourceCut {

@@ -5,7 +5,10 @@
 //! the corresponding fact. The exhaustive before/after compiler below is the
 //! only place that maps an owner transition to template work.
 
-use super::state::{AcceptedStatus, ApplySequence, OwnedTx};
+use super::state::{
+    AcceptedStatus, ApplySequence, ObservedDependencies, OwnedTx, PreAcceptedPhase,
+    PreAcceptedSource, RemoteResidencyLease,
+};
 
 /// Source cut captured with accepted payloads for block-template work.
 ///
@@ -38,6 +41,7 @@ pub(super) struct AuthoritySourceVersions {
     owners: ApplySequence,
     accepted: ApplySequence,
     status: ApplySequence,
+    relay_parents: ApplySequence,
     template: PoolTemplateVersions,
 }
 
@@ -47,6 +51,7 @@ impl AuthoritySourceVersions {
             owners: ApplySequence(0),
             accepted: ApplySequence(0),
             status: ApplySequence(0),
+            relay_parents: ApplySequence(0),
             template: PoolTemplateVersions::initial(),
         }
     }
@@ -59,6 +64,13 @@ impl AuthoritySourceVersions {
         self.status
     }
 
+    /// Exact source for rebuilding the relayer's Remote missing-parent level.
+    /// Effect settlement and unrelated owner transitions must not invalidate a
+    /// bounded rebuild cursor; every relevant transition is compiled below.
+    pub(super) fn relay_parents(self) -> ApplySequence {
+        self.relay_parents
+    }
+
     pub(super) fn template(self) -> PoolTemplateVersions {
         self.template
     }
@@ -68,13 +80,21 @@ impl AuthoritySourceVersions {
         replacements: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
         sequence: ApplySequence,
     ) -> SourceVersionDelta {
-        let impact = replacements
-            .into_iter()
-            .map(|(before, after)| SourceImpact::for_replacement(before, after))
-            .fold(SourceImpact::None, SourceImpact::join);
-        SourceVersionDelta {
-            after: self.with_impact(impact, sequence),
+        let (impact, relay_parents_changed) = replacements.into_iter().fold(
+            (SourceImpact::None, false),
+            |(impact, relay_parents_changed), (before, after)| {
+                (
+                    impact.join(SourceImpact::for_replacement(before, after)),
+                    relay_parents_changed
+                        || relay_parent_projection(before) != relay_parent_projection(after),
+                )
+            },
+        );
+        let mut after = self.with_impact(impact, sequence);
+        if relay_parents_changed {
+            after.relay_parents = sequence;
         }
+        SourceVersionDelta { after }
     }
 
     /// A chain transition changes the template chain source even when its
@@ -100,6 +120,7 @@ impl AuthoritySourceVersions {
                 owners: sequence,
                 accepted: sequence,
                 status: sequence,
+                relay_parents: sequence,
                 template: PoolTemplateVersions {
                     proposals: sequence,
                     transactions: sequence,
@@ -130,6 +151,7 @@ impl AuthoritySourceVersions {
                 owners: sequence,
                 accepted: sequence,
                 status: sequence,
+                relay_parents: self.relay_parents,
                 template: PoolTemplateVersions {
                     proposals: sequence,
                     transactions: sequence,
@@ -138,6 +160,24 @@ impl AuthoritySourceVersions {
             },
         }
     }
+}
+
+fn relay_parent_projection(
+    owner: Option<&OwnedTx>,
+) -> Option<(RemoteResidencyLease, Option<&ObservedDependencies>)> {
+    let OwnedTx::PreAccepted(entry) = owner? else {
+        return None;
+    };
+    let PreAcceptedSource::Remote(remote) = entry.source else {
+        return None;
+    };
+    let waiting = match &entry.phase {
+        PreAcceptedPhase::Waiting(observed) => Some(observed),
+        PreAcceptedPhase::Queued(_)
+        | PreAcceptedPhase::Computing(_)
+        | PreAcceptedPhase::Ready(_) => None,
+    };
+    Some((remote.residency, waiting))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

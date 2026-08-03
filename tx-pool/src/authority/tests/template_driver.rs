@@ -1,5 +1,5 @@
 use super::super::{
-    state::AcceptedStatus,
+    state::{AcceptedStatus, ValidatedAdmission},
     template::TemplateComponent,
     template_driver::{AuthorityBlockAssembler, AuthorityTemplateStep},
 };
@@ -11,6 +11,7 @@ use crate::block_assembler::{BlockAssembler, ResetEpoch};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::{ChainStore, attach_block_cell};
@@ -199,6 +200,127 @@ async fn uak_template_failure_wait_ignores_unrelated_authority_mutation() {
             .expect("the source waiter joins")
     );
     cancel.cancel();
+}
+
+#[tokio::test]
+async fn uak_template_source_probe_skips_irrelevant_population_captures() {
+    let snapshot = template_snapshot();
+    let runtime = super::super::runtime::AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let assembler = BlockAssembler::new(template_config(), Arc::clone(&snapshot))
+        .expect("the block assembler fixture is valid");
+    let driver = AuthorityBlockAssembler::new(runtime.clone(), assembler)
+        .await
+        .expect("the authority template adapter is valid");
+
+    assert_eq!(
+        driver
+            .drive_replacement_once()
+            .await
+            .expect("the initial full level builds"),
+        AuthorityTemplateStep::Published
+    );
+    let converged_captures = runtime.template_capture_count_for_foundation();
+    for component in [
+        TemplateComponent::Proposals,
+        TemplateComponent::Transactions,
+        TemplateComponent::Uncles,
+    ] {
+        assert_eq!(
+            driver
+                .drive_component_once(component)
+                .await
+                .expect("the covered component probes without capture"),
+            AuthorityTemplateStep::Idle
+        );
+    }
+    assert_eq!(
+        driver
+            .drive_replacement_once()
+            .await
+            .expect("the covered replacement probes without capture"),
+        AuthorityTemplateStep::Idle
+    );
+    assert_eq!(
+        runtime.template_capture_count_for_foundation(),
+        converged_captures
+    );
+
+    runtime
+        .admit(
+            ValidatedAdmission::remote(tx(1_906), PeerIndex::from(906))
+                .expect("the hostile-work fixture is a valid Remote admission"),
+        )
+        .expect("PreAccepted ownership commits and publishes its generic wake");
+    for component in [
+        TemplateComponent::Proposals,
+        TemplateComponent::Transactions,
+        TemplateComponent::Uncles,
+    ] {
+        assert_eq!(
+            driver
+                .drive_component_once(component)
+                .await
+                .expect("PreAccepted-only movement is template-irrelevant"),
+            AuthorityTemplateStep::Idle
+        );
+    }
+    assert_eq!(
+        driver
+            .drive_replacement_once()
+            .await
+            .expect("PreAccepted-only movement cannot require full replacement"),
+        AuthorityTemplateStep::Idle
+    );
+    assert_eq!(
+        runtime.template_capture_count_for_foundation(),
+        converged_captures,
+        "a generic PreAccepted wake must perform zero accepted-pool captures"
+    );
+
+    assert!(
+        driver
+            .receive_candidate_uncle(candidate_uncle(&snapshot, 1, Vec::new()))
+            .expect("the candidate source advance is typed")
+    );
+    assert_eq!(
+        driver
+            .drive_replacement_once()
+            .await
+            .expect("candidate-only movement does not require a full build"),
+        AuthorityTemplateStep::Idle
+    );
+    for component in [
+        TemplateComponent::Proposals,
+        TemplateComponent::Transactions,
+    ] {
+        assert_eq!(
+            driver
+                .drive_component_once(component)
+                .await
+                .expect("candidate-only movement is irrelevant to this lane"),
+            AuthorityTemplateStep::Idle
+        );
+    }
+    assert_eq!(
+        runtime.template_capture_count_for_foundation(),
+        converged_captures
+    );
+    assert_eq!(
+        driver
+            .drive_component_once(TemplateComponent::Uncles)
+            .await
+            .expect("the uncle lane captures its relevant source"),
+        AuthorityTemplateStep::Published
+    );
+    assert_eq!(
+        runtime.template_capture_count_for_foundation(),
+        converged_captures + 1
+    );
 }
 
 #[tokio::test]

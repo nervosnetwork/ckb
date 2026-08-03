@@ -130,6 +130,13 @@ impl PartialEq for CommittedPublicReject {
 
 impl Eq for CommittedPublicReject {}
 
+pub(super) fn duplicate_inputs_reject() -> Reject {
+    Reject::Malformed(
+        "DuplicateInput".to_owned(),
+        "transaction contains duplicate inputs".to_owned(),
+    )
+}
+
 impl CommittedPublicReject {
     pub(super) fn new(reject: Reject) -> Self {
         let malformed = reject.is_malformed_tx();

@@ -77,7 +77,7 @@ fn endpoints(relay: AuthorityRelaySink, callbacks: Arc<Callbacks>) -> AuthorityE
 }
 
 fn relay_mailbox(max_items: usize) -> (AuthorityRelaySink, AuthorityRelayReceiver) {
-    authority_relay_mailbox(max_items, 1024 * 1024)
+    authority_relay_mailbox(max_items, 1024 * 1024, 1_024)
         .expect("the publisher relay mailbox fixture is valid")
 }
 
@@ -159,15 +159,14 @@ fn uak_effect_compiler_preserves_acceptance_and_chain_endpoint_semantics() {
 }
 
 #[test]
-fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
+fn uak_effect_compiler_keeps_rejection_owner_and_ingress_attribution_typed() {
     let ingress = PeerIndex::from(51);
-    let blame = PeerIndex::from(52);
     let candidate = Arc::new(tx(4_101));
     let malformed = Reject::Malformed("script".to_owned(), "invalid encoding".to_owned());
     let validation =
         compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Validation {
             tx: Arc::clone(&candidate),
-            audience: RejectionAudience::from_owner(Some(ingress), Some(blame)),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
             reason: CommittedPublicReject::new(malformed),
         }));
     assert_eq!(
@@ -194,7 +193,7 @@ fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
     let membership =
         compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Membership {
             tx: Arc::clone(&candidate),
-            audience: RejectionAudience::from_owner(Some(ingress), None),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
             reason: MembershipReject::TooManyAncestors,
         }));
     assert!(membership.callback.is_none());
@@ -214,7 +213,7 @@ fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
     let duplicate =
         compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Validation {
             tx: Arc::clone(&candidate),
-            audience: RejectionAudience::from_owner(Some(ingress), None),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
             reason: CommittedPublicReject::new(Reject::Duplicated(candidate.hash())),
         }));
     assert!(
@@ -226,7 +225,6 @@ fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
     let replacement =
         compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Replaced {
             entry: victim.clone(),
-            audience: RejectionAudience::from_owner(Some(ingress), None),
             winner: RawTxHash(candidate.hash()),
         }));
     let Some(CallbackEvent::Reject(snapshot, Reject::RBFRejected(_))) = replacement.callback else {
@@ -242,7 +240,6 @@ fn uak_effect_compiler_keeps_rejection_owner_and_peer_attribution_typed() {
     let evicted = compile_committed_effect(CommittedEffect::Rejected(
         CommittedRejection::CapacityEvicted {
             entry: victim,
-            audience: RejectionAudience::default(),
             fee_rate: FeeRate::from_u64(42),
         },
     ));
@@ -283,8 +280,10 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
 
     let preaccepted = compile_committed_effect(CommittedEffect::Rejected(
         CommittedRejection::ChainConflict {
-            owner: CommittedConflictOwner::PreAccepted(Arc::clone(&candidate)),
-            audience: RejectionAudience::from_owner(Some(peer), None),
+            owner: CommittedConflictOwner::PreAccepted {
+                tx: Arc::clone(&candidate),
+                audience: RejectionAudience::from_ingress(Some(peer)),
+            },
             out_point: out_point.clone(),
         },
     ));
@@ -300,7 +299,6 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     let accepted_conflict = compile_committed_effect(CommittedEffect::Rejected(
         CommittedRejection::ChainConflict {
             owner: CommittedConflictOwner::Accepted(accepted.clone()),
-            audience: RejectionAudience::default(),
             out_point,
         },
     ));
@@ -337,7 +335,6 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
 
     let expiry = compile_committed_effect(CommittedEffect::RemoteExpired {
         tx_hash: RawTxHash(candidate.hash()),
-        peer,
     });
     assert!(expiry.callback.is_none());
     assert!(expiry.recent_reject.is_none());
@@ -501,7 +498,6 @@ async fn uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head()
             EffectPolicy::Remote,
             CommittedEffect::RemoteExpired {
                 tx_hash: RawTxHash(Byte32::new([12; 32])),
-                peer: PeerIndex::from(84),
             },
         )
         .expect("the bounded fixture effect commits");
@@ -546,7 +542,6 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
             EffectPolicy::Remote,
             CommittedEffect::Rejected(CommittedRejection::CapacityEvicted {
                 entry: victim,
-                audience: RejectionAudience::default(),
                 fee_rate: FeeRate::from_u64(42),
             }),
         )
@@ -644,11 +639,9 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
             vec![
                 CommittedEffect::RemoteExpired {
                     tx_hash: first.clone(),
-                    peer: PeerIndex::from(82),
                 },
                 CommittedEffect::RemoteExpired {
                     tx_hash: second.clone(),
-                    peer: PeerIndex::from(83),
                 },
             ],
         )
@@ -725,7 +718,6 @@ async fn uak_retained_later_endpoint_does_not_replay_completed_callback_cursor()
             EffectPolicy::Remote,
             CommittedEffect::Rejected(CommittedRejection::CapacityEvicted {
                 entry: victim,
-                audience: RejectionAudience::default(),
                 fee_rate: FeeRate::from_u64(42),
             }),
         )

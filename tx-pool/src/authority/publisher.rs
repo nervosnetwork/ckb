@@ -12,7 +12,7 @@ use super::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
         CommittedRejection, EffectEndpoint, EffectLease, EffectProgressError, RejectionAudience,
     },
-    plan::{EffectSettlementFailure, PlanError},
+    plan::{EffectCheckoutError, EffectSettlementFailure},
     relay::{AuthorityRelaySink, RelayMailboxDisposition},
     runtime::{AuthorityEffectPublisherClaim, AuthorityRuntime},
     state::{AcceptedStatus, RawTxHash},
@@ -42,22 +42,24 @@ pub(crate) struct AuthorityEffectPublisherFault {
 
 #[derive(Debug)]
 pub(super) enum AuthorityEffectPublisherFaultKind {
+    #[cfg(test)]
     ConcurrentConsumer,
-    Authority(PlanError),
+    Checkout(EffectCheckoutError),
     Settlement(EffectSettlementFailure),
     Progress(EffectProgressError),
 }
 
 impl AuthorityEffectPublisherFault {
+    #[cfg(test)]
     fn concurrent_consumer() -> Self {
         Self {
             kind: AuthorityEffectPublisherFaultKind::ConcurrentConsumer,
         }
     }
 
-    fn authority(error: PlanError) -> Self {
+    fn checkout(error: EffectCheckoutError) -> Self {
         Self {
-            kind: AuthorityEffectPublisherFaultKind::Authority(error),
+            kind: AuthorityEffectPublisherFaultKind::Checkout(error),
         }
     }
 
@@ -371,7 +373,7 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
                 ..Default::default()
             }
         }
-        CommittedEffect::RemoteExpired { tx_hash, .. } => CompiledEndpointOutcome {
+        CommittedEffect::RemoteExpired { tx_hash } => CompiledEndpointOutcome {
             relay: Some(RelayAction::new(TxVerificationResult::Reject {
                 tx_hash: compact_hash(&tx_hash),
             })),
@@ -455,23 +457,18 @@ fn compile_rejection(rejection: CommittedRejection) -> CompiledEndpointOutcome {
             audience,
             reason: _,
         } => compile_preaccepted_rejection(tx, audience, public),
-        CommittedRejection::Replaced {
-            entry,
-            audience: _,
-            winner: _,
-        } => compile_accepted_rejection(entry, public),
-        CommittedRejection::CapacityEvicted {
-            entry,
-            audience: _,
-            fee_rate: _,
-        } => compile_accepted_rejection(entry, public),
+        CommittedRejection::Replaced { entry, winner: _ } => {
+            compile_accepted_rejection(entry, public)
+        }
+        CommittedRejection::CapacityEvicted { entry, fee_rate: _ } => {
+            compile_accepted_rejection(entry, public)
+        }
         CommittedRejection::Expired { entry } => compile_accepted_rejection(entry, public),
         CommittedRejection::ChainConflict {
             owner,
-            audience,
             out_point: _,
         } => match owner {
-            CommittedConflictOwner::PreAccepted(tx) => {
+            CommittedConflictOwner::PreAccepted { tx, audience } => {
                 compile_preaccepted_rejection(tx, audience, public)
             }
             CommittedConflictOwner::Accepted(entry) => compile_accepted_rejection(entry, public),
@@ -502,14 +499,13 @@ fn compile_preaccepted_rejection(
     // the existing relayer contract defensive here as well: if a future
     // validation producer misclassifies one, it must not turn an accepted
     // transaction into a negative peer-filter result.
-    let relay = (audience.ingress_peer.is_some()
-        && relay_allowed
-        && !matches!(&reject, Reject::Duplicated(_)))
-    .then(|| {
-        RelayAction::new(TxVerificationResult::Reject {
-            tx_hash: tx_hash.clone(),
-        })
-    });
+    let relay =
+        (audience.has_ingress() && relay_allowed && !matches!(&reject, Reject::Duplicated(_)))
+            .then(|| {
+                RelayAction::new(TxVerificationResult::Reject {
+                    tx_hash: tx_hash.clone(),
+                })
+            });
     CompiledEndpointOutcome {
         recent_reject,
         callback: None,
@@ -625,9 +621,7 @@ impl RetainedEffectLease {
         self.lease
             .as_mut()
             .ok_or_else(|| {
-                AuthorityEffectPublisherFault::authority(PlanError::Fault(
-                    super::plan::AuthorityFault::EffectProjection,
-                ))
+                AuthorityEffectPublisherFault::progress(EffectProgressError::Incomplete)
             })?
             .mark_current_processed()
             .map_err(AuthorityEffectPublisherFault::progress)
@@ -638,9 +632,9 @@ impl RetainedEffectLease {
         disposition: EndpointDisposition,
     ) -> Result<(), AuthorityEffectPublisherFault> {
         let Some(lease) = self.lease.take() else {
-            return Err(AuthorityEffectPublisherFault::authority(PlanError::Fault(
-                super::plan::AuthorityFault::EffectProjection,
-            )));
+            return Err(AuthorityEffectPublisherFault::progress(
+                EffectProgressError::Incomplete,
+            ));
         };
         let completed = match lease.into_complete() {
             Ok(completed) => completed,
@@ -680,7 +674,8 @@ impl Drop for RetainedEffectLease {
 /// every producer, closes the authority effect log, and lets this loop drain
 /// to `None`. Task abortion still cannot orphan the active head because the
 /// move-only guard synchronously returns the complete lease from `Drop`.
-pub(crate) async fn run_authority_effect_publisher(
+#[cfg(test)]
+pub(super) async fn run_authority_effect_publisher(
     runtime: AuthorityRuntime,
     endpoints: AuthorityEffectEndpoints,
 ) -> Result<(), AuthorityEffectPublisherFault> {
@@ -702,7 +697,7 @@ pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
         let Some(lease) = runtime
             .wait_effect_checkout()
             .await
-            .map_err(AuthorityEffectPublisherFault::authority)?
+            .map_err(AuthorityEffectPublisherFault::checkout)?
         else {
             info!("tx-pool authority effect publisher drained and exited");
             return Ok(());

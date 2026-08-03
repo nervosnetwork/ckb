@@ -1,6 +1,6 @@
 use super::chain::{
     AcceptedProof, CellContentReceipt, CellLocationReceipt, ProposalContextReceipt, ScriptReceipt,
-    VerificationContextReceipt,
+    TimeContextReceipt, VerificationContextReceipt,
 };
 use super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ReplacementHistoryCharge, ResourceVector,
@@ -8,6 +8,7 @@ use super::resources::{
 use crate::{
     component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
     resolved_tx::compact_verified_resolved_transaction,
+    util::compact_packed,
 };
 use ckb_network::PeerIndex;
 use ckb_types::{
@@ -172,13 +173,6 @@ impl RemoteBase {
         }
     }
 
-    pub(super) const fn with_trusted_payload(self) -> Self {
-        Self {
-            residency: self.residency,
-            payload_policy: PayloadPolicy::Trusted,
-        }
-    }
-
     pub(super) const fn blame_peer(self) -> Option<PeerIndex> {
         match self.payload_policy {
             PayloadPolicy::RemoteDeclaredCycles(_) => Some(self.residency.peer),
@@ -190,7 +184,11 @@ impl RemoteBase {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ProposalBase {
     Trusted,
-    Remote(RemoteBase),
+    /// A trusted proposal promoted an earlier Remote owner. Only immutable
+    /// ingress residency survives: proposal evidence permanently supersedes
+    /// the peer-declared payload policy, so that policy is unrepresentable in
+    /// this state.
+    Remote(RemoteResidencyLease),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,9 +203,9 @@ impl PreAcceptedSource {
         match self {
             Self::Remote(remote) => Some(remote.residency.peer),
             Self::Proposal {
-                base: ProposalBase::Remote(remote),
+                base: ProposalBase::Remote(residency),
                 ..
-            } => Some(remote.residency.peer),
+            } => Some(residency.peer),
             Self::Proposal {
                 base: ProposalBase::Trusted,
                 ..
@@ -218,16 +216,8 @@ impl PreAcceptedSource {
 
     pub(super) const fn payload_blame_peer(self) -> Option<PeerIndex> {
         match self {
-            Self::Remote(remote)
-            | Self::Proposal {
-                base: ProposalBase::Remote(remote),
-                ..
-            } => remote.blame_peer(),
-            Self::Proposal {
-                base: ProposalBase::Trusted,
-                ..
-            }
-            | Self::Recovery(_) => None,
+            Self::Remote(remote) => remote.blame_peer(),
+            Self::Proposal { .. } | Self::Recovery(_) => None,
         }
     }
 
@@ -247,28 +237,21 @@ impl PreAcceptedSource {
 
     pub(super) const fn payload_policy(self) -> PayloadPolicy {
         match self {
-            Self::Remote(remote)
-            | Self::Proposal {
-                base: ProposalBase::Remote(remote),
-                ..
-            } => remote.payload_policy,
-            Self::Proposal {
-                base: ProposalBase::Trusted,
-                ..
-            }
-            | Self::Recovery(_) => PayloadPolicy::Trusted,
+            Self::Remote(remote) => remote.payload_policy,
+            Self::Proposal { .. } | Self::Recovery(_) => PayloadPolicy::Trusted,
         }
     }
 
     pub(super) const fn accepted_provenance(self) -> AcceptedProvenance {
         match self {
-            Self::Remote(remote)
-            | Self::Proposal {
-                base: ProposalBase::Remote(remote),
+            Self::Remote(remote) => AcceptedProvenance::Peer {
+                ingress: remote.residency.peer,
+            },
+            Self::Proposal {
+                base: ProposalBase::Remote(residency),
                 ..
             } => AcceptedProvenance::Peer {
-                ingress: remote.residency.peer,
-                payload_policy: remote.payload_policy,
+                ingress: residency.peer,
             },
             Self::Proposal {
                 base: ProposalBase::Trusted,
@@ -282,31 +265,14 @@ impl PreAcceptedSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AcceptedProvenance {
     Trusted,
-    Peer {
-        ingress: PeerIndex,
-        payload_policy: PayloadPolicy,
-    },
+    Peer { ingress: PeerIndex },
 }
 
 impl AcceptedProvenance {
     pub(super) const fn ingress_peer(self) -> Option<PeerIndex> {
         match self {
             Self::Trusted => None,
-            Self::Peer { ingress, .. } => Some(ingress),
-        }
-    }
-
-    pub(super) const fn payload_blame_peer(self) -> Option<PeerIndex> {
-        match self {
-            Self::Peer {
-                ingress,
-                payload_policy: PayloadPolicy::RemoteDeclaredCycles(_),
-            } => Some(ingress),
-            Self::Trusted
-            | Self::Peer {
-                payload_policy: PayloadPolicy::Trusted,
-                ..
-            } => None,
+            Self::Peer { ingress } => Some(ingress),
         }
     }
 }
@@ -474,6 +440,29 @@ impl MissingDependencies {
     pub(super) fn len(&self) -> usize {
         self.0.len()
     }
+
+    pub(super) fn parent_transactions(&self) -> Result<Arc<[RawTxHash]>, DependencySetError> {
+        parent_transactions(&self.0)
+    }
+}
+
+fn parent_transactions(
+    dependencies: &KnownDependencies,
+) -> Result<Arc<[RawTxHash]>, DependencySetError> {
+    let mut parents = Vec::new();
+    parents
+        .try_reserve(dependencies.len())
+        .map_err(|_| DependencySetError::Allocation)?;
+    for key in dependencies.keys() {
+        let DependencyKey::Cell(out_point) = key else {
+            continue;
+        };
+        let parent = RawTxHash(compact_packed(&out_point.tx_hash()));
+        if parents.last() != Some(&parent) {
+            parents.push(parent);
+        }
+    }
+    Ok(parents.into())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -578,6 +567,41 @@ pub(super) enum InputEvidenceError {
     NotAnInput,
     NotADependency,
     ResidentBelowSerialized,
+}
+
+/// Public disposition class for failures while sealing resolved cell facts.
+///
+/// Both retained and direct admission consume this one exhaustive map. This
+/// prevents a hostile transaction shape from becoming a worker fault on one
+/// path while being rejected normally on the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InputEvidenceDisposition {
+    MalformedTransaction,
+    ResourceDenied,
+    ResourceUnavailable,
+    Structural,
+}
+
+impl InputEvidenceError {
+    pub(super) const fn disposition(&self) -> InputEvidenceDisposition {
+        match self {
+            Self::Footprint(FootprintError::DuplicateInput) => {
+                InputEvidenceDisposition::MalformedTransaction
+            }
+            Self::Footprint(FootprintError::TooManyEdges)
+            | Self::DependencySet(DependencySetError::TooMany) => {
+                InputEvidenceDisposition::ResourceDenied
+            }
+            Self::DependencySet(DependencySetError::Allocation) => {
+                InputEvidenceDisposition::ResourceUnavailable
+            }
+            Self::Footprint(FootprintError::Arithmetic)
+            | Self::DependencySet(DependencySetError::Empty | DependencySetError::Arithmetic)
+            | Self::NotAnInput
+            | Self::NotADependency
+            | Self::ResidentBelowSerialized => InputEvidenceDisposition::Structural,
+        }
+    }
 }
 
 impl ResolvedPayload {
@@ -812,10 +836,6 @@ pub(super) struct FoundationResolution {
 
 #[cfg(test)]
 impl FoundationResolution {
-    pub(super) fn into_parts(self) -> (ResolvedPayload, CellLocationReceipt) {
-        (self.payload, self.location)
-    }
-
     pub(super) fn into_payload(self) -> ResolvedPayload {
         self.payload
     }
@@ -863,9 +883,9 @@ impl ResolvedFacts {
         chain_view: ChainViewId,
         dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
-        location: CellLocationReceipt,
         verify_class: VerifyCycleClass,
     ) -> Self {
+        let location = CellLocationReceipt::from_resolution(&chain_view, &payload);
         Self {
             chain_view,
             dependency_cut,
@@ -923,23 +943,22 @@ impl ResolvedFacts {
         self.verify_class
     }
 
-    pub(super) fn location_receipt(&self) -> &CellLocationReceipt {
-        &self.location
-    }
-
     pub(super) fn into_verification_parts(
         self,
-        _seal: super::work::VerificationSeal,
+        seal: super::work::VerificationSeal,
+        time: TimeContextReceipt,
     ) -> (
         DependencyCut,
         CellContentReceipt,
-        CellLocationReceipt,
+        VerificationContextReceipt,
         VerifyCycleClass,
     ) {
+        let context =
+            VerificationContextReceipt::from_resolved(seal, self.chain_view, self.location, time);
         (
             self.dependency_cut,
             self.content,
-            self.location,
+            context,
             self.verify_class,
         )
     }
@@ -1209,6 +1228,10 @@ impl ObservedDependencies {
 
     pub(super) fn len(&self) -> usize {
         self.observed.len()
+    }
+
+    pub(super) fn parent_transactions(&self) -> Result<Arc<[RawTxHash]>, DependencySetError> {
+        parent_transactions(&self.observed)
     }
 }
 
@@ -1508,14 +1531,6 @@ impl OwnedTx {
         match self {
             Self::PreAccepted(entry) => entry.source.ingress_peer(),
             Self::Accepted(entry) => entry.provenance.ingress_peer(),
-            Self::ReplacementHistory(_) => None,
-        }
-    }
-
-    pub(super) fn payload_blame_peer(&self) -> Option<PeerIndex> {
-        match self {
-            Self::PreAccepted(entry) => entry.source.payload_blame_peer(),
-            Self::Accepted(entry) => entry.provenance.payload_blame_peer(),
             Self::ReplacementHistory(_) => None,
         }
     }

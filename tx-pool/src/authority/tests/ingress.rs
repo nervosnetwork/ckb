@@ -1,12 +1,16 @@
 use super::super::{
     effect::CommittedEffect,
     ingress::{
-        DirectCommand, RetainedIngressCommit, RetainedIngressError, direct, proposal,
-        remote_at_for_foundation,
+        DirectCommand, RetainedIngressBackpressure, RetainedIngressBoundaryError,
+        RetainedIngressCommit, RetainedIngressError, direct, proposal, remote_at_for_foundation,
     },
-    plan::{RetainedAdmissionDisposition, TxPoolAuthority},
+    plan::{
+        AuthorityFault, Backpressure, PlanError, RetainedAdmissionDisposition, TxPoolAuthority,
+    },
     runtime::AuthorityRuntime,
-    state::{PayloadPolicy, PreAcceptedSource, ProposalBase, RemoteDeadline},
+    state::{
+        AdmissionValidationError, PayloadPolicy, PreAcceptedSource, ProposalBase, RemoteDeadline,
+    },
 };
 use super::foundation::{
     accept_remote_transaction_with_payload, genesis_snapshot, limits, resolved_payload_with_facts,
@@ -195,8 +199,7 @@ fn uak_nonmalformed_remote_precheck_rejects_without_banning_the_peer() {
             audience,
             ..
         })] if super::super::state::RawTxHash(tx.hash()) == expected_hash
-            && audience.ingress_peer == Some(peer)
-            && audience.blame_peer == Some(peer)
+            && audience.ingress_peer() == Some(peer)
     ));
 }
 
@@ -365,5 +368,45 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
             .submit_remote_ingress(malformed, 0, PeerIndex::from(28))
             .expect("malformed Remote ingress commits its peer disposition"),
         RetainedIngressCommit::Rejected
+    );
+}
+
+#[test]
+fn uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop() {
+    assert_eq!(
+        RetainedIngressBoundaryError::from_admission(AdmissionValidationError::ResourceAllocation,),
+        RetainedIngressBoundaryError::ResourceUnavailable
+    );
+    assert_eq!(
+        RetainedIngressBoundaryError::from_admission(AdmissionValidationError::ResourceArithmetic,),
+        RetainedIngressBoundaryError::InvalidEvidence
+    );
+    assert_eq!(
+        RetainedIngressBoundaryError::from_plan(PlanError::Backpressure(
+            Backpressure::PeerResources,
+        )),
+        RetainedIngressBoundaryError::Backpressure(RetainedIngressBackpressure::PeerResources,)
+    );
+    assert_eq!(
+        RetainedIngressBoundaryError::from_plan(PlanError::Backpressure(
+            Backpressure::EffectCapacity,
+        )),
+        RetainedIngressBoundaryError::Backpressure(RetainedIngressBackpressure::EffectCapacity,)
+    );
+    assert_eq!(
+        RetainedIngressBoundaryError::from_plan(PlanError::Backpressure(
+            Backpressure::ProposalCollision,
+        )),
+        RetainedIngressBoundaryError::Backpressure(RetainedIngressBackpressure::ProposalCollision,)
+    );
+    assert_eq!(
+        RetainedIngressBoundaryError::from_plan(PlanError::IngressRevoked(PeerIndex::from(29),)),
+        RetainedIngressBoundaryError::PeerRevoked(PeerIndex::from(29))
+    );
+    assert_eq!(
+        RetainedIngressBoundaryError::from_plan(PlanError::Backpressure(
+            Backpressure::AcceptedResources,
+        )),
+        RetainedIngressBoundaryError::Fault(AuthorityFault::ResourceProjection)
     );
 }

@@ -3,7 +3,9 @@ use super::super::{
         ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, FinalAdmissionError,
         ProposalWindowPosition,
     },
-    chain_boundary::{ChainPackaging as RuntimeChainPackaging, ChainUpdateCommand},
+    chain_boundary::{
+        ChainBoundaryError, ChainPackaging as RuntimeChainPackaging, ChainUpdateCommand,
+    },
     effect::{CommittedEffect, CommittedRejection},
     plan::{
         AuthorityFault, Backpressure, ComputeSettlementRecovery, PlanError, StalePlan,
@@ -14,7 +16,7 @@ use super::super::{
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PayloadPolicy,
         PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, RemoteDeadline,
-        TxIdentity, ValidatedAdmission, VerifyCapability, WorkPermit,
+        TxIdentity, ValidatedAdmission, WorkPermit,
     },
     work::CheckedOutWork,
 };
@@ -37,6 +39,26 @@ use std::{
     num::NonZeroUsize,
     sync::Arc,
 };
+
+#[test]
+fn uak_chain_boundary_retains_ordered_backpressure_without_open_plan_errors() {
+    assert_eq!(
+        ChainBoundaryError::from(PlanError::Backpressure(Backpressure::Allocation)),
+        ChainBoundaryError::Allocation
+    );
+    assert_eq!(
+        ChainBoundaryError::from(PlanError::Backpressure(Backpressure::EffectCapacity)),
+        ChainBoundaryError::EffectCapacity
+    );
+    assert_eq!(
+        ChainBoundaryError::from(PlanError::EffectClosed),
+        ChainBoundaryError::LifecycleClosed
+    );
+    assert_eq!(
+        ChainBoundaryError::from(PlanError::Stale(StalePlan::ChainRevision)),
+        ChainBoundaryError::Fault(AuthorityFault::MembershipProjection)
+    );
+}
 
 #[test]
 fn uak_final_admission_refreshes_stale_verification_context() {
@@ -149,7 +171,7 @@ fn uak_chain_tip_not_revision_controls_negative_evidence_freshness() {
 }
 
 #[test]
-fn uak_matching_completion_settles_and_refreshes_across_chain_view_change() {
+fn uak_matching_resolution_completion_requeues_across_a_chain_view_change() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 15, 34);
     let version = owner_version(&authority, &hash);
@@ -174,38 +196,7 @@ fn uak_matching_completion_settles_and_refreshes_across_chain_view_change() {
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-    ));
-
-    let version = owner_version(&authority, &hash);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            version,
-            WorkPermit::VerifyOnly(VerifyCapability::Any),
-        )
-        .expect("reusable content checks out under the current view")
-        .apply();
-    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
-        panic!("verify-only permit returns verify work");
-    };
-    apply_without_work(
-        authority
-            .apply_settlement(
-                verify
-                    .verified(0)
-                    .expect("current-view context validation succeeds"),
-            )
-            .expect("the refreshed verification settles"),
-    );
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(
-                &entry.phase,
-                PreAcceptedPhase::Ready(verified)
-                    if verified.chain_view() == &current_view
-            )
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert_resource_reference(&authority);
 }
@@ -2166,7 +2157,8 @@ fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline()
                 entry.source,
                 PreAcceptedSource::Remote(remote)
                     if remote.residency.expires_at == RemoteDeadline(10)
-            )
+            ) && entry.source.payload_policy() == PayloadPolicy::Trusted
+                && entry.source.payload_blame_peer().is_none()
     ));
     let expired = authority
         .plan_remote_expiry(
@@ -2231,6 +2223,8 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.source, PreAcceptedSource::Remote(_))
                 && matches!(entry.phase, PreAcceptedPhase::Computing(_))
+                && entry.source.payload_policy() == PayloadPolicy::Trusted
+                && entry.source.payload_blame_peer().is_none()
     ));
     apply_without_work(
         authority

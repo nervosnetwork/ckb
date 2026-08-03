@@ -104,17 +104,6 @@ impl CellLocationReceipt {
     pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
         self.chain_dependencies.binary_search(dependency).is_ok()
     }
-
-    #[cfg(test)]
-    fn refreshed_for_foundation(&self, view: &ChainViewId) -> Self {
-        // This test-only seam represents a successful location revalidation;
-        // production must construct the receipt from the current snapshot.
-        Self {
-            tip: view.tip().clone(),
-            chain_inputs: Arc::clone(&self.chain_inputs),
-            chain_dependencies: Arc::clone(&self.chain_dependencies),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,16 +156,22 @@ impl VerificationContextReceipt {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn refresh_for_foundation(
+    /// Consume location evidence created inside the same sealed resolution
+    /// fact as `view`. Unlike final-admission refresh, this constructor cannot
+    /// receive independently sampled values, so no runtime mismatch state is
+    /// representable on the verification path.
+    pub(super) fn from_resolved(
+        _seal: super::work::VerificationSeal,
         view: ChainViewId,
-        previous_location: CellLocationReceipt,
-        rules: ScriptVerificationRules,
-    ) -> Result<Self, VerificationContextError> {
-        // The harness has no snapshot validator. Retargeting here stands for
-        // a completed validation, not permission to stamp old evidence fresh.
-        let location = previous_location.refreshed_for_foundation(&view);
-        Self::from_validation(view, location, TimeContextReceipt::from_validation(rules))
+        location: CellLocationReceipt,
+        time: TimeContextReceipt,
+    ) -> Self {
+        Self {
+            view,
+            chain_inputs: location.chain_inputs,
+            chain_dependencies: location.chain_dependencies,
+            time,
+        }
     }
 
     #[cfg(test)]

@@ -30,6 +30,7 @@ impl IndependentCandidate {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum CandidateBatchError {
     Empty,
@@ -38,9 +39,23 @@ pub(in crate::authority) enum CandidateBatchError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::authority) struct SettlementBatch(Vec<IndependentCandidate>);
+pub(in crate::authority) struct SettlementBatch {
+    head: IndependentCandidate,
+    tail: Vec<IndependentCandidate>,
+}
 
 impl SettlementBatch {
+    /// Construct the production batch from one non-empty Ready validation
+    /// cut. The scheduler is the sole producer of that bounded, unique cut;
+    /// retaining `head` separately makes an empty settlement unrepresentable.
+    pub(in crate::authority) fn from_validated_ready(
+        head: IndependentCandidate,
+        tail: Vec<IndependentCandidate>,
+    ) -> Self {
+        Self { head, tail }
+    }
+
+    #[cfg(test)]
     pub(in crate::authority) fn new(
         candidates: Vec<IndependentCandidate>,
     ) -> Result<Self, CandidateBatchError> {
@@ -63,11 +78,22 @@ impl SettlementBatch {
                 ));
             }
         }
-        Ok(Self(candidates))
+        let mut candidates = candidates.into_iter();
+        let Some(head) = candidates.next() else {
+            return Err(CandidateBatchError::Empty);
+        };
+        Ok(Self {
+            head,
+            tail: candidates.collect(),
+        })
     }
 
     pub(in crate::authority) fn len(&self) -> usize {
-        self.0.len()
+        self.tail.len().saturating_add(1)
+    }
+
+    fn candidates(&self) -> impl Iterator<Item = &IndependentCandidate> {
+        std::iter::once(&self.head).chain(&self.tail)
     }
 }
 
@@ -99,9 +125,9 @@ impl TxPoolAuthority {
         self.effects.ensure_open()?;
         let mut facts = Vec::new();
         facts
-            .try_reserve(batch.0.len())
+            .try_reserve(batch.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        for request in &batch.0 {
+        for request in batch.candidates() {
             let key = request.receipt.key().clone();
             let expected = request.receipt.expected();
             let owner = self
@@ -125,11 +151,19 @@ impl TxPoolAuthority {
             });
         }
         facts.sort_unstable_by(|left, right| right.rank.cmp(&left.rank));
-        let strongest_receipt = facts
+        let strongest = facts
             .first()
-            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
-            .receipt
-            .clone();
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        let strongest_receipt = strongest.receipt.clone();
+        let policy = EffectPolicy::for_preaccepted_source(strongest.before.source);
+
+        // One immutable effect batch occupies one capacity region. Keep the
+        // strongest Ready owner's control class and leave the other class in
+        // Ready for the next level-triggered round. ReadyKey orders Proposal
+        // and Recovery before Remote, so peer-controlled saturation cannot
+        // hide trusted progress; this filter repeats the semantic boundary at
+        // the sole membership planner instead of trusting a caller convention.
+        facts.retain(|fact| EffectPolicy::for_preaccepted_source(fact.before.source) == policy);
 
         if facts
             .iter()
@@ -211,10 +245,8 @@ impl TxPoolAuthority {
         effects
             .try_reserve(changes.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut contains_remote = false;
         for change in &changes {
             let ingress_peer = change.before.source.ingress_peer();
-            contains_remote |= ingress_peer.is_some();
             effects.push(CommittedEffect::Accepted(CommittedAcceptance::Admission {
                 entry: Self::committed_entry_snapshot(
                     &change.after,
@@ -225,16 +257,6 @@ impl TxPoolAuthority {
                 ingress_peer,
             }));
         }
-        // G5's production batch builder groups candidates by effect trust
-        // class. Until that facade owns construction, a mixed foundation
-        // batch takes the least-privileged region; remote work can never
-        // consume trusted headroom merely because it commutes with a trusted
-        // candidate.
-        let policy = if contains_remote {
-            EffectPolicy::Remote
-        } else {
-            EffectPolicy::Trusted
-        };
         let publication = self
             .effects
             .build_publication(policy, effects)

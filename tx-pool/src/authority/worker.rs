@@ -7,31 +7,25 @@
 //! capability reaches supervision.
 
 use super::{
-    plan::{
-        AuthorityFault, Backpressure, ComputeCancellationError, ComputeSettlementRecovery,
-        PlanError,
-    },
-    resolver::{ResolutionExecutionKind, VerificationCacheUpdate},
+    plan::{AuthorityFault, ComputeCancellationError, ComputeSettlementRecovery},
+    resolver::{ResolutionExecutionKind, ResolutionReceiptDefect, VerificationCacheUpdate},
     runtime::{
-        AuthorityComputeCheckout, AuthorityComputeExecutionPermit, AuthorityComputeOutcome,
-        AuthorityPendingSettlement, AuthorityReadyOutcome, AuthorityRuntime, AuthorityRuntimeError,
-        FinalAdmissionCaptureError, ReadyValidationError, SettlementOrigin,
+        AuthorityComputeCheckout, AuthorityComputeError, AuthorityComputeExecutionPermit,
+        AuthorityComputeOutcome, AuthorityDriverError, AuthorityPendingSettlement,
+        AuthorityReadyOutcome, AuthorityRuntime, SettlementOrigin,
     },
-    state::{VerifyCapability, WorkPermit},
-    validation::FinalAdmissionValidationError,
+    state::{InputEvidenceError, VerifyCapability, WorkPermit},
 };
 use ckb_async_runtime::Handle;
-use ckb_logger::error;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{future::pending, ops::ControlFlow, sync::Arc, time::Duration};
-use tokio::sync::{Notify, RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 
 const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(1);
-const INTERNAL_DEFECT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const MAINTENANCE_EXPIRY_TICK: Duration = Duration::from_secs(1);
 
 /// Background tasks owned by one authority generation. Their `Result` is
@@ -109,7 +103,6 @@ enum WorkerStep {
     Progress,
     Wait,
     Backoff,
-    Quarantine,
 }
 
 struct ComputeWorker {
@@ -203,51 +196,17 @@ impl ComputeWorker {
                 continue;
             }
 
-            // Subscribe before reading either authoritative level. A wake is
-            // only a hint, but this ordering prevents a mutation between the
-            // empty read and suspension from being lost.
-            let (primary, secondary) = self.lane_signals();
-            let primary_notified = primary.notified();
-            let secondary_notified = async {
-                match secondary.as_ref() {
-                    Some(signal) => signal.notified().await,
-                    None => pending().await,
-                }
-            };
+            // Subscribe before reading either authoritative level. The one
+            // mutation hint carries no lane state; this ordering prevents a
+            // mutation between the empty read and suspension from being lost.
+            let signal = self.runtime.mutation_signal();
+            let notified = signal.notified();
             let execution = match self.runtime.acquire_compute_execution(&cancel).await {
-                Ok(Some(execution)) => execution,
-                Ok(None) => return Ok(()),
-                Err(error) => {
-                    let step = self.handle_runtime_error(error).await?;
-                    if step == WorkerStep::Quarantine {
-                        tokio::select! {
-                            _ = cancel.cancelled() => return Ok(()),
-                            changed = command_rx.changed() => {
-                                if changed.is_err() {
-                                    return Ok(());
-                                }
-                            }
-                            _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
-                        }
-                    }
-                    continue;
-                }
+                Some(execution) => execution,
+                None => return Ok(()),
             };
             let step = self.try_process_one(&mut command_rx, execution).await?;
             if step == WorkerStep::Progress {
-                continue;
-            }
-
-            if step == WorkerStep::Quarantine {
-                tokio::select! {
-                    _ = cancel.cancelled() => return Ok(()),
-                    changed = command_rx.changed() => {
-                        if changed.is_err() {
-                            return Ok(());
-                        }
-                    }
-                    _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
-                }
                 continue;
             }
 
@@ -265,27 +224,9 @@ impl ComputeWorker {
                         return Ok(());
                     }
                 }
-                _ = primary_notified => {}
-                _ = secondary_notified => {}
+                _ = notified => {}
                 _ = retry_delay => {}
             }
-        }
-    }
-
-    fn lane_signals(&self) -> (Arc<Notify>, Option<Arc<Notify>>) {
-        match &self.role {
-            WorkerRole::OrderedResolve => (
-                self.runtime.signal_for_permit(WorkPermit::ResolveOnly),
-                None,
-            ),
-            WorkerRole::Verifier { capability, .. } => (
-                self.runtime
-                    .signal_for_permit(WorkPermit::VerifyOnly(*capability)),
-                Some(
-                    self.runtime
-                        .signal_for_permit(WorkPermit::ResolveThenVerify(*capability)),
-                ),
-            ),
         }
     }
 
@@ -315,10 +256,13 @@ impl ComputeWorker {
                         {
                             return self.recover_settlement(pending).await;
                         }
-                        error!(
-                            "tx-pool ordered resolver produced verification work; capability was returned and the lane is quarantined"
-                        );
-                        return Ok(WorkerStep::Quarantine);
+                        // `ResolveOnly` cannot legally issue verification.
+                        // The exact capability has already been returned, so
+                        // supervision receives a capability-free structural
+                        // scheduler fault instead of an unbounded retry loop.
+                        return Err(AuthorityWorkerFault::authority(
+                            AuthorityFault::SchedulerProjection,
+                        ));
                     }
                 };
                 let request = {
@@ -354,7 +298,7 @@ impl ComputeWorker {
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, Option<super::runtime::AuthorityComputeJob>>,
-        AuthorityRuntimeError,
+        AuthorityComputeError,
     > {
         match &self.role {
             WorkerRole::OrderedResolve => {
@@ -401,26 +345,16 @@ impl ComputeWorker {
 
     async fn handle_runtime_error(
         &self,
-        error: AuthorityRuntimeError,
+        error: AuthorityComputeError,
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
         match error {
-            AuthorityRuntimeError::Plan(error) => classify_plan_error(error),
-            AuthorityRuntimeError::Capture(kind) => classify_resolution_kind(kind, true),
-            AuthorityRuntimeError::Execution(kind) => classify_resolution_kind(kind, false),
-            AuthorityRuntimeError::Verification(kind) => {
-                error!(
-                    "tx-pool verification produced invalid internal evidence; settlement was returned and the lane is quarantined: {kind:?}"
-                );
-                Ok(WorkerStep::Quarantine)
+            AuthorityComputeError::Allocation | AuthorityComputeError::ComputeCapacity => {
+                Ok(WorkerStep::Backoff)
             }
-            AuthorityRuntimeError::ComputeGateClosed => {
-                error!(
-                    "tx-pool compute gate closed outside topology shutdown; the lane is quarantined"
-                );
-                Ok(WorkerStep::Quarantine)
-            }
-            AuthorityRuntimeError::FinalCapture(error) => classify_final_capture_error(error),
-            AuthorityRuntimeError::ReadyValidation(error) => classify_ready_validation_error(error),
+            AuthorityComputeError::EffectCapacity => Ok(WorkerStep::Wait),
+            AuthorityComputeError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
+            AuthorityComputeError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
+            AuthorityComputeError::Resolution(kind) => classify_resolution_kind(kind),
         }
     }
 
@@ -503,16 +437,9 @@ async fn run_ready_driver(
         let step = match runtime.try_drive_ready() {
             Ok(AuthorityReadyOutcome::Applied { .. }) => WorkerStep::Progress,
             Ok(AuthorityReadyOutcome::Idle) => WorkerStep::Wait,
-            Err(error) => classify_ready_error(error)?,
+            Err(error) => classify_driver_error(error)?,
         };
         if step == WorkerStep::Progress {
-            continue;
-        }
-        if step == WorkerStep::Quarantine {
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(()),
-                _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
-            }
             continue;
         }
         let retry_delay = async {
@@ -597,12 +524,6 @@ async fn run_maintenance_driver_loop(
                     _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
                 }
             }
-            WorkerStep::Quarantine => {
-                tokio::select! {
-                    _ = cancel.cancelled() => return Ok(()),
-                    _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
-                }
-            }
         }
     }
 }
@@ -618,155 +539,69 @@ fn run_maintenance_round(runtime: &AuthorityRuntime) -> Result<WorkerStep, Autho
 }
 
 fn classify_maintenance_result(
-    result: Result<super::runtime::AuthorityMaintenanceOutcome, PlanError>,
+    result: Result<super::runtime::AuthorityMaintenanceOutcome, AuthorityDriverError>,
 ) -> Result<WorkerStep, AuthorityWorkerFault> {
     match result {
         Ok(super::runtime::AuthorityMaintenanceOutcome::Applied { .. }) => Ok(WorkerStep::Progress),
         Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::Wait),
-        Err(error) => classify_plan_error(error),
+        Err(error) => classify_driver_error(error),
     }
 }
 
 fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
     match (left, right) {
         (WorkerStep::Progress, _) | (_, WorkerStep::Progress) => WorkerStep::Progress,
-        (WorkerStep::Quarantine, _) | (_, WorkerStep::Quarantine) => WorkerStep::Quarantine,
         (WorkerStep::Backoff, _) | (_, WorkerStep::Backoff) => WorkerStep::Backoff,
         (WorkerStep::Wait, WorkerStep::Wait) => WorkerStep::Wait,
     }
 }
 
-fn classify_plan_error(error: PlanError) -> Result<WorkerStep, AuthorityWorkerFault> {
-    match error {
-        PlanError::Stale(_) => Ok(WorkerStep::Progress),
-        PlanError::Backpressure(Backpressure::Allocation) => Ok(WorkerStep::Backoff),
-        PlanError::Backpressure(Backpressure::EffectCapacity) => Ok(WorkerStep::Wait),
-        PlanError::Backpressure(
-            pressure @ (Backpressure::ProposalCollision
-            | Backpressure::TotalResources
-            | Backpressure::RemoteResources
-            | Backpressure::PeerResources
-            | Backpressure::AcceptedResources
-            | Backpressure::ComputeResources
-            | Backpressure::ActiveWorkDrain
-            | Backpressure::GenerationReplacement),
-        ) => {
-            // None of the background driver APIs exposes these boundary-only
-            // outcomes as a progress contract. Treating the open Backpressure
-            // family as a level wait would strand the lane when no publisher
-            // or mutation can release it. Keep the authority unchanged and
-            // retry at the bounded quarantine cadence while reporting the
-            // producer/consumer contract violation.
-            error!(
-                "tx-pool background driver observed unsupported backpressure; the lane is quarantined: {pressure:?}"
-            );
-            Ok(WorkerStep::Quarantine)
-        }
-        PlanError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
-        PlanError::EffectClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
-        error @ (PlanError::Duplicate
-        | PlanError::PayloadVariant
-        | PlanError::Membership(_)
-        | PlanError::IngressRevoked(_)) => {
-            error!(
-                "tx-pool internal driver observed a boundary-only outcome; no authority capability was lost and the lane is quarantined: {error:?}"
-            );
-            Ok(WorkerStep::Quarantine)
-        }
-    }
-}
-
 fn classify_resolution_kind(
     kind: ResolutionExecutionKind,
-    capture: bool,
 ) -> Result<WorkerStep, AuthorityWorkerFault> {
     match kind {
         ResolutionExecutionKind::StaleView | ResolutionExecutionKind::ComputeBudget => {
             Ok(WorkerStep::Progress)
         }
         ResolutionExecutionKind::ResourceUnavailable => Ok(WorkerStep::Backoff),
-        ResolutionExecutionKind::InvalidReceipt(_) => {
-            let boundary = if capture { "capture" } else { "execution" };
-            error!(
-                "tx-pool resolution {boundary} produced invalid internal evidence; settlement was returned and the lane is quarantined: {kind:?}"
-            );
-            Ok(WorkerStep::Quarantine)
-        }
+        ResolutionExecutionKind::InvalidReceipt(error) => Err(AuthorityWorkerFault::authority(
+            resolution_receipt_fault(error),
+        )),
+    }
+}
+
+fn resolution_receipt_fault(error: ResolutionReceiptDefect) -> AuthorityFault {
+    match error {
+        ResolutionReceiptDefect::TransactionMismatch => AuthorityFault::MembershipProjection,
+        ResolutionReceiptDefect::EmptyDependencies => AuthorityFault::DependencyProjection,
+        ResolutionReceiptDefect::InvalidEvidence(error) => match error {
+            InputEvidenceError::Footprint(_) | InputEvidenceError::ResidentBelowSerialized => {
+                AuthorityFault::ResourceProjection
+            }
+            InputEvidenceError::DependencySet(_) | InputEvidenceError::NotADependency => {
+                AuthorityFault::DependencyProjection
+            }
+            InputEvidenceError::NotAnInput => AuthorityFault::MembershipProjection,
+        },
     }
 }
 
 fn classify_settled_origin(origin: SettlementOrigin) -> Result<WorkerStep, AuthorityWorkerFault> {
     match origin {
         SettlementOrigin::Completion => Ok(WorkerStep::Progress),
-        SettlementOrigin::Capture(kind) => classify_resolution_kind(kind, true),
-        SettlementOrigin::Resolution(kind) => classify_resolution_kind(kind, false),
-        SettlementOrigin::Verification(kind) => {
-            error!(
-                "tx-pool verification failure settled after backpressure; the lane is quarantined: {kind:?}"
-            );
-            Ok(WorkerStep::Quarantine)
+        SettlementOrigin::Capture(kind) | SettlementOrigin::Resolution(kind) => {
+            classify_resolution_kind(kind)
         }
     }
 }
 
-fn classify_ready_error(error: AuthorityRuntimeError) -> Result<WorkerStep, AuthorityWorkerFault> {
+fn classify_driver_error(error: AuthorityDriverError) -> Result<WorkerStep, AuthorityWorkerFault> {
     match error {
-        AuthorityRuntimeError::Plan(error) => classify_plan_error(error),
-        AuthorityRuntimeError::FinalCapture(error) => classify_final_capture_error(error),
-        AuthorityRuntimeError::ReadyValidation(error) => classify_ready_validation_error(error),
-        AuthorityRuntimeError::Capture(kind) => classify_resolution_kind(kind, true),
-        AuthorityRuntimeError::Execution(kind) => classify_resolution_kind(kind, false),
-        AuthorityRuntimeError::Verification(kind) => {
-            error!("Ready driver observed verification-only evidence: {kind:?}");
-            Ok(WorkerStep::Quarantine)
-        }
-        AuthorityRuntimeError::ComputeGateClosed => {
-            error!("Ready driver observed the unrelated compute gate closure");
-            Ok(WorkerStep::Quarantine)
-        }
-    }
-}
-
-fn classify_final_capture_error(
-    error: FinalAdmissionCaptureError,
-) -> Result<WorkerStep, AuthorityWorkerFault> {
-    match error {
-        FinalAdmissionCaptureError::Plan(PlanError::Stale(_))
-        | FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::StaleView) => {
-            Ok(WorkerStep::Progress)
-        }
-        FinalAdmissionCaptureError::Allocation
-        | FinalAdmissionCaptureError::Plan(PlanError::Backpressure(Backpressure::Allocation))
-        | FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::Allocation) => {
-            Ok(WorkerStep::Backoff)
-        }
-        FinalAdmissionCaptureError::Plan(error) => classify_plan_error(error),
-        error => {
-            error!(
-                "tx-pool Ready capture produced invalid internal evidence; no authority mutation occurred and the lane is quarantined: {error:?}"
-            );
-            Ok(WorkerStep::Quarantine)
-        }
-    }
-}
-
-fn classify_ready_validation_error(
-    error: ReadyValidationError,
-) -> Result<WorkerStep, AuthorityWorkerFault> {
-    match error {
-        ReadyValidationError::Candidate(FinalAdmissionValidationError::StaleView) => {
-            Ok(WorkerStep::Progress)
-        }
-        ReadyValidationError::Allocation
-        | ReadyValidationError::Candidate(FinalAdmissionValidationError::Allocation) => {
-            Ok(WorkerStep::Backoff)
-        }
-        error => {
-            error!(
-                "tx-pool Ready validation produced invalid internal evidence; no authority mutation occurred and the lane is quarantined: {error:?}"
-            );
-            Ok(WorkerStep::Quarantine)
-        }
+        AuthorityDriverError::Stale => Ok(WorkerStep::Progress),
+        AuthorityDriverError::Allocation => Ok(WorkerStep::Backoff),
+        AuthorityDriverError::EffectCapacity => Ok(WorkerStep::Wait),
+        AuthorityDriverError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
+        AuthorityDriverError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
     }
 }
 
