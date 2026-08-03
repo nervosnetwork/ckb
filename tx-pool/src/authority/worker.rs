@@ -472,9 +472,12 @@ async fn run_maintenance_driver_loop(
     cancel: CancellationToken,
     mut observe_round: impl FnMut(),
 ) -> Result<(), AuthorityWorkerFault> {
-    let start = tokio::time::Instant::now() + MAINTENANCE_EXPIRY_TICK;
-    let mut expiry = tokio::time::interval_at(start, MAINTENANCE_EXPIRY_TICK);
+    let mut expiry = tokio::time::interval(MAINTENANCE_EXPIRY_TICK);
     expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Tokio intervals expose one immediate setup tick. Consume it before the
+    // loop so the first wall-clock maintenance wake remains one period away
+    // without manually computing an overflow-capable deadline.
+    expiry.tick().await;
 
     loop {
         if cancel.is_cancelled() {

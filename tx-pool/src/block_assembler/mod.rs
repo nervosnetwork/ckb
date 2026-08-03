@@ -18,7 +18,8 @@ use crate::service::{BlockAssemblerResetJournal, PendingBlockAssemblerReset};
 use crate::util::block_offload;
 pub(crate) use candidate_uncles::CandidateUncleSourceReceipt;
 pub use candidate_uncles::CandidateUncles;
-use candidate_uncles::{CandidateUnclePrune, PreparedUncles};
+use candidate_uncles::PreparedUncles;
+pub(crate) use candidate_uncles::{CandidateUncleMutationError, CandidateUnclePrune};
 use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_error::{AnyError, InternalErrorKind};
@@ -50,8 +51,7 @@ use std::{cmp, iter};
 use tokio::sync::RwLock;
 
 use crate::TxPool;
-use builder::TemplateContentUpdate;
-pub(crate) use builder::{BlockTemplateBuilder, BlockTemplateDraft};
+pub(crate) use builder::{BlockTemplateBuilder, BlockTemplateDraft, TemplateContentUpdate};
 pub(crate) use process::{ResetApply, ResetNotification, process, process_reset};
 pub(crate) use state::{CurrentTemplate, ResetEpoch, TemplateRevision, TemplateSize};
 
@@ -79,7 +79,7 @@ pub struct BlockAssembler {
     /// Shared per-tip memo of chain-cell liveness for `calc_dao`. Uses a
     /// `std::sync::Mutex` because the critical sections are short and never
     /// cross `.await`.
-    cell_liveness_memo: Arc<StdMutex<CellLivenessMemo>>,
+    pub(crate) cell_liveness_memo: Arc<StdMutex<CellLivenessMemo>>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
     /// Bounded process owner for configured template-notification scripts.
     /// Each configured command has at most one live child; timeout drops and
@@ -138,7 +138,7 @@ impl BlockAssembler {
     /// during initial construction and is populated by `reset_template` after a
     /// reorg. Sharing this path avoids duplicating the cellbase, extension, DAO
     /// and size calculations between `new` and `reset_template`.
-    fn build_base_template(
+    pub(crate) fn build_base_template(
         config: &BlockAssemblerConfig,
         work_id: &AtomicU64,
         snapshot: Arc<Snapshot>,
@@ -192,7 +192,10 @@ impl BlockAssembler {
         })
     }
 
-    fn take_counter(counter: &AtomicU64, label: &'static str) -> Result<u64, BlockAssemblerError> {
+    pub(crate) fn take_counter(
+        counter: &AtomicU64,
+        label: &'static str,
+    ) -> Result<u64, BlockAssemblerError> {
         counter
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value.checked_add(1)
@@ -592,7 +595,7 @@ impl BlockAssembler {
     /// Keep the highest-scored proposal prefix that fits the remaining block
     /// bytes. Returning `None` means the non-proposal template already exceeds
     /// the limit. Exact fits are valid.
-    fn fit_proposal_prefix(
+    pub(crate) fn fit_proposal_prefix(
         proposals: &mut Vec<ProposalShortId>,
         base_total_size: usize,
         max_block_bytes: usize,
@@ -609,7 +612,7 @@ impl BlockAssembler {
     /// uncle contribution from the cached total. Returning `None` means either
     /// the size ledger is inconsistent or the non-uncle base already exceeds
     /// the consensus limit. Exact fits are valid.
-    fn fit_uncle_prefix(
+    pub(crate) fn fit_uncle_prefix(
         uncles: &mut Vec<UncleBlockView>,
         current_size: TemplateSize,
         max_block_bytes: usize,
@@ -838,7 +841,7 @@ impl BlockAssembler {
     /// indefinitely. Descendants of an omitted uncle are also omitted unless
     /// their parent is independently known on the main chain or as an already
     /// embedded uncle.
-    fn filter_uncles_conflicting_with_proposals(
+    pub(crate) fn filter_uncles_conflicting_with_proposals(
         snapshot: &Snapshot,
         uncles: &[UncleBlockView],
         proposals: &HashSet<ProposalShortId>,
@@ -885,7 +888,7 @@ impl BlockAssembler {
             .ok_or(BlockAssemblerError::Overflow)
     }
 
-    fn uncles_size(uncles: &[UncleBlockView]) -> Result<usize, BlockAssemblerError> {
+    pub(crate) fn uncles_size(uncles: &[UncleBlockView]) -> Result<usize, BlockAssemblerError> {
         uncles.iter().try_fold(0usize, |total, uncle| {
             total
                 .checked_add(Self::uncle_size(uncle)?)
@@ -922,7 +925,7 @@ impl BlockAssembler {
         block.serialized_size_without_uncle_proposals()
     }
 
-    fn checked_entries_size(entries: &[TxEntry]) -> Result<usize, BlockAssemblerError> {
+    pub(crate) fn checked_entries_size(entries: &[TxEntry]) -> Result<usize, BlockAssemblerError> {
         entries.iter().try_fold(0usize, |sum, tx| {
             sum.checked_add(tx.size)
                 .ok_or(BlockAssemblerError::Overflow)

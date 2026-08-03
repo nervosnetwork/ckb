@@ -25,6 +25,7 @@ mod scheduler;
 mod source;
 mod state;
 mod template;
+mod template_driver;
 mod validation;
 mod work;
 mod worker;

@@ -9,7 +9,7 @@ use super::{
     state::{AcceptedAtMillis, Arrival, CandidateMetrics, ProposalId, RawTxHash},
     template::{TemplateCandidate, TemplateReadError, TemplateSelectionReceipt},
 };
-use crate::component::sort_key::AncestorsScoreSortKey;
+use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
 use ckb_types::{
     core::{Capacity, Cycle, cell::ResolvedTransaction, tx_pool::get_transaction_weight},
     packed::ProposalShortId,
@@ -88,6 +88,26 @@ impl PackedTemplateTransactions {
 
     pub(super) fn cycles(&self) -> Cycle {
         self.cycles
+    }
+
+    /// Convert only the block-bounded selected payloads into the established
+    /// assembler DTO. The exact accepted timestamp and residency charge were
+    /// captured with the same authority receipt, so conversion performs no
+    /// second resolved-payload scan and reconstructs no membership graph.
+    pub(super) fn into_tx_entries(self) -> Vec<TxEntry> {
+        self.entries
+            .into_iter()
+            .map(|entry| {
+                TxEntry::new_with_timestamp_and_resident_size(
+                    entry.resolved,
+                    entry.metrics.cost.cycles,
+                    entry.metrics.fee,
+                    entry.metrics.cost.serialized_bytes,
+                    entry.accepted_at.0,
+                    entry.metrics.cost.resident_bytes,
+                )
+            })
+            .collect()
     }
 }
 

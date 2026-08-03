@@ -48,7 +48,7 @@ REQUIRED_LOCK_ORDER = [
     "EffectJournal",
 ]
 REQUIRED_RESIDUAL_RISKS = {
-    "R1": "typed_internal_contradiction_controlled_stop",
+    "R1": "proven_authoritative_integrity_loss_controlled_stop",
     "R2": "external_effect_delivery_not_exactly_once",
     "R3": "one_timed_out_blocking_call_per_endpoint_kind",
     "R4": "non_crash_durable_persistence_and_uncancellable_filesystem_io",

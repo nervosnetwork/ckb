@@ -10,5 +10,6 @@ mod query;
 mod read;
 mod resolver;
 mod template;
+mod template_driver;
 mod validation;
 mod worker;

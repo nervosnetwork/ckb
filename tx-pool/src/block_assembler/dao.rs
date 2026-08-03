@@ -27,7 +27,7 @@ type FailedTxs = (ProposalShortId, Option<OutPoint>);
 type CalcDaoResult = Result<(Byte32, Vec<TxEntry>, Vec<FailedTxs>), AnyError>;
 
 impl BlockAssembler {
-    pub(super) fn calc_dao(
+    pub(crate) fn calc_dao(
         snapshot: &Snapshot,
         current_epoch: &EpochExt,
         cellbase: TransactionView,

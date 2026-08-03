@@ -52,9 +52,7 @@ use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     VerifyOrder,
 };
-#[cfg(test)]
-use super::source::PoolTemplateVersions;
-use super::source::{AuthoritySourceVersions, SourceVersionDelta};
+use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
     AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut,
@@ -428,6 +426,10 @@ impl TxPoolAuthority {
 
     #[cfg(test)]
     pub(super) fn template_source_versions_for_reference(&self) -> PoolTemplateVersions {
+        self.template_source_versions()
+    }
+
+    pub(in crate::authority) fn template_source_versions(&self) -> PoolTemplateVersions {
         self.source_versions.template()
     }
 

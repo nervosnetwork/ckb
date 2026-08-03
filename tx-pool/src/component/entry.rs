@@ -318,7 +318,7 @@ impl TxEntry {
         )
     }
 
-    fn new_with_timestamp_and_resident_size(
+    pub(crate) fn new_with_timestamp_and_resident_size(
         rtx: Arc<ResolvedTransaction>,
         cycles: Cycle,
         fee: Capacity,

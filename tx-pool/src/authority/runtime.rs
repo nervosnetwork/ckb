@@ -47,9 +47,10 @@ use super::{
     },
     scheduler::VerifyOrder,
     state::{
-        AcceptedAtMillis, AcceptedStatus, ChainRevision, ChainViewId, RawTxHash, RemoteDeadline,
-        WorkPermit,
+        AcceptedAtMillis, AcceptedStatus, ApplySequence, ChainRevision, ChainViewId, RawTxHash,
+        RemoteDeadline, WorkPermit,
     },
+    template::{AuthorityTemplateInput, TemplateReadError},
     validation::{
         DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
         FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
@@ -1021,6 +1022,30 @@ impl AuthorityRuntime {
             self.resolution_policy.min_fee_rate,
         )
         .map_err(Into::into)
+    }
+
+    /// Capture immutable block-template payloads and the paired chain snapshot
+    /// under one store guard, then canonicalize the owned selection only after
+    /// releasing that guard.
+    pub(in crate::authority) fn template_input(
+        &self,
+    ) -> Result<AuthorityTemplateInput, TemplateReadError> {
+        let (snapshot, receipt) = {
+            let store = self.store.read();
+            (
+                Arc::clone(&store.snapshot),
+                store.authority.read_view().capture_template()?,
+            )
+        };
+        AuthorityTemplateInput::from_capture(snapshot, receipt)
+    }
+
+    /// Exact chain source used only at the short template publication Apply.
+    /// Reading this Copy token under the authority guard prevents an old-tip
+    /// build from publishing after a committed chain transition without
+    /// extending the guard over construction or an await point.
+    pub(in crate::authority) fn template_chain_source(&self) -> ApplySequence {
+        self.store.read().authority.template_source_versions().chain
     }
 
     /// Remove one explicit owner through the total administrative compiler.

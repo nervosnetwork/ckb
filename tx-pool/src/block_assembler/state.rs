@@ -21,13 +21,17 @@ impl TemplateRevision {
 
 /// Generation of the latest published authoritative reset. A full rebuild may
 /// overwrite partial content, but it may not cross this boundary.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) struct ResetEpoch(u64);
 
 impl ResetEpoch {
     pub(crate) const INITIAL: Self = Self(0);
+    pub(crate) const MAX: Self = Self(u64::MAX);
 
     pub(crate) fn next(self) -> Option<Self> {
+        if self == Self::MAX {
+            return None;
+        }
         self.0.checked_add(1).map(Self)
     }
 }

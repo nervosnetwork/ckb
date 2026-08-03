@@ -15,7 +15,8 @@ use super::{
         RawTxHash,
     },
 };
-use crate::block_assembler::CandidateUncleSourceReceipt;
+use crate::block_assembler::{CandidateUncleSourceReceipt, ResetEpoch, TemplateRevision};
+use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::cell::ResolvedTransaction,
     packed::{OutPoint, ProposalShortId},
@@ -128,6 +129,48 @@ pub(super) struct TemplateSelectionReceipt {
     cut: AuthorityReadCut,
     sources: PoolTemplateVersions,
     candidates: Vec<TemplateCandidate>,
+}
+
+/// One immutable tx-pool template input whose payloads, source versions and
+/// chain snapshot were captured under the same authority-store read guard.
+/// Construction work may consume this value only after that guard has opened;
+/// no caller can splice a pool receipt from one chain view onto another
+/// snapshot.
+#[derive(Debug)]
+pub(super) struct AuthorityTemplateInput {
+    snapshot: Arc<Snapshot>,
+    selection: TemplateSelectionReceipt,
+}
+
+impl AuthorityTemplateInput {
+    pub(super) fn from_capture(
+        snapshot: Arc<Snapshot>,
+        receipt: AuthorityTemplateReadReceipt,
+    ) -> Result<Self, TemplateReadError> {
+        if receipt.cut().chain_view().tip().0 != snapshot.tip_hash() {
+            return Err(TemplateReadError::Projection);
+        }
+        Ok(Self {
+            snapshot,
+            selection: receipt.into_selection()?,
+        })
+    }
+
+    pub(super) fn snapshot(&self) -> &Arc<Snapshot> {
+        &self.snapshot
+    }
+
+    pub(super) fn selection(&self) -> &TemplateSelectionReceipt {
+        &self.selection
+    }
+
+    pub(super) fn pool_source_cut(&self) -> TemplatePoolSourceCut {
+        TemplatePoolSourceCut(self.selection.sources)
+    }
+
+    pub(super) fn source_cut(&self, uncles: CandidateUncleSourceReceipt) -> TemplateSourceCut {
+        self.selection.source_cut(uncles)
+    }
 }
 
 impl AuthorityTemplateReadReceipt {
@@ -267,6 +310,31 @@ impl TemplateSelectionReceipt {
                 .get(index)
                 .ok_or(TemplateReadError::Projection)?;
             proposals.push(candidate.proposal.clone());
+        }
+        Ok(proposals)
+    }
+
+    pub(super) fn proposal_short_ids(
+        &self,
+        limit: u64,
+    ) -> Result<Vec<ProposalShortId>, TemplateReadError> {
+        let ordered = self.ordered_indices([AcceptedStatus::Pending])?;
+        let selected = match usize::try_from(limit) {
+            Ok(limit) => limit.min(ordered.len()),
+            Err(_) => ordered.len(),
+        };
+        let mut proposals = Vec::new();
+        proposals
+            .try_reserve(selected)
+            .map_err(|_| TemplateReadError::Allocation)?;
+        for index in ordered.into_iter().take(selected) {
+            proposals.push(
+                self.candidates
+                    .get(index)
+                    .ok_or(TemplateReadError::Projection)?
+                    .proposal_short_id()
+                    .clone(),
+            );
         }
         Ok(proposals)
     }
@@ -1069,24 +1137,61 @@ fn drop_causal_descendants(
 /// with accepted payloads under one authority read guard; the uncle version
 /// comes from the block assembler's independent bounded candidate authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TemplatePoolSourceCut(PoolTemplateVersions);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TemplateSourceCut {
-    pool: PoolTemplateVersions,
+    pool: TemplatePoolSourceCut,
     uncles: CandidateUncleSourceReceipt,
 }
 
 impl TemplateSourceCut {
     fn new(pool: PoolTemplateVersions, uncles: CandidateUncleSourceReceipt) -> Self {
-        Self { pool, uncles }
+        Self {
+            pool: TemplatePoolSourceCut(pool),
+            uncles,
+        }
     }
 
     fn join(self, incoming: Self) -> Self {
         Self {
-            pool: PoolTemplateVersions {
-                proposals: self.pool.proposals.max(incoming.pool.proposals),
-                transactions: self.pool.transactions.max(incoming.pool.transactions),
-                chain: self.pool.chain.max(incoming.pool.chain),
-            },
+            pool: self.pool.join(incoming.pool),
             uncles: self.uncles.max(incoming.uncles),
+        }
+    }
+
+    fn chain_source(self) -> ApplySequence {
+        self.pool.0.chain
+    }
+
+    fn covers(self, target: Self) -> bool {
+        self.pool.0.proposals >= target.pool.0.proposals
+            && self.pool.0.transactions >= target.pool.0.transactions
+            && self.pool.0.chain >= target.pool.0.chain
+            && self.uncles >= target.uncles
+    }
+}
+
+impl TemplatePoolSourceCut {
+    fn join(self, incoming: Self) -> Self {
+        Self(PoolTemplateVersions {
+            proposals: self.0.proposals.max(incoming.0.proposals),
+            transactions: self.0.transactions.max(incoming.0.transactions),
+            chain: self.0.chain.max(incoming.0.chain),
+        })
+    }
+
+    fn proposal_cut(self) -> ProposalSourceCut {
+        ProposalSourceCut {
+            selection: self.0.proposals,
+            chain: self.0.chain,
+        }
+    }
+
+    fn transaction_cut(self) -> TransactionSourceCut {
+        TransactionSourceCut {
+            selection: self.0.transactions,
+            chain: self.0.chain,
         }
     }
 }
@@ -1110,26 +1215,29 @@ struct UncleSourceCut {
     proposals: ApplySequence,
 }
 
-impl TemplateSourceCut {
+impl UncleSourceCut {
     fn proposal_cut(self) -> ProposalSourceCut {
         ProposalSourceCut {
-            selection: self.pool.proposals,
-            chain: self.pool.chain,
+            selection: self.proposals,
+            chain: self.chain,
         }
+    }
+}
+
+impl TemplateSourceCut {
+    fn proposal_cut(self) -> ProposalSourceCut {
+        self.pool.proposal_cut()
     }
 
     fn transaction_cut(self) -> TransactionSourceCut {
-        TransactionSourceCut {
-            selection: self.pool.transactions,
-            chain: self.pool.chain,
-        }
+        self.pool.transaction_cut()
     }
 
     fn uncle_cut(self) -> UncleSourceCut {
         UncleSourceCut {
             candidates: self.uncles,
-            chain: self.pool.chain,
-            proposals: self.pool.proposals,
+            chain: self.pool.0.chain,
+            proposals: self.pool.0.proposals,
         }
     }
 }
@@ -1141,24 +1249,6 @@ pub(super) enum TemplateComponent {
     Uncles,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct TemplateRevision(u64);
-
-impl TemplateRevision {
-    fn next(self) -> Option<Self> {
-        self.0.checked_add(1).map(Self)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct TemplateResetEpoch(u64);
-
-impl TemplateResetEpoch {
-    fn next(self) -> Option<Self> {
-        self.0.checked_add(1).map(Self)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TemplatePublication {
     Published,
@@ -1167,7 +1257,6 @@ pub(super) enum TemplatePublication {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TemplateConvergenceError {
-    RevisionExhausted,
     ResetEpochExhausted,
 }
 
@@ -1194,8 +1283,16 @@ impl TemplateCoverage {
 /// reset epoch prevents it from crossing a reset even before blank content is
 /// published. A full prepared for that exact epoch may publish after reset.
 pub(super) struct FullTemplateBuild {
-    expected_reset: TemplateResetEpoch,
+    expected_reset: ResetEpoch,
+    expected_reset_chain: ApplySequence,
+    sources: TemplateSourceCut,
     coverage: TemplateCoverage,
+}
+
+impl FullTemplateBuild {
+    pub(super) fn chain_source(&self) -> ApplySequence {
+        self.expected_reset_chain
+    }
 }
 
 enum PartialTemplateCoverage {
@@ -1209,8 +1306,29 @@ pub(super) struct PartialTemplateBuild {
     coverage: PartialTemplateCoverage,
 }
 
+impl PartialTemplateBuild {
+    pub(super) fn chain_source(&self) -> ApplySequence {
+        match self.coverage {
+            PartialTemplateCoverage::Proposals(coverage) => coverage.chain,
+            PartialTemplateCoverage::Transactions(coverage) => coverage.chain,
+            PartialTemplateCoverage::Uncles(coverage) => coverage.chain,
+        }
+    }
+}
+
 pub(super) struct ResetTemplateBuild {
-    epoch: TemplateResetEpoch,
+    epoch: ResetEpoch,
+    chain_source: ApplySequence,
+}
+
+impl ResetTemplateBuild {
+    pub(super) fn epoch(&self) -> ResetEpoch {
+        self.epoch
+    }
+
+    pub(super) fn chain_source(&self) -> ApplySequence {
+        self.chain_source
+    }
 }
 
 /// Rebuildable output authority for block-template source coverage.
@@ -1224,20 +1342,25 @@ pub(super) struct ResetTemplateBuild {
 pub(super) struct TemplateConvergence {
     desired: TemplateSourceCut,
     covered: TemplateCoverage,
-    revision: TemplateRevision,
-    desired_reset: TemplateResetEpoch,
-    published_reset: TemplateResetEpoch,
+    desired_reset: ResetEpoch,
+    desired_reset_chain: ApplySequence,
+    full_required: Option<TemplateSourceCut>,
 }
 
 impl TemplateConvergence {
-    pub(super) fn new(initial: TemplateSourceCut) -> Self {
+    pub(super) fn new(initial: TemplateSourceCut, reset_epoch: ResetEpoch) -> Self {
         Self {
             desired: initial,
             covered: TemplateCoverage::default(),
-            revision: TemplateRevision::default(),
-            desired_reset: TemplateResetEpoch::default(),
-            published_reset: TemplateResetEpoch::default(),
+            desired_reset: reset_epoch,
+            desired_reset_chain: initial.chain_source(),
+            full_required: Some(initial),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_foundation(initial: TemplateSourceCut) -> Self {
+        Self::new(initial, ResetEpoch::INITIAL)
     }
 
     /// Join rather than replace because pool and uncle cuts come from
@@ -1247,6 +1370,10 @@ impl TemplateConvergence {
         self.desired = self.desired.join(sources);
     }
 
+    fn observe_pool_sources(&mut self, sources: TemplatePoolSourceCut) {
+        self.desired.pool = self.desired.pool.join(sources);
+    }
+
     pub(super) fn begin_full(&mut self, sources: TemplateSourceCut) -> FullTemplateBuild {
         self.observe_sources(sources);
         FullTemplateBuild {
@@ -1254,29 +1381,125 @@ impl TemplateConvergence {
             // fence. Otherwise scheduler timing lets an old full cross the
             // interval between reset request and blank publication.
             expected_reset: self.desired_reset,
+            expected_reset_chain: self.desired_reset_chain,
+            sources,
             coverage: TemplateCoverage::full(sources),
         }
     }
 
-    pub(super) fn begin_partial(
+    pub(super) fn begin_pending_full(
+        &mut self,
+        sources: TemplateSourceCut,
+    ) -> Option<FullTemplateBuild> {
+        self.observe_sources(sources);
+        self.full_required.map(|_| FullTemplateBuild {
+            expected_reset: self.desired_reset,
+            expected_reset_chain: self.desired_reset_chain,
+            sources,
+            coverage: TemplateCoverage::full(sources),
+        })
+    }
+
+    /// Escalate a partial build that cannot publish a definitive component
+    /// under the current shared byte budget. Repeated requests coalesce at the
+    /// latest source level and add no queue item.
+    pub(super) fn require_full(&mut self) -> bool {
+        let required = self
+            .full_required
+            .map_or(self.desired, |current| current.join(self.desired));
+        let changed = self.full_required != Some(required);
+        self.full_required = Some(required);
+        changed
+    }
+
+    #[cfg(test)]
+    pub(super) fn begin_partial_for_foundation(
         &mut self,
         component: TemplateComponent,
         sources: TemplateSourceCut,
+        base_revision: TemplateRevision,
+    ) -> PartialTemplateBuild {
+        match component {
+            TemplateComponent::Proposals => self.begin_proposals(sources.pool, base_revision),
+            TemplateComponent::Transactions => self.begin_transactions(sources.pool, base_revision),
+            TemplateComponent::Uncles => self.begin_uncles(sources, base_revision),
+        }
+    }
+
+    pub(super) fn begin_proposals(
+        &mut self,
+        sources: TemplatePoolSourceCut,
+        base_revision: TemplateRevision,
+    ) -> PartialTemplateBuild {
+        self.observe_pool_sources(sources);
+        PartialTemplateBuild {
+            expected_revision: base_revision,
+            coverage: PartialTemplateCoverage::Proposals(sources.proposal_cut()),
+        }
+    }
+
+    pub(super) fn begin_pending_proposals(
+        &mut self,
+        sources: TemplatePoolSourceCut,
+        base_revision: TemplateRevision,
+    ) -> Option<PartialTemplateBuild> {
+        self.observe_pool_sources(sources);
+        (self.covered.proposals != Some(self.desired.proposal_cut())).then(|| {
+            PartialTemplateBuild {
+                expected_revision: base_revision,
+                coverage: PartialTemplateCoverage::Proposals(sources.proposal_cut()),
+            }
+        })
+    }
+
+    pub(super) fn begin_transactions(
+        &mut self,
+        sources: TemplatePoolSourceCut,
+        base_revision: TemplateRevision,
+    ) -> PartialTemplateBuild {
+        self.observe_pool_sources(sources);
+        PartialTemplateBuild {
+            expected_revision: base_revision,
+            coverage: PartialTemplateCoverage::Transactions(sources.transaction_cut()),
+        }
+    }
+
+    pub(super) fn begin_pending_transactions(
+        &mut self,
+        sources: TemplatePoolSourceCut,
+        base_revision: TemplateRevision,
+    ) -> Option<PartialTemplateBuild> {
+        self.observe_pool_sources(sources);
+        (self.covered.transactions != Some(self.desired.transaction_cut())).then(|| {
+            PartialTemplateBuild {
+                expected_revision: base_revision,
+                coverage: PartialTemplateCoverage::Transactions(sources.transaction_cut()),
+            }
+        })
+    }
+
+    pub(super) fn begin_uncles(
+        &mut self,
+        sources: TemplateSourceCut,
+        base_revision: TemplateRevision,
     ) -> PartialTemplateBuild {
         self.observe_sources(sources);
-        let coverage = match component {
-            TemplateComponent::Proposals => {
-                PartialTemplateCoverage::Proposals(sources.proposal_cut())
-            }
-            TemplateComponent::Transactions => {
-                PartialTemplateCoverage::Transactions(sources.transaction_cut())
-            }
-            TemplateComponent::Uncles => PartialTemplateCoverage::Uncles(sources.uncle_cut()),
-        };
         PartialTemplateBuild {
-            expected_revision: self.revision,
-            coverage,
+            expected_revision: base_revision,
+            coverage: PartialTemplateCoverage::Uncles(sources.uncle_cut()),
         }
+    }
+
+    pub(super) fn begin_pending_uncles(
+        &mut self,
+        sources: TemplateSourceCut,
+        base_revision: TemplateRevision,
+    ) -> Option<PartialTemplateBuild> {
+        self.observe_sources(sources);
+        (self.covered.uncles != Some(self.desired.uncle_cut())).then(|| PartialTemplateBuild {
+            expected_revision: base_revision,
+            coverage: PartialTemplateCoverage::Uncles(sources.uncle_cut()),
+        })
     }
 
     pub(super) fn mark_reset(
@@ -1289,72 +1512,107 @@ impl TemplateConvergence {
             .ok_or(TemplateConvergenceError::ResetEpochExhausted)?;
         self.observe_sources(sources);
         self.desired_reset = epoch;
-        Ok(ResetTemplateBuild { epoch })
+        self.desired_reset_chain = sources.chain_source();
+        self.require_full();
+        Ok(ResetTemplateBuild {
+            epoch,
+            chain_source: self.desired_reset_chain,
+        })
+    }
+
+    /// Return the one reset capability for the latest observed chain source.
+    /// Re-reading an unchanged pending level reconstructs its token without
+    /// manufacturing a new epoch; a newer chain cut supersedes the older
+    /// build before either can publish.
+    pub(super) fn ensure_reset(
+        &mut self,
+        sources: TemplateSourceCut,
+        published_reset: ResetEpoch,
+    ) -> Result<Option<ResetTemplateBuild>, TemplateConvergenceError> {
+        let incoming_chain = sources.chain_source();
+        self.observe_sources(sources);
+        if self.desired_reset > published_reset && incoming_chain == self.desired_reset_chain {
+            return Ok(self.begin_pending_reset(published_reset));
+        }
+        if incoming_chain < self.desired_reset_chain {
+            return Ok(self.begin_pending_reset(published_reset));
+        }
+        self.mark_reset(sources).map(Some)
     }
 
     /// Reconstruct the exact outstanding reset capability from authoritative
     /// level state. Notification and the first move-only build are only wake
     /// hints; dropping either cannot erase a requested reset.
-    pub(super) fn begin_pending_reset(&self) -> Option<ResetTemplateBuild> {
-        (self.desired_reset > self.published_reset).then_some(ResetTemplateBuild {
+    pub(super) fn begin_pending_reset(
+        &self,
+        published_reset: ResetEpoch,
+    ) -> Option<ResetTemplateBuild> {
+        (self.desired_reset > published_reset).then_some(ResetTemplateBuild {
             epoch: self.desired_reset,
+            chain_source: self.desired_reset_chain,
         })
     }
 
     pub(super) fn publish_full(
         &mut self,
         build: FullTemplateBuild,
+        published_reset: ResetEpoch,
     ) -> Result<TemplatePublication, TemplateConvergenceError> {
         if build.expected_reset != self.desired_reset
-            || build.expected_reset != self.published_reset
+            || build.expected_reset != published_reset
+            || build.expected_reset_chain != self.desired_reset_chain
         {
             return Ok(TemplatePublication::Stale);
         }
-        let revision = self
-            .revision
-            .next()
-            .ok_or(TemplateConvergenceError::RevisionExhausted)?;
         self.covered = build.coverage;
-        self.revision = revision;
+        if self
+            .full_required
+            .is_some_and(|required| build.sources.covers(required))
+        {
+            self.full_required = None;
+        }
         Ok(TemplatePublication::Published)
     }
 
     pub(super) fn publish_partial(
         &mut self,
         build: PartialTemplateBuild,
+        published_revision: TemplateRevision,
     ) -> Result<TemplatePublication, TemplateConvergenceError> {
-        if build.expected_revision != self.revision {
+        if build.expected_revision != published_revision {
             return Ok(TemplatePublication::Stale);
         }
-        let revision = self
-            .revision
-            .next()
-            .ok_or(TemplateConvergenceError::RevisionExhausted)?;
         match build.coverage {
-            PartialTemplateCoverage::Proposals(coverage) => self.covered.proposals = Some(coverage),
+            PartialTemplateCoverage::Proposals(coverage) => {
+                self.covered.proposals = Some(coverage);
+                self.covered.transactions = None;
+                self.covered.uncles = None;
+            }
             PartialTemplateCoverage::Transactions(coverage) => {
                 self.covered.transactions = Some(coverage)
             }
-            PartialTemplateCoverage::Uncles(coverage) => self.covered.uncles = Some(coverage),
+            PartialTemplateCoverage::Uncles(coverage) => {
+                self.covered.proposals = Some(coverage.proposal_cut());
+                self.covered.transactions = None;
+                self.covered.uncles = Some(coverage);
+            }
         }
-        self.revision = revision;
         Ok(TemplatePublication::Published)
     }
 
     pub(super) fn publish_reset(
         &mut self,
         build: ResetTemplateBuild,
+        published_reset: ResetEpoch,
     ) -> Result<TemplatePublication, TemplateConvergenceError> {
-        if build.epoch != self.desired_reset || build.epoch <= self.published_reset {
+        if build.epoch != self.desired_reset
+            || build.chain_source != self.desired_reset_chain
+            || build.epoch <= published_reset
+        {
             return Ok(TemplatePublication::Stale);
         }
-        let revision = self
-            .revision
-            .next()
-            .ok_or(TemplateConvergenceError::RevisionExhausted)?;
         self.covered = TemplateCoverage::default();
-        self.published_reset = build.epoch;
-        self.revision = revision;
+        self.require_full();
         Ok(TemplatePublication::Published)
     }
 
@@ -1370,8 +1628,9 @@ impl TemplateConvergence {
         }
     }
 
-    pub(super) fn is_converged(&self) -> bool {
-        self.desired_reset == self.published_reset
+    pub(super) fn is_converged(&self, published_reset: ResetEpoch) -> bool {
+        self.desired_reset == published_reset
+            && self.full_required.is_none()
             && [
                 TemplateComponent::Proposals,
                 TemplateComponent::Transactions,
@@ -1382,13 +1641,8 @@ impl TemplateConvergence {
     }
 
     #[cfg(test)]
-    pub(super) fn force_revision_for_foundation(&mut self, revision: u64) {
-        self.revision = TemplateRevision(revision);
-    }
-
-    #[cfg(test)]
-    pub(super) fn force_reset_epoch_for_foundation(&mut self, epoch: u64) {
-        self.desired_reset = TemplateResetEpoch(epoch);
+    pub(super) fn force_reset_epoch_exhaustion_for_foundation(&mut self) {
+        self.desired_reset = ResetEpoch::MAX;
     }
 }
 

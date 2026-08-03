@@ -1,6 +1,6 @@
 # G5 Production Cutover Recovery Plan
 
-Status: G5.3b.7 entry design frozen; isolated topology assembly in progress
+Status: G5.3b.7 slice 4 gates green; topology/shutdown assembly is next
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
@@ -9,13 +9,13 @@ G5.3b.4 checkpoint: 1641bdfa3
 G5.3b.5 checkpoint: bfa1ddced
 G5.3b.6 checkpoint: c11055968
 G5.3b.7 slices 1-2 checkpoint: f812aaf95
+G5.3b.7 slice 3 checkpoint: fb2ff7c27
+G5.3b.7 slice 4 checkpoint: pending this checkpoint commit
 Active slice: G5.3b.7
-Next exact action: add the production-shaped block-assembler adapter and
-convergence driver without starting it. Preserve concurrent full/reset build,
-short publication ordering, full priority, reset fencing and optimistic
-partial/uncle publication. Continue through the isolated lifecycle topology
-constructor without switching the production builder. Do not dual-write or
-change a legacy production owner before G5.3c.
+Next exact action: freeze the production-shaped block-assembler adapter
+checkpoint, then assemble the isolated lifecycle topology and classify every
+task error under the global failure-domain contract before cutover. Do not
+dual-write or change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -1442,6 +1442,164 @@ G5.3b.7 slice 3 review:
   `cargo fmt --all -- --check` and `git diff --check` are green. The four new
   exact regressions are registered under the identity and worker behavior
   owners rather than existing as unowned test fixtures.
+
+G5.3b.7 slice 4 entry design:
+
+- Do not replace the legacy message journal with one serialized actor. The
+  isolated adapter owns one rebuildable block-template output and one
+  level-triggered source-coverage state. It runs one ordered reset/full lane
+  plus three fixed optimistic proposal/transaction/uncle lanes. The lanes own
+  no transaction membership, source queue or retry ledger.
+- Reset and full are ordered only at their short publication boundary. A reset
+  capability is bound to the exact monotonic chain source captured with its
+  snapshot, not merely an epoch chosen by scheduler timing. A newer chain
+  source supersedes an older pending reset; a dropped build remains
+  reconstructible from the level.
+- Every full, partial and reset capability also carries that exact chain
+  source into Apply. Publication holds the output write guard, then reads the
+  Copy chain source under a short synchronous authority guard and rejects a
+  mismatch before mutating output. No authority guard crosses an await, and no
+  production path acquires the output guard while already holding authority;
+  this closes the unobserved chain-Apply race without serializing construction.
+- Initial construction and every published reset leave one derived full level
+  pending. A full build may run concurrently with partial construction, wins
+  over partial-only revisions, and cannot cross a newer requested reset. Its
+  successful publication covers only the exact immutable receipt it consumed;
+  later source changes remain visible as partial levels.
+- Proposal and transaction lanes consume only their typed pool source cuts.
+  They must not clone or scan the bounded candidate-uncle authority merely to
+  manufacture an unused source token. The uncle lane alone joins its prepared
+  candidate receipt with the same authority selection used to filter proposal
+  conflicts.
+- Construction captures immutable authority payloads and the paired snapshot,
+  then releases the authority guard before sorting, CPFP packing, conditional
+  ordering, chain lookup, DAO calculation, allocation or template cloning.
+  Candidate stale pruning is applied only by the successful publication that
+  consumed its sealed preparation receipt.
+- Publication acquires the existing current-template write guard before the
+  short synchronous convergence guard, validates and precomputes every
+  fallible counter, then commits content, coverage, revision/reset metadata and
+  candidate prune without another await or fallible step. Cancellation cannot
+  expose coverage ahead of content, and a failed or stale build mutates none of
+  them.
+- Source mutation and publication use coalesced wake hints only. Each lane
+  subscribes before its level read, rechecks authoritative coverage after any
+  stale race and suspends when clean. External notification remains a
+  post-commit observer and is not allowed to decide publication.
+- Acceptance must exercise the actual adapter, not only token unit tests:
+  reset/full priority, racing partial OCC, dropped-build reconstruction,
+  candidate-source staleness, detached-uncle proposal filtering, normal Gap
+  reproposal and cancellation with no idle polling. No production builder is
+  switched in this slice.
+- `CurrentTemplate` is the sole authority for published revision and reset
+  generation. Convergence owns desired/covered source levels only; it must not
+  maintain a shadow publication counter or rederive a target generation in
+  Apply. Every move-only build capability is consumed unchanged, and Apply
+  validates it against the exact current projection token. Tests must pair the
+  pure convergence model with an explicit projection and include skipped reset
+  generations, not only adjacent increments.
+- Final template liveness is defense-in-depth on a derived projection. A
+  non-empty failed set publishes the deterministic finally-live subset for the
+  same source cut; it neither mutates authority membership nor exits a template
+  lane. This preserves a valid mining surface, avoids same-source retry
+  livelock, and lets the next source change reevaluate the omitted candidate.
+  `RejectedSelectedTransactions` is therefore not a structural service fault.
+- Failure-domain policy is architectural, not template-specific. Legal input,
+  stale work, resource pressure, external endpoint failure and safely
+  degradable derived-projection failure are typed local outcomes and may not
+  stop tx-pool service. Rebuildable projection drift discards or rebuilds that
+  projection. Controlled service stop is reserved for authoritative integrity
+  loss that has a call-site proof excluding every legal/hostile input and
+  supported interleaving. G5.3c must inventory every task `Err` and supervisor
+  mapping under this rule; an unexplained error may not default to shutdown.
+
+G5.3b.7 slice 4 review:
+
+- The isolated `AuthorityBlockAssembler` owns no transaction membership and
+  adds no queue, retry ledger or persistent graph. One replacement lane orders
+  reset/full publication while proposal, transaction and uncle construction
+  remains concurrent. All graph selection, DAO calculation and template
+  cloning happens outside the authority and output locks.
+- `CurrentTemplate` is the single owner of published content, revision and
+  reset generation. `TemplateConvergence` retains only desired/covered source
+  levels and an unpublished reset request. The review removed both a shadow
+  revision and a duplicate published-reset fact rather than reconciling them.
+- Move-only full, partial and reset builds carry the exact chain source from
+  their immutable Plan. Apply holds the output write guard, rechecks the Copy
+  authority source under a short synchronous read and rejects stale work
+  before mutation. The lock-order audit found no authority-to-output await
+  path; construction remains parallel and publication remains bounded.
+- Skipped reset generations are consumed exactly rather than rederived as
+  `current.next()`. A committed chain transition fences already-built full and
+  partial work even when the reset lane has not observed the new tip. Dropped
+  and superseded builds remain reconstructible from level state.
+- Final transaction liveness is a derived-output defense. A miss publishes the
+  deterministic checked subset for the same source, changes no membership,
+  marks that source covered and waits for the next source change. The review
+  removed `RejectedSelectedTransactions` as a lane-killing structural fault.
+- Cancellation is an explicit lane outcome. Every productive, stale and
+  allocation-retry loop observes it before the next round; a token cancelled
+  before spawn produces no initial publication. Wake and cancellation are no
+  longer collapsed into an ambiguous `Result<()>`.
+- The production-only internal build exposed and fixed one test-masked source
+  import. The test-layout gate also rejected a new raw epoch fixture seam; the
+  bounded `ResetEpoch::MAX` semantic value now preserves the exhaustion test
+  without adding production `cfg(test)` code or a raw constructor.
+- Exact adapter regressions cover normal Gap reproposal/commit, safe liveness
+  degradation, full-over-partial OCC, candidate-source convergence and uncle
+  conflict filtering, skipped reset generation plus chain Plan/Apply races,
+  and clean cancellation. The template/block-assembler selector passes 37/37,
+  the complete authority selector passes 318/318 and the internal library
+  universe passes 595/595 with nextest. Formatting, production static safety,
+  docs, review-guide, 595-name inventory and security-manifest validators pass;
+  Clippy has no errors. Existing dead-code warnings remain expected until the
+  single production cutover makes the isolated UAK topology reachable.
+- Whole-model correction: legal/hostile, stale, resource, endpoint and
+  rebuildable-projection failures are local typed outcomes. Architecture,
+  behavior registry, generated guide, residual-risk contract and validator now
+  reserve controlled stop only for proven authoritative integrity loss. Slice
+  5 and G5.3c still must classify every spawned task `Err` and supervisor edge
+  before the production switch.
+
+G5.3b closeout-report adjudication:
+
+- Local administrative removal currently emits the effect named
+  `RemoteIngressReleased` for every PreAccepted source. The endpoint consumer
+  only clears local relay-known and pending projections; it emits no wire
+  traffic, callback, recent-reject record or ban. The broader behavior is
+  useful for Proposal/Recovery refetch, but its remote-only name and manually
+  authored cause x owner mapping are accidental. Do not add a source `if`.
+  During the closed manual-publication audit, compile this outcome from one
+  exhaustive lifecycle outcome owner and name it for its actual relay
+  projection semantics. Preserve the intentional broader release in the
+  behavior table and exact regression evidence.
+- The UAK packer deliberately never resurrects a non-fitting package after
+  selecting part of its ancestry. If `selected + package > limit`, later
+  selection cost `delta` and package reduction `d <= delta` leave
+  `(selected + delta) + (package - d) >= selected + package`; the retry cannot
+  fit. This removes legacy phantom failure ticks and may avoid legacy's 4,000
+  failure underfill on hostile fan-in. The algebra is already normative in
+  the b.6 record. Add one adversarial property/differential regression before
+  G5/G6 closeout; do not restore a Failed-to-Queued transition or another
+  retry state.
+- `chain/src/verify.rs` lines that gate reorg and uncle publication on
+  `service_started()` are explicit G5.3c producer-side cutover touchpoints.
+  The reorg sender/receiver already forms an ordered channel of capacity one;
+  this is the required pre-start bound and backpressure domain, not a second
+  queue. Production assembly must first restore persistence directly into the
+  sole authority, then spawn/open the ordered reorg consumer and ordinary
+  ingress, and only then mark the service available. Always-send reorg deltas
+  may block the chain worker on that capacity-one boundary but may never be
+  dropped. Delete both legacy and UAK `onchain_reconcile_done`/zombie-scan
+  protocols in the same cutover. Candidate-uncle delivery remains a separate
+  bounded derived-input policy and must not share or delay the authoritative
+  reorg channel.
+- The shared N+1 transient compute semaphore is the one execution-resource
+  authority for retained work, Local and TestAccept. It adds no membership
+  state and has no authority-lock ordering. P10 must measure Local submission
+  p50/p99 while retained compute is saturated, alongside throughput, so FIFO
+  backpressure cost is an explicit acceptance result rather than a production
+  surprise. No direct-path bypass is permitted.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

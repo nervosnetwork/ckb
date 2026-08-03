@@ -828,18 +828,20 @@ the only proposal path of its recovered transactions for an epoch.
 
 Block assembler authority is intentionally asymmetric:
 
-- Reset and `update_full` linearize at one complete-template publication
-  boundary while their construction remains concurrent;
-- `update_full` has highest priority;
-- `update_full` derives uncle content from the bounded candidate authority
-  rather than copying a reset template's transient blank projection;
-- uncle/proposal/transaction updates remain concurrent, optimistic versioned
-  OCC deltas and may be skipped transiently;
-- every successful reset/full replacement re-dirties all three partial
-  generations, so an acknowledgement racing the replacement cannot erase a
-  newer or overwritten level;
-- a failed reset remains pending and blocks ordinary deltas until a matching
-  full rebuild succeeds;
+- one ordered replacement lane handles Reset and full rebuild while three
+  fixed uncle/proposal/transaction lanes construct concurrently;
+- `CurrentTemplate` alone owns the published revision and reset generation;
+  level convergence owns desired and covered source cuts, not shadow counters;
+- full has priority over partial-only revisions, derives uncles from the
+  bounded candidate authority, and cannot cross a requested or committed
+  chain reset;
+- every Plan carries its exact chain source into Apply; the short publication
+  boundary rechecks that source against the authority before publishing;
+- uncle/proposal/transaction updates remain optimistic revision-checked OCC;
+  an overwritten or delayed source remains a visible level without manual
+  dirty-generation re-publication;
+- a dropped reset/full capability is reconstructed from the level, while a
+  superseded reset publishes only the latest exact generation;
 - zero update interval applies deltas eagerly, retries resets periodically and
   suppresses external miner notification only as configured.
 
@@ -883,21 +885,26 @@ rollback, retry or generation transition.
 | stale/duplicate race | typed stale/duplicate | discard, preserve current owner or retry level |
 | shutdown/config/resource | typed external result or startup failure | controlled stop/fail startup |
 | resolver/verifier failure | typed job result before settlement | terminalize/quarantine that exact lease; worker continues where safe |
+| rebuildable projection mismatch | typed stale/degraded projection | discard, rebuild or publish a safe subset; authority and service continue |
 | foreign callback/endpoint failure or hang | thread/task/channel isolation plus timeout/circuit | state remains committed; publisher progresses/coalesces without unwind-driven control flow |
-| primary/index/accounting contradiction | typed pre-Apply system fault | controlled stop, skip persistence; never blame input |
+| proven authoritative integrity loss | typed pre-Apply system fault | controlled stop, skip persistence; never blame input |
 
-Legal hostile input must not reach the last row or unwind the service. The
-prepared transaction owns an exclusive authority borrow until `commit(self)`,
-and state-specific constructors carry the facts needed by total Apply. Adding
-a recover-and-repair path after partial Apply would still expand the state
-machine and risk persisting corruption, so contradictions are detected before
-the first mutation rather than asserted or repaired afterward.
+Legal hostile input, stale work, resource pressure, external failure and
+rebuildable projection drift must not reach the last row, unwind the service or
+be relabeled as an invariant fault. The prepared transaction owns an exclusive
+authority borrow until `commit(self)`, and state-specific constructors carry
+the facts needed by total Apply. Adding a recover-and-repair path after partial
+Apply would still expand the state machine and risk persisting corruption, so
+authoritative contradictions are detected before the first mutation rather
+than asserted or repaired afterward.
 
-The remaining operational consequence is explicit: a pre-Apply system fault
-stops the tx-pool without persisting the generation. The defense against a
-repeatable peer DoS is structural—peer-selectable parsing, policy, capacity,
-stale and endpoint outcomes are typed, while total Apply has no assertion
-boundary—not a restart of unknown authority state.
+Controlled stop is not a default error mapping. It is allowed only when the
+fault proves that authoritative data integrity is already lost, safe service
+cannot continue, and legal/hostile input plus supported interleavings are
+excluded at the call site. The defense against a repeatable peer DoS is
+structural: peer-selectable parsing, policy, capacity, stale, projection and
+endpoint outcomes are typed and locally contained, while total Apply has no
+assertion boundary.
 
 ## 15. Block-template authority
 
@@ -906,11 +913,12 @@ RPC compatibility may project Gap as pending, so review/tests must inspect
 internal detail when liveness depends on the distinction. Proposal selection
 iterates true Pending; transaction selection commits true Proposed.
 
-Template state has two forms:
+Template output and convergence have distinct single owners:
 
-- a full authoritative snapshot generation, updated by Reset/`update_full`;
-- coalesced uncle/proposal/transaction dirty generations applied concurrently
-  and optimistically through version checks.
+- `CurrentTemplate` owns the published content, exact size ledger, revision and
+  reset generation;
+- `TemplateConvergence` owns only level-triggered desired/covered source cuts
+  and the latest unpublished reset request.
 
 Construction begins with one `AuthorityTemplateReadReceipt` captured under the
 accepted authority guard. It owns immutable resolved payload handles, exact
@@ -935,45 +943,52 @@ only candidate/pool coupling; callers cannot manufacture an uncle version.
 
 ```mermaid
 flowchart TB
-    ResetEvent["Chain/admin Reset<br/>generation-tagged snapshot"] --> ResetBuild["Build reset template<br/>without publication guard"]
-    FullEvent["High-priority full reconcile"] --> FullBuild["Build full template<br/>from UAK read receipt + candidate-uncle receipt"]
+    Sources["UAK source cuts + candidate source"] --> Levels["Level-triggered desired/covered convergence"]
+    Levels --> Replacement["Ordered reset/full lane"]
+    Levels --> UncleBuild["Concurrent uncle build"]
+    Levels --> ProposalBuild["Concurrent proposal build"]
+    Levels --> TxBuild["Concurrent transaction build"]
 
-    UncleDirty["Uncle dirty generation"] --> UncleBuild["Build uncle delta<br/>and refresh proposals"]
-    ProposalDirty["Proposal dirty generation"] --> ProposalBuild["Build proposal delta"]
-    TxDirty["Transaction dirty generation"] --> TxBuild["Build transaction delta"]
+    Replacement --> ResetBuild["Reset/full construction<br/>outside authority/output locks"]
 
     subgraph Publish["CurrentTemplate publication boundary (short write guard)"]
-        ResetApply["Reset Apply<br/>exact reset token; advance reset_epoch"]
-        FullApply["Full Apply<br/>same reset_epoch; ignores partial revision"]
-        PartialApply["Partial Apply<br/>CAS captured template revision"]
+        ChainCheck["Exact authority chain-source check"]
+        ResetApply["Reset Apply<br/>consume exact reset generation"]
+        FullApply["Full Apply<br/>reset fence; wins over partial revision"]
+        PartialApply["Partial Apply<br/>CAS exact output revision"]
         Current["CurrentTemplate<br/>template + size + revision + reset_epoch"]
+        ChainCheck --> ResetApply
+        ChainCheck --> FullApply
+        ChainCheck --> PartialApply
         ResetApply --> Current
         FullApply --> Current
         PartialApply --> Current
     end
 
-    ResetBuild --> ResetApply
-    FullBuild --> FullApply
+    ResetBuild --> ChainCheck
     UncleBuild --> PartialApply
     ProposalBuild --> PartialApply
     TxBuild --> PartialApply
-
-    ResetApply -->|"re-dirty all partial levels"| Reconcile["Uncle + proposal + transaction reconcile"]
-    FullApply -->|"re-dirty all partial levels"| Reconcile
-    Reconcile --> UncleDirty
-    Reconcile --> ProposalDirty
-    Reconcile --> TxDirty
+    Current -->|"published coverage"| Levels
 
     classDef authority fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px;
     class Current authority;
 ```
 
 Reset and full construction may overlap partial construction; only publication
-is serialized. A reset invalidates an older full build through `reset_epoch`.
-A full build wins over intervening partial revisions, while each partial update
-must match its captured `TemplateRevision`. Re-dirtying all three partial
-levels after reset/full closes the lost-acknowledgement race without routing
-all work through one actor.
+is serialized. A requested reset invalidates an older full before reset
+publication, and the exact authority chain-source check also rejects a build
+prepared before an otherwise unobserved chain Apply. A full build wins over
+intervening partial revisions, while each partial update must match its
+captured `TemplateRevision`. Desired-versus-covered source inequality closes
+the lost-notification race without routing construction through one actor or
+maintaining hand-published dirty counters.
+
+The final resolved-transaction liveness pass is defense-in-depth on this
+derived output. If it omits a selected transaction, the adapter publishes the
+deterministic checked subset for that source cut. It does not change authority
+membership, spin on the same source or terminate a template lane; the next
+source change reevaluates the candidate.
 
 Candidate-uncle retention is the input authority for both full and uncle-only
 plans. Preparation clones the bounded cache under a short synchronous lock;
@@ -1164,7 +1179,7 @@ another mechanism, closes it.
 
 | ID | Disposition | Current boundary | Closure rule |
 |---|---|---|---|
-| R1 | Mitigate | A genuine pre-Apply primary/projection contradiction is a typed system fault: service stops and the generation is not persisted. | Legal input must remain excluded by private types, narrow result domains and total Apply. A reachable legal path requires redesigning that operation-specific API, never catch/repair control flow. |
+| R1 | Mitigate | A pre-Apply fault may stop the service without persistence only when it proves authoritative integrity is already lost. Rebuildable projection drift is not in this class. | The call site must exclude legal/hostile input, stale work, resource pressure, external failure and every supported interleaving. Otherwise redesign the result as local discard, rebuild or safe degradation; never use catch/repair control flow. |
 | R2 | Accept | External callback, network-ban and recent-reject delivery is bounded but not exactly-once. Relay state alone is fully reconcilable through `GenerationReset`; a non-rebuildable endpoint action receives one bounded attempt before its per-kind circuit disposes later calls. The committed fence still protects the exact `PeerIndex` ingress session, but a failed network ban can permit a reconnect with a new index and observability can be unavailable. | Exactly-once would require a durable transactional outbox, idempotent endpoint protocol and restart replay. Do not claim delivery or add that failure domain without a product requirement; keep the internal session fence authoritative, never describe it as durable remote identity, and surface circuit state operationally. |
 | R3 | Mitigate | A timed-out blocking endpoint may leave one detached call per endpoint kind until it returns; stable circuits suppress later calls. | Keep endpoint-kind cardinality bounded and authority locks released. Prefer cancellable async APIs when available. |
 | R4 | Accept | Explicit pool persistence is neither a crash-durable WAL nor a cancellable filesystem transaction; shutdown I/O may delay exit. | Keep I/O outside transaction authority. Add timeout/metrics only for an evidenced shutdown SLO; do not move I/O under authority locks. |

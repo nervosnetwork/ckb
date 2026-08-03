@@ -4,8 +4,8 @@ use super::super::{
     plan::TxPoolAuthority,
     state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, ProposalId, RawTxHash},
     template::{
-        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePublication,
-        TemplateSourceCut,
+        FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild, TemplateComponent,
+        TemplateConvergence, TemplateConvergenceError, TemplatePublication, TemplateSourceCut,
     },
 };
 use super::foundation::{
@@ -13,7 +13,9 @@ use super::foundation::{
     apply_without_work, assert_membership_reference, genesis_snapshot, limits, owner_version,
     resolved_payload_with_facts, tx,
 };
-use crate::block_assembler::{CandidateUncleSourceReceipt, CandidateUncles};
+use crate::block_assembler::{
+    CandidateUncleSourceReceipt, CandidateUncles, ResetEpoch, TemplateRevision,
+};
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, TransactionBuilder, TransactionView},
@@ -34,6 +36,84 @@ fn candidate_uncle_source(uncles: &CandidateUncles) -> CandidateUncleSourceRecei
     let snapshot = genesis_snapshot();
     let epoch = snapshot.consensus().genesis_epoch_ext().clone();
     uncles.prepare_uncles(&snapshot, &epoch).into_parts().2
+}
+
+/// Test projection paired with the pure convergence model. Production keeps
+/// these tokens only on `CurrentTemplate`; this harness makes that external
+/// ownership explicit instead of giving the model a shadow counter.
+#[derive(Clone, Copy)]
+struct TemplateProjection {
+    revision: TemplateRevision,
+    reset: ResetEpoch,
+}
+
+impl TemplateProjection {
+    fn initial() -> Self {
+        Self {
+            revision: TemplateRevision::INITIAL,
+            reset: ResetEpoch::INITIAL,
+        }
+    }
+
+    fn begin_partial(
+        self,
+        convergence: &mut TemplateConvergence,
+        component: TemplateComponent,
+        sources: TemplateSourceCut,
+    ) -> PartialTemplateBuild {
+        convergence.begin_partial_for_foundation(component, sources, self.revision)
+    }
+
+    fn publish_full(
+        &mut self,
+        convergence: &mut TemplateConvergence,
+        build: FullTemplateBuild,
+    ) -> Result<TemplatePublication, TemplateConvergenceError> {
+        let publication = convergence.publish_full(build, self.reset)?;
+        self.advance_if_published(publication);
+        Ok(publication)
+    }
+
+    fn publish_partial(
+        &mut self,
+        convergence: &mut TemplateConvergence,
+        build: PartialTemplateBuild,
+    ) -> Result<TemplatePublication, TemplateConvergenceError> {
+        let publication = convergence.publish_partial(build, self.revision)?;
+        self.advance_if_published(publication);
+        Ok(publication)
+    }
+
+    fn publish_reset(
+        &mut self,
+        convergence: &mut TemplateConvergence,
+        build: ResetTemplateBuild,
+    ) -> Result<TemplatePublication, TemplateConvergenceError> {
+        let reset = build.epoch();
+        let publication = convergence.publish_reset(build, self.reset)?;
+        if publication == TemplatePublication::Published {
+            self.reset = reset;
+        }
+        self.advance_if_published(publication);
+        Ok(publication)
+    }
+
+    fn pending_reset(self, convergence: &TemplateConvergence) -> Option<ResetTemplateBuild> {
+        convergence.begin_pending_reset(self.reset)
+    }
+
+    fn is_converged(self, convergence: &TemplateConvergence) -> bool {
+        convergence.is_converged(self.reset)
+    }
+
+    fn advance_if_published(&mut self, publication: TemplatePublication) {
+        if publication == TemplatePublication::Published {
+            self.revision = self
+                .revision
+                .next()
+                .expect("fixture template revision has capacity");
+        }
+    }
 }
 
 fn output_transaction(version: u32) -> TransactionView {
@@ -628,7 +708,8 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let mut candidate_uncles = CandidateUncles::new();
     let empty = source_cut(&authority, &candidate_uncles);
-    let mut convergence = TemplateConvergence::new(empty);
+    let mut convergence = TemplateConvergence::for_foundation(empty);
+    let mut projection = TemplateProjection::initial();
     let old_full = convergence.begin_full(empty);
 
     let accepted = accept_remote_transaction(
@@ -639,16 +720,17 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
         Vec::new(),
     );
     let pending = source_cut(&authority, &candidate_uncles);
-    let newer_partial = convergence.begin_partial(TemplateComponent::Proposals, pending);
+    let newer_partial =
+        projection.begin_partial(&mut convergence, TemplateComponent::Proposals, pending);
     assert_eq!(
-        convergence
-            .publish_partial(newer_partial)
+        projection
+            .publish_partial(&mut convergence, newer_partial)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
     assert_eq!(
-        convergence
-            .publish_full(old_full)
+        projection
+            .publish_full(&mut convergence, old_full)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published,
         "full wins publication even after a newer partial"
@@ -657,17 +739,19 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     assert!(convergence.is_pending(TemplateComponent::Transactions));
     assert!(convergence.is_pending(TemplateComponent::Uncles));
 
-    let racing_proposals = convergence.begin_partial(TemplateComponent::Proposals, pending);
-    let racing_transactions = convergence.begin_partial(TemplateComponent::Transactions, pending);
+    let racing_proposals =
+        projection.begin_partial(&mut convergence, TemplateComponent::Proposals, pending);
+    let racing_transactions =
+        projection.begin_partial(&mut convergence, TemplateComponent::Transactions, pending);
     assert_eq!(
-        convergence
-            .publish_partial(racing_proposals)
+        projection
+            .publish_partial(&mut convergence, racing_proposals)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
     assert_eq!(
-        convergence
-            .publish_partial(racing_transactions)
+        projection
+            .publish_partial(&mut convergence, racing_transactions)
             .expect("fixture revision has capacity"),
         TemplatePublication::Stale,
         "partial publications use an exact shared revision"
@@ -675,19 +759,19 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     assert!(!convergence.is_pending(TemplateComponent::Proposals));
     assert!(convergence.is_pending(TemplateComponent::Transactions));
 
-    for component in [TemplateComponent::Transactions, TemplateComponent::Uncles] {
-        let build = convergence.begin_partial(component, pending);
+    for component in [TemplateComponent::Uncles, TemplateComponent::Transactions] {
+        let build = projection.begin_partial(&mut convergence, component, pending);
         assert_eq!(
-            convergence
-                .publish_partial(build)
+            projection
+                .publish_partial(&mut convergence, build)
                 .expect("fixture revision has capacity"),
             TemplatePublication::Published
         );
     }
-    assert!(convergence.is_converged());
+    assert!(projection.is_converged(&convergence));
     convergence.observe_sources(empty);
     assert!(
-        convergence.is_converged(),
+        projection.is_converged(&convergence),
         "a delayed old source receipt cannot regress desired coverage"
     );
 
@@ -699,16 +783,20 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     assert!(convergence.is_pending(TemplateComponent::Proposals));
     assert!(!convergence.is_pending(TemplateComponent::Transactions));
     assert!(convergence.is_pending(TemplateComponent::Uncles));
-    for component in [TemplateComponent::Proposals, TemplateComponent::Uncles] {
-        let build = convergence.begin_partial(component, gap);
+    for component in [
+        TemplateComponent::Proposals,
+        TemplateComponent::Uncles,
+        TemplateComponent::Transactions,
+    ] {
+        let build = projection.begin_partial(&mut convergence, component, gap);
         assert_eq!(
-            convergence
-                .publish_partial(build)
+            projection
+                .publish_partial(&mut convergence, build)
                 .expect("fixture revision has capacity"),
             TemplatePublication::Published
         );
     }
-    assert!(convergence.is_converged());
+    assert!(projection.is_converged(&convergence));
 
     assert!(
         candidate_uncles
@@ -720,10 +808,11 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     assert!(!convergence.is_pending(TemplateComponent::Proposals));
     assert!(!convergence.is_pending(TemplateComponent::Transactions));
     assert!(convergence.is_pending(TemplateComponent::Uncles));
-    let uncle_build = convergence.begin_partial(TemplateComponent::Uncles, uncle_changed);
+    let uncle_build =
+        projection.begin_partial(&mut convergence, TemplateComponent::Uncles, uncle_changed);
     assert_eq!(
-        convergence
-            .publish_partial(uncle_build)
+        projection
+            .publish_partial(&mut convergence, uncle_build)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
@@ -733,19 +822,19 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
         .mark_reset(uncle_changed)
         .expect("fixture reset epoch has capacity");
     assert_eq!(
-        convergence
-            .publish_reset(first_reset)
+        projection
+            .publish_reset(&mut convergence, first_reset)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
     assert_eq!(
-        convergence
-            .publish_full(stale_full)
+        projection
+            .publish_full(&mut convergence, stale_full)
             .expect("fixture revision has capacity"),
         TemplatePublication::Stale,
         "a full build cannot cross a published reset"
     );
-    assert!(!convergence.is_converged());
+    assert!(!projection.is_converged(&convergence));
 
     let superseded_reset = convergence
         .mark_reset(uncle_changed)
@@ -754,45 +843,35 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
         .mark_reset(uncle_changed)
         .expect("fixture reset epoch has capacity");
     assert_eq!(
-        convergence
-            .publish_reset(superseded_reset)
+        projection
+            .publish_reset(&mut convergence, superseded_reset)
             .expect("fixture revision has capacity"),
         TemplatePublication::Stale
     );
     assert_eq!(
-        convergence
-            .publish_reset(latest_reset)
+        projection
+            .publish_reset(&mut convergence, latest_reset)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
     let final_full = convergence.begin_full(uncle_changed);
     assert_eq!(
-        convergence
-            .publish_full(final_full)
+        projection
+            .publish_full(&mut convergence, final_full)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
-    assert!(convergence.is_converged());
+    assert!(projection.is_converged(&convergence));
 }
 
 #[test]
-fn uak_template_counter_exhaustion_is_typed_and_mutation_free() {
+fn uak_template_reset_counter_exhaustion_is_typed_and_mutation_free() {
     let authority = TxPoolAuthority::for_foundation(limits());
     let candidate_uncles = CandidateUncles::new();
     let sources = source_cut(&authority, &candidate_uncles);
 
-    let mut revision = TemplateConvergence::new(sources);
-    revision.force_revision_for_foundation(u64::MAX);
-    let full = revision.begin_full(sources);
-    let before = revision.clone();
-    assert_eq!(
-        revision.publish_full(full),
-        Err(TemplateConvergenceError::RevisionExhausted)
-    );
-    assert_eq!(revision, before);
-
-    let mut reset = TemplateConvergence::new(sources);
-    reset.force_reset_epoch_for_foundation(u64::MAX);
+    let mut reset = TemplateConvergence::for_foundation(sources);
+    reset.force_reset_epoch_exhaustion_for_foundation();
     let before = reset.clone();
     assert!(matches!(
         reset.mark_reset(sources),
@@ -806,15 +885,16 @@ fn uak_dropped_reset_build_remains_level_triggered_until_publication() {
     let authority = TxPoolAuthority::for_foundation(limits());
     let candidate_uncles = CandidateUncles::new();
     let sources = source_cut(&authority, &candidate_uncles);
-    let mut convergence = TemplateConvergence::new(sources);
+    let mut convergence = TemplateConvergence::for_foundation(sources);
+    let mut projection = TemplateProjection::initial();
     let initial = convergence.begin_full(sources);
     assert_eq!(
-        convergence
-            .publish_full(initial)
+        projection
+            .publish_full(&mut convergence, initial)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
-    assert!(convergence.is_converged());
+    assert!(projection.is_converged(&convergence));
 
     {
         let _dropped = convergence
@@ -822,31 +902,31 @@ fn uak_dropped_reset_build_remains_level_triggered_until_publication() {
             .expect("fixture reset epoch has capacity");
     }
     assert!(
-        !convergence.is_converged(),
+        !projection.is_converged(&convergence),
         "an unconsumed reset level cannot look quiescent"
     );
-    let retry = convergence
-        .begin_pending_reset()
+    let retry = projection
+        .pending_reset(&convergence)
         .expect("the exact pending reset capability is reconstructible");
     assert_eq!(
-        convergence
-            .publish_reset(retry)
+        projection
+            .publish_reset(&mut convergence, retry)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
-    assert!(convergence.begin_pending_reset().is_none());
+    assert!(projection.pending_reset(&convergence).is_none());
     assert!(
-        !convergence.is_converged(),
+        !projection.is_converged(&convergence),
         "blank reset content still needs a full component rebuild"
     );
     let rebuilt = convergence.begin_full(sources);
     assert_eq!(
-        convergence
-            .publish_full(rebuilt)
+        projection
+            .publish_full(&mut convergence, rebuilt)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
-    assert!(convergence.is_converged());
+    assert!(projection.is_converged(&convergence));
 }
 
 #[test]
@@ -854,11 +934,12 @@ fn uak_requested_reset_fences_an_older_full_before_reset_publication() {
     let authority = TxPoolAuthority::for_foundation(limits());
     let candidate_uncles = CandidateUncles::new();
     let sources = source_cut(&authority, &candidate_uncles);
-    let mut convergence = TemplateConvergence::new(sources);
+    let mut convergence = TemplateConvergence::for_foundation(sources);
+    let mut projection = TemplateProjection::initial();
     let initial = convergence.begin_full(sources);
     assert_eq!(
-        convergence
-            .publish_full(initial)
+        projection
+            .publish_full(&mut convergence, initial)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
@@ -868,8 +949,8 @@ fn uak_requested_reset_fences_an_older_full_before_reset_publication() {
         .mark_reset(sources)
         .expect("fixture reset epoch has capacity");
     assert_eq!(
-        convergence
-            .publish_full(old_full)
+        projection
+            .publish_full(&mut convergence, old_full)
             .expect("fixture revision has capacity"),
         TemplatePublication::Stale,
         "the reset request, not scheduler timing, fences an older full build"
@@ -877,19 +958,19 @@ fn uak_requested_reset_fences_an_older_full_before_reset_publication() {
 
     let post_request_full = convergence.begin_full(sources);
     assert_eq!(
-        convergence
-            .publish_reset(reset)
+        projection
+            .publish_reset(&mut convergence, reset)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published
     );
     assert_eq!(
-        convergence
-            .publish_full(post_request_full)
+        projection
+            .publish_full(&mut convergence, post_request_full)
             .expect("fixture revision has capacity"),
         TemplatePublication::Published,
         "a full built for the exact reset epoch may publish after that reset"
     );
-    assert!(convergence.is_converged());
+    assert!(projection.is_converged(&convergence));
 }
 
 #[test]
