@@ -93,6 +93,35 @@ impl CellLocationReceipt {
         }
     }
 
+    /// Bind the feature-internal synthetic `TxEntry` fixture to one authority
+    /// view. Historical `PlugEntry` intentionally bypasses chain resolution,
+    /// so every declared input/dependency is positive fixture evidence. The
+    /// unforgeable seal keeps that premise out of every production admission
+    /// and block-validation path.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn from_internal_plug(
+        _seal: super::internal::InternalPlugSeal,
+        view: &ChainViewId,
+        payload: &ResolvedPayload,
+    ) -> Result<Self, ()> {
+        let footprint = &payload.footprint;
+        let mut chain_inputs = Vec::new();
+        chain_inputs
+            .try_reserve(footprint.inputs().len())
+            .map_err(|_| ())?;
+        chain_inputs.extend(footprint.inputs().iter().cloned());
+        let mut chain_dependencies = Vec::new();
+        chain_dependencies
+            .try_reserve(footprint.dependencies().len())
+            .map_err(|_| ())?;
+        chain_dependencies.extend(footprint.dependencies().iter().cloned());
+        Ok(Self {
+            tip: view.tip().clone(),
+            chain_inputs: chain_inputs.into(),
+            chain_dependencies: chain_dependencies.into(),
+        })
+    }
+
     pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
         &self.tip == view.tip()
     }
@@ -772,6 +801,31 @@ impl DirectAdmissionReceipt {
         Self { tx, membership }
     }
 
+    /// Construct the complete synthetic admission receipt owned by the
+    /// feature-internal `PlugEntry` adapter. Keeping this as one sealed
+    /// constructor prevents tests from assembling partially inconsistent
+    /// proof, proposal, and timestamp fields.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn from_internal_plug(
+        _seal: super::internal::InternalPlugSeal,
+        tx: Arc<TransactionView>,
+        verified: VerifiedFacts,
+        status: AcceptedStatus,
+        accepted_at: AcceptedAtMillis,
+    ) -> Self {
+        Self {
+            tx,
+            membership: MembershipReceipt {
+                proof: AcceptedProof {
+                    verified,
+                    sensitivity: AcceptedChainSensitivity::TipContext,
+                },
+                proposal: ProposalContextReceipt::from_validation(status),
+                accepted_at,
+            },
+        }
+    }
+
     pub(super) fn key(&self) -> &RawTxHash {
         &self.membership.proof().payload().identity().raw
     }
@@ -939,6 +993,112 @@ pub(super) struct ChainBlockChanges {
     detached_headers: Vec<Byte32>,
 }
 
+/// Canonical block-derived payload shared by production chain commands and
+/// the transition compiler. It contains no authority revision or snapshot
+/// policy, so a failed Plan can return the same move-only command for a later
+/// attempt without rebuilding or cloning the block transaction set.
+#[derive(Debug)]
+pub(super) struct CanonicalChainFacts {
+    pub(super) attached: Vec<TransactionView>,
+    pub(super) detached: Vec<TransactionView>,
+    pub(super) relocated: Vec<RawTxHash>,
+    pub(super) attached_headers: Vec<Byte32>,
+    pub(super) detached_headers: Vec<Byte32>,
+    pub(super) changed_proposals: Vec<ProposalId>,
+    pub(super) detached_proposals: Vec<ProposalId>,
+}
+
+/// One authority-context binding over immutable canonical chain facts. The
+/// view cannot outlive its command, while the resulting validation work owns
+/// every fact needed after the read-only compiler returns.
+#[derive(Debug)]
+pub(super) struct ChainTransitionFactsView<'facts> {
+    pub(super) new_view: ChainViewId,
+    pub(super) attached: &'facts [TransactionView],
+    pub(super) detached: &'facts [TransactionView],
+    pub(super) relocated: &'facts [RawTxHash],
+    pub(super) attached_headers: &'facts [Byte32],
+    pub(super) detached_headers: &'facts [Byte32],
+    pub(super) changed_proposals: &'facts [ProposalId],
+    pub(super) detached_proposals: &'facts [ProposalId],
+    pub(super) accepted_validity: AcceptedValidityTransition,
+    pub(super) packaging: ChainPackagingMode,
+}
+
+impl CanonicalChainFacts {
+    pub(super) fn from_chain_update(
+        blocks: ChainBlockChanges,
+        changed_proposals: Vec<ProposalId>,
+        detached_proposals: Vec<ProposalId>,
+    ) -> Result<Self, ChainFactsError> {
+        let ChainBlockChanges {
+            attached,
+            detached,
+            attached_headers,
+            detached_headers,
+        } = blocks;
+        let attached = canonical_transactions(attached)?;
+        let mut attached_hashes = HashSet::new();
+        attached_hashes
+            .try_reserve(attached.len())
+            .map_err(|_| ChainFactsError::Allocation)?;
+        attached_hashes.extend(
+            attached
+                .iter()
+                .map(|transaction| RawTxHash(transaction.hash())),
+        );
+        let mut detached = canonical_transactions(detached)?;
+        let mut relocated = Vec::new();
+        relocated
+            .try_reserve(detached.len().min(attached_hashes.len()))
+            .map_err(|_| ChainFactsError::Allocation)?;
+        relocated.extend(
+            detached
+                .iter()
+                .map(|transaction| RawTxHash(transaction.hash()))
+                .filter(|hash| attached_hashes.contains(hash)),
+        );
+        detached.retain(|transaction| !attached_hashes.contains(&RawTxHash(transaction.hash())));
+        let attached_headers = canonical_headers(attached_headers)?;
+        let mut attached_header_set = HashSet::new();
+        attached_header_set
+            .try_reserve(attached_headers.len())
+            .map_err(|_| ChainFactsError::Allocation)?;
+        attached_header_set.extend(attached_headers.iter().cloned());
+        let mut detached_headers = canonical_headers(detached_headers)?;
+        detached_headers.retain(|header| !attached_header_set.contains(header));
+        Ok(Self {
+            attached,
+            detached,
+            relocated,
+            attached_headers,
+            detached_headers,
+            changed_proposals: canonical_proposals(changed_proposals),
+            detached_proposals: canonical_proposals(detached_proposals),
+        })
+    }
+
+    pub(super) fn bind(
+        &self,
+        new_view: ChainViewId,
+        accepted_validity: AcceptedValidityTransition,
+        packaging: ChainPackagingMode,
+    ) -> ChainTransitionFactsView<'_> {
+        ChainTransitionFactsView {
+            new_view,
+            attached: &self.attached,
+            detached: &self.detached,
+            relocated: &self.relocated,
+            attached_headers: &self.attached_headers,
+            detached_headers: &self.detached_headers,
+            changed_proposals: &self.changed_proposals,
+            detached_proposals: &self.detached_proposals,
+            accepted_validity,
+            packaging,
+        }
+    }
+}
+
 impl ChainBlockChanges {
     pub(super) fn from_chain_update(
         attached: Vec<TransactionView>,
@@ -990,54 +1150,35 @@ impl ChainTransitionFacts {
         accepted_validity: AcceptedValidityTransition,
         packaging: ChainPackagingMode,
     ) -> Result<Self, ChainFactsError> {
-        let ChainBlockChanges {
-            attached,
-            detached,
-            attached_headers,
-            detached_headers,
-        } = blocks;
-        let attached = canonical_transactions(attached)?;
-        let mut attached_hashes = HashSet::new();
-        attached_hashes
-            .try_reserve(attached.len())
-            .map_err(|_| ChainFactsError::Allocation)?;
-        attached_hashes.extend(
-            attached
-                .iter()
-                .map(|transaction| RawTxHash(transaction.hash())),
-        );
-        let mut detached = canonical_transactions(detached)?;
-        let mut relocated = Vec::new();
-        relocated
-            .try_reserve(detached.len().min(attached_hashes.len()))
-            .map_err(|_| ChainFactsError::Allocation)?;
-        relocated.extend(
-            detached
-                .iter()
-                .map(|transaction| RawTxHash(transaction.hash()))
-                .filter(|hash| attached_hashes.contains(hash)),
-        );
-        detached.retain(|transaction| !attached_hashes.contains(&RawTxHash(transaction.hash())));
-        let attached_headers = canonical_headers(attached_headers)?;
-        let mut attached_header_set = HashSet::new();
-        attached_header_set
-            .try_reserve(attached_headers.len())
-            .map_err(|_| ChainFactsError::Allocation)?;
-        attached_header_set.extend(attached_headers.iter().cloned());
-        let mut detached_headers = canonical_headers(detached_headers)?;
-        detached_headers.retain(|header| !attached_header_set.contains(header));
+        let canonical =
+            CanonicalChainFacts::from_chain_update(blocks, changed_proposals, detached_proposals)?;
         Ok(Self {
             new_view,
-            attached,
-            detached,
-            relocated,
-            attached_headers,
-            detached_headers,
-            changed_proposals: canonical_proposals(changed_proposals),
-            detached_proposals: canonical_proposals(detached_proposals),
+            attached: canonical.attached,
+            detached: canonical.detached,
+            relocated: canonical.relocated,
+            attached_headers: canonical.attached_headers,
+            detached_headers: canonical.detached_headers,
+            changed_proposals: canonical.changed_proposals,
+            detached_proposals: canonical.detached_proposals,
             accepted_validity,
             packaging,
         })
+    }
+
+    pub(super) fn as_view(&self) -> ChainTransitionFactsView<'_> {
+        ChainTransitionFactsView {
+            new_view: self.new_view.clone(),
+            attached: &self.attached,
+            detached: &self.detached,
+            relocated: &self.relocated,
+            attached_headers: &self.attached_headers,
+            detached_headers: &self.detached_headers,
+            changed_proposals: &self.changed_proposals,
+            detached_proposals: &self.detached_proposals,
+            accepted_validity: self.accepted_validity,
+            packaging: self.packaging,
+        }
     }
 
     #[cfg(test)]

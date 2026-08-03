@@ -1,6 +1,7 @@
 use crate::component::pool_map::{PoolMap, Status};
 use crate::component::pre_pool::{PrePoolError, PrePoolGeneration, PrePoolKernel};
 use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
+use crate::dependency_sort::DependencySortError;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::effects::{EffectBatch, EffectBuildError, EffectJournalError, TxPoolEffect};
@@ -13,7 +14,6 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         BlockView, Capacity, EstimateMode, FeeRate, HeaderView, TransactionView, UncleBlockView,
@@ -23,7 +23,7 @@ use ckb_types::{
 };
 use ckb_util::LinkedHashSet;
 use ckb_verification::{TxVerifyEnv, cache::Completed};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -122,27 +122,6 @@ impl From<crate::component::pre_pool::PrePoolFault> for ReorgMutationFault {
         Self::Kernel(error)
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DependencySortError {
-    Arithmetic(&'static str),
-    Projection(&'static str),
-}
-
-impl std::fmt::Display for DependencySortError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Arithmetic(context) => {
-                write!(formatter, "dependency-sort arithmetic overflow: {context}")
-            }
-            Self::Projection(context) => {
-                write!(formatter, "dependency-sort projection drift: {context}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for DependencySortError {}
 
 #[derive(Debug)]
 pub(crate) enum ReorgUpdateError {
@@ -511,124 +490,7 @@ impl TxPoolService {
     pub(crate) fn sort_txs_by_dependencies(
         txs: &mut Vec<TransactionView>,
     ) -> Result<(), DependencySortError> {
-        Self::sort_by_dependencies(txs, |tx| tx)
-    }
-
-    /// Topologically sort a list of items that wrap transactions so that
-    /// parents are placed before their children. `tx_of` extracts the
-    /// transaction reference from each item.
-    pub(crate) fn sort_by_dependencies<T>(
-        items: &mut Vec<T>,
-        tx_of: impl Fn(&T) -> &TransactionView,
-    ) -> Result<(), DependencySortError> {
-        if items.len() <= 1 {
-            return Ok(());
-        }
-
-        let mut output_to_index: HashMap<OutPoint, usize> =
-            HashMap::with_capacity(items.len().saturating_mul(2));
-        for (i, item) in items.iter().enumerate() {
-            let tx_hash = tx_of(item).hash();
-            for idx in 0..tx_of(item).outputs().len() {
-                let output_index = u32::try_from(idx)
-                    .map_err(|_| DependencySortError::Arithmetic("transaction output index"))?;
-                output_to_index.insert(OutPoint::new(tx_hash.clone(), output_index), i);
-            }
-        }
-
-        let mut in_degree = vec![0usize; items.len()];
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); items.len()];
-        for (i, item) in items.iter().enumerate() {
-            let tx = tx_of(item);
-            for input in tx.input_pts_iter() {
-                if let Some(&parent) = output_to_index.get(&input)
-                    && parent != i
-                {
-                    let degree = in_degree
-                        .get_mut(i)
-                        .ok_or(DependencySortError::Projection("child indegree index"))?;
-                    *degree = degree
-                        .checked_add(1)
-                        .ok_or(DependencySortError::Arithmetic("child indegree"))?;
-                    children
-                        .get_mut(parent)
-                        .ok_or(DependencySortError::Projection("parent child-list index"))?
-                        .push(i);
-                }
-            }
-            for dep in tx.cell_deps_iter() {
-                let out_point = dep.out_point();
-                if let Some(&parent) = output_to_index.get(&out_point)
-                    && parent != i
-                {
-                    let degree = in_degree
-                        .get_mut(i)
-                        .ok_or(DependencySortError::Projection("dep child indegree index"))?;
-                    *degree = degree
-                        .checked_add(1)
-                        .ok_or(DependencySortError::Arithmetic("dep child indegree"))?;
-                    children
-                        .get_mut(parent)
-                        .ok_or(DependencySortError::Projection(
-                            "dep parent child-list index",
-                        ))?
-                        .push(i);
-                }
-            }
-        }
-
-        let mut ready: VecDeque<usize> = (0..items.len())
-            .filter(|&index| in_degree.get(index).is_some_and(|degree| *degree == 0))
-            .collect();
-        let mut sorted = Vec::with_capacity(items.len());
-        while let Some(i) = ready.pop_front() {
-            sorted.push(i);
-            let planned_children = children
-                .get(i)
-                .ok_or(DependencySortError::Projection("ready child-list index"))?;
-            for &child in planned_children {
-                let degree = in_degree
-                    .get_mut(child)
-                    .ok_or(DependencySortError::Projection(
-                        "ready child indegree index",
-                    ))?;
-                *degree = degree
-                    .checked_sub(1)
-                    .ok_or(DependencySortError::Projection(
-                        "dependency indegree underflow",
-                    ))?;
-                if *degree == 0 {
-                    ready.push_back(child);
-                }
-            }
-        }
-
-        if sorted.len() != items.len() {
-            // A cycle should never happen in valid detached blocks, but if it
-            // does we keep the original order rather than losing transactions.
-            return Ok(());
-        }
-
-        let mut remaining: Vec<Option<T>> = items.drain(..).map(Some).collect();
-        let mut reordered = Vec::with_capacity(remaining.len());
-        for index in sorted {
-            let Some(item) = remaining.get_mut(index).and_then(Option::take) else {
-                reordered.extend(
-                    remaining
-                        .into_iter()
-                        .enumerate()
-                        .filter_map(|(index, item)| item.map(|item| (index, item))),
-                );
-                reordered.sort_unstable_by_key(|(index, _)| *index);
-                items.extend(reordered.into_iter().map(|(_, item)| item));
-                return Err(DependencySortError::Projection(
-                    "topological permutation index",
-                ));
-            };
-            reordered.push((index, item));
-        }
-        items.extend(reordered.into_iter().map(|(_, item)| item));
-        Ok(())
+        crate::dependency_sort::sort_transactions(txs)
     }
 
     /// Converge both executable authorities while their universal lock order

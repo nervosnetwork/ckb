@@ -74,6 +74,7 @@ pub mod block_assembler;
 mod callback;
 mod component;
 pub(crate) mod constants;
+mod dependency_sort;
 pub mod error;
 mod metrics;
 mod network;

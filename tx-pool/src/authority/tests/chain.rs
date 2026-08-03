@@ -4,7 +4,7 @@ use super::super::{
         ProposalWindowPosition,
     },
     chain_boundary::{
-        ChainBoundaryError, ChainPackaging as RuntimeChainPackaging, ChainUpdateCommand,
+        ChainBoundaryError, ChainPackaging as RuntimeChainPackaging, ChainUpdateRequest,
     },
     effect::{CommittedEffect, CommittedRejection},
     plan::{
@@ -27,6 +27,7 @@ use super::foundation::{
     resolved_payload_with_facts, runtime_config, take_resolve_work, tx, verify_remote_transaction,
     verify_remote_transaction_with_payload,
 };
+use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, FeeRate, TransactionBuilder, TransactionView},
@@ -41,14 +42,14 @@ use std::{
 };
 
 #[test]
-fn uak_chain_boundary_retains_ordered_backpressure_without_open_plan_errors() {
+fn uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors() {
     assert_eq!(
         ChainBoundaryError::from(PlanError::Backpressure(Backpressure::Allocation)),
         ChainBoundaryError::Allocation
     );
     assert_eq!(
         ChainBoundaryError::from(PlanError::Backpressure(Backpressure::EffectCapacity)),
-        ChainBoundaryError::EffectCapacity
+        ChainBoundaryError::Fault(AuthorityFault::EffectProjection)
     );
     assert_eq!(
         ChainBoundaryError::from(PlanError::EffectClosed),
@@ -1946,13 +1947,14 @@ fn uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot() {
             Vec::new(),
         )
     });
-    let command = ChainUpdateCommand::new(
+    let command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::new(),
         HashSet::new(),
         Arc::clone(&snapshot),
         RuntimeChainPackaging::Package,
     )
+    .prepare()
     .expect("empty block facts are a valid chain command");
     let committed = runtime
         .apply_chain_update(command)
@@ -1970,6 +1972,87 @@ fn uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot() {
 }
 
 #[test]
+fn uak_chain_request_returns_exact_input_after_preparation_failure() {
+    let snapshot = genesis_snapshot();
+    let transaction = output_transaction(1_754);
+    let invalid = BlockBuilder::default()
+        .transaction(transaction.clone())
+        .transaction(transaction)
+        .build();
+    let failure = match ChainUpdateRequest::new(
+        VecDeque::new(),
+        VecDeque::from([invalid]),
+        HashSet::new(),
+        Arc::clone(&snapshot),
+        RuntimeChainPackaging::ObserveOnly,
+    )
+    .prepare()
+    {
+        Err(failure) => failure,
+        Ok(_) => panic!("duplicate block facts must fail canonical preparation"),
+    };
+    let (error, request) = failure.into_parts();
+    assert_eq!(error, ChainBoundaryError::InvalidFacts);
+    let (repeated, _request) = match request.prepare() {
+        Err(failure) => failure.into_parts(),
+        Ok(_) => panic!("the returned request must retain the same exact invalid facts"),
+    };
+    assert_eq!(repeated, ChainBoundaryError::InvalidFacts);
+}
+
+#[test]
+fn uak_chain_apply_failure_returns_the_same_prepared_command() {
+    let snapshot = genesis_snapshot();
+    let transaction = child_transaction(0, &output_transaction(1_753));
+    let attached = BlockBuilder::default()
+        .transaction(transaction.clone())
+        .build();
+    let command = ChainUpdateRequest::new(
+        VecDeque::new(),
+        VecDeque::from([attached]),
+        HashSet::new(),
+        Arc::clone(&snapshot),
+        RuntimeChainPackaging::ObserveOnly,
+    )
+    .prepare()
+    .expect("attached block facts form one prepared command");
+    let closed = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the first runtime fixture is valid");
+    assert!(matches!(
+        closed.submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(53)),
+        Ok(super::super::ingress::RetainedIngressCommit::Retained)
+    ));
+    closed
+        .close_effects()
+        .expect("the fixture closes effect production before the chain attempt");
+    let failure = match closed.apply_chain_update(command) {
+        Err(failure) => failure,
+        Ok(_) => panic!("a required relay outcome cannot publish after lifecycle close"),
+    };
+    let (error, command) = failure.into_parts();
+    assert_eq!(error, ChainBoundaryError::LifecycleClosed);
+
+    let open = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the second runtime fixture is valid");
+    assert!(matches!(
+        open.submit_remote_ingress(transaction, 0, PeerIndex::from(53)),
+        Ok(super::super::ingress::RetainedIngressCommit::Retained)
+    ));
+    drop(
+        open.apply_chain_update(command)
+            .expect("the returned command remains complete and commit-capable"),
+    );
+}
+
+#[test]
 fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(
@@ -1982,13 +2065,14 @@ fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
     let proposal = transaction.proposal_short_id();
     let raw_hash = transaction.hash();
     let attached = BlockBuilder::default().transaction(transaction).build();
-    let command = ChainUpdateCommand::new(
+    let command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::from([attached]),
         HashSet::new(),
         Arc::clone(&snapshot),
         RuntimeChainPackaging::ObserveOnly,
     )
+    .prepare()
     .expect("attached block facts are a valid chain command");
     let committed = runtime
         .apply_chain_update(command)
@@ -2016,13 +2100,14 @@ fn uak_runtime_chain_boundary_preserves_block_order_for_short_id_collisions() {
     let proposal = ProposalShortId::new([9; 10]);
     let first = Byte32::new([1; 32]);
     let second = Byte32::new([2; 32]);
-    let mut command = ChainUpdateCommand::new(
+    let mut command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::new(),
         HashSet::new(),
         Arc::clone(&snapshot),
         RuntimeChainPackaging::ObserveOnly,
     )
+    .prepare()
     .expect("empty block facts are a valid chain command");
     command.committed_hashes = vec![
         (proposal.clone(), first),
@@ -2079,13 +2164,14 @@ fn uak_runtime_chain_boundary_converges_an_unrepresentable_recovery_batch() {
         .transaction(parent)
         .transaction(child)
         .build();
-    let command = ChainUpdateCommand::new(
+    let command = ChainUpdateRequest::new(
         VecDeque::from([detached]),
         VecDeque::new(),
         HashSet::new(),
         Arc::clone(&snapshot),
         RuntimeChainPackaging::ObserveOnly,
     )
+    .prepare()
     .expect("detached block facts form one sealed chain command");
 
     let committed = runtime

@@ -1088,8 +1088,18 @@ struct MembershipCompilation {
     prepared: PreparedMembership,
     base_clocks: AuthorityClocks,
     sequence: ApplySequence,
-    effect_policy: EffectPolicy,
+    effects: MembershipEffects,
     changed_retirement: ChangedOwnerRetirement,
+}
+
+/// Admission publication is a closed capability choice. Normal production
+/// paths must publish their committed outcome; only the sealed feature-
+/// internal `PlugEntry` fixture may choose the silent branch that preserves
+/// its historical no-callback/no-relay contract.
+enum MembershipEffects {
+    Publish(EffectPolicy),
+    #[cfg(any(test, feature = "internal"))]
+    SilentInternal,
 }
 
 struct IndependentUpdate {
@@ -1433,6 +1443,30 @@ pub(super) enum DirectAdmissionDisposition<'authority> {
     Accepted(PreparedApply<'authority>),
     Duplicate(PreparedDirectDuplicate<'authority>),
     Rejected(PreparedDirectRejection<'authority>),
+}
+
+/// Feature-internal synthetic admission has only two legal committed
+/// outcomes. A duplicate is a true no-op; insertion still owns the ordinary
+/// atomic membership Apply.
+#[cfg(any(test, feature = "internal"))]
+#[must_use = "internal plug disposition must be applied or returned as a no-op"]
+pub(super) enum InternalPlugDisposition<'authority> {
+    Insert(PreparedApply<'authority>),
+    Duplicate,
+}
+
+#[cfg(any(test, feature = "internal"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum InternalPlugPlanError {
+    WouldDisplace,
+    Plan(PlanError),
+}
+
+#[cfg(any(test, feature = "internal"))]
+impl From<PlanError> for InternalPlugPlanError {
+    fn from(error: PlanError) -> Self {
+        Self::Plan(error)
+    }
 }
 
 /// Pure final-membership policy result for TestAccept. This type cannot be
@@ -3157,10 +3191,56 @@ impl TxPoolAuthority {
             prepared,
             base_clocks,
             sequence,
-            effect_policy: EffectPolicy::Trusted,
+            effects: MembershipEffects::Publish(EffectPolicy::Trusted),
             changed_retirement: retirement,
         })?;
         Ok(DirectAdmissionDisposition::Accepted(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Membership(delta),
+            handoff: CommittedHandoff::None,
+        }))
+    }
+
+    /// Preserve the established internal `PlugEntry` fixture without
+    /// creating a second membership implementation. Synthetic validation
+    /// evidence is rechecked against the current authority cut, while the
+    /// fixture is deliberately denied RBF and capacity-eviction authority.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn plan_internal_plug(
+        &mut self,
+        receipt: DirectAdmissionReceipt,
+    ) -> Result<InternalPlugDisposition<'_>, InternalPlugPlanError> {
+        self.effects.ensure_open().map_err(PlanError::from)?;
+        let key = receipt.key().clone();
+        if self.entries.contains_key(&key) {
+            return Ok(InternalPlugDisposition::Duplicate);
+        }
+        self.validate_direct_acceptance_evidence(&receipt)?;
+
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let arrival = self.clocks.next_arrival;
+        let base_clocks = AuthorityClocks {
+            next_version: next_version(version)?,
+            next_sequence: next_sequence(sequence)?,
+            next_arrival: next_arrival(arrival)?,
+            ..self.clocks
+        };
+        let accepted = Self::direct_candidate(receipt, None, version, arrival);
+        let prepared = self
+            .prepare_non_displacing_internal_candidate(&key, &accepted)?
+            .ok_or(InternalPlugPlanError::WouldDisplace)?;
+        let delta = self.compile_membership_delta(MembershipCompilation {
+            key,
+            existing: None,
+            accepted,
+            prepared,
+            base_clocks,
+            sequence,
+            effects: MembershipEffects::SilentInternal,
+            changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
+        })?;
+        Ok(InternalPlugDisposition::Insert(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
             handoff: CommittedHandoff::None,
@@ -3401,7 +3481,7 @@ impl TxPoolAuthority {
             prepared,
             base_clocks,
             sequence,
-            effect_policy,
+            effects: MembershipEffects::Publish(effect_policy),
             changed_retirement,
         })
     }
@@ -3417,7 +3497,7 @@ impl TxPoolAuthority {
             prepared,
             base_clocks,
             sequence,
-            effect_policy,
+            effects,
             changed_retirement,
         } = compilation;
         if existing.is_none() {
@@ -3444,13 +3524,13 @@ impl TxPoolAuthority {
             removals.iter_mut().for_each(MembershipRemoval::terminalize);
         }
 
-        let effect = self.plan_admission_effects(
-            &accepted,
-            &removals,
-            &projection,
-            sequence,
-            effect_policy,
-        )?;
+        let effect = match effects {
+            MembershipEffects::Publish(policy) => {
+                self.plan_admission_effects(&accepted, &removals, &projection, sequence, policy)?
+            }
+            #[cfg(any(test, feature = "internal"))]
+            MembershipEffects::SilentInternal => EffectDelta::default(),
+        };
         let after = OwnedTx::Accepted(accepted);
         let has_history = removals.iter().any(|removal| removal.after().is_some());
         let resource =

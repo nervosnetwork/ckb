@@ -10,6 +10,7 @@ mod query;
 mod read;
 mod relay;
 mod resolver;
+mod service;
 mod template;
 mod template_driver;
 mod topology;

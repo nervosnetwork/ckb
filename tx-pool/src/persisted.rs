@@ -1,4 +1,5 @@
 use crate::TxPool;
+use ckb_app_config::TxPoolConfig;
 use ckb_error::{AnyError, OtherError};
 use ckb_types::{
     core::TransactionView,
@@ -302,30 +303,35 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
     write_result
 }
 
+pub(crate) fn load_persistence_snapshot(
+    config: &TxPoolConfig,
+) -> Result<PersistenceSnapshot, AnyError> {
+    let v2 = versioned_path(&config.persisted_data, VERSION);
+    let v1 = versioned_path(&config.persisted_data, LEGACY_VERSION);
+    let max_bytes = config
+        .max_tx_pool_size
+        .saturating_add(config.tx_pipeline_resident_size_budget())
+        .saturating_mul(2)
+        .saturating_add(1024 * 1024);
+    let v2_tmp = v2.with_extension(format!("v{VERSION}.tmp"));
+    let v1_tmp = v1.with_extension(format!("v{LEGACY_VERSION}.tmp"));
+    let _ = std::fs::remove_file(v2_tmp);
+    let _ = std::fs::remove_file(v1_tmp);
+    if v2.exists() {
+        return decode_v2(&v2, &read_bounded(&v2, max_bytes)?);
+    }
+    if v1.exists() {
+        return Ok(PersistenceSnapshot {
+            accepted: decode_transactions(&v1, &read_bounded(&v1, max_bytes)?)?,
+            recovery: Vec::new(),
+        });
+    }
+    Ok(PersistenceSnapshot::default())
+}
+
 impl TxPool {
     pub(crate) fn load_persistence_snapshot(&self) -> Result<PersistenceSnapshot, AnyError> {
-        let v2 = versioned_path(&self.config.persisted_data, VERSION);
-        let v1 = versioned_path(&self.config.persisted_data, LEGACY_VERSION);
-        let max_bytes = self
-            .config
-            .max_tx_pool_size
-            .saturating_add(self.config.tx_pipeline_resident_size_budget())
-            .saturating_mul(2)
-            .saturating_add(1024 * 1024);
-        let v2_tmp = v2.with_extension(format!("v{VERSION}.tmp"));
-        let v1_tmp = v1.with_extension(format!("v{LEGACY_VERSION}.tmp"));
-        let _ = std::fs::remove_file(v2_tmp);
-        let _ = std::fs::remove_file(v1_tmp);
-        if v2.exists() {
-            return decode_v2(&v2, &read_bounded(&v2, max_bytes)?);
-        }
-        if v1.exists() {
-            return Ok(PersistenceSnapshot {
-                accepted: decode_transactions(&v1, &read_bounded(&v1, max_bytes)?)?,
-                recovery: Vec::new(),
-            });
-        }
-        Ok(PersistenceSnapshot::default())
+        load_persistence_snapshot(&self.config)
     }
 }
 

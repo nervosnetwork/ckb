@@ -12,6 +12,8 @@ mod dependency;
 mod effect;
 mod indexes;
 mod ingress;
+#[cfg(any(test, feature = "internal"))]
+mod internal;
 mod packing;
 mod plan;
 mod publisher;
@@ -23,6 +25,7 @@ mod resolver;
 mod resources;
 pub(crate) mod runtime;
 mod scheduler;
+pub(crate) mod service;
 mod source;
 mod state;
 mod template;

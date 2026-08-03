@@ -565,8 +565,8 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
         }
     }));
     let callbacks = Arc::new(callbacks);
-    let (relay, relay_rx) = relay_mailbox(2);
-    let publisher_endpoints = endpoints(relay.clone(), Arc::clone(&callbacks));
+    let (relay, _aborted_relay_rx) = relay_mailbox(2);
+    let publisher_endpoints = endpoints(relay, Arc::clone(&callbacks));
     let publisher = tokio::spawn(run_authority_effect_publisher(
         runtime.clone(),
         publisher_endpoints,
@@ -600,7 +600,8 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
     runtime
         .close_effects()
         .expect("the producer side closes after cancellation retention");
-    let replacement_endpoints = endpoints(relay, callbacks);
+    let (replacement_relay, relay_rx) = relay_mailbox(2);
+    let replacement_endpoints = endpoints(replacement_relay, callbacks);
     let replacement = tokio::spawn(run_authority_effect_publisher(
         runtime.clone(),
         replacement_endpoints,

@@ -784,6 +784,25 @@ impl TxPoolAuthority {
         self.compile_membership_evaluation(hash, candidate, evaluation)
     }
 
+    /// Compile the established feature-internal `PlugEntry` hook without
+    /// granting it replacement or eviction authority. The ordinary policy
+    /// evaluator still proves all graph and capacity constraints; a result
+    /// that needs to remove any resident owner is returned as a typed
+    /// non-displacing outcome before a mutation delta exists.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn prepare_non_displacing_internal_candidate(
+        &mut self,
+        hash: &RawTxHash,
+        candidate: &AcceptedEntry,
+    ) -> Result<Option<PreparedMembership>, super::PlanError> {
+        let evaluation = self.evaluate_membership_candidate(hash, candidate)?;
+        if !evaluation.removals.is_empty() {
+            return Ok(None);
+        }
+        self.compile_membership_evaluation(hash, candidate, evaluation)
+            .map(Some)
+    }
+
     /// Evaluate RBF, graph, and capacity policy without constructing an
     /// authoritative mutation. Local Plan and TestAccept share this exact
     /// read-only decision; only Local compiles the result into projection and

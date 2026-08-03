@@ -1,8 +1,9 @@
 use super::super::{
     effect::CommittedEffect,
     ingress::{
-        DirectCommand, RetainedIngressBackpressure, RetainedIngressBoundaryError,
-        RetainedIngressCommit, RetainedIngressError, direct, proposal, remote_at_for_foundation,
+        DirectCommand, RemoteIngressPressure, RetainedIngressBackpressure,
+        RetainedIngressBoundaryError, RetainedIngressCommit, RetainedIngressError, direct,
+        proposal, remote_at_for_foundation,
     },
     plan::{
         AuthorityFault, Backpressure, PlanError, RetainedAdmissionDisposition, TxPoolAuthority,
@@ -369,6 +370,51 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
             .expect("malformed Remote ingress commits its peer disposition"),
         RetainedIngressCommit::Rejected
     );
+}
+
+#[test]
+fn uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("production authority runtime fixture is valid");
+    let transaction = ingress_tx(10);
+    let expected_hash = super::super::state::RawTxHash(transaction.hash());
+    let peer = PeerIndex::from(30);
+
+    assert_eq!(
+        runtime
+            .reject_remote_ingress_pressure(
+                transaction,
+                peer,
+                RemoteIngressPressure::PeerResources,
+            )
+            .expect("bounded Remote pressure commits one terminal disposition"),
+        RetainedIngressCommit::Rejected
+    );
+
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(
+            authority.entry(&expected_hash).is_none(),
+            "terminal pressure must not manufacture a lifecycle owner"
+        );
+        let lease = authority
+            .plan_effect_checkout_for_foundation()
+            .expect("effect checkout plans")
+            .expect("the no-owner disposition committed one effect")
+            .apply()
+            .into_effect_lease()
+            .expect("effect checkout returns its lease");
+        assert!(matches!(
+            lease.effects(),
+            [CommittedEffect::Rejected(super::super::effect::CommittedRejection::Validation {
+                tx,
+                audience,
+                reason,
+            })] if super::super::state::RawTxHash(tx.hash()) == expected_hash
+                && audience.ingress_peer() == Some(peer)
+                && matches!(reason.reject(), crate::error::Reject::Full(_))
+        ));
+    });
 }
 
 #[test]

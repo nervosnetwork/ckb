@@ -187,6 +187,10 @@ impl AuthorityBlockAssembler {
         Ok(inserted)
     }
 
+    pub(in crate::authority) async fn current_template(&self) -> ckb_jsonrpc_types::BlockTemplate {
+        self.assembler.get_current().await
+    }
+
     pub(in crate::authority) fn spawn_drivers(
         &self,
         handle: &Handle,

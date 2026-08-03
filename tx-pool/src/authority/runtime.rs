@@ -5,6 +5,8 @@
 //! conversion here prevents runtime callers from inventing resource limits,
 //! synthetic chain identities, or replacement policy independently.
 
+#[cfg(any(test, feature = "internal"))]
+use super::internal::InternalPlugBuildError;
 use super::rejection::{
     CommittedPublicReject, DirectTransactionRejection, RecentRejectEncodingError,
     serialized_recent_reject,
@@ -13,10 +15,11 @@ use super::rejection::{
 use super::state::ValidatedAdmission;
 use super::{
     chain::{
-        AcceptedValidityTransition, ChainTransitionFacts, ChainValidationError,
-        DirectAdmissionWork, FinalAdmissionWork,
+        AcceptedValidityTransition, ChainValidationError, DirectAdmissionWork, FinalAdmissionWork,
     },
-    chain_boundary::{ChainBoundaryError, ChainUpdateCommand, CommittedChainUpdate},
+    chain_boundary::{
+        ChainBoundaryError, ChainUpdateCommand, ChainUpdateFailure, CommittedChainUpdate,
+    },
     effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
     ingress::{
         DirectCommand, DirectTransaction, RetainedIngress, RetainedIngressCommit,
@@ -63,6 +66,13 @@ use super::{
     },
     work::{CheckedOutWork, ComputeSettlement},
 };
+#[cfg(any(test, feature = "internal"))]
+use super::{
+    plan::{InternalPlugDisposition, InternalPlugPlanError},
+    state::InputEvidenceDisposition,
+};
+#[cfg(any(test, feature = "internal"))]
+use crate::component::entry::TxEntry;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
@@ -1007,6 +1017,76 @@ pub(super) enum AuthorityTestAcceptOutcome {
     Retry,
 }
 
+#[cfg(any(test, feature = "internal"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AuthorityInternalPlugOutcome {
+    Inserted,
+    Duplicate,
+}
+
+/// Closed failure surface for the feature-internal synthetic admission hook.
+/// Legal fixture rejection never becomes a generation fault, while stale OCC
+/// evidence remains an ordinary retry owned by the service adapter.
+#[cfg(any(test, feature = "internal"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum AuthorityInternalPlugError {
+    Stale,
+    WouldDisplace,
+    Rejected(MembershipReject),
+    Capacity,
+    ResourceUnavailable,
+    ProposalCollision,
+    LifecycleClosed,
+    Fault(AuthorityFault),
+}
+
+#[cfg(any(test, feature = "internal"))]
+impl AuthorityInternalPlugError {
+    fn from_build(error: InternalPlugBuildError) -> Self {
+        match error {
+            InternalPlugBuildError::Evidence(error) => match error.disposition() {
+                InputEvidenceDisposition::ResourceDenied => Self::Capacity,
+                InputEvidenceDisposition::ResourceUnavailable => Self::ResourceUnavailable,
+                InputEvidenceDisposition::MalformedTransaction
+                | InputEvidenceDisposition::Structural => {
+                    Self::Fault(AuthorityFault::MembershipProjection)
+                }
+            },
+            InternalPlugBuildError::Allocation => Self::ResourceUnavailable,
+            InternalPlugBuildError::Context => Self::Fault(AuthorityFault::MembershipProjection),
+        }
+    }
+
+    fn from_plan(error: InternalPlugPlanError) -> Self {
+        match error {
+            InternalPlugPlanError::WouldDisplace => Self::WouldDisplace,
+            InternalPlugPlanError::Plan(error) => match error {
+                PlanError::Stale(_) => Self::Stale,
+                PlanError::Membership(reason) => Self::Rejected(reason),
+                PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
+                PlanError::Backpressure(
+                    Backpressure::TotalResources | Backpressure::AcceptedResources,
+                ) => Self::Capacity,
+                PlanError::Backpressure(Backpressure::ProposalCollision) => Self::ProposalCollision,
+                PlanError::EffectClosed => Self::LifecycleClosed,
+                PlanError::Fault(fault) => Self::Fault(fault),
+                PlanError::Backpressure(Backpressure::EffectCapacity) => {
+                    Self::Fault(AuthorityFault::EffectProjection)
+                }
+                PlanError::Backpressure(
+                    Backpressure::RemoteResources | Backpressure::PeerResources,
+                ) => Self::Fault(AuthorityFault::ResourceProjection),
+                PlanError::Backpressure(
+                    Backpressure::ComputeResources | Backpressure::GenerationReplacement,
+                ) => Self::Fault(AuthorityFault::SchedulerProjection),
+                PlanError::Duplicate | PlanError::PayloadVariant | PlanError::IngressRevoked(_) => {
+                    Self::Fault(AuthorityFault::MembershipProjection)
+                }
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AuthorityDirectAdmissionError {
     Stale,
@@ -1148,6 +1228,18 @@ enum ReadyDisposition {
 }
 
 impl AuthorityRuntime {
+    /// Compile the exact missing-parent frontier bound without constructing a
+    /// second authority store. Service construction uses this before startup
+    /// to create the sole relay receiver that must already be transferable to
+    /// sync while the runtime itself remains unstarted.
+    pub(in crate::authority) fn relay_parent_limit_from_config(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+    ) -> Result<usize, RuntimeConfigError> {
+        AuthorityRuntimeConfig::from_runtime(config, consensus)
+            .map(|runtime| runtime.resolution_policy.direct_max_edges)
+    }
+
     pub(crate) fn new(
         config: &TxPoolConfig,
         consensus: &Consensus,
@@ -1461,96 +1553,126 @@ impl AuthorityRuntime {
     pub(super) fn apply_chain_update(
         &self,
         command: ChainUpdateCommand,
-    ) -> Result<CommittedChainUpdate, ChainBoundaryError> {
-        let ChainUpdateCommand {
-            blocks,
-            changed_proposals,
-            detached_proposals,
-            committed_hashes,
-            candidate_uncles,
-            had_detached_chain,
-            packaging,
-            snapshot,
-        } = command;
+    ) -> Result<CommittedChainUpdate, ChainUpdateFailure> {
         let store = self.store.upgradable_read();
-        let next_revision = store
+        let Some(next_revision) = store
             .authority
             .chain_revision()
             .0
             .checked_add(1)
             .map(ChainRevision)
-            .ok_or(ChainBoundaryError::CounterExhausted)?;
+        else {
+            return Err(ChainUpdateFailure::new(
+                ChainBoundaryError::CounterExhausted,
+                command,
+            ));
+        };
         let old_environment = verification_environment(AcceptedStatus::Pending, &store.snapshot);
-        let new_environment = verification_environment(AcceptedStatus::Pending, &snapshot);
+        let new_environment = verification_environment(AcceptedStatus::Pending, &command.snapshot);
         let old_rules =
             ScriptVerificationRules::from_env(store.snapshot.consensus(), &old_environment);
-        let new_rules = ScriptVerificationRules::from_env(snapshot.consensus(), &new_environment);
+        let new_rules =
+            ScriptVerificationRules::from_env(command.snapshot.consensus(), &new_environment);
         let accepted_validity = if old_rules != new_rules {
             AcceptedValidityTransition::RulesChanged
-        } else if had_detached_chain {
+        } else if command.had_detached_chain {
             AcceptedValidityTransition::ContextChanged
         } else {
             AcceptedValidityTransition::Preserved
         };
-        let new_view = ChainViewId::new(next_revision, snapshot.tip_hash());
-        let facts = ChainTransitionFacts::from_chain_update(
+        let new_view = ChainViewId::new(next_revision, command.snapshot.tip_hash());
+        let facts = command.facts.bind(
             new_view.clone(),
-            blocks,
-            changed_proposals,
-            detached_proposals,
             accepted_validity,
-            packaging.authority_mode(),
-        )
-        .map_err(|error| match error {
-            super::chain::ChainFactsError::Allocation => ChainBoundaryError::Allocation,
-            super::chain::ChainFactsError::DuplicateTransaction
-            | super::chain::ChainFactsError::DuplicateHeader => ChainBoundaryError::InvalidFacts,
-        })?;
+            command.packaging.authority_mode(),
+        );
         let mut detached_recoveries = Vec::new();
-        detached_recoveries
-            .try_reserve(facts.detached.len())
-            .map_err(|_| ChainBoundaryError::Allocation)?;
+        if detached_recoveries
+            .try_reserve(command.facts.detached.len())
+            .is_err()
+        {
+            return Err(ChainUpdateFailure::new(
+                ChainBoundaryError::Allocation,
+                command,
+            ));
+        }
         detached_recoveries.extend(facts.detached.iter().cloned());
-        let receipt = match store.authority.chain_validation_work(facts) {
-            Ok(work) => Some(work.validate(&snapshot).map_err(|error| match error {
-                ChainValidationError::Allocation
-                | ChainValidationError::RecoveryAdmission(
-                    super::state::AdmissionValidationError::ResourceAllocation,
-                ) => ChainBoundaryError::Allocation,
-                ChainValidationError::SnapshotMismatch
-                | ChainValidationError::MissingProposalPosition
-                | ChainValidationError::UnexpectedProposalPosition
-                | ChainValidationError::DuplicateProposalPosition => {
-                    ChainBoundaryError::InvalidSnapshotEvidence
+        let receipt = match store.authority.chain_validation_work_from_view(facts) {
+            Ok(work) => match work.validate(&command.snapshot) {
+                Ok(receipt) => Some(receipt),
+                Err(error) => {
+                    let error = match error {
+                        ChainValidationError::Allocation
+                        | ChainValidationError::RecoveryAdmission(
+                            super::state::AdmissionValidationError::ResourceAllocation,
+                        ) => ChainBoundaryError::Allocation,
+                        ChainValidationError::SnapshotMismatch
+                        | ChainValidationError::MissingProposalPosition
+                        | ChainValidationError::UnexpectedProposalPosition
+                        | ChainValidationError::DuplicateProposalPosition => {
+                            ChainBoundaryError::InvalidSnapshotEvidence
+                        }
+                        ChainValidationError::RecoveryAdmission(
+                            super::state::AdmissionValidationError::EmptyTransaction
+                            | super::state::AdmissionValidationError::ResourceArithmetic,
+                        ) => ChainBoundaryError::InvalidFacts,
+                    };
+                    return Err(ChainUpdateFailure::new(error, command));
                 }
-                ChainValidationError::RecoveryAdmission(
-                    super::state::AdmissionValidationError::EmptyTransaction
-                    | super::state::AdmissionValidationError::ResourceArithmetic,
-                ) => ChainBoundaryError::InvalidFacts,
-            })?),
+            },
             Err(PlanError::Backpressure(Backpressure::GenerationReplacement)) => None,
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                return Err(ChainUpdateFailure::new(error.into(), command));
+            }
         };
         let fallback_recoveries = match &receipt {
-            Some(receipt) => store.authority.chain_generation_recoveries(receipt)?,
+            Some(receipt) => match store.authority.chain_generation_recoveries(receipt) {
+                Ok(recoveries) => recoveries,
+                Err(error) => {
+                    return Err(ChainUpdateFailure::new(error.into(), command));
+                }
+            },
             None => detached_recoveries,
         };
 
         let mut store = RwLockUpgradableReadGuard::upgrade(store);
-        let committed = match receipt {
+        let plan = match receipt {
             Some(receipt) => match store.authority.plan_chain_transition(receipt) {
-                Ok(plan) => plan.apply(),
-                Err(PlanError::Backpressure(Backpressure::GenerationReplacement)) => store
-                    .authority
-                    .plan_chain_generation_replacement(new_view, fallback_recoveries)?
-                    .apply(),
-                Err(error) => return Err(error.into()),
+                Ok(plan) => plan,
+                Err(PlanError::Backpressure(Backpressure::GenerationReplacement)) => {
+                    match store
+                        .authority
+                        .plan_chain_generation_replacement(new_view, fallback_recoveries)
+                    {
+                        Ok(plan) => plan,
+                        Err(error) => {
+                            return Err(ChainUpdateFailure::new(error.into(), command));
+                        }
+                    }
+                }
+                Err(error) => {
+                    return Err(ChainUpdateFailure::new(error.into(), command));
+                }
             },
-            None => store
+            None => match store
                 .authority
-                .plan_chain_generation_replacement(new_view, fallback_recoveries)?
-                .apply(),
+                .plan_chain_generation_replacement(new_view, fallback_recoveries)
+            {
+                Ok(plan) => plan,
+                Err(error) => {
+                    return Err(ChainUpdateFailure::new(error.into(), command));
+                }
+            },
         };
+        let committed = plan.apply();
+        let ChainUpdateCommand {
+            facts: _,
+            committed_hashes,
+            candidate_uncles,
+            had_detached_chain: _,
+            packaging: _,
+            snapshot,
+        } = command;
         let retired_snapshot = std::mem::replace(&mut store.snapshot, Arc::clone(&snapshot));
         for (proposal, hash) in committed_hashes {
             store.committed_txs_hash_cache.put(proposal, hash);
@@ -1700,6 +1822,52 @@ impl AuthorityRuntime {
     /// non-contextual validation.
     pub(super) fn paired_consensus(&self) -> Arc<Consensus> {
         self.store.read().snapshot.cloned_consensus()
+    }
+
+    /// Attempt one feature-internal synthetic insertion. Immutable fixture
+    /// evidence is built after releasing the coherent store read guard; the
+    /// write-side Plan then rechecks its exact chain/dependency cut before
+    /// compiling the ordinary atomic membership transition.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn plug_internal_entry(
+        &self,
+        entry: &TxEntry,
+        status: AcceptedStatus,
+    ) -> Result<AuthorityInternalPlugOutcome, AuthorityInternalPlugError> {
+        let (view, dependency_cut, snapshot) = {
+            let store = self.store.read();
+            (
+                store.authority.chain_view().clone(),
+                store.authority.dependency_observation_cut(),
+                Arc::clone(&store.snapshot),
+            )
+        };
+        let receipt = super::internal::build_receipt(
+            entry,
+            status,
+            view,
+            dependency_cut,
+            &snapshot,
+            self.resolution_policy.direct_max_edges,
+        )
+        .map_err(AuthorityInternalPlugError::from_build)?;
+        let committed = {
+            let mut store = self.store.write();
+            match store
+                .authority
+                .plan_internal_plug(receipt)
+                .map_err(AuthorityInternalPlugError::from_plan)?
+            {
+                InternalPlugDisposition::Insert(plan) => Some(plan.apply()),
+                InternalPlugDisposition::Duplicate => None,
+            }
+        };
+        let Some(committed) = committed else {
+            return Ok(AuthorityInternalPlugOutcome::Duplicate);
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(AuthorityInternalPlugOutcome::Inserted)
     }
 
     #[cfg(test)]
@@ -2240,6 +2408,13 @@ impl AuthorityRuntime {
 
     pub(super) const fn verify_worker_count(&self) -> usize {
         self.verify_workers.get()
+    }
+
+    /// Maximum missing-parent frontier retained by one resolution capability.
+    /// The service assembly uses the same compiled bound for the derived relay
+    /// mailbox, so it cannot size that projection from a nearby configuration.
+    pub(in crate::authority) const fn relay_parent_limit(&self) -> usize {
+        self.resolution_policy.direct_max_edges
     }
 
     #[cfg(test)]

@@ -52,9 +52,11 @@ struct RelayMailboxInner {
     max_bytes: usize,
 }
 
-/// Cloneable, nonblocking publication half owned by the effect endpoint.
-#[derive(Clone)]
-pub(super) struct AuthorityRelaySink {
+/// Move-only, nonblocking publication half owned by the sole effect endpoint.
+/// Keeping this capability non-cloneable makes multiple relay publishers
+/// unrepresentable even though the bounded mailbox storage is shared with its
+/// receiver.
+pub(crate) struct AuthorityRelaySink {
     inner: Arc<RelayMailboxInner>,
 }
 
@@ -94,6 +96,26 @@ pub(super) fn authority_relay_mailbox(
         },
         AuthorityRelayReceiver { inner },
     ))
+}
+
+/// Construct the production mailbox at its exact indivisible payload bound.
+///
+/// One maximal missing-parent frontier must fit behind an ordered reset. Small
+/// outcomes are bounded independently by `max_items`; provisioning additional
+/// bytes would not strengthen liveness and would make the derived relay
+/// projection compete with transaction residency.
+pub(super) fn production_authority_relay_mailbox(
+    max_items: usize,
+    max_parents: usize,
+) -> Result<(AuthorityRelaySink, AuthorityRelayReceiver), RelayMailboxConfigError> {
+    let max_bytes = relay_result_bytes(&TxVerificationResult::GenerationReset)
+        .and_then(|reset| {
+            relay_parent_frontier_bytes(max_parents)
+                .ok()?
+                .checked_add(reset)
+        })
+        .ok_or(RelayMailboxConfigError::ByteLimit)?;
+    authority_relay_mailbox(max_items, max_bytes, max_parents)
 }
 
 fn relay_parent_frontier_bytes(max_parents: usize) -> Result<usize, RelayMailboxConfigError> {

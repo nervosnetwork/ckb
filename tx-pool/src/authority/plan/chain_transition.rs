@@ -2,8 +2,8 @@ use super::*;
 use crate::authority::chain::{
     ChainCommittedOwner, ChainConflictOwner, ChainPackagingMode, ChainProposalSubject,
     ChainRecoveryOwner, ChainRecoveryReceipt, ChainRecoveryWork, ChainRemoval, ChainStatusSubject,
-    ChainTransitionFacts, ChainTransitionReceipt, ChainValidationWork, ExpectedPreAcceptedOwner,
-    ProposalContextReceipt,
+    ChainTransitionFacts, ChainTransitionFactsView, ChainTransitionReceipt, ChainValidationWork,
+    ExpectedPreAcceptedOwner, ProposalContextReceipt,
 };
 use crate::authority::state::{AcceptedStatus, DependencySetError, RemoteBase};
 use ckb_types::{core::TransactionView, packed::OutPoint};
@@ -275,6 +275,16 @@ impl TxPoolAuthority {
         &self,
         facts: ChainTransitionFacts,
     ) -> Result<ChainValidationWork, PlanError> {
+        self.chain_validation_work_from_view(facts.as_view())
+    }
+
+    /// Production chain commands retain their canonical block facts while
+    /// this compiler allocates the affected owner slice. Returning an error
+    /// therefore leaves the exact move-only command available for retry.
+    pub(in crate::authority) fn chain_validation_work_from_view(
+        &self,
+        facts: ChainTransitionFactsView<'_>,
+    ) -> Result<ChainValidationWork, PlanError> {
         if facts.new_view.revision() != next_chain_revision(self.chain_revision())? {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
@@ -306,7 +316,7 @@ impl TxPoolAuthority {
         // Attached inputs kill both accepted spenders and accepted cell-dep
         // readers. The attached transaction itself is a committed removal,
         // not its own conflict root.
-        for transaction in &facts.attached {
+        for transaction in facts.attached {
             let attached_hash = RawTxHash(transaction.hash());
             for input in transaction.input_pts_iter() {
                 // Molecule iterators may share the attached transaction's
@@ -336,7 +346,7 @@ impl TxPoolAuthority {
         // A detached producer/header changes the role of each dependent. An
         // accepted dependent and its causal descendants return through normal
         // Recovery; preaccepted work is requeued under the new view.
-        for transaction in &facts.detached {
+        for transaction in facts.detached {
             let hash = RawTxHash(transaction.hash());
             self.seed_origin_consumers(
                 &DependencyOrigin::Transaction(hash),
@@ -344,7 +354,7 @@ impl TxPoolAuthority {
                 &mut causal,
             )?;
         }
-        for header in &facts.detached_headers {
+        for header in facts.detached_headers {
             self.seed_origin_consumers(
                 &DependencyOrigin::BlockHeader(header.clone()),
                 CausalDisposition::Recovery,
@@ -354,7 +364,7 @@ impl TxPoolAuthority {
         // Same raw producer on both forks preserves content identity but not
         // inclusion height/epoch. Consumers must rebuild location/time proof
         // even though detached-payload recovery is correctly suppressed.
-        for hash in &facts.relocated {
+        for hash in facts.relocated {
             self.seed_origin_consumers(
                 &DependencyOrigin::Transaction(hash.clone()),
                 CausalDisposition::Recovery,
@@ -386,7 +396,7 @@ impl TxPoolAuthority {
 
         // A detached proposal demotes its accepted causal subtree before the
         // final proposal positions are reconciled against the new snapshot.
-        for proposal in &facts.detached_proposals {
+        for proposal in facts.detached_proposals {
             if let Some(hash) = self.indexes.proposal_owner(proposal)
                 && matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_)))
             {
@@ -618,11 +628,11 @@ impl TxPoolAuthority {
         proposal_subjects.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
 
         let (available, lost) = self.chain_dependency_events(
-            &facts.attached,
-            &facts.detached,
+            facts.attached,
+            facts.detached,
             &removals,
-            &facts.attached_headers,
-            &facts.detached_headers,
+            facts.attached_headers,
+            facts.detached_headers,
         )?;
         let recovery_transactions = self.prepare_recovery_transactions(
             facts.detached,
@@ -738,7 +748,7 @@ impl TxPoolAuthority {
 
     fn prepare_recovery_transactions(
         &self,
-        detached: Vec<TransactionView>,
+        detached: &[TransactionView],
         dispositions: &HashMap<RawTxHash, CausalDisposition>,
         preaccepted: &HashMap<RawTxHash, PreacceptedDisposition>,
     ) -> Result<Vec<TransactionView>, PlanError> {
@@ -753,6 +763,7 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         // Detached block payload is authoritative for its witness variant.
         for transaction in detached {
+            let transaction = transaction.clone();
             let dependencies = declared_dependencies(&transaction)?;
             by_hash.insert(
                 RawTxHash(transaction.hash()),

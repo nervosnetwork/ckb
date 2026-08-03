@@ -1,5 +1,6 @@
 use super::super::relay::{
     RelayMailboxConfigError, RelayMailboxDisposition, authority_relay_mailbox,
+    production_authority_relay_mailbox,
 };
 use super::super::{
     plan::TxPoolAuthority,
@@ -134,6 +135,43 @@ fn uak_relay_mailbox_keeps_a_max_frontier_after_reconciliation() {
     assert_eq!(
         sink.publish(TxVerificationResult::UnknownParents {
             peer: PeerIndex::from(8),
+            parents,
+        }),
+        RelayMailboxDisposition::Reconciled
+    );
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::UnknownParents { parents, .. })
+            if parents.len() == TEST_MAX_PARENTS
+    ));
+}
+
+#[test]
+fn uak_production_relay_mailbox_fits_reset_and_one_maximum_parent_frontier() {
+    let (sink, receiver) = production_authority_relay_mailbox(2, TEST_MAX_PARENTS)
+        .expect("the production formula reserves one indivisible frontier behind reset");
+    for byte in [1, 2] {
+        assert_eq!(
+            sink.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([byte; 32]),
+            }),
+            RelayMailboxDisposition::Exact
+        );
+    }
+    let parents = (0..TEST_MAX_PARENTS)
+        .map(|index| {
+            let mut hash = [0u8; 32];
+            hash[..size_of::<usize>()].copy_from_slice(&index.to_le_bytes());
+            Byte32::new(hash)
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: PeerIndex::from(10),
             parents,
         }),
         RelayMailboxDisposition::Reconciled

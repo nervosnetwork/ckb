@@ -627,6 +627,26 @@ impl ResolvedPayload {
         Self::from_resolved_parts(resolved, max_edges, fee, resolved_resident_bytes)
     }
 
+    /// Build the synthetic resolved payload accepted only by the sealed
+    /// `internal` instrumentation boundary. `serialized_bytes` deliberately
+    /// preserves the caller-provided `TxEntry` weight used by historical
+    /// package-selection tests; no normal admission path can construct the
+    /// seal or substitute this value for the transaction's encoded size.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn from_internal_plug(
+        _seal: super::internal::InternalPlugSeal,
+        resolved: Arc<ResolvedTransaction>,
+        max_edges: usize,
+        fee: Capacity,
+        serialized_bytes: usize,
+        resolved_resident_bytes: usize,
+    ) -> Result<Self, InputEvidenceError> {
+        let mut payload =
+            Self::from_resolved_parts(resolved, max_edges, fee, resolved_resident_bytes)?;
+        payload.serialized_bytes = serialized_bytes;
+        Ok(payload)
+    }
+
     #[cfg(test)]
     pub(super) fn for_foundation(
         tx: &TransactionView,
@@ -986,6 +1006,29 @@ impl VerifiedFacts {
 
     pub(super) fn from_direct_verification(
         _seal: super::resolver::DirectVerificationSeal,
+        dependency_cut: DependencyCut,
+        payload: Arc<ResolvedPayload>,
+        context: VerificationContextReceipt,
+        metrics: CandidateMetrics,
+    ) -> Self {
+        let rules = context.rules();
+        Self {
+            dependency_cut,
+            content: CellContentReceipt::from_resolution(payload),
+            context,
+            script: ScriptReceipt::from_verification(rules),
+            verify_class: VerifyCycleClass::Small,
+            metrics,
+        }
+    }
+
+    /// Seal synthetic script evidence for the feature-internal `PlugEntry`
+    /// adapter. This exists solely to preserve the established test hook that
+    /// injects an already-verified `TxEntry`; it is not reachable from RPC,
+    /// relay, persistence replay, or ordinary Local admission.
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn from_internal_plug(
+        _seal: super::internal::InternalPlugSeal,
         dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         context: VerificationContextReceipt,

@@ -160,6 +160,24 @@ pub enum TxVerificationResult {
     GenerationReset,
 }
 
+/// Sole nonblocking receiver for committed tx-pool relay projections.
+///
+/// The authority mailbox is bounded and performs its own ordered
+/// reconciliation. Sync only drains this opaque derived stream; it cannot
+/// publish results, mutate transaction ownership, or create a second relay
+/// queue.
+pub struct TxVerificationResultReceiver(crate::authority::service::AuthorityRelayDrain);
+
+impl TxVerificationResultReceiver {
+    pub(crate) fn from_authority(receiver: crate::authority::service::AuthorityRelayDrain) -> Self {
+        Self(receiver)
+    }
+
+    pub fn try_recv(&self) -> Option<TxVerificationResult> {
+        self.0.try_recv()
+    }
+}
+
 /// Auxiliary read-mostly services bundled to keep [`TxPoolService`] field
 /// count down. All three share the service lifecycle.
 ///

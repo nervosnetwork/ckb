@@ -127,6 +127,21 @@ pub(super) enum RetainedIngressBackpressure {
     ProposalCollision,
 }
 
+/// Terminal no-owner pressure at the Remote service boundary. This closed
+/// domain is compiled here because only ingress owns the peer audience and
+/// transaction payload needed for an exact relay release. Effect-capacity
+/// pressure is deliberately absent: it waits and replans instead of being
+/// misreported as pool pressure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RemoteIngressPressure {
+    TotalResources,
+    RemoteResources,
+    PeerResources,
+    ComputeResources,
+    ProposalCollision,
+    Allocation,
+}
+
 /// Closed service-boundary result for retained Remote and Proposal ingress.
 ///
 /// The open planner error family is intentionally consumed here. Legal peer
@@ -324,6 +339,33 @@ impl AuthorityRuntime {
                 Err(RetainedIngressBoundaryError::from_admission(error))
             }
         }
+    }
+
+    /// Publish a terminal Remote no-owner disposition through the same
+    /// committed effect authority as every other ingress result. The caller
+    /// may retry only effect capacity; it cannot choose a nearby public reason
+    /// or bypass the relay/recent-reject policy compiler.
+    pub(super) fn reject_remote_ingress_pressure(
+        &self,
+        tx: TransactionView,
+        peer: PeerIndex,
+        pressure: RemoteIngressPressure,
+    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
+        let reason = match pressure {
+            RemoteIngressPressure::TotalResources => "tx-pool total residency limit reached",
+            RemoteIngressPressure::RemoteResources => "tx-pool remote residency limit reached",
+            RemoteIngressPressure::PeerResources => "tx-pool per-peer residency limit reached",
+            RemoteIngressPressure::ComputeResources => "tx-pool transient compute limit reached",
+            RemoteIngressPressure::ProposalCollision => "tx-pool proposal short-id collision",
+            RemoteIngressPressure::Allocation => "tx-pool resource allocation unavailable",
+        };
+        let rejection = RetainedIngressRejection {
+            kind: RetainedIngressKind::Remote(peer),
+            tx: Arc::new(tx.into_compact()),
+            reason: CommittedPublicReject::new(crate::error::Reject::Full(reason.to_owned())),
+        };
+        self.commit_retained_ingress_rejection(rejection)
+            .map_err(RetainedIngressBoundaryError::from_plan)
     }
 }
 

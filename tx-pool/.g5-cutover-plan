@@ -1,6 +1,7 @@
 # G5 Production Cutover Recovery Plan
 
-Status: G5.3b.7 slice 6 complete; G5.3c production cutover not started
+Status: G5.3c C0 service boundary implemented; complete closure gate passed;
+recoverable checkpoint pending; production cutover not started
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
@@ -12,16 +13,21 @@ G5.3b.7 slices 1-2 checkpoint: f812aaf95
 G5.3b.7 slice 3 checkpoint: fb2ff7c27
 G5.3b.7 slice 4 checkpoint: 0b2c25ca7
 G5.3b.7 slice 5 checkpoint: 4a33169a35
-Active slice: G5.3c entry; no production owner has switched
-Next exact action: freeze this completed slice-6 checkpoint, then map the
-coordinated G5.3c service cutover against the frozen capability/concurrency
-matrix before changing one production owner. Lifecycle producer/consumer,
-public-error, committed-effect and manual Apply-to-wake audits are complete for
-the isolated authority. Direct, retained, chain and administrative service
-surfaces consume the open internal `PlanError` family into boundary-specific
-closed outcomes. Relay rebuild, exact source cuts, template pre-probes, the
-single mutation hint and homogeneous Ready effect settlement are implemented
-and fully gated. Do not land a mixed legacy/UAK production authority.
+G5.3b.7 slice 6 checkpoint: d4b5a32b4
+Active slice: G5.3c C0 staged-boundary review and recoverable checkpoint; no
+production owner has switched
+Next exact action: inspect the staged boundary as one architecture change and
+freeze its recoverable checkpoint. Then execute C1 as the one coordinated
+production ownership switch; do not
+start endpoint-by-endpoint wiring. The unreachable adapter now closes direct
+Local/TestAccept, retained ingress and pressure outcomes, administration,
+replayable chain commands, all query/template projections, pure packing,
+coherent save/replay, move-only relay transfer, task topology/effect endpoints,
+and sealed internal PlugEntry. C1 must change service fields, dispatcher,
+builder/startup, ordered reorg, block-template inputs, persistence, effect
+endpoints, relay drain and topology shutdown together. C2 may then delete only
+code proven unreachable from production. Do not land a mixed legacy/UAK
+production authority.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -2210,30 +2216,88 @@ G5.3b closeout-report adjudication:
   backpressure cost is an explicit acceptance result rather than a production
   surprise. No direct-path bypass is permitted.
 
+C0 service-boundary implementation evidence at the current working tree
+(closure checkpoint pending the staged-scope review):
+
+- The complete isolated library gate passed on 2026-08-03:
+  `cargo nextest run -p ckb-tx-pool --features internal --lib` ran 634 tests;
+  634 passed, zero failed or skipped. Default and feature-internal `cargo
+  check` gates passed earlier in the same slice. `git diff --check` is clean.
+
+- One concrete `AuthorityService` assembles runtime, publisher, workers,
+  template drivers and derived endpoints atomically while remaining
+  unreachable from the legacy production builder. Local remains synchronous;
+  TestAccept shares validation and membership evaluation but has no owner,
+  clock, effect or cache publication.
+- Remote/Proposal ingress, administrative removal/clear/expiry/dependency
+  maintenance and ordered chain updates return closed outcomes. Allocation or
+  effect pressure retains the exact command capability needed for retry;
+  legal pressure does not become a generation fault.
+- Every RPC, compact-block, live-cell, fee, persistence and template read owns
+  one coherent receipt. Sorting, database access, payload conversion,
+  persistence I/O and pure package selection occur after the authority guard
+  opens.
+- Persistence captures one parent-first authority cut under a unique writer
+  lease; startup bytes re-enter ordinary Local validation after the publisher
+  exists and confer no owner or verification evidence.
+- The bounded relay receiver is transferred directly as a move-only startup
+  capability. There is no forwarding task, cloned publisher or second relay
+  decision point.
+- Feature-internal `PlugEntry` is sealed synthetic evidence, not a normal
+  admission bypass. It reuses the sole membership/resource/relation/source
+  compiler, preserves caller-supplied test weight, publishes no public effect,
+  treats duplicates as true no-ops, and cannot exercise RBF or capacity
+  eviction. Internal `PackageTxs` consumes the same pure packer as production.
+- The dependency parent-first sorter is a pure module shared by legacy
+  compatibility and the UAK boundary. All fallible allocation occurs before
+  draining the caller's vector, so an allocation outcome cannot lose replay
+  payloads.
+- C0 adds no production owner, fallback, dual write, shadow read, mutable fact,
+  lock, queue or task. The production ownership graph remains legacy until the
+  one C1 switch.
+
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that
 keeps that suffix must be `#[cfg(test)]`. Add a static documentation/CI check so
 the naming contract cannot drift silently again.
 
-The current ungated prototype inventory is six functions, not only the three
-called out by the entry report:
-
-- `drained_generation_receipt_for_foundation`: delete when non-draining typed
-  clear invalidation replaces it;
-- `plan_clear_generation_for_foundation`: replace with `ClearPipelinePlan`;
-- `plan_replace_generation_chain_for_foundation`: replace with the typed
-  ClearPool/chain boundary rather than promote the ambiguous API;
-- `plan_remote_expiry_for_foundation`: promote behind the maintenance runtime;
-- `plan_dependency_availability_for_foundation`: rename and keep private to the
-  production dependency/chain boundary;
-- `plan_dependency_maintenance_for_foundation`: promote behind the maintenance
-  runtime.
+The former six-function ungated prototype inventory is closed in C0:
+non-draining clear and chain-replacement commands, bounded remote expiry and
+dependency maintenance now have production-named runtime owners; the raw
+dependency-availability helper remains `#[cfg(test)]`. Every remaining
+`*_for_foundation` constructor or operation in `authority` is test-gated. The
+post-cutover static documentation/CI check must keep that property after C2
+deletes migration scaffolding.
 
 No step writes legacy state. Every semantic slice must pass focused nextest,
 static panic-like-operation audit, lock-across-await audit, allocation/bound
 review, and a whole-model phase review before the next slice.
 
 ### G5.3c: one production switch
+
+The implementation is frozen into three review slices. These slices separate
+compile-time construction from ownership, not production behavior:
+
+- **C0, unreachable boundary:** add one concrete service-facing adapter inside
+  `authority`; it may call private UAK capabilities and convert them into the
+  existing controller DTOs, but no production builder or dispatcher may hold
+  or call it. It owns no new mutable fact, task, queue, lock or retry policy.
+  Every conversion must be exhaustive and boundary-specific.
+- **C1, coordinated cut:** replace all `TxPoolService` transaction ownership
+  with that adapter and switch construction, message dispatch, ordered reorg,
+  template delivery, persistence restore/save, effect endpoints, relay drain
+  and topology shutdown in the same production change. The old fields and
+  workers become unreachable together. Full/reset keep one ordered replacement
+  lane while proposals/transactions/uncles remain optimistic concurrent lanes.
+- **C2, deletion:** delete the now-unreachable legacy ownership graph and only
+  then simplify compatibility helpers, stacked tests and documentation. No C2
+  deletion may change behavior hidden by C1; if it does, the C1 map was
+  incomplete and must be corrected first.
+
+C0 is allowed to compile in the tree because it is unconstructible from the
+production service. C1 must not retain a feature flag, runtime fallback,
+dual-write, shadow-read or second relay publication path. Rollback remains the
+Git checkpoint before C1.
 
 1. Replace `TxPoolService` ownership fields with `AuthorityRuntime` and derived
    endpoints.
