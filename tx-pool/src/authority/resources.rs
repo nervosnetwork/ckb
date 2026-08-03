@@ -596,6 +596,15 @@ pub(super) enum ResourceError {
     Allocation,
 }
 
+/// Closed error surface for releasing one existing compute reservation.
+/// This transition neither inserts a charge nor creates a peer row, so
+/// allocator backpressure is not a legal result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ComputeReleaseError {
+    Arithmetic,
+    Projection,
+}
+
 /// Whether one more checked-out worker can consume the single active-work
 /// slot charged by every compute grant. This is a projection of the existing
 /// ledger, not another scheduler state.
@@ -1124,6 +1133,98 @@ impl ResourceLedger {
             peer_updates: [old_update, new_update],
             replacement_history,
             accepted,
+        })
+    }
+
+    /// Plan `Computing -> Queued(Resolve)` for the same primary owner.
+    ///
+    /// Cancellation is the emergency discharge path for the sole compute
+    /// capability. It may only remove resource usage from an existing charge
+    /// and therefore performs no reservation or insertion.
+    pub(super) fn plan_compute_release(
+        &self,
+        key: RawTxHash,
+        expected: ChargeRecord,
+        after: ChargeRecord,
+    ) -> Result<ResourcePlan, ComputeReleaseError> {
+        expected
+            .validate()
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        after
+            .validate()
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        if self.charge(&key) != Some(expected) {
+            return Err(ComputeReleaseError::Projection);
+        }
+        let (
+            ChargeRecord::PreAccepted {
+                resources: old_resources,
+                residency_peer: old_residency_peer,
+                ..
+            },
+            ChargeRecord::PreAccepted {
+                resources: new_resources,
+                residency_peer: new_residency_peer,
+                compute_peer: new_compute_peer,
+            },
+        ) = (expected, after)
+        else {
+            return Err(ComputeReleaseError::Projection);
+        };
+        if old_resources.active_work != 1
+            || new_resources.active_work != 0
+            || old_residency_peer != new_residency_peer
+            || new_compute_peer.is_some()
+            || new_resources != old_resources.without_compute()
+        {
+            return Err(ComputeReleaseError::Projection);
+        }
+
+        let preaccepted = self
+            .preaccepted
+            .checked_sub(old_resources)
+            .and_then(|usage| usage.checked_add(new_resources))
+            .ok_or(ComputeReleaseError::Arithmetic)?;
+        let old_peer_charge = expected
+            .peer_preaccepted()
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        let new_peer_charge = after
+            .peer_preaccepted()
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        let (remote, peer_update) = match (old_peer_charge, new_peer_charge) {
+            (None, None) => (self.remote, None),
+            (Some((old_peer, old_usage)), Some((new_peer, new_usage)))
+                if old_peer == new_peer && self.peers.contains_key(&old_peer) =>
+            {
+                let remote = self
+                    .remote
+                    .checked_sub(old_usage)
+                    .and_then(|usage| usage.checked_add(new_usage))
+                    .ok_or(ComputeReleaseError::Arithmetic)?;
+                let peer = self
+                    .peer(old_peer)
+                    .checked_sub(old_usage)
+                    .and_then(|usage| usage.checked_add(new_usage))
+                    .ok_or(ComputeReleaseError::Arithmetic)?;
+                (remote, Some((old_peer, peer)))
+            }
+            _ => return Err(ComputeReleaseError::Projection),
+        };
+        if !preaccepted.fits(self.limits.preaccepted)
+            || !remote.fits(self.limits.remote)
+            || peer_update.is_some_and(|(_, usage)| !usage.fits(self.limits.per_peer))
+        {
+            return Err(ComputeReleaseError::Projection);
+        }
+
+        Ok(ResourcePlan {
+            key,
+            after: Some(after),
+            preaccepted,
+            remote,
+            peer_updates: [peer_update, None],
+            replacement_history: self.replacement_history,
+            accepted: self.accepted,
         })
     }
 

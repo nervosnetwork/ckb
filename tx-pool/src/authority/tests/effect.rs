@@ -1,13 +1,13 @@
 use super::super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-        CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectBuildError, EffectCapacity,
-        EffectConfigError, EffectLease, EffectLimits, EffectPolicy, EffectPublication,
-        ParentTransactionRequest, RejectionAudience,
+        CommittedRejection, CommittedRemoteIngressRelease, EffectBatchBound, EffectBatchBounds,
+        EffectBuildError, EffectCapacity, EffectConfigError, EffectLease, EffectLimits,
+        EffectPolicy, EffectPublication, ParentTransactionRequest, RejectionAudience,
     },
     plan::{
-        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, MembershipReject,
-        PlanError, StalePlan, TxPoolAuthority,
+        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, ComputeSettlementRecovery,
+        MembershipReject, PlanError, StalePlan, TxPoolAuthority,
     },
     rejection::CommittedPublicReject,
     runtime::AuthorityRuntime,
@@ -414,12 +414,18 @@ fn uak_effect_shape_bounds_are_class_specific() {
     .expect("each region proves its own indivisible batch shape");
     let authority = authority_with_effect_limits(limits);
     let effects = vec![
-        CommittedEffect::RemoteIngressReleased {
-            tx_hash: RawTxHash(Byte32::new([31; 32])),
-        },
-        CommittedEffect::RemoteIngressReleased {
-            tx_hash: RawTxHash(Byte32::new([32; 32])),
-        },
+        CommittedEffect::RemoteIngressReleased(
+            CommittedRemoteIngressRelease::duplicate_remote_submission(
+                RawTxHash(Byte32::new([31; 32])),
+                PeerIndex::from(31),
+            ),
+        ),
+        CommittedEffect::RemoteIngressReleased(
+            CommittedRemoteIngressRelease::duplicate_remote_submission(
+                RawTxHash(Byte32::new([32; 32])),
+                PeerIndex::from(32),
+            ),
+        ),
     ];
 
     assert_eq!(
@@ -491,7 +497,7 @@ fn effect_sizing_family(effect: &CommittedEffect) -> &'static str {
         CommittedEffect::ChainCommitted { .. } => "chain-rebuildable",
         CommittedEffect::PeerCohortRevoked(_) => "critical-detail",
         CommittedEffect::RemoteExpired { .. } => "remote-prefix",
-        CommittedEffect::RemoteIngressReleased { .. } => "single-envelope",
+        CommittedEffect::RemoteIngressReleased(_) => "single-envelope",
         CommittedEffect::ParentTransactionsRequested(_) => "parent-request",
         CommittedEffect::GenerationReset => "reserved-reset",
     }
@@ -648,8 +654,8 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
         .apply_settlement(work.rejected(RejectionKind::Policy))
         .expect_err("a full effect region cannot separate removal from rejection");
     assert_eq!(
-        blocked.error(),
-        &PlanError::Backpressure(Backpressure::EffectCapacity)
+        blocked.recovery(),
+        &ComputeSettlementRecovery::WaitEffectCapacity
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert!(matches!(
@@ -720,8 +726,8 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
         .apply_settlement(settlement)
         .expect_err("the wait cannot commit without its parent request");
     assert_eq!(
-        blocked.error(),
-        &PlanError::Backpressure(Backpressure::EffectCapacity)
+        blocked.recovery(),
+        &ComputeSettlementRecovery::WaitEffectCapacity
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert!(matches!(
@@ -735,8 +741,8 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
         .apply_settlement(blocked.into_settlement())
         .expect_err("an unchanged full journal retains the exact missing result");
     assert_eq!(
-        blocked.error(),
-        &PlanError::Backpressure(Backpressure::EffectCapacity)
+        blocked.recovery(),
+        &ComputeSettlementRecovery::WaitEffectCapacity
     );
     assert_eq!(authority.normalized_snapshot(), before);
 

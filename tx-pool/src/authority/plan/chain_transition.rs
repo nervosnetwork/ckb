@@ -82,7 +82,7 @@ impl CausalDisposition {
         }
     }
 
-    /// Closed `cause × phase` policy for a PreAccepted consumer. Accepted
+    /// Closed `cause x phase` policy for a PreAccepted consumer. Accepted
     /// consumers always propagate the disposition; PreAccepted has no
     /// proposal status, and an active compute capability remains uniquely
     /// settleable across chain/dependency cuts.

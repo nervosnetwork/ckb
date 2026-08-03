@@ -1,6 +1,6 @@
 # G5 Production Cutover Recovery Plan
 
-Status: G5.3b.7 slice 4 gates green; topology/shutdown assembly is next
+Status: G5.3b.7 slice 5 gates complete; checkpoint pending
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
@@ -10,12 +10,13 @@ G5.3b.5 checkpoint: bfa1ddced
 G5.3b.6 checkpoint: c11055968
 G5.3b.7 slices 1-2 checkpoint: f812aaf95
 G5.3b.7 slice 3 checkpoint: fb2ff7c27
-G5.3b.7 slice 4 checkpoint: pending this checkpoint commit
+G5.3b.7 slice 4 checkpoint: 0b2c25ca7
 Active slice: G5.3b.7
-Next exact action: freeze the production-shaped block-assembler adapter
-checkpoint, then assemble the isolated lifecycle topology and classify every
-task error under the global failure-domain contract before cutover. Do not
-dual-write or change a legacy production owner before G5.3c.
+Next exact action: freeze the reviewed slice-5 topology checkpoint, then enter
+slice 6 and re-adjudicate the complete finding ledger from current producers
+and consumers. Close background-driver outcome types, audit every manual
+effect/publication map and prove legal input cannot reach generation invalid;
+do not dual-write or change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -44,6 +45,40 @@ architecture document.
   and public error mapping). Move semantic choices into one closed compiler or
   an owner-typed receipt. Any irreducible manual map needs one named semantic
   owner plus a compile-failing exhaustive regression.
+- [ ] G5/G6 finding-disposition audit: every verified review/report item must
+  remain in the single ledger in section 16.1 until it has current-code
+  evidence, one architecture-root disposition, exact regression/static
+  evidence and a closing checkpoint. Priority changes may reorder open items;
+  they may not remove them. A behavior drift described as beneficial is still
+  forbidden until compatibility, security and operational consequences have
+  an explicit reviewed decision.
+- [ ] G5/G6 prior-adjudication reset: the LocalRemoval/F1 reversal proves that
+  an earlier disposition is not evidence. Re-read every supplied finding and
+  every prior close/suppress/retain decision against current code, develop
+  compatibility where relevant, and the final UAK model. Until re-verified,
+  prior adjudications are provisional and cannot satisfy the G5.3c gate. Each
+  item must end as exactly one of `confirmed-closed`,
+  `superseded-by-proven-model`, `suppressed-with-current-counterevidence`, or
+  `open-blocker`, with current code anchors and exact regression evidence.
+- [ ] G5/G6 progress-proof gate: derive explicit runtime and shutdown
+  wait-for graphs from task-owned capabilities, awaited levels/capacities and
+  their unique releasers. Both graphs must be acyclic after treating
+  independently running releasers as progress engines. Constructively test
+  every bounded-capacity edge under saturation, cancellation and stale work;
+  separately audit no-progress retries, lost wakes and starvation. Timeouts
+  diagnose a violated proof but never constitute the proof. Use Loom only for
+  small synchronization primitives it can faithfully model; use deterministic
+  state/fault models for Tokio tasks, channels and external endpoints. Preserve
+  the method in the reviewer-facing `REVIEW_GUIDE.md`: include the graph
+  construction checklist, edge-to-owner table, deadlock/livelock/lost-wake/
+  starvation criteria, exact constructive regressions and machine-validated
+  test anchors so the gate survives removal of this recovery artifact.
+  The audit universe is complete rather than finding-local: every spawned
+  task, bounded/unbounded channel, `Notify`, watch receiver, semaphore, effect
+  region, template publication lane, ordered reorg boundary, lock order and
+  cancellation path must name what it can hold, what it can wait for and the
+  unique action that releases it. Re-open any historical disposition justified
+  only by a timeout, retry, polling loop or assumed wake.
 - [ ] G5/G6 model-minimality gate (runs after production cutover and legacy
   deletion, before release acceptance): reconstruct the required behavior and
   attack cases from first principles; prove the remaining authority, state
@@ -319,8 +354,14 @@ Internal failures follow these exhaustive boundary rules:
   be translated into successful admission. The synchronous compatibility
   boundary reports service invalidation and the async boundary releases its
   caller without creating a new owner.
-- `Fault` is a programmer or structural authority failure. It triggers the
-  documented controlled shutdown and is never downgraded to a policy reject.
+- `Fault` is not a synonym for an arbitrary task or adapter error. A call site
+  may invalidate the current service generation only when the exact variant
+  proves authoritative ownership, charge, index, dependency, scheduler or
+  effect integrity has already been lost, or when the only linear settlement
+  capability cannot be returned safely. That proof must exclude legal or
+  hostile input, stale work, allocation/resource pressure, external endpoint
+  failure and rebuildable projection failure. Every other error remains a
+  typed local outcome and is never downgraded to a policy reject.
 
 The outcome compiler is source-aware but not a second lifecycle authority. It
 consumes only a committed disposition or a mutation-free planning result. The
@@ -628,16 +669,37 @@ or retired payload destruction.
 Shutdown order is:
 
 1. stop external ingress and chain/admin producers;
-2. cancel resolver, verification, Ready, and maintenance producers;
+2. cancel resolver, verification, Ready, and maintenance producers and open
+   the shutdown-only relay circuit concurrently, while leaving the sole effect
+   publisher alive;
 3. settle or stale every checked-out capability and join those workers;
 4. close effect production;
 5. drain and join the effect publisher;
 6. capture one coherent persistence receipt and write it;
 7. stop remaining derived services.
 
-A worker task structural fault triggers controlled service shutdown. Legal
-input, stale work, journal Full, endpoint timeout, peer behavior, or resource
-pressure are typed outcomes and must not trigger service-wide fail-stop.
+Task exit is not itself a shutdown reason. Legal input, stale work, journal
+Full, endpoint timeout/disconnection, peer behavior, resource pressure and
+rebuildable projection failure are typed local outcomes and must not trigger
+service-wide fail-stop. The current generation becomes persistence-ineligible
+only after an exhaustive boundary conversion proves authoritative integrity is
+already lost or the sole linear capability cannot be settled safely. A clean
+or degraded derived task may never be promoted into that class by a generic
+supervisor rule.
+
+The shutdown wait-for graph is a release proof, not prose ordering alone:
+
+- compute/Ready/maintenance may wait for effect capacity;
+- effect capacity is released only by the still-running publisher;
+- the publisher may wait on a full external relay only while the service is
+  live, so shutdown opens that derived circuit before waiting on producers;
+- publisher termination waits on effect closure, which occurs only after all
+  producers have joined;
+- cache termination waits on verifier sender destruction and is joined last.
+
+No external endpoint or derived task is therefore a prerequisite for returning
+an authoritative capability. Any new task, queue or capacity edge must extend
+this graph and retain acyclicity before implementation.
 
 ## 12. Coordinated implementation sequence
 
@@ -1324,13 +1386,15 @@ G5.3b.7 entry design:
   only after replay and catch-up. `onchain_reconcile_done`, the first-later-block
   database scan and any replacement marker or repair scan are deleted at
   G5.3c.
-- Shutdown is a capability drain, not panic recovery: close ordinary ingress and
-  the chain/admin producer boundary; cancel compute, Ready and maintenance;
-  settle or stale every checked-out capability and join them; close the effect
-  producer; let the uncancellable sole publisher drain; capture persistence
-  after the drain; then stop derived services. A structural task fault requests
-  this controlled sequence. Legal hostile input, stale work, endpoint failure,
-  backpressure and resource exhaustion remain typed outcomes.
+- Shutdown is a capability drain, not panic recovery: close ordinary ingress
+  and the chain/admin producer boundary; concurrently cancel compute, Ready and
+  maintenance and open the shutdown-only relay circuit; leave the sole
+  publisher alive so effect capacity can release every pending settlement;
+  join producers; close the effect producer; drain and join the publisher;
+  capture persistence after the drain; then stop derived services. A
+  structural task fault requests this controlled sequence. Legal hostile
+  input, stale work, endpoint failure, backpressure and resource exhaustion
+  remain typed outcomes.
 
 G5.3b.7 implementation slices and gates:
 
@@ -1343,13 +1407,14 @@ G5.3b.7 implementation slices and gates:
    released and that no checkout capability waits behind the gate.
 3. [x] Add the bounded level-triggered maintenance driver and cancellation
    tests, including Remote/Accepted/dependency fairness and no idle hot loop.
-4. [ ] Add the production-shaped block-assembler adapter and convergence driver
+4. [x] Add the production-shaped block-assembler adapter and convergence driver
    without starting it. Regress full/reset priority, partial OCC, uncle source
    staleness, the detached-uncle proposal filter and normal Gap reproposal.
 5. [ ] Add one isolated topology owner/handle with explicit construction,
-   startup readiness, task supervision and ordered shutdown. Test clean drain,
-   structural-fault shutdown, effect backpressure and cancellation at each
-   capability boundary.
+   startup readiness, exhaustive task-exit classification and ordered
+   shutdown. Test clean drain, authority-integrity-only generation
+   invalidation, local derived degradation, relay disconnection, effect
+   backpressure and cancellation at each capability boundary.
 6. [ ] Run focused and complete authority nextest, strict Clippy, formatting,
    production panic-like-operation and lock-across-await searches, allocation/
    bound review, then answer all section 15 questions before checkpointing.
@@ -1358,6 +1423,12 @@ G5.3b.7 is incomplete if a production-reachable direct or retained compute path
 can bypass the shared gate, if a cache result can be paired manually, if a task
 owns a second membership level, if startup can drop a chain delta, or if block
 template construction becomes serialized through one actor.
+
+The slice-5 shutdown gate specifically constructs a full relay, a full effect
+region and a compute worker retaining the only settlement capability. Shutdown
+must open only the relay circuit before waiting for that worker, keep the
+publisher alive, drain the exact journal and remain persistence-eligible. This
+is the first executable edge of the global progress-proof gate above.
 
 G5.3b.7 slices 1-2 review:
 
@@ -1561,18 +1632,203 @@ G5.3b.7 slice 4 review:
   5 and G5.3c still must classify every spawned task `Err` and supervisor edge
   before the production switch.
 
+G5.3b.7 slice 5 entry design:
+
+- The topology owner is structured concurrency, not another state authority.
+  It owns the runtime clone, one cancellation domain, every task handle and the
+  sole publisher claim. It owns no transaction, queue, retry ledger, health
+  mirror or repair protocol. A caller cannot close effects or detach a worker
+  independently of this owner in production.
+- Startup performs every fallible step before the first task is spawned:
+  prepare the optional template adapter, construct endpoint workers, claim the
+  sole effect consumer and reserve the exact verifier handle population. After
+  that point, spawning the cache consumer, publisher, compute drivers and
+  independent template lanes is an infallible ownership transfer. Any startup
+  error drops the claim and leaves zero partial topology.
+- Normal shutdown is one capability proof: close ordinary ingress and ordered
+  chain/admin producers outside this isolated slice; cancel compute, Ready,
+  maintenance and template producers; join compute producers so all checked
+  out leases settle or become typed stale; close effect production only after
+  active work reaches zero; drain and join the uncancellable sole publisher;
+  close and drain cache updates; then permit one coherent persistence capture.
+  No authority/output/cache lock crosses an await.
+- A task return is classified by semantic ownership, never by `is_finished`:
+
+  | Boundary result | Topology disposition | Persistence |
+  | --- | --- | --- |
+  | cancellation or closed producer input after shutdown begins | clean join | eligible after effect drain |
+  | stale, bounded backpressure or allocation pressure | handled inside the driver by level re-read/backoff | unchanged |
+  | template read/build/publication failure | retain the last valid template and wait for a later source cut; report derived degradation | eligible |
+  | verification-cache worker/channel failure | discard only best-effort cache publication; validation never trusts an unbound cache result | eligible |
+  | callback/network/recent-reject timeout or failure | existing bounded per-endpoint circuit disposal | eligible |
+  | relay receiver disconnection | permanently circuit-dispose that external endpoint for this topology and continue draining committed effects | eligible |
+  | authority `Fault` proving ownership/charge/index/scheduler/dependency/effect contradiction | invalidate the current generation; do not reinterpret as transaction rejection | forbidden |
+  | failed compute/effect settlement still owning the sole capability and not provably stale/retryable | invalidate the current generation because safe continuation cannot discharge authoritative ownership | forbidden |
+  | `JoinError` from an authority-owning worker | capability ownership is unknown; invalidate the current generation | forbidden |
+  | `JoinError` from template/cache derived work | report degradation only; it cannot decide membership or persistence | eligible |
+
+- Relay disconnection is specifically not a service fault. The sender can
+  never reconnect, so retaining the effect head would only deadlock capacity
+  and shutdown. Circuit disposal is safe because the absent consumer owns no
+  surviving known-filter state; a future relayer instance must establish a new
+  endpoint and reconcile from a generation reset at assembly.
+- Capability-bearing failure values may not be logged and dropped by a generic
+  supervisor. The shutdown report owns them until it either proves staleness,
+  completes the settlement, or marks the generation persistence-ineligible.
+  This is the sole exceptional generation boundary; no panic catch, state
+  repair, worker restart loop or second authority is introduced.
+- The isolated topology does not yet switch `TxPoolServiceBuilder`. G5.3c will
+  make the service dispatcher select on its event-driven completion boundary,
+  close external producers first and consume the typed shutdown report. It may
+  not restore the legacy `any_finished() => stop` rule.
+
+G5.3b.7 slice 5 review in progress:
+
+- The first executable shutdown graph exposed a real circular wait in the
+  initial topology implementation: a compute worker held the only settlement
+  capability while waiting for effect capacity; the publisher held the active
+  effect head while waiting for a saturated required relay; topology waited
+  for the worker before opening the relay circuit. The corrected ordering
+  cancels producers and opens only the shutdown relay circuit concurrently,
+  leaves the publisher alive, joins capability owners, closes effects and then
+  drains the publisher. A deterministic regression constructs all three held
+  edges and proves eligible shutdown after exact settlement.
+- One global timeout originally covered authoritative and derived joins. That
+  transferred a hung template/cache projection into persistence failure. The
+  critical timeout now covers only authority workers, effect close and exact
+  publisher drain. Each template/cache join has a bounded derived timeout,
+  aborts only that projection and records degradation without changing
+  persistence eligibility. A permanently pending template task proves the
+  separation.
+- Compute-settlement recovery no longer exposes the open `PlanError`
+  backpressure family to worker policy. The producer now returns the closed
+  `ComputeSettlementRecovery`: obsolete lease, allocator retry, effect-capacity
+  wait, or structural capability failure. Only allocator recovery and the
+  independently running publisher can drive retries; every other current or
+  future planning outcome reaches supervision instead of becoming an
+  unbounded wait. Background drivers likewise wait only for effect capacity;
+  unsupported boundary-only pressure is reported and retried at the bounded
+  quarantine cadence rather than silently sleeping on a wake with no owner.
+- A deterministic template failure no longer treats every authority mutation
+  as proof of progress. Each lane captures the exact monotonic pool, candidate
+  uncle, current-template and reset source cut only after failure, retries a
+  newly observed cut once, and then sleeps until that cut changes. Successful
+  publication retains the original hot path and full/reset remain ordered
+  independently of optimistic partial lanes.
+- The apparent `Notify` lost-wake candidate was suppressed with implementation
+  evidence, not a timeout: this repository locks Tokio 1.52.1, every authority
+  producer uses `notify_waiters`, and that version records the
+  `notify_waiters` generation when `Notified` is created even before its first
+  poll. No authority producer uses `notify_one`; adding one requires either
+  `Notified::enable` before the level read or a different level primitive.
+- Relay is not allowed to remain a post-commit progress authority. The current
+  production bridge is an unbounded channel, while the isolated UAK publisher
+  can retain its sole effect head forever when a bounded required-relay sink is
+  full. These are opposite forms of the same missing bound. Slice 5 replaces
+  both assumptions at the UAK boundary with one preallocated, count-and-byte
+  bounded, nonblocking mailbox. Overflow installs an ordered
+  `GenerationReset`, preserves the current result when it fits, and may discard
+  only older derived relay detail; a disconnected receiver is a local circuit
+  disposition. Parent-request loss under an unavailable/overloaded relay is a
+  bounded Remote availability degradation: the authority wait remains charged
+  and expires, while tx-pool state, persistence and unrelated progress remain
+  valid. G5.3c must connect this mailbox to the relayer and remove the legacy
+  unbounded sender rather than dual-writing both.
+- The runtime wait graph currently has no lock cycle: authority guards never
+  cross await; cache lookup copies evidence before VM execution; template
+  construction releases authority/current guards; template Apply uses the
+  one-way current-template -> synchronous authority-read -> convergence ->
+  candidate-uncle order; verification-cache publication is best effort; and
+  compute-semaphore waiters own no authority capability. Full/reset remain one
+  ordered lane while partial lanes construct optimistically and concurrently.
+- The count-and-byte bounded relay mailbox is implemented as one preallocated
+  nonblocking Apply. Overflow atomically replaces older derived detail with an
+  ordered `GenerationReset` plus the current result when it fits; receiver
+  loss opens only that endpoint circuit. The existing relayer already drains
+  results by a bounded periodic pull, so G5.3c can transfer the sole receiver
+  directly instead of adding a polling or forwarding task. Production assembly
+  must derive a mailbox byte ceiling large enough for one maximal parent
+  frontier plus reset and remove the legacy unbounded channel.
+- Allocation-result cancellation discards the expensive result before taking
+  the authority guard and has no fallible reservation/insertion error surface.
+  The audit tightened its resource proof from a partial order to exact charge
+  equality. It also found and removed a real no-progress loop: successful
+  capability release now returns a capability-free allocator backoff rather
+  than `Progress`, so a single owner cannot be recomputed in a tight loop.
+  Standard `BTreeSet` node insertion still uses Rust's infallible allocator;
+  the accurate claim is freedom from recursive *fallible planner* allocation,
+  not a process-wide OOM guarantee. The scheduler representation remains a
+  model/performance candidate for the post-cutover minimality gate.
+- Endpoint circuit state is now plain move-owned publisher state rather than
+  four atomics: the sole publisher is the only reader/writer. Timed-out
+  synchronous callbacks/network/store operations are owned by Tokio's process
+  runtime until return; sequential publication plus a permanent endpoint
+  circuit bounds this unavoidable non-cooperative foreign work to one task per
+  endpoint for the service lifetime. The topology neither awaits nor treats it
+  as authority state. The regression uses an explicit block/release handshake,
+  not a sleep, to prove persistence eligibility before foreign retirement.
+- Final slice-5 evidence: the focused relay/publisher/topology/callback and
+  cancellation selector passes 33/33; the complete authority selector passes
+  336/336; and the complete `ckb-tx-pool --lib` universe passes 613/613 under
+  nextest. Formatting, diff whitespace, added-production panic-like and
+  non-ASCII scans are green. Strict Clippy reports exactly the 17 already
+  registered large-capability/result findings plus one legacy-service Boolean
+  expression; no new slice-5 lint was introduced. The large values remain a
+  slice-6 architecture/performance adjudication because blindly boxing linear
+  capabilities would add allocation to backpressure paths.
+- The whole-topology review found no new mutable decision authority and no
+  serialization of the established template construction lanes. The only new
+  queue is the bounded derived relay mailbox; the topology contains handles
+  and cancellation capabilities, not transaction facts. An earlier dedicated
+  callback thread, shared atomic endpoint flags and per-result required-relay
+  flags were removed during the same slice because they duplicated ownership
+  or created a shutdown edge without strengthening correctness.
+- Two risks remain deliberately open rather than hidden by the checkpoint.
+  First, background `Quarantine` is a temporary consumer of broad producer
+  error types: slice 6 must close those result families at their producer so
+  legal input cannot become a periodic no-progress retry. Second, relay
+  overflow may discard a Remote parent-request edge and rely on charged expiry
+  plus `GenerationReset`; slice 6 must re-evaluate whether the final relayer
+  cutover should make missing-parent publication level-rebuildable. The
+  production mailbox configuration must in all cases prove room for one
+  maximal parent frontier plus reset. Post-commit parent-set materialization is
+  part of the same allocation/boundary audit.
+
+Slice-5 executable wait-for graph (current audit):
+
+| Holder or waiter | Awaited level/capacity | Unique progress engine | Shutdown discharge |
+| --- | --- | --- | --- |
+| resolver/verifier with no checkout | lane `Notify`, command watch, compute semaphore | committed mutation; command owner; execution-permit drop | generation cancellation |
+| compute worker holding settlement capability | effect capacity only | independently running sole publisher settles the active journal head | publisher remains live while workers join; allocation failure releases capability then backs off |
+| Ready/maintenance driver | mutation level, allocation timer, wall-clock expiry tick | committed mutation; timer | generation cancellation |
+| effect publisher without a lease | effect-log level | any producer commit, or topology effect close | close after every authority worker joins |
+| effect publisher with a lease | bounded callback/network/store operation; nonblocking relay Apply | one-second foreign boundary or immediate relay result | lease settles before publisher join; timed-out foreign work owns no lease |
+| verification-cache task | bounded cache-update receiver | worker sender drop | workers join first, then receiver closes |
+| template lane | authority/local source level or output lock | exact source advance; current publisher releases the short lock | cancellation, then bounded derived join/abort |
+| relay consumer | existing bounded relayer periodic pull | relayer protocol tick | receiver drop opens a local publisher circuit; no authority wait |
+
+No edge above holds the authority guard across an await. The only edge that
+can hold an authoritative capability is compute -> effect capacity; its
+releaser is the independently scheduled publisher, and the publisher never
+waits for compute. Shutdown preserves that orientation: cancel producers ->
+join compute -> close effects -> drain/join publisher -> join derived tasks.
+The relay mailbox removed the former publisher -> relay -> shutdown cycle.
+Template publication holds the current-output write guard only across short
+synchronous authority/convergence/candidate reads; production has no inverse
+authority -> awaited-current path.
+
 G5.3b closeout-report adjudication:
 
-- Local administrative removal currently emits the effect named
-  `RemoteIngressReleased` for every PreAccepted source. The endpoint consumer
-  only clears local relay-known and pending projections; it emits no wire
-  traffic, callback, recent-reject record or ban. The broader behavior is
-  useful for Proposal/Recovery refetch, but its remote-only name and manually
-  authored cause x owner mapping are accidental. Do not add a source `if`.
-  During the closed manual-publication audit, compile this outcome from one
-  exhaustive lifecycle outcome owner and name it for its actual relay
-  projection semantics. Preserve the intentional broader release in the
-  behavior table and exact regression evidence.
+- The prior disposition for LocalRemoval -> `RemoteIngressReleased` was
+  rejected after re-verification. It treated unproven Proposal/Recovery relay
+  cleanup as a useful behavior drift even though develop is silent and the
+  effect's own semantic contract requires remote ingress evidence. The current
+  implementation seals the effect payload and requires an actual
+  `ingress_peer`; local removal of trusted-base Proposal or Recovery is silent,
+  while Remote and remote-base Proposal owners release relay state. This is a
+  compatibility correction and a manual-publication discipline regression,
+  not a precedent for source-condition patches. The complete effect producer
+  audit remains mandatory in slice 6.
 - The UAK packer deliberately never resurrects a non-fitting package after
   selecting part of its ancestry. If `selected + package > limit`, later
   selection cost `delta` and package reduction `d <= delta` leave
@@ -1763,12 +2019,62 @@ the latest diff:
     implementation still bidirectionally traceable?
 11. Is the resulting proof smaller and clearer than the failure mechanism it
     replaces, without weakening compatibility or performance intent?
+12. Did every verified report item retain an explicit ledger state, or did a
+    priority change, compact/restart, phase rename or favorable interpretation
+    make an unresolved item disappear?
+13. Does every committed effect and public outcome have typed construction
+    evidence matching its documented cause, and does its exhaustive consumer
+    preserve that meaning without rereading mutable authority?
+14. Is every persistence-forbidden or generation-invalid outcome justified by
+    proven authority-integrity loss or an undischarged sole capability, rather
+    than task exit, legal input, stale work, resource pressure or a derived
+    endpoint failure?
 
 If any answer is unresolved, stop the phase and repair the design before adding
 more code. Do not add compensating flags, retries, repair scans, watchdogs, or a
 second authority to make a failing intermediate design pass.
 
 ## 16. Current verified evidence and open blockers
+
+### 16.1 Single finding-disposition ledger
+
+This temporary ledger is the continuity authority for review and attached
+report findings until the final architecture, behavior inventory and release
+manifest absorb all surviving contracts. A row cannot be deleted while open;
+closed rows retain their regression owner until final documentation migration.
+
+| Root family | Included verified findings | Architecture disposition | State |
+| --- | --- | --- | --- |
+| ownership inferred across queues | stranded Gap/reorg recovery, ghost/double registration, RaceLost budget and failed-RBF restore ordering, non-atomic victim replacement | one `OwnedTx` authority, charge moves in the same Apply, charged bounded replacement history, stale lease cannot mutate a new owner | implemented in UAK; production cutover and full regression universe pending |
+| chain/template publication split | detached-uncle proposal suppression, reorg child recovery, conditional reader-before-spender packing, chain receipt/history coverage, fragmented full reconciliation | one paired chain receipt and authority Apply; templates consume versioned immutable receipts; full/reset serialization remains separate from optimistic partial/uncle publication | isolated implementation complete; production wiring and integration evidence pending |
+| cache/evidence identity drift | short-id/raw-hash verification-cache alias, wrong detached cache key, rules/context mismatch, same-tip liveness reuse premise | cache key is witness hash plus exact `ScriptVerificationRules`; chain evidence is bound to one captured snapshot/view; pool-only positive reuse is explicitly scoped | implemented; static producer audit and production integration pending |
+| dependency liveness gaps | definitive parent death without wake, dep-to-PreAccepted implicit premise, dep-stale checkout abort, unbounded Recovery/Proposal wait | bounded dependency frontier owns observation cuts, definitive-loss events and level-triggered maintenance; resolver may not expose unsupported PreAccepted dep evidence | implemented in model; slice-6 producer/consumer proof and hostile tests pending |
+| conflict/RBF outcome incompleteness | `Waiting(Conflict)` with consumers but no producer, failed-RBF retry loop, missing reject effect, public ReplacementHistory status, history saturation | charged bounded `ReplacementHistory` is inert and private; deterministic terminal/recovery disposition; rejection and recovery re-enter validation through committed effects | implemented; cutover compatibility verification pending |
+| hand-authored effect/publication semantics | peer-ban two-step, RBF reject mapping, effect shape/charge drift, LocalRemoval falsely emitting `RemoteIngressReleased`, manual source/cause maps | committed outcomes carry sealed evidence; Apply emits one bounded journal delta; publisher is exhaustive and never rereads authority; slice 6 audits every constructor and consumer | LocalRemoval correction in working tree with 3/3 focused tests; full family audit open |
+| over-broad fail-stop boundary | `RejectedSelectedTransactions`, relay disconnect, template/cache failure, generic worker exit and callback/store/network failure promoted to service stop | legal/hostile/stale/resource/external/derived outcomes are local typed dispositions; only proven authority contradiction or an undischarged sole capability invalidates a generation and forbids persistence | slice-5 topology and derived endpoint classification pass full gates; slice-6 producer proof for every remaining generation-invalid/quarantine outcome is open |
+| lifecycle topology ambiguity | duplicate publisher claim after partial spawn, producer/effect/cache shutdown order, capability loss on cancellation, task-role enumeration drift | one non-authoritative topology owner claims linear consumers before spawn, owns role-bearing task collections and performs producers -> effects -> publisher -> cache shutdown | isolated topology, wait-for graph and constructive shutdown/fault tests complete; production ownership switch remains G5.3c |
+| asynchronous progress contract drift | circular effect/relay/settlement shutdown wait, open-ended backpressure interpreted as wait, same-source template retry amplification, callback/blocking-task retirement, lost wake, allocator recompute loop and starvation proof gaps | capability-based runtime/shutdown wait-for graphs; only typed waits with named independent releasers; exact source-level retries; derived foreign work cannot own authority progress | slice-5 graph and 613-test gate complete; broad quarantine producers and level-rebuildable parent-request alternative remain explicit slice-6 adjudications |
+| G5 boundary coverage | Accepted local removal/expiry, typed ClearPipeline vs ClearPool, Local/TestAccept, peer ban, fee estimator, internal adapters, query/persistence DTOs | narrow production adapters consume typed authority capabilities; no dual write and no generic closure escape | isolated capabilities largely complete; exact cutover coverage remains a release blocker |
+| performance and complexity risk transfer | lock-held cloning/index churn, wake storms, full-pool/adversarial scans, no Ready aging, benchmark noise/fingerprint gaps | preserve parallel validation and optimistic template lanes; authority Apply is bounded; measure independent/dependent/RBF/reorg/adversarial shapes with fixed binaries | design constraints retained; final profiling/A-B deliberately deferred to P10 |
+| verification/process drift | zero-match alternation anchors, partial integration universe, stacked tests, stale comments/docs, previously deferred F1 behavior drift | machine selectors validate each arm; one behavior inventory maps rule -> owner -> exact unit/integration evidence; verified findings cannot disappear without closure evidence | validators partly implemented; inventory synchronization and full 150-spec gate pending |
+
+Implementation-discipline correction:
+
+1. Receiving a report first creates or updates one ledger row; it never creates
+   a detached TODO that can be lost at compaction.
+2. Verification records the current-code producer, transition, consumer,
+   compatibility and attack path before any code change.
+3. Related findings are solved at their common semantic owner. A local patch is
+   acceptable only when the model already has the right owner and the change
+   merely restores its sealed precondition.
+4. A phase cannot close until the ledger row names exact tests/static checks
+   and the fixed plan records the closing checkpoint.
+5. Whole-architecture review reopens a row when implementation evidence
+   contradicts its earlier disposition; favorable or low-severity impact is
+   not closure evidence.
+6. Earlier adjudications are inputs, not trusted conclusions. Slice 6 repeats
+   their evidence review from the current producer/consumer graph and records
+   a fresh four-state disposition before production cutover.
 
 Verified at G5.2 checkpoint `c1650d596`:
 

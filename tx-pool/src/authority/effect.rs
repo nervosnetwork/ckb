@@ -3,7 +3,7 @@ use super::ban::PeerBanLease;
 use super::state::RejectionKind;
 use super::{
     rejection::{CommittedPublicReject, MembershipReject},
-    state::{AcceptedStatus, ApplySequence, PreAcceptedSource, RawTxHash},
+    state::{AcceptedStatus, ApplySequence, OwnedTx, PreAcceptedSource, RawTxHash},
 };
 use crate::error::Reject;
 use ckb_network::PeerIndex;
@@ -568,6 +568,42 @@ pub(super) struct ParentTransactionRequest {
     parents: Arc<[RawTxHash]>,
 }
 
+/// Proof-carrying relay cleanup for a transaction that has an actual remote
+/// ingress attribution. The private payload prevents transition code from
+/// manufacturing this effect for trusted proposals or recovery owners.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct CommittedRemoteIngressRelease {
+    tx_hash: RawTxHash,
+}
+
+impl CommittedRemoteIngressRelease {
+    /// A Remote boundary supplies the ingress attribution directly. The
+    /// relayer's projection is keyed only by raw hash, so retaining the peer
+    /// would add state without changing publication semantics.
+    pub(super) const fn duplicate_remote_submission(
+        tx_hash: RawTxHash,
+        _ingress_peer: PeerIndex,
+    ) -> Self {
+        Self { tx_hash }
+    }
+
+    /// Administrative removal may release relay state only when the removed
+    /// owner itself proves a not-yet-Accepted Remote attribution.
+    pub(super) fn removed_owner(tx_hash: RawTxHash, owner: &OwnedTx) -> Option<Self> {
+        match owner {
+            OwnedTx::PreAccepted(entry) => entry
+                .source
+                .ingress_peer()
+                .map(|_ingress_peer| Self { tx_hash }),
+            OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => None,
+        }
+    }
+
+    pub(super) const fn tx_hash(&self) -> &RawTxHash {
+        &self.tx_hash
+    }
+}
+
 impl ParentTransactionRequest {
     pub(super) fn new(peer: PeerIndex, parents: Arc<[RawTxHash]>) -> Option<Self> {
         if parents.is_empty() {
@@ -637,13 +673,11 @@ pub(super) enum CommittedEffect {
         tx_hash: RawTxHash,
         peer: PeerIndex,
     },
-    /// A Remote submission observed an existing not-yet-Accepted raw-hash
-    /// owner. No second owner was created and no Accepted fact was observed;
-    /// the relayer must only release its pending/known filter so another peer
+    /// A duplicate Remote submission was not retained, or a remote-attributed
+    /// not-yet-Accepted owner was removed. No Accepted fact is published; the
+    /// relayer must only release its pending/known projection so another peer
     /// may supply the transaction later.
-    RemoteIngressReleased {
-        tx_hash: RawTxHash,
-    },
+    RemoteIngressReleased(CommittedRemoteIngressRelease),
     /// A Remote owner entered `Waiting(Missing)`. The exact request and the
     /// durable wait share one authority Apply, so the relayer cannot observe a
     /// request for a stale lease or lose the only request for a committed wait.
@@ -722,7 +756,7 @@ impl CommittedEffect {
                 }
             }
             Self::RemoteExpired { .. } => Some(EFFECT_ENVELOPE_BYTES),
-            Self::RemoteIngressReleased { .. } => Some(EFFECT_ENVELOPE_BYTES),
+            Self::RemoteIngressReleased(_) => Some(EFFECT_ENVELOPE_BYTES),
             Self::ParentTransactionsRequested(request) => {
                 parent_request_charge_bound(request.parents().len())
             }
@@ -1410,11 +1444,15 @@ impl EffectLog {
     }
 
     pub(super) fn ensure_open(&self) -> Result<(), EffectError> {
-        if self.closed {
+        if self.is_closed() {
             Err(EffectError::Closed)
         } else {
             Ok(())
         }
+    }
+
+    pub(super) const fn is_closed(&self) -> bool {
+        self.closed
     }
 
     pub(super) fn limits(&self) -> EffectLimits {

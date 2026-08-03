@@ -83,6 +83,15 @@ impl CandidateUncles {
         }
     }
 
+    /// Read the exact monotonic candidate source without preparing a template.
+    /// The receipt carries no mutation authority and is used only to suppress
+    /// retries when an unrelated tx-pool wake leaves uncle input unchanged.
+    pub(crate) fn source_receipt(&self) -> CandidateUncleSourceReceipt {
+        CandidateUncleSourceReceipt {
+            version: self.source_version,
+        }
+    }
+
     /// insert new candidate uncles
     /// If the map did not have this value present, true is returned.
     /// If the map did have this value present, false is returned.
@@ -256,7 +265,7 @@ impl CandidateUncles {
                 || snapshot.is_uncle(&hash)
             {
                 // Wrong epoch/target, or already embedded/on the main
-                // chain: stale — drop it so it stops occupying the
+                // chain: stale; drop it so it stops occupying the
                 // candidate budget.
                 removed.push(uncle.clone());
             } else if uncle.number() < candidate_number

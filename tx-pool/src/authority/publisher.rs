@@ -13,7 +13,8 @@ use super::{
         CommittedRejection, EffectEndpoint, EffectLease, EffectProgressError, RejectionAudience,
     },
     plan::{EffectSettlementFailure, PlanError},
-    runtime::AuthorityRuntime,
+    relay::{AuthorityRelaySink, RelayMailboxDisposition},
+    runtime::{AuthorityEffectPublisherClaim, AuthorityRuntime},
     state::{AcceptedStatus, RawTxHash},
 };
 use crate::{
@@ -24,21 +25,15 @@ use crate::{
     service::TxVerificationResult,
     util::compact_packed,
 };
-use ckb_channel::TrySendError;
 use ckb_logger::{error, info};
 use ckb_types::packed::Byte32;
 use std::{
     collections::HashSet,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 const EXTERNAL_EFFECT_TIMEOUT: Duration = Duration::from_secs(1);
-const RELAY_RETRY_TIMEOUT: Duration = Duration::from_millis(250);
-const RELAY_RETRY_DELAY: Duration = Duration::from_millis(1);
 
 #[derive(Debug)]
 pub(crate) struct AuthorityEffectPublisherFault {
@@ -51,7 +46,6 @@ pub(super) enum AuthorityEffectPublisherFaultKind {
     Authority(PlanError),
     Settlement(EffectSettlementFailure),
     Progress(EffectProgressError),
-    RelayDisconnected,
 }
 
 impl AuthorityEffectPublisherFault {
@@ -78,121 +72,91 @@ impl AuthorityEffectPublisherFault {
             kind: AuthorityEffectPublisherFaultKind::Progress(error),
         }
     }
-
-    fn relay_disconnected() -> Self {
-        Self {
-            kind: AuthorityEffectPublisherFaultKind::RelayDisconnected,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AuthorityEffectEndpointConfigError {
-    CallbackWorker,
-}
-
-struct CallbackJob {
-    callbacks: Arc<Callbacks>,
-    event: CallbackEvent,
-    done: tokio::sync::oneshot::Sender<()>,
 }
 
 /// Stable foreign endpoints and their one-way circuit breakers.
 ///
 /// Circuits are operational projections, not transaction state. Opening one
 /// may discard only that endpoint's observational detail; it cannot reverse a
-/// committed transition or suppress the required relay channel.
+/// committed transition. Every potentially blocking endpoint uses Tokio's
+/// existing bounded blocking execution boundary. Sequential publication plus
+/// a one-way circuit bounds each endpoint to at most one detached operation;
+/// no extra service task or shutdown capability is required. The move-only
+/// publisher owns these plain circuit bits; they are not shared state.
 pub(crate) struct AuthorityEffectEndpoints {
     network: TxPoolNetworkHandle,
-    tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+    relay: AuthorityRelaySink,
     callbacks: Arc<Callbacks>,
     recent_reject: Option<Arc<RecentReject>>,
-    callback_sender: std::sync::mpsc::SyncSender<CallbackJob>,
-    callback_circuit_open: AtomicBool,
-    network_circuit_open: AtomicBool,
-    recent_reject_circuit_open: AtomicBool,
+    callback_circuit_open: bool,
+    network_circuit_open: bool,
+    recent_reject_circuit_open: bool,
+    relay_circuit_open: bool,
 }
 
 impl AuthorityEffectEndpoints {
     pub(crate) fn new(
         network: TxPoolNetworkHandle,
-        tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+        relay: AuthorityRelaySink,
         callbacks: Arc<Callbacks>,
         recent_reject: Option<Arc<RecentReject>>,
-    ) -> Result<Self, AuthorityEffectEndpointConfigError> {
-        let (callback_sender, callback_receiver) = std::sync::mpsc::sync_channel::<CallbackJob>(1);
-        std::thread::Builder::new()
-            .name("tx-pool-callback".to_owned())
-            .spawn(move || {
-                crate::callback::mark_callback_thread();
-                while let Ok(job) = callback_receiver.recv() {
-                    job.callbacks.publish(&job.event);
-                    let _ = job.done.send(());
-                }
-            })
-            .map_err(|_| AuthorityEffectEndpointConfigError::CallbackWorker)?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             network,
-            tx_relay_sender,
+            relay,
             callbacks,
             recent_reject,
-            callback_sender,
-            callback_circuit_open: AtomicBool::new(false),
-            network_circuit_open: AtomicBool::new(false),
-            recent_reject_circuit_open: AtomicBool::new(false),
-        })
+            callback_circuit_open: false,
+            network_circuit_open: false,
+            recent_reject_circuit_open: false,
+            relay_circuit_open: false,
+        }
     }
 
     async fn publish_endpoint(
-        &self,
+        &mut self,
         outcome: &mut CompiledEndpointOutcome,
         endpoint: EffectEndpoint,
-        relay_reconciled: &mut bool,
-    ) -> Result<EndpointDisposition, AuthorityEffectPublisherFault> {
+    ) -> EndpointDisposition {
         match endpoint {
-            EffectEndpoint::RecentReject => Ok(match outcome.recent_reject.take() {
+            EffectEndpoint::RecentReject => match outcome.recent_reject.take() {
                 Some(recent) => self.publish_recent_reject(recent).await,
                 None => EndpointDisposition::Published,
-            }),
-            EffectEndpoint::Callback => Ok(match outcome.callback.take() {
+            },
+            EffectEndpoint::Callback => match outcome.callback.take() {
                 Some(callback) => self.publish_callback(callback).await,
                 None => EndpointDisposition::Published,
-            }),
-            EffectEndpoint::Ban => Ok(match outcome.ban.take() {
+            },
+            EffectEndpoint::Ban => match outcome.ban.take() {
                 Some(ban) => self.publish_ban(ban).await,
                 None => EndpointDisposition::Published,
-            }),
+            },
             EffectEndpoint::Relay => {
                 let Some(relay) = outcome.relay.take() else {
-                    return Ok(EndpointDisposition::Published);
+                    return EndpointDisposition::Published;
                 };
-                if (!*relay_reconciled || relay.is_required())
-                    && self.publish_relay(relay).await? == RelayDisposition::Reconciled
-                {
-                    *relay_reconciled = true;
+                match self.publish_relay(relay) {
+                    RelayDisposition::Exact => EndpointDisposition::Published,
+                    RelayDisposition::Reconciled => EndpointDisposition::Published,
+                    RelayDisposition::CircuitDisposed => EndpointDisposition::CircuitDisposed,
                 }
-                Ok(EndpointDisposition::Published)
             }
         }
     }
 
     #[cfg(test)]
     pub(super) async fn publish(
-        &self,
+        &mut self,
         mut outcome: CompiledEndpointOutcome,
-        relay_reconciled: &mut bool,
-    ) -> Result<EndpointDisposition, AuthorityEffectPublisherFault> {
+    ) -> EndpointDisposition {
         let mut disposition = EndpointDisposition::Published;
         for endpoint in EffectEndpoint::ORDER {
-            disposition = disposition.join(
-                self.publish_endpoint(&mut outcome, endpoint, relay_reconciled)
-                    .await?,
-            );
+            disposition = disposition.join(self.publish_endpoint(&mut outcome, endpoint).await);
         }
-        Ok(disposition)
+        disposition
     }
 
-    async fn publish_callback(&self, event: CallbackEvent) -> EndpointDisposition {
+    async fn publish_callback(&mut self, event: CallbackEvent) -> EndpointDisposition {
         let registered = match &event {
             CallbackEvent::Pending(_) => self.callbacks.pending.is_some(),
             CallbackEvent::Proposed(_) => self.callbacks.proposed.is_some(),
@@ -201,33 +165,24 @@ impl AuthorityEffectEndpoints {
         if !registered {
             return EndpointDisposition::Published;
         }
-        if self.callback_circuit_open.load(Ordering::Acquire) {
+        if self.callback_circuit_open {
             return EndpointDisposition::CircuitDisposed;
         }
-        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-        if let Err(send_error) = self.callback_sender.try_send(CallbackJob {
-            callbacks: Arc::clone(&self.callbacks),
-            event,
-            done: done_tx,
-        }) {
-            self.callback_circuit_open.store(true, Ordering::Release);
-            error!("tx-pool callback endpoint unavailable: {send_error}");
+        let callbacks = Arc::clone(&self.callbacks);
+        if let Err(failure) = run_blocking_effect(move || {
+            crate::callback::with_callback_context(|| callbacks.publish(&event));
+        })
+        .await
+        {
+            self.callback_circuit_open = true;
+            error!("tx-pool callback endpoint failed; circuit opened: {failure}");
             return EndpointDisposition::CircuitDisposed;
         }
-        if matches!(
-            tokio::time::timeout(EXTERNAL_EFFECT_TIMEOUT, done_rx).await,
-            Ok(Ok(()))
-        ) {
-            EndpointDisposition::Published
-        } else {
-            self.callback_circuit_open.store(true, Ordering::Release);
-            error!("tx-pool callback timed out; callback circuit opened");
-            EndpointDisposition::CircuitDisposed
-        }
+        EndpointDisposition::Published
     }
 
-    async fn publish_ban(&self, ban: BanAction) -> EndpointDisposition {
-        if self.network_circuit_open.load(Ordering::Acquire) {
+    async fn publish_ban(&mut self, ban: BanAction) -> EndpointDisposition {
+        if self.network_circuit_open {
             return EndpointDisposition::CircuitDisposed;
         }
         let network = Arc::clone(&self.network);
@@ -242,7 +197,7 @@ impl AuthorityEffectEndpoints {
         })
         .await;
         if let Err(failure) = published {
-            self.network_circuit_open.store(true, Ordering::Release);
+            self.network_circuit_open = true;
             error!("tx-pool network effect failed; circuit opened: {failure}");
             EndpointDisposition::CircuitDisposed
         } else {
@@ -250,18 +205,17 @@ impl AuthorityEffectEndpoints {
         }
     }
 
-    async fn publish_recent_reject(&self, recent: RecentRejectAction) -> EndpointDisposition {
+    async fn publish_recent_reject(&mut self, recent: RecentRejectAction) -> EndpointDisposition {
         let Some(store) = self.recent_reject.as_ref().map(Arc::clone) else {
             return EndpointDisposition::Published;
         };
-        if self.recent_reject_circuit_open.load(Ordering::Acquire) {
+        if self.recent_reject_circuit_open {
             return EndpointDisposition::CircuitDisposed;
         }
         let serialized = match serialized_recent_reject(&recent.reject) {
             Ok(serialized) => serialized,
             Err(encoding_error) => {
-                self.recent_reject_circuit_open
-                    .store(true, Ordering::Release);
+                self.recent_reject_circuit_open = true;
                 error!("failed to encode bounded recent reject: {encoding_error}");
                 return EndpointDisposition::CircuitDisposed;
             }
@@ -280,52 +234,37 @@ impl AuthorityEffectEndpoints {
         match published {
             Ok(Ok(())) => EndpointDisposition::Published,
             Ok(Err(store_error)) => {
-                self.recent_reject_circuit_open
-                    .store(true, Ordering::Release);
+                self.recent_reject_circuit_open = true;
                 error!("{store_error}");
                 EndpointDisposition::CircuitDisposed
             }
             Err(failure) => {
-                self.recent_reject_circuit_open
-                    .store(true, Ordering::Release);
+                self.recent_reject_circuit_open = true;
                 error!("tx-pool recent-reject effect failed; circuit opened: {failure}");
                 EndpointDisposition::CircuitDisposed
             }
         }
     }
 
-    pub(super) async fn publish_relay(
-        &self,
-        action: RelayAction,
-    ) -> Result<RelayDisposition, AuthorityEffectPublisherFault> {
-        let required = action.is_required();
-        let started = tokio::time::Instant::now();
-        let mut pending = action.result;
-        let mut reconciled = false;
-        loop {
-            match self.tx_relay_sender.try_send(pending) {
-                Ok(()) => {
-                    return Ok(if reconciled {
-                        RelayDisposition::Reconciled
-                    } else {
-                        RelayDisposition::Exact
-                    });
-                }
-                Err(TrySendError::Full(returned)) => {
-                    if !required && !reconciled && started.elapsed() >= RELAY_RETRY_TIMEOUT {
-                        pending = TxVerificationResult::GenerationReset;
-                        reconciled = true;
-                        error!(
-                            "tx-pool relayer endpoint remained full; replacing detail with GenerationReset"
-                        );
-                    } else {
-                        pending = returned;
-                    }
-                    tokio::time::sleep(RELAY_RETRY_DELAY).await;
-                }
-                Err(TrySendError::Disconnected(_)) => {
-                    return Err(AuthorityEffectPublisherFault::relay_disconnected());
-                }
+    pub(super) fn publish_relay(&mut self, action: RelayAction) -> RelayDisposition {
+        if self.relay_circuit_open {
+            return RelayDisposition::CircuitDisposed;
+        }
+        match self.relay.publish(action.result) {
+            RelayMailboxDisposition::Exact => RelayDisposition::Exact,
+            RelayMailboxDisposition::Reconciled => RelayDisposition::Reconciled,
+            RelayMailboxDisposition::Unavailable => {
+                error!(
+                    "tx-pool relay mailbox could not retain required detail; bounded Remote availability degradation recorded"
+                );
+                RelayDisposition::CircuitDisposed
+            }
+            RelayMailboxDisposition::Disconnected => {
+                self.relay_circuit_open = true;
+                error!(
+                    "tx-pool relayer mailbox disconnected; relay circuit opened and committed effects will continue draining"
+                );
+                RelayDisposition::CircuitDisposed
             }
         }
     }
@@ -351,30 +290,16 @@ impl EndpointDisposition {
 pub(super) enum RelayDisposition {
     Exact,
     Reconciled,
+    CircuitDisposed,
 }
 
 pub(super) struct RelayAction {
     pub(super) result: TxVerificationResult,
-    required: bool,
 }
 
 impl RelayAction {
-    pub(super) fn ordinary(result: TxVerificationResult) -> Self {
-        Self {
-            result,
-            required: false,
-        }
-    }
-
-    pub(super) fn required(result: TxVerificationResult) -> Self {
-        Self {
-            result,
-            required: true,
-        }
-    }
-
-    pub(super) const fn is_required(&self) -> bool {
-        self.required
+    pub(super) fn new(result: TxVerificationResult) -> Self {
+        Self { result }
     }
 }
 
@@ -416,7 +341,7 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
             tx_hash,
             ingress_peer,
         } => CompiledEndpointOutcome {
-            relay: Some(RelayAction::ordinary(TxVerificationResult::Ok {
+            relay: Some(RelayAction::new(TxVerificationResult::Ok {
                 original_peer: Some(ingress_peer),
                 tx_hash: compact_hash(&tx_hash),
             })),
@@ -442,19 +367,19 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
                 // Cohort removal has no transaction tombstone. A required
                 // reset clears every stale known/pending projection so the
                 // same raw transaction can be supplied by another peer.
-                relay: Some(RelayAction::required(TxVerificationResult::GenerationReset)),
+                relay: Some(RelayAction::new(TxVerificationResult::GenerationReset)),
                 ..Default::default()
             }
         }
         CommittedEffect::RemoteExpired { tx_hash, .. } => CompiledEndpointOutcome {
-            relay: Some(RelayAction::ordinary(TxVerificationResult::Reject {
+            relay: Some(RelayAction::new(TxVerificationResult::Reject {
                 tx_hash: compact_hash(&tx_hash),
             })),
             ..Default::default()
         },
-        CommittedEffect::RemoteIngressReleased { tx_hash } => CompiledEndpointOutcome {
-            relay: Some(RelayAction::ordinary(TxVerificationResult::Reject {
-                tx_hash: compact_hash(&tx_hash),
+        CommittedEffect::RemoteIngressReleased(release) => CompiledEndpointOutcome {
+            relay: Some(RelayAction::new(TxVerificationResult::Reject {
+                tx_hash: compact_hash(release.tx_hash()),
             })),
             ..Default::default()
         },
@@ -465,17 +390,19 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
                 .map(compact_hash)
                 .collect::<HashSet<_>>();
             CompiledEndpointOutcome {
-                relay: Some(RelayAction::required(
-                    TxVerificationResult::UnknownParents {
-                        peer: request.peer(),
-                        parents,
-                    },
-                )),
+                // UnknownParents is the only variable-size relay result whose
+                // detail is required for dependency recovery. The bounded
+                // mailbox reports an explicit unavailable disposition if the
+                // complete frontier cannot coexist with reconciliation.
+                relay: Some(RelayAction::new(TxVerificationResult::UnknownParents {
+                    peer: request.peer(),
+                    parents,
+                })),
                 ..Default::default()
             }
         }
         CommittedEffect::GenerationReset => CompiledEndpointOutcome {
-            relay: Some(RelayAction::required(TxVerificationResult::GenerationReset)),
+            relay: Some(RelayAction::new(TxVerificationResult::GenerationReset)),
             ..Default::default()
         },
     }
@@ -491,7 +418,7 @@ fn compile_acceptance(acceptance: CommittedAcceptance) -> CompiledEndpointOutcom
             let tx_hash = compact_packed(&entry.tx.hash());
             CompiledEndpointOutcome {
                 callback: Some(acceptance_callback(&entry, status)),
-                relay: Some(RelayAction::ordinary(TxVerificationResult::Ok {
+                relay: Some(RelayAction::new(TxVerificationResult::Ok {
                     original_peer: ingress_peer,
                     tx_hash,
                 })),
@@ -502,7 +429,7 @@ fn compile_acceptance(acceptance: CommittedAcceptance) -> CompiledEndpointOutcom
             tx_hash,
             requesting_peer,
         } => CompiledEndpointOutcome {
-            relay: Some(RelayAction::ordinary(TxVerificationResult::Ok {
+            relay: Some(RelayAction::new(TxVerificationResult::Ok {
                 original_peer: requesting_peer,
                 tx_hash: compact_hash(&tx_hash),
             })),
@@ -579,7 +506,7 @@ fn compile_preaccepted_rejection(
         && relay_allowed
         && !matches!(&reject, Reject::Duplicated(_)))
     .then(|| {
-        RelayAction::ordinary(TxVerificationResult::Reject {
+        RelayAction::new(TxVerificationResult::Reject {
             tx_hash: tx_hash.clone(),
         })
     });
@@ -602,7 +529,7 @@ fn compile_accepted_rejection(
         reject: reject.clone(),
     });
     let relay = (public.relay_allowed() && !matches!(&reject, Reject::Duplicated(_))).then(|| {
-        RelayAction::ordinary(TxVerificationResult::Reject {
+        RelayAction::new(TxVerificationResult::Reject {
             tx_hash: tx_hash.clone(),
         })
     });
@@ -757,9 +684,20 @@ pub(crate) async fn run_authority_effect_publisher(
     runtime: AuthorityRuntime,
     endpoints: AuthorityEffectEndpoints,
 ) -> Result<(), AuthorityEffectPublisherFault> {
-    let Some(_claim) = runtime.claim_effect_publisher() else {
+    let Some(claim) = runtime.claim_effect_publisher() else {
         return Err(AuthorityEffectPublisherFault::concurrent_consumer());
     };
+    run_claimed_authority_effect_publisher(runtime, endpoints, claim).await
+}
+
+/// Drain with the move-only claim acquired before any topology task starts.
+/// This entry point makes duplicate-consumer failure a construction outcome,
+/// rather than an asynchronous task exit after partial startup.
+pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
+    runtime: AuthorityRuntime,
+    mut endpoints: AuthorityEffectEndpoints,
+    _claim: AuthorityEffectPublisherClaim,
+) -> Result<(), AuthorityEffectPublisherFault> {
     loop {
         let Some(lease) = runtime
             .wait_effect_checkout()
@@ -771,15 +709,11 @@ pub(crate) async fn run_authority_effect_publisher(
         };
         let mut retained = RetainedEffectLease::new(runtime.clone(), lease);
         let mut disposition = EndpointDisposition::Published;
-        let mut relay_reconciled = false;
         'batch: while let Some((effect_index, mut endpoint, effect)) = retained.current() {
             let mut outcome = compile_committed_effect(effect);
             loop {
-                disposition = disposition.join(
-                    endpoints
-                        .publish_endpoint(&mut outcome, endpoint, &mut relay_reconciled)
-                        .await?,
-                );
+                disposition =
+                    disposition.join(endpoints.publish_endpoint(&mut outcome, endpoint).await);
                 if retained.mark_current_processed()? {
                     break 'batch;
                 }

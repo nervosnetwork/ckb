@@ -12,6 +12,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_snapshot::Snapshot;
+use ckb_stop_handler::CancellationToken;
 use ckb_store::{ChainStore, attach_block_cell};
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{U256, core::BlockExt, h256, utilities::merkle_mountain_range::ChainRootMMR};
@@ -20,7 +21,7 @@ use ckb_types::{
     packed::{Byte32, CellInput, OutPoint, ProposalShortId},
     prelude::Entity,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 fn template_config() -> BlockAssemblerConfig {
     BlockAssemblerConfig {
@@ -149,6 +150,55 @@ fn candidate_uncle(
         .proposals(proposals)
         .build()
         .as_uncle()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_template_failure_wait_ignores_unrelated_authority_mutation() {
+    let snapshot = template_snapshot();
+    let runtime = super::super::runtime::AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let assembler = BlockAssembler::new(template_config(), Arc::clone(&snapshot))
+        .expect("the block assembler fixture is valid");
+    let driver = AuthorityBlockAssembler::new(runtime.clone(), assembler)
+        .await
+        .expect("the authority template adapter is valid");
+    let failed = driver.retry_source_cut_for_foundation().await;
+    let cancel = CancellationToken::new();
+    let wait_driver = driver.clone();
+    let wait_cancel = cancel.clone();
+    let mut waiter = tokio::spawn(async move {
+        wait_driver
+            .wait_template_source_change_for_foundation(&wait_cancel, failed)
+            .await
+    });
+    tokio::task::yield_now().await;
+
+    runtime
+        .queue_generation_reset_for_foundation()
+        .expect("an effect-only Apply publishes an unrelated authority wake");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut waiter)
+            .await
+            .is_err(),
+        "an unchanged template source must not repeat a failed build"
+    );
+
+    driver
+        .receive_candidate_uncle(candidate_uncle(&snapshot, 1, Vec::new()))
+        .expect("a candidate source advance is typed")
+        .then_some(())
+        .expect("the new candidate advances the exact retry source");
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("the relevant source change wakes the retry level")
+            .expect("the source waiter joins")
+    );
+    cancel.cancel();
 }
 
 #[tokio::test]
@@ -596,13 +646,8 @@ async fn uak_template_drivers_cancel_cleanly_without_idle_publication() {
     let cancelled_before_spawn = ckb_stop_handler::CancellationToken::new();
     cancelled_before_spawn.cancel();
     let cancelled_handles = driver.spawn_drivers(&runtime_handle, cancelled_before_spawn.clone());
-    for handle in [
-        cancelled_handles.replacement,
-        cancelled_handles.proposals,
-        cancelled_handles.transactions,
-        cancelled_handles.uncles,
-    ] {
-        handle
+    for task in cancelled_handles.tasks {
+        task.handle
             .await
             .expect("the pre-cancelled template lane task does not panic")
             .expect("pre-cancellation is a clean template-lane outcome");
@@ -624,15 +669,47 @@ async fn uak_template_drivers_cancel_cleanly_without_idle_publication() {
     assert_eq!(assembler.get_current().await.work_id, stable_work_id);
 
     cancel.cancel();
-    for handle in [
-        handles.replacement,
-        handles.proposals,
-        handles.transactions,
-        handles.uncles,
-    ] {
-        handle
+    for task in handles.tasks {
+        task.handle
             .await
             .expect("the template lane task does not panic")
             .expect("cancellation is a clean template-lane outcome");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_template_rebuild_failure_retains_the_last_projection_and_lane() {
+    let snapshot = template_snapshot();
+    let runtime = super::super::runtime::AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let assembler = BlockAssembler::new(template_config(), snapshot)
+        .expect("the block assembler fixture is valid");
+    let initial = assembler.get_current().await;
+    assembler
+        .work_id
+        .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+    let driver = AuthorityBlockAssembler::new(runtime, assembler.clone())
+        .await
+        .expect("the authority template adapter is valid");
+    let runtime_handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
+    let cancel = ckb_stop_handler::CancellationToken::new();
+    let handles = driver.spawn_drivers(&runtime_handle, cancel.clone());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        assembler.get_current().await.work_id,
+        initial.work_id,
+        "a rebuildable projection failure must retain the last valid template"
+    );
+    cancel.cancel();
+    for task in handles.tasks {
+        task.handle
+            .await
+            .expect("the template lane task does not panic")
+            .expect("a rebuildable template failure waits for a new source cut");
     }
 }

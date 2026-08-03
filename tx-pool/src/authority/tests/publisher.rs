@@ -1,15 +1,16 @@
 use super::super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-        CommittedPeerCohortRevocation, CommittedRejection, EffectPolicy, ParentTransactionRequest,
-        RejectionAudience,
+        CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease,
+        EffectEndpoint, EffectPolicy, ParentTransactionRequest, RejectionAudience,
     },
     plan::MembershipReject,
     publisher::{
-        AuthorityEffectEndpoints, AuthorityEffectPublisherFaultKind, EndpointDisposition,
-        RelayAction, RelayDisposition, compile_committed_effect, run_authority_effect_publisher,
+        AuthorityEffectEndpoints, EndpointDisposition, RelayAction, RelayDisposition,
+        compile_committed_effect, run_authority_effect_publisher,
     },
     rejection::CommittedPublicReject,
+    relay::{AuthorityRelayReceiver, AuthorityRelaySink, authority_relay_mailbox},
     runtime::AuthorityRuntime,
     state::{AcceptedStatus, RawTxHash},
 };
@@ -29,7 +30,7 @@ use ckb_types::{
 use std::{
     collections::HashSet,
     sync::{
-        Arc,
+        Arc, Condvar, Mutex as StdMutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -71,12 +72,13 @@ fn callback_snapshot(entry: &CommittedEntrySnapshot) -> TxEntrySnapshot {
     }
 }
 
-fn endpoints(
-    relay: ckb_channel::Sender<TxVerificationResult>,
-    callbacks: Arc<Callbacks>,
-) -> AuthorityEffectEndpoints {
+fn endpoints(relay: AuthorityRelaySink, callbacks: Arc<Callbacks>) -> AuthorityEffectEndpoints {
     AuthorityEffectEndpoints::new(Arc::new(DummyTxPoolNetwork), relay, callbacks, None)
-        .expect("the publisher fixture can start its bounded callback worker")
+}
+
+fn relay_mailbox(max_items: usize) -> (AuthorityRelaySink, AuthorityRelayReceiver) {
+    authority_relay_mailbox(max_items, 1024 * 1024)
+        .expect("the publisher relay mailbox fixture is valid")
 }
 
 #[test]
@@ -97,7 +99,6 @@ fn uak_effect_compiler_preserves_acceptance_and_chain_endpoint_semantics() {
     let Some(relay) = admission.relay else {
         panic!("admission must settle the relayer projection");
     };
-    assert!(!relay.is_required());
     match relay.result {
         TxVerificationResult::Ok {
             original_peer,
@@ -329,7 +330,6 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
                 .is_some()
     }));
     let relay = cleanup.relay.expect("cohort cleanup resets relay state");
-    assert!(relay.is_required());
     assert!(matches!(
         relay.result,
         TxVerificationResult::GenerationReset
@@ -348,16 +348,15 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     ));
 
     let released_hash = RawTxHash(candidate.hash());
-    let released = compile_committed_effect(CommittedEffect::RemoteIngressReleased {
-        tx_hash: released_hash.clone(),
-    });
+    let released = compile_committed_effect(CommittedEffect::RemoteIngressReleased(
+        CommittedRemoteIngressRelease::duplicate_remote_submission(released_hash.clone(), peer),
+    ));
     assert!(released.callback.is_none());
     assert!(released.recent_reject.is_none());
     assert!(released.ban.is_none());
     let released_relay = released
         .relay
         .expect("a released duplicate must leave the relayer known filter");
-    assert!(!released_relay.is_required());
     assert!(matches!(
         released_relay.result,
         TxVerificationResult::Reject { tx_hash } if tx_hash == released_hash.0
@@ -374,7 +373,6 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     let Some(parent_relay) = parents.relay else {
         panic!("missing-parent detail must reach the relayer");
     };
-    assert!(parent_relay.is_required());
     match parent_relay.result {
         TxVerificationResult::UnknownParents {
             peer: actual_peer,
@@ -393,83 +391,80 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     let Some(reset_relay) = reset.relay else {
         panic!("generation reset must reach the relayer");
     };
-    assert!(reset_relay.is_required());
     assert!(matches!(
         reset_relay.result,
         TxVerificationResult::GenerationReset
     ));
 }
 
-#[tokio::test]
-async fn uak_ordinary_relay_saturation_publishes_reset_before_disposal() {
-    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
-    relay_tx
-        .send(TxVerificationResult::Reject {
-            tx_hash: Byte32::zero(),
-        })
-        .expect("the relay fixture starts full");
-    let endpoints = endpoints(relay_tx, Arc::new(Callbacks::new()));
-    let publisher = tokio::spawn(async move {
-        endpoints
-            .publish_relay(RelayAction::ordinary(TxVerificationResult::Reject {
-                tx_hash: Byte32::new([7; 32]),
-            }))
-            .await
-    });
-
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let _ = relay_rx
-        .try_recv()
-        .expect("the original filler remains at the relay head");
+#[test]
+fn uak_ordinary_relay_saturation_reconciles_and_retains_later_results() {
+    let (relay, relay_rx) = relay_mailbox(3);
+    for byte in [1, 2, 3] {
+        assert!(matches!(
+            relay.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([byte; 32]),
+            }),
+            super::super::relay::RelayMailboxDisposition::Exact
+        ));
+    }
+    let mut endpoints = endpoints(relay, Arc::new(Callbacks::new()));
+    let current = Byte32::new([7; 32]);
+    let later = Byte32::new([9; 32]);
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(1), publisher)
-            .await
-            .expect("reset publication is bounded")
-            .expect("the relay task remains healthy")
-            .expect("the required sink remains connected"),
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::Reject {
+            tx_hash: current.clone(),
+        })),
+        RelayDisposition::Reconciled
+    );
+    assert_eq!(
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::Reject {
+            tx_hash: later.clone(),
+        })),
+        RelayDisposition::Exact,
+        "reconciliation must not become a publisher-side skip flag"
+    );
+    assert!(matches!(
+        relay_rx.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(matches!(
+        relay_rx.try_recv(),
+        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == current
+    ));
+    assert!(matches!(
+        relay_rx.try_recv(),
+        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == later
+    ));
+}
+
+#[test]
+fn uak_required_parent_detail_follows_reset_after_relay_saturation() {
+    let peer = PeerIndex::from(71);
+    let expected = Byte32::new([8; 32]);
+    let (relay, relay_rx) = relay_mailbox(2);
+    for byte in [1, 2] {
+        assert!(matches!(
+            relay.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([byte; 32]),
+            }),
+            super::super::relay::RelayMailboxDisposition::Exact
+        ));
+    }
+    let mut endpoints = endpoints(relay, Arc::new(Callbacks::new()));
+    assert_eq!(
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::UnknownParents {
+            peer,
+            parents: HashSet::from([expected.clone()]),
+        },)),
         RelayDisposition::Reconciled
     );
     assert!(matches!(
         relay_rx.try_recv(),
-        Ok(TxVerificationResult::GenerationReset)
+        Some(TxVerificationResult::GenerationReset)
     ));
-}
-
-#[tokio::test]
-async fn uak_required_parent_detail_never_degrades_under_relay_saturation() {
-    let peer = PeerIndex::from(71);
-    let expected = Byte32::new([8; 32]);
-    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
-    relay_tx
-        .send(TxVerificationResult::GenerationReset)
-        .expect("the relay fixture starts full");
-    let endpoints = endpoints(relay_tx, Arc::new(Callbacks::new()));
-    let expected_for_publisher = expected.clone();
-    let publisher = tokio::spawn(async move {
-        endpoints
-            .publish_relay(RelayAction::required(
-                TxVerificationResult::UnknownParents {
-                    peer,
-                    parents: HashSet::from([expected_for_publisher]),
-                },
-            ))
-            .await
-    });
-
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let _ = relay_rx
-        .try_recv()
-        .expect("the original filler remains at the relay head");
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(1), publisher)
-            .await
-            .expect("required publication resumes when capacity returns")
-            .expect("the relay task remains healthy")
-            .expect("the required sink remains connected"),
-        RelayDisposition::Exact
-    );
     match relay_rx.try_recv() {
-        Ok(TxVerificationResult::UnknownParents {
+        Some(TxVerificationResult::UnknownParents {
             peer: actual_peer,
             parents,
         }) => {
@@ -480,22 +475,24 @@ async fn uak_required_parent_detail_never_degrades_under_relay_saturation() {
     }
 }
 
-#[tokio::test]
-async fn uak_relay_disconnect_is_typed_and_does_not_claim_publication() {
-    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+#[test]
+fn uak_relay_disconnect_opens_a_stable_external_circuit() {
+    let (relay, relay_rx) = relay_mailbox(2);
     drop(relay_rx);
-    let endpoints = endpoints(relay_tx, Arc::new(Callbacks::new()));
-    let result = endpoints
-        .publish_relay(RelayAction::ordinary(TxVerificationResult::GenerationReset))
-        .await;
-    assert!(matches!(
-        result,
-        Err(fault) if matches!(fault.kind, AuthorityEffectPublisherFaultKind::RelayDisconnected)
-    ));
+    let mut endpoints = endpoints(relay, Arc::new(Callbacks::new()));
+    assert_eq!(
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::GenerationReset)),
+        RelayDisposition::CircuitDisposed
+    );
+    assert_eq!(
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::GenerationReset)),
+        RelayDisposition::CircuitDisposed,
+        "a disconnected channel cannot reconnect, so later effects must not become a retry loop"
+    );
 }
 
 #[tokio::test]
-async fn uak_publisher_relay_disconnect_retains_the_authority_head() {
+async fn uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
         .expect("the production runtime fixture is valid");
@@ -508,21 +505,19 @@ async fn uak_publisher_relay_disconnect_retains_the_authority_head() {
             },
         )
         .expect("the bounded fixture effect commits");
-    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
+    let (relay, relay_rx) = relay_mailbox(2);
     drop(relay_rx);
+    runtime
+        .close_effects()
+        .expect("the fixture closes production before draining");
 
-    let result = run_authority_effect_publisher(
-        runtime.clone(),
-        endpoints(relay_tx, Arc::new(Callbacks::new())),
-    )
-    .await;
-    assert!(matches!(
-        result,
-        Err(fault) if matches!(fault.kind, AuthorityEffectPublisherFaultKind::RelayDisconnected)
-    ));
-    let retained = runtime.effect_observation_for_foundation();
-    assert_eq!(retained.active, None);
-    assert_eq!(retained.queued.len(), 1);
+    let endpoints = endpoints(relay, Arc::new(Callbacks::new()));
+    let result = run_authority_effect_publisher(runtime.clone(), endpoints).await;
+    assert!(result.is_ok());
+    let drained = runtime.effect_observation_for_foundation();
+    assert_eq!(drained.active, None);
+    assert!(drained.queued.is_empty());
+    assert!(runtime.effects_closed_and_drained());
     assert!(runtime.claim_effect_publisher().is_some());
 }
 
@@ -544,35 +539,50 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
         .expect("the production runtime fixture is valid");
-    let expected = RawTxHash(Byte32::new([9; 32]));
+    let victim = entry(4_300);
+    let expected = victim.tx.hash();
     runtime
         .queue_effect_for_foundation(
             EffectPolicy::Remote,
-            CommittedEffect::RemoteExpired {
-                tx_hash: expected.clone(),
-                peer: PeerIndex::from(81),
-            },
+            CommittedEffect::Rejected(CommittedRejection::CapacityEvicted {
+                entry: victim,
+                audience: RejectionAudience::default(),
+                fee_rate: FeeRate::from_u64(42),
+            }),
         )
         .expect("the bounded fixture effect commits");
 
-    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
-    relay_tx
-        .send(TxVerificationResult::GenerationReset)
-        .expect("the relay fixture starts full");
+    let callback_entered = Arc::new(AtomicUsize::new(0));
+    let callback_gate = Arc::new((StdMutex::new(false), Condvar::new()));
+    let observed_entered = Arc::clone(&callback_entered);
+    let observed_gate = Arc::clone(&callback_gate);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_reject(Box::new(move |_, _| {
+        observed_entered.fetch_add(1, Ordering::Release);
+        let (released, ready) = &*observed_gate;
+        let mut released = released
+            .lock()
+            .expect("the callback cancellation fixture mutex remains healthy");
+        while !*released {
+            released = ready
+                .wait(released)
+                .expect("the callback cancellation fixture mutex remains healthy");
+        }
+    }));
+    let callbacks = Arc::new(callbacks);
+    let (relay, relay_rx) = relay_mailbox(2);
+    let publisher_endpoints = endpoints(relay.clone(), Arc::clone(&callbacks));
     let publisher = tokio::spawn(run_authority_effect_publisher(
         runtime.clone(),
-        endpoints(relay_tx.clone(), Arc::new(Callbacks::new())),
+        publisher_endpoints,
     ));
     tokio::time::timeout(Duration::from_secs(1), async {
-        loop {
-            if runtime.effect_observation_for_foundation().active.is_some() {
-                break;
-            }
+        while callback_entered.load(Ordering::Acquire) == 0 {
             tokio::task::yield_now().await;
         }
     })
     .await
-    .expect("the publisher checks out the committed head");
+    .expect("the publisher checks out the committed head and enters its callback");
     let active_sequence = runtime
         .effect_observation_for_foundation()
         .active
@@ -585,19 +595,24 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
     assert_eq!(retained.active, None);
     assert_eq!(retained.queued.first(), Some(&active_sequence));
 
-    let _ = relay_rx
-        .try_recv()
-        .expect("the blocking filler is still present");
+    {
+        let (released, ready) = &*callback_gate;
+        *released
+            .lock()
+            .expect("the callback cancellation fixture mutex remains healthy") = true;
+        ready.notify_all();
+    }
     runtime
         .close_effects()
         .expect("the producer side closes after cancellation retention");
+    let replacement_endpoints = endpoints(relay, callbacks);
     let replacement = tokio::spawn(run_authority_effect_publisher(
         runtime.clone(),
-        endpoints(relay_tx, Arc::new(Callbacks::new())),
+        replacement_endpoints,
     ));
     match tokio::time::timeout(Duration::from_secs(1), async {
         loop {
-            if let Ok(result) = relay_rx.try_recv() {
+            if let Some(result) = relay_rx.try_recv() {
                 break result;
             }
             tokio::task::yield_now().await;
@@ -606,7 +621,7 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
     .await
     .expect("the replacement publisher drains the retained head")
     {
-        TxVerificationResult::Reject { tx_hash } => assert_eq!(tx_hash, expected.0),
+        TxVerificationResult::Reject { tx_hash } => assert_eq!(tx_hash, expected),
         other => panic!("unexpected retained publication: {other:?}"),
     }
     replacement
@@ -699,7 +714,7 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
 }
 
 #[tokio::test]
-async fn uak_cancelled_later_endpoint_does_not_replay_completed_callback() {
+async fn uak_retained_later_endpoint_does_not_replay_completed_callback_cursor() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
         .expect("the production runtime fixture is valid");
@@ -724,53 +739,50 @@ async fn uak_cancelled_later_endpoint_does_not_replay_completed_callback() {
     }));
     let callbacks = Arc::new(callbacks);
 
-    let (relay_tx, relay_rx) = ckb_channel::bounded(1);
-    relay_tx
-        .send(TxVerificationResult::GenerationReset)
-        .expect("the relay fixture starts full");
-    let publisher = tokio::spawn(run_authority_effect_publisher(
-        runtime.clone(),
-        endpoints(relay_tx.clone(), Arc::clone(&callbacks)),
+    let mut lease = runtime
+        .wait_effect_checkout()
+        .await
+        .expect("effect checkout remains healthy")
+        .expect("the committed rejection is available");
+    while lease
+        .current()
+        .is_some_and(|work| work.endpoint != EffectEndpoint::Relay)
+    {
+        assert!(
+            !lease
+                .mark_current_processed()
+                .expect("the completed endpoint advances the durable cursor")
+        );
+    }
+    assert!(matches!(
+        lease.current(),
+        Some(work)
+            if work.endpoint == EffectEndpoint::Relay
+                && matches!(work.effect, CommittedEffect::Rejected(_))
     ));
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while callback_calls.load(Ordering::Acquire) != 1 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the callback completes before the relay endpoint blocks");
-    // The callback counter changes inside the foreign worker, before its
-    // acknowledgement reaches the publisher. Give the publisher one bounded
-    // scheduling turn to record that acknowledgement and enter the already
-    // full relay endpoint; cancellation inside the callback's own action/ack
-    // window is intentionally only at-least-once.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    runtime
+        .settle_effect(lease.retain())
+        .expect("cancellation retains the first unprocessed endpoint");
 
-    publisher.abort();
-    let abort = publisher.await;
-    assert!(abort.is_err_and(|error| error.is_cancelled()));
-    assert_eq!(callback_calls.load(Ordering::Acquire), 1);
-
-    let _ = relay_rx
-        .try_recv()
-        .expect("the blocking filler remains ahead of the retained relay step");
+    let (relay, relay_rx) = relay_mailbox(2);
     runtime
         .close_effects()
-        .expect("the producer side closes after cancellation retention");
+        .expect("the producer side closes after cursor retention");
+    let replacement_endpoints = endpoints(relay, callbacks);
     let replacement = tokio::spawn(run_authority_effect_publisher(
         runtime.clone(),
-        endpoints(relay_tx, callbacks),
+        replacement_endpoints,
     ));
     match tokio::time::timeout(Duration::from_secs(1), async {
         loop {
-            if let Ok(result) = relay_rx.try_recv() {
+            if let Some(result) = relay_rx.try_recv() {
                 break result;
             }
             tokio::task::yield_now().await;
         }
     })
     .await
-    .expect("the replacement publisher resumes at the retained relay endpoint")
+    .expect("the publisher resumes at the retained relay endpoint")
     {
         TxVerificationResult::Reject { tx_hash } => assert_eq!(tx_hash, expected_hash),
         other => panic!("unexpected retained publication: {other:?}"),
@@ -781,27 +793,25 @@ async fn uak_cancelled_later_endpoint_does_not_replay_completed_callback() {
         .expect("the closed authority drains without a fault");
     assert_eq!(
         callback_calls.load(Ordering::Acquire),
-        1,
+        0,
         "a completed endpoint must not replay after a later endpoint is cancelled"
     );
 }
 
 #[tokio::test]
-async fn uak_unregistered_callback_is_not_dispatched_to_the_foreign_worker() {
-    let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
-    let endpoints = endpoints(relay_tx, Arc::new(Callbacks::new()));
+async fn uak_unregistered_callback_does_not_enter_the_blocking_boundary() {
+    let (relay, _relay_rx) = relay_mailbox(2);
+    let mut endpoints = endpoints(relay, Arc::new(Callbacks::new()));
     let outcome =
         compile_committed_effect(CommittedEffect::Accepted(CommittedAcceptance::Admission {
             entry: entry(4_301),
             status: AcceptedStatus::Pending,
             ingress_peer: None,
         }));
-    let mut reconciled = false;
-    assert!(matches!(
-        endpoints.publish(outcome, &mut reconciled).await,
-        Ok(EndpointDisposition::Published)
-    ));
-    assert!(!reconciled);
+    assert_eq!(
+        endpoints.publish(outcome).await,
+        EndpointDisposition::Published
+    );
 }
 
 #[tokio::test]
@@ -813,27 +823,24 @@ async fn uak_callback_uses_the_production_timeout_and_opens_one_stable_circuit()
         observed.fetch_add(1, Ordering::AcqRel);
         std::thread::sleep(Duration::from_millis(1_100));
     }));
-    let (relay_tx, _relay_rx) = ckb_channel::bounded(1);
-    let endpoints = endpoints(relay_tx, Arc::new(callbacks));
+    let (relay, _relay_rx) = relay_mailbox(2);
+    let mut endpoints = endpoints(relay, Arc::new(callbacks));
     let effect = CommittedEffect::Accepted(CommittedAcceptance::ChainStatusChange {
         entry: entry(4_302),
         status: AcceptedStatus::Pending,
     });
 
-    let mut reconciled = false;
     let first = tokio::time::timeout(
         Duration::from_millis(1_500),
-        endpoints.publish(compile_committed_effect(effect.clone()), &mut reconciled),
+        endpoints.publish(compile_committed_effect(effect.clone())),
     )
     .await
     .expect("the exact one-second production timeout bounds the foreign callback");
-    assert!(matches!(first, Ok(EndpointDisposition::CircuitDisposed)));
+    assert_eq!(first, EndpointDisposition::CircuitDisposed);
     assert_eq!(calls.load(Ordering::Acquire), 1);
 
-    let second = endpoints
-        .publish(compile_committed_effect(effect), &mut reconciled)
-        .await;
-    assert!(matches!(second, Ok(EndpointDisposition::CircuitDisposed)));
+    let second = endpoints.publish(compile_committed_effect(effect)).await;
+    assert_eq!(second, EndpointDisposition::CircuitDisposed);
     assert_eq!(
         calls.load(Ordering::Acquire),
         1,

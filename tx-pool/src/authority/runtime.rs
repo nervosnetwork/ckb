@@ -24,10 +24,11 @@ use super::{
     },
     plan::{
         AuthorityConfigError, AuthorityFault, Backpressure, CandidateBatchError,
-        CandidateDispositionPlan, CommittedDelta, ComputeSettlementFailure,
-        DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectSettlementFailure,
-        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, MembershipReject,
-        PlanError, RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
+        CandidateDispositionPlan, CommittedDelta, ComputeCancellation, ComputeCancellationError,
+        ComputeSettlementFailure, DirectAdmissionDisposition, DirectAdmissionEvaluation,
+        EffectSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
+        MembershipConfig, MembershipReject, PlanError, RetainedAdmissionDisposition,
+        SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
@@ -675,8 +676,8 @@ impl AuthorityPendingSettlement {
     }
 
     #[cfg(test)]
-    pub(super) fn error(&self) -> &PlanError {
-        self.failure.error()
+    pub(super) fn recovery(&self) -> &super::plan::ComputeSettlementRecovery {
+        self.failure.recovery()
     }
 }
 
@@ -892,6 +893,13 @@ impl AuthorityRuntime {
         snapshot: Arc<Snapshot>,
     ) -> Result<Self, RuntimeConfigError> {
         let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
+        Self::from_config(runtime, snapshot)
+    }
+
+    fn from_config(
+        runtime: AuthorityRuntimeConfig,
+        snapshot: Arc<Snapshot>,
+    ) -> Result<Self, RuntimeConfigError> {
         let resolution_policy = runtime.resolution_policy;
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
@@ -906,6 +914,18 @@ impl AuthorityRuntime {
             verify_workers,
             transient_compute,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_with_effect_limits_for_foundation(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+        snapshot: Arc<Snapshot>,
+        effects: EffectLimits,
+    ) -> Result<Self, RuntimeConfigError> {
+        let mut runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
+        runtime.effects = effects;
+        Self::from_config(runtime, snapshot)
     }
 
     pub(crate) fn transaction_lookup(
@@ -1046,6 +1066,14 @@ impl AuthorityRuntime {
     /// extending the guard over construction or an await point.
     pub(in crate::authority) fn template_chain_source(&self) -> ApplySequence {
         self.store.read().authority.template_source_versions().chain
+    }
+
+    /// Copy-only source versions used by the template driver's level wait.
+    /// This does not capture payloads or create another template authority.
+    pub(in crate::authority) fn template_source_versions(
+        &self,
+    ) -> super::source::PoolTemplateVersions {
+        self.store.read().authority.template_source_versions()
     }
 
     /// Remove one explicit owner through the total administrative compiler.
@@ -1844,6 +1872,20 @@ impl AuthorityRuntime {
     }
 
     #[cfg(test)]
+    pub(super) fn queue_generation_reset_for_foundation(&self) -> Result<(), PlanError> {
+        let retirement = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_generation_reset_for_foundation()?
+                .apply()
+        };
+        drop(retirement);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub(super) fn effect_observation_for_foundation(&self) -> super::effect::EffectObservation {
         self.store
             .read()
@@ -2102,6 +2144,19 @@ impl AuthorityRuntime {
         let committed = {
             let mut store = self.store.write();
             store.authority.apply_settlement(settlement)?
+        };
+        drop(committed);
+        self.signals.publish_mutation();
+        Ok(())
+    }
+
+    pub(in crate::authority) fn cancel_compute_after_allocation(
+        &self,
+        cancellation: ComputeCancellation,
+    ) -> Result<(), ComputeCancellationError> {
+        let committed = {
+            let mut store = self.store.write();
+            store.authority.apply_compute_cancellation(cancellation)?
         };
         drop(committed);
         self.signals.publish_mutation();
@@ -2544,9 +2599,9 @@ mod tests {
         AuthorityComputeCheckout, AuthorityComputeJob, AuthorityComputeOutcome,
         AuthorityComputeSettlement, AuthorityDirectRejectionExecution,
         AuthorityDirectResolutionOutcome, AuthorityReadyOutcome, AuthorityRuntime,
-        AuthorityRuntimeConfig, AuthorityRuntimeError, AuthoritySignals, AuthorityStore,
-        PREACCEPTED_ENTRY_BYTES, PlanError, RuntimeConfigError, SettlementOrigin,
-        runtime_authority_config_error, runtime_resource_config_error,
+        AuthorityRuntimeConfig, AuthorityRuntimeError, PREACCEPTED_ENTRY_BYTES, PlanError,
+        RuntimeConfigError, SettlementOrigin, runtime_authority_config_error,
+        runtime_resource_config_error,
     };
     use crate::authority::effect::{
         CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
@@ -2573,7 +2628,7 @@ mod tests {
     };
     use std::ops::ControlFlow;
     use std::sync::Arc;
-    use tokio::sync::{RwLock as TokioRwLock, Semaphore, mpsc, watch};
+    use tokio::sync::{RwLock as TokioRwLock, mpsc, watch};
 
     fn runtime_config() -> TxPoolConfig {
         TxPoolConfig {
@@ -2619,23 +2674,13 @@ mod tests {
         snapshot: Arc<Snapshot>,
         effects: EffectLimits,
     ) -> AuthorityRuntime {
-        let mut assembled = AuthorityRuntimeConfig::from_runtime(config, snapshot.consensus())
-            .expect("the production authority policy fixture is valid");
-        assembled.effects = effects;
-        let resolution_policy = assembled.resolution_policy;
-        let expiry_policy = assembled.expiry_policy;
-        let verify_workers = assembled.verify_workers;
-        let transient_compute = Arc::new(Semaphore::new(assembled.transient_compute_permits.get()));
-        let store = AuthorityStore::from_runtime(assembled, snapshot)
-            .expect("the narrow effect runtime reserves every bounded projection");
-        AuthorityRuntime {
-            store: Arc::new(ckb_util::RwLock::new(store)),
-            signals: Arc::new(AuthoritySignals::new()),
-            resolution_policy,
-            expiry_policy,
-            verify_workers,
-            transient_compute,
-        }
+        AuthorityRuntime::new_with_effect_limits_for_foundation(
+            config,
+            snapshot.consensus(),
+            Arc::clone(&snapshot),
+            effects,
+        )
+        .expect("the narrow effect runtime reserves every bounded projection")
     }
 
     fn queue_remote_rejection(runtime: &AuthorityRuntime, nonce: u32) {
@@ -2885,7 +2930,17 @@ mod tests {
         let handles = runtime
             .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
             .expect("the validated worker topology reserves its handle vector");
-        assert_eq!(handles.verifiers.len(), 4);
+        assert_eq!(
+            handles
+                .tasks
+                .iter()
+                .filter(|task| matches!(
+                    task.role,
+                    crate::authority::worker::AuthorityWorkerRole::Verifier(_)
+                ))
+                .count(),
+            4
+        );
 
         let admission = admission(906, 96);
         let key = admission.identity.raw.clone();
@@ -2932,27 +2987,12 @@ mod tests {
         assert_eq!(update.key.witness_hash(), &expected_witness);
 
         cancel.cancel();
-        handles
-            .resolver
-            .await
-            .expect("resolver task remains healthy")
-            .expect("resolver exits without a structural fault");
-        for verifier in handles.verifiers {
-            verifier
+        for task in handles.tasks {
+            task.handle
                 .await
-                .expect("verifier task remains healthy")
-                .expect("verifier exits without a structural fault");
+                .expect("authority worker task remains healthy")
+                .expect("authority worker exits without a structural fault");
         }
-        handles
-            .ready
-            .await
-            .expect("Ready driver task remains healthy")
-            .expect("Ready driver exits without a structural fault");
-        handles
-            .maintenance
-            .await
-            .expect("maintenance task remains healthy")
-            .expect("maintenance exits without a structural fault");
         assert_eq!(
             runtime
                 .store
@@ -3045,27 +3085,12 @@ mod tests {
         );
 
         cancel.cancel();
-        handles
-            .resolver
-            .await
-            .expect("resolver task remains healthy")
-            .expect("resolver exits without a structural fault");
-        for verifier in handles.verifiers {
-            verifier
+        for task in handles.tasks {
+            task.handle
                 .await
-                .expect("verifier task remains healthy")
-                .expect("verifier exits without a structural fault");
+                .expect("authority worker task remains healthy")
+                .expect("authority worker exits without a structural fault");
         }
-        handles
-            .ready
-            .await
-            .expect("Ready driver task remains healthy")
-            .expect("Ready driver exits without a structural fault");
-        handles
-            .maintenance
-            .await
-            .expect("maintenance task remains healthy")
-            .expect("maintenance exits without a structural fault");
     }
 
     #[tokio::test]

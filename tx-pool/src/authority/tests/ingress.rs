@@ -249,7 +249,7 @@ fn uak_remote_preaccepted_duplicate_releases_filter_without_a_second_owner() {
         .expect("effect checkout returns its lease");
     assert!(matches!(
         lease.effects(),
-        [CommittedEffect::RemoteIngressReleased { tx_hash }] if tx_hash == &hash
+        [CommittedEffect::RemoteIngressReleased(release)] if release.tx_hash() == &hash
     ));
 }
 

@@ -82,6 +82,11 @@ pub(super) enum DependencyError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StableDependencyError {
+    Projection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DependencyEvent {
     Availability(DependencyCut),
     DefinitiveLoss(DependencyCut),
@@ -695,9 +700,41 @@ impl DependencyFrontier {
         if before.as_ref().is_some_and(|slot| !self.contains(slot)) {
             return Err(DependencyError::Projection);
         }
+        if before == after {
+            // Phase/version changes commonly retain the exact dependency
+            // footprint. Encoding that as detach+attach adds B-tree work and
+            // allocation risk without changing the projection.
+            return Ok(DependencyDelta {
+                before: None,
+                after: None,
+                control: DependencyControlDelta::default(),
+            });
+        }
         Ok(DependencyDelta {
             before,
             after,
+            control: DependencyControlDelta::default(),
+        })
+    }
+
+    /// Validate a phase-only owner replacement with an unchanged dependency
+    /// slot. No detach/attach storage is produced, so cancellation cannot
+    /// acquire allocator backpressure from this projection.
+    pub(super) fn plan_stable_replace(
+        &self,
+        before: &OwnedTx,
+        after: &OwnedTx,
+    ) -> Result<DependencyDelta, StableDependencyError> {
+        let before =
+            DependencySlot::from_owner(before).map_err(|_| StableDependencyError::Projection)?;
+        let after =
+            DependencySlot::from_owner(after).map_err(|_| StableDependencyError::Projection)?;
+        if before != after || !self.contains(&before) {
+            return Err(StableDependencyError::Projection);
+        }
+        Ok(DependencyDelta {
+            before: None,
+            after: None,
             control: DependencyControlDelta::default(),
         })
     }

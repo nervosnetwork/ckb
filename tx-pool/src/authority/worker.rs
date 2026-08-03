@@ -7,7 +7,10 @@
 //! capability reaches supervision.
 
 use super::{
-    plan::{Backpressure, PlanError},
+    plan::{
+        AuthorityFault, Backpressure, ComputeCancellationError, ComputeSettlementRecovery,
+        PlanError,
+    },
     resolver::{ResolutionExecutionKind, VerificationCacheUpdate},
     runtime::{
         AuthorityComputeCheckout, AuthorityComputeExecutionPermit, AuthorityComputeOutcome,
@@ -18,6 +21,7 @@ use super::{
     validation::FinalAdmissionValidationError,
 };
 use ckb_async_runtime::Handle;
+use ckb_logger::error;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
@@ -27,16 +31,27 @@ use std::{future::pending, ops::ControlFlow, sync::Arc, time::Duration};
 use tokio::sync::{Notify, RwLock, mpsc, watch};
 
 const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(1);
+const INTERNAL_DEFECT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const MAINTENANCE_EXPIRY_TICK: Duration = Duration::from_secs(1);
 
 /// Background tasks owned by one authority generation. Their `Result` is
 /// intentionally retained so supervision can distinguish clean cancellation
 /// from a structural kernel fault before deciding whether persistence is safe.
 pub(crate) struct AuthorityWorkerHandles {
-    pub(crate) resolver: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
-    pub(crate) verifiers: Vec<tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>>,
-    pub(crate) ready: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
-    pub(crate) maintenance: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
+    pub(in crate::authority) tasks: Vec<AuthorityWorkerTask>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityWorkerRole {
+    Resolver,
+    Verifier(usize),
+    Ready,
+    Maintenance,
+}
+
+pub(in crate::authority) struct AuthorityWorkerTask {
+    pub(in crate::authority) role: AuthorityWorkerRole,
+    pub(in crate::authority) handle: tokio::task::JoinHandle<Result<(), AuthorityWorkerFault>>,
 }
 
 #[derive(Debug)]
@@ -45,22 +60,22 @@ pub(crate) struct AuthorityWorkerFault {
 }
 
 #[derive(Debug)]
-enum AuthorityWorkerFaultKind {
-    Runtime(AuthorityRuntimeError),
+pub(in crate::authority) enum AuthorityWorkerFaultKind {
+    Authority(AuthorityFault),
+    LifecycleClosed,
     Settlement(Box<AuthorityPendingSettlement>),
-    UnexpectedVerificationLane,
 }
 
 impl AuthorityWorkerFault {
-    fn runtime(error: AuthorityRuntimeError) -> Self {
+    fn authority(fault: AuthorityFault) -> Self {
         Self {
-            kind: AuthorityWorkerFaultKind::Runtime(error),
+            kind: AuthorityWorkerFaultKind::Authority(fault),
         }
     }
 
-    fn unexpected_verification_lane() -> Self {
+    fn lifecycle_closed() -> Self {
         Self {
-            kind: AuthorityWorkerFaultKind::UnexpectedVerificationLane,
+            kind: AuthorityWorkerFaultKind::LifecycleClosed,
         }
     }
 
@@ -68,6 +83,10 @@ impl AuthorityWorkerFault {
         Self {
             kind: AuthorityWorkerFaultKind::Settlement(Box::new(pending)),
         }
+    }
+
+    pub(in crate::authority) fn into_kind(self) -> AuthorityWorkerFaultKind {
+        self.kind
     }
 }
 
@@ -90,6 +109,7 @@ enum WorkerStep {
     Progress,
     Wait,
     Backoff,
+    Quarantine,
 }
 
 struct ComputeWorker {
@@ -111,25 +131,32 @@ impl AuthorityRuntime {
         cancel: CancellationToken,
     ) -> Result<AuthorityWorkerHandles, AuthorityWorkerSpawnError> {
         let worker_count = self.verify_worker_count();
-        let mut verifiers = Vec::new();
-        verifiers
-            .try_reserve(worker_count)
+        let task_count = worker_count
+            .checked_add(3)
+            .ok_or(AuthorityWorkerSpawnError::Allocation)?;
+        let mut tasks = Vec::new();
+        tasks
+            .try_reserve(task_count)
             .map_err(|_| AuthorityWorkerSpawnError::Allocation)?;
-        let resolver = handle.spawn(
-            ComputeWorker {
-                runtime: self.clone(),
-                role: WorkerRole::OrderedResolve,
-            }
-            .run(command_rx.clone(), cancel.child_token()),
-        );
+        tasks.push(AuthorityWorkerTask {
+            role: AuthorityWorkerRole::Resolver,
+            handle: handle.spawn(
+                ComputeWorker {
+                    runtime: self.clone(),
+                    role: WorkerRole::OrderedResolve,
+                }
+                .run(command_rx.clone(), cancel.child_token()),
+            ),
+        });
         for worker_id in 0..worker_count {
             let capability = if worker_id == 0 && worker_count > 1 {
                 VerifyCapability::SmallCycleOnly
             } else {
                 VerifyCapability::Any
             };
-            verifiers.push(
-                handle.spawn(
+            tasks.push(AuthorityWorkerTask {
+                role: AuthorityWorkerRole::Verifier(worker_id),
+                handle: handle.spawn(
                     ComputeWorker {
                         runtime: self.clone(),
                         role: WorkerRole::Verifier {
@@ -140,21 +167,22 @@ impl AuthorityRuntime {
                     }
                     .run(command_rx.clone(), cancel.child_token()),
                 ),
-            );
+            });
         }
         let runtime = self.clone();
         let ready_cancel = cancel.child_token();
-        let ready = handle.spawn(async move { run_ready_driver(runtime, ready_cancel).await });
+        tasks.push(AuthorityWorkerTask {
+            role: AuthorityWorkerRole::Ready,
+            handle: handle.spawn(async move { run_ready_driver(runtime, ready_cancel).await }),
+        });
         let runtime = self.clone();
         let maintenance_cancel = cancel.child_token();
-        let maintenance =
-            handle.spawn(async move { run_maintenance_driver(runtime, maintenance_cancel).await });
-        Ok(AuthorityWorkerHandles {
-            resolver,
-            verifiers,
-            ready,
-            maintenance,
-        })
+        tasks.push(AuthorityWorkerTask {
+            role: AuthorityWorkerRole::Maintenance,
+            handle: handle
+                .spawn(async move { run_maintenance_driver(runtime, maintenance_cancel).await }),
+        });
+        Ok(AuthorityWorkerHandles { tasks })
     }
 }
 
@@ -189,10 +217,37 @@ impl ComputeWorker {
             let execution = match self.runtime.acquire_compute_execution(&cancel).await {
                 Ok(Some(execution)) => execution,
                 Ok(None) => return Ok(()),
-                Err(error) => return Err(AuthorityWorkerFault::runtime(error)),
+                Err(error) => {
+                    let step = self.handle_runtime_error(error).await?;
+                    if step == WorkerStep::Quarantine {
+                        tokio::select! {
+                            _ = cancel.cancelled() => return Ok(()),
+                            changed = command_rx.changed() => {
+                                if changed.is_err() {
+                                    return Ok(());
+                                }
+                            }
+                            _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
+                        }
+                    }
+                    continue;
+                }
             };
             let step = self.try_process_one(&mut command_rx, execution).await?;
             if step == WorkerStep::Progress {
+                continue;
+            }
+
+            if step == WorkerStep::Quarantine {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    changed = command_rx.changed() => {
+                        if changed.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
+                }
                 continue;
             }
 
@@ -258,9 +313,12 @@ impl ComputeWorker {
                         if let ControlFlow::Break(pending) =
                             self.runtime.retry_unexpected_verification(request)
                         {
-                            self.recover_settlement(pending).await?;
+                            return self.recover_settlement(pending).await;
                         }
-                        return Err(AuthorityWorkerFault::unexpected_verification_lane());
+                        error!(
+                            "tx-pool ordered resolver produced verification work; capability was returned and the lane is quarantined"
+                        );
+                        return Ok(WorkerStep::Quarantine);
                     }
                 };
                 let request = {
@@ -349,16 +407,20 @@ impl ComputeWorker {
             AuthorityRuntimeError::Plan(error) => classify_plan_error(error),
             AuthorityRuntimeError::Capture(kind) => classify_resolution_kind(kind, true),
             AuthorityRuntimeError::Execution(kind) => classify_resolution_kind(kind, false),
-            AuthorityRuntimeError::Verification(kind) => Err(AuthorityWorkerFault::runtime(
-                AuthorityRuntimeError::Verification(kind),
-            )),
-            AuthorityRuntimeError::ComputeGateClosed => Err(AuthorityWorkerFault::runtime(
-                AuthorityRuntimeError::ComputeGateClosed,
-            )),
-            error @ (AuthorityRuntimeError::FinalCapture(_)
-            | AuthorityRuntimeError::ReadyValidation(_)) => {
-                Err(AuthorityWorkerFault::runtime(error))
+            AuthorityRuntimeError::Verification(kind) => {
+                error!(
+                    "tx-pool verification produced invalid internal evidence; settlement was returned and the lane is quarantined: {kind:?}"
+                );
+                Ok(WorkerStep::Quarantine)
             }
+            AuthorityRuntimeError::ComputeGateClosed => {
+                error!(
+                    "tx-pool compute gate closed outside topology shutdown; the lane is quarantined"
+                );
+                Ok(WorkerStep::Quarantine)
+            }
+            AuthorityRuntimeError::FinalCapture(error) => classify_final_capture_error(error),
+            AuthorityRuntimeError::ReadyValidation(error) => classify_ready_validation_error(error),
         }
     }
 
@@ -368,16 +430,22 @@ impl ComputeWorker {
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
         let (mut failure, origin, execution) = pending.into_parts();
         loop {
-            match failure.error() {
-                PlanError::Stale(_) => {
+            match failure.recovery() {
+                ComputeSettlementRecovery::Obsolete(_) => {
                     // Exact entry version/phase/lease mismatch proves this
                     // capability no longer names an active Computing owner.
                     drop(failure);
                     drop(execution);
                     return classify_settled_origin(origin);
                 }
-                PlanError::Backpressure(_) => {}
-                _ => {
+                ComputeSettlementRecovery::CancelAfterAllocation => {
+                    let cancellation = failure.discard_result_for_cancellation();
+                    let cancelled = self.runtime.cancel_compute_after_allocation(cancellation);
+                    drop(execution);
+                    return classify_compute_cancellation(cancelled, origin);
+                }
+                ComputeSettlementRecovery::WaitEffectCapacity => {}
+                ComputeSettlementRecovery::Structural(_) => {
                     return Err(AuthorityWorkerFault::settlement(
                         AuthorityPendingSettlement::new(failure, origin, execution),
                     ));
@@ -398,16 +466,29 @@ impl ComputeWorker {
             // it. A structural failure discovered while retrying must reach
             // supervision immediately rather than sleep behind an obsolete
             // backpressure reason.
-            match settlement_wait(failure.error()) {
-                WorkerStep::Backoff => {
-                    tokio::select! {
-                        _ = notified => {}
-                        _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
-                    }
-                }
-                WorkerStep::Wait => notified.await,
-                WorkerStep::Progress => {}
+            match failure.recovery() {
+                ComputeSettlementRecovery::WaitEffectCapacity => notified.await,
+                ComputeSettlementRecovery::Obsolete(_)
+                | ComputeSettlementRecovery::CancelAfterAllocation
+                | ComputeSettlementRecovery::Structural(_) => {}
             }
+        }
+    }
+}
+
+fn classify_compute_cancellation(
+    result: Result<(), ComputeCancellationError>,
+    origin: SettlementOrigin,
+) -> Result<WorkerStep, AuthorityWorkerFault> {
+    match result {
+        // The capability is safely discharged, but the failed result made no
+        // forward progress. Back off without owning authority state before
+        // the same owner can be checked out and recomputed.
+        Ok(()) => Ok(WorkerStep::Backoff),
+        Err(ComputeCancellationError::Obsolete(_)) => classify_settled_origin(origin),
+        Err(ComputeCancellationError::Fault(fault)) => Err(AuthorityWorkerFault::authority(fault)),
+        Err(ComputeCancellationError::EffectClosed) => {
+            Err(AuthorityWorkerFault::lifecycle_closed())
         }
     }
 }
@@ -425,6 +506,13 @@ async fn run_ready_driver(
             Err(error) => classify_ready_error(error)?,
         };
         if step == WorkerStep::Progress {
+            continue;
+        }
+        if step == WorkerStep::Quarantine {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
+            }
             continue;
         }
         let retry_delay = async {
@@ -509,6 +597,12 @@ async fn run_maintenance_driver_loop(
                     _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
                 }
             }
+            WorkerStep::Quarantine => {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = tokio::time::sleep(INTERNAL_DEFECT_RETRY_DELAY) => {}
+                }
+            }
         }
     }
 }
@@ -529,17 +623,14 @@ fn classify_maintenance_result(
     match result {
         Ok(super::runtime::AuthorityMaintenanceOutcome::Applied { .. }) => Ok(WorkerStep::Progress),
         Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::Wait),
-        Err(PlanError::Backpressure(Backpressure::Allocation)) => Ok(WorkerStep::Backoff),
-        Err(PlanError::Backpressure(_)) => Ok(WorkerStep::Wait),
-        Err(error) => Err(AuthorityWorkerFault::runtime(AuthorityRuntimeError::Plan(
-            error,
-        ))),
+        Err(error) => classify_plan_error(error),
     }
 }
 
 fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
     match (left, right) {
         (WorkerStep::Progress, _) | (_, WorkerStep::Progress) => WorkerStep::Progress,
+        (WorkerStep::Quarantine, _) | (_, WorkerStep::Quarantine) => WorkerStep::Quarantine,
         (WorkerStep::Backoff, _) | (_, WorkerStep::Backoff) => WorkerStep::Backoff,
         (WorkerStep::Wait, WorkerStep::Wait) => WorkerStep::Wait,
     }
@@ -549,10 +640,39 @@ fn classify_plan_error(error: PlanError) -> Result<WorkerStep, AuthorityWorkerFa
     match error {
         PlanError::Stale(_) => Ok(WorkerStep::Progress),
         PlanError::Backpressure(Backpressure::Allocation) => Ok(WorkerStep::Backoff),
-        PlanError::Backpressure(_) => Ok(WorkerStep::Wait),
-        error => Err(AuthorityWorkerFault::runtime(AuthorityRuntimeError::Plan(
-            error,
-        ))),
+        PlanError::Backpressure(Backpressure::EffectCapacity) => Ok(WorkerStep::Wait),
+        PlanError::Backpressure(
+            pressure @ (Backpressure::ProposalCollision
+            | Backpressure::TotalResources
+            | Backpressure::RemoteResources
+            | Backpressure::PeerResources
+            | Backpressure::AcceptedResources
+            | Backpressure::ComputeResources
+            | Backpressure::ActiveWorkDrain
+            | Backpressure::GenerationReplacement),
+        ) => {
+            // None of the background driver APIs exposes these boundary-only
+            // outcomes as a progress contract. Treating the open Backpressure
+            // family as a level wait would strand the lane when no publisher
+            // or mutation can release it. Keep the authority unchanged and
+            // retry at the bounded quarantine cadence while reporting the
+            // producer/consumer contract violation.
+            error!(
+                "tx-pool background driver observed unsupported backpressure; the lane is quarantined: {pressure:?}"
+            );
+            Ok(WorkerStep::Quarantine)
+        }
+        PlanError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
+        PlanError::EffectClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
+        error @ (PlanError::Duplicate
+        | PlanError::PayloadVariant
+        | PlanError::Membership(_)
+        | PlanError::IngressRevoked(_)) => {
+            error!(
+                "tx-pool internal driver observed a boundary-only outcome; no authority capability was lost and the lane is quarantined: {error:?}"
+            );
+            Ok(WorkerStep::Quarantine)
+        }
     }
 }
 
@@ -566,12 +686,11 @@ fn classify_resolution_kind(
         }
         ResolutionExecutionKind::ResourceUnavailable => Ok(WorkerStep::Backoff),
         ResolutionExecutionKind::InvalidReceipt(_) => {
-            let error = if capture {
-                AuthorityRuntimeError::Capture(kind)
-            } else {
-                AuthorityRuntimeError::Execution(kind)
-            };
-            Err(AuthorityWorkerFault::runtime(error))
+            let boundary = if capture { "capture" } else { "execution" };
+            error!(
+                "tx-pool resolution {boundary} produced invalid internal evidence; settlement was returned and the lane is quarantined: {kind:?}"
+            );
+            Ok(WorkerStep::Quarantine)
         }
     }
 }
@@ -581,51 +700,73 @@ fn classify_settled_origin(origin: SettlementOrigin) -> Result<WorkerStep, Autho
         SettlementOrigin::Completion => Ok(WorkerStep::Progress),
         SettlementOrigin::Capture(kind) => classify_resolution_kind(kind, true),
         SettlementOrigin::Resolution(kind) => classify_resolution_kind(kind, false),
-        SettlementOrigin::Verification(kind) => Err(AuthorityWorkerFault::runtime(
-            AuthorityRuntimeError::Verification(kind),
-        )),
-    }
-}
-
-fn settlement_wait(error: &PlanError) -> WorkerStep {
-    match error {
-        PlanError::Backpressure(Backpressure::Allocation) => WorkerStep::Backoff,
-        PlanError::Backpressure(_) => WorkerStep::Wait,
-        _ => WorkerStep::Progress,
+        SettlementOrigin::Verification(kind) => {
+            error!(
+                "tx-pool verification failure settled after backpressure; the lane is quarantined: {kind:?}"
+            );
+            Ok(WorkerStep::Quarantine)
+        }
     }
 }
 
 fn classify_ready_error(error: AuthorityRuntimeError) -> Result<WorkerStep, AuthorityWorkerFault> {
     match error {
         AuthorityRuntimeError::Plan(error) => classify_plan_error(error),
-        AuthorityRuntimeError::FinalCapture(error) => match error {
-            FinalAdmissionCaptureError::Plan(PlanError::Stale(_))
-            | FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::StaleView) => {
-                Ok(WorkerStep::Progress)
-            }
-            FinalAdmissionCaptureError::Allocation
-            | FinalAdmissionCaptureError::Plan(PlanError::Backpressure(Backpressure::Allocation))
-            | FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::Allocation) => {
-                Ok(WorkerStep::Backoff)
-            }
-            FinalAdmissionCaptureError::Plan(PlanError::Backpressure(_)) => Ok(WorkerStep::Wait),
-            error => Err(AuthorityWorkerFault::runtime(
-                AuthorityRuntimeError::FinalCapture(error),
-            )),
-        },
-        AuthorityRuntimeError::ReadyValidation(error) => match error {
-            ReadyValidationError::Candidate(FinalAdmissionValidationError::StaleView) => {
-                Ok(WorkerStep::Progress)
-            }
-            ReadyValidationError::Allocation
-            | ReadyValidationError::Candidate(FinalAdmissionValidationError::Allocation) => {
-                Ok(WorkerStep::Backoff)
-            }
-            error => Err(AuthorityWorkerFault::runtime(
-                AuthorityRuntimeError::ReadyValidation(error),
-            )),
-        },
-        error => Err(AuthorityWorkerFault::runtime(error)),
+        AuthorityRuntimeError::FinalCapture(error) => classify_final_capture_error(error),
+        AuthorityRuntimeError::ReadyValidation(error) => classify_ready_validation_error(error),
+        AuthorityRuntimeError::Capture(kind) => classify_resolution_kind(kind, true),
+        AuthorityRuntimeError::Execution(kind) => classify_resolution_kind(kind, false),
+        AuthorityRuntimeError::Verification(kind) => {
+            error!("Ready driver observed verification-only evidence: {kind:?}");
+            Ok(WorkerStep::Quarantine)
+        }
+        AuthorityRuntimeError::ComputeGateClosed => {
+            error!("Ready driver observed the unrelated compute gate closure");
+            Ok(WorkerStep::Quarantine)
+        }
+    }
+}
+
+fn classify_final_capture_error(
+    error: FinalAdmissionCaptureError,
+) -> Result<WorkerStep, AuthorityWorkerFault> {
+    match error {
+        FinalAdmissionCaptureError::Plan(PlanError::Stale(_))
+        | FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::StaleView) => {
+            Ok(WorkerStep::Progress)
+        }
+        FinalAdmissionCaptureError::Allocation
+        | FinalAdmissionCaptureError::Plan(PlanError::Backpressure(Backpressure::Allocation))
+        | FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::Allocation) => {
+            Ok(WorkerStep::Backoff)
+        }
+        FinalAdmissionCaptureError::Plan(error) => classify_plan_error(error),
+        error => {
+            error!(
+                "tx-pool Ready capture produced invalid internal evidence; no authority mutation occurred and the lane is quarantined: {error:?}"
+            );
+            Ok(WorkerStep::Quarantine)
+        }
+    }
+}
+
+fn classify_ready_validation_error(
+    error: ReadyValidationError,
+) -> Result<WorkerStep, AuthorityWorkerFault> {
+    match error {
+        ReadyValidationError::Candidate(FinalAdmissionValidationError::StaleView) => {
+            Ok(WorkerStep::Progress)
+        }
+        ReadyValidationError::Allocation
+        | ReadyValidationError::Candidate(FinalAdmissionValidationError::Allocation) => {
+            Ok(WorkerStep::Backoff)
+        }
+        error => {
+            error!(
+                "tx-pool Ready validation produced invalid internal evidence; no authority mutation occurred and the lane is quarantined: {error:?}"
+            );
+            Ok(WorkerStep::Quarantine)
+        }
     }
 }
 
@@ -651,3 +792,7 @@ async fn wait_for_resume(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/worker_policy.rs"]
+mod tests;

@@ -3,9 +3,10 @@ use crate::error::Reject;
 use std::cell::Cell;
 
 thread_local! {
-    /// The sole effect publisher invokes callbacks synchronously. Mutating
-    /// controller calls made directly by that callback would wait for effects
-    /// whose FIFO publisher is the current stack, so they must fail fast.
+    /// A committed-effect endpoint invokes callbacks on a blocking boundary.
+    /// Mutating controller calls made directly by that callback can wait for
+    /// effects whose FIFO publisher is awaiting the callback, so they must
+    /// fail fast.
     ///
     /// This context is deliberately thread-local. A process-wide marker makes
     /// unrelated chain/RPC threads look re-entrant and can reject an
@@ -16,11 +17,28 @@ thread_local! {
     static CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Mark the dedicated callback worker once at thread startup. Callback code
-/// never runs on an authority/effect-publisher thread and needs no unwind-
-/// based recovery or nesting counter.
+/// Mark the legacy dedicated callback worker once at thread startup. New
+/// blocking-pool publication uses `with_callback_context` because those
+/// threads are reused.
 pub(crate) fn mark_callback_thread() {
     CALLBACK_THREAD.with(|marked| marked.set(true));
+}
+
+/// Execute one callback with re-entrant mutation detection scoped to the
+/// current stack. Tokio may reuse a blocking-pool thread for unrelated work,
+/// so the previous marker is restored even when callback code unwinds.
+pub(crate) fn with_callback_context<T>(operation: impl FnOnce() -> T) -> T {
+    struct CallbackContextGuard(bool);
+
+    impl Drop for CallbackContextGuard {
+        fn drop(&mut self) {
+            CALLBACK_THREAD.with(|marked| marked.set(self.0));
+        }
+    }
+
+    let previous = CALLBACK_THREAD.with(|marked| marked.replace(true));
+    let _guard = CallbackContextGuard(previous);
+    operation()
 }
 
 /// Read-only controller calls are safe from callbacks. Synchronous mutations

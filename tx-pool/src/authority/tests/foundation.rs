@@ -5,14 +5,14 @@ use super::super::effect::{
 use super::super::plan::{
     AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
     CandidateBatchError, CandidateDispositionPlan, CommittedChange, CommittedChanges,
-    CommittedDelta, ComponentLimitKind, DescendantAggregate, DirectAdmissionDisposition,
-    EvictionOrderKey, IndependentCoupling, MembershipReject, MembershipSnapshot, PlanError,
-    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, StatusCounts,
-    TxPoolAuthority,
+    CommittedDelta, ComponentLimitKind, ComputeSettlementFailure, ComputeSettlementRecovery,
+    DescendantAggregate, DirectAdmissionDisposition, EvictionOrderKey, IndependentCoupling,
+    MembershipReject, MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch,
+    SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
 };
 use super::super::resources::{
-    AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ResourceConfigError,
-    ResourceLedger, ResourceLimits, ResourceSnapshot, ResourceVector,
+    AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ComputeReleaseError,
+    ResourceConfigError, ResourceLedger, ResourceLimits, ResourceSnapshot, ResourceVector,
 };
 use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
@@ -1277,7 +1277,10 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the removed active owner makes its completion stale");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
 
     let reset = authority
@@ -1318,7 +1321,10 @@ fn uak_clear_pool_derives_the_next_revision_without_draining_active_work() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the swapped generation rejects late work as stale");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
     assert!(authority.primary_projection_consistent());
 }
@@ -1409,7 +1415,10 @@ fn uak_runtime_local_removal_has_no_active_work_drain() {
         let stale = authority
             .apply_settlement(work.internal_failure())
             .expect_err("late active work observes missing ownership");
-        assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+        assert_eq!(
+            stale.recovery(),
+            &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+        );
         drop(stale);
         assert!(authority.primary_projection_consistent());
     });
@@ -1529,7 +1538,10 @@ fn uak_local_preaccepted_removal_invalidates_work_and_releases_relay_state() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the removed owner makes late work stale");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
 
     let effect = authority
@@ -1539,9 +1551,50 @@ fn uak_local_preaccepted_removal_invalidates_work_and_releases_relay_state() {
         .apply()
         .into_effect_lease()
         .expect("cleanup has one publisher lease");
-    assert_eq!(
+    assert!(matches!(
         effect.effects(),
-        &[CommittedEffect::RemoteIngressReleased { tx_hash: hash }]
+        [CommittedEffect::RemoteIngressReleased(release)] if release.tx_hash() == &hash
+    ));
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_local_non_remote_preaccepted_removal_does_not_release_relay_state() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let proposal =
+        ValidatedAdmission::proposal(tx(1_726)).expect("fixture proposal admission is valid");
+    let proposal_hash = proposal.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(proposal)
+            .expect("trusted proposal admission plans"),
+    );
+    let recovery = ValidatedAdmission::recovery(tx(1_727), PoolGeneration(0))
+        .expect("fixture recovery admission is valid");
+    let recovery_hash = recovery.identity.raw.clone();
+    apply_without_work(
+        authority
+            .plan_admission(recovery)
+            .expect("recovery admission plans"),
+    );
+
+    for hash in [&proposal_hash, &recovery_hash] {
+        drop(
+            authority
+                .plan_local_removal(hash)
+                .expect("local removal plans")
+                .expect("the owner exists")
+                .apply(),
+        );
+    }
+
+    assert!(
+        authority
+            .plan_effect_checkout_for_foundation()
+            .expect("an empty effect log is valid")
+            .is_none(),
+        "owners without remote ingress attribution must not mutate relay projections"
     );
     assert_resource_reference(&authority);
     assert!(authority.primary_projection_consistent());
@@ -1745,7 +1798,10 @@ fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("a removed active owner cannot publish late state");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
     assert!(authority.primary_projection_consistent());
 }
@@ -1941,7 +1997,10 @@ fn uak_remote_expiry_removes_active_work_without_a_drain_or_prefix_expansion() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the removed active owner rejects late settlement as stale");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
 
     let effect = authority
@@ -2534,7 +2593,10 @@ fn uak_direct_local_atomically_stales_the_matching_remote_compute_capability() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the obsolete Remote capability is stale after direct acceptance");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Version)
+    );
     drop(stale);
     assert_resource_reference(&authority);
 }
@@ -2721,7 +2783,10 @@ fn uak_active_trusted_witness_replacement_atomically_stales_obsolete_work() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the old payload completion is stale after replacement");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Version)
+    );
     drop(stale);
     assert_resource_reference(&authority);
 }
@@ -6370,6 +6435,40 @@ fn uak_resource_reference_rejects_ghost_overcharge() {
 }
 
 #[test]
+fn uak_compute_release_requires_the_exact_non_compute_charge() {
+    let key = RawTxHash(Byte32::new([127; 32]));
+    let peer = PeerIndex::from(127);
+    let retained = ResourceVector::new(1, 128, 2, 0);
+    let computing = retained
+        .reserve_compute(ComputeGrant {
+            max_resident_bytes: 256,
+            max_edges: 4,
+        })
+        .expect("the fixture reserves one compute envelope");
+    let before = ChargeRecord::PreAccepted {
+        resources: computing,
+        residency_peer: Some(peer),
+        compute_peer: Some(peer),
+    };
+    let mut ledger = ResourceLedger::new(limits());
+    let insertion = ledger
+        .plan_replace(key.clone(), None, Some(before))
+        .expect("the fixture charge fits every resource partition");
+    ledger.apply(insertion);
+
+    let shrunk = ChargeRecord::PreAccepted {
+        resources: ResourceVector::new(1, 127, 2, 0),
+        residency_peer: Some(peer),
+        compute_peer: None,
+    };
+    assert_eq!(
+        ledger.plan_compute_release(key, before, shrunk).err(),
+        Some(ComputeReleaseError::Projection),
+        "compute cancellation cannot disguise retained-charge drift as release"
+    );
+}
+
+#[test]
 fn uak_counter_exhaustion_is_typed_and_mutation_free() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     authority.force_next_sequence(ApplySequence(u128::MAX));
@@ -6408,8 +6507,8 @@ fn uak_settlement_failure_returns_the_exact_terminal_capability() {
         .apply_settlement(settlement)
         .expect_err("counter exhaustion cannot consume the compute capability");
     assert_eq!(
-        exhausted.error(),
-        &PlanError::Fault(AuthorityFault::CounterExhausted)
+        exhausted.recovery(),
+        &ComputeSettlementRecovery::Structural(PlanError::Fault(AuthorityFault::CounterExhausted))
     );
     assert_eq!(authority.normalized_snapshot(), before);
 
@@ -6554,7 +6653,10 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
             next: SettlementNext::Retry,
         })
         .expect_err("the retired incarnation cannot settle its successor");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Version)
+    );
     assert_eq!(authority.normalized_snapshot(), before_stale);
     assert_eq!(
         authority
@@ -6645,6 +6747,54 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     assert_eq!(authority.resources().peer(PeerIndex::from(31)).entries, 0);
     assert_eq!(authority.resources().accepted().entries, 1);
     assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_allocation_failure_discards_result_without_retaining_compute_capability() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = admit_remote_until(&mut authority, 1_733, 733, 10);
+    let original_charge = authority
+        .entry(&hash)
+        .and_then(OwnedTx::preaccepted_charge)
+        .expect("the queued owner has one retained charge");
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the queued owner checks out")
+        .apply();
+    let (_, resolve) = take_resolve_work(checkout);
+    let failure = ComputeSettlementFailure::allocation_for_foundation(resolve.internal_failure());
+    assert_eq!(
+        failure.recovery(),
+        &ComputeSettlementRecovery::CancelAfterAllocation
+    );
+
+    let committed = authority
+        .apply_compute_cancellation(failure.discard_result_for_cancellation())
+        .expect("the narrow cancellation plan cannot acquire allocator backpressure");
+    assert_eq!(committed.retired_len(), 0);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+                && entry.charge == original_charge
+    ));
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
+
+    let expired = authority
+        .plan_remote_expiry(
+            RemoteDeadline(10),
+            NonZeroUsize::new(1).expect("the fixture limit is non-zero"),
+        )
+        .expect("the immutable deadline remains valid across compute cancellation")
+        .expect("the cancelled owner remains due")
+        .apply();
+    assert_eq!(expired.changed_owner_count(), 1);
+    assert!(authority.entry(&hash).is_none());
 }
 
 #[test]
@@ -7228,7 +7378,10 @@ fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
     let stale_lease = authority
         .apply_settlement(forged)
         .expect_err("a forged compute lease is stale");
-    assert_eq!(stale_lease.error(), &PlanError::Stale(StalePlan::Lease));
+    assert_eq!(
+        stale_lease.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Lease)
+    );
     assert_eq!(authority.normalized_snapshot(), before_forged);
     apply_without_work(
         authority

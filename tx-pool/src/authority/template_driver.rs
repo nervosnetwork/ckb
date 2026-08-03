@@ -8,6 +8,7 @@
 use super::{
     packing::TemplatePackingLimits,
     runtime::AuthorityRuntime,
+    source::PoolTemplateVersions,
     template::{
         AuthorityTemplateInput, FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild,
         TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePublication,
@@ -17,12 +18,14 @@ use super::{
 use crate::{
     block_assembler::{
         BlockAssembler, BlockTemplateBuilder, CandidateUncleMutationError, CandidateUnclePrune,
-        CurrentTemplate, TemplateContentUpdate, TemplateSize,
+        CandidateUncleSourceReceipt, CurrentTemplate, ResetEpoch, TemplateContentUpdate,
+        TemplateRevision, TemplateSize,
     },
     error::BlockAssemblerError,
 };
 use ckb_async_runtime::Handle;
 use ckb_error::AnyError;
+use ckb_logger::error;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::ChainStore;
@@ -89,14 +92,31 @@ enum TemplateRetryWake {
     Retry,
 }
 
+/// Monotonic inputs that can make a failed template build worth repeating.
+/// Notify remains a lossy hint; equality of this cut is the no-progress fact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TemplateRetrySourceCut {
+    pool: PoolTemplateVersions,
+    uncles: CandidateUncleSourceReceipt,
+    revision: TemplateRevision,
+    reset: ResetEpoch,
+}
+
 pub(in crate::authority) struct AuthorityTemplateDriverHandles {
-    pub(in crate::authority) replacement:
-        tokio::task::JoinHandle<Result<(), AuthorityTemplateDriverFault>>,
-    pub(in crate::authority) proposals:
-        tokio::task::JoinHandle<Result<(), AuthorityTemplateDriverFault>>,
-    pub(in crate::authority) transactions:
-        tokio::task::JoinHandle<Result<(), AuthorityTemplateDriverFault>>,
-    pub(in crate::authority) uncles:
+    pub(in crate::authority) tasks: [AuthorityTemplateTask; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityTemplateRole {
+    Replacement,
+    Proposals,
+    Transactions,
+    Uncles,
+}
+
+pub(in crate::authority) struct AuthorityTemplateTask {
+    pub(in crate::authority) role: AuthorityTemplateRole,
+    pub(in crate::authority) handle:
         tokio::task::JoinHandle<Result<(), AuthorityTemplateDriverFault>>,
 }
 
@@ -172,25 +192,34 @@ impl AuthorityBlockAssembler {
         handle: &Handle,
         cancel: CancellationToken,
     ) -> AuthorityTemplateDriverHandles {
-        let replacement = {
-            let driver = self.clone();
-            let cancel = cancel.child_token();
-            handle.spawn(async move { driver.run_replacement_lane(cancel).await })
+        let replacement = AuthorityTemplateTask {
+            role: AuthorityTemplateRole::Replacement,
+            handle: {
+                let driver = self.clone();
+                let cancel = cancel.child_token();
+                handle.spawn(async move { driver.run_replacement_lane(cancel).await })
+            },
         };
-        let proposals =
-            self.spawn_component_lane(handle, cancel.child_token(), TemplateComponent::Proposals);
+        let proposals = self.spawn_component_lane(
+            handle,
+            cancel.child_token(),
+            TemplateComponent::Proposals,
+            AuthorityTemplateRole::Proposals,
+        );
         let transactions = self.spawn_component_lane(
             handle,
             cancel.child_token(),
             TemplateComponent::Transactions,
+            AuthorityTemplateRole::Transactions,
         );
-        let uncles =
-            self.spawn_component_lane(handle, cancel.child_token(), TemplateComponent::Uncles);
+        let uncles = self.spawn_component_lane(
+            handle,
+            cancel.child_token(),
+            TemplateComponent::Uncles,
+            AuthorityTemplateRole::Uncles,
+        );
         AuthorityTemplateDriverHandles {
-            replacement,
-            proposals,
-            transactions,
-            uncles,
+            tasks: [replacement, proposals, transactions, uncles],
         }
     }
 
@@ -199,15 +228,20 @@ impl AuthorityBlockAssembler {
         handle: &Handle,
         cancel: CancellationToken,
         component: TemplateComponent,
-    ) -> tokio::task::JoinHandle<Result<(), AuthorityTemplateDriverFault>> {
+        role: AuthorityTemplateRole,
+    ) -> AuthorityTemplateTask {
         let driver = self.clone();
-        handle.spawn(async move { driver.run_component_lane(component, cancel).await })
+        AuthorityTemplateTask {
+            role,
+            handle: handle.spawn(async move { driver.run_component_lane(component, cancel).await }),
+        }
     }
 
     async fn run_replacement_lane(
         self,
         cancel: CancellationToken,
     ) -> Result<(), AuthorityTemplateDriverFault> {
+        let mut failed_source = None;
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -217,6 +251,7 @@ impl AuthorityBlockAssembler {
             let local_notified = self.wake.notified();
             match self.drive_replacement_once().await {
                 Ok(AuthorityTemplateStep::Idle) => {
+                    failed_source = None;
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
                         _ = authority_notified => {},
@@ -224,16 +259,35 @@ impl AuthorityBlockAssembler {
                     }
                 }
                 Ok(AuthorityTemplateStep::Published | AuthorityTemplateStep::Stale) => {
+                    failed_source = None;
                     tokio::task::yield_now().await;
                 }
                 Err(AuthorityTemplateDriverFault::Read(TemplateReadError::Allocation)) => {
+                    failed_source = None;
                     if wait_template_retry(&cancel, authority_notified, local_notified).await
                         == TemplateRetryWake::Cancelled
                     {
                         return Ok(());
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    error!(
+                        "tx-pool template replacement lane retained the last valid projection after a rebuildable failure: {error:?}"
+                    );
+                    let observed = self.retry_source_cut().await;
+                    if failed_source != Some(observed) {
+                        // The failed attempt may have raced a source advance.
+                        // Retry that newly observed cut once before sleeping;
+                        // this keeps source capture off the successful hot path.
+                        failed_source = Some(observed);
+                        tokio::task::yield_now().await;
+                        continue;
+                    }
+                    match self.wait_template_source_change(&cancel, observed).await {
+                        Some(next) => failed_source = Some(next),
+                        None => return Ok(()),
+                    }
+                }
             }
         }
     }
@@ -243,6 +297,7 @@ impl AuthorityBlockAssembler {
         component: TemplateComponent,
         cancel: CancellationToken,
     ) -> Result<(), AuthorityTemplateDriverFault> {
+        let mut failed_source = None;
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -252,6 +307,7 @@ impl AuthorityBlockAssembler {
             let local_notified = self.wake.notified();
             match self.drive_component_once(component).await {
                 Ok(AuthorityTemplateStep::Idle) => {
+                    failed_source = None;
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
                         _ = authority_notified => {},
@@ -259,16 +315,32 @@ impl AuthorityBlockAssembler {
                     }
                 }
                 Ok(AuthorityTemplateStep::Published | AuthorityTemplateStep::Stale) => {
+                    failed_source = None;
                     tokio::task::yield_now().await;
                 }
                 Err(AuthorityTemplateDriverFault::Read(TemplateReadError::Allocation)) => {
+                    failed_source = None;
                     if wait_template_retry(&cancel, authority_notified, local_notified).await
                         == TemplateRetryWake::Cancelled
                     {
                         return Ok(());
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    error!(
+                        "tx-pool template {component:?} lane retained the last valid projection after a rebuildable failure: {error:?}"
+                    );
+                    let observed = self.retry_source_cut().await;
+                    if failed_source != Some(observed) {
+                        failed_source = Some(observed);
+                        tokio::task::yield_now().await;
+                        continue;
+                    }
+                    match self.wait_template_source_change(&cancel, observed).await {
+                        Some(next) => failed_source = Some(next),
+                        None => return Ok(()),
+                    }
+                }
             }
         }
     }
@@ -308,6 +380,64 @@ impl AuthorityBlockAssembler {
             return Ok(AuthorityTemplateStep::Idle);
         };
         self.publish_partial(prepared).await
+    }
+
+    async fn retry_source_cut(&self) -> TemplateRetrySourceCut {
+        let current = self.assembler.current.read().await;
+        let revision = current.revision;
+        let reset = current.reset_epoch;
+        drop(current);
+        let pool = self.runtime.template_source_versions();
+        let uncles = self.assembler.candidate_uncles.lock().source_receipt();
+        TemplateRetrySourceCut {
+            pool,
+            uncles,
+            revision,
+            reset,
+        }
+    }
+
+    /// Subscribe before the source read and discard unrelated wake hints.
+    /// Monotonic component versions make a mixed cut conservative: it can
+    /// cause one extra retry, but cannot hide a real source advance.
+    async fn wait_template_source_change(
+        &self,
+        cancel: &CancellationToken,
+        failed: TemplateRetrySourceCut,
+    ) -> Option<TemplateRetrySourceCut> {
+        loop {
+            if cancel.is_cancelled() {
+                return None;
+            }
+            let authority_signal = self.runtime.mutation_signal();
+            let authority_notified = authority_signal.notified();
+            let local_notified = self.wake.notified();
+            let current = self.retry_source_cut().await;
+            if current != failed {
+                return Some(current);
+            }
+            tokio::select! {
+                _ = cancel.cancelled() => return None,
+                _ = authority_notified => {}
+                _ = local_notified => {}
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) async fn retry_source_cut_for_foundation(&self) -> TemplateRetrySourceCut {
+        self.retry_source_cut().await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn wait_template_source_change_for_foundation(
+        &self,
+        cancel: &CancellationToken,
+        failed: TemplateRetrySourceCut,
+    ) -> bool {
+        self.wait_template_source_change(cancel, failed)
+            .await
+            .is_some()
     }
 
     #[cfg(test)]

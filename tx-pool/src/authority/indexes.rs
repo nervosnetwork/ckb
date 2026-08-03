@@ -4,16 +4,18 @@
 //! Callers cannot update proposal and ingress-peer views independently.
 
 use super::state::{
-    AcceptedAtMillis, AcceptedStatus, EntryVersion, OwnedTx, ProposalId, RawTxHash, RemoteDeadline,
+    AcceptedAtMillis, AcceptedStatus, OwnedTx, ProposalId, RawTxHash, RemoteDeadline,
 };
 use ckb_network::PeerIndex;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct DeadlineKey {
+    // Remote residency expiry is immutable for one owner and is validated
+    // against the current primary entry when consumed. Compute phase/version
+    // churn therefore must not detach and reinsert the same deadline.
     expires_at: RemoteDeadline,
     hash: RawTxHash,
-    version: EntryVersion,
 }
 
 /// Accepted expiry is tied to the immutable admission timestamp, not the OCC
@@ -56,7 +58,6 @@ impl AcceptedProposalIndex {
 pub(super) struct DueRemote {
     pub(super) expires_at: RemoteDeadline,
     pub(super) hash: RawTxHash,
-    pub(super) version: EntryVersion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,6 +84,11 @@ pub(super) enum IndexError {
     Allocation,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StableIndexError {
+    Projection,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct IndexFact {
     proposal: ProposalId,
@@ -91,7 +97,6 @@ struct IndexFact {
     active_deadline: Option<RemoteDeadline>,
     accepted_at: Option<AcceptedAtMillis>,
     accepted_status: Option<AcceptedStatus>,
-    version: EntryVersion,
 }
 
 impl IndexFact {
@@ -126,7 +131,6 @@ impl IndexFact {
             active_deadline,
             accepted_at,
             accepted_status,
-            version: owner.record().version,
         })
     }
 
@@ -134,7 +138,6 @@ impl IndexFact {
         self.active_deadline.map(|expires_at| DeadlineKey {
             expires_at,
             hash: hash.clone(),
-            version: self.version,
         })
     }
 
@@ -181,6 +184,44 @@ pub(super) struct AuthorityIndexes {
 }
 
 impl AuthorityIndexes {
+    fn validate_present_fact(&self, key: &RawTxHash, fact: &IndexFact) -> Result<(), IndexError> {
+        if self.by_proposal.get(&fact.proposal) != Some(key) {
+            return Err(IndexError::Projection);
+        }
+        if let Some(peer) = fact.preaccepted_peer
+            && !self
+                .preaccepted_by_peer
+                .get(&peer)
+                .is_some_and(|owners| owners.contains(key))
+        {
+            return Err(IndexError::Projection);
+        }
+        if self.context_sensitive_accepted.contains(key) != fact.context_sensitive_accepted {
+            return Err(IndexError::Projection);
+        }
+        if fact
+            .deadline_key(key)
+            .is_some_and(|deadline| !self.deadlines.contains(&deadline))
+        {
+            return Err(IndexError::Projection);
+        }
+        if fact
+            .accepted_deadline_key(key)
+            .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
+        {
+            return Err(IndexError::Projection);
+        }
+        if fact.accepted_status.is_some_and(|status| {
+            !self
+                .accepted_proposals
+                .for_status(status)
+                .contains(&fact.proposal)
+        }) {
+            return Err(IndexError::Projection);
+        }
+        Ok(())
+    }
+
     pub(super) fn proposal_owner(&self, proposal: &ProposalId) -> Option<&RawTxHash> {
         self.by_proposal.get(proposal)
     }
@@ -214,7 +255,6 @@ impl AuthorityIndexes {
             due.push(DueRemote {
                 expires_at: deadline.expires_at,
                 hash: deadline.hash.clone(),
-                version: deadline.version,
             });
         }
         Ok(due)
@@ -269,40 +309,7 @@ impl AuthorityIndexes {
             .map(|owner| IndexFact::from_owner(key, owner))
             .transpose()?;
         if let Some(before) = &before {
-            if self.by_proposal.get(&before.proposal) != Some(key) {
-                return Err(IndexError::Projection);
-            }
-            if let Some(peer) = before.preaccepted_peer
-                && !self
-                    .preaccepted_by_peer
-                    .get(&peer)
-                    .is_some_and(|owners| owners.contains(key))
-            {
-                return Err(IndexError::Projection);
-            }
-            if self.context_sensitive_accepted.contains(key) != before.context_sensitive_accepted {
-                return Err(IndexError::Projection);
-            }
-            if before
-                .deadline_key(key)
-                .is_some_and(|deadline| !self.deadlines.contains(&deadline))
-            {
-                return Err(IndexError::Projection);
-            }
-            if before
-                .accepted_deadline_key(key)
-                .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
-            {
-                return Err(IndexError::Projection);
-            }
-            if before.accepted_status.is_some_and(|status| {
-                !self
-                    .accepted_proposals
-                    .for_status(status)
-                    .contains(&before.proposal)
-            }) {
-                return Err(IndexError::Projection);
-            }
+            self.validate_present_fact(key, before)?;
         }
 
         let mut delta = IndexDelta::default();
@@ -467,6 +474,28 @@ impl AuthorityIndexes {
             }
         }
         Ok(delta)
+    }
+
+    /// Validate a phase-only owner replacement whose index facts are stable.
+    /// The equality and current-projection proofs are checked directly. The
+    /// general compiler is deliberately not called, so this emergency path
+    /// has no insertion, removal, reservation, or allocation error surface.
+    pub(super) fn plan_stable_replace(
+        &mut self,
+        key: &RawTxHash,
+        before: &OwnedTx,
+        after: &OwnedTx,
+    ) -> Result<IndexDelta, StableIndexError> {
+        let before_fact =
+            IndexFact::from_owner(key, before).map_err(|_| StableIndexError::Projection)?;
+        let after_fact =
+            IndexFact::from_owner(key, after).map_err(|_| StableIndexError::Projection)?;
+        if before_fact != after_fact {
+            return Err(StableIndexError::Projection);
+        }
+        self.validate_present_fact(key, &before_fact)
+            .map_err(|_| StableIndexError::Projection)?;
+        Ok(IndexDelta::default())
     }
 
     pub(super) fn plan_replacements<'entry>(
@@ -941,7 +970,6 @@ impl AuthorityIndexes {
                 expected.deadlines.insert(DeadlineKey {
                     expires_at,
                     hash: key.clone(),
-                    version: entry.record.version,
                 });
             }
             match owner {

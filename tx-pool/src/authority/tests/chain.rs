@@ -5,7 +5,10 @@ use super::super::{
     },
     chain_boundary::{ChainPackaging as RuntimeChainPackaging, ChainUpdateCommand},
     effect::{CommittedEffect, CommittedRejection},
-    plan::{AuthorityFault, Backpressure, PlanError, StalePlan, TxPoolAuthority},
+    plan::{
+        AuthorityFault, Backpressure, ComputeSettlementRecovery, PlanError, StalePlan,
+        TxPoolAuthority,
+    },
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     runtime::AuthorityRuntime,
     state::{
@@ -2359,7 +2362,10 @@ fn uak_chain_trusted_proposal_expiry_invalidates_active_work_without_a_drain() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the old proposal capability is stale after terminalization");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
     assert!(authority.primary_projection_consistent());
 }
@@ -2631,7 +2637,10 @@ fn uak_chain_commit_invalidates_targeted_active_work_without_a_prefix() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the attached-block removal invalidates its old capability");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Missing));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
+    );
     drop(stale);
     assert!(authority.primary_projection_consistent());
 }
@@ -2686,7 +2695,10 @@ fn uak_chain_direct_recovery_replaces_active_owner_and_stales_old_work() {
     let stale = authority
         .apply_settlement(work.internal_failure())
         .expect_err("the replaced active incarnation cannot publish old work");
-    assert_eq!(stale.error(), &PlanError::Stale(StalePlan::Version));
+    assert_eq!(
+        stale.recovery(),
+        &ComputeSettlementRecovery::Obsolete(StalePlan::Version)
+    );
     drop(stale);
     assert_resource_reference(&authority);
     assert!(authority.primary_projection_consistent());

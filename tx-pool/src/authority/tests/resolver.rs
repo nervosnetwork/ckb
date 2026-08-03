@@ -1131,6 +1131,10 @@ async fn uak_local_atomically_replaces_same_raw_active_remote_owner() {
     );
     assert!(matches!(
         stale,
-        ControlFlow::Break(pending) if matches!(pending.error(), PlanError::Stale(_))
+        ControlFlow::Break(pending)
+            if matches!(
+                pending.recovery(),
+                crate::authority::plan::ComputeSettlementRecovery::Obsolete(_)
+            )
     ));
 }

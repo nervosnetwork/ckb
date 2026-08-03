@@ -16,20 +16,20 @@ use super::chain::{
 use super::dependency::DependencySnapshot;
 use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
-    DependencyEvent, DependencyFrontier, DependencyMaintenanceAction,
+    DependencyEvent, DependencyFrontier, DependencyMaintenanceAction, StableDependencyError,
 };
 use super::effect::{
     CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-    CommittedPeerCohortRevocation, CommittedRejection, EffectBatch, EffectBuildError,
-    EffectConfigError, EffectDelta, EffectError, EffectLease, EffectLimits, EffectLog,
-    EffectPolicy, EffectPublication, EffectSettlement, ParentTransactionRequest,
+    CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease, EffectBatch,
+    EffectBuildError, EffectConfigError, EffectDelta, EffectError, EffectLease, EffectLimits,
+    EffectLog, EffectPolicy, EffectPublication, EffectSettlement, ParentTransactionRequest,
     PendingRecentReject, RejectionAudience,
 };
 #[cfg(test)]
 use super::effect::{EffectObservation, EffectSnapshot};
 #[cfg(test)]
 use super::indexes::IndexSnapshot;
-use super::indexes::{AuthorityIndexes, IndexDelta, IndexError};
+use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, StableIndexError};
 use super::ingress::{
     DirectCommand, RetainedIngress, RetainedIngressKind, RetainedIngressRejection,
 };
@@ -43,8 +43,8 @@ use super::rejection::{
 #[cfg(test)]
 use super::resources::ResourceSnapshot;
 use super::resources::{
-    ActiveWorkAvailability, ChargeRecord, ChargedAdmission, ResourceBatchPlan, ResourceError,
-    ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
+    ActiveWorkAvailability, ChargeRecord, ChargedAdmission, ComputeReleaseError, ResourceBatchPlan,
+    ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
 };
 #[cfg(test)]
 use super::scheduler::SchedulerSnapshot;
@@ -580,14 +580,63 @@ pub(super) enum PlanError {
 #[derive(Debug)]
 #[must_use = "a failed compute settlement still owns the active lease capability"]
 pub(super) struct ComputeSettlementFailure {
-    error: PlanError,
+    recovery: ComputeSettlementRecovery,
     token: SettlementToken,
     next: SettlementNext,
 }
 
+/// Closed progress contract for returning the sole compute capability.
+///
+/// Settlement may wait only for the two resources whose unique progress
+/// engines are known: allocator recovery or effect capacity released by the
+/// independent publisher. Every other planning outcome is structural in this
+/// context. Keeping that distinction at the producer prevents a future
+/// `PlanError` variant from silently becoming an unbounded worker retry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ComputeSettlementRecovery {
+    Obsolete(StalePlan),
+    CancelAfterAllocation,
+    WaitEffectCapacity,
+    Structural(PlanError),
+}
+
+impl ComputeSettlementRecovery {
+    fn from_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Stale(stale) => Self::Obsolete(stale),
+            PlanError::Backpressure(Backpressure::Allocation) => Self::CancelAfterAllocation,
+            PlanError::Backpressure(Backpressure::EffectCapacity) => Self::WaitEffectCapacity,
+            PlanError::Backpressure(
+                pressure @ (Backpressure::ProposalCollision
+                | Backpressure::TotalResources
+                | Backpressure::RemoteResources
+                | Backpressure::PeerResources
+                | Backpressure::AcceptedResources
+                | Backpressure::ComputeResources
+                | Backpressure::ActiveWorkDrain
+                | Backpressure::GenerationReplacement),
+            ) => Self::Structural(PlanError::Backpressure(pressure)),
+            PlanError::Duplicate => Self::Structural(PlanError::Duplicate),
+            PlanError::PayloadVariant => Self::Structural(PlanError::PayloadVariant),
+            PlanError::Membership(rejection) => Self::Structural(PlanError::Membership(rejection)),
+            PlanError::IngressRevoked(peer) => Self::Structural(PlanError::IngressRevoked(peer)),
+            PlanError::Fault(fault) => Self::Structural(PlanError::Fault(fault)),
+            PlanError::EffectClosed => Self::Structural(PlanError::EffectClosed),
+        }
+    }
+}
+
 impl ComputeSettlementFailure {
-    pub(super) fn error(&self) -> &PlanError {
-        &self.error
+    fn new(error: PlanError, token: SettlementToken, next: SettlementNext) -> Self {
+        Self {
+            recovery: ComputeSettlementRecovery::from_plan(error),
+            token,
+            next,
+        }
+    }
+
+    pub(super) fn recovery(&self) -> &ComputeSettlementRecovery {
+        &self.recovery
     }
 
     pub(super) fn into_settlement(self) -> ComputeSettlement {
@@ -596,6 +645,41 @@ impl ComputeSettlementFailure {
             next: self.next,
         }
     }
+
+    /// Discard an expensive result before reacquiring the authority guard and
+    /// retain only the lease identity required to requeue its owner.
+    pub(super) fn discard_result_for_cancellation(self) -> ComputeCancellation {
+        let Self {
+            token,
+            next,
+            recovery: _,
+        } = self;
+        drop(next);
+        ComputeCancellation { token }
+    }
+
+    #[cfg(test)]
+    pub(super) fn allocation_for_foundation(settlement: ComputeSettlement) -> Self {
+        let ComputeSettlement { token, next } = settlement;
+        Self::new(
+            PlanError::Backpressure(Backpressure::Allocation),
+            token,
+            next,
+        )
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "compute cancellation owns the only lease identity that can release active work"]
+pub(super) struct ComputeCancellation {
+    token: SettlementToken,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ComputeCancellationError {
+    Obsolete(StalePlan),
+    Fault(AuthorityFault),
+    EffectClosed,
 }
 
 /// Effect settlement has the same linear handoff rule as compute: planning
@@ -2386,7 +2470,11 @@ impl TxPoolAuthority {
                     return self
                         .plan_single_effect(
                             EffectPolicy::Remote,
-                            CommittedEffect::RemoteIngressReleased { tx_hash: key },
+                            CommittedEffect::RemoteIngressReleased(
+                                CommittedRemoteIngressRelease::duplicate_remote_submission(
+                                    key, peer,
+                                ),
+                            ),
                         )
                         .map(RetainedAdmissionDisposition::RemoteReleased);
                 }
@@ -3934,18 +4022,18 @@ impl TxPoolAuthority {
                     .entries
                     .get(&root)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-                let effect = match root_owner {
-                    OwnedTx::PreAccepted(_) => {
+                let effect = match CommittedRemoteIngressRelease::removed_owner(root, root_owner) {
+                    Some(release) => {
                         let publication = self
                             .effects
                             .build_publication(
                                 EffectPolicy::Trusted,
-                                vec![CommittedEffect::RemoteIngressReleased { tx_hash: root }],
+                                vec![CommittedEffect::RemoteIngressReleased(release)],
                             )
                             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
                         self.effects.plan_publication(&publication, sequence)?
                     }
-                    OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => EffectDelta::default(),
+                    None => EffectDelta::default(),
                 };
                 (AdminControl::None, effect)
             }
@@ -4178,9 +4266,6 @@ impl TxPoolAuthority {
             let OwnedTx::PreAccepted(entry) = owner else {
                 return Err(PlanError::Fault(AuthorityFault::IndexProjection));
             };
-            if entry.record.version != candidate.version {
-                return Err(PlanError::Fault(AuthorityFault::IndexProjection));
-            }
             let PreAcceptedSource::Remote(remote) = entry.source else {
                 return Err(PlanError::Fault(AuthorityFault::IndexProjection));
             };
@@ -4748,15 +4833,122 @@ impl TxPoolAuthority {
         let ComputeSettlement { token, next } = settlement;
         match self.prepare_settlement(&token, next) {
             Ok(plan) => Ok(plan.apply()),
-            Err(PrepareSettlementError::Recompute(error)) => Err(ComputeSettlementFailure {
+            Err(PrepareSettlementError::Recompute(error)) => Err(ComputeSettlementFailure::new(
                 error,
                 token,
-                next: SettlementNext::Retry,
-            }),
+                SettlementNext::Retry,
+            )),
             Err(PrepareSettlementError::Preserve { error, next }) => {
-                Err(ComputeSettlementFailure { error, token, next })
+                Err(ComputeSettlementFailure::new(error, token, next))
             }
         }
+    }
+
+    /// Discharge a compute lease after allocator pressure made its original
+    /// result uncommittable. This Plan intentionally has no effect, index,
+    /// dependency, primary-owner, or peer-row insertion path. Its closed error
+    /// type therefore cannot turn resource pressure into an unbounded retry.
+    pub(super) fn apply_compute_cancellation(
+        &mut self,
+        cancellation: ComputeCancellation,
+    ) -> Result<CommittedDelta, ComputeCancellationError> {
+        let token = cancellation.token;
+        let existing = self
+            .entries
+            .get(&token.hash)
+            .ok_or(ComputeCancellationError::Obsolete(StalePlan::Missing))?
+            .clone();
+        if existing.record().version != token.version {
+            return Err(ComputeCancellationError::Obsolete(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = &existing else {
+            return Err(ComputeCancellationError::Obsolete(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Computing(active) = &preaccepted.phase else {
+            return Err(ComputeCancellationError::Obsolete(StalePlan::Phase));
+        };
+        if active.lease != token.lease {
+            return Err(ComputeCancellationError::Obsolete(StalePlan::Lease));
+        }
+        if preaccepted.charge.active_work != 1 {
+            return Err(ComputeCancellationError::Fault(
+                AuthorityFault::ResourceProjection,
+            ));
+        }
+        if self.effects.is_closed() {
+            return Err(ComputeCancellationError::EffectClosed);
+        }
+
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let after = existing
+            .with_preaccepted_phase(
+                PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                version,
+                preaccepted.original_charge(),
+            )
+            .map_err(|_| ComputeCancellationError::Fault(AuthorityFault::MembershipProjection))?;
+        let clocks = AuthorityClocks {
+            next_version: version.0.checked_add(1).map(EntryVersion).ok_or(
+                ComputeCancellationError::Fault(AuthorityFault::CounterExhausted),
+            )?,
+            next_sequence: sequence.0.checked_add(1).map(ApplySequence).ok_or(
+                ComputeCancellationError::Fault(AuthorityFault::CounterExhausted),
+            )?,
+            ..self.clocks
+        };
+        let resource = self
+            .resources
+            .plan_compute_release(
+                token.hash.clone(),
+                existing.charge_record(),
+                after.charge_record(),
+            )
+            .map_err(|error| match error {
+                ComputeReleaseError::Arithmetic | ComputeReleaseError::Projection => {
+                    ComputeCancellationError::Fault(AuthorityFault::ResourceProjection)
+                }
+            })?;
+        let scheduler = self
+            .scheduler
+            .plan_replace(Some(&existing), Some(&after), None)
+            .map_err(|_| ComputeCancellationError::Fault(AuthorityFault::SchedulerProjection))?;
+        let dependency = self
+            .dependencies
+            .plan_stable_replace(&existing, &after)
+            .map_err(|error| match error {
+                StableDependencyError::Projection => {
+                    ComputeCancellationError::Fault(AuthorityFault::DependencyProjection)
+                }
+            })?;
+        let indexes = self
+            .indexes
+            .plan_stable_replace(&token.hash, &existing, &after)
+            .map_err(|error| match error {
+                StableIndexError::Projection => {
+                    ComputeCancellationError::Fault(AuthorityFault::IndexProjection)
+                }
+            })?;
+        let sources = self
+            .source_versions
+            .plan_replacements(std::iter::once((Some(&existing), Some(&after))), sequence);
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Entry(EntryDelta {
+                key: token.hash,
+                after: Some(after),
+                owners: DerivedOwnerDelta { indexes, sources },
+                retirement: EntryRetirement::InlineDrop,
+                resource,
+                scheduler,
+                dependency,
+                effect: EffectDelta::default(),
+                clocks,
+                sequence,
+            }),
+            handoff: CommittedHandoff::None,
+        }
+        .apply())
     }
 
     fn prepare_settlement<'a>(
