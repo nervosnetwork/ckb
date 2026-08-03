@@ -1,19 +1,18 @@
 # G5 Production Cutover Recovery Plan
 
-Status: design frozen; G5.3b.6 checkpoint ready
+Status: G5.3b.7 entry design frozen; isolated topology assembly in progress
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
 G5.3b.3 checkpoint: 71b629676
 G5.3b.4 checkpoint: 1641bdfa3
 G5.3b.5 checkpoint: bfa1ddced
-G5.3b.6 checkpoint: this commit
+G5.3b.6 checkpoint: c11055968
 Active slice: G5.3b.7
-Next exact action: inventory the complete production task/endpoint topology,
-then assemble one isolated AuthorityRuntime topology constructor without
-switching the production builder. Preserve the existing full/reset publication
-order and concurrent partial construction. Do not dual-write or change a
-legacy production owner before G5.3c.
+Next exact action: add the bounded level-triggered maintenance driver and its
+fairness/cancellation/no-idle-spin tests. Continue through the isolated block-
+assembler and lifecycle topology constructors without switching the production
+builder. Do not dual-write or change a legacy production owner before G5.3c.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -523,11 +522,16 @@ One chain administration method owns this complete sequence:
    or handing immutable source receipts to the block assembler and fee
    estimator.
 
-Persisted replay and on-chain zombie reconciliation belong to topology startup,
-not to every chain transition. G5.3b.7 must replay persistence and perform one
-explicit reconciliation before opening ingress/workers. This removes the
-`onchain_reconcile_done` mutable marker and the first-block database scan from
-the chain path rather than retaining a second lifecycle convention.
+Persisted replay and chain catch-up belong to topology startup, not to every
+chain transition. The root defect in the legacy path is that chain verification
+skips authoritative reorg deltas while `service_started == false`; a later
+zombie scan can only mitigate that lost-history protocol. The new topology must
+instead make the already bounded ordered reorg channel reliable before startup,
+replay persistence through ordinary validation against the initial paired
+snapshot, drain every queued exact chain delta in order, and only then open
+ordinary ingress. This eliminates the skipped transition itself and deletes
+both `onchain_reconcile_done` and the first-block database scan. It does not add
+a catch-up scan, marker, second snapshot authority, or repair protocol.
 
 Detached recovery is one parent-first combined set. An unrepresentable bounded
 set uses only the rebuildable generation-reset fallback; exact ban or malformed
@@ -1266,6 +1270,145 @@ G5.3b.6 phase review:
   BFS allocation and the 4,000-failure rule may underfill a near-full block.
   Both are established bounded policy, not new ownership state; optimize only
   from P10 profile/packing-quality evidence after production cutover.
+
+G5.3b.7 entry design:
+
+- This phase assembles one production-shaped topology behind isolated
+  constructors. It does not start that topology from `TxPoolServiceBuilder`,
+  mutate a legacy `TxPool`/`PrePool`/`EffectJournal`, or create a shadow read or
+  write path. G5.3c remains the single ownership switch.
+- The exact long-lived tasks are the set in section 11. Their capabilities are
+  closed: resolver and verifier workers own checked-out compute leases; Ready
+  and maintenance own only level reads and total Plan/Apply calls; the ordered
+  chain handler owns one retained chain command at a time; the publisher owns
+  the sole effect lease; cache and block-assembler tasks own only derived
+  endpoints. The dispatcher owns bounded request execution, never membership.
+- One shared transient compute-execution gate is compiled from the same checked
+  `N + 1` formula that sizes the authority compute partition. Retained workers
+  acquire a permit before checkout and keep it through settlement or typed
+  staleness. Local and TestAccept acquire the same permit before direct capture
+  and keep it through verification and final settlement/evaluation. Waiting for
+  a permit owns no authority capability and holds no guard. Ready, maintenance,
+  chain planning, template construction and block validation do not consume
+  this tx-pool VM permit. The gate is execution capacity only and cannot decide
+  transaction location, charge, ordering or admission.
+- Verification-cache evidence is bound constructively. A prepared retained or
+  direct verification request is consumed by an exact lookup against
+  `TxVerificationCache`; the lookup returns a move-only cache-bound request and
+  only that type exposes execution. No API accepts an independently obtained
+  `Option<Completed>`, and no caller can pair the cached result for request A
+  with request B. The existing fixed-size witness hash plus exact
+  `ScriptVerificationRules` remains the sole key.
+- The maintenance driver owns no queue, cursor, population mirror or retry
+  ledger. It subscribes before reading authority levels, performs a bounded
+  fair round over Remote expiry, one Accepted root/closure, and dependency dirty
+  work, and uses a timer only for wall-clock due work. Progress repeats through
+  bounded steps with cooperative yield; an idle read waits on level hints or the
+  next expiry tick. Legal resource pressure is typed backoff, not fail-stop.
+- The block assembler keeps its established concurrency domains. Full and reset
+  remain ordered only at the short publication boundary; their construction
+  overlaps proposal, transaction and uncle partial construction. Full ignores
+  partial revisions and retains priority, reset epoch-fences stale full work,
+  and partial receipts use optimistic revisions and may be skipped. Candidate
+  uncles stay under their existing short bounded lock and production mutation
+  uses typed `try_insert`; no full/reset/partial actor or authority lock is
+  introduced.
+- Startup removes the cause of the legacy zombie protocol. The ordered reorg
+  sender exists before service tasks start and never drops a chain delta merely
+  because ordinary ingress is closed. Persistence re-enters ordinary validation
+  against the initial paired snapshot; queued exact chain updates then advance
+  that same authority/snapshot pair in order. Ordinary controller ingress opens
+  only after replay and catch-up. `onchain_reconcile_done`, the first-later-block
+  database scan and any replacement marker or repair scan are deleted at
+  G5.3c.
+- Shutdown is a capability drain, not panic recovery: close ordinary ingress and
+  the chain/admin producer boundary; cancel compute, Ready and maintenance;
+  settle or stale every checked-out capability and join them; close the effect
+  producer; let the uncancellable sole publisher drain; capture persistence
+  after the drain; then stop derived services. A structural task fault requests
+  this controlled sequence. Legal hostile input, stale work, endpoint failure,
+  backpressure and resource exhaustion remain typed outcomes.
+
+G5.3b.7 implementation slices and gates:
+
+1. [x] Seal cache-bound verification and typed candidate-uncle insertion. Add a
+   regression proving cached evidence cannot be supplied independently of its
+   request identity.
+2. [x] Add the shared transient compute gate and route isolated retained/direct
+   executors through it. Constructively saturate it with mixed retained and
+   direct work; prove the next execution cannot start until one exact permit is
+   released and that no checkout capability waits behind the gate.
+3. [ ] Add the bounded level-triggered maintenance driver and cancellation
+   tests, including Remote/Accepted/dependency fairness and no idle hot loop.
+4. [ ] Add the production-shaped block-assembler adapter and convergence driver
+   without starting it. Regress full/reset priority, partial OCC, uncle source
+   staleness, the detached-uncle proposal filter and normal Gap reproposal.
+5. [ ] Add one isolated topology owner/handle with explicit construction,
+   startup readiness, task supervision and ordered shutdown. Test clean drain,
+   structural-fault shutdown, effect backpressure and cancellation at each
+   capability boundary.
+6. [ ] Run focused and complete authority nextest, strict Clippy, formatting,
+   production panic-like-operation and lock-across-await searches, allocation/
+   bound review, then answer all section 15 questions before checkpointing.
+
+G5.3b.7 is incomplete if a production-reachable direct or retained compute path
+can bypass the shared gate, if a cache result can be paired manually, if a task
+owns a second membership level, if startup can drop a chain delta, or if block
+template construction becomes serialized through one actor.
+
+G5.3b.7 slices 1-2 review:
+
+- Cache lookup now consumes the exact prepared request and returns a move-only
+  cache-bound request; execution accepts no caller-supplied `Completed`. A
+  neighboring witness-key regression proves a miss and cache update rather than
+  accidental proof reuse. `TxVerificationCacheKey` remains the inline 32-byte
+  witness hash plus `ScriptVerificationRules`; block verification is untouched.
+- Chain command construction now uses `CandidateUncles::try_insert` and maps
+  source exhaustion to the existing typed chain-boundary error. No production
+  source update is silently collapsed to `false`.
+- The shared semaphore is compiled from the same checked `N + 1` value used by
+  `active_work` and the byte/edge compute partition; construction validates the
+  Tokio capacity before calling `Semaphore::new`. It is not a membership or
+  accounting authority and adds no queue beyond the semaphore's bounded waiter
+  set.
+- The permit is a linear Rust capability. Retained checkout consumes it, every
+  resolve/verify continuation carries it, and settlement backpressure retains
+  it. Direct validation likewise carries it through rejection or verified final
+  disposition. There is no checked-out authority capability waiting behind the
+  gate and no cache/authority guard crosses an await.
+- A constructive mixed test holds one retained checkout, one owner-free direct
+  result and every remaining worker slot, proves the next execution cannot
+  begin, releases one exact slot, and proves progress. Existing worker pause,
+  normal lifecycle and effect-backpressure tests remain green.
+- Independent work remains parallel up to the original physical `N + 1`
+  compute capacity. Ready, chain planning, maintenance, publisher and template
+  work do not consume this gate. Sharing may intentionally make a sustained
+  Local/TestAccept flood compete with retained VM work instead of exceeding the
+  configured transient partition; P10 must measure that policy, but restoring a
+  second uncharged direct population is not an acceptable optimization.
+- The review considered one generic `ExecutionBound<T>` wrapper. It would save
+  syntax but expose a broader generic proof surface and obscure the distinct
+  retained settlement, direct rejection and direct admission APIs. The small
+  concrete move-only wrappers are retained for now; the post-cutover model and
+  Rust gates must reconsider them after migration code is deleted.
+- Recovery evidence for this subcheckpoint is complete: the authority selector
+  ran 310/310 tests green (587 total library tests, with 277 non-authority tests
+  intentionally excluded by the selector), including the exact-cache and mixed
+  compute-saturation regressions. `cargo fmt --all -- --check` and
+  `git diff --check` are green. The modified production regions contain no new
+  panic-like validation; the matches in `runtime.rs` are confined to its
+  `#[cfg(test)]` module and will move out during the post-cutover test-layout
+  cleanup.
+- Strict Clippy exposed that the first gate encoding put the large linear
+  settlement carrier inside every `AuthorityRuntimeError`. That was a model
+  error, not a lint exception: recoverable settlement interruption is now an
+  allocation-free `ControlFlow::Break(AuthorityPendingSettlement)`, while only
+  a genuine structural worker fault boxes the carrier for supervision. The new
+  `result_large_err` finding is gone. Sixteen older large-carrier/large-enum
+  lints in `plan.rs`, resolver work and checkout remain, along with authority
+  dead-code until production cutover; they are explicitly deferred to the
+  post-cutover G5/G6 Rust gate so this slice does not add speculative `Box`
+  allocation to hot capability paths before migration code is deleted.
 
 Every former prototype function promoted to production loses the
 `_for_foundation` suffix and gains a narrow runtime caller. Every function that

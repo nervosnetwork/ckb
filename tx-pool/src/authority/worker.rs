@@ -7,10 +7,11 @@
 //! capability reaches supervision.
 
 use super::{
-    plan::{Backpressure, ComputeSettlementFailure, PlanError},
+    plan::{Backpressure, PlanError},
     resolver::{ResolutionExecutionKind, VerificationCacheUpdate},
     runtime::{
-        AuthorityComputeOutcome, AuthorityReadyOutcome, AuthorityRuntime, AuthorityRuntimeError,
+        AuthorityComputeCheckout, AuthorityComputeExecutionPermit, AuthorityComputeOutcome,
+        AuthorityPendingSettlement, AuthorityReadyOutcome, AuthorityRuntime, AuthorityRuntimeError,
         FinalAdmissionCaptureError, ReadyValidationError, SettlementOrigin,
     },
     state::{VerifyCapability, WorkPermit},
@@ -20,7 +21,7 @@ use ckb_async_runtime::Handle;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
-use std::{future::pending, sync::Arc, time::Duration};
+use std::{future::pending, ops::ControlFlow, sync::Arc, time::Duration};
 use tokio::sync::{Notify, RwLock, mpsc, watch};
 
 const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(1);
@@ -42,6 +43,7 @@ pub(crate) struct AuthorityWorkerFault {
 #[derive(Debug)]
 enum AuthorityWorkerFaultKind {
     Runtime(AuthorityRuntimeError),
+    Settlement(Box<AuthorityPendingSettlement>),
     UnexpectedVerificationLane,
 }
 
@@ -55,6 +57,12 @@ impl AuthorityWorkerFault {
     fn unexpected_verification_lane() -> Self {
         Self {
             kind: AuthorityWorkerFaultKind::UnexpectedVerificationLane,
+        }
+    }
+
+    fn settlement(pending: AuthorityPendingSettlement) -> Self {
+        Self {
+            kind: AuthorityWorkerFaultKind::Settlement(Box::new(pending)),
         }
     }
 }
@@ -169,7 +177,12 @@ impl ComputeWorker {
                     None => pending().await,
                 }
             };
-            let step = self.try_process_one(&mut command_rx).await?;
+            let execution = match self.runtime.acquire_compute_execution(&cancel).await {
+                Ok(Some(execution)) => execution,
+                Ok(None) => return Ok(()),
+                Err(error) => return Err(AuthorityWorkerFault::runtime(error)),
+            };
+            let step = self.try_process_one(&mut command_rx, execution).await?;
             if step == WorkerStep::Progress {
                 continue;
             }
@@ -215,15 +228,17 @@ impl ComputeWorker {
     async fn try_process_one(
         &self,
         command_rx: &mut watch::Receiver<ChunkCommand>,
+        execution: AuthorityComputeExecutionPermit,
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
-        let job = match self.checkout() {
-            Ok(Some(job)) => job,
-            Ok(None) => return Ok(WorkerStep::Wait),
+        let job = match self.checkout(execution) {
+            Ok(ControlFlow::Continue(Some(job))) => job,
+            Ok(ControlFlow::Continue(None)) => return Ok(WorkerStep::Wait),
+            Ok(ControlFlow::Break(pending)) => return self.recover_settlement(pending).await,
             Err(error) => return self.handle_runtime_error(error).await,
         };
         match self.runtime.execute_compute(job) {
-            Ok(AuthorityComputeOutcome::Settled) => Ok(WorkerStep::Progress),
-            Ok(AuthorityComputeOutcome::Verification(request)) => {
+            Ok(ControlFlow::Continue(AuthorityComputeOutcome::Settled)) => Ok(WorkerStep::Progress),
+            Ok(ControlFlow::Continue(AuthorityComputeOutcome::Verification(request))) => {
                 let (cache, cache_updates) = match &self.role {
                     WorkerRole::Verifier {
                         cache,
@@ -231,24 +246,24 @@ impl ComputeWorker {
                         ..
                     } => (cache, cache_updates),
                     WorkerRole::OrderedResolve => {
-                        let settlement = request.retry();
-                        if let Err(failure) = self.runtime.settle(settlement) {
-                            self.recover_settlement(failure, SettlementOrigin::Completion)
-                                .await?;
+                        if let ControlFlow::Break(pending) =
+                            self.runtime.retry_unexpected_verification(request)
+                        {
+                            self.recover_settlement(pending).await?;
                         }
                         return Err(AuthorityWorkerFault::unexpected_verification_lane());
                     }
                 };
-                let cache_entry = {
+                let request = {
                     let guard = cache.read().await;
-                    guard.peek(request.cache_key()).copied()
+                    request.bind_cache(&guard)
                 };
                 match self
                     .runtime
-                    .execute_verification(request, cache_entry, Some(command_rx))
+                    .execute_verification(request, Some(command_rx))
                     .await
                 {
-                    Ok(outcome) => {
+                    Ok(ControlFlow::Continue(outcome)) => {
                         if let Some(update) = outcome.cache_update {
                             // Cache publication is deliberately best effort
                             // and happens only after authoritative settlement.
@@ -258,27 +273,60 @@ impl ComputeWorker {
                         }
                         Ok(WorkerStep::Progress)
                     }
+                    Ok(ControlFlow::Break(pending)) => self.recover_settlement(pending).await,
                     Err(error) => self.handle_runtime_error(error).await,
                 }
             }
+            Ok(ControlFlow::Break(pending)) => self.recover_settlement(pending).await,
             Err(error) => self.handle_runtime_error(error).await,
         }
     }
 
     fn checkout(
         &self,
-    ) -> Result<Option<super::runtime::AuthorityComputeJob>, AuthorityRuntimeError> {
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, Option<super::runtime::AuthorityComputeJob>>,
+        AuthorityRuntimeError,
+    > {
         match &self.role {
-            WorkerRole::OrderedResolve => self.runtime.try_checkout(WorkPermit::ResolveOnly),
+            WorkerRole::OrderedResolve => {
+                match self
+                    .runtime
+                    .try_checkout(WorkPermit::ResolveOnly, execution)?
+                {
+                    ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
+                    ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                        Ok(ControlFlow::Continue(Some(job)))
+                    }
+                    ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                        drop(execution);
+                        Ok(ControlFlow::Continue(None))
+                    }
+                }
+            }
             WorkerRole::Verifier { capability, .. } => {
                 match self
                     .runtime
-                    .try_checkout(WorkPermit::VerifyOnly(*capability))?
+                    .try_checkout(WorkPermit::VerifyOnly(*capability), execution)?
                 {
-                    Some(job) => Ok(Some(job)),
-                    None => self
+                    ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
+                    ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                        Ok(ControlFlow::Continue(Some(job)))
+                    }
+                    ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => match self
                         .runtime
-                        .try_checkout(WorkPermit::ResolveThenVerify(*capability)),
+                        .try_checkout(WorkPermit::ResolveThenVerify(*capability), execution)?
+                    {
+                        ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
+                        ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                            Ok(ControlFlow::Continue(Some(job)))
+                        }
+                        ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                            drop(execution);
+                            Ok(ControlFlow::Continue(None))
+                        }
+                    },
                 }
             }
         }
@@ -295,9 +343,9 @@ impl ComputeWorker {
             AuthorityRuntimeError::Verification(kind) => Err(AuthorityWorkerFault::runtime(
                 AuthorityRuntimeError::Verification(kind),
             )),
-            AuthorityRuntimeError::Settlement { failure, origin } => {
-                self.recover_settlement(failure, origin).await
-            }
+            AuthorityRuntimeError::ComputeGateClosed => Err(AuthorityWorkerFault::runtime(
+                AuthorityRuntimeError::ComputeGateClosed,
+            )),
             error @ (AuthorityRuntimeError::FinalCapture(_)
             | AuthorityRuntimeError::ReadyValidation(_)) => {
                 Err(AuthorityWorkerFault::runtime(error))
@@ -307,21 +355,22 @@ impl ComputeWorker {
 
     async fn recover_settlement(
         &self,
-        mut failure: ComputeSettlementFailure,
-        origin: SettlementOrigin,
+        pending: AuthorityPendingSettlement,
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
+        let (mut failure, origin, execution) = pending.into_parts();
         loop {
             match failure.error() {
                 PlanError::Stale(_) => {
                     // Exact entry version/phase/lease mismatch proves this
                     // capability no longer names an active Computing owner.
                     drop(failure);
+                    drop(execution);
                     return classify_settled_origin(origin);
                 }
                 PlanError::Backpressure(_) => {}
                 _ => {
-                    return Err(AuthorityWorkerFault::runtime(
-                        AuthorityRuntimeError::Settlement { failure, origin },
+                    return Err(AuthorityWorkerFault::settlement(
+                        AuthorityPendingSettlement::new(failure, origin, execution),
                     ));
                 }
             }
@@ -330,7 +379,10 @@ impl ComputeWorker {
             let notified = signal.notified();
             let settlement = failure.into_settlement();
             match self.runtime.settle(settlement) {
-                Ok(()) => return classify_settled_origin(origin),
+                Ok(()) => {
+                    drop(execution);
+                    return classify_settled_origin(origin);
+                }
                 Err(next) => failure = next,
             }
             // Classify the result of the retry, not the error that preceded

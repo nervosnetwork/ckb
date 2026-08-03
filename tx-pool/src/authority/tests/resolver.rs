@@ -7,13 +7,13 @@ use crate::authority::{
     plan::{PlanError, StalePlan, TxPoolAuthority},
     resolver::{
         DirectResolutionEvaluation, DirectResolutionJob, DirectResolutionPreparation,
-        DirectResolutionProbeObservation, DirectVerificationOutcome, DirectVerifiedCandidate,
-        ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation,
-        VerificationJob,
+        DirectResolutionProbeObservation, DirectVerificationOutcome, ResolutionEvaluation,
+        ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation, VerificationJob,
     },
     runtime::{
         AuthorityDirectAdmissionExecution, AuthorityDirectRejectionExecution,
-        AuthorityDirectResolutionOutcome, AuthorityLocalAdmissionOutcome, AuthorityRuntime,
+        AuthorityDirectResolutionOutcome, AuthorityDirectVerificationOutcome,
+        AuthorityDirectVerifiedCandidate, AuthorityLocalAdmissionOutcome, AuthorityRuntime,
         AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind,
     },
     state::{
@@ -34,17 +34,43 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec},
     prelude::{Builder, Entity, Pack, Unpack},
 };
-use ckb_verification::cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey};
-use std::sync::Arc;
+use ckb_verification::cache::{
+    Completed, ScriptVerificationRules, TxVerificationCache, TxVerificationCacheKey, init_cache,
+};
+use std::{ops::ControlFlow, sync::Arc};
+
+fn completed_cache(
+    snapshot: &Snapshot,
+    transaction: &ckb_types::core::TransactionView,
+) -> TxVerificationCache {
+    let rules = ScriptVerificationRules::from_env(
+        snapshot.consensus(),
+        &TxVerifyEnv::new_submit(snapshot.tip_header()),
+    );
+    let mut cache = init_cache();
+    cache.put(
+        TxVerificationCacheKey::from_transaction(transaction, rules),
+        Completed {
+            cycles: 0,
+            fee: Capacity::zero(),
+        },
+    );
+    cache
+}
 
 async fn verified_direct_candidate(
     runtime: &AuthorityRuntime,
     transaction: &ckb_types::core::TransactionView,
     command: DirectCommand,
-) -> DirectVerifiedCandidate {
+) -> AuthorityDirectVerifiedCandidate {
+    let execution = runtime
+        .try_compute_execution_for_foundation()
+        .expect("the fixture has one free transient compute slot");
     let resolution = match command {
-        DirectCommand::Local => runtime.resolve_local_transaction(transaction),
-        DirectCommand::TestAccept => runtime.resolve_test_accept_transaction(transaction),
+        DirectCommand::Local => runtime.resolve_local_transaction(transaction, execution),
+        DirectCommand::TestAccept => {
+            runtime.resolve_test_accept_transaction(transaction, execution)
+        }
     };
     let request = match resolution.expect("direct resolution has sufficient host resources") {
         AuthorityDirectResolutionOutcome::Verification(request) => request,
@@ -53,14 +79,10 @@ async fn verified_direct_candidate(
             rejection.reason().reject()
         ),
     };
-    let DirectVerificationOutcome::Candidate(candidate) = request
-        .execute(
-            Some(Completed {
-                cycles: 0,
-                fee: Capacity::zero(),
-            }),
-            None,
-        )
+    let (_, snapshot) = runtime.paired_chain_for_foundation();
+    let cache = completed_cache(&snapshot, transaction);
+    let AuthorityDirectVerificationOutcome::Candidate(candidate) = runtime
+        .execute_direct_verification(request.bind_cache(&cache), None)
         .await
         .expect("direct verification executes under the captured rules")
     else {
@@ -72,14 +94,14 @@ async fn verified_direct_candidate(
 async fn verified_local_candidate(
     runtime: &AuthorityRuntime,
     transaction: &ckb_types::core::TransactionView,
-) -> DirectVerifiedCandidate {
+) -> AuthorityDirectVerifiedCandidate {
     verified_direct_candidate(runtime, transaction, DirectCommand::Local).await
 }
 
 async fn verified_test_accept_candidate(
     runtime: &AuthorityRuntime,
     transaction: &ckb_types::core::TransactionView,
-) -> DirectVerifiedCandidate {
+) -> AuthorityDirectVerifiedCandidate {
     verified_direct_candidate(runtime, transaction, DirectCommand::TestAccept).await
 }
 
@@ -425,23 +447,26 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
     let mut authority = authority_at(&snapshot);
     let tx = TransactionBuilder::default().version(812u32).build();
     let witness_hash: [u8; 32] = tx.witness_hash().unpack();
-    let job = checkout_verification_job(&mut authority, Arc::clone(&snapshot), tx, 92);
-    let request = job.prepare();
     let expected_rules = ScriptVerificationRules::from_env(
         snapshot.consensus(),
         &TxVerifyEnv::new_submit(snapshot.tip_header()),
     );
-    assert_eq!(request.cache_key().witness_hash(), &witness_hash);
-    assert_eq!(request.cache_key().script_rules(), expected_rules);
+    let expected_key = TxVerificationCacheKey::from_transaction(&tx, expected_rules);
+    let job = checkout_verification_job(&mut authority, Arc::clone(&snapshot), tx, 92);
+    let request = job.prepare();
+    assert_eq!(expected_key.witness_hash(), &witness_hash);
+    let mut cache = init_cache();
+    cache.put(
+        expected_key,
+        Completed {
+            cycles: 0,
+            fee: Capacity::zero(),
+        },
+    );
 
     let execution = request
-        .execute(
-            Some(Completed {
-                cycles: 0,
-                fee: Capacity::zero(),
-            }),
-            None,
-        )
+        .bind_cache(&cache)
+        .execute(None)
         .await
         .expect("the exact cached proof revalidates under the paired snapshot");
     assert!(execution.cache_hit);
@@ -450,6 +475,42 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
         authority
             .apply_settlement(execution.settlement)
             .expect("the exact verification capability settles"),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let cached_tx = TransactionBuilder::default().version(813u32).build();
+    let requested_tx = TransactionBuilder::default().version(814u32).build();
+    let rules = ScriptVerificationRules::from_env(
+        snapshot.consensus(),
+        &TxVerifyEnv::new_submit(snapshot.tip_header()),
+    );
+    let mut cache = init_cache();
+    cache.put(
+        TxVerificationCacheKey::from_transaction(&cached_tx, rules),
+        Completed {
+            cycles: 0,
+            fee: Capacity::zero(),
+        },
+    );
+    let request =
+        checkout_verification_job(&mut authority, Arc::clone(&snapshot), requested_tx, 93)
+            .prepare();
+
+    let execution = request
+        .bind_cache(&cache)
+        .execute(None)
+        .await
+        .expect("the exact request executes after a non-matching cache lookup");
+    assert!(!execution.cache_hit);
+    assert!(execution.cache_update.is_some());
+    apply_without_work(
+        authority
+            .apply_settlement(execution.settlement)
+            .expect("the cache-miss verification capability settles"),
     );
 }
 
@@ -487,17 +548,20 @@ async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
         &TxVerifyEnv::new_submit(snapshot.tip_header()),
     );
     let witness_hash: [u8; 32] = child.witness_hash().unpack();
-    assert_eq!(request.cache_key().witness_hash(), &witness_hash);
-    assert_eq!(request.cache_key().script_rules(), expected_rules);
+    let expected_key = TxVerificationCacheKey::from_transaction(&child, expected_rules);
+    assert_eq!(expected_key.witness_hash(), &witness_hash);
+    let mut cache = init_cache();
+    cache.put(
+        expected_key,
+        Completed {
+            cycles: 0,
+            fee: Capacity::zero(),
+        },
+    );
 
     let DirectVerificationOutcome::Candidate(candidate) = request
-        .execute(
-            Some(Completed {
-                cycles: 0,
-                fee: Capacity::zero(),
-            }),
-            None,
-        )
+        .bind_cache(&cache)
+        .execute(None)
         .await
         .expect("the snapshot-bound direct request verifies")
     else {
@@ -650,8 +714,11 @@ async fn uak_runtime_direct_path_is_owner_free_until_membership_plan() {
     });
     let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
     let before = runtime.normalized_snapshot_for_foundation();
+    let execution = runtime
+        .try_compute_execution_for_foundation()
+        .expect("the fixture has one free transient compute slot");
     let outcome = runtime
-        .resolve_test_accept_transaction(&transaction)
+        .resolve_test_accept_transaction(&transaction, execution)
         .expect("non-contextual validation and direct resolution succeed");
     let request = match outcome {
         AuthorityDirectResolutionOutcome::Verification(request) => request,
@@ -662,14 +729,9 @@ async fn uak_runtime_direct_path_is_owner_free_until_membership_plan() {
             )
         }
     };
-    let DirectVerificationOutcome::Candidate(candidate) = request
-        .execute(
-            Some(Completed {
-                cycles: 0,
-                fee: Capacity::zero(),
-            }),
-            None,
-        )
+    let cache = completed_cache(&snapshot, &transaction);
+    let AuthorityDirectVerificationOutcome::Candidate(candidate) = runtime
+        .execute_direct_verification(request.bind_cache(&cache), None)
         .await
         .expect("direct verification produces immutable admission work")
     else {
@@ -852,8 +914,11 @@ fn uak_direct_missing_rejection_stales_when_the_parent_becomes_available() {
         .expect("the production runtime fixture is valid");
     let parent = output_tx(824, 1_000, Bytes::new());
     let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
+    let execution = runtime
+        .try_compute_execution_for_foundation()
+        .expect("the fixture has one free transient compute slot");
     let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
-        .resolve_local_transaction(&transaction)
+        .resolve_local_transaction(&transaction, execution)
         .expect("the unchanged missing frontier is a transaction outcome")
     else {
         panic!("the missing parent must not reach verification")
@@ -878,8 +943,11 @@ fn uak_stable_direct_rejection_is_read_only_for_test_accept_and_atomic_for_local
         .expect("the production runtime fixture is valid");
     let transaction = TransactionBuilder::default().version(1u32).build();
 
+    let test_execution = runtime
+        .try_compute_execution_for_foundation()
+        .expect("the fixture has one free transient compute slot");
     let AuthorityDirectResolutionOutcome::Rejected(test_rejection) = runtime
-        .resolve_test_accept_transaction(&transaction)
+        .resolve_test_accept_transaction(&transaction, test_execution)
         .expect("non-contextual rejection is a stable transaction outcome")
     else {
         panic!("a non-zero transaction version must reject before resolution")
@@ -897,8 +965,11 @@ fn uak_stable_direct_rejection_is_read_only_for_test_accept_and_atomic_for_local
     ));
     assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
 
+    let local_execution = runtime
+        .try_compute_execution_for_foundation()
+        .expect("the settled TestAccept slot is available to Local");
     let AuthorityDirectResolutionOutcome::Rejected(local_rejection) = runtime
-        .resolve_local_transaction(&transaction)
+        .resolve_local_transaction(&transaction, local_execution)
         .expect("the same stable rejection is reproducible")
     else {
         panic!("a non-zero transaction version must reject before resolution")
@@ -1028,10 +1099,14 @@ async fn uak_local_atomically_replaces_same_raw_active_remote_owner() {
     runtime
         .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(104))
         .expect("the Remote owner is retained before Local wins");
-    let active = runtime
-        .try_checkout(WorkPermit::ResolveOnly)
+    let active = match runtime
+        .try_checkout_for_foundation(WorkPermit::ResolveOnly)
         .expect("the retained scheduler remains healthy")
-        .expect("the Remote owner enters active resolve work");
+    {
+        ControlFlow::Continue(Some(active)) => active,
+        ControlFlow::Continue(None) => panic!("the Remote owner enters active resolve work"),
+        ControlFlow::Break(_) => panic!("the fixture has sufficient effect capacity"),
+    };
 
     let AuthorityDirectAdmissionExecution::Local(local) = runtime
         .settle_verified_direct_admission(local)
@@ -1050,8 +1125,12 @@ async fn uak_local_atomically_replaces_same_raw_active_remote_owner() {
         ));
         assert_eq!(authority.resources().preaccepted().active_work, 0);
     });
-    let stale = runtime
-        .settle(active.retry_for_foundation())
-        .expect_err("the displaced Remote lease must be stale");
-    assert!(matches!(stale.error(), PlanError::Stale(_)));
+    let stale = runtime.settle_compute(
+        active.retry_for_foundation(),
+        crate::authority::runtime::SettlementOrigin::Completion,
+    );
+    assert!(matches!(
+        stale,
+        ControlFlow::Break(pending) if matches!(pending.error(), PlanError::Stale(_))
+    ));
 }

@@ -114,7 +114,9 @@ impl ChainUpdateCommand {
             detached_transactions.extend(transactions.iter().cloned());
             detached_headers.push(crate::util::compact_packed(&block.header().hash()));
             if packaging.packages() {
-                candidate_uncles.insert(block.as_uncle());
+                candidate_uncles
+                    .try_insert(block.as_uncle())
+                    .map_err(|_| ChainBoundaryError::CounterExhausted)?;
             }
         }
 

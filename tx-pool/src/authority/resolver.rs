@@ -46,7 +46,9 @@ use ckb_types::{
     packed::{OutPoint, OutPointVec},
     prelude::{Entity, Unpack},
 };
-use ckb_verification::cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey};
+use ckb_verification::cache::{
+    Completed, ScriptVerificationRules, TxVerificationCache, TxVerificationCacheKey,
+};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -1338,6 +1340,27 @@ pub(crate) struct TxPoolVerificationRequest {
     max_cycles: ckb_types::core::Cycle,
 }
 
+/// A retained verification capability paired with the only cache entry whose
+/// witness identity and script rules match that capability. Construction
+/// consumes the request and performs the lookup itself, so an independently
+/// sampled cache result cannot be supplied to VM execution.
+#[derive(Debug)]
+#[must_use = "cache-bound verification still owns the checked-out capability"]
+pub(in crate::authority) struct CacheBoundTxPoolVerification {
+    request: TxPoolVerificationRequest,
+    cache_entry: Option<Completed>,
+}
+
+/// Owner-free direct verification paired with its exact cache lookup. This is
+/// tx-pool-only evidence; it is not valid for block verification and cannot be
+/// assembled from a nearby witness hash or hard-fork rule generation.
+#[derive(Debug)]
+#[must_use = "cache-bound direct verification must execute or be discarded"]
+pub(crate) struct CacheBoundDirectVerification {
+    request: DirectVerificationRequest,
+    cache_entry: Option<Completed>,
+}
+
 #[derive(Debug)]
 pub(crate) struct VerificationCacheUpdate {
     pub(crate) key: TxVerificationCacheKey,
@@ -1457,8 +1480,17 @@ impl VerificationJob {
 }
 
 impl TxPoolVerificationRequest {
-    pub(crate) fn cache_key(&self) -> &TxVerificationCacheKey {
-        &self.cache_key
+    /// Consume this exact request while its matching cache entry is sampled.
+    /// The copied value lets the cache guard open before VM execution.
+    pub(in crate::authority) fn bind_cache(
+        self,
+        cache: &TxVerificationCache,
+    ) -> CacheBoundTxPoolVerification {
+        let cache_entry = cache.peek(&self.cache_key).copied();
+        CacheBoundTxPoolVerification {
+            request: self,
+            cache_entry,
+        }
     }
 
     /// Return the still-linear verification capability to ordinary resolve
@@ -1468,17 +1500,22 @@ impl TxPoolVerificationRequest {
     pub(in crate::authority) fn retry(self) -> ComputeSettlement {
         self.job.retry()
     }
+}
 
+impl CacheBoundTxPoolVerification {
     pub(in crate::authority) async fn execute(
         self,
-        cache_entry: Option<Completed>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Result<VerificationExecution, VerificationExecutionFailure> {
-        let Self {
-            job,
-            environment,
-            cache_key,
-            max_cycles,
+        let CacheBoundTxPoolVerification {
+            request:
+                TxPoolVerificationRequest {
+                    job,
+                    environment,
+                    cache_key,
+                    max_cycles,
+                },
+            cache_entry,
         } = self;
         let VerificationJob { work, snapshot } = job;
         let policy = work.payload_policy();
@@ -1533,20 +1570,31 @@ impl TxPoolVerificationRequest {
 }
 
 impl DirectVerificationRequest {
-    pub(crate) fn cache_key(&self) -> &TxVerificationCacheKey {
-        &self.cache_key
+    /// Bind owner-free direct validation to the exact tx-pool cache key sealed
+    /// during snapshot capture. The result is copied out before any await.
+    pub(crate) fn bind_cache(self, cache: &TxVerificationCache) -> CacheBoundDirectVerification {
+        let cache_entry = cache.peek(&self.cache_key).copied();
+        CacheBoundDirectVerification {
+            request: self,
+            cache_entry,
+        }
     }
+}
 
+impl CacheBoundDirectVerification {
     pub(crate) async fn execute(
         self,
-        cache_entry: Option<Completed>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Result<DirectVerificationOutcome, DirectComputationError> {
-        let Self {
-            candidate,
-            environment,
-            cache_key,
-            max_cycles,
+        let CacheBoundDirectVerification {
+            request:
+                DirectVerificationRequest {
+                    candidate,
+                    environment,
+                    cache_key,
+                    max_cycles,
+                },
+            cache_entry,
         } = self;
         let DirectResolvedCandidate {
             tx,

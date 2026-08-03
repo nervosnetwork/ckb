@@ -34,8 +34,9 @@ use super::{
         CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
     },
     resolver::{
-        DirectComputationError, DirectResolutionEvaluation, DirectResolutionJob,
-        DirectResolutionPreparation, DirectResolutionProbeObservation, DirectVerificationRequest,
+        CacheBoundDirectVerification, CacheBoundTxPoolVerification, DirectComputationError,
+        DirectResolutionEvaluation, DirectResolutionJob, DirectResolutionPreparation,
+        DirectResolutionProbeObservation, DirectVerificationOutcome, DirectVerificationRequest,
         DirectVerifiedCandidate, ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob,
         ResolutionProbeObservation, TxPoolVerificationRequest, VerificationCacheUpdate,
         VerificationExecutionKind, VerificationJob,
@@ -59,20 +60,22 @@ use super::{
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
+use ckb_stop_handler::CancellationToken;
 use ckb_types::core::FeeRate;
 use ckb_types::core::{EntryCompleted, TransactionView};
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_util::{RwLock, parking_lot::RwLockUpgradableReadGuard};
-use ckb_verification::cache::{Completed, ScriptVerificationRules};
+use ckb_verification::cache::ScriptVerificationRules;
 use lru::LruCache;
 use std::{
     num::NonZeroUsize,
+    ops::ControlFlow,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{Notify, watch};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, watch};
 
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
 const DEPENDENCY_EDGE_BYTES: usize = 160;
@@ -138,6 +141,7 @@ struct AuthorityRuntimeConfig {
     resolution_policy: ResolutionPolicy,
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
+    transient_compute_permits: NonZeroUsize,
 }
 
 /// Wall-clock retention and bounded maintenance policy compiled once from
@@ -212,6 +216,11 @@ impl AuthorityRuntimeConfig {
             .get()
             .checked_add(1)
             .ok_or(RuntimeConfigError::Arithmetic)?;
+        if active_work > Semaphore::MAX_PERMITS {
+            return Err(RuntimeConfigError::ResourceConfiguration);
+        }
+        let transient_compute_permits =
+            NonZeroUsize::new(active_work).ok_or(RuntimeConfigError::Arithmetic)?;
 
         let compute_partition_bytes = pipeline_bytes / COMPUTE_RESOURCE_DIVISOR;
         let compute_bytes_per_work = compute_partition_bytes
@@ -384,6 +393,7 @@ impl AuthorityRuntimeConfig {
                 remote_slice,
             },
             verify_workers,
+            transient_compute_permits,
         })
     }
 }
@@ -514,6 +524,17 @@ pub(crate) struct AuthorityRuntime {
     resolution_policy: ResolutionPolicy,
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
+    transient_compute: Arc<Semaphore>,
+}
+
+/// One slot in the tx-pool-only transient compute partition. It carries no
+/// transaction identity or membership right. The move-only value is acquired
+/// before authority checkout or direct capture and retained until the exact
+/// computation has settled or become stale.
+#[derive(Debug)]
+#[must_use = "a transient compute permit must guard one complete execution"]
+pub(in crate::authority) struct AuthorityComputeExecutionPermit {
+    _permit: OwnedSemaphorePermit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -527,6 +548,7 @@ pub(super) enum AuthorityMaintenanceOutcome {
 #[must_use = "checked-out authority work must be executed and settled"]
 pub(crate) struct AuthorityComputeJob {
     inner: AuthorityComputeKind,
+    execution: AuthorityComputeExecutionPermit,
 }
 
 #[derive(Debug)]
@@ -536,33 +558,64 @@ enum AuthorityComputeKind {
 }
 
 impl AuthorityComputeJob {
-    fn resolution(job: ResolutionJob) -> Self {
-        Self {
-            inner: AuthorityComputeKind::Resolution(job),
-        }
-    }
-
-    fn verification(job: VerificationJob) -> Self {
-        Self {
-            inner: AuthorityComputeKind::Verification(job),
-        }
-    }
-
-    fn retry(self) -> ComputeSettlement {
-        match self.inner {
+    fn retry(self) -> AuthorityComputeSettlement {
+        let settlement = match self.inner {
             AuthorityComputeKind::Resolution(job) => job.retry(),
             AuthorityComputeKind::Verification(job) => job.retry(),
+        };
+        AuthorityComputeSettlement {
+            settlement,
+            execution: self.execution,
         }
     }
 
     #[cfg(test)]
-    pub(super) fn retry_for_foundation(self) -> ComputeSettlement {
+    pub(super) fn retry_for_foundation(self) -> AuthorityComputeSettlement {
         self.retry()
     }
 }
 
 #[derive(Debug)]
-#[must_use = "a checkout failure may still own an active settlement capability"]
+#[must_use = "a retained compute settlement must preserve its execution permit"]
+pub(in crate::authority) struct AuthorityComputeSettlement {
+    settlement: ComputeSettlement,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+#[derive(Debug)]
+#[must_use = "verification work must bind the exact cache lookup and execute"]
+pub(in crate::authority) struct AuthorityVerificationRequest {
+    request: TxPoolVerificationRequest,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+#[derive(Debug)]
+#[must_use = "cache-bound verification still owns its transient execution slot"]
+pub(in crate::authority) struct AuthorityCacheBoundVerification {
+    request: CacheBoundTxPoolVerification,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+impl AuthorityVerificationRequest {
+    pub(in crate::authority) fn bind_cache(
+        self,
+        cache: &ckb_verification::cache::TxVerificationCache,
+    ) -> AuthorityCacheBoundVerification {
+        AuthorityCacheBoundVerification {
+            request: self.request.bind_cache(cache),
+            execution: self.execution,
+        }
+    }
+
+    fn retry(self) -> AuthorityComputeSettlement {
+        AuthorityComputeSettlement {
+            settlement: self.request.retry(),
+            execution: self.execution,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(in crate::authority) enum AuthorityRuntimeError {
     Plan(PlanError),
     Capture(ResolutionExecutionKind),
@@ -570,10 +623,7 @@ pub(in crate::authority) enum AuthorityRuntimeError {
     Verification(VerificationExecutionKind),
     FinalCapture(FinalAdmissionCaptureError),
     ReadyValidation(ReadyValidationError),
-    Settlement {
-        failure: ComputeSettlementFailure,
-        origin: SettlementOrigin,
-    },
+    ComputeGateClosed,
 }
 
 /// Semantic result whose exact linear capability was being committed when
@@ -588,6 +638,47 @@ pub(in crate::authority) enum SettlementOrigin {
     Completion,
 }
 
+/// A recoverable settlement interruption is normal capability flow, not a
+/// structural runtime error. Keeping it on the `ControlFlow::Break` path
+/// prevents every unrelated runtime `Result` from carrying this large linear
+/// value while retaining it allocation-free during effect backpressure.
+#[derive(Debug)]
+#[must_use = "an interrupted settlement still owns its active compute capability"]
+pub(in crate::authority) struct AuthorityPendingSettlement {
+    failure: ComputeSettlementFailure,
+    origin: SettlementOrigin,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+impl AuthorityPendingSettlement {
+    pub(in crate::authority) fn new(
+        failure: ComputeSettlementFailure,
+        origin: SettlementOrigin,
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Self {
+        Self {
+            failure,
+            origin,
+            execution,
+        }
+    }
+
+    pub(in crate::authority) fn into_parts(
+        self,
+    ) -> (
+        ComputeSettlementFailure,
+        SettlementOrigin,
+        AuthorityComputeExecutionPermit,
+    ) {
+        (self.failure, self.origin, self.execution)
+    }
+
+    #[cfg(test)]
+    pub(super) fn error(&self) -> &PlanError {
+        self.failure.error()
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::authority) enum ReadyValidationError {
     Candidate(FinalAdmissionValidationError),
@@ -598,16 +689,84 @@ pub(in crate::authority) enum ReadyValidationError {
 
 #[derive(Debug)]
 #[must_use = "resolved authority work either settled or still owns verification"]
-pub(crate) enum AuthorityComputeOutcome {
+pub(in crate::authority) enum AuthorityComputeOutcome {
     Settled,
-    Verification(TxPoolVerificationRequest),
+    Verification(AuthorityVerificationRequest),
 }
 
 #[derive(Debug)]
 #[must_use = "direct computation must continue verification or return its exact rejection"]
 pub(super) enum AuthorityDirectResolutionOutcome {
-    Verification(DirectVerificationRequest),
-    Rejected(DirectTransactionRejection),
+    Verification(AuthorityDirectVerificationRequest),
+    Rejected(AuthorityDirectRejection),
+}
+
+#[derive(Debug)]
+#[must_use = "direct verification must bind its exact cache evidence"]
+pub(super) struct AuthorityDirectVerificationRequest {
+    request: DirectVerificationRequest,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+#[derive(Debug)]
+#[must_use = "cache-bound direct verification still owns its execution slot"]
+pub(super) struct AuthorityCacheBoundDirectVerification {
+    request: CacheBoundDirectVerification,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+impl AuthorityDirectVerificationRequest {
+    pub(super) fn bind_cache(
+        self,
+        cache: &ckb_verification::cache::TxVerificationCache,
+    ) -> AuthorityCacheBoundDirectVerification {
+        AuthorityCacheBoundDirectVerification {
+            request: self.request.bind_cache(cache),
+            execution: self.execution,
+        }
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "a direct rejection must be settled under its execution slot"]
+pub(super) struct AuthorityDirectRejection {
+    rejection: DirectTransactionRejection,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+impl AuthorityDirectRejection {
+    #[cfg(test)]
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        self.rejection.reason()
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "direct verification output must reach its source-sealed settlement"]
+pub(super) enum AuthorityDirectVerificationOutcome {
+    Candidate(AuthorityDirectVerifiedCandidate),
+    Rejected(AuthorityDirectRejection),
+}
+
+#[derive(Debug)]
+#[must_use = "verified direct work must settle while retaining its execution slot"]
+pub(super) struct AuthorityDirectVerifiedCandidate {
+    candidate: DirectVerifiedCandidate,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+#[cfg(test)]
+impl AuthorityDirectVerifiedCandidate {
+    pub(super) fn with_cache_update_for_foundation(
+        mut self,
+        key: ckb_verification::cache::TxVerificationCacheKey,
+        completed: ckb_verification::cache::Completed,
+    ) -> Self {
+        self.candidate = self
+            .candidate
+            .with_cache_update_for_foundation(key, completed);
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -699,6 +858,12 @@ enum EffectCheckoutState {
     ClosedAndDrained,
 }
 
+#[must_use = "an idle checkout returns the still-owned execution slot"]
+pub(in crate::authority) enum AuthorityComputeCheckout {
+    Job(AuthorityComputeJob),
+    Idle(AuthorityComputeExecutionPermit),
+}
+
 #[must_use = "captured Ready validation work must be validated or discarded as stale"]
 struct ReadyValidationBatch(Vec<FinalAdmissionValidation>);
 
@@ -729,6 +894,7 @@ impl AuthorityRuntime {
         let resolution_policy = runtime.resolution_policy;
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
+        let transient_compute = Arc::new(Semaphore::new(runtime.transient_compute_permits.get()));
         Ok(Self {
             store: Arc::new(RwLock::new(AuthorityStore::from_runtime(
                 runtime, snapshot,
@@ -737,6 +903,7 @@ impl AuthorityRuntime {
             resolution_policy,
             expiry_policy,
             verify_workers,
+            transient_compute,
         })
     }
 
@@ -1099,6 +1266,68 @@ impl AuthorityRuntime {
         Arc::clone(&self.signals.ready)
     }
 
+    /// Acquire one shared tx-pool execution slot before any retained checkout
+    /// or owner-free direct capture. Waiting owns no authority capability and
+    /// holds no guard. Normal shutdown cancels the waiter; the semaphore itself
+    /// is never closed as a control protocol.
+    pub(in crate::authority) async fn acquire_compute_execution(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Option<AuthorityComputeExecutionPermit>, AuthorityRuntimeError> {
+        let acquire = Arc::clone(&self.transient_compute).acquire_owned();
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Ok(None),
+            result = acquire => {
+                let permit = result.map_err(|_| AuthorityRuntimeError::ComputeGateClosed)?;
+                if cancel.is_cancelled() {
+                    drop(permit);
+                    Ok(None)
+                } else {
+                    Ok(Some(AuthorityComputeExecutionPermit { _permit: permit }))
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn try_compute_execution_for_foundation(
+        &self,
+    ) -> Option<AuthorityComputeExecutionPermit> {
+        Arc::clone(&self.transient_compute)
+            .try_acquire_owned()
+            .ok()
+            .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
+    }
+
+    #[cfg(test)]
+    pub(super) fn available_compute_permits_for_foundation(&self) -> usize {
+        self.transient_compute.available_permits()
+    }
+
+    #[cfg(test)]
+    pub(super) fn try_checkout_for_foundation(
+        &self,
+        permit: WorkPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
+        AuthorityRuntimeError,
+    > {
+        let execution = self
+            .try_compute_execution_for_foundation()
+            .ok_or(AuthorityRuntimeError::ComputeGateClosed)?;
+        match self.try_checkout(permit, execution)? {
+            ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
+            ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                Ok(ControlFlow::Continue(Some(job)))
+            }
+            ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                drop(execution);
+                Ok(ControlFlow::Continue(None))
+            }
+        }
+    }
+
     /// Capture the immutable consensus paired with the authority snapshot.
     /// Ingress callers cannot substitute a separately sourced consensus for
     /// non-contextual validation.
@@ -1288,16 +1517,22 @@ impl AuthorityRuntime {
     /// evidence cut. Callers cannot choose the behavior after computation.
     pub(super) fn settle_direct_transaction_rejection(
         &self,
-        rejection: DirectTransactionRejection,
+        rejection: AuthorityDirectRejection,
     ) -> Result<AuthorityDirectRejectionExecution, PlanError> {
-        match rejection.command() {
+        let AuthorityDirectRejection {
+            rejection,
+            execution,
+        } = rejection;
+        let result = match rejection.command() {
             DirectCommand::Local => self
                 .commit_direct_transaction_rejection(rejection)
                 .map(AuthorityDirectRejectionExecution::Local),
             DirectCommand::TestAccept => self
                 .evaluate_direct_transaction_rejection(rejection)
                 .map(AuthorityDirectRejectionExecution::TestAccept),
-        }
+        };
+        drop(execution);
+        result
     }
 
     /// Validate and settle one source-sealed verified direct capability. The
@@ -1306,13 +1541,17 @@ impl AuthorityRuntime {
     /// effect, clock, or cache mutation.
     pub(super) fn settle_verified_direct_admission(
         &self,
-        candidate: DirectVerifiedCandidate,
+        candidate: AuthorityDirectVerifiedCandidate,
     ) -> Result<AuthorityDirectAdmissionExecution, AuthorityDirectAdmissionError> {
+        let AuthorityDirectVerifiedCandidate {
+            candidate,
+            execution,
+        } = candidate;
         let (command, work, pending_cache_update, cache_hit) = candidate.into_parts();
         let validated = self
             .validate_direct_admission(work)
             .map_err(AuthorityDirectAdmissionError::Validation)?;
-        match command {
+        let result = match command {
             DirectCommand::Local => {
                 let outcome = self
                     .commit_direct_admission(validated)
@@ -1332,6 +1571,33 @@ impl AuthorityRuntime {
                 .evaluate_direct_admission(validated)
                 .map(AuthorityDirectAdmissionExecution::TestAccept)
                 .map_err(AuthorityDirectAdmissionError::Plan),
+        };
+        drop(execution);
+        result
+    }
+
+    /// Execute one cache-bound owner-free direct request outside every
+    /// authority guard. The shared transient slot remains inside the returned
+    /// source-sealed candidate or rejection until final settlement.
+    pub(super) async fn execute_direct_verification(
+        &self,
+        request: AuthorityCacheBoundDirectVerification,
+        command_rx: Option<&mut watch::Receiver<ckb_script::ChunkCommand>>,
+    ) -> Result<AuthorityDirectVerificationOutcome, DirectComputationError> {
+        let AuthorityCacheBoundDirectVerification { request, execution } = request;
+        match request.execute(command_rx).await? {
+            DirectVerificationOutcome::Candidate(candidate) => Ok(
+                AuthorityDirectVerificationOutcome::Candidate(AuthorityDirectVerifiedCandidate {
+                    candidate,
+                    execution,
+                }),
+            ),
+            DirectVerificationOutcome::Rejected(rejection) => Ok(
+                AuthorityDirectVerificationOutcome::Rejected(AuthorityDirectRejection {
+                    rejection,
+                    execution,
+                }),
+            ),
         }
     }
 
@@ -1342,35 +1608,44 @@ impl AuthorityRuntime {
     pub(super) fn resolve_local_transaction(
         &self,
         tx: &ckb_types::core::TransactionView,
+        execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
-        self.resolve_direct_transaction(tx, DirectCommand::Local)
+        self.resolve_direct_transaction(tx, DirectCommand::Local, execution)
     }
 
     pub(super) fn resolve_test_accept_transaction(
         &self,
         tx: &ckb_types::core::TransactionView,
+        execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
-        self.resolve_direct_transaction(tx, DirectCommand::TestAccept)
+        self.resolve_direct_transaction(tx, DirectCommand::TestAccept, execution)
     }
 
     fn resolve_direct_transaction(
         &self,
         tx: &ckb_types::core::TransactionView,
         command: DirectCommand,
+        execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
         let consensus = self.paired_consensus();
         let direct = match direct(tx, &consensus, command) {
             Ok(direct) => direct,
             Err(rejection) => {
-                return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+                return Ok(AuthorityDirectResolutionOutcome::Rejected(
+                    AuthorityDirectRejection {
+                        rejection,
+                        execution,
+                    },
+                ));
             }
         };
-        self.prepare_direct_resolution(direct)
+        self.prepare_direct_resolution(direct, execution)
     }
 
     fn prepare_direct_resolution(
         &self,
         direct: DirectTransaction,
+        execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
         let prepared = match DirectResolutionJob::prepare(
             direct,
@@ -1379,7 +1654,12 @@ impl AuthorityRuntime {
         )? {
             DirectResolutionPreparation::Prepared(prepared) => prepared,
             DirectResolutionPreparation::Rejected(rejection) => {
-                return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+                return Ok(AuthorityDirectResolutionOutcome::Rejected(
+                    AuthorityDirectRejection {
+                        rejection,
+                        execution,
+                    },
+                ));
             }
         };
         let mut job = {
@@ -1395,10 +1675,17 @@ impl AuthorityRuntime {
                 crate::util::block_offload(|| job.evaluate(self.resolution_policy.min_fee_rate))?;
             match evaluation {
                 DirectResolutionEvaluation::Verify(request) => {
-                    return Ok(AuthorityDirectResolutionOutcome::Verification(request));
+                    return Ok(AuthorityDirectResolutionOutcome::Verification(
+                        AuthorityDirectVerificationRequest { request, execution },
+                    ));
                 }
                 DirectResolutionEvaluation::Rejected(rejection) => {
-                    return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+                    return Ok(AuthorityDirectResolutionOutcome::Rejected(
+                        AuthorityDirectRejection {
+                            rejection,
+                            execution,
+                        },
+                    ));
                 }
                 DirectResolutionEvaluation::Enrich(probe) => {
                     let prepared = probe.prepare_enrichment()?;
@@ -1409,7 +1696,12 @@ impl AuthorityRuntime {
                     match observation {
                         DirectResolutionProbeObservation::Retry(retry) => job = retry,
                         DirectResolutionProbeObservation::Rejected(rejection) => {
-                            return Ok(AuthorityDirectResolutionOutcome::Rejected(rejection));
+                            return Ok(AuthorityDirectResolutionOutcome::Rejected(
+                                AuthorityDirectRejection {
+                                    rejection,
+                                    execution,
+                                },
+                            ));
                         }
                     }
                 }
@@ -1633,7 +1925,11 @@ impl AuthorityRuntime {
     pub(in crate::authority) fn try_checkout(
         &self,
         permit: WorkPermit,
-    ) -> Result<Option<AuthorityComputeJob>, AuthorityRuntimeError> {
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
+        AuthorityRuntimeError,
+    > {
         let (result, checkout_retirement, settlement_retirement) = {
             let mut store = self.store.write();
             let plan = store
@@ -1641,24 +1937,32 @@ impl AuthorityRuntime {
                 .plan_checkout_next(permit)
                 .map_err(AuthorityRuntimeError::Plan)?;
             let Some(plan) = plan else {
-                return Ok(None);
+                return Ok(ControlFlow::Continue(AuthorityComputeCheckout::Idle(
+                    execution,
+                )));
             };
             let (work, checkout) = plan.apply().into_parts();
             let snapshot = Arc::clone(&store.snapshot);
             let captured = match work {
                 CheckedOutWork::Resolve(work) => {
                     ResolutionJob::capture_resolve(&store.authority, snapshot, work)
-                        .map(AuthorityComputeJob::resolution)
+                        .map(AuthorityComputeKind::Resolution)
                 }
                 CheckedOutWork::ContinuousResolve(work) => {
                     ResolutionJob::capture_continuous(&store.authority, snapshot, work)
-                        .map(AuthorityComputeJob::resolution)
+                        .map(AuthorityComputeKind::Resolution)
                 }
                 CheckedOutWork::Verify(work) => VerificationJob::from_checkout(work, snapshot)
-                    .map(AuthorityComputeJob::verification),
+                    .map(AuthorityComputeKind::Verification),
             };
             match captured {
-                Ok(job) => (Ok(Some(job)), checkout, None),
+                Ok(inner) => (
+                    Ok(ControlFlow::Continue(AuthorityComputeCheckout::Job(
+                        AuthorityComputeJob { inner, execution },
+                    ))),
+                    checkout,
+                    None,
+                ),
                 Err(failure) => {
                     let kind = failure.kind();
                     match store.authority.apply_settlement(failure.into_settlement()) {
@@ -1668,10 +1972,11 @@ impl AuthorityRuntime {
                             Some(settlement),
                         ),
                         Err(failure) => (
-                            Err(AuthorityRuntimeError::Settlement {
+                            Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
                                 failure,
-                                origin: SettlementOrigin::Capture(kind),
-                            }),
+                                SettlementOrigin::Capture(kind),
+                                execution,
+                            ))),
                             checkout,
                             None,
                         ),
@@ -1688,11 +1993,17 @@ impl AuthorityRuntime {
     }
 
     fn finish_checkout(
-        result: Result<Option<AuthorityComputeJob>, AuthorityRuntimeError>,
+        result: Result<
+            ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
+            AuthorityRuntimeError,
+        >,
         checkout_retirement: super::plan::CommittedDelta,
         settlement_retirement: Option<super::plan::CommittedDelta>,
         signals: &AuthoritySignals,
-    ) -> Result<Option<AuthorityComputeJob>, AuthorityRuntimeError> {
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
+        AuthorityRuntimeError,
+    > {
         drop(checkout_retirement);
         drop(settlement_retirement);
         signals.publish_mutation();
@@ -1705,15 +2016,58 @@ impl AuthorityRuntime {
     pub(in crate::authority) async fn wait_checkout(
         &self,
         permit: WorkPermit,
-    ) -> Result<AuthorityComputeJob, AuthorityRuntimeError> {
+        cancel: &CancellationToken,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
+        AuthorityRuntimeError,
+    > {
         loop {
             let signal = Arc::clone(self.signals.for_permit(permit));
             let notified = signal.notified();
-            if let Some(job) = self.try_checkout(permit)? {
-                return Ok(job);
+            let Some(execution) = self.acquire_compute_execution(cancel).await? else {
+                return Ok(ControlFlow::Continue(None));
+            };
+            match self.try_checkout(permit, execution)? {
+                ControlFlow::Break(pending) => return Ok(ControlFlow::Break(pending)),
+                ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                    return Ok(ControlFlow::Continue(Some(job)));
+                }
+                ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                    drop(execution);
+                }
             }
-            notified.await;
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(ControlFlow::Continue(None)),
+                _ = notified => {}
+            }
         }
+    }
+
+    pub(in crate::authority) fn settle_compute(
+        &self,
+        retained: AuthorityComputeSettlement,
+        origin: SettlementOrigin,
+    ) -> ControlFlow<AuthorityPendingSettlement> {
+        let AuthorityComputeSettlement {
+            settlement,
+            execution,
+        } = retained;
+        match self.settle(settlement) {
+            Ok(()) => {
+                drop(execution);
+                ControlFlow::Continue(())
+            }
+            Err(failure) => {
+                ControlFlow::Break(AuthorityPendingSettlement::new(failure, origin, execution))
+            }
+        }
+    }
+
+    pub(in crate::authority) fn retry_unexpected_verification(
+        &self,
+        request: AuthorityVerificationRequest,
+    ) -> ControlFlow<AuthorityPendingSettlement> {
+        self.settle_compute(request.retry(), SettlementOrigin::Completion)
     }
 
     pub(in crate::authority) fn settle(
@@ -1735,19 +2089,30 @@ impl AuthorityRuntime {
     pub(in crate::authority) fn execute_compute(
         &self,
         job: AuthorityComputeJob,
-    ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
-        match job.inner {
-            AuthorityComputeKind::Resolution(job) => self.execute_resolution(job),
-            AuthorityComputeKind::Verification(job) => {
-                Ok(AuthorityComputeOutcome::Verification(job.prepare()))
-            }
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
+        AuthorityRuntimeError,
+    > {
+        let AuthorityComputeJob { inner, execution } = job;
+        match inner {
+            AuthorityComputeKind::Resolution(job) => self.execute_resolution(job, execution),
+            AuthorityComputeKind::Verification(job) => Ok(ControlFlow::Continue(
+                AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
+                    request: job.prepare(),
+                    execution,
+                }),
+            )),
         }
     }
 
     fn execute_resolution(
         &self,
         mut job: ResolutionJob,
-    ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
+        AuthorityRuntimeError,
+    > {
         loop {
             let policy = self.resolution_policy;
             let evaluated = crate::util::block_offload(|| {
@@ -1755,27 +2120,36 @@ impl AuthorityRuntime {
             });
             let evaluation = match evaluated {
                 Ok(evaluation) => evaluation,
-                Err(failure) => return self.settle_resolution_failure(failure),
+                Err(failure) => return self.settle_resolution_failure(failure, execution),
             };
             match evaluation {
-                ResolutionEvaluation::Settle(settlement) => {
-                    self.settle(settlement).map_err(|failure| {
-                        AuthorityRuntimeError::Settlement {
+                ResolutionEvaluation::Settle(settlement) => match self.settle(settlement) {
+                    Ok(()) => {
+                        drop(execution);
+                        return Ok(ControlFlow::Continue(AuthorityComputeOutcome::Settled));
+                    }
+                    Err(failure) => {
+                        return Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
                             failure,
-                            origin: SettlementOrigin::Completion,
-                        }
-                    })?;
-                    return Ok(AuthorityComputeOutcome::Settled);
-                }
+                            SettlementOrigin::Completion,
+                            execution,
+                        )));
+                    }
+                },
                 ResolutionEvaluation::Verify(verification) => {
-                    return Ok(AuthorityComputeOutcome::Verification(
-                        verification.prepare(),
+                    return Ok(ControlFlow::Continue(
+                        AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
+                            request: verification.prepare(),
+                            execution,
+                        }),
                     ));
                 }
                 ResolutionEvaluation::Enrich(probe) => {
                     let prepared = match probe.prepare_enrichment() {
                         Ok(prepared) => prepared,
-                        Err(failure) => return self.settle_resolution_failure(failure),
+                        Err(failure) => {
+                            return self.settle_resolution_failure(failure, execution);
+                        }
                     };
                     let observed = {
                         let store = self.store.read();
@@ -1787,16 +2161,26 @@ impl AuthorityRuntime {
                             let settlement = match probe.settle_missing() {
                                 Ok(settlement) => settlement,
                                 Err(failure) => {
-                                    return self.settle_resolution_failure(failure);
+                                    return self.settle_resolution_failure(failure, execution);
                                 }
                             };
-                            self.settle(settlement).map_err(|failure| {
-                                AuthorityRuntimeError::Settlement {
-                                    failure,
-                                    origin: SettlementOrigin::Completion,
+                            match self.settle(settlement) {
+                                Ok(()) => {
+                                    drop(execution);
+                                    return Ok(ControlFlow::Continue(
+                                        AuthorityComputeOutcome::Settled,
+                                    ));
                                 }
-                            })?;
-                            return Ok(AuthorityComputeOutcome::Settled);
+                                Err(failure) => {
+                                    return Ok(ControlFlow::Break(
+                                        AuthorityPendingSettlement::new(
+                                            failure,
+                                            SettlementOrigin::Completion,
+                                            execution,
+                                        ),
+                                    ));
+                                }
+                            }
                         }
                     }
                 }
@@ -1807,48 +2191,74 @@ impl AuthorityRuntime {
     fn settle_resolution_failure(
         &self,
         failure: super::resolver::ResolutionExecutionFailure,
-    ) -> Result<AuthorityComputeOutcome, AuthorityRuntimeError> {
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
+        AuthorityRuntimeError,
+    > {
         let kind = failure.kind();
-        self.settle(failure.into_settlement()).map_err(|failure| {
-            AuthorityRuntimeError::Settlement {
-                failure,
-                origin: SettlementOrigin::Resolution(kind),
+        match self.settle(failure.into_settlement()) {
+            Ok(()) => {
+                drop(execution);
+                Err(AuthorityRuntimeError::Execution(kind))
             }
-        })?;
-        Err(AuthorityRuntimeError::Execution(kind))
+            Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
+                failure,
+                SettlementOrigin::Resolution(kind),
+                execution,
+            ))),
+        }
     }
 
     /// Execute one snapshot-bound tx-pool verification request and settle its
-    /// exact capability before returning. Cache lookup happens outside this
-    /// method, but the key and script rules are sealed inside `request`.
+    /// exact capability before returning. The request already owns the result
+    /// of its exact cache-key lookup, so callers cannot provide nearby cached
+    /// evidence while the cache guard remains open across no await.
     pub(in crate::authority) async fn execute_verification(
         &self,
-        request: TxPoolVerificationRequest,
-        cache_entry: Option<Completed>,
+        request: AuthorityCacheBoundVerification,
         command_rx: Option<&mut watch::Receiver<ckb_script::ChunkCommand>>,
-    ) -> Result<AuthorityVerificationOutcome, AuthorityRuntimeError> {
-        match request.execute(cache_entry, command_rx).await {
-            Ok(execution) => {
-                self.settle(execution.settlement).map_err(|failure| {
-                    AuthorityRuntimeError::Settlement {
-                        failure,
-                        origin: SettlementOrigin::Completion,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityVerificationOutcome>,
+        AuthorityRuntimeError,
+    > {
+        let AuthorityCacheBoundVerification {
+            request,
+            execution: compute_execution,
+        } = request;
+        match request.execute(command_rx).await {
+            Ok(verification) => {
+                let cache_update = verification.cache_update;
+                let cache_hit = verification.cache_hit;
+                let result = self.settle(verification.settlement);
+                match result {
+                    Ok(()) => {
+                        drop(compute_execution);
+                        Ok(ControlFlow::Continue(AuthorityVerificationOutcome {
+                            cache_update,
+                            cache_hit,
+                        }))
                     }
-                })?;
-                Ok(AuthorityVerificationOutcome {
-                    cache_update: execution.cache_update,
-                    cache_hit: execution.cache_hit,
-                })
+                    Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
+                        failure,
+                        SettlementOrigin::Completion,
+                        compute_execution,
+                    ))),
+                }
             }
             Err(failure) => {
                 let kind = failure.kind();
-                self.settle(failure.into_settlement()).map_err(|failure| {
-                    AuthorityRuntimeError::Settlement {
-                        failure,
-                        origin: SettlementOrigin::Verification(kind),
+                match self.settle(failure.into_settlement()) {
+                    Ok(()) => {
+                        drop(compute_execution);
+                        Err(AuthorityRuntimeError::Verification(kind))
                     }
-                })?;
-                Err(AuthorityRuntimeError::Verification(kind))
+                    Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
+                        failure,
+                        SettlementOrigin::Verification(kind),
+                        compute_execution,
+                    ))),
+                }
             }
         }
     }
@@ -2106,10 +2516,12 @@ impl AuthorityStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthorityComputeJob, AuthorityComputeOutcome, AuthorityReadyOutcome, AuthorityRuntime,
+        AuthorityComputeCheckout, AuthorityComputeJob, AuthorityComputeOutcome,
+        AuthorityComputeSettlement, AuthorityDirectRejectionExecution,
+        AuthorityDirectResolutionOutcome, AuthorityReadyOutcome, AuthorityRuntime,
         AuthorityRuntimeConfig, AuthorityRuntimeError, AuthoritySignals, AuthorityStore,
-        PREACCEPTED_ENTRY_BYTES, PlanError, RuntimeConfigError, runtime_authority_config_error,
-        runtime_resource_config_error,
+        PREACCEPTED_ENTRY_BYTES, PlanError, RuntimeConfigError, SettlementOrigin,
+        runtime_authority_config_error, runtime_resource_config_error,
     };
     use crate::authority::effect::{
         CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
@@ -2134,8 +2546,9 @@ mod tests {
         core::{FeeRate, TransactionBuilder},
         prelude::Unpack,
     };
+    use std::ops::ControlFlow;
     use std::sync::Arc;
-    use tokio::sync::{RwLock as TokioRwLock, mpsc, watch};
+    use tokio::sync::{RwLock as TokioRwLock, Semaphore, mpsc, watch};
 
     fn runtime_config() -> TxPoolConfig {
         TxPoolConfig {
@@ -2187,6 +2600,7 @@ mod tests {
         let resolution_policy = assembled.resolution_policy;
         let expiry_policy = assembled.expiry_policy;
         let verify_workers = assembled.verify_workers;
+        let transient_compute = Arc::new(Semaphore::new(assembled.transient_compute_permits.get()));
         let store = AuthorityStore::from_runtime(assembled, snapshot)
             .expect("the narrow effect runtime reserves every bounded projection");
         AuthorityRuntime {
@@ -2195,6 +2609,7 @@ mod tests {
             resolution_policy,
             expiry_policy,
             verify_workers,
+            transient_compute,
         }
     }
 
@@ -2233,7 +2648,7 @@ mod tests {
         .expect("the runtime fixture has valid ingress evidence")
     }
 
-    fn retry(job: AuthorityComputeJob) -> super::super::work::ComputeSettlement {
+    fn retry(job: AuthorityComputeJob) -> AuthorityComputeSettlement {
         job.retry()
     }
 
@@ -2246,6 +2661,13 @@ mod tests {
         )
     }
 
+    fn continued<T>(flow: ControlFlow<super::AuthorityPendingSettlement, T>) -> T {
+        match flow {
+            ControlFlow::Continue(value) => value,
+            ControlFlow::Break(_) => panic!("the fixture has sufficient effect capacity"),
+        }
+    }
+
     #[test]
     fn runtime_checkout_observes_preexisting_level_without_a_wake_hint() {
         let runtime = runtime();
@@ -2253,13 +2675,16 @@ mod tests {
         let key = admission.identity.raw.clone();
         runtime.admit(admission).expect("admission commits");
 
-        let job = runtime
-            .try_checkout(WorkPermit::ResolveOnly)
-            .expect("checkout remains healthy")
-            .expect("queued work is an authoritative level");
-        runtime
-            .settle(retry(job))
-            .expect("the exact capability returns to resolve");
+        let job = continued(
+            runtime
+                .try_checkout_for_foundation(WorkPermit::ResolveOnly)
+                .expect("checkout remains healthy"),
+        )
+        .expect("queued work is an authoritative level");
+        assert!(matches!(
+            runtime.settle_compute(retry(job), SettlementOrigin::Completion),
+            ControlFlow::Continue(())
+        ));
         assert!(is_queued_resolve(&runtime, &key));
     }
 
@@ -2269,14 +2694,18 @@ mod tests {
         let admission = admission(904, 94);
         let key = admission.identity.raw.clone();
         runtime.admit(admission).expect("admission commits");
-        let job = runtime
-            .try_checkout(WorkPermit::ResolveOnly)
-            .expect("checkout remains healthy")
-            .expect("resolve work is ready");
-        assert!(matches!(
+        let job = continued(
             runtime
-                .execute_compute(job)
-                .expect("the assembled zero-fee policy accepts this fixture"),
+                .try_checkout_for_foundation(WorkPermit::ResolveOnly)
+                .expect("checkout remains healthy"),
+        )
+        .expect("resolve work is ready");
+        assert!(matches!(
+            continued(
+                runtime
+                    .execute_compute(job)
+                    .expect("the assembled zero-fee policy accepts this fixture")
+            ),
             AuthorityComputeOutcome::Settled
         ));
         let store = runtime.store.read();
@@ -2293,20 +2722,26 @@ mod tests {
         let admission = admission(905, 95);
         let key = admission.identity.raw.clone();
         runtime.admit(admission).expect("admission commits");
-        let job = runtime
-            .try_checkout(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
-            .expect("checkout remains healthy")
-            .expect("resolve work is ready");
-        let AuthorityComputeOutcome::Verification(request) = runtime
-            .execute_compute(job)
-            .expect("resolution continues under the same worker capability")
-        else {
+        let job = continued(
+            runtime
+                .try_checkout_for_foundation(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
+                .expect("checkout remains healthy"),
+        )
+        .expect("resolve work is ready");
+        let AuthorityComputeOutcome::Verification(request) = continued(
+            runtime
+                .execute_compute(job)
+                .expect("resolution continues under the same worker capability"),
+        ) else {
             panic!("the empty-script fixture fits continuous verification")
         };
-        let verification = runtime
-            .execute_verification(request, None, None)
-            .await
-            .expect("verification settles Ready ownership");
+        let cache = ckb_verification::cache::init_cache();
+        let verification = continued(
+            runtime
+                .execute_verification(request.bind_cache(&cache), None)
+                .await
+                .expect("verification settles Ready ownership"),
+        );
         assert!(!verification.cache_hit);
         assert!(verification.cache_update.is_some());
         assert_eq!(
@@ -2320,6 +2755,98 @@ mod tests {
             store.authority.entry(&key),
             Some(OwnedTx::Accepted(_))
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work() {
+        let runtime = runtime();
+        runtime
+            .admit(admission(906, 96))
+            .expect("the retained fixture enters the authority");
+        let retained_execution = runtime
+            .try_compute_execution_for_foundation()
+            .expect("the retained worker acquires one shared slot");
+        let retained = match runtime
+            .try_checkout(WorkPermit::ResolveOnly, retained_execution)
+            .expect("retained checkout remains healthy")
+        {
+            ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => job,
+            ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                drop(execution);
+                panic!("the retained fixture has queued resolve work")
+            }
+            ControlFlow::Break(_) => panic!("the fixture has sufficient effect capacity"),
+        };
+
+        let direct_execution = runtime
+            .try_compute_execution_for_foundation()
+            .expect("direct work shares the same partition");
+        let direct_tx = TransactionBuilder::default().version(1u32).build();
+        let AuthorityDirectResolutionOutcome::Rejected(direct) = runtime
+            .resolve_test_accept_transaction(&direct_tx, direct_execution)
+            .expect("the direct fixture reaches a stable typed rejection")
+        else {
+            panic!("the non-zero version fixture must reject before verification")
+        };
+
+        let remaining = runtime.available_compute_permits_for_foundation();
+        let mut holders = Vec::new();
+        holders
+            .try_reserve(remaining)
+            .expect("the bounded test holder vector allocates");
+        for _ in 0..remaining {
+            holders.push(
+                runtime
+                    .try_compute_execution_for_foundation()
+                    .expect("every remaining configured slot is obtainable exactly once"),
+            );
+        }
+        assert_eq!(runtime.available_compute_permits_for_foundation(), 0);
+        assert!(runtime.try_compute_execution_for_foundation().is_none());
+        {
+            let store = runtime.store.read();
+            assert_eq!(store.authority.resources().preaccepted().active_work, 1);
+        }
+
+        let waiter = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move {
+                let cancel = CancellationToken::new();
+                runtime.acquire_compute_execution(&cancel).await
+            })
+        };
+        tokio::task::yield_now().await;
+        assert!(
+            !waiter.is_finished(),
+            "the next execution cannot start while retained and direct work saturate the gate"
+        );
+        let released = holders
+            .pop()
+            .expect("the fixture retained one spare holder");
+        drop(released);
+        let replacement = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("one released slot wakes exactly one waiter")
+            .expect("the compute waiter task remains healthy")
+            .expect("the compute gate remains open")
+            .expect("the compute waiter was not cancelled");
+
+        assert!(matches!(
+            runtime.settle_compute(retained.retry(), SettlementOrigin::Completion),
+            ControlFlow::Continue(())
+        ));
+        assert!(matches!(
+            runtime
+                .settle_direct_transaction_rejection(direct)
+                .expect("the direct TestAccept rejection settles read-only"),
+            AuthorityDirectRejectionExecution::TestAccept(_)
+        ));
+        drop(holders);
+        drop(replacement);
+        assert_eq!(
+            runtime.available_compute_permits_for_foundation(),
+            runtime.verify_worker_count() + 1
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2588,21 +3115,30 @@ mod tests {
         let runtime = runtime();
         let waiter = {
             let runtime = runtime.clone();
-            tokio::spawn(async move { runtime.wait_checkout(WorkPermit::ResolveOnly).await })
+            tokio::spawn(async move {
+                let cancel = CancellationToken::new();
+                runtime
+                    .wait_checkout(WorkPermit::ResolveOnly, &cancel)
+                    .await
+            })
         };
         tokio::task::yield_now().await;
 
         runtime
             .admit(admission(902, 92))
             .expect("admission commits before publication");
-        let job = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
-            .await
-            .expect("the post-commit wake cannot be lost")
-            .expect("the waiter task remains healthy")
-            .expect("the authority runtime remains healthy");
-        runtime
-            .settle(retry(job))
-            .expect("the exact checked-out capability returns");
+        let job = continued(
+            tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+                .await
+                .expect("the post-commit wake cannot be lost")
+                .expect("the waiter task remains healthy")
+                .expect("the authority runtime remains healthy"),
+        )
+        .expect("the waiter was not cancelled");
+        assert!(matches!(
+            runtime.settle_compute(retry(job), SettlementOrigin::Completion),
+            ControlFlow::Continue(())
+        ));
     }
 
     #[test]
@@ -2620,7 +3156,7 @@ mod tests {
         }
 
         assert!(matches!(
-            runtime.try_checkout(WorkPermit::ResolveOnly),
+            runtime.try_checkout_for_foundation(WorkPermit::ResolveOnly),
             Err(AuthorityRuntimeError::Capture(
                 super::super::resolver::ResolutionExecutionKind::StaleView
             ))
