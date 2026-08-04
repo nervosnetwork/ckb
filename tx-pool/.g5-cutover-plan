@@ -3169,3 +3169,36 @@ Failure-domain checkpoint update:
    non-derived integrity-fault producers, then the wait-for/shutdown/livelock
    graph and hostile complexity table. Reconcile those results with develop
    necessity/risk-transfer/minimality and historical adjudications before P9.8.
+
+Proof-shadow minimality checkpoint update:
+
+1. The architecture-adjudication phase remains active after `e654f1764`.
+   P9.8 full workspace/integration evidence and P10 profiling/A/B remain
+   pending in that order; benchmark is still forbidden.
+2. `CommittedChanges`, `CommittedChange`, administrative cause receipts and
+   applied-owner counts were production-only mirrors consumed only by tests.
+   They duplicated facts already committed in authority/effect state and made
+   every transition maintain a second transition log. They are deleted.
+3. Independent-settlement coupling reasons were also diagnostic-only payloads.
+   Production made one boolean decision for every reason, while constructing
+   the reasons cloned outpoints/hashes on the common path. The classifier now
+   returns only coupled/independent; tests retain every hostile fixture and
+   assert the sealed Plan before Apply plus authoritative/effect state after
+   Apply. Async processing timestamps and outside-lock retirement carriers
+   remain because they have real production consumers.
+4. No owner, resource, membership, dependency, scheduler, effect, lock, task,
+   wake, retry or failure-domain semantics changed. Production source in this
+   slice is net -169 physical lines; the review guide now forbids test-driven
+   post-Apply shadow projections. The behavior registry replaced its stale
+   `AdminCause` anchor with the actual `AdminPlan`/owner-removal compiler.
+5. Evidence at `e654f1764`: tx-pool lib nextest 405/405; strict all-target
+   internal-feature Clippy; formatting and diff checks; `check_all.py --light`
+   validates 17 behaviors, 90 tx-pool Rust anchors / 237 invariant references,
+   seven cross-crate anchors / 16 references, 17 focused integrations and all
+   150 managed integration specs.
+6. Next exact action: adjudicate location/view provenance as one closed typed-
+   evidence candidate. Verify every resolver, final-validation, direct and
+   internal producer before deciding whether `CellLocationReceipt` can own the
+   view it proves and make `LocationViewMismatch` unrepresentable. Do not mix
+   this with the completed proof-shadow slice. Then finish the complete
+   develop-cost/risk-transfer/minimality and historical-disposition ledger.
