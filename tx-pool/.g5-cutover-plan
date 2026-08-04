@@ -20,6 +20,7 @@ G5.3c C1/C2 publication-parity checkpoint: 28521bc98
 G5.3c C2 legacy-deletion checkpoint: b4260009b
 G5/G6 relay-reconciliation checkpoint: 2b16dacce
 G5/G6 proof-shadow-state removal checkpoint: b6e34cb7e
+G5/G6 typed-effect-checkout checkpoint: 24014ffb1
 Active slice: G5/G6 audits the complete surviving UAK architecture for model
 minimality, invariant closure, Rust-static safety, progress/liveness,
 publication convergence, performance shape, test stacking, documentation, and
@@ -30,7 +31,10 @@ remaining root-cause candidate set before another semantic change. The first
 model-minimality slice is closed: the generic read-cut token, persistence-only
 sequence shadow, and unconsumed owners/status source clocks are removed;
 template receipts now carry only their required chain view and exact consumer
-sources.
+sources. Effect checkout is also closed by type before Apply: the prepared
+checkout owns its non-optional publisher lease, and the generic committed
+handoff can no longer represent an effect lease or discover a missing lease
+after authoritative mutation.
 Publication parity is closed
 for callbacks, relay and known-filter reconciliation,
 recent-reject, peer ban/Sentry reporting, verification cache, persistence,
@@ -48,7 +52,9 @@ authority or mismatched configuration can be assembled. Checkpoint
 and `ckb-launcher` compilation. Formatting is clean. Do not restore a mixed
 legacy/UAK production authority during the global review. Checkpoint
 `b6e34cb7e` removes 131 net lines of proof-shadow state and passes the same
-401/401 isolated universe plus the internal-feature compile gate.
+401/401 isolated universe plus the internal-feature compile gate. Checkpoint
+`24014ffb1` removes the post-Apply effect-handoff projection failure and passes
+the complete 401/401 isolated universe.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -1977,8 +1983,7 @@ Slice-6 continuity audit:
   validates constants, scheduling and hardware behavior and finds residual
   empirical hotspots; it does not substitute for any static proof obligation.
 
-Slice-6 implemented evidence at the current working tree (not yet a frozen
-checkpoint):
+Slice-6 implemented evidence through the checkpoints above:
 
 - Verification provenance is now constructive. `ResolvedFacts` derives its
   location receipt internally from the same payload/view capture; queued
@@ -2036,7 +2041,10 @@ checkpoint):
   stale settlement returns its sole lease unchanged, and the dead generic
   `StalePlan::EffectLease`, `EffectError::StaleLease`, and
   `Backpressure::ActiveWorkDrain` variants are removed. The focused
-  effect/publisher/topology/relay selector passes 42/42.
+  effect/publisher/topology/relay selector passes 42/42. Effect checkout now
+  returns a `PreparedEffectCheckout` whose lease is present by construction;
+  Apply returns a non-optional `CommittedEffectCheckout`, so a successful
+  authority mutation cannot be followed by a missing-handoff fault.
 - The committed-effect producer/consumer audit removed a common attribution
   leak instead of patching individual variants. Payload blame is pre-Apply
   validation evidence and is consumed only while deciding whether to build a
