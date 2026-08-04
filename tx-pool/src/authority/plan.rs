@@ -694,7 +694,6 @@ pub(super) enum ComputeCancellationError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum EffectCheckoutError {
     CounterExhausted,
-    Projection,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -834,7 +833,6 @@ pub(super) enum CommittedHandoff {
     #[default]
     None,
     Compute(CheckedOutWork),
-    Effect(EffectLease),
 }
 
 #[derive(Debug)]
@@ -932,24 +930,6 @@ impl CommittedDelta {
     #[cfg(test)]
     pub(in crate::authority) fn into_work(mut self) -> Option<CheckedOutWork> {
         self.take_work()
-    }
-
-    /// Move the publisher capability out without destroying retired effect or
-    /// transaction payloads under the future authority guard.
-    pub(in crate::authority) fn take_effect_lease(&mut self) -> Option<EffectLease> {
-        let handoff = std::mem::take(&mut self.handoff);
-        match handoff {
-            CommittedHandoff::Effect(lease) => Some(lease),
-            other => {
-                self.handoff = other;
-                None
-            }
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn into_effect_lease(mut self) -> Option<EffectLease> {
-        self.take_effect_lease()
     }
 
     pub(in crate::authority) fn retired_effect_len(&self) -> usize {
@@ -1414,6 +1394,23 @@ pub(super) struct CommittedCheckout {
     retirement: CommittedDelta,
 }
 
+/// A prepared effect checkout owns the publisher lease by construction.
+/// Keeping the capability beside, rather than inside, the generic Apply plan
+/// prevents a successful authority mutation from producing a missing-handoff
+/// runtime state.
+#[must_use = "a prepared effect checkout must be applied exactly once"]
+pub(super) struct PreparedEffectCheckout<'authority> {
+    authority: &'authority mut TxPoolAuthority,
+    delta: AuthorityDelta,
+    lease: EffectLease,
+}
+
+#[must_use = "the effect lease and its retirement carrier must leave the authority guard together"]
+pub(super) struct CommittedEffectCheckout {
+    lease: EffectLease,
+    retirement: CommittedDelta,
+}
+
 impl PreparedCheckout<'_> {
     fn from_prepared(plan: PreparedApply<'_>) -> Result<PreparedCheckout<'_>, PlanError> {
         let PreparedApply {
@@ -1463,6 +1460,36 @@ impl CommittedCheckout {
     #[cfg(test)]
     pub(in crate::authority) fn committed_delta_for_foundation(&self) -> &CommittedDelta {
         &self.retirement
+    }
+}
+
+impl PreparedEffectCheckout<'_> {
+    pub(super) fn apply(self) -> CommittedEffectCheckout {
+        let Self {
+            authority,
+            delta,
+            lease,
+        } = self;
+        let retirement = PreparedApply {
+            authority,
+            delta,
+            handoff: CommittedHandoff::None,
+        }
+        .apply();
+        CommittedEffectCheckout { lease, retirement }
+    }
+}
+
+impl CommittedEffectCheckout {
+    /// The runtime keeps `retirement` alive until the authority guard opens;
+    /// only then may the move-only publisher lease cross the async boundary.
+    pub(in crate::authority) fn into_parts(self) -> (EffectLease, CommittedDelta) {
+        (self.lease, self.retirement)
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn into_effect_lease(self) -> EffectLease {
+        self.lease
     }
 }
 
@@ -4430,18 +4457,25 @@ impl TxPoolAuthority {
 
     pub(super) fn plan_effect_checkout(
         &mut self,
-    ) -> Result<Option<PreparedApply<'_>>, EffectCheckoutError> {
+    ) -> Result<Option<PreparedEffectCheckout<'_>>, EffectCheckoutError> {
         let Some((effect, lease)) = self.effects.plan_checkout() else {
             return Ok(None);
         };
         let sequence = self.clocks.next_sequence;
         let next = next_sequence(sequence).map_err(|_| EffectCheckoutError::CounterExhausted)?;
-        Ok(Some(self.prepared_effect_only(
-            effect,
-            sequence,
-            next,
-            CommittedHandoff::Effect(lease),
-        )))
+        let clocks = AuthorityClocks {
+            next_sequence: next,
+            ..self.clocks
+        };
+        Ok(Some(PreparedEffectCheckout {
+            authority: self,
+            delta: AuthorityDelta::Effect(EffectOnlyDelta {
+                effect,
+                clocks,
+                sequence,
+            }),
+            lease,
+        }))
     }
 
     pub(super) fn apply_effect_settlement(
@@ -4493,7 +4527,7 @@ impl TxPoolAuthority {
     #[cfg(test)]
     pub(super) fn plan_effect_checkout_for_foundation(
         &mut self,
-    ) -> Result<Option<PreparedApply<'_>>, EffectCheckoutError> {
+    ) -> Result<Option<PreparedEffectCheckout<'_>>, EffectCheckoutError> {
         self.plan_effect_checkout()
     }
 

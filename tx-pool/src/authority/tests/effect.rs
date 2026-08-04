@@ -179,7 +179,6 @@ fn checkout(authority: &mut TxPoolAuthority) -> EffectLease {
         .expect("one effect is pending")
         .apply()
         .into_effect_lease()
-        .expect("effect checkout returns exactly one lease")
 }
 
 fn effect_control_sequence(committed: &CommittedDelta) -> ApplySequence {

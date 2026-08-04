@@ -2251,15 +2251,11 @@ impl AuthorityRuntime {
                     Ok(EffectCheckoutState::Idle)
                 };
             };
-            let mut retirement = plan.apply();
-            let lease = retirement.take_effect_lease();
-            (lease, retirement)
+            plan.apply().into_parts()
         };
         drop(retirement);
         self.signals.publish_mutation();
-        lease
-            .map(EffectCheckoutState::Lease)
-            .ok_or(EffectCheckoutError::Projection)
+        Ok(EffectCheckoutState::Lease(lease))
     }
 
     /// Wait for the next committed effect capability. `None` means the log is

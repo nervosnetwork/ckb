@@ -154,8 +154,7 @@ fn uak_malformed_remote_precheck_commits_the_peer_fence_with_its_rejection() {
         .expect("effect checkout plans")
         .expect("peer revocation effect is committed")
         .apply()
-        .into_effect_lease()
-        .expect("effect checkout returns its lease");
+        .into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::PeerCohortRevoked(revocation)]
@@ -191,8 +190,7 @@ fn uak_nonmalformed_remote_precheck_rejects_without_banning_the_peer() {
         .expect("effect checkout plans")
         .expect("validation rejection effect is committed")
         .apply()
-        .into_effect_lease()
-        .expect("effect checkout returns its lease");
+        .into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Rejected(super::super::effect::CommittedRejection::Validation {
@@ -249,8 +247,7 @@ fn uak_remote_preaccepted_duplicate_releases_filter_without_a_second_owner() {
         .expect("effect checkout plans")
         .expect("filter release is committed")
         .apply()
-        .into_effect_lease()
-        .expect("effect checkout returns its lease");
+        .into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::RemoteIngressReleased(release)] if release.tx_hash() == &hash
@@ -292,8 +289,7 @@ fn uak_remote_accepted_duplicate_publishes_only_the_observed_accepted_fact() {
         .expect("effect checkout plans")
         .expect("Accepted duplicate effect is committed")
         .apply()
-        .into_effect_lease()
-        .expect("effect checkout returns its lease");
+        .into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Accepted(super::super::effect::CommittedAcceptance::Duplicate {
@@ -402,8 +398,7 @@ fn uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect() {
             .expect("effect checkout plans")
             .expect("the no-owner disposition committed one effect")
             .apply()
-            .into_effect_lease()
-            .expect("effect checkout returns its lease");
+            .into_effect_lease();
         assert!(matches!(
             lease.effects(),
             [CommittedEffect::Rejected(super::super::effect::CommittedRejection::Validation {

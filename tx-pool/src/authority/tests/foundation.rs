@@ -380,10 +380,7 @@ fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
         else {
             break;
         };
-        let lease = checkout
-            .apply()
-            .into_effect_lease()
-            .expect("fixture checkout returns one effect lease");
+        let lease = checkout.apply().into_effect_lease();
         let committed = authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("fixture effect publication settles");
@@ -1280,8 +1277,7 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
         .expect("reset checkout plans")
         .expect("generation swap commits one reset")
         .apply()
-        .into_effect_lease()
-        .expect("reset has one publisher lease");
+        .into_effect_lease();
     assert_eq!(reset.effects(), &[CommittedEffect::GenerationReset]);
 }
 
@@ -1541,8 +1537,7 @@ fn uak_local_preaccepted_removal_invalidates_work_and_releases_relay_state() {
         .expect("release checkout plans")
         .expect("removal commits relay cleanup")
         .apply()
-        .into_effect_lease()
-        .expect("cleanup has one publisher lease");
+        .into_effect_lease();
     assert!(matches!(
         effect.effects(),
         [CommittedEffect::RemoteIngressReleased(release)] if release.tx_hash() == &hash
@@ -1640,8 +1635,7 @@ fn uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure() {
         .expect("expiry checkout plans")
         .expect("the atomic removal publishes every exact outcome")
         .apply()
-        .into_effect_lease()
-        .expect("expiry has one publisher lease");
+        .into_effect_lease();
     let mut expired = effect
         .effects()
         .iter()
@@ -1730,8 +1724,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
         .expect("revocation effect checkout plans")
         .expect("revocation committed one cleanup batch")
         .apply()
-        .into_effect_lease()
-        .expect("cleanup has one publisher lease");
+        .into_effect_lease();
     assert!(matches!(
         effect.effects(),
         [CommittedEffect::PeerCohortRevoked(revocation)]
@@ -1897,8 +1890,7 @@ fn uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch() {
         .expect("expiry effect checkout plans")
         .expect("expiry committed one cleanup batch")
         .apply()
-        .into_effect_lease()
-        .expect("cleanup has one publisher lease");
+        .into_effect_lease();
     assert_eq!(
         effect.effects(),
         &[CommittedEffect::RemoteExpired {
@@ -2076,8 +2068,7 @@ fn uak_remote_expiry_removes_active_work_without_a_drain_or_prefix_expansion() {
         .expect("expiry effect checkout plans")
         .expect("the exact due prefix committed one batch")
         .apply()
-        .into_effect_lease()
-        .expect("expiry has one publisher lease");
+        .into_effect_lease();
     assert_eq!(
         effect.effects(),
         &[
@@ -2406,9 +2397,7 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
         .expect("rejection effect checkout plans")
         .expect("rejection is committed with terminalization")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("rejection checkout returns one effect lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::PeerCohortRevoked(revocation)]
@@ -2481,9 +2470,7 @@ fn uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply() {
         .expect("direct admission effect checkout plans")
         .expect("direct admission publishes one outcome")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("direct admission checkout returns its effect lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Accepted(CommittedAcceptance::Admission {
@@ -2577,9 +2564,7 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
         .expect("direct replacement effect checkout plans")
         .expect("direct replacement publishes one outcome")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("direct replacement returns its effect lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Accepted(CommittedAcceptance::Admission {
@@ -2691,9 +2676,7 @@ fn uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation() {
         .expect("duplicate effect checkout plans")
         .expect("duplicate commits one accepted relay outcome")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("duplicate checkout returns its effect lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
@@ -2768,9 +2751,7 @@ fn uak_direct_local_under_fee_rbf_rejects_without_touching_any_owner() {
         .expect("direct reject effect checkout plans")
         .expect("direct reject commits one exact outcome")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("direct reject checkout returns its effect lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Rejected(CommittedRejection::Membership {
@@ -2982,9 +2963,7 @@ fn uak_terminal_outcome_and_effect_commit_together() {
         .expect("effect checkout plans")
         .expect("committed effect is available")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("effect checkout returns the only lease");
+    let lease = checkout.into_effect_lease();
     assert_eq!(lease.effects().len(), 1);
     assert!(matches!(
         &lease.effects()[0],
@@ -4877,9 +4856,7 @@ fn uak_capacity_eviction_removes_one_complete_causal_component() {
         .expect("capacity outcome checkout plans")
         .expect("membership Apply commits one complete outcome batch")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("capacity outcome checkout returns one lease");
+    let lease = checkout.into_effect_lease();
     let [
         CommittedEffect::Accepted(CommittedAcceptance::Admission {
             entry,
@@ -5101,9 +5078,7 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
         .expect("replacement outcome checkout plans")
         .expect("replacement Apply commits one complete outcome batch")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("replacement outcome checkout returns one lease");
+    let lease = checkout.into_effect_lease();
     let [
         CommittedEffect::Accepted(CommittedAcceptance::Admission {
             entry,
@@ -6127,9 +6102,7 @@ fn uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate()
         .expect("effect checkout plans")
         .expect("the terminal Apply committed its rejection")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("effect checkout returns the rejection lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Rejected(CommittedRejection::Membership {
@@ -6648,9 +6621,7 @@ fn uak_settlement_failure_returns_the_exact_terminal_capability() {
         .expect("effect checkout plans")
         .expect("terminalization and rejection publish in the same Apply")
         .apply();
-    let lease = checkout
-        .into_effect_lease()
-        .expect("rejection effect owns one publication lease");
+    let lease = checkout.into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Rejected(CommittedRejection::Validation {

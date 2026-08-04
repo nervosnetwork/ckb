@@ -551,8 +551,7 @@ fn uak_chain_commit_closes_a_preaccepted_owner_with_exact_effect_semantics() {
         .expect("effect checkout plans")
         .expect("chain commit queued one exact effect")
         .apply()
-        .into_effect_lease()
-        .expect("effect checkout returns its capability");
+        .into_effect_lease();
     assert_eq!(
         lease.effects(),
         &[CommittedEffect::ChainCommitted {
@@ -891,8 +890,7 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
         .expect("effect checkout plans")
         .expect("chain conflict publishes one exact rejection")
         .apply()
-        .into_effect_lease()
-        .expect("effect checkout returns its capability");
+        .into_effect_lease();
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::Rejected(CommittedRejection::ChainConflict {
