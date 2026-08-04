@@ -513,14 +513,11 @@ impl TxPoolAuthority {
         verified: super::super::state::VerifiedFacts,
         status: AcceptedStatus,
     ) -> Result<DirectAdmissionDisposition<'_>, PlanError> {
-        let work =
-            DirectAdmissionWork::new(tx, self.chain_view.clone(), verified).map_err(|error| {
-                match error {
-                    DirectAdmissionError::TransactionIdentityMismatch => {
-                        PlanError::Fault(AuthorityFault::MembershipProjection)
-                    }
-                }
-            })?;
+        let work = DirectAdmissionWork::new(tx, verified).map_err(|error| match error {
+            DirectAdmissionError::TransactionIdentityMismatch => {
+                PlanError::Fault(AuthorityFault::MembershipProjection)
+            }
+        })?;
         let receipt = work
             .validate_for_foundation(status, ScriptVerificationRules::V0)
             .map_err(Self::direct_admission_evidence_error_for_foundation)?;

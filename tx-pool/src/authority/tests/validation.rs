@@ -159,12 +159,8 @@ fn uak_direct_validation_shares_the_final_validator_without_mutation_authority()
         Vec::new(),
         Capacity::shannons(1),
     );
-    let work = DirectAdmissionWork::new(
-        Arc::clone(&transaction),
-        authority.chain_view().clone(),
-        verified,
-    )
-    .expect("direct work binds the exact transaction identity");
+    let work = DirectAdmissionWork::new(Arc::clone(&transaction), verified)
+        .expect("direct work binds the exact transaction identity");
     let before = authority.normalized_snapshot();
     let outcome =
         DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
@@ -201,12 +197,8 @@ fn uak_direct_validation_returns_a_sealed_rejection_without_mutation() {
         Vec::new(),
         Capacity::shannons(1),
     );
-    let work = DirectAdmissionWork::new(
-        Arc::clone(&transaction),
-        authority.chain_view().clone(),
-        verified,
-    )
-    .expect("direct work binds the exact transaction identity");
+    let work = DirectAdmissionWork::new(Arc::clone(&transaction), verified)
+        .expect("direct work binds the exact transaction identity");
     let before = authority.normalized_snapshot();
     let outcome =
         DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
@@ -245,12 +237,8 @@ fn uak_direct_validation_rejection_stales_with_its_accepted_source_cut() {
         Vec::new(),
         Capacity::shannons(1),
     );
-    let work = DirectAdmissionWork::new(
-        Arc::clone(&transaction),
-        authority.chain_view().clone(),
-        verified,
-    )
-    .expect("direct work binds the exact transaction identity");
+    let work = DirectAdmissionWork::new(Arc::clone(&transaction), verified)
+        .expect("direct work binds the exact transaction identity");
     let outcome =
         DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
             .expect("direct validation captures one coherent authority cut")
@@ -317,12 +305,8 @@ fn uak_direct_final_validation_reissues_the_dependency_observation_cut() {
         Err(PlanError::Stale(StalePlan::Dependency))
     ));
 
-    let work = DirectAdmissionWork::new(
-        Arc::clone(&transaction),
-        authority.chain_view().clone(),
-        old_verified,
-    )
-    .expect("direct work binds the exact transaction identity");
+    let work = DirectAdmissionWork::new(Arc::clone(&transaction), old_verified)
+        .expect("direct work binds the exact transaction identity");
     let outcome =
         DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
             .expect("final validation captures the post-loss authority cut")

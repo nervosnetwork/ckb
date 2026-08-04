@@ -770,7 +770,6 @@ impl ResolvedPayload {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedFacts {
-    chain_view: ChainViewId,
     dependency_cut: DependencyCut,
     content: CellContentReceipt,
     location: CellLocationReceipt,
@@ -796,9 +795,8 @@ impl ResolvedFacts {
         payload: Arc<ResolvedPayload>,
         verify_class: VerifyCycleClass,
     ) -> Self {
-        let location = CellLocationReceipt::from_resolution(&chain_view, &payload);
+        let location = CellLocationReceipt::from_resolution(chain_view, &payload);
         Self {
-            chain_view,
             dependency_cut,
             content: CellContentReceipt::from_resolution(payload),
             location,
@@ -807,7 +805,7 @@ impl ResolvedFacts {
     }
 
     pub(super) fn chain_view(&self) -> &ChainViewId {
-        &self.chain_view
+        self.location.view()
     }
 
     pub(super) fn dependency_cut(&self) -> DependencyCut {
@@ -832,8 +830,7 @@ impl ResolvedFacts {
         VerificationContextReceipt,
         VerifyCycleClass,
     ) {
-        let context =
-            VerificationContextReceipt::from_resolved(seal, self.chain_view, self.location, time);
+        let context = VerificationContextReceipt::from_resolved(seal, self.location, time);
         (
             self.dependency_cut,
             self.content,

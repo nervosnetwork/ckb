@@ -1006,7 +1006,6 @@ impl AuthorityInternalPlugError {
                 }
             },
             InternalPlugBuildError::Allocation => Self::ResourceUnavailable,
-            InternalPlugBuildError::Context => Self::Fault(AuthorityFault::MembershipProjection),
         }
     }
 

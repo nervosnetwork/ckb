@@ -8,9 +8,8 @@
 use super::rejection::CommittedPublicReject;
 use super::state::{
     AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, AsyncProcessStart,
-    CandidateMetrics, ChainTipHash, ChainViewId, DependencyCut, EntryVersion, PoolGeneration,
-    PreAcceptedSource, ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission,
-    VerifiedFacts,
+    CandidateMetrics, ChainViewId, DependencyCut, EntryVersion, PoolGeneration, PreAcceptedSource,
+    ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
 };
 use ckb_snapshot::Snapshot;
 use ckb_types::{
@@ -46,9 +45,11 @@ impl CellContentReceipt {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CellLocationReceipt {
-    // The tip, rather than the monotonically changing revision, is the
-    // lifetime of positive chain-location evidence.
-    tip: ChainTipHash,
+    // Positive chain-location evidence remains reusable while this view's tip
+    // is current. Owning the complete view also makes the later verification
+    // context provenance construction-safe instead of pairing two values at
+    // runtime.
+    view: ChainViewId,
     chain_inputs: Arc<[OutPoint]>,
     chain_dependencies: Arc<[OutPoint]>,
 }
@@ -58,7 +59,7 @@ impl CellLocationReceipt {
     /// input metadata. A chain input has `transaction_info`; a pool-produced
     /// input does not. This receipt is never used by block validation, whose
     /// resolver and liveness rules remain independent.
-    pub(super) fn from_resolution(view: &ChainViewId, payload: &ResolvedPayload) -> Self {
+    pub(super) fn from_resolution(view: ChainViewId, payload: &ResolvedPayload) -> Self {
         let mut chain_inputs = payload
             .resolved_transaction()
             .resolved_inputs
@@ -79,7 +80,7 @@ impl CellLocationReceipt {
         chain_dependencies.sort_unstable();
         chain_dependencies.dedup();
         Self {
-            tip: view.tip().clone(),
+            view,
             chain_inputs: chain_inputs.into(),
             chain_dependencies: chain_dependencies.into(),
         }
@@ -93,7 +94,7 @@ impl CellLocationReceipt {
     #[cfg(any(test, feature = "internal"))]
     pub(super) fn from_internal_plug(
         _seal: super::internal::InternalPlugSeal,
-        view: &ChainViewId,
+        view: ChainViewId,
         payload: &ResolvedPayload,
     ) -> Result<Self, ()> {
         let footprint = &payload.footprint;
@@ -108,14 +109,18 @@ impl CellLocationReceipt {
             .map_err(|_| ())?;
         chain_dependencies.extend(footprint.dependencies().iter().cloned());
         Ok(Self {
-            tip: view.tip().clone(),
+            view,
             chain_inputs: chain_inputs.into(),
             chain_dependencies: chain_dependencies.into(),
         })
     }
 
-    pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
-        &self.tip == view.tip()
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.view
+    }
+
+    pub(super) fn into_view(self) -> ChainViewId {
+        self.view
     }
 }
 
@@ -147,40 +152,26 @@ pub(super) struct VerificationContextReceipt {
     time: TimeContextReceipt,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum VerificationContextError {
-    LocationViewMismatch,
-}
-
 impl VerificationContextReceipt {
-    pub(super) fn from_validation(
-        view: ChainViewId,
-        location: CellLocationReceipt,
-        time: TimeContextReceipt,
-    ) -> Result<Self, VerificationContextError> {
-        if !location.is_for(&view) {
-            return Err(VerificationContextError::LocationViewMismatch);
-        }
-        Ok(Self {
-            view,
-            chain_inputs: location.chain_inputs,
-            chain_dependencies: location.chain_dependencies,
-            time,
-        })
+    pub(super) fn from_validation(location: CellLocationReceipt, time: TimeContextReceipt) -> Self {
+        Self::from_location(location, time)
     }
 
     /// Consume location evidence created inside the same sealed resolution
-    /// fact as `view`. Unlike final-admission refresh, this constructor cannot
-    /// receive independently sampled values, so no runtime mismatch state is
-    /// representable on the verification path.
+    /// fact as the payload. Unlike final-admission refresh, this constructor
+    /// cannot receive an independently sampled view, so no runtime mismatch
+    /// state is representable on the verification path.
     pub(super) fn from_resolved(
         _seal: super::work::VerificationSeal,
-        view: ChainViewId,
         location: CellLocationReceipt,
         time: TimeContextReceipt,
     ) -> Self {
+        Self::from_location(location, time)
+    }
+
+    fn from_location(location: CellLocationReceipt, time: TimeContextReceipt) -> Self {
         Self {
-            view,
+            view: location.view,
             chain_inputs: location.chain_inputs,
             chain_dependencies: location.chain_dependencies,
             time,
@@ -418,12 +409,12 @@ impl FinalAdmissionWork {
 impl DirectAdmissionWork {
     pub(super) fn new(
         tx: Arc<TransactionView>,
-        view: ChainViewId,
         verified: VerifiedFacts,
     ) -> Result<Self, DirectAdmissionError> {
         if verified.payload().identity() != &super::state::TxIdentity::from_transaction(&tx) {
             return Err(DirectAdmissionError::TransactionIdentityMismatch);
         }
+        let view = verified.chain_view().clone();
         Ok(Self {
             tx,
             validation: MembershipValidationWork::new(view, verified),

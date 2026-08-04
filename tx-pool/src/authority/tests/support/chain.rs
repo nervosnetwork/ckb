@@ -39,7 +39,7 @@ impl DirectAdmissionRejection {
 impl CellLocationReceipt {
     pub(in crate::authority) fn empty_for_foundation(view: &ChainViewId) -> Self {
         Self {
-            tip: view.tip().clone(),
+            view: view.clone(),
             chain_inputs: Arc::from([]),
             chain_dependencies: Arc::from([]),
         }

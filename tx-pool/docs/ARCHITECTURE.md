@@ -206,6 +206,11 @@ membership overlay. This is a tx-pool final-admission optimization only; it is
 not available to block or consensus verification, removal-history reasoning or
 another transaction's dependency proof.
 
+`CellLocationReceipt` owns the exact `ChainViewId` captured with those roles;
+`VerificationContextReceipt` consumes that receipt rather than accepting a
+separately supplied view. Resolver, final-validation, direct and internal
+construction therefore cannot express a location/view mismatch.
+
 The `pre_resolve_tip`, cell metadata and script-rule generation must originate
 from the same captured `Arc<Snapshot>`. No caller may infer provenance from an
 ingress source or a nearby hash.

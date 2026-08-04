@@ -258,6 +258,7 @@
       "title": "Exact transaction and evidence identity",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct TxIdentity", "struct RawTxHash", "struct WitnessTxHash", "struct ProposalId"]},
+        {"path": "tx-pool/src/authority/chain.rs", "symbols": ["struct CellLocationReceipt", "struct VerificationContextReceipt"]},
         {"path": "verification/src/cache.rs", "symbols": ["struct TxVerificationCacheKey", "enum ScriptVerificationRules"]},
         {"path": "tx-pool/src/authority/validation.rs", "symbols": ["struct FinalAdmissionValidation", "fn validate_membership"]}
       ],

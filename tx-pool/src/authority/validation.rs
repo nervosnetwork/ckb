@@ -452,8 +452,6 @@ fn validate_membership(
         }
         Err(CandidateValidationError::Fault(error)) => return Err(error),
     };
-    let location = super::chain::CellLocationReceipt::from_resolution(&view, &payload);
-
     let context_is_reusable =
         payload_relation == ReadyPayloadRelation::Shared && verified.context_is_for(&view);
     if !context_is_reusable
@@ -468,12 +466,11 @@ fn validate_membership(
         ));
     }
 
+    let location = super::chain::CellLocationReceipt::from_resolution(view, &payload);
     let context = VerificationContextReceipt::from_validation(
-        view,
         location,
         TimeContextReceipt::from_validation(rules),
-    )
-    .map_err(|_| FinalAdmissionValidationError::ContextReceipt)?;
+    );
     let sensitivity = chain_sensitivity(payload.resolved_transaction());
     let verified = match payload_relation {
         ReadyPayloadRelation::Shared => verified,

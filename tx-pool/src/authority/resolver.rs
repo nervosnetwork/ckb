@@ -410,7 +410,6 @@ pub(super) struct DirectResolutionProbe {
 struct DirectResolvedCandidate {
     tx: Arc<TransactionView>,
     command: DirectCommand,
-    view: ChainViewId,
     accepted_source: ApplySequence,
     dependency_cut: DependencyCut,
     snapshot: Arc<Snapshot>,
@@ -1024,7 +1023,7 @@ impl DirectResolutionJob {
                 }
             },
         };
-        let location = CellLocationReceipt::from_resolution(&self.view, &payload);
+        let location = CellLocationReceipt::from_resolution(self.view, &payload);
         let status = proposal_status(&self.snapshot, &self.tx.proposal_short_id());
         let environment = Arc::new(verification_environment(status, &self.snapshot));
         let rules = ScriptVerificationRules::from_env(self.snapshot.consensus(), &environment);
@@ -1035,7 +1034,6 @@ impl DirectResolutionJob {
                 candidate: DirectResolvedCandidate {
                     tx: self.tx,
                     command: self.command,
-                    view: self.view,
                     accepted_source: self.accepted_source,
                     dependency_cut: self.dependency_cut,
                     snapshot: self.snapshot,
@@ -1479,7 +1477,6 @@ impl CacheBoundDirectVerification {
         let DirectResolvedCandidate {
             tx,
             command,
-            view,
             accepted_source,
             dependency_cut,
             snapshot,
@@ -1503,18 +1500,16 @@ impl CacheBoundDirectVerification {
                         tx,
                         command,
                         reason,
-                        view,
+                        location.into_view(),
                         accepted_source,
                     ),
                 ));
             }
         };
         let context = VerificationContextReceipt::from_validation(
-            view.clone(),
             location,
             TimeContextReceipt::from_validation(cache_key.script_rules()),
-        )
-        .map_err(|_| DirectComputationError::InvalidEvidence)?;
+        );
         let fee = payload.fee();
         let serialized_bytes = payload.serialized_bytes();
         let (payload, accepted_resident_bytes) =
@@ -1530,7 +1525,7 @@ impl CacheBoundDirectVerification {
             context,
             metrics,
         );
-        let work = DirectAdmissionWork::new(tx, view, verified)
+        let work = DirectAdmissionWork::new(tx, verified)
             .map_err(|_| DirectComputationError::InvalidEvidence)?;
         let cache_hit = cache_entry.is_some();
         let cache_update = (!cache_hit).then_some(VerificationCacheUpdate {

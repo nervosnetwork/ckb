@@ -137,7 +137,7 @@ impl ResolvedPayload {
         }
         let payload =
             Self::from_resolved_parts(Arc::new(resolved), max_edges, fee, resolved_resident_bytes)?;
-        let location = CellLocationReceipt::from_resolution(&ChainViewId::initial(), &payload);
+        let location = CellLocationReceipt::from_resolution(ChainViewId::initial(), &payload);
         Ok(FoundationResolution { payload, location })
     }
 }
@@ -180,7 +180,6 @@ impl ResolvedFacts {
     ) -> Self {
         let location = CellLocationReceipt::empty_for_foundation(&chain_view);
         Self {
-            chain_view,
             dependency_cut,
             content: CellContentReceipt::from_resolution(payload),
             location,
