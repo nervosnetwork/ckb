@@ -17,7 +17,7 @@ G5.3b.7 slice 5 checkpoint: 4a33169a35
 G5.3b.7 slice 6 checkpoint: d4b5a32b4
 G5.3c C0 checkpoint: a2b552ae4
 G5.3c C1/C2 publication-parity checkpoint: 28521bc98
-G5.3c C2 legacy-deletion checkpoint: 1bd395f4d
+G5.3c C2 legacy-deletion checkpoint: b4260009b
 Active slice: G5/G6 audits the complete surviving UAK architecture for model
 minimality, invariant closure, Rust-static safety, progress/liveness,
 publication convergence, performance shape, test stacking, documentation, and
